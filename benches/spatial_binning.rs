@@ -115,6 +115,63 @@ fn hashtrinity_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)]) -> i64
     acc
 }
 
+/// Any `HashMap` sharded and threaded exactly as apeiron's table is: keys partitioned by the same
+/// shard function, one map per shard, workers owning disjoint shards, probes grouped the same way.
+/// Without this the comparison is a parallel arm against a serial one, which measures nothing.
+fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
+    keys: &[(i32, i32, i32)],
+    probe: &[(i32, i32, i32)],
+    threads: usize,
+) -> i64 {
+    use apeiron::coord::Packed;
+    let shard = |k: &(i32, i32, i32)| {
+        apeiron::table::shard_of(
+            (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed(),
+        )
+    };
+    const SHARDS: usize = 256;
+    let mut kb: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); SHARDS];
+    let mut pb: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); SHARDS];
+    for &k in keys {
+        kb[shard(&k)].push(k);
+    }
+    for &k in probe {
+        pb[shard(&k)].push(k);
+    }
+    let chunk = SHARDS.div_ceil(threads.max(1));
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        let (kb, pb) = (&kb, &pb);
+        for g in (0..SHARDS).step_by(chunk) {
+            let hi = (g + chunk).min(SHARDS);
+            handles.push(scope.spawn(move || {
+                let mut acc = 0i64;
+                for s in g..hi {
+                    let mut m: HashMap<(i32, i32, i32), i64, S> = HashMap::default();
+                    for k in &kb[s] {
+                        *m.entry(*k).or_insert(0) += 1;
+                    }
+                    for k in &pb[s] {
+                        acc += m.get(k).copied().unwrap_or(0);
+                    }
+                }
+                acc
+            }));
+        }
+        handles.into_iter().map(|h| h.join().unwrap_or(0)).sum()
+    })
+}
+
+/// apeiron's own lossy tuple fold, the path hashtrinity gets wrong. Same shape, so the two are
+/// directly comparable on both correctness and speed.
+fn apeiron_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)], bits: u32, threads: usize) -> i64 {
+    use apeiron::coord::Coord;
+    let addrs: Vec<u64> = keys.iter().map(Coord::coord).collect();
+    let probes: Vec<u64> = probe.iter().map(Coord::coord).collect();
+    let t = CountTable::build_parallel(&addrs, bits, threads);
+    t.sum_parallel(&probes, threads)
+}
+
 fn with_hasher<S: std::hash::BuildHasher + Default>(
     keys: &[(i32, i32, i32)],
     probe: &[(i32, i32, i32)],
@@ -175,6 +232,19 @@ fn bench(c: &mut Criterion) {
             "hashbrown_fxhash",
             hashbrown_with::<BuildHasherDefault<rustc_hash::FxHasher>>(&keys, &occupied),
         );
+        report("apeiron_tuple_par16", apeiron_tuple(&keys, &occupied, bits, 16));
+        report(
+            "std_siphash_par16",
+            sharded_parallel::<std::collections::hash_map::RandomState>(&keys, &occupied, 16),
+        );
+        report(
+            "foldhash_par16",
+            sharded_parallel::<foldhash::fast::RandomState>(&keys, &occupied, 16),
+        );
+        report(
+            "fxhash_par16",
+            sharded_parallel::<BuildHasherDefault<rustc_hash::FxHasher>>(&keys, &occupied, 16),
+        );
         assert_eq!(apeiron_serial(&packed, &probe_packed, bits), truth, "apeiron must be exact");
         assert_eq!(
             apeiron_parallel(&packed, &probe_packed, bits, 16),
@@ -214,6 +284,26 @@ fn bench(c: &mut Criterion) {
             b.iter(|| {
                 black_box(hashbrown_with::<BuildHasherDefault<rustc_hash::FxHasher>>(
                     &keys, &occupied,
+                ))
+            });
+        });
+        g.bench_with_input(BenchmarkId::new("apeiron_tuple_par16", n), &n, |b, _| {
+            b.iter(|| black_box(apeiron_tuple(&keys, &occupied, bits, 16)));
+        });
+        g.bench_with_input(BenchmarkId::new("std_siphash_par16", n), &n, |b, _| {
+            b.iter(|| {
+                black_box(sharded_parallel::<std::collections::hash_map::RandomState>(
+                    &keys, &occupied, 16,
+                ))
+            });
+        });
+        g.bench_with_input(BenchmarkId::new("foldhash_par16", n), &n, |b, _| {
+            b.iter(|| black_box(sharded_parallel::<foldhash::fast::RandomState>(&keys, &occupied, 16)));
+        });
+        g.bench_with_input(BenchmarkId::new("fxhash_par16", n), &n, |b, _| {
+            b.iter(|| {
+                black_box(sharded_parallel::<BuildHasherDefault<rustc_hash::FxHasher>>(
+                    &keys, &occupied, 16,
                 ))
             });
         });
