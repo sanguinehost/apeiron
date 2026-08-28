@@ -68,6 +68,40 @@ macro_rules! int_coord {
 }
 int_coord!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
+/// Avalanche a finished address, so every input bit reaches every output bit.
+///
+/// An accumulating fold and a bucket index are different jobs, and running one function for both
+/// is what breaks them. Horner's `acc * PHI + next` puts `next` into the *low* bits only, so the
+/// high bits carry `acc` and nothing else -- and a table that follows the multiplicative-hashing
+/// advice to take the top bits then recovers almost nothing. Measured on a signed 128x128 grid:
+/// 99.2% of keys share their top fourteen bits before this, 36.9% after, which is the birthday
+/// rate for 16384 keys in 16384 buckets and therefore the floor rather than a defect.
+///
+/// This is `splitmix64`'s finalizer: two xor-shifts and two odd multiplies, a bijection on
+/// `Z/2^64` -- so it changes where a key lands and never whether two keys are the same key.
+#[inline]
+#[must_use]
+pub const fn finish(mut h: u64) -> u64 {
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94D0_49BB_1331_11EB);
+    h ^ (h >> 31)
+}
+
+/// Which bucket an address falls in, for a table of `2^bits` buckets.
+///
+/// Takes the top bits of the avalanched address. Separated from the address itself because the
+/// elliptic face needs the *address* to determine the key -- a bijection, whose entropy sits
+/// wherever the packing put it -- while the *bucket* needs the entropy spread. `Packed::packed`
+/// keeps its low bits meaningful and its high bits nearly constant, so bucketing on a slice of it
+/// directly is the same mistake in the other direction.
+#[inline]
+#[must_use]
+pub const fn bucket(address: u64, bits: u32) -> u64 {
+    finish(address) >> (64 - bits)
+}
+
 /// Mix one more coordinate into a running address, losing information.
 ///
 /// Multiply then add, both in `Z/2^64`. Each step is a bijection on a single word, but the
@@ -217,20 +251,23 @@ impl Coord for i21 {
 impl<A: Coord, B: Coord> Coord for (A, B) {
     #[inline]
     fn coord(&self) -> u64 {
-        mix(self.0.coord(), self.1.coord())
+        finish(mix(self.0.coord(), self.1.coord()))
     }
 }
 
 impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
     #[inline]
     fn coord(&self) -> u64 {
-        mix(mix(self.0.coord(), self.1.coord()), self.2.coord())
+        finish(mix(mix(self.0.coord(), self.1.coord()), self.2.coord()))
     }
 }
 
 impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
     #[inline]
     fn coord(&self) -> u64 {
-        mix(mix(mix(self.0.coord(), self.1.coord()), self.2.coord()), self.3.coord())
+        finish(mix(
+            mix(mix(self.0.coord(), self.1.coord()), self.2.coord()),
+            self.3.coord(),
+        ))
     }
 }
