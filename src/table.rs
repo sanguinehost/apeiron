@@ -1,29 +1,61 @@
 //! A counting table, partitioned so each shard's working set fits in cache.
 //!
-//! Binning a million keys into one table is not compute-bound: hashing costs 1.5 ms and the
+//! Binning a million keys into one table is not compute-bound: hashing costs 0.7 ms and the
 //! random access costs 21. A table of `2^21` sixteen-byte slots is 32 MB, so nearly every insert
 //! is a miss, and adding threads to a miss-bound loop buys much less than the thread count -- 32
 //! threads move it 2.35x.
 //!
-//! So the build is partitioned first. Keys are sorted into shards by the top bits of their bucket
-//! index, each shard's sub-table is small enough to sit in L2, and the scatter that gets them
-//! there is sequential. What the algebra contributes is the licence: `Table.build_eq_of_key_streams_eq`
-//! says a build depends on the stream only through each key's values in their stream order, for
-//! **every** merge -- so sharding by key is legal, and the shards need no merge step because a key
-//! is in exactly one of them.
+//! So the build is partitioned first. Keys are sorted into shards by the top bits of their
+//! avalanched address, each shard's sub-table is small enough to sit in L2, and the scatter that
+//! gets them there is sequential. What the algebra contributes is the licence:
+//! `Table.build_eq_of_key_streams_eq` says a build depends on the stream only through each key's
+//! values in their stream order, for **every** merge -- so sharding by key is legal, and the
+//! shards need no merge step because a key is in exactly one of them.
+//!
+//! The same theorem licenses the *second* cut. A worker takes a contiguous chunk of the stream
+//! and partitions only that; a shard's stream is then the workers' runs concatenated in worker
+//! order, which is the original order of that key's occurrences. Not a reordering that would need
+//! `build_gauge_invariance` and a commutative merge -- the per-key sequences are untouched, so
+//! `build_eq_of_key_streams_eq` covers it as it stands.
+//!
+//! # What is on the critical path, and what was taken off it
+//!
+//! Measured with `examples/phases.rs`, `n = 1_000_000`, 16 workers. Three costs ran on one thread
+//! while fifteen waited:
+//!
+//! | was | ms | now |
+//! |---|---|---|
+//! | partition, twice (build and probe) | 1.53 each | cut into worker chunks |
+//! | `vec![(u64::MAX, 0); ..]` over 33.6 MB of regions | 1.81 | zero-initialised, inside the worker |
+//! | `finish` recomputed four times per key | 0.69 each | once, and carried |
+//!
+//! The last is the one that has to be argued rather than measured. A slot holds `finish(a)`, not
+//! `a`. `finish` is splitmix64's finalizer, a bijection on `Z/2^64` -- `a_xor_shift_step_is_injective`
+//! and `multiplying_by_an_odd_constant_is_injective` in `proofs.rs` check its steps -- so
+//! `finish(x) == finish(y)` exactly when `x == y`, and comparing finished addresses *is*
+//! comparing keys. `tests/the_counts_are_exact.rs` asserts that against a reference count rather
+//! than leaving it as an argument.
 
 use crate::coord::finish;
+use std::cmp::Reverse;
 
 /// How many shards to cut the key space into. Chosen so a shard's sub-table stays inside L2.
 const SHARD_BITS: u32 = 8;
 const SHARDS: usize = 1 << SHARD_BITS;
 
-/// A key's shard: the top bits of its avalanched address, which is also where `bucket` reads from,
-/// so a shard owns a contiguous run of buckets and the two never disagree.
+/// A key's shard: the top bits of its avalanched address, which is also where the group descent
+/// starts, so a shard owns a contiguous run of the descent's first window and the two never
+/// disagree.
 #[inline]
 #[must_use]
 pub fn shard_of(address: u64) -> usize {
-    (finish(address) >> (64 - SHARD_BITS)) as usize
+    home(finish(address))
+}
+
+/// The same thing, for an address that has already been through `finish`.
+#[inline]
+const fn home(p: u64) -> usize {
+    (p >> (64 - SHARD_BITS)) as usize
 }
 
 /// Counts per distinct address, built by partitioning and probed the same way.
@@ -39,60 +71,77 @@ pub struct CountTable {
 }
 
 impl CountTable {
-    /// Build from a key stream. `bits` is a hint for the whole table; each shard is sized to its
-    /// own load, so the hint never bounds a shard.
+    /// Build from a key stream on this thread. `bits` is a hint for the whole table; each shard
+    /// is sized to its own load, so the hint never bounds a shard.
     #[must_use]
     pub fn build(addresses: &[u64], bits: u32) -> Self {
-        let parts = partition(addresses);
-        let shards: Vec<Region> = parts
-            .iter()
-            .map(|keys| {
-                let mut region = region_for(keys.len(), bits);
-                for &a in keys {
-                    insert_into(&mut region, a);
-                }
-                region
-            })
-            .collect();
-        Self { shards }
+        let _ = bits;
+        Self::assemble(&Parts::of(addresses, 1), &[(0..SHARDS).collect()])
     }
 
     /// Build across `threads` workers. Shards hold disjoint keys, so each worker owns a run of
     /// buckets outright and there is no merge and no synchronisation on the hot path.
     #[must_use]
     pub fn build_parallel(addresses: &[u64], bits: u32, threads: usize) -> Self {
-        let parts = partition(addresses);
-        let mut shards: Vec<Region> = parts.iter().map(|k| region_for(k.len(), bits)).collect();
+        let _ = bits;
+        let workers = threads.max(1);
+        let parts = Parts::of(addresses, workers);
+        Self::assemble(&parts, &schedule(&parts.loads(), workers))
+    }
 
-        // A shard owns its own region outright, so the split is by ownership rather than by lock.
-        std::thread::scope(|scope| {
-            let chunk = SHARDS.div_ceil(threads.max(1));
-            let mut rest: Vec<(usize, &mut Region)> = shards.iter_mut().enumerate().collect();
-            while !rest.is_empty() {
-                let take = chunk.min(rest.len());
-                let mine: Vec<(usize, &mut Region)> = rest.drain(..take).collect();
-                let parts = &parts;
-                scope.spawn(move || {
-                    for (s, region) in mine {
-                        for &a in &parts[s] {
-                            insert_into(region, a);
+    /// Build the shards each worker was given, then place them. A worker creates its own regions,
+    /// so the 33.6 MB of zeroing that a million keys' worth of regions costs is spread over the
+    /// workers instead of run on the main thread before any of them start.
+    fn assemble(parts: &Parts, bins: &[Vec<usize>]) -> Self {
+        let loads = parts.loads();
+        let build_bin = |mine: &Vec<usize>| -> Vec<(usize, Region)> {
+            mine.iter()
+                .map(|&s| {
+                    let mut region = region_for(loads[s]);
+                    for run in parts.runs(s) {
+                        for &p in run {
+                            insert_into(&mut region, p);
                         }
                     }
-                });
-            }
-        });
+                    (s, region)
+                })
+                .collect()
+        };
 
+        let built: Vec<Vec<(usize, Region)>> = if bins.len() <= 1 {
+            bins.iter().map(build_bin).collect()
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = bins
+                    .iter()
+                    .map(|mine| scope.spawn(|| build_bin(mine)))
+                    .collect();
+                handles.into_iter().filter_map(|h| h.join().ok()).collect()
+            })
+        };
+
+        let mut shards: Vec<Region> = (0..SHARDS).map(|_| Region::new(0)).collect();
+        for group in built {
+            for (s, region) in group {
+                shards[s] = region;
+            }
+        }
         Self { shards }
     }
 
     /// The count for an address, or zero.
     #[must_use]
     pub fn get(&self, a: u64) -> i64 {
-        let region = &self.shards[shard_of(a)];
+        self.get_finished(finish(a))
+    }
+
+    #[inline]
+    fn get_finished(&self, p: u64) -> i64 {
+        let region = &self.shards[home(p)];
         if region.is_empty() {
             return 0;
         }
-        let (i, found) = locate(region, a);
+        let (i, found) = locate(region, p);
         if found {
             region.slots[i].1
         } else {
@@ -113,29 +162,153 @@ impl CountTable {
     /// table look slow: the key is in exactly one shard and visiting the others measures nothing.
     #[must_use]
     pub fn sum_parallel(&self, addresses: &[u64], threads: usize) -> i64 {
-        let shards = partition(addresses);
-        let chunk = SHARDS.div_ceil(threads.max(1));
-        std::thread::scope(|scope| {
-            let mut handles = Vec::new();
-            for group in (0..SHARDS).step_by(chunk) {
-                let hi = (group + chunk).min(SHARDS);
-                let shards = &shards;
-                handles.push(scope.spawn(move || {
-                    let mut acc = 0i64;
-                    for s in group..hi {
-                        for &a in &shards[s] {
-                            acc += self.get(a);
-                        }
+        let workers = threads.max(1);
+        let parts = Parts::of(addresses, workers);
+        let bins = schedule(&parts.loads(), workers);
+        let sum_bin = |mine: &Vec<usize>| -> i64 {
+            let mut acc = 0i64;
+            for &s in mine {
+                for run in parts.runs(s) {
+                    for &p in run {
+                        acc += self.get_finished(p);
                     }
-                    acc
-                }));
+                }
             }
+            acc
+        };
+        if workers == 1 {
+            return bins.iter().map(sum_bin).sum();
+        }
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = bins
+                .iter()
+                .map(|mine| scope.spawn(|| sum_bin(mine)))
+                .collect();
             handles.into_iter().map(|h| h.join().unwrap_or(0)).sum()
         })
     }
 }
 
-/// Slots per group. One group is scanned before the probe moves on.
+// ── partitioning ────────────────────────────────────────────────────────────────────────────
+
+/// A stream cut into shards, as **avalanched** addresses, one buffer per worker.
+///
+/// Not one `Vec` per shard. That was 256 allocations a call and 256 live write cursors in 256
+/// separate allocations; this is one buffer per worker with its shard runs laid end to end, so
+/// the scatter writes into a single object and the whole partition is `workers` allocations.
+struct Parts {
+    /// `bufs[w][ends[w][s] .. ends[w][s + 1]]` is worker `w`'s run for shard `s`.
+    bufs: Vec<Vec<u64>>,
+    ends: Vec<Box<[usize; SHARDS + 1]>>,
+}
+
+impl Parts {
+    fn of(addresses: &[u64], workers: usize) -> Self {
+        let workers = workers.max(1);
+        if addresses.is_empty() {
+            return Self {
+                bufs: Vec::new(),
+                ends: Vec::new(),
+            };
+        }
+        let chunk = addresses.len().div_ceil(workers).max(1);
+        let done: Vec<Chunk> = if workers == 1 || addresses.len() <= chunk {
+            addresses.chunks(chunk).map(partition_chunk).collect()
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = addresses
+                    .chunks(chunk)
+                    .map(|c| scope.spawn(move || partition_chunk(c)))
+                    .collect();
+                handles.into_iter().filter_map(|h| h.join().ok()).collect()
+            })
+        };
+        let (bufs, ends) = done.into_iter().unzip();
+        Self { bufs, ends }
+    }
+
+    /// Shard `s`'s stream: each worker's run, in worker order, which is stream order.
+    #[inline]
+    fn runs(&self, s: usize) -> impl Iterator<Item = &[u64]> {
+        self.bufs
+            .iter()
+            .zip(self.ends.iter())
+            .map(move |(b, e)| &b[e[s]..e[s + 1]])
+    }
+
+    fn loads(&self) -> Vec<usize> {
+        let mut out = vec![0usize; SHARDS];
+        for e in &self.ends {
+            for (s, l) in out.iter_mut().enumerate() {
+                *l += e[s + 1] - e[s];
+            }
+        }
+        out
+    }
+}
+
+type Chunk = (Vec<u64>, Box<[usize; SHARDS + 1]>);
+
+/// Count, prefix-sum, scatter -- over one worker's slice, into one buffer it owns outright.
+///
+/// `finish` runs once per key here and the *avalanched* address is what gets written, so nothing
+/// downstream recomputes it: not the scatter, not the group descent, not the tag, not the slot
+/// comparison. It used to run four times on the way to a slot and three more on the way back.
+fn partition_chunk(keys: &[u64]) -> Chunk {
+    let mut counts = [0usize; SHARDS];
+    let mut avalanched: Vec<u64> = Vec::with_capacity(keys.len());
+    for &a in keys {
+        let p = finish(a);
+        counts[home(p)] += 1;
+        avalanched.push(p);
+    }
+    let mut ends = Box::new([0usize; SHARDS + 1]);
+    let mut cursor = [0usize; SHARDS];
+    let mut acc = 0usize;
+    for s in 0..SHARDS {
+        ends[s] = acc;
+        cursor[s] = acc;
+        acc += counts[s];
+    }
+    ends[SHARDS] = acc;
+
+    let mut buf = vec![0u64; keys.len()];
+    for &p in &avalanched {
+        let s = home(p);
+        buf[cursor[s]] = p;
+        cursor[s] += 1;
+    }
+    (buf, ends)
+}
+
+/// Which worker builds which shards: longest-processing-time-first onto the emptiest worker.
+///
+/// A fixed run of `SHARDS / workers` assumes the shard loads are equal, and a build finishes when
+/// its *slowest* worker does, so a skewed stream -- which is what an attacker sends -- pays its
+/// skew in wall time. The loads are known before any region is built, so the assignment can just
+/// use them. Deterministic: the sort key is `(load descending, shard)`, a total order, and ties
+/// among workers go to the lowest index.
+fn schedule(loads: &[usize], workers: usize) -> Vec<Vec<usize>> {
+    let mut order: Vec<usize> = (0..SHARDS).collect();
+    order.sort_unstable_by_key(|&s| (Reverse(loads[s]), s));
+    let mut bins: Vec<Vec<usize>> = vec![Vec::new(); workers];
+    let mut filled = vec![0usize; workers];
+    for s in order {
+        let w = filled
+            .iter()
+            .enumerate()
+            .min_by_key(|&(i, &l)| (l, i))
+            .map_or(0, |(i, _)| i);
+        bins[w].push(s);
+        filled[w] += loads[s];
+    }
+    bins
+}
+
+// ── the probe ───────────────────────────────────────────────────────────────────────────────
+
+/// Slots per group. One group is scanned before the probe moves on, and it is sixteen because
+/// that is one 128-bit tag compare.
 const GROUP: usize = 16;
 
 /// The probe sequence: successive windows of the avalanched address, not a linear walk.
@@ -172,83 +345,205 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 }
 
 /// A slot's seven-bit tag, with the top bit marking it occupied. Zero means empty.
+///
+/// Taken from the *low* bits of the avalanched address, which the descent never looks at -- it
+/// walks windows down from the top -- so a tag hit and a group hit are independent evidence.
 #[inline]
 const fn tag_of(p: u64) -> u8 {
     0x80 | (p & 0x7F) as u8
 }
 
-/// Byte positions in `word` equal to `byte`, as a mask with `0x80` set at each match.
+/// Sixteen lanes at a time, two ways.
 ///
-/// SWAR rather than an intrinsic: eight lanes per instruction with no `unsafe`, no target
-/// feature and no fallback path to keep correct. The point of a tag line is to make the common
-/// case one cache line instead of sixteen scattered addresses; getting eight lanes rather than
-/// sixteen keeps most of that.
-#[inline]
-const fn match_byte(word: u64, byte: u8) -> u64 {
-    const LO: u64 = 0x0101_0101_0101_0101;
-    const HI: u64 = 0x8080_8080_8080_8080;
-    let x = word ^ (LO.wrapping_mul(byte as u64));
-    x.wrapping_sub(LO) & !x & HI
+/// A group is sixteen slots, so a group scan is one 128-bit compare on x86_64 and a pair of SWAR
+/// words everywhere else. Both are compiled on every target and `tests/both_tag_paths_agree.rs`
+/// asserts they are the same function, because the one this build does not select is exactly the
+/// code that rots.
+///
+/// Public so the test can reach both. Nothing else should: this is the inside of `locate`.
+pub mod scan {
+    /// Eight marker bits, gathered into the low eight bits of the result.
+    ///
+    /// The SWAR compare leaves `0x80` at bit `7 + 8i` of each matching lane `i`. Multiplying by
+    /// `GATHER` shifts lane `i`'s marker by `49 - 7i`, landing it at bit `56 + i`. All 64 cross
+    /// terms land on distinct positions -- `8(i - i') = 7(j - j')` forces `i = i'` when both
+    /// differences are at most seven -- so the multiply carries nowhere and is an exact
+    /// permutation of the marker bits rather than an approximation of one.
+    #[inline]
+    const fn gather(marked: u64) -> u8 {
+        const GATHER: u64 = 0x0002_0408_1020_4081;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (marked.wrapping_mul(GATHER) >> 56) as u8
+        }
+    }
+
+    /// `0x80` at each lane of `word` equal to `byte`, and nowhere else.
+    ///
+    /// Exactly, not approximately. The textbook form `(x - LO) & !x & HI` is a *superset*: a lane
+    /// that matches borrows out of the subtraction, and a neighbour whose difference from `byte`
+    /// is exactly one is then flagged as well. `[.., 0xB1, 0xB0, ..]` against `0xB1` reports two
+    /// lanes; SSE2 reports one. Setting every lane's top bit before subtracting stops the borrow
+    /// at the lane boundary, and or-ing `x` back in restores the lanes whose own top bit the
+    /// forcing overwrote, so no lane's answer depends on any other lane.
+    ///
+    /// The looser form would in fact be sound here -- `locate` compares the stored key before it
+    /// believes a tag, and an empty lane can never be a false positive because its tag is zero
+    /// while every real tag has bit seven set, so the `!x & HI` term rejects it. But then the two
+    /// scans would be *different functions that happen to agree on the answer*, and a test that
+    /// says so is a test of the argument rather than of the code.
+    #[inline]
+    const fn eq_swar(word: u64, byte: u8) -> u64 {
+        const LO: u64 = 0x0101_0101_0101_0101;
+        const HI: u64 = 0x8080_8080_8080_8080;
+        let x = word ^ LO.wrapping_mul(byte as u64);
+        // Every lane of `x | HI` is at least 0x80, so subtracting one never borrows out of it.
+        !(x | (x | HI).wrapping_sub(LO)) & HI
+    }
+
+    #[inline]
+    fn halves(line: &[u8; 16]) -> (u64, u64) {
+        let mut lo = [0u8; 8];
+        let mut hi = [0u8; 8];
+        lo.copy_from_slice(&line[..8]);
+        hi.copy_from_slice(&line[8..]);
+        (u64::from_le_bytes(lo), u64::from_le_bytes(hi))
+    }
+
+    /// Lanes of `line` equal to `tag`, one bit per lane.
+    #[inline]
+    #[must_use]
+    pub fn match_tag_swar(line: &[u8; 16], tag: u8) -> u16 {
+        let (lo, hi) = halves(line);
+        u16::from(gather(eq_swar(lo, tag))) | (u16::from(gather(eq_swar(hi, tag))) << 8)
+    }
+
+    /// Lanes of `line` with the top bit set, one bit per lane. `tag_of` always sets that bit and
+    /// an empty slot's tag is zero, so this is exactly "not empty" -- and it is one instruction
+    /// rather than a compare against zero.
+    #[inline]
+    #[must_use]
+    pub fn occupied_swar(line: &[u8; 16]) -> u16 {
+        const HI: u64 = 0x8080_8080_8080_8080;
+        let (lo, hi) = halves(line);
+        u16::from(gather(lo & HI)) | (u16::from(gather(hi & HI)) << 8)
+    }
+
+    /// SSE2, which is in the x86_64 baseline: no target feature, no runtime check, and no path
+    /// that only some machines take.
+    #[cfg(target_arch = "x86_64")]
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    pub fn match_tag_simd(line: &[u8; 16], tag: u8) -> u16 {
+        use std::arch::x86_64::{
+            __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
+        };
+        // SAFETY: SSE2 is unconditionally available on x86_64, and `line` is exactly the sixteen
+        // bytes the load reads. `loadu` does not require alignment.
+        unsafe {
+            let v = _mm_loadu_si128(line.as_ptr().cast::<__m128i>());
+            _mm_movemask_epi8(_mm_cmpeq_epi8(v, _mm_set1_epi8(tag as i8))) as u16
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_sign_loss)]
+    pub fn occupied_simd(line: &[u8; 16]) -> u16 {
+        use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_movemask_epi8};
+        // SAFETY: as `match_tag_simd`.
+        unsafe { _mm_movemask_epi8(_mm_loadu_si128(line.as_ptr().cast::<__m128i>())) as u16 }
+    }
+
+    /// Whichever of the two this target compiled to.
+    #[inline]
+    #[must_use]
+    pub fn match_tag(line: &[u8; 16], tag: u8) -> u16 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            match_tag_simd(line, tag)
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            match_tag_swar(line, tag)
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn occupied(line: &[u8; 16]) -> u16 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            occupied_simd(line)
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            occupied_swar(line)
+        }
+    }
 }
 
-/// Find `a`'s slot, or the first empty slot in probe order.
+/// Find `p`'s slot, or the first empty slot in probe order. `p` is already avalanched.
 ///
 /// Two reads per group in the common case: the tag line, then one address for each lane whose tag
-/// matched. Scanning all sixteen addresses instead costs 128 bytes a group against 16, and
+/// matched. Scanning all sixteen addresses instead costs 256 bytes a group against 16, and
 /// measured 2.3x on the whole workload -- the tag line is not an optimisation on top of the
 /// descent, it is what makes the descent affordable.
 ///
 /// Stops at the first group holding an empty slot: placement is first-fit and occupancy only
 /// grows, so an empty slot means the key would have been placed at or before here, and is absent.
 #[inline]
-fn locate(region: &Region, a: u64) -> (usize, bool) {
+fn locate(region: &Region, p: u64) -> (usize, bool) {
     let groups = region.slots.len() / GROUP;
     let gbits = groups.trailing_zeros();
     let gmask = groups - 1;
-    let p = finish(a);
     let tag = tag_of(p);
     let mut j = 0u32;
     loop {
-        let g = group_of(p, j, gbits, gmask);
-        let base = g * GROUP;
-        for half in 0..2 {
-            let word = region.tags[g * 2 + half];
-            let mut hits = match_byte(word, tag);
-            while hits != 0 {
-                let lane = base + half * 8 + (hits.trailing_zeros() as usize / 8);
-                if region.slots[lane].0 == a {
-                    return (lane, true);
-                }
-                hits &= hits - 1;
+        let base = group_of(p, j, gbits, gmask) * GROUP;
+        let line: &[u8; 16] = region.tags[base..base + GROUP]
+            .try_into()
+            .unwrap_or(&EMPTY_LINE);
+        let mut hits = scan::match_tag(line, tag);
+        while hits != 0 {
+            let lane = base + hits.trailing_zeros() as usize;
+            if region.slots[lane].0 == p {
+                return (lane, true);
             }
+            hits &= hits - 1;
         }
         // Only now look for an empty lane: the hit path above never reads this.
-        for half in 0..2 {
-            let empties = match_byte(region.tags[g * 2 + half], 0);
-            if empties != 0 {
-                return (
-                    base + half * 8 + (empties.trailing_zeros() as usize / 8),
-                    false,
-                );
-            }
+        let empties = !scan::occupied(line);
+        if empties != 0 {
+            return (base + empties.trailing_zeros() as usize, false);
         }
         j += 1;
     }
 }
 
+/// Unreachable: `tags.len()` is `slots.len()` and `base` is a group start, so the slice is always
+/// sixteen bytes. Present so `locate` has no panicking branch on the hot path.
+const EMPTY_LINE: [u8; 16] = [0; 16];
+
 /// A shard's storage: a tag line beside the slots, so a group scan touches one cache line.
 #[derive(Clone)]
 pub struct Region {
-    /// Two `u64` of eight tag bytes per group.
-    tags: Vec<u64>,
+    /// One tag byte per slot, so a group is sixteen contiguous bytes and one vector load.
+    tags: Vec<u8>,
+    /// The **avalanched** address and its count. An empty slot is `(0, 0)` and is told apart by
+    /// its tag, never by a sentinel value -- so zero is an ordinary key, and the whole region can
+    /// be allocated already zeroed instead of written over. That sentinel cost 1.81 ms of
+    /// `memset` on the main thread at a million keys.
     slots: Vec<(u64, i64)>,
 }
 
 impl Region {
     fn new(slots: usize) -> Self {
         Self {
-            tags: vec![0; slots / 8],
-            slots: vec![(u64::MAX, 0); slots],
+            tags: vec![0u8; slots],
+            slots: vec![(0, 0); slots],
         }
     }
 
@@ -259,44 +554,24 @@ impl Region {
     fn len(&self) -> usize {
         self.slots.len()
     }
-
-    #[inline]
-    fn set_tag(&mut self, lane: usize, tag: u8) {
-        let (w, b) = (lane / 8, lane % 8);
-        self.tags[w] = (self.tags[w] & !(0xFFu64 << (b * 8))) | ((tag as u64) << (b * 8));
-    }
 }
 
 /// A region for `load` keys: at least two groups, and at most half full, rounded to a power of
 /// two so the group index is a mask.
-fn region_for(load: usize, hint_bits: u32) -> Region {
+fn region_for(load: usize) -> Region {
     if load == 0 {
         return Region::new(0);
     }
-    let _ = hint_bits;
     Region::new((load * 2).max(GROUP * 2).next_power_of_two())
 }
 
 #[inline]
-fn insert_into(region: &mut Region, a: u64) {
-    let (i, found) = locate(region, a);
+fn insert_into(region: &mut Region, p: u64) {
+    let (i, found) = locate(region, p);
     if found {
         region.slots[i].1 += 1;
     } else {
-        region.slots[i] = (a, 1);
-        region.set_tag(i, tag_of(finish(a)));
+        region.slots[i] = (p, 1);
+        region.tags[i] = tag_of(p);
     }
-}
-
-/// Sort addresses into shards. Counting pass, prefix sum, sequential scatter.
-fn partition(addresses: &[u64]) -> Vec<Vec<u64>> {
-    let mut counts = [0usize; SHARDS];
-    for &a in addresses {
-        counts[shard_of(a)] += 1;
-    }
-    let mut shards: Vec<Vec<u64>> = counts.iter().map(|&c| Vec::with_capacity(c)).collect();
-    for &a in addresses {
-        shards[shard_of(a)].push(a);
-    }
-    shards
 }
