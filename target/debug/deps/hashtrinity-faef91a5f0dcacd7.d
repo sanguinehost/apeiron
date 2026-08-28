@@ -1,0 +1,23 @@
+/home/socol/Workspace/apeiron/target/debug/deps/hashtrinity-faef91a5f0dcacd7.d: /home/socol/Workspace/fold/hashtrinity/src/lib.rs /home/socol/Workspace/fold/hashtrinity/src/hex.rs /home/socol/Workspace/fold/hashtrinity/src/base64.rs /home/socol/Workspace/fold/hashtrinity/src/seed.rs /home/socol/Workspace/fold/hashtrinity/src/tregex.rs /home/socol/Workspace/fold/hashtrinity/src/par.rs /home/socol/Workspace/fold/hashtrinity/src/face.rs /home/socol/Workspace/fold/hashtrinity/src/dense.rs /home/socol/Workspace/fold/hashtrinity/src/ctrl_proto.rs /home/socol/Workspace/fold/hashtrinity/src/crypto.rs /home/socol/Workspace/fold/hashtrinity/src/rustls.rs /home/socol/Workspace/fold/hashtrinity/src/secret.rs /home/socol/Workspace/fold/hashtrinity/src/sync.rs /home/socol/Workspace/fold/hashtrinity/src/sync/tls.rs /home/socol/Workspace/fold/hashtrinity/src/webauthn.rs /home/socol/Workspace/fold/hashtrinity/src/algebra.rs /home/socol/Workspace/fold/hashtrinity/src/freq.rs
+
+/home/socol/Workspace/apeiron/target/debug/deps/libhashtrinity-faef91a5f0dcacd7.rlib: /home/socol/Workspace/fold/hashtrinity/src/lib.rs /home/socol/Workspace/fold/hashtrinity/src/hex.rs /home/socol/Workspace/fold/hashtrinity/src/base64.rs /home/socol/Workspace/fold/hashtrinity/src/seed.rs /home/socol/Workspace/fold/hashtrinity/src/tregex.rs /home/socol/Workspace/fold/hashtrinity/src/par.rs /home/socol/Workspace/fold/hashtrinity/src/face.rs /home/socol/Workspace/fold/hashtrinity/src/dense.rs /home/socol/Workspace/fold/hashtrinity/src/ctrl_proto.rs /home/socol/Workspace/fold/hashtrinity/src/crypto.rs /home/socol/Workspace/fold/hashtrinity/src/rustls.rs /home/socol/Workspace/fold/hashtrinity/src/secret.rs /home/socol/Workspace/fold/hashtrinity/src/sync.rs /home/socol/Workspace/fold/hashtrinity/src/sync/tls.rs /home/socol/Workspace/fold/hashtrinity/src/webauthn.rs /home/socol/Workspace/fold/hashtrinity/src/algebra.rs /home/socol/Workspace/fold/hashtrinity/src/freq.rs
+
+/home/socol/Workspace/apeiron/target/debug/deps/libhashtrinity-faef91a5f0dcacd7.rmeta: /home/socol/Workspace/fold/hashtrinity/src/lib.rs /home/socol/Workspace/fold/hashtrinity/src/hex.rs /home/socol/Workspace/fold/hashtrinity/src/base64.rs /home/socol/Workspace/fold/hashtrinity/src/seed.rs /home/socol/Workspace/fold/hashtrinity/src/tregex.rs /home/socol/Workspace/fold/hashtrinity/src/par.rs /home/socol/Workspace/fold/hashtrinity/src/face.rs /home/socol/Workspace/fold/hashtrinity/src/dense.rs /home/socol/Workspace/fold/hashtrinity/src/ctrl_proto.rs /home/socol/Workspace/fold/hashtrinity/src/crypto.rs /home/socol/Workspace/fold/hashtrinity/src/rustls.rs /home/socol/Workspace/fold/hashtrinity/src/secret.rs /home/socol/Workspace/fold/hashtrinity/src/sync.rs /home/socol/Workspace/fold/hashtrinity/src/sync/tls.rs /home/socol/Workspace/fold/hashtrinity/src/webauthn.rs /home/socol/Workspace/fold/hashtrinity/src/algebra.rs /home/socol/Workspace/fold/hashtrinity/src/freq.rs
+
+/home/socol/Workspace/fold/hashtrinity/src/lib.rs:
+/home/socol/Workspace/fold/hashtrinity/src/hex.rs:
+/home/socol/Workspace/fold/hashtrinity/src/base64.rs:
+/home/socol/Workspace/fold/hashtrinity/src/seed.rs:
+/home/socol/Workspace/fold/hashtrinity/src/tregex.rs:
+/home/socol/Workspace/fold/hashtrinity/src/par.rs:
+/home/socol/Workspace/fold/hashtrinity/src/face.rs:
+/home/socol/Workspace/fold/hashtrinity/src/dense.rs:
+/home/socol/Workspace/fold/hashtrinity/src/ctrl_proto.rs:
+/home/socol/Workspace/fold/hashtrinity/src/crypto.rs:
+/home/socol/Workspace/fold/hashtrinity/src/rustls.rs:
+/home/socol/Workspace/fold/hashtrinity/src/secret.rs:
+/home/socol/Workspace/fold/hashtrinity/src/sync.rs:
+/home/socol/Workspace/fold/hashtrinity/src/sync/tls.rs:
+/home/socol/Workspace/fold/hashtrinity/src/webauthn.rs:
+/home/socol/Workspace/fold/hashtrinity/src/algebra.rs:
+/home/socol/Workspace/fold/hashtrinity/src/freq.rs:

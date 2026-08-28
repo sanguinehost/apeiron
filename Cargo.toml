@@ -7,3 +7,12 @@ description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls
 [dependencies]
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+hashbrown = "0.15"
+foldhash = "0.1"
+rustc-hash = "2"
+hashtrinity = { path = "../fold/hashtrinity" }
+
+[[bench]]
+name = "spatial_binning"
+harness = false

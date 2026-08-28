@@ -23,6 +23,7 @@
 
 pub mod cell;
 pub mod keystore;
+pub mod proofs;
 pub mod scalar;
 pub mod coord;
 
