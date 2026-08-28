@@ -1,1 +1,0 @@
-/home/socol/Workspace/apeiron/target/release/libapeiron.rlib: /home/socol/Workspace/apeiron/src/cell.rs /home/socol/Workspace/apeiron/src/coord.rs /home/socol/Workspace/apeiron/src/keystore.rs /home/socol/Workspace/apeiron/src/lib.rs /home/socol/Workspace/apeiron/src/proofs.rs /home/socol/Workspace/apeiron/src/scalar.rs /home/socol/Workspace/apeiron/src/table.rs
