@@ -46,9 +46,21 @@ idempotents need; `i64` implements the first and not the second, so `Cell::<i64>
 does not compile. That is the theorem's scope enforced by the type rather than described in a
 comment.
 
-## The coordinate fold
+## The coordinate fold, which is three folds
 
-`coord.rs` mixes with `wrapping_mul(PHI)` then `wrapping_add`, both in `Z/2^64`, because a
-coordinate fold is ring arithmetic and leaving the ring costs correctness. hashtrinity's
-`a.wrapping_mul(PHI) ^ b` mixes `Z/2^64` with `GF(2)^64` and collides on 49% of a signed pair grid
-and 72% of a signed triple grid; `tests/coord_is_injective.rs` is the gate it never had.
+Injectivity is required on one face, irrelevant on the second and impossible on the third, so
+asking for "the" collision rate asks three questions at once:
+
+| face | wants | `coord.rs` gives it |
+|---|---|---|
+| elliptic (**B**) | the address determines the key | `Packed` -- concatenation, exactly invertible, only for keys that fit in 64 bits |
+| parabolic (**B/U**) | spreading; the key is carried and compared | `Coord` -- multiply-add, judged on distribution |
+| hyperbolic (**NB**) | a discard; the key is gone | `Coord` -- same fold, and losing information is the intent |
+
+Two things this corrects. hashtrinity's `a.wrapping_mul(PHI) ^ b` leaves the ring for `GF(2)` and
+collides on 49% of a signed pair grid and 72% of a signed triple grid -- bad *distribution*, on a
+face where distribution is the whole job. And multiply-add, which fixes that, is **not** a
+bijection either: `(2971215073, 50920843)` and `(0, 0)` fold to the same address, because PHI is
+the golden ratio and its convergents are Fibonacci. So it cannot serve the elliptic face, and
+`Packed` is a separate trait rather than a refinement of `Coord` -- a bijection and a discard are
+different operations and should not share a name.
