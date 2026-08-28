@@ -87,6 +87,45 @@ mod harnesses {
         assert_ne!(d.wrapping_mul(crate::coord::PHI), 0);
     }
 
+    /// The SWAR group scan is byte equality, on every line and every tag.
+    ///
+    /// `tests/both_tag_paths_agree.rs` checks this against SSE2 and against a scalar reference on
+    /// four thousand sampled lines. Sampling is the wrong instrument for a bit trick: the flaw it
+    /// did catch -- a matching lane borrowing into its neighbour -- needed two specific adjacent
+    /// bytes, and the next one might need three. Here the line and the tag are both symbolic, so
+    /// the sixteen lanes and all 256 tags are covered at once rather than visited.
+    #[kani::proof]
+    fn the_swar_group_scan_is_byte_equality() {
+        let line: [u8; 16] = kani::any();
+        let tag: u8 = kani::any();
+        let got = crate::table::scan::match_tag_swar(&line, tag);
+        let mut want = 0u16;
+        let mut i = 0usize;
+        while i < 16 {
+            if line[i] == tag {
+                want |= 1 << i;
+            }
+            i += 1;
+        }
+        assert_eq!(got, want);
+    }
+
+    /// And the occupancy scan is the top bit, which is what tells an empty slot from a full one.
+    #[kani::proof]
+    fn the_swar_occupancy_scan_is_the_top_bit() {
+        let line: [u8; 16] = kani::any();
+        let got = crate::table::scan::occupied_swar(&line);
+        let mut want = 0u16;
+        let mut i = 0usize;
+        while i < 16 {
+            if line[i] & 0x80 != 0 {
+                want |= 1 << i;
+            }
+            i += 1;
+        }
+        assert_eq!(got, want);
+    }
+
     /// A bucket index is in range for its table.
     #[kani::proof]
     fn a_bucket_index_fits_its_table() {

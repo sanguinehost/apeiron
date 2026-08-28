@@ -27,15 +27,44 @@
 //! |---|---|---|
 //! | partition, twice (build and probe) | 1.53 each | cut into worker chunks |
 //! | `vec![(u64::MAX, 0); ..]` over 33.6 MB of regions | 1.81 | zero-initialised, inside the worker |
-//! | `finish` recomputed four times per key | 0.69 each | once, and carried |
+//! | `finish` recomputed four times per key | 0.69 each | twice, both inside the partition |
 //!
-//! The last is the one that has to be argued rather than measured. A slot holds `finish(a)`, not
+//! `apeiron_par16` on `bin_and_probe/1000000` went from 9.47 ms to 3.46, against 4.09 for fxhash
+//! and 4.69 for foldhash sharded and threaded the same way.
+//!
+//! The last row is the one that has to be argued rather than measured. A slot holds `finish(a)`, not
 //! `a`. `finish` is splitmix64's finalizer, a bijection on `Z/2^64` -- `a_xor_shift_step_is_injective`
 //! and `multiplying_by_an_odd_constant_is_injective` in `proofs.rs` check its steps -- so
 //! `finish(x) == finish(y)` exactly when `x == y`, and comparing finished addresses *is*
 //! comparing keys. `tests/the_counts_are_exact.rs` asserts that against a reference count rather
 //! than leaving it as an argument.
 
+//!
+//! # Measured and not taken
+//!
+//! The workload is memory-bound, so each of these trades traffic for arithmetic in the direction
+//! that looks obviously right and is not. Same harness, criterion mean, each alternated against
+//! the current code so the two share the machine's mood.
+//!
+//! | change | ms | against |
+//! |---|---|---|
+//! | keep `finish`'s output in a scratch buffer instead of recomputing it in the scatter | 3.95 | 3.48 |
+//! | `_mm_prefetch` the next group's tag line, eight keys ahead, in both loops | 4.00 | 3.78 |
+//! | drop the probe's partition, chunk the probe stream contiguously instead | 5.14 | 3.44 |
+//! | size regions at 3x load, and at 4x | 4.64, 4.27 | 3.44 |
+//!
+//! The scratch buffer is 8 MB written and 8 MB read back, to save two multiplies. The prefetch
+//! pays a hint for latency that a 128 KB L2-resident region and an out-of-order engine were
+//! already hiding. Dropping the probe's grouping saves a whole thread scope and a whole partition
+//! pass and costs 49%, which is the measurement that says the grouping is the point rather than
+//! the bookkeeping around it. And more slots is more misses: occupancy is 47.4% already.
+//!
+//! Sizing at 1x load is faster still, 2.63, and is not available. `next_power_of_two` can land
+//! exactly on the load; a full region has no empty slot; `locate` looks for one. So an absent
+//! key's probe would not return -- a hang, at a load an attacker chooses.
+//!
+//! `SHARD_BITS` at 6 and 7 rather than 8 measured 3.79 and 3.43 against 3.44: no signal.
+//!
 use crate::coord::finish;
 use std::cmp::Reverse;
 
@@ -116,7 +145,7 @@ impl CountTable {
                     .iter()
                     .map(|mine| scope.spawn(|| build_bin(mine)))
                     .collect();
-                handles.into_iter().filter_map(|h| h.join().ok()).collect()
+                handles.into_iter().map(join_or_panic).collect()
             })
         };
 
@@ -184,8 +213,18 @@ impl CountTable {
                 .iter()
                 .map(|mine| scope.spawn(|| sum_bin(mine)))
                 .collect();
-            handles.into_iter().map(|h| h.join().unwrap_or(0)).sum()
+            handles.into_iter().map(join_or_panic).sum()
         })
+    }
+}
+
+/// A worker that panicked has not counted its keys, and a table that quietly returns fewer than
+/// it was given is worse than one that does not return. `filter_map(.., ok)` and `unwrap_or(0)`
+/// both turned a panicking worker into a silent undercount.
+fn join_or_panic<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
+    match handle.join() {
+        Ok(v) => v,
+        Err(payload) => std::panic::resume_unwind(payload),
     }
 }
 
@@ -199,12 +238,16 @@ impl CountTable {
 struct Parts {
     /// `bufs[w][ends[w][s] .. ends[w][s + 1]]` is worker `w`'s run for shard `s`.
     bufs: Vec<Vec<u64>>,
-    ends: Vec<Box<[usize; SHARDS + 1]>>,
+    ends: Vec<[usize; SHARDS + 1]>,
 }
 
 impl Parts {
+    /// Below this many keys a worker is not worth raising: a scope of sixteen costs 0.11 ms to
+    /// start and stop, and partitioning a key costs about 1.6 ns.
+    const PER_WORKER: usize = 4096;
+
     fn of(addresses: &[u64], workers: usize) -> Self {
-        let workers = workers.max(1);
+        let workers = workers.clamp(1, (addresses.len() / Self::PER_WORKER).max(1));
         if addresses.is_empty() {
             return Self {
                 bufs: Vec::new(),
@@ -220,7 +263,7 @@ impl Parts {
                     .chunks(chunk)
                     .map(|c| scope.spawn(move || partition_chunk(c)))
                     .collect();
-                handles.into_iter().filter_map(|h| h.join().ok()).collect()
+                handles.into_iter().map(join_or_panic).collect()
             })
         };
         let (bufs, ends) = done.into_iter().unzip();
@@ -247,7 +290,7 @@ impl Parts {
     }
 }
 
-type Chunk = (Vec<u64>, Box<[usize; SHARDS + 1]>);
+type Chunk = (Vec<u64>, [usize; SHARDS + 1]);
 
 /// Count, prefix-sum, scatter -- over one worker's slice, into one buffer it owns outright.
 ///
@@ -264,7 +307,7 @@ fn partition_chunk(keys: &[u64]) -> Chunk {
     for &a in keys {
         counts[home(finish(a))] += 1;
     }
-    let mut ends = Box::new([0usize; SHARDS + 1]);
+    let mut ends = [0usize; SHARDS + 1];
     let mut cursor = [0usize; SHARDS];
     let mut acc = 0usize;
     for s in 0..SHARDS {
