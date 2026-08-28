@@ -1,0 +1,1 @@
+/home/socol/Workspace/apeiron/target/debug/examples/fold_perm_probe: /home/socol/Workspace/apeiron/examples/fold_perm_probe.rs /home/socol/Workspace/apeiron/src/cell.rs /home/socol/Workspace/apeiron/src/coord.rs /home/socol/Workspace/apeiron/src/lib.rs /home/socol/Workspace/apeiron/src/scalar.rs

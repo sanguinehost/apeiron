@@ -185,19 +185,33 @@ impl<R: Ring> Cell<R> {
 
 /// Fold a list of cells into one.
 ///
-/// `Gates.fold`, and `Gates.fold_perm`: for `sigma >= 0` the result is invariant under
-/// permutation of the input. That is the licence for accumulating from many threads and combining
-/// at a sync point with no ordering -- and it is stated as a property of the dial, so the elliptic
-/// face does not get it by accident.
+/// Permutation-invariant on **every** face, which is the licence for accumulating from many
+/// threads and combining at a sync point with no ordering.
+///
+/// `Gates.fold_perm` states this with `0 <= sigma`, and that hypothesis is an artefact of how it
+/// is proved -- through the channel decomposition, which needs a non-negative discriminant to
+/// have channels at all. The fact does not need it: order-freedom follows from `mul_comm` and
+/// `mul_assoc`, and both hold for every `sigma` with no hypothesis. Measured over all 120
+/// permutations of five cells on each of the three faces, elliptic included
+/// (`examples/fold_perm_probe.rs`).
+///
+/// This matters for what a table can be. Order-free accumulation is not a hyperbolic privilege
+/// that the merge has to earn -- it is available everywhere, so the merge does not vary with the
+/// dial. What varies with the dial is the discard, which is the *keystore*. One merge, three
+/// keystores, and the asymmetry is the algebra's rather than a design choice.
 #[must_use]
 pub fn fold<R: Ring>(sigma: Sigma, cells: &[Cell<R>]) -> Cell<R> {
     cells.iter().fold(Cell::one(), |acc, c| acc.mul(sigma, *c))
 }
 
-/// Whether folding is order-free on this face. `Gates.fold_perm` requires `0 <= sigma`.
+/// Whether folding is order-free on this face. It is, on all of them.
+///
+/// Kept as a function rather than deleted because the answer is a claim worth being able to point
+/// at: it was `!matches!(sigma, Elliptic)` first, transcribing `fold_perm`'s hypothesis as though
+/// it bounded the fact.
 #[must_use]
-pub const fn fold_is_order_free(sigma: Sigma) -> bool {
-    !matches!(sigma, Sigma::Elliptic)
+pub const fn fold_is_order_free(_sigma: Sigma) -> bool {
+    true
 }
 
 impl<R: Halve> Cell<R> {

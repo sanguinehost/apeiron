@@ -22,6 +22,7 @@
 //! elsewhere by construction rather than by comment.
 
 pub mod cell;
+pub mod keystore;
 pub mod scalar;
 pub mod coord;
 
