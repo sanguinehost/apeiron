@@ -29,8 +29,8 @@
 //! | `vec![(u64::MAX, 0); ..]` over 33.6 MB of regions | 1.81 | zero-initialised, inside the worker |
 //! | `finish` recomputed four times per key | 0.69 each | twice, both inside the partition |
 //!
-//! `apeiron_par16` on `bin_and_probe/1000000` went from 9.47 ms to 3.46, against 4.09 for fxhash
-//! and 4.69 for foldhash sharded and threaded the same way.
+//! `apeiron_par16` on `bin_and_probe/1000000` went from 9.47 ms to 3.16, against 3.99 for fxhash
+//! and 4.14 for foldhash sharded and threaded the same way.
 //!
 //! The last row is the one that has to be argued rather than measured. A slot holds `finish(a)`, not
 //! `a`. `finish` is splitmix64's finalizer, a bijection on `Z/2^64` -- `a_xor_shift_step_is_injective`

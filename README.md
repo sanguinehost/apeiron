@@ -46,6 +46,43 @@ idempotents need; `i64` implements the first and not the second, so `Cell::<i64>
 does not compile. That is the theorem's scope enforced by the type rather than described in a
 comment.
 
+## What it costs
+
+`benches/spatial_binning.rs`: a clustered scene of signed world coordinates binned into cells,
+counted, then probed for every occupied cell. `n = 1,000,000`, 16 threads, criterion mean, one
+uninterrupted run.
+
+| arm | ms | exact | deterministic across processes | HashDoS |
+|---|---|---|---|---|
+| **apeiron_par16** | **3.16** | yes | **yes** | **structural** |
+| fxhash_par16 | 3.99 | yes | yes | none |
+| foldhash_par16 | 4.14 | yes | no | none advertised |
+| std_siphash_par16 | 6.81 | yes | no | by random seed |
+| hashtrinity_packed | 10.27 | yes | yes | none |
+| apeiron_tuple_par16 | 10.42 | yes | yes | structural |
+| hashtrinity_tuple | 12.09 | **no, off by 8236** | yes | none |
+| apeiron_serial | 32.70 | yes | yes | structural |
+| hashbrown_foldhash | 33.71 | yes | no | none advertised |
+| hashbrown_fxhash | 36.00 | yes | yes | none |
+| std_siphash | 102.67 | yes | no | by random seed |
+
+Every arm ending `par16` is sharded and threaded the same way: the same shard function, the same
+two-level parallel partition, one map per shard, and probes grouped exactly as the build was.
+That is not a courtesy. A parallel arm measured against a serial one measures the scheduling and
+not the table, and this benchmark made that mistake in apeiron's favour for one commit -- the
+reference arms were still scattering a million keys on one thread after apeiron's partition was
+threaded, which is worth 4.5 ms and made a 7% lead look like 2.3x.
+
+The whole point is the last three columns. foldhash's seed is the stack pointer and ASLR and its
+own comment says it does not advertise HashDoS resistance; std seeds SipHash randomly. Both are
+therefore non-deterministic across processes, so neither can back a replay. apeiron is seedless,
+and what defends it is the shape of the probe rather than a secret: `table::group_of` descends
+successive windows of the whole 64-bit word, so extending a collision chain by one step costs the
+attacker another `gbits` of control and an unbounded chain costs all 64 -- at which point the two
+addresses are equal and are one key. `examples/hashdos.rs` inverts `finish` and aims 200,000 keys
+at a single bucket in a single shard; the build takes 0.69x as long as honest traffic and the
+probe 0.35x, because one shard is one region and a region is 128 KB.
+
 ## The coordinate fold, which is three folds
 
 Injectivity is required on one face, irrelevant on the second and impossible on the third, so
