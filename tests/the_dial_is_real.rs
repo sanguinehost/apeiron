@@ -6,12 +6,14 @@
 //! nothing would fail if the trichotomy were wrong, absent, or replaced by three other words.
 
 use apeiron::cell::{fold, fold_is_order_free, Cell, Sigma};
+use apeiron::scalar::Ring;
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
-fn sample() -> Vec<Cell> {
+/// A small integer neighbourhood, over whichever scalar the caller wants.
+fn sample<R: Ring>() -> Vec<Cell<R>> {
     (-3..4)
-        .flat_map(|a| (-3..4).map(move |b| Cell::new(a, b)))
+        .flat_map(|a| (-3..4).map(move |b| Cell::of(a, b)))
         .collect()
 }
 
@@ -20,11 +22,11 @@ fn sample() -> Vec<Cell> {
 #[test]
 fn multiplication_is_commutative_associative_and_unital_on_every_face() {
     for sigma in FACES {
-        for z in sample() {
-            assert_eq!(Cell::one().mul(sigma, z), z, "one_mul at {sigma:?}");
-            for w in sample() {
+        for z in sample::<i64>() {
+            assert_eq!(Cell::<i64>::one().mul(sigma, z), z, "one_mul at {sigma:?}");
+            for w in sample::<i64>() {
                 assert_eq!(z.mul(sigma, w), w.mul(sigma, z), "mul_comm at {sigma:?}");
-                for v in [Cell::new(2, 1), Cell::new(-1, 3)] {
+                for v in [Cell::<i64>::of(2, 1), Cell::<i64>::of(-1, 3)] {
                     assert_eq!(
                         z.mul(sigma, w).mul(sigma, v),
                         z.mul(sigma, w.mul(sigma, v)),
@@ -41,8 +43,8 @@ fn multiplication_is_commutative_associative_and_unital_on_every_face() {
 #[test]
 fn the_norm_is_multiplicative_on_every_face() {
     for sigma in FACES {
-        for z in sample() {
-            for w in sample() {
+        for z in sample::<i64>() {
+            for w in sample::<i64>() {
                 assert_eq!(
                     z.mul(sigma, w).norm_form(sigma),
                     z.norm_form(sigma) * w.norm_form(sigma),
@@ -63,7 +65,7 @@ fn the_channel_count_is_the_sign_of_the_discriminant() {
     assert_eq!(Sigma::Parabolic.channels(), 1);
     assert_eq!(Sigma::Hyperbolic.channels(), 2);
 
-    let z = Cell::new(3, 2);
+    let z = Cell::<i64>::of(3, 2);
     assert!(z.upper(Sigma::Elliptic).is_none() && z.lower(Sigma::Elliptic).is_none());
     assert!(z.channel(Sigma::Elliptic).is_none());
 
@@ -82,8 +84,8 @@ fn the_channel_count_is_the_sign_of_the_discriminant() {
 #[test]
 fn the_two_channels_multiply_independently() {
     let sigma = Sigma::Hyperbolic;
-    for z in sample() {
-        for w in sample() {
+    for z in sample::<i64>() {
+        for w in sample::<i64>() {
             let zw = z.mul(sigma, w);
             assert_eq!(
                 zw.upper(sigma).unwrap(),
@@ -104,7 +106,7 @@ fn the_two_channels_multiply_independently() {
 #[test]
 fn the_norm_factors_into_the_channels() {
     let sigma = Sigma::Hyperbolic;
-    for z in sample() {
+    for z in sample::<i64>() {
         assert_eq!(
             z.norm_form(sigma),
             z.upper(sigma).unwrap() * z.lower(sigma).unwrap(),
@@ -128,9 +130,9 @@ fn only_the_hyperbolic_face_can_discard() {
     // The witness: an idempotent that is neither 0 nor 1 projects onto one lane and kills the
     // other. `2e = (1, 1)` is the doubled idempotent, scaled to stay in the integers.
     let sigma = Sigma::Hyperbolic;
-    let e = Cell::new(1, 1);
+    let e = Cell::<i64>::of(1, 1);
     assert_eq!(e.lower(sigma), Some(0), "the projector kills the lower lane");
-    for z in sample() {
+    for z in sample::<i64>() {
         let projected = z.mul(sigma, e);
         assert_eq!(projected.lower(sigma), Some(0), "the lane stays dead");
         assert_eq!(projected.norm_form(sigma), 0, "and the result is degenerate");
@@ -148,10 +150,10 @@ fn folding_is_order_free_exactly_where_the_theorem_says() {
     assert!(fold_is_order_free(Sigma::Hyperbolic));
 
     let cells = [
-        Cell::new(1, 1),
-        Cell::new(2, -1),
-        Cell::new(0, 3),
-        Cell::new(-2, 1),
+        Cell::<i64>::of(1, 1),
+        Cell::<i64>::of(2, -1),
+        Cell::<i64>::of(0, 3),
+        Cell::<i64>::of(-2, 1),
     ];
     for sigma in [Sigma::Parabolic, Sigma::Hyperbolic] {
         let forward = fold(sigma, &cells);
@@ -164,30 +166,21 @@ fn folding_is_order_free_exactly_where_the_theorem_says() {
     }
 }
 
-/// Two properties that are easy to conflate, and the base ring that separates them further.
+/// Zero divisors and nontrivial idempotents are different properties.
 ///
-/// The corpus is over the reals; this crate is over wrapping `i64`. That gap is real and is
-/// stated rather than glossed:
-///
-/// - **Nontrivial idempotents.** Over the reals they exist exactly above zero
-///   (`exists_nontrivial_idempotent_iff_disc_pos`), and they are `(1 +/- j)/2`. Over the integers
-///   they exist on **no** face, because they are half-integral. So the theorem does not transfer,
-///   and this test asserts the integer fact instead of pretending it does.
-/// - **Zero divisors.** These do transfer. None below zero (the elliptic face is a field), the
-///   nilpotent line `(0, b)` at zero, the null cone above it.
-///
-/// What survives to the integers is the part the table actually uses: `(1, 1)` is `2e+`, and
-/// multiplying by it kills the lower lane exactly as the idempotent would. The discard is
-/// available above zero and nowhere else, which is
-/// `only_the_hyperbolic_face_can_discard`.
+/// They separate twice over. By face: the elliptic face has neither, the parabolic face has the
+/// nilpotent line `(0, b)` and no idempotent, the hyperbolic face has both. And by scalar: the
+/// idempotents are `(1 +/- j)/2` and need one bit of fraction, so over `i64` they are absent from
+/// every face -- which is a fact about the container, not about the algebra. The theorem itself
+/// holds and is tested over `Dyadic` in `idempotents_over_a_ring_with_halves.rs`.
 #[test]
 fn idempotents_and_zero_divisors_over_the_integers() {
-    // Over Z, no face has a nontrivial idempotent -- including the hyperbolic one, whose real
-    // idempotents need a factor of one half.
+    // Over Z, no face has a nontrivial idempotent -- the halves are not there to be had. This is
+    // the container talking, and the companion test shows the theorem holding once it can.
     for sigma in FACES {
-        let nontrivial: Vec<Cell> = sample()
+        let nontrivial: Vec<Cell<i64>> = sample::<i64>()
             .into_iter()
-            .filter(|z| z.mul(sigma, *z) == *z && *z != Cell::zero() && *z != Cell::one())
+            .filter(|z| z.mul(sigma, *z) == *z && *z != Cell::<i64>::zero() && *z != Cell::<i64>::one())
             .collect();
         assert!(
             nontrivial.is_empty(),
@@ -196,33 +189,33 @@ fn idempotents_and_zero_divisors_over_the_integers() {
     }
 
     // Elliptic is a field: the norm a^2 + b^2 vanishes only at the origin.
-    for z in sample() {
+    for z in sample::<i64>() {
         assert_eq!(
             z.norm_form(Sigma::Elliptic) == 0,
-            z == Cell::zero(),
+            z == Cell::<i64>::zero(),
             "elliptic has no zero divisors, {z:?}"
         );
     }
 
     // Parabolic: the nilpotent line. (0, b) squares to zero for every b.
     for b in 1..4 {
-        let n = Cell::new(0, b);
-        assert_eq!(n.mul(Sigma::Parabolic, n), Cell::zero(), "nilpotent {n:?}");
-        assert_ne!(n, Cell::zero());
+        let n = Cell::<i64>::of(0, b);
+        assert_eq!(n.mul(Sigma::Parabolic, n), Cell::<i64>::zero(), "nilpotent {n:?}");
+        assert_ne!(n, Cell::<i64>::zero());
     }
 
     // Hyperbolic: the null cone. The two null directions annihilate each other, and each is
     // degenerate on its own.
-    let (np, nm) = (Cell::new(1, 1), Cell::new(1, -1));
-    assert_eq!(np.mul(Sigma::Hyperbolic, nm), Cell::zero());
+    let (np, nm) = (Cell::<i64>::of(1, 1), Cell::<i64>::of(1, -1));
+    assert_eq!(np.mul(Sigma::Hyperbolic, nm), Cell::<i64>::zero());
     assert_eq!(np.norm_form(Sigma::Hyperbolic), 0);
     assert_eq!(nm.norm_form(Sigma::Hyperbolic), 0);
 
     // And a zero divisor exists above zero but not below it, which is the transferable half.
     for sigma in FACES {
-        let divisors = sample()
+        let divisors = sample::<i64>()
             .into_iter()
-            .filter(|z| *z != Cell::zero() && z.norm_form(sigma) == 0)
+            .filter(|z| *z != Cell::<i64>::zero() && z.norm_form(sigma) == 0)
             .count();
         assert_eq!(
             divisors > 0,

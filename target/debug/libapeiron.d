@@ -1,0 +1,1 @@
+/home/socol/Workspace/apeiron/target/debug/libapeiron.rlib: /home/socol/Workspace/apeiron/src/cell.rs /home/socol/Workspace/apeiron/src/coord.rs /home/socol/Workspace/apeiron/src/lib.rs /home/socol/Workspace/apeiron/src/scalar.rs
