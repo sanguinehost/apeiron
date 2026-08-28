@@ -1,4 +1,6 @@
-//! Where apeiron's 26 ms goes, and what hashtrinity's 9.66 ms is made of.
+//! Where the serial version's time goes: hashing, then the flat unpartitioned build, then the probe.
+//!
+//! The partitioned build is in `examples/phases.rs`; this one is the shape it replaced.
 use apeiron::coord::{bucket, i21, Packed};
 use std::time::Instant;
 
