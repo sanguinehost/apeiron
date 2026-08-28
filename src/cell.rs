@@ -6,6 +6,8 @@
 //!
 //! Theorem names in the doc comments resolve against `../sanguine-apeiron/proof/Apeiron/`.
 
+use crate::scalar::{Halve, Ring};
+
 /// The dial, by the sign of the discriminant.
 ///
 /// Only the sign matters. `classification` proves every 2-dimensional unital commutative
@@ -70,29 +72,45 @@ impl Sigma {
 
 /// An ordered pair holding two values, each readable back independently.
 ///
-/// `Apeiron/Emergence.TwoSlot`: one thing holding two. The algebra realises it above zero and the
-/// combinator calculus realises it too, which is why this type carries both readings.
+/// `Apeiron/Emergence.TwoSlot`: one thing holding two. Generic over the scalar because which ring
+/// the slots live in decides what the cell can hold -- `i64` is the fast lattice, `Dyadic` holds
+/// the idempotents. See [`crate::scalar`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Cell {
-    pub a: i64,
-    pub b: i64,
+pub struct Cell<R> {
+    pub a: R,
+    pub b: R,
 }
 
-impl Cell {
+impl<R: Ring> Cell<R> {
     #[must_use]
-    pub const fn new(a: i64, b: i64) -> Self {
+    pub const fn new(a: R, b: R) -> Self {
         Self { a, b }
+    }
+
+    /// From two whole numbers, whatever the scalar.
+    #[must_use]
+    pub fn of(a: i64, b: i64) -> Self {
+        Self {
+            a: R::from_i64(a),
+            b: R::from_i64(b),
+        }
     }
 
     /// The multiplicative unit, `(1, 0)`, on every face.
     #[must_use]
-    pub const fn one() -> Self {
-        Self { a: 1, b: 0 }
+    pub fn one() -> Self {
+        Self {
+            a: R::ONE,
+            b: R::ZERO,
+        }
     }
 
     #[must_use]
-    pub const fn zero() -> Self {
-        Self { a: 0, b: 0 }
+    pub fn zero() -> Self {
+        Self {
+            a: R::ZERO,
+            b: R::ZERO,
+        }
     }
 
     /// `(a1 a2 + sigma b1 b2, a1 b2 + b1 a2)`.
@@ -101,24 +119,22 @@ impl Cell {
     /// (`mul_comm`, `mul_assoc`) -- which is what licenses folding a list of these in any order.
     #[must_use]
     pub fn mul(self, sigma: Sigma, other: Self) -> Self {
-        let s = sigma.value();
+        let s = R::from_i64(sigma.value());
         Self {
-            a: self
-                .a
-                .wrapping_mul(other.a)
-                .wrapping_add(s.wrapping_mul(self.b).wrapping_mul(other.b)),
-            b: self
-                .a
-                .wrapping_mul(other.b)
-                .wrapping_add(self.b.wrapping_mul(other.a)),
+            a: self.a.mul(other.a).add(s.mul(self.b).mul(other.b)),
+            b: self.a.mul(other.b).add(self.b.mul(other.a)),
         }
     }
 
+    /// Componentwise addition. Named rather than the `Add` operator because `mul` cannot be
+    /// `Mul` -- it takes the dial -- and one of the pair being an operator and the other a method
+    /// would read as though they were different kinds of thing.
+    #[allow(clippy::should_implement_trait)]
     #[must_use]
-    pub const fn add(self, other: Self) -> Self {
+    pub fn add(self, other: Self) -> Self {
         Self {
-            a: self.a.wrapping_add(other.a),
-            b: self.b.wrapping_add(other.b),
+            a: self.a.add(other.a),
+            b: self.b.add(other.b),
         }
     }
 
@@ -129,10 +145,9 @@ impl Cell {
     /// (`NullBasis.normForm_eq_upper_mul_lower`), so a cell is degenerate exactly when one lane
     /// has gone to zero -- which is the precise sense in which a lossy fold sits on the null cone.
     #[must_use]
-    pub fn norm_form(self, sigma: Sigma) -> i64 {
-        self.a
-            .wrapping_mul(self.a)
-            .wrapping_sub(sigma.value().wrapping_mul(self.b).wrapping_mul(self.b))
+    pub fn norm_form(self, sigma: Sigma) -> R {
+        let s = R::from_i64(sigma.value());
+        self.a.mul(self.a).sub(s.mul(self.b).mul(self.b))
     }
 
     /// The upper channel, `a + b`. Hyperbolic only.
@@ -141,18 +156,18 @@ impl Cell {
     /// hyperbolic face because there is no second channel to be the upper one -- the type refuses
     /// what `no_channel_of_disc_neg` and `channel_iff_fst_of_disc_zero` say does not exist.
     #[must_use]
-    pub fn upper(self, sigma: Sigma) -> Option<i64> {
+    pub fn upper(self, sigma: Sigma) -> Option<R> {
         match sigma {
-            Sigma::Hyperbolic => Some(self.a.wrapping_add(self.b)),
+            Sigma::Hyperbolic => Some(self.a.add(self.b)),
             Sigma::Parabolic | Sigma::Elliptic => None,
         }
     }
 
     /// The lower channel, `a - b`. Hyperbolic only. `NullBasis.lower_mul`.
     #[must_use]
-    pub fn lower(self, sigma: Sigma) -> Option<i64> {
+    pub fn lower(self, sigma: Sigma) -> Option<R> {
         match sigma {
-            Sigma::Hyperbolic => Some(self.a.wrapping_sub(self.b)),
+            Sigma::Hyperbolic => Some(self.a.sub(self.b)),
             Sigma::Parabolic | Sigma::Elliptic => None,
         }
     }
@@ -160,7 +175,7 @@ impl Cell {
     /// The one channel a parabolic cell has: the first slot.
     /// `Channels.channel_iff_fst_of_disc_zero`.
     #[must_use]
-    pub fn channel(self, sigma: Sigma) -> Option<i64> {
+    pub fn channel(self, sigma: Sigma) -> Option<R> {
         match sigma {
             Sigma::Parabolic => Some(self.a),
             Sigma::Hyperbolic | Sigma::Elliptic => None,
@@ -175,7 +190,7 @@ impl Cell {
 /// at a sync point with no ordering -- and it is stated as a property of the dial, so the elliptic
 /// face does not get it by accident.
 #[must_use]
-pub fn fold(sigma: Sigma, cells: &[Cell]) -> Cell {
+pub fn fold<R: Ring>(sigma: Sigma, cells: &[Cell<R>]) -> Cell<R> {
     cells.iter().fold(Cell::one(), |acc, c| acc.mul(sigma, *c))
 }
 
@@ -183,4 +198,44 @@ pub fn fold(sigma: Sigma, cells: &[Cell]) -> Cell {
 #[must_use]
 pub const fn fold_is_order_free(sigma: Sigma) -> bool {
     !matches!(sigma, Sigma::Elliptic)
+}
+
+impl<R: Halve> Cell<R> {
+    /// `e+ = (1 + j)/2`, the idempotent that projects onto the upper channel.
+    ///
+    /// `Idempotents.idemPlus`, and `exists_nontrivial_idempotent_iff_disc_pos` says it is
+    /// nontrivial exactly above zero. Its existence needs a half, which is why this lives behind
+    /// [`Halve`]: over `i64` the construction does not compile, and that is the theorem's scope
+    /// enforced by the type rather than described in a comment.
+    #[must_use]
+    pub fn idem_plus() -> Self {
+        Self {
+            a: R::ONE.halve(),
+            b: R::ONE.halve(),
+        }
+    }
+
+    /// `e- = (1 - j)/2`, projecting onto the lower channel. `Idempotents.idemMinus`.
+    #[must_use]
+    pub fn idem_minus() -> Self {
+        Self {
+            a: R::ONE.halve(),
+            b: R::ZERO.sub(R::ONE.halve()),
+        }
+    }
+
+    /// Back from the null basis: `a = (u + l)/2`, `b = (u - l)/2`. `NullBasis.ofHalves`.
+    ///
+    /// Only meaningful above zero, where the two channels exist; `None` elsewhere, matching
+    /// [`Cell::upper`].
+    #[must_use]
+    pub fn of_halves(sigma: Sigma, upper: R, lower: R) -> Option<Self> {
+        match sigma {
+            Sigma::Hyperbolic => Some(Self {
+                a: upper.add(lower).halve(),
+                b: upper.sub(lower).halve(),
+            }),
+            Sigma::Parabolic | Sigma::Elliptic => None,
+        }
+    }
 }

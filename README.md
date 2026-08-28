@@ -25,17 +25,26 @@ have no channel, `discards()` is false off the hyperbolic face, and the fold's o
 stated as a property of `sigma` rather than assumed. What the algebra forbids is unavailable
 rather than merely undocumented.
 
-## Scope, stated
+## The scalar is a choice, not a limit
 
-The corpus is over the reals; this crate is over wrapping `i64`. Most of the structure transfers
-and some does not, so the tests assert the integer facts:
+`Cell<R>` is generic over the ring its slots live in, because which ring you pick decides what the
+cell can hold:
 
-- **Transfers:** commutativity, associativity, the unit, multiplicativity of the norm, the channel
-  count, componentwise multiplication in the null basis, the norm factoring into the channels,
-  order-free folding above zero, zero divisors at and above zero.
-- **Does not:** the nontrivial idempotents are `(1 +/- j)/2` and are not integral, so over `Z` no
-  face has one. What survives is the discard itself -- `(1, 1)` is `2e+`, and multiplying by it
-  kills the lower lane the way the idempotent would.
+- **`i64`** -- the fast lattice. Everything structural holds: commutativity, associativity, the
+  unit, multiplicativity of the norm, the channel count, componentwise multiplication in the null
+  basis, order-free folding above zero, zero divisors at and above zero.
+- **`Dyadic`** -- an exact `m / 2^e`, two integers, the same shape a float has without the
+  rounding. This is where the nontrivial idempotents `(1 +/- j)/2` live, so
+  `exists_nontrivial_idempotent_iff_disc_pos` holds here rather than being written off.
+
+The halves were never an obstruction in the algebra, only in the container. In the null basis the
+idempotents are the unit vectors `(1, 0)` and `(0, 1)` -- the fraction is an artefact of the
+coordinates.
+
+The split is in the bounds. `Ring` is what the algebra needs; `Halve` is the extra thing the
+idempotents need; `i64` implements the first and not the second, so `Cell::<i64>::idem_plus()`
+does not compile. That is the theorem's scope enforced by the type rather than described in a
+comment.
 
 ## The coordinate fold
 
