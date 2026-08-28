@@ -25,6 +25,7 @@ pub mod cell;
 pub mod keystore;
 pub mod proofs;
 pub mod scalar;
+pub mod table;
 pub mod coord;
 
 pub use cell::{Cell, Sigma};
