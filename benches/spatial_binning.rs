@@ -115,9 +115,73 @@ fn hashtrinity_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)]) -> i64
     acc
 }
 
-/// Any `HashMap` sharded and threaded exactly as apeiron's table is: keys partitioned by the same
-/// shard function, one map per shard, workers owning disjoint shards, probes grouped the same way.
-/// Without this the comparison is a parallel arm against a serial one, which measures nothing.
+const SHARDS: usize = 256;
+
+/// A stream cut into shards the way `apeiron::table` cuts it: each worker partitions a contiguous
+/// chunk into one buffer it owns, its shard runs laid end to end, and shard `s`'s stream is the
+/// workers' runs in worker order.
+///
+/// Here so the reference arms pay what apeiron pays. apeiron's partition is threaded; leaving
+/// this one serial would make the comparison a parallel arm against a serial one, which is the
+/// same mistake these arms exist to stop making in the other direction.
+struct Runs<K> {
+    bufs: Vec<Vec<K>>,
+    ends: Vec<Vec<usize>>,
+}
+
+impl<K: Copy + Default + Send + Sync> Runs<K> {
+    fn of(xs: &[K], shard: &(impl Fn(&K) -> usize + Sync), threads: usize) -> Self {
+        let workers = threads.max(1);
+        if xs.is_empty() {
+            return Self { bufs: Vec::new(), ends: Vec::new() };
+        }
+        let chunk = xs.len().div_ceil(workers).max(1);
+        let done: Vec<(Vec<K>, Vec<usize>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = xs
+                .chunks(chunk)
+                .map(|c| {
+                    scope.spawn(move || {
+                        let mut counts = vec![0usize; SHARDS];
+                        for k in c {
+                            counts[shard(k)] += 1;
+                        }
+                        let mut ends = vec![0usize; SHARDS + 1];
+                        let mut cursor = vec![0usize; SHARDS];
+                        let mut acc = 0usize;
+                        for s in 0..SHARDS {
+                            ends[s] = acc;
+                            cursor[s] = acc;
+                            acc += counts[s];
+                        }
+                        ends[SHARDS] = acc;
+                        let mut buf = vec![K::default(); c.len()];
+                        for k in c {
+                            let s = shard(k);
+                            buf[cursor[s]] = *k;
+                            cursor[s] += 1;
+                        }
+                        (buf, ends)
+                    })
+                })
+                .collect();
+            handles.into_iter().filter_map(|h| h.join().ok()).collect()
+        });
+        let (bufs, ends) = done.into_iter().unzip();
+        Self { bufs, ends }
+    }
+
+    fn runs(&self, s: usize) -> impl Iterator<Item = &[K]> {
+        self.bufs
+            .iter()
+            .zip(self.ends.iter())
+            .map(move |(b, e)| &b[e[s]..e[s + 1]])
+    }
+}
+
+/// Any `HashMap` sharded and threaded exactly as apeiron's table is: keys partitioned in parallel
+/// by the same shard function, one map per shard, workers owning disjoint shards, probes grouped
+/// the same way. Without this the comparison is a parallel arm against a serial one, which
+/// measures nothing.
 fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
     keys: &[(i32, i32, i32)],
     probe: &[(i32, i32, i32)],
@@ -129,15 +193,8 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
             (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed(),
         )
     };
-    const SHARDS: usize = 256;
-    let mut kb: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); SHARDS];
-    let mut pb: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); SHARDS];
-    for &k in keys {
-        kb[shard(&k)].push(k);
-    }
-    for &k in probe {
-        pb[shard(&k)].push(k);
-    }
+    let kb = Runs::of(keys, &shard, threads);
+    let pb = Runs::of(probe, &shard, threads);
     let chunk = SHARDS.div_ceil(threads.max(1));
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
@@ -148,11 +205,15 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
                 let mut acc = 0i64;
                 for s in g..hi {
                     let mut m: HashMap<(i32, i32, i32), i64, S> = HashMap::default();
-                    for k in &kb[s] {
-                        *m.entry(*k).or_insert(0) += 1;
+                    for run in kb.runs(s) {
+                        for k in run {
+                            *m.entry(*k).or_insert(0) += 1;
+                        }
                     }
-                    for k in &pb[s] {
-                        acc += m.get(k).copied().unwrap_or(0);
+                    for run in pb.runs(s) {
+                        for k in run {
+                            acc += m.get(k).copied().unwrap_or(0);
+                        }
                     }
                 }
                 acc
