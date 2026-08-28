@@ -108,6 +108,19 @@ fn main() {
     let tb = CountTable::build_parallel(&packed, bits, 16);
     let t = best(7, || { let t = Instant::now(); let s = tb.sum_parallel(&probe, 16); let m = ms(t); std::hint::black_box(s); m });
     println!("    sum_parallel(16)                 {t:>7.2}");
+    // The same probe without the shard grouping: 16 contiguous chunks, `get` per key. Grouping
+    // costs a partition; the question is whether the locality it buys still pays now that a
+    // region is 128 KB rather than a slice of a 32 MB table.
+    let t = best(7, || {
+        let t = Instant::now();
+        let chunk = probe.len().div_ceil(16);
+        let s: i64 = std::thread::scope(|sc| {
+            let hs: Vec<_> = probe.chunks(chunk).map(|c| sc.spawn(|| c.iter().map(|&a| tb.get(a)).sum::<i64>())).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).sum()
+        });
+        let m = ms(t); std::hint::black_box(s); m
+    });
+    println!("    ungrouped chunked probe(16)      {t:>7.2}");
     let t = best(7, || { let t = Instant::now(); let tb = CountTable::build_parallel(&packed, bits, 16); let s = tb.sum_parallel(&probe, 16); let m = ms(t); std::hint::black_box(s); m });
     println!("    both                             {t:>7.2}");
 
