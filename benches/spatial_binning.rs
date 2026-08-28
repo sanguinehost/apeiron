@@ -12,7 +12,8 @@
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
-use apeiron::coord::{bucket, i21, Packed};
+use apeiron::coord::{i21, Packed};
+use apeiron::table::CountTable;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use hashtrinity::FreqMap;
 
@@ -57,48 +58,18 @@ fn scene(n: usize) -> Vec<(i32, i32, i32)> {
         .collect()
 }
 
-/// apeiron: a bijective address, then an avalanched bucket. Open addressing, linear probe.
-fn apeiron_table(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)], bits: u32) -> i64 {
-    let n = 1usize << bits;
-    let mut addr = vec![u64::MAX; n];
-    let mut count = vec![0i64; n];
-    let narrow = |k: &(i32, i32, i32)| {
-        (
-            i21::new(k.0).unwrap(),
-            i21::new(k.1).unwrap(),
-            i21::new(k.2).unwrap(),
-        )
-    };
-    for k in keys {
-        let a = narrow(k).packed();
-        let mut i = bucket(a, bits) as usize;
-        loop {
-            if addr[i] == u64::MAX {
-                addr[i] = a;
-                count[i] = 1;
-                break;
-            } else if addr[i] == a {
-                count[i] += 1;
-                break;
-            }
-            i = (i + 1) & (n - 1);
-        }
-    }
-    let mut total = 0;
-    for k in probe {
-        let a = narrow(k).packed();
-        let mut i = bucket(a, bits) as usize;
-        loop {
-            if addr[i] == u64::MAX {
-                break;
-            } else if addr[i] == a {
-                total += count[i];
-                break;
-            }
-            i = (i + 1) & (n - 1);
-        }
-    }
-    total
+/// apeiron, one thread: a bijective address, an avalanched bucket, a partitioned table.
+fn apeiron_serial(addrs: &[u64], probe: &[u64], bits: u32) -> i64 {
+    let t = CountTable::build(addrs, bits);
+    probe.iter().map(|&a| t.get(a)).sum()
+}
+
+/// apeiron, parallel. Shards hold disjoint keys, so workers own contiguous regions outright:
+/// no merge, no synchronisation on the hot path, and the probe is grouped the same way the build
+/// was -- a key is in one shard and visiting the others measures nothing.
+fn apeiron_parallel(addrs: &[u64], probe: &[u64], bits: u32, threads: usize) -> i64 {
+    let t = CountTable::build_parallel(addrs, bits, threads);
+    t.sum_parallel(probe, threads)
 }
 
 /// hashtrinity's own path, its way: the packed key its benchmark uses, through `count_par`.
@@ -192,7 +163,8 @@ fn bench(c: &mut Criterion) {
                 (got - truth).abs()
             );
         };
-        report("apeiron", apeiron_table(&keys, &occupied, bits));
+        report("apeiron_serial", apeiron_serial(&packed, &probe_packed, bits));
+        report("apeiron_parallel", apeiron_parallel(&packed, &probe_packed, bits, 16));
         report("hashtrinity_packed", hashtrinity_packed(&packed, &probe_packed));
         report("hashtrinity_tuple", hashtrinity_tuple(&keys, &occupied));
         report(
@@ -203,12 +175,20 @@ fn bench(c: &mut Criterion) {
             "hashbrown_fxhash",
             hashbrown_with::<BuildHasherDefault<rustc_hash::FxHasher>>(&keys, &occupied),
         );
-        assert_eq!(apeiron_table(&keys, &occupied, bits), truth, "apeiron must be exact");
+        assert_eq!(apeiron_serial(&packed, &probe_packed, bits), truth, "apeiron must be exact");
+        assert_eq!(
+            apeiron_parallel(&packed, &probe_packed, bits, 16),
+            truth,
+            "apeiron parallel must be exact"
+        );
 
         let mut g = c.benchmark_group(format!("bin_and_probe/{n}"));
         g.sample_size(20);
-        g.bench_with_input(BenchmarkId::new("apeiron", n), &n, |b, _| {
-            b.iter(|| black_box(apeiron_table(&keys, &occupied, bits)));
+        g.bench_with_input(BenchmarkId::new("apeiron_serial", n), &n, |b, _| {
+            b.iter(|| black_box(apeiron_serial(&packed, &probe_packed, bits)));
+        });
+        g.bench_with_input(BenchmarkId::new("apeiron_par16", n), &n, |b, _| {
+            b.iter(|| black_box(apeiron_parallel(&packed, &probe_packed, bits, 16)));
         });
         g.bench_with_input(BenchmarkId::new("hashtrinity_packed", n), &n, |b, _| {
             b.iter(|| black_box(hashtrinity_packed(&packed, &probe_packed)));
