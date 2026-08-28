@@ -15,7 +15,6 @@
 
 use apeiron::cell::{fold, Cell, Sigma};
 use apeiron::keystore::{after_storing, key_cell, Keystore};
-use apeiron::scalar::Ring;
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
