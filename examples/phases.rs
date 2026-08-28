@@ -110,4 +110,41 @@ fn main() {
     println!("    sum_parallel(16)                 {t:>7.2}");
     let t = best(7, || { let t = Instant::now(); let tb = CountTable::build_parallel(&packed, bits, 16); let s = tb.sum_parallel(&probe, 16); let m = ms(t); std::hint::black_box(s); m });
     println!("    both                             {t:>7.2}");
+
+    // What a thread::scope of 16 empty workers costs, since the build pays it twice already
+    // and a parallel partition would pay it twice more.
+    for w in [8usize, 16, 32] {
+        let t = best(20, || {
+            let t = Instant::now();
+            std::thread::scope(|s| { for _ in 0..w { s.spawn(|| std::hint::black_box(0u64)); } });
+            ms(t)
+        });
+        println!("    empty thread::scope of {w:<3}       {t:>7.3}");
+    }
+
+    // Allocation: 256 Vecs vs one buffer.
+    let t = best(20, || {
+        let t = Instant::now();
+        let v: Vec<Vec<u64>> = (0..256).map(|_| Vec::<u64>::with_capacity(4000)).collect();
+        let m = ms(t); std::hint::black_box(v); m
+    });
+    println!("    256 Vec::with_capacity(4000)     {t:>7.3}");
+    let t = best(20, || {
+        let t = Instant::now();
+        let v: Vec<u64> = vec![0u64; 1_000_000];
+        let m = ms(t); std::hint::black_box(v); m
+    });
+    println!("    vec![0u64; 1M] (zeroed)          {t:>7.3}");
+    let t = best(20, || {
+        let t = Instant::now();
+        let v: Vec<(u64, i64)> = vec![(u64::MAX, 0); 1 << 21];
+        let m = ms(t); std::hint::black_box(v); m
+    });
+    println!("    vec![(MAX,0); 2^21] (pattern)    {t:>7.3}");
+    let t = best(20, || {
+        let t = Instant::now();
+        let v: Vec<(u64, i64)> = vec![(0, 0); 1 << 21];
+        let m = ms(t); std::hint::black_box(v); m
+    });
+    println!("    vec![(0,0);  2^21]               {t:>7.3}");
 }
