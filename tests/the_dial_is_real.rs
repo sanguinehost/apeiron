@@ -139,15 +139,19 @@ fn only_the_hyperbolic_face_can_discard() {
     }
 }
 
-/// `fold_perm`: for `sigma >= 0` the fold does not depend on the order of its input.
+/// Folding is order-free on every face, elliptic included.
 ///
-/// The licence for accumulating from many threads and combining once. Elliptic is excluded
-/// because the theorem excludes it, not because it was tested and failed.
+/// `fold_perm` is stated with `0 <= sigma`, but that is the proof's route -- through the channel
+/// decomposition -- and not the fact's scope. `mul_comm` and `mul_assoc` hold for every `sigma`
+/// with no hypothesis, and order-freedom follows from those two alone.
+///
+/// This is the load-bearing half of "one merge, three keystores": the merge does not vary with
+/// the dial because commutativity does not.
 #[test]
-fn folding_is_order_free_exactly_where_the_theorem_says() {
-    assert!(!fold_is_order_free(Sigma::Elliptic));
-    assert!(fold_is_order_free(Sigma::Parabolic));
-    assert!(fold_is_order_free(Sigma::Hyperbolic));
+fn folding_is_order_free_on_every_face() {
+    for sigma in FACES {
+        assert!(fold_is_order_free(sigma), "{sigma:?}");
+    }
 
     let cells = [
         Cell::<i64>::of(1, 1),
@@ -155,7 +159,7 @@ fn folding_is_order_free_exactly_where_the_theorem_says() {
         Cell::<i64>::of(0, 3),
         Cell::<i64>::of(-2, 1),
     ];
-    for sigma in [Sigma::Parabolic, Sigma::Hyperbolic] {
+    for sigma in FACES {
         let forward = fold(sigma, &cells);
         let mut reversed = cells;
         reversed.reverse();
