@@ -2675,6 +2675,25 @@ impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
     /// The copy holds every entry in the *same slot* the original does, so the two iterate in the
     /// same order and probe identically. Rebuilding by reinsertion would not guarantee that once
     /// tombstones are in play.
+    ///
+    /// # The one operation still behind `std` on word keys, and what is not the cause
+    ///
+    /// Against `std::collections::HashMap<u64, u64>`, this is 1.12x ahead at 2^10 entries, **0.71x
+    /// at 2^14**, 0.90x at 2^17 and 1.04x at 2^20. Winning at both ends and losing in the middle
+    /// is the shape of a fixed cost, not of a bad loop: at 2^10 there is nothing to copy, and at
+    /// 2^20 bandwidth dominates and skipping the empty eighth pays for itself.
+    ///
+    /// **Rejected, measured:** a straight-line copy of all sixteen lanes for full groups, on the
+    /// theory that a fixed-length form vectorises where a bitmask walk cannot -- and at the 7/8
+    /// fill most groups are full, so it would have covered most of the array. It changed nothing,
+    /// 0.63x against 0.63x. The per-lane branching is not the cost.
+    ///
+    /// The open suspect is structural: `hashbrown` puts its control bytes and its buckets in
+    /// **one** allocation, and this map has two boxes -- two allocations and two memcpys against
+    /// one. That is the kind of fixed cost that hides at both ends and shows in the middle. It is
+    /// stated as a suspect and not a finding, because the microbenchmark written to price it
+    /// compared two `calloc`s against one and so measured lazy zeroing instead. Merging the two
+    /// boxes is the same thin-pointer change that would take `size_of::<Map>()` from 88 to 64.
     fn clone(&self) -> Self {
         let mut slots: Box<[MaybeUninit<(H, V)>]> = uninit_slots(self.slots.len());
         for_each_live(&self.tags, |i| {
