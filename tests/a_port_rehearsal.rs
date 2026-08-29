@@ -60,23 +60,31 @@ impl apeiron::coord::Packed for EntityKey {
 /// The resource-type tag half of a VFS key.
 type ResType = u16;
 
+/// Miri interprets rather than runs, so a hundred thousand entries is minutes rather than
+/// milliseconds. The shapes are what this file is about -- every one of them is exercised at a
+/// fortieth the size, and native keeps the real scale.
+#[cfg(miri)]
+const SCALE: usize = 40;
+#[cfg(not(miri))]
+const SCALE: usize = 1;
+
 #[test]
 fn the_ir_handles_run_on_the_elliptic_face_storing_no_key() {
     // `HashMap<BlockId, CfgNode>` and friends: 33 declarations across the decompiler IR.
     let mut preds: Words<BlockId, Vec<BlockId>> = Words::new();
-    for b in 0..5_000u32 {
+    for b in 0..(5_000 / SCALE) as u32 {
         preds.insert(BlockId(b), vec![BlockId(b.saturating_sub(1))]);
     }
-    assert_eq!(preds.len(), 5_000);
+    assert_eq!(preds.len(), 5_000 / SCALE);
     assert_eq!(preds.face(), apeiron::Keystore::Being);
-    assert_eq!(preds.get(&BlockId(4_999)).map(Vec::len), Some(1));
-    assert_eq!(preds.get(&BlockId(5_000)), None);
+    assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32 - 1)).map(Vec::len), Some(1));
+    assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32)), None);
 
     // The key really does come back off the address -- nothing else is stored.
     let mut ids: Vec<BlockId> = preds.keys().collect();
     ids.sort_unstable();
     assert_eq!(ids.first(), Some(&BlockId(0)));
-    assert_eq!(ids.last(), Some(&BlockId(4_999)));
+    assert_eq!(ids.last(), Some(&BlockId((5_000 / SCALE) as u32 - 1)));
 
     // A second handle type is a different type, so it cannot be looked up in the first map by
     // accident even though both are newtypes over u32 with the same address.
@@ -96,7 +104,7 @@ fn the_vfs_composite_index_probes_without_allocating() {
     // `HashMap<(String, u16), ResourceLocation>` -- six of these, one per archive kind, each built
     // once at mount and probed on every resource lookup for the life of the process.
     let mut index: Map<(String, ResType), (u32, usize)> = Map::new();
-    for i in 0..20_000u32 {
+    for i in 0..(20_000 / SCALE) as u32 {
         index.insert((format!("nw_wswmg{i:05}"), 2_002), (i, i as usize * 16));
     }
 
@@ -109,22 +117,23 @@ fn the_vfs_composite_index_probes_without_allocating() {
 
     // And the owned surface sees the same table.
     assert_eq!(index.get(&("nw_wswmg00042".to_string(), 2_002)), Some(&(42, 672)));
-    assert_eq!(index.len(), 20_000);
+    assert_eq!(index.len(), 20_000 / SCALE);
 }
 
 #[test]
 fn the_talk_table_holds_a_hundred_thousand_strings() {
     // `HashMap<u32, String>`, keyed by StrRef. Non-sequential in DA:O -- 0..274K and 5M+ ranges --
     // so this is deliberately sparse rather than dense.
-    let mut tlk: Words<u32, String> = Words::with_capacity(120_000);
-    for i in 0..60_000u32 {
+    let half = (60_000 / SCALE) as u32;
+    let mut tlk: Words<u32, String> = Words::with_capacity(2 * half as usize);
+    for i in 0..half {
         tlk.insert(i, format!("line {i}"));
     }
-    for i in 0..60_000u32 {
+    for i in 0..half {
         tlk.insert(5_000_000 + i * 3, format!("dlc line {i}"));
     }
-    assert_eq!(tlk.len(), 120_000);
-    assert_eq!(tlk.get(&59_999).map(String::as_str), Some("line 59999"));
+    assert_eq!(tlk.len(), 2 * half as usize);
+    assert_eq!(tlk.get(&(half - 1)).map(String::as_str), Some(format!("line {}", half - 1).as_str()));
     assert_eq!(tlk.get(&5_000_003).map(String::as_str), Some("dlc line 1"));
     assert_eq!(tlk.get(&5_000_001), None);
 
@@ -137,12 +146,13 @@ fn the_talk_table_holds_a_hundred_thousand_strings() {
 #[test]
 fn a_path_newtype_and_the_string_maps() {
     let mut paths: Map<VPath, u64> = Map::new();
-    for i in 0..5_000u32 {
+    for i in 0..(5_000 / SCALE) as u32 {
         paths.insert(VPath(format!("data/meshes/{i}.nif")), u64::from(i));
     }
-    assert_eq!(paths.get(&VPath("data/meshes/4999.nif".into())), Some(&4_999));
+    let last = (5_000 / SCALE) as u32 - 1;
+    assert_eq!(paths.get(&VPath(format!("data/meshes/{last}.nif"))), Some(&u64::from(last)));
     // Case-sensitive, as its source is.
-    assert_eq!(paths.get(&VPath("DATA/MESHES/4999.NIF".into())), None);
+    assert_eq!(paths.get(&VPath(format!("DATA/MESHES/{last}.NIF"))), None);
 
     // The 47 plain `HashMap<String, _>` declarations: GFF field tables, 2DA columns, MDL nodes.
     let mut fields: Map<String, i64> = Map::new();
@@ -158,11 +168,11 @@ fn a_path_newtype_and_the_string_maps() {
 fn the_sets_cover_what_the_sets_are_for() {
     // `HashSet<u32>` -- declared_params, declared_values, expanded_nodes, block_starts.
     let mut declared: WordSet<u32> = WordSet::new();
-    for i in 0..2_000u32 {
+    for i in 0..(2_000 / SCALE) as u32 {
         assert!(declared.insert(i));
     }
     assert!(!declared.insert(0));
-    assert!(declared.contains(&1_999));
+    assert!(declared.contains(&((2_000 / SCALE) as u32 - 1)));
 
     // `HashSet<ValueId>` -- hoisted_values.
     let mut hoisted: WordSet<ValueId> = WordSet::new();
@@ -178,10 +188,11 @@ fn the_sets_cover_what_the_sets_are_for() {
     // `BTreeSet<u32>` -- 13 of the 14, holding jump targets and block ids, ordered so the
     // decompiler's output can be fingerprinted in a test. That is determinism, not ordering, and
     // this gives it without paying for a tree.
-    let targets = || (0..500u32).map(|i| i.wrapping_mul(2_654_435_761) % 10_000).collect::<WordSet<u32>>();
+    let targets = || (0..(500 / SCALE) as u32).map(|i| i.wrapping_mul(2_654_435_761) % 10_000).collect::<WordSet<u32>>();
     let a: Vec<u32> = targets().into_iter().collect();
     let b: Vec<u32> = targets().into_iter().collect();
     assert_eq!(a, b, "iteration order moved between two identical builds");
+    assert_eq!(a.len(), (500 / SCALE));
 }
 
 #[test]
@@ -191,10 +202,11 @@ fn the_untrusted_indexes_are_peppered_by_construction() {
     // `Exposed` is how that gets said at the declaration instead of in a comment.
     let pepper = NonZeroU64::new(0x5EED_1234_ABCD_9876).expect("nonzero");
     let mut index: Exposed<(String, ResType), u32> = Exposed::new(pepper);
-    for i in 0..10_000u32 {
+    for i in 0..(10_000 / SCALE) as u32 {
         index.insert((format!("res{i:05}"), 2_002), i);
     }
-    assert_eq!(index.get_at(("res09999", 2_002u16)), Some(&9_999));
+    let last = (10_000 / SCALE) as u32 - 1;
+    assert_eq!(index.get_at((format!("res{last:05}").as_str(), 2_002u16)), Some(&last));
     assert!(index.stats().peppered);
     assert!(!index.stats().looks_aimed());
 
