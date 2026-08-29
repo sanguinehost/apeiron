@@ -190,6 +190,7 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
     use apeiron::coord::Packed;
     let shard = |k: &(i32, i32, i32)| {
         apeiron::table::shard_of(
+            apeiron::map::Salt::default(),
             (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed(),
         )
     };

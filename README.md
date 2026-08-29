@@ -103,8 +103,11 @@ at `2^(j * gbits)` trials each:
 | 3 | > 4 × 10⁹ | unaffordable | — |
 
 Exponential cost, linear damage — which is what the original claim always meant and could not
-deliver while the word was invertible. `CountTable` still addresses through `finish`, a bijection,
-so it keeps the weaker story; that is a gap and is written down as one.
+deliver while the word was invertible. `CountTable` took the same split, and the attack there has to
+aim at both ends of the placement word — the shard is its bottom eight bits, the descent walks down
+from bit 57 — so crowding one region costs `2^(8 + j·gbits)` trials per key: 247 for the shard alone
+(which is a *speed-up*, 0.71×, because a region is sized to its load), 63,839 for one further
+window, and unaffordable for two.
 
 What defends it is a secret, as it is for SipHash. `map::Salt` is that secret and `pepper` is how it
 gets set:
@@ -122,8 +125,9 @@ one. `Exposed<K, V>` takes a `NonZeroU64`, so a table fed from outside the proce
 unable to exist without one; `Map::stats()` reports `longest_probe` so an attack is visible whether
 or not anybody remembered.
 
-`CountTable` has no pepper yet and still carries this exposure. That is a gap, written down here
-rather than left as a claim.
+`CountTable` has one too (`CountTable::with_pepper`, or the process floor). Measured structurally
+rather than by the clock: the same aimed keys reach **one** shard of 256 under the salt they were
+aimed at, and **all 256** under a peppered table — against 255 for honest traffic.
 
 ## The map and the set
 

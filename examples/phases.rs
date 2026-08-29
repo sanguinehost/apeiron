@@ -3,6 +3,7 @@
 //! Same scene as `benches/spatial_binning.rs`, so the numbers are comparable to the headline.
 
 use apeiron::coord::{finish, i21, Packed};
+use apeiron::map::Salt;
 use apeiron::table::{shard_of, CountTable};
 use std::time::Instant;
 
@@ -67,11 +68,11 @@ fn main() {
     // Per-shard load and distinct load, which is what `region_for` is guessing at.
     let mut load = [0usize; 256];
     for &a in &packed {
-        load[shard_of(a)] += 1;
+        load[shard_of(Salt::default(), a)] += 1;
     }
     let mut dist = [0usize; 256];
     for &a in &probe {
-        dist[shard_of(a)] += 1;
+        dist[shard_of(Salt::default(), a)] += 1;
     }
     let (lmax, dmax) = (*load.iter().max().unwrap(), *dist.iter().max().unwrap());
     let slots: usize = load.iter().map(|&l| if l == 0 { 0 } else { (l * 2).max(32).next_power_of_two() }).sum();
@@ -88,7 +89,7 @@ fn main() {
     let t = best(7, || {
         let t = Instant::now();
         let mut counts = [0usize; 256];
-        for &a in &packed { counts[shard_of(a)] += 1; }
+        for &a in &packed { counts[shard_of(Salt::default(), a)] += 1; }
         let m = ms(t); std::hint::black_box(counts); m
     });
     println!("    partition counting pass          {t:>7.2}");
@@ -96,9 +97,9 @@ fn main() {
     let t = best(7, || {
         let t = Instant::now();
         let mut counts = [0usize; 256];
-        for &a in &packed { counts[shard_of(a)] += 1; }
+        for &a in &packed { counts[shard_of(Salt::default(), a)] += 1; }
         let mut sh: Vec<Vec<u64>> = counts.iter().map(|&c| Vec::with_capacity(c)).collect();
-        for &a in &packed { sh[shard_of(a)].push(a); }
+        for &a in &packed { sh[shard_of(Salt::default(), a)].push(a); }
         let m = ms(t); std::hint::black_box(sh); m
     });
     println!("    full partition (count+alloc+scatter) {t:>3.2}");
