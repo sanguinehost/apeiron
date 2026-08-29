@@ -77,12 +77,15 @@ impl Sigma {
 /// the idempotents. See [`crate::scalar`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Cell<R> {
+    /// The first slot: the real part, and the one a projection keeps.
     pub a: R,
+    /// The second slot: the coefficient of `x`, whose square is `sigma`.
     pub b: R,
 }
 
 impl<R: Ring> Cell<R> {
     #[must_use]
+    /// The cell `a + b*x`.
     pub const fn new(a: R, b: R) -> Self {
         Self { a, b }
     }
@@ -106,6 +109,7 @@ impl<R: Ring> Cell<R> {
     }
 
     #[must_use]
+    /// The additive identity.
     pub fn zero() -> Self {
         Self {
             a: R::ZERO,

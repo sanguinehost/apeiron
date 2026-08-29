@@ -19,16 +19,22 @@ use std::fmt::Debug;
 
 /// A commutative ring: what the two-slot algebra is built over.
 pub trait Ring: Copy + PartialEq + Debug {
+    /// The additive identity.
     const ZERO: Self;
+    /// The multiplicative identity.
     const ONE: Self;
 
     #[must_use]
+    /// Ring addition.
     fn add(self, other: Self) -> Self;
     #[must_use]
+    /// Ring subtraction.
     fn sub(self, other: Self) -> Self;
     #[must_use]
+    /// Ring multiplication.
     fn mul(self, other: Self) -> Self;
     #[must_use]
+    /// The ring element an integer names.
     fn from_i64(v: i64) -> Self;
 }
 
@@ -40,6 +46,7 @@ pub trait Ring: Copy + PartialEq + Debug {
 /// halves and unavailable over one that does not, at compile time.
 pub trait Halve: Ring {
     #[must_use]
+    /// Division by two, exactly. What the idempotents need and `i64` cannot give.
     fn halve(self) -> Self;
 }
 
