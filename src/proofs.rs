@@ -325,4 +325,5 @@ mod harnesses {
         let z = Cell::<Dyadic>::of(i64::from(w[0]), i64::from(w[1]));
         assert_eq!(z.norm_form(s), z.upper(s).unwrap().mul(z.lower(s).unwrap()));
     }
+
 }

@@ -43,6 +43,34 @@ pub trait Halve: Ring {
     fn halve(self) -> Self;
 }
 
+/// A narrow ring, for proof only.
+///
+/// The algebra's laws are polynomial identities: `mul_assoc` is an equality of two polynomials in
+/// the scalar variables, with integer coefficients, and such an identity holds in *every*
+/// commutative ring or in none. It says nothing about a width.
+///
+/// A bit-precise checker does not know that. It bit-blasts a multiply to the width of the type
+/// whatever the operands hold, so the same identity that decides in a second over 8 bits does not
+/// return over 64. Proving it here is proving the structure; the engine keeps using `i64`.
+impl Ring for i8 {
+    const ZERO: Self = 0;
+    const ONE: Self = 1;
+
+    fn add(self, other: Self) -> Self {
+        self.wrapping_add(other)
+    }
+    fn sub(self, other: Self) -> Self {
+        self.wrapping_sub(other)
+    }
+    fn mul(self, other: Self) -> Self {
+        self.wrapping_mul(other)
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fn from_i64(v: i64) -> Self {
+        v as Self
+    }
+}
+
 impl Ring for i64 {
     const ZERO: Self = 0;
     const ONE: Self = 1;
