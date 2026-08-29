@@ -54,6 +54,22 @@ pub trait Coord {
     /// This key's address. Lossy for anything wider than a word.
     fn coord(&self) -> u64;
 
+    /// Whether [`coord_with`](Coord::coord_with) already returns a well-spread word.
+    ///
+    /// **False by default, and it must be**: an integer's address is the integer, which is not
+    /// spread at all, and a table that believed otherwise would put every key in one group.
+    ///
+    /// A byte fold overrides it. `fold_bytes` finishes with `mix2` -- a widening multiply, its
+    /// halves folded together, and a guard term -- so its output is already as mixed as
+    /// [`spread`] would make it. Running `spread` on top is a second widening multiply on the
+    /// critical path of every string lookup, buying nothing: measured, that redundant mix is most
+    /// of a 0.87 ns per-lookup constant that separated a `Map<String, _>` from `hashbrown` even at
+    /// eight keys, where nothing can be a cache effect.
+    ///
+    /// Only the **parabolic** face may act on this. The elliptic face's address has to be the
+    /// bijection whatever the key type, because it reads the key back off it.
+    const SPREAD: bool = false;
+
     /// The address, displaced by a process-wide constant.
     ///
     /// Defaults to ignoring the pepper, which is correct for every key that *is* its own address:
