@@ -3,6 +3,13 @@ name = "apeiron"
 version = "0.1.0"
 edition = "2021"
 description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls out of it."
+readme = "README.md"
+keywords = ["hashmap", "hash", "algebra", "deterministic", "hashdos"]
+categories = ["data-structures", "algorithms", "concurrency"]
+# 1.87 is where `i32::cast_unsigned` and its siblings stabilised (`integer_sign_cast`). `coord`
+# uses them to say "reinterpret the sign bit" in the type system rather than in a comment over a
+# suppressed lint, which is worth a floor. `#[expect]`, the other modern thing here, is 1.81.
+rust-version = "1.87"
 
 [features]
 # Off by default, so the ordinary build of this crate still has **zero** dependencies. Turning it

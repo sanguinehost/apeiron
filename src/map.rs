@@ -1131,6 +1131,123 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     // -- reading -------------------------------------------------------------------------------
 
+    /// Look every key up, visiting `(key, value)` in order.
+    ///
+    /// A batch reader, for the shape `hashtrinity` spelled `get_each`: it says "these lookups are
+    /// independent" in one call rather than leaving the caller to write the loop.
+    ///
+    /// # It is a plain loop, and that is a measurement
+    ///
+    /// This was written as a software pipeline -- prefetch the group of the key sixteen positions
+    /// ahead, so the misses of independent lookups overlap instead of queueing. The reasoning is
+    /// sound and the implementation was **slower at every size tested**, from 1,024 entries to
+    /// 8.4 million (640 MiB, far past any cache):
+    ///
+    /// | entries | plain loop | prefetching |
+    /// |---|---|---|
+    /// | 65,536 | **2.78 ns** | 4.37 |
+    /// | 1,048,576 | **9.49** | 14.49 |
+    /// | 8,388,608 | **16.17** | 20.19 |
+    ///
+    /// The first suspicion was that the pipeline folded each key twice, once as the lookahead and
+    /// once as the probe. Hoisting every address out of the loop first, so the prefetch costs only
+    /// the instruction, still lost: 18.53 ns against 16.17 at 8.4 million.
+    ///
+    /// The reason is that there was never a queue to unblock. Nothing in the loop depends on the
+    /// previous iteration, so an out-of-order core already has several probes in flight and the
+    /// misses already overlap; an explicit prefetch adds instructions to a loop that was not
+    /// stalled on the thing it prefetches. `examples/batch_reads.rs` is the harness, kept so this
+    /// is not re-derived.
+    ///
+    /// ```
+    /// use apeiron::map::Map;
+    ///
+    /// let m: Map<u64, u64> = (0u64..1000).map(|i| (i, i * 2)).collect();
+    /// let keys: Vec<u64> = (0..1000).collect();
+    /// let mut sum = 0;
+    /// m.get_each(&keys, |_, v| sum += v.copied().unwrap_or(0));
+    /// assert_eq!(sum, (0..1000u64).map(|i| i * 2).sum::<u64>());
+    /// ```
+    pub fn get_each<'a>(&'a self, keys: &'a [K], mut visit: impl FnMut(&'a K, Option<&'a V>)) {
+        for k in keys {
+            visit(k, self.get(k));
+        }
+    }
+
+    /// Every key's value, in order. [`Map::get_each`] collected.
+    ///
+    /// ```
+    /// use apeiron::map::Map;
+    ///
+    /// let m: Map<u64, u64> = [(1u64, 10), (3, 30)].into_iter().collect();
+    /// assert_eq!(m.get_all(&[1, 2, 3]), vec![Some(&10), None, Some(&30)]);
+    /// ```
+    #[must_use]
+    pub fn get_all<'a>(&'a self, keys: &'a [K]) -> Vec<Option<&'a V>> {
+        let mut out = Vec::with_capacity(keys.len());
+        self.get_each(keys, |_, v| out.push(v));
+        out
+    }
+
+    /// Look every key up and fold the results, without materialising them.
+    ///
+    /// `get_all` when you want the vector, this when you want a number: the pipeline is the same
+    /// and the allocation is not.
+    ///
+    /// ```
+    /// use apeiron::map::Map;
+    ///
+    /// let m: Map<u64, i64> = [(1u64, 10), (3, 30)].into_iter().collect();
+    /// let total = m.get_reduce(&[1, 2, 3], 0i64, |v| *v, |a, b| a + b);
+    /// assert_eq!(total, 40);
+    /// ```
+    pub fn get_reduce<'a, M>(
+        &'a self,
+        keys: &'a [K],
+        id: M,
+        map: impl Fn(&'a V) -> M,
+        combine: impl Fn(M, M) -> M,
+    ) -> M {
+        // `id` is held back rather than seeded into the accumulator, so the fold needs no
+        // `Option::take` dance and has no unreachable branch to document. For a monoid the two are
+        // the same value: `id` combined with the first residual *is* the first residual.
+        let mut acc: Option<M> = None;
+        self.get_each(keys, |_, v| {
+            if let Some(v) = v {
+                acc = Some(match acc.take() {
+                    Some(a) => combine(a, map(v)),
+                    None => map(v),
+                });
+            }
+        });
+        acc.unwrap_or(id)
+    }
+
+    /// Fold every live value in the table. The whole surface, not a set of keys.
+    ///
+    /// Order is the table's, which is the address order and therefore not the insertion order --
+    /// so `combine` should be associative and commutative if the result is to mean anything
+    /// stable. That is the same condition [`crate::merge::Species::Free`] names.
+    ///
+    /// ```
+    /// use apeiron::map::Map;
+    ///
+    /// let m: Map<u64, i64> = (0u64..10).map(|i| (i, i as i64)).collect();
+    /// assert_eq!(m.encircle(0i64, |v| *v, |a, b| a + b), 45);
+    /// ```
+    pub fn encircle<M>(
+        &self,
+        id: M,
+        residual: impl Fn(&V) -> M,
+        combine: impl Fn(M, M) -> M,
+    ) -> M {
+        let mut acc = id;
+        for v in self.values() {
+            acc = combine(acc, residual(v));
+        }
+        acc
+    }
+
     #[must_use]
     /// The value at `k`.
     #[inline]
