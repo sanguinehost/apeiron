@@ -73,11 +73,20 @@ fn the_floor_the_ceiling_and_the_report() {
         !good.looks_aimed(),
         "an honest key set must not trip the alarm, got {good:?}"
     );
+    // The report has to separate them, but not on `longest_probe`: asserting a 10x gap there
+    // pinned this test to a probe layout rather than to the property, and broke when the descent
+    // moved to bit 57 -- this aim's varying low bits now split the chain by the fifth window, so
+    // its longest probe is seven. What an aimed set cannot avoid is walking shared groups and,
+    // having agreed on the top of the word, sharing the tag: measured, mean probe 4.99 against
+    // 1.00 and 69.5 address compares per hit against 1.04. Asserted at half and a tenth of those
+    // margins, so the property has room to breathe and a collapse still fails.
     assert!(
-        bad.longest_probe > good.longest_probe * 10,
-        "aimed {} vs honest {} -- the report is not separating them",
-        bad.longest_probe,
-        good.longest_probe
+        bad.mean_probe > good.mean_probe * 2.0,
+        "the probe report is not separating them: aimed {bad:?} vs honest {good:?}"
+    );
+    assert!(
+        bad.mean_compares > good.mean_compares * 6.0,
+        "the compare report is not separating them: aimed {bad:?} vs honest {good:?}"
     );
 
     // -- the floor ----------------------------------------------------------------------------

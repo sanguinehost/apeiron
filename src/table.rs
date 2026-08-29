@@ -72,9 +72,15 @@ use std::cmp::Reverse;
 const SHARD_BITS: u32 = 8;
 const SHARDS: usize = 1 << SHARD_BITS;
 
-/// A key's shard: the top bits of its avalanched address, which is also where the group descent
-/// starts, so a shard owns a contiguous run of the descent's first window and the two never
-/// disagree.
+/// A key's shard: the **bottom** bits of its avalanched address.
+///
+/// It was the top bits, "which is also where the group descent starts, so a shard owns a
+/// contiguous run of the descent's first window". That stopped being an alignment and became a
+/// collision when the tag moved to bits 57..64: the top eight bits are constant within a shard,
+/// so every key in a region shared one tag and every group scan compared all sixteen lanes --
+/// the exact defect the tag move was fixing in `map`, reintroduced here by the shard. The bottom
+/// eight bits overlap neither the tag nor any window the descent reads before its sweep, and
+/// `finish` spreads them as well as it spreads the top.
 #[inline]
 #[must_use]
 pub fn shard_of(address: u64) -> usize {
@@ -84,7 +90,7 @@ pub fn shard_of(address: u64) -> usize {
 /// The same thing, for an address that has already been through `finish`.
 #[inline]
 const fn home(p: u64) -> usize {
-    (p >> (64 - SHARD_BITS)) as usize
+    (p as usize) & (SHARDS - 1)
 }
 
 /// Counts per distinct address, built by partitioning and probed the same way.
@@ -353,6 +359,17 @@ fn schedule(loads: &[usize], workers: usize) -> Vec<Vec<usize>> {
 
 // ── the probe ───────────────────────────────────────────────────────────────────────────────
 
+/// Address bits the descent may walk: everything below the tag.
+///
+/// The top seven belong to [`tag_of`]. Reading them a second time as part of a group window would
+/// make a tag hit and a group hit the same evidence -- under the old bottom-of-the-word tag that
+/// took `gbits` of about 20 to happen positionally, but the layouts measured in `coord::spread`
+/// show the two slices correlating long before they overlap. Starting the descent below the tag
+/// makes their disjointness a construction rather than a size-dependent accident. The cost is
+/// that a collision chain is bounded by 57 bits of address rather than 64, which changes nothing:
+/// `map::Salt` already establishes that the bound was never the defence.
+pub const DESCENT_BITS: u32 = 57;
+
 /// Slots per group. One group is scanned before the probe moves on, and it is sixteen because
 /// that is one 128-bit tag compare.
 pub const GROUP: usize = 16;
@@ -395,18 +412,18 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
         return 0;
     }
     let used = gbits * (j + 1);
-    if used <= 64 {
-        (p >> (64 - used)) as usize & gmask
+    if used <= DESCENT_BITS {
+        (p >> (DESCENT_BITS - used)) as usize & gmask
     } else {
-        // The word is spent; sweep, offset so a step never re-scans the group just examined.
+        // The descent's bits are spent; sweep, offset so a step never re-scans the group just
+        // examined.
         //
-        // Wrapping, and it has to be: when `gbits` divides 64 -- region sizes of 2, 4, 16 or 256
-        // groups, and 32 slots is the smallest region this crate allocates -- the shift below is
-        // zero, so the base is the whole word and adding to it overflows. The mask makes the
-        // result correct either way; what the wrap avoids is a debug-build panic on a small shard
-        // with a long chain, which is the case an attacker aims at.
-        let full = 64 / gbits;
-        (p >> (64 - gbits * full))
+        // Wrapping, and it has to be: when `gbits` divides `DESCENT_BITS` the shift below is zero,
+        // so the base is the whole window and adding to it can overflow. The mask makes the result
+        // correct either way; what the wrap avoids is a debug-build panic on a small shard with a
+        // long chain, which is the case an attacker aims at.
+        let full = DESCENT_BITS / gbits;
+        (p >> (DESCENT_BITS - gbits * full))
             .wrapping_add(u64::from(j - full))
             .wrapping_add(1) as usize
             & gmask
@@ -415,13 +432,34 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 
 /// A slot's seven-bit tag, with the top bit marking it occupied. Zero means empty.
 ///
-/// Taken from the *low* bits of the avalanched address, which the descent never looks at -- it
-/// walks windows down from the top -- so a tag hit and a group hit are independent evidence.
+/// Taken from bits 57..64 -- **the top of the address**, immediately above where the group descent
+/// begins ([`DESCENT_BITS`]). The descent and the tag then read disjoint slices of the word by
+/// construction, which is the property that makes a tag hit and a group hit independent evidence.
+///
+/// It used to come from the *bottom* seven bits, on the reasoning that the descent walks down
+/// from the top and so never looks there. That is true and it is not the same as independent. An
+/// odd multiply carries entropy upward and never downward, so under `map`'s old
+/// one-multiply-one-fold address a key set with its bits high in the word -- `hashbrown`'s
+/// `highbits`, or this crate's own `(i21, i21, i21)` packing varying along its first axis -- left
+/// the low bits constant, and the tag with them. Measured: five thousand such keys shared **one**
+/// tag, so every group scan matched all sixteen lanes and compared sixteen addresses instead of
+/// one, and no xor-shift repair of the low bits held across sizes -- the two-fold variant still
+/// costs 6.3 compares per lookup at 1,500,000 keys, because folds are linear and what the tag
+/// reads stays a function of what the windows read. (A low tag under an *ideal* hash is fine at
+/// these sizes; it is the deterministic fold family that cannot keep the slices independent.)
+///
+/// Moving the tag up was half of the fix, and the half that shipped alone first: with nothing
+/// following `map`'s multiply, the window bits below the tag were the ones that went constant,
+/// and the placement collapsed -- 137 groups per lookup where the tag defect had cost 3.7 ns.
+/// The other half is an address function that fills the whole word; `crate::coord::spread`
+/// carries the simulation that chose it. And this slice is disjoint from the *shard* too, which
+/// now takes the bottom byte: top tag over top-byte shards left one tag per region -- see
+/// [`shard_of`].
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub const fn tag_of(p: u64) -> u8 {
-    0x80 | (p & 0x7F) as u8
+    0x80 | (p >> 57) as u8
 }
 
 /// Sixteen lanes at a time, two ways.

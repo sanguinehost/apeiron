@@ -177,7 +177,7 @@ mod harnesses {
         kani::assume(gbits >= 1 && gbits <= 12);
         let gmask: usize = (1usize << gbits) - 1;
 
-        let full = 64 / gbits;
+        let full = crate::table::DESCENT_BITS / gbits;
         let j: u32 = kani::any();
         // Both steps past the point where the word is consumed.
         kani::assume(j >= full && j < full + 4096);
@@ -333,30 +333,35 @@ mod harnesses {
 
     /// The elliptic face reads its key back off the address, so the bijection has to be exact --
     /// otherwise the face is not `Being`, it is a lossy fold pretending to be one and every key it
-    /// hands back is a guess. The bijection is `x -> (x*M) ^ ((x*M) >> 32)`, so it is exact when its
-    /// two halves are, and the two halves are proved apart because the whole is not decidable here.
+    /// hands back is a guess. The bijection is `x -> ((x*M) ^ ((x*M) >> 48)) * PSI`, so it is
+    /// exact when its three steps are, and the steps are proved apart because the whole is not
+    /// decidable here.
     ///
     /// **The whole is not decidable here, and that is a tooling boundary rather than a discovery.**
-    /// `unspread(spread(x)) == x` asks CBMC to show `(x * M) * M_inv == x` over all `x`, which is
-    /// full 64-bit multiplier reasoning; it did not return in four minutes, the same wall this
-    /// crate hit before on `a_ring_multiplication_is_commutative`. What follows instead is the two
-    /// halves, each of which decides in under a second, plus `map::tests` running the composite
-    /// over twenty thousand peppers and their inverses.
+    /// `unspread(spread(x)) == x` asks CBMC to show `(x * M) * M_inv == x` over all `x` twice
+    /// over, which is full 64-bit multiplier reasoning; it did not return in four minutes, the
+    /// same wall this crate hit before on `a_ring_multiplication_is_commutative`. What follows
+    /// instead is the steps, each of which decides in under a second, plus `map::tests` running
+    /// the composite over twenty thousand peppers and their inverses, and
+    /// `the_address_bijection_round_trips` running it over the edges.
     ///
-    /// The xor-fold half: `x ^ (x >> 32)` is an involution. Pure shifts and xors, no multiply.
+    /// The xor-fold step: `x ^ (x >> 48)` is an involution -- the shift is at least half the
+    /// width. Pure shifts and xors, no multiply.
     #[kani::proof]
     fn the_xor_fold_is_its_own_inverse() {
         let x: u64 = kani::any();
-        let folded = x ^ (x >> 32);
-        assert_eq!(folded ^ (folded >> 32), x);
+        let folded = x ^ (x >> 48);
+        assert_eq!(folded ^ (folded >> 48), x);
     }
 
-    /// The multiply half, at the only two constants the pepper-free path uses. Concrete, so the
+    /// The multiply steps, at the only constants the pepper-free path uses. Concrete, so each
     /// multiplier is a computation rather than a relation, and it decides at once.
     #[kani::proof]
     fn the_default_multiplier_has_the_inverse_it_claims() {
         assert_eq!(crate::coord::PHI.wrapping_mul(crate::coord::PHI_INV), 1);
         assert_eq!(crate::coord::inverse_odd(crate::coord::PHI), crate::coord::PHI_INV);
+        assert_eq!(crate::coord::PSI.wrapping_mul(crate::coord::PSI_INV), 1);
+        assert_eq!(crate::coord::inverse_odd(crate::coord::PSI), crate::coord::PSI_INV);
     }
 
     /// The fill limit is the probe's termination precondition: a region with no empty slot is one
