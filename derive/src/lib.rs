@@ -33,6 +33,10 @@ use syn::{Data, DeriveInput, Fields, Index, parse_macro_input};
 /// generic types -- each field type picks up a `Coord` bound.
 ///
 /// `#[coord(skip)]` leaves a field out. Use it only for a field that `Eq` also ignores.
+///
+/// [`Coord::SPREAD`](../apeiron/coord/trait.Coord.html#associatedconstant.SPREAD) is derived too,
+/// as the conjunction over the participating fields: a newtype over `String` inherits it and skips
+/// the redundant mix, a newtype over `u32` does not and keeps the spread that carries its pepper.
 #[proc_macro_derive(Coord, attributes(coord))]
 pub fn derive_coord(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -241,9 +245,35 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
         }
     };
 
+    // `Coord::SPREAD` says the fold's output is already mixed, so the parabolic face may skip
+    // `Salt::spread`. Left at its `false` default -- which is what this derive used to do -- a
+    // newtype over `String` paid a redundant widening multiply on every lookup that a hand-written
+    // `impl Coord for String` does not, which is most of a 0.87 ns per-lookup constant.
+    //
+    // The rule is conjunction over every field of every variant, and it is stricter than soundness
+    // needs. Skipping the spread moves where the **pepper** enters -- from the bijection's
+    // multiplier into the fold's own seed -- so the obligation is that `coord_with` consumes the
+    // pepper, and *one* field doing so already suffices because `mix`/`finish` carry it into the
+    // whole. Conjunction was chosen anyway: it is obviously right without a case analysis, it
+    // agrees with disjunction on the shape that matters (a single-field newtype), and a mixed
+    // composite that wants the sharper answer can write the const by hand. A wrong `true` here does
+    // not fail a test -- it compiles, spreads fine, and silently drops the pepper.
+    //
+    // Zero fields is `false`: a unit struct folds to a constant, which no pepper reaches.
+    let spread = if bounds.is_empty() {
+        quote! { false }
+    } else {
+        let mut acc = quote! { true };
+        for t in &bounds {
+            acc = quote! { #acc && <#t as ::apeiron::coord::Coord>::SPREAD };
+        }
+        acc
+    };
+
     Ok(quote! {
         #[automatically_derived]
         impl #impl_generics ::apeiron::coord::Coord for #name #ty_generics #where_clause {
+            const SPREAD: bool = #spread;
             #[inline]
             fn coord(&self) -> u64 {
                 <Self as ::apeiron::coord::Coord>::coord_with(self, 0)

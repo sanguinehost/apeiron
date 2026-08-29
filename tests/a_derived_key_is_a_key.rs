@@ -237,3 +237,53 @@ fn derived_keys_work_on_both_faces() {
     assert_eq!(slots.get(&Slot::Indexed(7)), Some(&1));
     assert_eq!(slots.get(&Slot::Indexed(8)), None);
 }
+
+/// **The derive propagates `Coord::SPREAD`.**
+///
+/// It did not, and the consequence was silent: a derived newtype over `String` took the `false`
+/// default, so `already_mixed` kept the redundant widening multiply that a hand-written
+/// `impl Coord for String` skips. Nothing failed -- the addresses were fine, the probe was flat,
+/// the tests passed, and every lookup paid for a second mix it did not need. `VPath(String)` is one
+/// of the five real key shapes this crate was aimed at.
+#[test]
+fn a_derived_newtype_inherits_whether_its_fold_is_already_mixed() {
+    // The runtime half: the derived const must agree with the field it came from.
+    assert_eq!(<VPath as Coord>::SPREAD, <String as Coord>::SPREAD, "VPath must agree with String");
+    assert_eq!(<BlockId as Coord>::SPREAD, <u32 as Coord>::SPREAD, "BlockId must agree with u32");
+}
+
+// And the values themselves, as **compile-time** assertions, because they are constants and a
+// runtime check of a constant is weaker than the compiler already is. A derive that stopped
+// propagating `SPREAD` would fail the build rather than a test run.
+//
+// A newtype over a byte fold is already mixed and must say so; over an integer it is not, and the
+// spread is the only thing mixing it *and* the only thing carrying its pepper.
+const _: () = assert!(<VPath as Coord>::SPREAD, "a String newtype should skip the second mix");
+const _: () = assert!(!<BlockId as Coord>::SPREAD, "a u32 newtype must keep the spread");
+// Composites take the conjunction, so all-integer structs and enums keep it, and a mixed one is
+// conservative rather than clever.
+const _: () = assert!(!<ObjectId as Coord>::SPREAD);
+const _: () = assert!(!<Slot as Coord>::SPREAD);
+const _: () = assert!(!<Wide as Coord>::SPREAD);
+// A unit struct folds to a constant, which no pepper reaches.
+const _: () = assert!(!<Unit as Coord>::SPREAD);
+
+/// The obligation that comes with claiming it: the pepper must actually reach the fold, or skipping
+/// the spread drops it silently. `tests/the_faces_keep_their_promises.rs` states this for the
+/// hand-written impls; this is the derived half.
+#[test]
+fn a_derived_type_that_claims_spread_consumes_the_pepper() {
+    fn obliged<T: Coord>(label: &str, k: &T) {
+        if !T::SPREAD {
+            return;
+        }
+        let mut seen = std::collections::HashSet::new();
+        for p in [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX] {
+            seen.insert(k.coord_with(p));
+        }
+        assert_eq!(seen.len(), 4, "{label} claims SPREAD but ignores the pepper");
+    }
+    obliged("VPath", &VPath("data/meshes/c_human.mdl".into()));
+    obliged("BlockId", &BlockId(7));
+    obliged("ObjectId", &ObjectId { area: 1, index: 2, kind: 3 });
+}
