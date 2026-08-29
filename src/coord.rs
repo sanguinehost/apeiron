@@ -214,7 +214,7 @@ pub fn mix(acc: u64, next: u64) -> u64 {
 /// Concatenation, not arithmetic: `hi` in the top `shift` bits, `lo` beneath. Exactly invertible
 /// by construction, which is what the elliptic face requires and what no multiply-add fold of two
 /// full words can provide. `shift` is the width of `lo`, and the caller is responsible for `hi`
-/// fitting in the rest -- see [`CoordInv`] for the types where that is checked by construction.
+/// fitting in the rest -- see [`Packed`] for the types where that is checked by construction.
 #[inline]
 #[must_use]
 pub const fn pack(hi: u64, lo: u64, shift: u32) -> u64 {
@@ -347,7 +347,7 @@ impl Coord for i21 {
 }
 
 /// The lossy folds, for the faces that do not need a bijection. Generic over any `Coord`, and
-/// deliberately *not* `CoordInv`: a fold of two words into one cannot round-trip.
+/// deliberately *not* [`Packed`]: a fold of two words into one cannot round-trip.
 impl<A: Coord, B: Coord> Coord for (A, B) {
     #[inline]
     fn coord(&self) -> u64 {

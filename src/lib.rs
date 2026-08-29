@@ -46,11 +46,13 @@ pub mod fold;
 pub mod keystore;
 pub mod map;
 pub mod merge;
+pub mod pepper;
 pub mod proofs;
 pub mod scalar;
 pub mod table;
 
 pub use cell::{Cell, Sigma};
 pub use keystore::Keystore;
-pub use map::{Map, Words};
+pub use map::{Exposed, ExposedWords, Map, Stats, Words};
+pub use pepper::{process_pepper, set_process_pepper};
 pub use table::CountTable;
