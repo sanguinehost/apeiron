@@ -72,7 +72,7 @@ impl Eq for Cached {}
 fn equal_keys_have_equal_addresses() {
     let peppers = [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX];
     for p in peppers {
-        for i in 0..200u32 {
+        for i in 0..if cfg!(miri) { 25 } else { 200u32 } {
             let a = ObjectId { area: i, index: i * 3, kind: (i % 7) as u8 };
             let b = a.clone();
             assert_eq!(a.coord_with(p), b.coord_with(p));
@@ -94,7 +94,7 @@ fn equal_keys_have_equal_addresses() {
 #[test]
 fn a_derived_struct_is_the_tuple_it_is_made_of() {
     for p in [0u64, 0x5EED] {
-        for i in 0..300u32 {
+        for i in 0..if cfg!(miri) { 40 } else { 300u32 } {
             let s = ObjectId { area: i, index: i.wrapping_mul(7), kind: (i % 251) as u8 };
             let t = (s.area, s.index, s.kind);
             assert_eq!(s.coord_with(p), t.coord_with(p), "3-field struct vs 3-tuple");
@@ -106,7 +106,7 @@ fn a_derived_struct_is_the_tuple_it_is_made_of() {
 /// an extra `finish` here would be a multiply and two shifts spent to no end.
 #[test]
 fn a_newtype_is_its_field() {
-    for i in 0..1000u32 {
+    for i in 0..if cfg!(miri) { 60 } else { 1000u32 } {
         assert_eq!(BlockId(i).coord(), i.coord());
         assert_eq!(BlockId(i).coord_with(99), i.coord_with(99));
     }
@@ -119,7 +119,10 @@ fn a_newtype_is_its_field() {
 /// what lets these keys run on the elliptic face and store no key at all.
 #[test]
 fn a_derived_packed_newtype_round_trips_exactly() {
-    for i in (0..u32::MAX).step_by(7919) {
+    // 542,000 round trips natively; Miri interprets each one. A coarser stride still walks the
+    // whole `u32` range, which is what the round trip has to hold over.
+    let stride = if cfg!(miri) { 7_919_000 } else { 7919 };
+    for i in (0..u32::MAX).step_by(stride) {
         assert_eq!(BlockId::unpack(BlockId(i).packed()), BlockId(i));
     }
     for i in [0u32, 1, u32::MAX, u32::MAX - 1] {
@@ -135,9 +138,11 @@ fn a_derived_packed_newtype_round_trips_exactly() {
 /// not at all.
 #[test]
 fn distinct_keys_get_distinct_addresses() {
+    // 60 x 60 x 6 is 21,600 folds; Miri does not need the whole grid to see a collision.
+    const GRID: u32 = if cfg!(miri) { 12 } else { 60 };
     let mut seen = HashSet::new();
-    for a in 0..60u32 {
-        for i in 0..60u32 {
+    for a in 0..GRID {
+        for i in 0..GRID {
             for k in 0..6u8 {
                 assert!(
                     seen.insert(ObjectId { area: a, index: i, kind: k }.coord()),
@@ -148,7 +153,7 @@ fn distinct_keys_get_distinct_addresses() {
     }
 
     let mut seen = HashSet::new();
-    for i in 0..5000u32 {
+    for i in 0..if cfg!(miri) { 150 } else { 5000u32 } {
         assert!(seen.insert(Wide(i, i * 3, i as u16, (i % 251) as u8, format!("s{i}")).coord()));
     }
 }
@@ -159,7 +164,7 @@ fn distinct_keys_get_distinct_addresses() {
 fn enum_variants_do_not_share_addresses() {
     let mut seen = HashSet::new();
     assert!(seen.insert(Slot::Empty.coord()));
-    for i in 0..500u32 {
+    for i in 0..if cfg!(miri) { 50 } else { 500u32 } {
         assert!(seen.insert(Slot::Indexed(i).coord()), "Indexed({i})");
         assert!(
             seen.insert(Slot::Named { area: format!("a{i}"), n: i as u16 }.coord()),
@@ -199,33 +204,37 @@ fn a_unit_struct_has_a_stable_address() {
 #[test]
 fn derived_keys_work_on_both_faces() {
     // Elliptic: `BlockId` is `Packed`, so no key is stored and none is ever compared.
+    const N: u32 = if cfg!(miri) { 150 } else { 5000 };
     let mut ids: Words<BlockId, &str> = Words::new();
-    for i in 0..5000u32 {
+    for i in 0..N {
         ids.insert(BlockId(i), "block");
     }
-    assert_eq!(ids.len(), 5000);
-    assert_eq!(ids.get(&BlockId(4999)), Some(&"block"));
-    assert_eq!(ids.get(&BlockId(5000)), None);
+    assert_eq!(ids.len(), N as usize);
+    assert_eq!(ids.get(&BlockId(N - 1)), Some(&"block"));
+    assert_eq!(ids.get(&BlockId(N)), None);
     assert_eq!(ids.face(), apeiron::Keystore::Being);
     // The key really does come back off the address alone.
     assert!(ids.keys().any(|k| k == BlockId(123)));
 
     // Parabolic: `VPath` wraps a `String`, so the key rides along and is compared.
     let mut paths: Map<VPath, u32> = Map::new();
-    for i in 0..2000u32 {
+    const PATHS: u32 = if cfg!(miri) { 80 } else { 2000 };
+    for i in 0..PATHS {
         paths.insert(VPath(format!("data/{i}.mdl")), i);
     }
-    assert_eq!(paths.get(&VPath("data/1999.mdl".into())), Some(&1999));
+    let last = PATHS - 1;
+    assert_eq!(paths.get(&VPath(format!("data/{last}.mdl"))), Some(&last));
     assert_eq!(paths.face(), apeiron::Keystore::BeingOverUnbeing);
 
     // Structs and enums, through the entry API.
+    const OBJS: u32 = if cfg!(miri) { 10 } else { 40 };
     let mut objs: Map<ObjectId, u32> = Map::new();
-    for a in 0..40u32 {
-        for i in 0..40u32 {
+    for a in 0..OBJS {
+        for i in 0..OBJS {
             *objs.entry(ObjectId { area: a, index: i, kind: 3 }).or_insert(0) += 1;
         }
     }
-    assert_eq!(objs.len(), 1600);
+    assert_eq!(objs.len(), (OBJS * OBJS) as usize);
     assert_eq!(objs.get(&ObjectId { area: 7, index: 9, kind: 3 }), Some(&1));
     assert_eq!(objs.get(&ObjectId { area: 7, index: 9, kind: 4 }), None);
 

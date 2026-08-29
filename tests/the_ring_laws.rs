@@ -23,6 +23,7 @@ use std::time::Instant;
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn distributivity_holds_across_the_whole_ring() {
     let t = Instant::now();
@@ -42,6 +43,7 @@ fn distributivity_holds_across_the_whole_ring() {
 /// The six-variable laws, over a window rather than the whole ring: `2^48` tuples is too many to
 /// walk, and these identities are degree two in each variable, so a window of nine values exercises
 /// every coefficient. Complete over what it covers, and not a claim beyond it.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_cell_laws_hold_across_a_window() {
     let t = Instant::now();

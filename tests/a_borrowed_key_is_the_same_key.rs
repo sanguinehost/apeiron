@@ -28,7 +28,9 @@ fn corpus() -> Vec<String> {
         "0123456789abcdefg".into(),
         "the quick brown fox jumps over the lazy dog".into(),
     ];
-    for i in 0..200u32 {
+    // Miri interprets every `format!` and every fold; the corpus is about shapes of string, not
+    // about how many, so it is cut rather than the test dropped.
+    for i in 0..if cfg!(miri) { 25 } else { 200u32 } {
         v.push(format!("{}{}", "nw_wswmg".repeat((i % 5) as usize + 1), i));
     }
     v

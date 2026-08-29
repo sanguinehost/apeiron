@@ -2586,7 +2586,7 @@ mod tests {
             inputs.push(!(1u64 << b));
         }
         let mut r = 0x243F_6A88_85A3_08D3u64;
-        for _ in 0..10_000 {
+        for _ in 0..if cfg!(miri) { 200 } else { 10_000 } {
             r ^= r << 13;
             r ^= r >> 7;
             r ^= r << 17;
