@@ -199,11 +199,20 @@ pub struct Addr {
 ///
 /// The shape of the fold is forced the same way it always was. A multiply by an odd constant
 /// carries entropy upward and never downward, so **the top of the product varies** whatever the
-/// key set -- and in the widening product that guaranteed-varying top *is* `hi`. Rotating it into
-/// the low bits and xoring against `lo` is what breaks a coset:
-/// linear over `GF(2)`, so a structured key set -- an interval, a stride, a packed coordinate --
-/// stays a coset, and some slice of the word is always a rank-deficient image of it. The second
-/// multiply is what breaks the coset, exactly as splitmix's alternation of the two algebras does.
+/// key set -- and in the widening product that guaranteed-varying top *is* `hi`. Rotating it down
+/// and xoring it against `lo` is what puts that variation where the descent and the tag read.
+///
+/// The rotate and the xor cannot do more than that, and it is worth being exact about why. Both
+/// are linear over `GF(2)`, so this fold on its own maps an affine subspace to an affine subspace:
+/// a structured key set -- an interval, a stride, a packed coordinate -- would stay a coset, and
+/// some slice of the word would stay a rank-deficient image of it. The nonlinearity has to come
+/// from the multiply, and it does: carry propagation is precisely the part of an integer multiply
+/// that is *not* `GF(2)`-linear in its input, and `hi` is the half that carries have reached.
+/// That is the difference between this and the design it replaced. A *narrow* fold sees only
+/// `lo`, whose low bits no carry has crossed, so it needed a second multiply to get a usable
+/// placement; the wide product already contains the nonlinear half, so it does not. The table
+/// above prices that at 1.075 against 1.028 -- a hair worse on paper, for one multiply instead of
+/// two, on a word that is no longer invertible.
 ///
 /// # How this was got wrong twice, and what the placement simulation says
 ///
@@ -277,8 +286,12 @@ pub const fn unspread(id: u64) -> u64 {
 /// `PHI * PHI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
 pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
 
-/// [`spread`]'s second multiplier: splitmix64's, which sits between xor-shifts there for the same
-/// reason it sits after one here. Odd, so it is a bijection on `Z/2^64`.
+/// splitmix64's second multiplier, the one [`finish`] applies between its xor-shifts (written
+/// there as a literal). Odd, so it is a bijection on `Z/2^64`.
+///
+/// It was [`spread`]'s second multiplier too, until the identity/placement split made `spread` a
+/// single widening multiply on 2026-08-29. It is kept because `finish` still uses the value and
+/// because `proofs.rs` checks [`inverse_odd`] against it as a known-answer fixture.
 pub const PSI: u64 = 0x94D0_49BB_1331_11EB;
 
 /// `PSI * PSI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
@@ -303,25 +316,6 @@ pub const fn inverse_odd(a: u64) -> u64 {
     x
 }
 
-/// `finish` undone.
-///
-/// Exists for the elliptic face. There, the slot holds the *avalanched* address and the key is
-/// meant to be readable back off it, which needs the inverse -- and it needs it to be exact, not
-/// approximately exact, or `Being` is not `Being`.
-///
-/// Every step of `finish` is invertible on its own. An odd multiply is inverted by its inverse mod
-/// `2^64`; `h ^= h >> s` is inverted by `h ^= h >> s ^ h >> 2s` whenever `3s >= 64`, because the
-/// shifted copy's own high `s` bits are already correct when it is applied. `proofs.rs` checks the
-/// composition over the whole domain rather than the steps.
-#[inline]
-#[must_use]
-pub const fn unfinish(mut h: u64) -> u64 {
-    h ^= (h >> 31) ^ (h >> 62);
-    h = h.wrapping_mul(0x3196_42B2_D24D_8EC3);
-    h ^= (h >> 27) ^ (h >> 54);
-    h = h.wrapping_mul(0x96DE_1B17_3F11_9089);
-    h ^ ((h >> 30) ^ (h >> 60))
-}
 
 /// Which bucket an address falls in, for a table of `2^bits` buckets.
 ///

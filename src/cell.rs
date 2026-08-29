@@ -197,7 +197,7 @@ impl<R: Ring> Cell<R> {
 /// have channels at all. The fact does not need it: order-freedom follows from `mul_comm` and
 /// `mul_assoc`, and both hold for every `sigma` with no hypothesis. Measured over all 120
 /// permutations of five cells on each of the three faces, elliptic included
-/// (`examples/fold_perm_probe.rs`).
+/// (`tests/three_and_one.rs`).
 ///
 /// This matters for what a table can be. Order-free accumulation is not a hyperbolic privilege
 /// that the merge has to earn -- it is available everywhere, so the merge does not vary with the
