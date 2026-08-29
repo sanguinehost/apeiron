@@ -166,6 +166,7 @@ pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
 }
 
 impl Coord for str {
+    const SPREAD: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self.as_bytes())
@@ -177,6 +178,7 @@ impl Coord for str {
 }
 
 impl Coord for String {
+    const SPREAD: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self.as_bytes())
@@ -188,6 +190,7 @@ impl Coord for String {
 }
 
 impl Coord for [u8] {
+    const SPREAD: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self)
@@ -199,6 +202,7 @@ impl Coord for [u8] {
 }
 
 impl Coord for Vec<u8> {
+    const SPREAD: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self)
@@ -210,6 +214,7 @@ impl Coord for Vec<u8> {
 }
 
 impl<const N: usize> Coord for [u8; N] {
+    const SPREAD: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self)
@@ -221,6 +226,7 @@ impl<const N: usize> Coord for [u8; N] {
 }
 
 impl<T: Coord + ?Sized> Coord for &T {
+    const SPREAD: bool = T::SPREAD;
     #[inline]
     fn coord(&self) -> u64 {
         (**self).coord()

@@ -396,6 +396,17 @@ pub trait Held<K: Coord + Eq>: Sized {
     /// Whether two slots hold the same key. Used by equality, which has a slot and not a key.
     fn same_slot(&self, other: &Self) -> bool;
 
+    /// The placement word for a slot that only remembers its identity word.
+    ///
+    /// Growth and diagnostics walk stored slots and need the word the descent reads, which is not
+    /// the word the slot keeps. On the elliptic face -- and on the parabolic face for a key whose
+    /// fold is not already mixed -- it is recovered by running the bijection backwards and forwards
+    /// again. For a key that declares [`Coord::SPREAD`] the two words are the same and there is
+    /// nothing to recover; recovering anyway is what broke
+    /// `a_tag_says_live_exactly_when_a_slot_holds_something`, which is why this is a trait method
+    /// and not a `Salt` one.
+    fn placement(&self, salt: Salt) -> u64;
+
     /// The key.
     ///
     /// Takes the pepper because the elliptic face **regenerates** rather than stores, and the
@@ -435,7 +446,7 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
 
     #[inline]
     fn address(salt: Salt, k: &K) -> Addr {
-        salt.spread(k.coord_with(salt.pepper()))
+        already_mixed::<K>(salt, k.coord_with(salt.pepper()))
     }
     #[inline]
     fn hold(id: u64, k: K) -> Self {
@@ -452,6 +463,14 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
         self.id == other.id && self.k == other.k
+    }
+    #[inline]
+    fn placement(&self, salt: Salt) -> u64 {
+        if K::SPREAD {
+            self.id
+        } else {
+            salt.placement_of(self.id)
+        }
     }
     #[inline]
     fn with_key<R>(&self, _salt: Salt, f: impl FnOnce(&K) -> R) -> R {
@@ -508,6 +527,11 @@ impl<K: Coord + Packed + Eq> Held<K> for Regen<K> {
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+    #[inline]
+    fn placement(&self, salt: Salt) -> u64 {
+        // The elliptic address is always the bijection, whatever the key type says about its fold.
+        salt.placement_of(self.0)
     }
     #[inline]
     fn with_key<R>(&self, salt: Salt, f: impl FnOnce(&K) -> R) -> R {
@@ -655,6 +679,30 @@ impl<A: Coord + Eq, B: Coord + Eq, PA: Absorb<A>, PB: Absorb<B>> Absorb<(A, B)> 
 }
 
 // -- the map ---------------------------------------------------------------------------------------
+
+/// The parabolic face's address, skipping a second mix the key does not need.
+///
+/// `Salt::spread` exists to turn an unmixed word into a spread one, which is what an integer key
+/// needs and a byte key does not: `fold_bytes` ends in `mix2` -- a widening multiply with its
+/// halves folded and a guard laid over -- so its output is already as mixed as `spread` would make
+/// it. Doing it twice puts a second widening multiply on the critical path of every string lookup
+/// and buys nothing. [`Coord::SPREAD`] is how a key type says so.
+///
+/// Only the parabolic face may take this shortcut. The elliptic face's address must be the
+/// bijection whatever the key type, because it reads the key back off it -- and `fold_bytes` is a
+/// discard, so there is nothing to read back.
+///
+/// Both words come out equal here, and that is right rather than a shortcut: on this face the
+/// identity word is an early-reject hint before the key compare, not a key in its own right, so it
+/// has no injectivity to preserve.
+#[inline]
+fn already_mixed<K: Coord + Eq + ?Sized>(salt: Salt, c: u64) -> Addr {
+    if K::SPREAD {
+        Addr { place: c, id: c }
+    } else {
+        salt.spread(c)
+    }
+}
 
 /// A map on one of the two keyed faces.
 ///
@@ -841,7 +889,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             }
             // SAFETY: the tag says live.
             let (h, _) = unsafe { self.slots[i].assume_init_ref() };
-            let (steps, compares) = self.probe_cost(self.salt.placement_of(h.id()), i);
+            let (steps, compares) = self.probe_cost(h.placement(self.salt), i);
             longest = longest.max(steps);
             total += u64::from(steps);
             compared += u64::from(compares);
@@ -1242,7 +1290,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             // Recover it -- one multiply back to the coordinate, one widening multiply forward --
             // rather than re-folding the key, so growth stays a probe per entry and not a hash per
             // entry even though the placement is no longer sitting in the slot.
-            let p = self.salt.placement_of(entry.0.id());
+            let p = entry.0.placement(self.salt);
             let mut j = 0u32;
             let at = loop {
                 let base = group_at(p, j, gbits, gmask) * GROUP;
@@ -1804,7 +1852,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     #[must_use]
     #[inline]
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: `find` returns only live slots.
         Some(unsafe { &self.slots[i].assume_init_ref().1 })
@@ -1813,7 +1861,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// The value a view names, mutably.
     #[inline]
     pub fn get_mut_at<Q: Locate<K>>(&mut self, q: Q) -> Option<&mut V> {
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: as `get_at`.
         Some(unsafe { &mut self.slots[i].assume_init_mut().1 })
@@ -1823,7 +1871,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// Whether a view's key is present.
     #[inline]
     pub fn contains_at<Q: Locate<K>>(&self, q: Q) -> bool {
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         self.find(a.place, |h| h.id == a.id && q.same(&h.k)).is_some()
     }
 
@@ -1831,7 +1879,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     #[inline]
     pub fn insert_at<Q: Absorb<K>>(&mut self, q: Q, v: V) -> Option<V> {
         self.reserve(1);
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
@@ -1849,7 +1897,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// The merge, through a view.
     pub fn insert_with_at<Q: Absorb<K>>(&mut self, q: Q, v: V, f: impl FnOnce(&mut V, V)) {
         self.reserve(1);
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
@@ -1867,7 +1915,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 
     /// Remove through a view, returning the key as well.
     pub fn remove_entry_at<Q: Locate<K>>(&mut self, q: Q) -> Option<(K, V)> {
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         Some(self.evict(i))
     }
@@ -1875,7 +1923,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// One probe, held open, through a view: the owned key is built only on a miss.
     pub fn entry_at<Q: Absorb<K>>(&mut self, q: Q) -> Entry<'_, K, V, Stored<K>> {
         self.reserve(1);
-        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(at) => Entry::Occupied(OccupiedEntry { map: self, at }),
             Err(at) => Entry::Vacant(VacantEntry {
@@ -2308,7 +2356,7 @@ impl<K: Coord + Eq, V: PartialEq, H: Held<K>> PartialEq for Map<K, V, H> {
             let (h, v) = unsafe { self.slots[i].assume_init_ref() };
             // Salts are equal (checked above), so the placement `other` would descend on is the one
             // recovered from this slot's identity word.
-            let p = self.salt.placement_of(h.id());
+            let p = h.placement(self.salt);
             let Some(j) = other.find(p, |o| o.same_slot(h)) else {
                 return false;
             };
