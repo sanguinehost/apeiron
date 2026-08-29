@@ -544,10 +544,10 @@ pub struct Map<K, V, H = Stored<K>> {
 /// The elliptic face: keys that fit in a word, addressed bijectively, with no key stored.
 pub type Words<K, V> = Map<K, V, Regen<K>>;
 
-// SAFETY: the map owns its keys and values outright; there is no interior mutability and no shared
-// state. `MaybeUninit` is what makes the auto-impls not apply on their own.
-unsafe impl<K: Send, V: Send, H: Send> Send for Map<K, V, H> {}
-unsafe impl<K: Sync, V: Sync, H: Sync> Sync for Map<K, V, H> {}
+// `Send` and `Sync` are left to the automatic impls. This once carried a hand-written pair on the
+// belief that `MaybeUninit` blocks them; it does not -- `MaybeUninit<T>` is `Send`/`Sync` when `T`
+// is, so the derived bounds already read the real field types. Two `unsafe` assertions that agreed
+// with the compiler were two more than the crate needed.
 
 impl<K: Coord + Eq, V, H: Held<K>> Default for Map<K, V, H> {
     fn default() -> Self {
@@ -1533,7 +1533,11 @@ mod tests {
     #[test]
     fn every_pepper_gives_an_invertible_multiplier() {
         let mut r = 0x9E37_79B9u64;
-        for _ in 0..20_000 {
+        #[cfg(miri)]
+        let rounds = 200;
+        #[cfg(not(miri))]
+        let rounds = 20_000;
+        for _ in 0..rounds {
             r = r.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             let s = Salt::new(r);
             assert_eq!(s.mul & 1, 1, "pepper {r:#x} gave an even multiplier");
