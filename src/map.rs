@@ -319,6 +319,8 @@ impl Geom {
     /// the tag load and two.
     #[inline(always)]
     fn first(self, p: u64) -> usize {
+        // `gshift` is chosen so the result is already below `gmask`, which is at most `slots * GROUP`
+        // and therefore a `usize`. The mask makes the truncation unobservable.
         #[allow(clippy::cast_possible_truncation)]
         {
             p.wrapping_shr(self.gshift) as usize & self.gmask
@@ -373,6 +375,8 @@ impl Descent {
             // The word is spent, or the region is a single group and every window is group zero.
             return group_at(self.p, j, self.g.gbits, self.g.mask()) * GROUP;
         }
+        // As `Geom::first`: masked to `gmask` immediately, so the discarded bits cannot reach the
+        // group index.
         #[allow(clippy::cast_possible_truncation)]
         let g = (self.window >> self.g.gshift) as usize & self.g.gmask;
         self.window <<= self.g.gbits;
