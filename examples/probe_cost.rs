@@ -32,6 +32,19 @@ fn main() {
             for &k in &ks { m.insert(k, k); }
             for _ in 0..REPS { for &k in &ks { hits += usize::from(m.contains_key(&k)); } }
         }
+        "fold" => {
+            let mut m: hashbrown::HashMap<u64, u64, foldhash::fast::RandomState> =
+                hashbrown::HashMap::default();
+            for &k in &ks { m.insert(k, k); }
+            for _ in 0..REPS { for &k in &ks { hits += usize::from(m.contains_key(&k)); } }
+        }
+        "foldstr" => {
+            let ks: Vec<String> = (0..N).map(|i| format!("nw_wswmg{i:05}")).collect();
+            let mut m: hashbrown::HashMap<String, u64, foldhash::fast::RandomState> =
+                hashbrown::HashMap::default();
+            for k in &ks { m.insert(k.clone(), 1); }
+            for _ in 0..REPS { for k in &ks { hits += usize::from(m.contains_key(k.as_str())); } }
+        }
         "std" => {
             let mut m: HashMap<u64, u64> = HashMap::new();
             for &k in &ks { m.insert(k, k); }

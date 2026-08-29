@@ -1,0 +1,41 @@
+//! The fold alone, no table -- foldhash's "hashonly" context.
+//!
+//! A lookup is a fold plus a probe plus a compare. If apeiron's String lookup is behind, this says
+//! whether the fold is the reason or whether the table is.
+use apeiron::fold::fold_bytes;
+use std::hash::BuildHasher;
+use std::hint::black_box;
+use std::time::Instant;
+
+fn time(reps: usize, mut f: impl FnMut() -> u64) -> f64 {
+    for _ in 0..3 { black_box(f()); }
+    let mut v: Vec<f64> = (0..9).map(|_| {
+        let t = Instant::now();
+        for _ in 0..reps { black_box(f()); }
+        t.elapsed().as_secs_f64() * 1e9 / reps as f64
+    }).collect();
+    v.sort_by(f64::total_cmp);
+    v[4]
+}
+
+fn corpus(kind: &str, n: usize) -> Vec<String> {
+    (0..n).map(|i| match kind {
+        "resref" => format!("nw_wswmg{i:05}"),          // 13 bytes, the real shape
+        "short"  => format!("{i}"),                     // 1-5
+        "path"   => format!("data/meshes/creature/c_human_male_{i:04}.mdl"), // ~45
+        _        => "x".repeat(200 + i % 64),           // long
+    }).collect()
+}
+
+fn main() {
+    let fold = foldhash::fast::RandomState::default();
+    println!("  {:<10} {:>6} {:>12} {:>12} {:>12}", "corpus", "bytes", "apeiron ns", "foldhash ns", "ratio");
+    for kind in ["short", "resref", "path", "long"] {
+        let ks = corpus(kind, 1000);
+        let avg: usize = ks.iter().map(String::len).sum::<usize>() / ks.len();
+        let a = time(2000, || ks.iter().map(|s| fold_bytes(s.as_bytes())).fold(0, u64::wrapping_add)) / ks.len() as f64;
+        let f = time(2000, || ks.iter().map(|s| fold.hash_one(s)).fold(0, u64::wrapping_add))
+            / ks.len() as f64;
+        println!("  {kind:<10} {avg:>6} {a:>12.2} {f:>12.2} {:>11.2}x", a / f);
+    }
+}
