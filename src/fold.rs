@@ -110,6 +110,13 @@ pub fn fold_bytes(b: &[u8]) -> u64 {
 /// Long keys run two independent lanes, sixteen bytes a round. Independent, not chained: the two
 /// multiplies of a round do not read each other's output, so the multiplier is issued twice per
 /// round rather than serialised behind itself.
+///
+/// `#[inline]` is load-bearing, the same way it was on the probe internals: this function is not
+/// generic, so without it every caller outside the crate pays a call and the spills around it.
+/// Measured on the `String` hit loop: 112.3 instructions and 25.7 cycles a lookup outlined, 97.3
+/// and 22.2 inlined (one instruction of that step is `map::Geom`'s, landed together) -- most of
+/// what stood between this fold and fxhash was the call.
+#[inline]
 #[must_use]
 pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
     let len = b.len();
