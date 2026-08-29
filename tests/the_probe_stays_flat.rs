@@ -38,10 +38,13 @@ fn check(label: &str, s: &Stats) {
     );
 }
 
+/// A named key distribution: a label, and the map from a counter to a key.
+type Distribution = (&'static str, fn(u64) -> u64);
+
 /// The integer distributions: everything that has bitten, at three sizes, because the failure
 /// mode changes with `gbits` -- what is flat at 5,000 keys (9 window bits) can collapse at
 /// 1,500,000 (17), and did.
-fn u64_distributions() -> Vec<(&'static str, fn(u64) -> u64)> {
+fn u64_distributions() -> Vec<Distribution> {
     vec![
         ("serial", |i| i),
         // All entropy in the top of the word: hashbrown's `highbits`. Broke the low tag, then

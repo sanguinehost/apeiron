@@ -31,6 +31,18 @@
 //!   structurally instead, by adding a term of the inputs back over the product. When the product
 //!   annihilates, that term is all that is left, and it is injective in the free operand.
 //!
+//!   This is not a hypothetical defect, and the worked example is worth keeping now that the crate
+//!   it was measured against is no longer a dependency. `hashtrinity` took a 16-byte key to
+//!   `folded_mul(a ^ seed, c ^ PHI_HI)` -- first eight bytes, last eight, `seed = PHI ^ (16 *
+//!   PHI_HI)` -- with no guard term. Setting the first eight bytes to `seed` zeroes one operand,
+//!   which leaves the last eight free: `2^64` keys on **one** address, derived from published
+//!   constants in a line each rather than searched for. Built as 4,096 such keys, its table kept
+//!   **1** of them and answered **4,095** of 4,096 lookups with another key's value -- its `get`
+//!   compares the coordinate and never the key, so a fiber is not a slow path for it but a wrong
+//!   answer. The same 4,096 keys get 4,096 distinct addresses here, and the peppered build costs
+//!   the same as the unpeppered one, because there was no fiber for a pepper to move. That is the
+//!   guard being measured rather than the secret.
+//!
 //! Inputs are combined into `mix2` with `wrapping_add`, never XOR. The ring rule holds where it
 //! was measured to matter.
 //!

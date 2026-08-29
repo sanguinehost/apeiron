@@ -15,17 +15,8 @@ use std::hash::BuildHasherDefault;
 use apeiron::coord::{i21, Packed};
 use apeiron::table::CountTable;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use hashtrinity::FreqMap;
 
 const CELL: f32 = 0.25; // 4-unit cells
-
-/// `FreqMap::count_par`'s home bucket. Mirrors its private `BBITS`, as its own benchmark does.
-const HT_BBITS: u32 = 8;
-
-#[inline]
-fn ht_home(k: u64) -> usize {
-    (k.wrapping_mul(hashtrinity::PHI) >> (64 - HT_BBITS)) as usize
-}
 
 struct Rng(u64);
 impl Rng {
@@ -72,48 +63,7 @@ fn apeiron_parallel(addrs: &[u64], probe: &[u64], bits: u32, threads: usize) -> 
     t.sum_parallel(probe, threads)
 }
 
-/// hashtrinity's own path, its way: the packed key its benchmark uses, through `count_par`.
-///
-/// `count_par` returns one map per home bucket, holding disjoint keys, so a probe is the sum over
-/// the maps -- that disjointness is the reason it needs no merge step and is the thing it wins on.
-fn hashtrinity_packed(keys: &[u64], probe: &[u64]) -> i64 {
-    let maps = FreqMap::<u64, i64>::count_par(keys);
-    let mut acc = 0i64;
-    if maps.len() == 1 {
-        maps[0].get_each(probe, |_, v| acc += v.copied().unwrap_or(0));
-        return acc;
-    }
-    // Grouped by home bucket and batched, the way its own benchmark does it. Probing every map
-    // per key measures the caller's mistake and reads as a 40x loss that is not there.
-    let mut by_bucket: Vec<Vec<u64>> = vec![Vec::new(); maps.len()];
-    for &k in probe {
-        by_bucket[ht_home(k)].push(k);
-    }
-    for (m, ks) in maps.iter().zip(by_bucket.iter()) {
-        m.get_each(ks, |_, v| acc += v.copied().unwrap_or(0));
-    }
-    acc
-}
 
-/// hashtrinity's tuple fold, which is the path a caller reaches for without knowing better --
-/// and the one whose address collides on signed coordinates.
-fn hashtrinity_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)]) -> i64 {
-    use hashtrinity::Coord;
-    let maps = FreqMap::<(i32, i32, i32), i64>::count_par(keys);
-    let mut acc = 0i64;
-    if maps.len() == 1 {
-        maps[0].get_each(probe, |_, v| acc += v.copied().unwrap_or(0));
-        return acc;
-    }
-    let mut by_bucket: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); maps.len()];
-    for &k in probe {
-        by_bucket[ht_home(k.coord())].push(k);
-    }
-    for (m, ks) in maps.iter().zip(by_bucket.iter()) {
-        m.get_each(ks, |_, v| acc += v.copied().unwrap_or(0));
-    }
-    acc
-}
 
 const SHARDS: usize = 256;
 
@@ -224,8 +174,10 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
     })
 }
 
-/// apeiron's own lossy tuple fold, the path hashtrinity gets wrong. Same shape, so the two are
-/// directly comparable on both correctness and speed.
+/// The lossy tuple fold: three `i21`s packed into one word, which is the shape a spatial key
+/// actually has. `hashtrinity` had an arm here until its dependency was dropped; its tuple fold
+/// collided on signed coordinates, and `tests/coord_is_injective.rs` is what keeps this one from
+/// doing the same.
 fn apeiron_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)], bits: u32, threads: usize) -> i64 {
     use apeiron::coord::Coord;
     let addrs: Vec<u64> = keys.iter().map(Coord::coord).collect();
@@ -284,8 +236,6 @@ fn bench(c: &mut Criterion) {
         };
         report("apeiron_serial", apeiron_serial(&packed, &probe_packed, bits));
         report("apeiron_parallel", apeiron_parallel(&packed, &probe_packed, bits, 16));
-        report("hashtrinity_packed", hashtrinity_packed(&packed, &probe_packed));
-        report("hashtrinity_tuple", hashtrinity_tuple(&keys, &occupied));
         report(
             "hashbrown_foldhash",
             hashbrown_with::<foldhash::fast::RandomState>(&keys, &occupied),
@@ -321,12 +271,6 @@ fn bench(c: &mut Criterion) {
         });
         g.bench_with_input(BenchmarkId::new("apeiron_par16", n), &n, |b, _| {
             b.iter(|| black_box(apeiron_parallel(&packed, &probe_packed, bits, 16)));
-        });
-        g.bench_with_input(BenchmarkId::new("hashtrinity_packed", n), &n, |b, _| {
-            b.iter(|| black_box(hashtrinity_packed(&packed, &probe_packed)));
-        });
-        g.bench_with_input(BenchmarkId::new("hashtrinity_tuple", n), &n, |b, _| {
-            b.iter(|| black_box(hashtrinity_tuple(&keys, &occupied)));
         });
         g.bench_with_input(BenchmarkId::new("std_siphash", n), &n, |b, _| {
             b.iter(|| {

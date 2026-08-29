@@ -59,8 +59,8 @@ fn row(label: &str, n: usize, cols: &[f64]) {
 fn head(what: &str) {
     println!("\n{what}   (ns per key, median of 7; * = best)");
     println!(
-        "  {:<10} {:>8} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "", "n", "apeiron", "std", "hb+fold", "hb+fx", "htrin"
+        "  {:<10} {:>8} {:>10} {:>10} {:>10} {:>10}",
+        "", "n", "apeiron", "std", "hb+fold", "hb+fx"
     );
 }
 
@@ -118,20 +118,11 @@ fn ints(sizes: &[usize]) {
             }
             black_box(ks.iter().filter_map(|k| m.get(k)).count());
         });
-        let ht = time(reps, || {
-            let mut m: hashtrinity::Table<u64, u64, hashtrinity::Regen<u64>> =
-                hashtrinity::Table::coordinate_with_capacity(ks.len());
-            for &k in &ks {
-                m.insert(k, k);
-            }
-            black_box(ks.iter().filter_map(|k| m.get(k)).count());
-        });
         row("build+get", n, &[
             ap / n as f64,
             st / n as f64,
             hf / n as f64,
             hx / n as f64,
-            ht / n as f64,
         ]);
     }
 }
@@ -147,21 +138,17 @@ fn lookups(sizes: &[usize]) {
         let mut st: HashMap<u64, u64> = HashMap::with_capacity(n);
         let mut hf: HbMap<u64, u64, Fold> = HbMap::with_capacity_and_hasher(n, Fold::default());
         let mut hx: HbMap<u64, u64, Fx> = HbMap::with_capacity_and_hasher(n, Fx::default());
-        let mut ht: hashtrinity::Table<u64, u64, hashtrinity::Regen<u64>> =
-            hashtrinity::Table::coordinate_with_capacity(n);
         for &k in &ks {
             ap.insert(k, k);
             st.insert(k, k);
             hf.insert(k, k);
             hx.insert(k, k);
-            ht.insert(k, k);
         }
         row("get", n, &[
             time(reps, || { black_box(ks.iter().filter_map(|k| ap.get(k)).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| st.get(k)).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| hf.get(k)).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| hx.get(k)).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| ht.get(k)).count()); }) / n as f64,
         ]);
     }
 }
@@ -200,14 +187,7 @@ fn strings(sizes: &[usize]) {
             }
             black_box(ks.iter().filter_map(|k| m.get(k.as_str())).count());
         });
-        let ht = time(reps, || {
-            let mut m: hashtrinity::Table<String, u32> = hashtrinity::Table::with_capacity(n);
-            for (i, k) in ks.iter().enumerate() {
-                m.insert_at(k.as_str(), i as u32);
-            }
-            black_box(ks.iter().filter_map(|k| m.get_at(k.as_str())).count());
-        });
-        row("build+get", n, &[ap / n as f64, st / n as f64, hf / n as f64, hx / n as f64, ht / n as f64]);
+        row("build+get", n, &[ap / n as f64, st / n as f64, hf / n as f64, hx / n as f64]);
     }
 }
 
@@ -220,20 +200,17 @@ fn string_lookups(sizes: &[usize]) {
         let mut st: HashMap<String, u32> = HashMap::with_capacity(n);
         let mut hf: HbMap<String, u32, Fold> = HbMap::with_capacity_and_hasher(n, Fold::default());
         let mut hx: HbMap<String, u32, Fx> = HbMap::with_capacity_and_hasher(n, Fx::default());
-        let mut ht: hashtrinity::Table<String, u32> = hashtrinity::Table::with_capacity(n);
         for (i, k) in ks.iter().enumerate() {
             ap.insert_at(k.as_str(), i as u32);
             st.insert(k.clone(), i as u32);
             hf.insert(k.clone(), i as u32);
             hx.insert(k.clone(), i as u32);
-            ht.insert_at(k.as_str(), i as u32);
         }
         row("get", n, &[
             time(reps, || { black_box(ks.iter().filter_map(|k| ap.get_at(k.as_str())).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| st.get(k.as_str())).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| hf.get(k.as_str())).count()); }) / n as f64,
             time(reps, || { black_box(ks.iter().filter_map(|k| hx.get(k.as_str())).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| ht.get_at(k.as_str())).count()); }) / n as f64,
         ]);
     }
 }
