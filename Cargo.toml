@@ -27,6 +27,9 @@ rustc-hash = "2"
 
 [workspace]
 members = ["derive"]
+# `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
+# project, not a member of this one.
+exclude = ["fuzz"]
 
 [[bench]]
 name = "spatial_binning"
