@@ -329,7 +329,7 @@ mod harnesses {
 
     // -- the map's address bijection and its probe geometry --------------------------------------
 
-    use crate::map::limit;
+    use crate::map::{limit, region_for};
 
     /// The elliptic face reads its key back off the address, so the bijection has to be exact --
     /// otherwise the face is not `Being`, it is a lossy fold pretending to be one and every key it
@@ -368,6 +368,26 @@ mod harnesses {
         kani::assume(slots >= 16 && slots <= 1 << 40 && slots.is_power_of_two());
         assert!(limit(slots) < slots);
         assert!(limit(slots) >= slots / 2);
+    }
+
+    /// The sizing rule, in both directions.
+    ///
+    /// `shrink_to` is the first caller that asks for a region *smaller* than the current one, and a
+    /// rule that is too generous when growing is caught by the next insert while one that is too
+    /// mean when shrinking is not -- it rehomes into a region that cannot hold what it was given.
+    /// So the three things it must be are proved rather than tested: a power of two (the group
+    /// index is a mask), at least the minimum (a probe reads sixteen tag bytes), and big enough
+    /// (`limit` must clear `n`).
+    #[kani::proof]
+    fn a_region_is_a_power_of_two_that_actually_holds_what_it_was_sized_for() {
+        let n: usize = kani::any();
+        kani::assume(n <= 1 << 20);
+        let slots = region_for(n);
+        assert!(slots.is_power_of_two());
+        assert!(slots >= 16);
+        assert!(limit(slots) >= n);
+        // And minimal: one size down does not fit, unless it is already the floor.
+        assert!(slots == 16 || limit(slots / 2) < n);
     }
 
     /// A tag must never be mistaken for an empty slot or a tombstone, or the probe stops at a live

@@ -5,7 +5,6 @@
 //! from the stack pointer denies that by construction.
 
 use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 
 use apeiron::coord::{i21, Packed};
 use apeiron::table::CountTable;
