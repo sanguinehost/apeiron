@@ -134,4 +134,69 @@ mod harnesses {
         kani::assume(bits >= 1 && bits <= 63);
         assert!(bucket(address, bits) < (1u64 << bits));
     }
+
+    // ── the table ────────────────────────────────────────────────────────────────────────────
+    //
+    // Everything above is about turning a key into an address. These are about the table that
+    // holds it, which is where both hangs in this crate's history came from: a shard region that
+    // could overflow, and a load factor that could fill a region exactly. Neither was a wrong
+    // answer -- each was a probe that never returned.
+
+    /// A region always has room. This is `locate`'s termination precondition.
+    ///
+    /// `locate` walks until it finds an empty slot. If a region can be exactly filled there is no
+    /// empty slot to find and an absent key loops forever -- a hang an attacker can aim, since the
+    /// shard a key lands in is a function of the key. Measured once at load factor 1x, where
+    /// `next_power_of_two` can land exactly on the load.
+    #[kani::proof]
+    fn a_region_always_has_room_for_its_load() {
+        let load: usize = kani::any();
+        // Bounded: the proof is about the arithmetic, and a larger load cannot be allocated on any
+        // machine this runs on.
+        kani::assume(load <= (1 << 40));
+
+        let slots = crate::table::region_slots_for(load);
+        if load == 0 {
+            assert_eq!(slots, 0);
+        } else {
+            assert!(slots >= 2 * load, "a region holds at least twice its load");
+            assert!(slots.is_power_of_two(), "the group index is a mask, so this must be exact");
+            assert!(slots >= 32, "at least two groups, so the descent has somewhere to go");
+        }
+    }
+
+    /// Once the address is spent the descent sweeps by exactly one group a step.
+    ///
+    /// This is what makes `locate` terminate: the sweep is a cycle over every group, so a region
+    /// with any empty slot is found within one lap. If a step could stall or repeat, the walk
+    /// could miss the only empty group forever.
+    #[kani::proof]
+    fn the_spent_descent_advances_by_exactly_one_group() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 12);
+        let gmask: usize = (1usize << gbits) - 1;
+
+        let full = 64 / gbits;
+        let j: u32 = kani::any();
+        // Both steps past the point where the word is consumed.
+        kani::assume(j >= full && j < full + 4096);
+
+        let here = crate::table::group_at(p, j, gbits, gmask);
+        let next = crate::table::group_at(p, j + 1, gbits, gmask);
+        assert_eq!(next, (here + 1) & gmask, "the sweep advances one group");
+        assert!(here <= gmask, "and never leaves the table");
+    }
+
+    /// A group index is always inside the region, spent word or not.
+    #[kani::proof]
+    fn a_group_index_is_always_in_range() {
+        let p: u64 = kani::any();
+        let j: u32 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits <= 12);
+        kani::assume(j < 100_000);
+        let gmask: usize = if gbits == 0 { 0 } else { (1usize << gbits) - 1 };
+        assert!(crate::table::group_at(p, j, gbits, gmask) <= gmask);
+    }
 }
