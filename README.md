@@ -75,13 +75,73 @@ threaded, which is worth 4.5 ms and made a 7% lead look like 2.3x.
 
 The whole point is the last three columns. foldhash's seed is the stack pointer and ASLR and its
 own comment says it does not advertise HashDoS resistance; std seeds SipHash randomly. Both are
-therefore non-deterministic across processes, so neither can back a replay. apeiron is seedless,
-and what defends it is the shape of the probe rather than a secret: `table::group_of` descends
-successive windows of the whole 64-bit word, so extending a collision chain by one step costs the
-attacker another `gbits` of control and an unbounded chain costs all 64 -- at which point the two
-addresses are equal and are one key. `examples/hashdos.rs` inverts `finish` and aims 200,000 keys
-at a single bucket in a single shard; the build takes 0.69x as long as honest traffic and the
-probe 0.35x, because one shard is one region and a region is 128 KB.
+therefore non-deterministic across processes, so neither can back a replay.
+
+### A correction to that last column
+
+The claim used to read: apeiron is seedless, and what defends it is the shape of the probe rather
+than a secret -- `table::group_of` descends successive windows of the whole 64-bit word, so
+extending a chain by one step costs the attacker another `gbits` of control and an unbounded chain
+costs all 64.
+
+**Every sentence of that is true and the conclusion does not follow.** "Bits of control" is not the
+same as cost. All the windows are slices of *one* word, and the address function is a public
+bijection, so an attacker who wants to match all of them inverts it once. Matching sixty bits is
+not sixty times harder than matching fifteen; it is the same single call.
+
+`examples/hashdos.rs` did not catch this because it aims at a *shard*, and `CountTable` sizes each
+shard's region to the keys that actually landed in it -- a shard holding everything gets a region
+for everything, so the attack lands in one 128 KB region and finishes faster than honest traffic.
+`map` has no shards. Measured in `tests/the_pepper_is_the_defence.rs`, 200,000 keys aimed by one
+call to `unspread` build **802x** slower than an honest set.
+
+What defends it is a secret, as it is for SipHash. `map::Salt` is that secret and `pepper` is how it
+gets set:
+
+```rust
+// once, at startup, before any table exists
+apeiron::pepper::set_process_pepper(config.pepper);
+tracing::info!(pepper = config.pepper, "address salt");   // write it down
+```
+
+The ratio goes to **1.0x**. It stays compatible with replay because a pepper is a process-wide
+*constant* rather than a per-run random seed: a recorded pepper reproduces a recorded session
+exactly, which is the property a random seed denies and the reason foldhash and SipHash cannot back
+one. `Exposed<K, V>` takes a `NonZeroU64`, so a table fed from outside the process can be made
+unable to exist without one; `Map::stats()` reports `longest_probe` so an attack is visible whether
+or not anybody remembered.
+
+`CountTable` has no pepper yet and still carries this exposure. That is a gap, written down here
+rather than left as a claim.
+
+## The map and the set
+
+`table` is the hyperbolic face -- it keeps a fold and a count and throws the key away. A map cannot,
+so `map` is the other two faces, and which one a key gets is decided by the key:
+
+| key | its fold | face | a slot holds | a hit costs |
+|---|---|---|---|---|
+| fits in a word (`Packed`) | a bijection | elliptic, **B** | the address | one compare |
+| wider (`Coord` only) | a discard | parabolic, **B/U** | address **and** key | a compare, then the key |
+
+`Map<K, V>`, `Words<K, V>`, `Set<K>`, `WordSet<K>`, `Exposed<K, V>`, `ExposedSet<K>`. The std shape,
+including `entry`, `extract_if`, `get_disjoint_mut`, `try_reserve` and `Index`, plus a borrowed-key
+surface so `Map<String, V>` is probed with `&str` and `Map<(String, u16), V>` with `(&str, u16)`,
+allocating nothing on a hit. `#[derive(Coord)]` and `#[derive(Packed)]` behind the `derive` feature,
+which is off by default so the ordinary build keeps zero dependencies.
+
+Per lookup, 694 keys, L1-resident, `perf stat` on one core:
+
+| | instr/lookup | cycles/lookup | deterministic | DoS |
+|---|---|---|---|---|
+| apeiron, `u64` | 35.9 | 6.5 | yes | by pepper |
+| hashbrown + fxhash | 32.2 | 5.7 | yes | none |
+| std (SipHash) | 105.2 | 26.2 | no | by random seed |
+
+The gap was 70 instructions until `get` and `find` were made to actually inline; IPC was already as
+high as hashbrown's, which is what said the problem was instruction count rather than stalls.
+`String` keys stay about 22% behind hashbrown, which is the price of carrying the address beside the
+key -- growth is then a probe per entry rather than a re-fold of every byte.
 
 ## The coordinate fold, which is three folds
 

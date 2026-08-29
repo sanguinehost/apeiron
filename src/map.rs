@@ -39,6 +39,37 @@
 //! control rather than being free. What is new here is removal, and removal is where a descent and
 //! a tombstone have to be made to agree -- see [`Map::remove`].
 //!
+//! # What the probe costs, measured
+//!
+//! `perf stat` on a 694-key L1-resident hit loop, one core, against `hashbrown` with `fxhash`
+//! (which has no DoS resistance at all) and `std` (SipHash, seeded, not reproducible):
+//!
+//! | | instructions/lookup | cycles/lookup | IPC |
+//! |---|---|---|---|
+//! | apeiron, `u64` keys | 35.9 | 6.5 | 5.5 |
+//! | hashbrown + fxhash | 32.2 | 5.7 | 5.6 |
+//! | std | 105.2 | 26.2 | 4.0 |
+//! | apeiron, `String` keys | 108.9 | 24.1 | 4.5 |
+//! | hashbrown + fxhash, `String` | 89.3 | 19.2 | 4.6 |
+//!
+//! The IPC column is the useful one: it was already as high as hashbrown's when the lookup took
+//! twice as long, which said the gap was **instruction count and not stalls** -- there was nothing
+//! to prefetch or reorder, there were simply too many instructions. That is what made the fix
+//! findable.
+//!
+//! It was one thing. `get` and `find` were `#[inline]` but the compiler outlined them anyway, so
+//! every lookup paid a call, a return, and the register save/restore around both: **70 instructions
+//! and 12.0 cycles**, against hashbrown's 32. `#[inline(always)]` on the probe internals and
+//! `#[inline]` on the public readers took it to 35.9 and 6.5, or 2.43 ns to 1.14 in the end-to-end
+//! sweep. Guessing would not have found that; three earlier guesses at the arithmetic each bought
+//! a few percent, and the whole gap was a call instruction.
+//!
+//! The remaining 22% on `String` keys is not outlining -- both sides are near a hundred
+//! instructions there, dominated by the fold and the compare. It is the price of two decisions
+//! stated elsewhere: the slot carries the address as well as the key (40 bytes against 32, so
+//! growth is a probe per entry rather than a re-fold of every byte), and the address is peppered
+//! twice, once into the fold's seed and once into the bijection's multiplier.
+//!
 //! # Why the borrowed-key API is not a convenience
 //!
 //! `HashMap<String, V>` is probed with `&str` through `Borrow`. A map whose `get` takes `&K` is
@@ -211,7 +242,7 @@ impl Geom {
     /// knows. Recomputing `groups.trailing_zeros()` per lookup put a `tzcnt` and a variable-shift
     /// setup in front of every probe; caching it is the difference between five instructions before
     /// the tag load and two.
-    #[inline]
+    #[inline(always)]
     fn first(self, p: u64) -> usize {
         #[allow(clippy::cast_possible_truncation)]
         {
@@ -784,7 +815,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// have been placed at or before it. A **tombstone is not such a slot**, which is the whole
     /// reason it is distinct from empty -- stopping there would lose every key placed past it while
     /// it was live.
-    #[inline]
+    #[inline(always)]
     fn find(&self, p: u64, is: impl Fn(&H) -> bool) -> Option<usize> {
         if self.slots.len() < MIN_SLOTS {
             return None;
@@ -812,7 +843,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     }
 
     /// One group: the tag compare, the candidates it names, and whether the probe is over.
-    #[inline]
+    #[inline(always)]
     fn scan_group(&self, base: usize, p: u64, tag: u8, is: &impl Fn(&H) -> bool) -> Step {
         let _ = p;
         let line = self.line(base);
@@ -840,7 +871,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// The vacant answer prefers the earliest **tombstone** over the first empty slot. Reusing one
     /// is what keeps a table that is repeatedly filled and drained from growing without bound, and
     /// it is sound because the key's own probe order passed through that tombstone on the way here.
-    #[inline]
+    #[inline(always)]
     fn site(&self, p: u64, is: impl Fn(&H) -> bool) -> Result<usize, usize> {
         // A real assertion, not a `debug_assert`. `line` reads sixteen tag bytes without a bounds
         // check, so an unallocated table would read past an empty box -- and the only thing
@@ -879,7 +910,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn line(&self, base: usize) -> &[u8; GROUP] {
         debug_assert!(base + GROUP <= self.tags.len(), "group {base} is outside the region");
         // SAFETY: `Descent` yields a group start below `tags.len() / GROUP`, so the sixteen bytes
@@ -892,6 +923,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     #[must_use]
     /// The value at `k`.
+    #[inline]
     pub fn get(&self, k: &K) -> Option<&V> {
         let p = H::address(self.salt, k);
         let i = self.find(p, |h| h.holds(p, k))?;
@@ -900,6 +932,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     }
 
     /// The value at `k`, mutably.
+    #[inline]
     pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
         let p = H::address(self.salt, k);
         let i = self.find(p, |h| h.holds(p, k))?;
@@ -909,6 +942,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     #[must_use]
     /// Whether `k` is present.
+    #[inline]
     pub fn contains_key(&self, k: &K) -> bool {
         let p = H::address(self.salt, k);
         self.find(p, |h| h.holds(p, k)).is_some()
@@ -930,6 +964,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     ///
     /// Takes the key by value and clones nothing: the probe borrows it, and the borrow is over
     /// before either arm needs to own it.
+    #[inline]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         self.reserve(1);
         let p = H::address(self.salt, &k);
@@ -990,6 +1025,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// occupied, so emptying it would make that key unreachable while it is still in the table. The
     /// tombstone keeps the probe walking, and the next insert that passes it takes it, so a table
     /// filled and drained repeatedly does not grow.
+    #[inline]
     pub fn remove(&mut self, k: &K) -> Option<V> {
         Some(self.remove_entry(k)?.1)
     }
@@ -1129,11 +1165,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     /// The smallest region that holds `n` entries.
     fn region_for(n: usize) -> usize {
-        let mut slots = MIN_SLOTS;
-        while limit(slots) < n {
-            slots *= 2;
-        }
-        slots
+        region_for(n)
     }
 
     /// [`Self::reserve`], reporting an allocation failure instead of aborting on it.
@@ -1596,6 +1628,22 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for IterMut<'a, K, V, H> {
 impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for IterMut<'_, K, V, H> {}
 impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for IterMut<'_, K, V, H> {}
 
+/// The smallest region that holds `n` entries.
+///
+/// A free function so it can be proved on its own. It is the sizing rule behind `reserve`,
+/// `try_reserve` and -- new, and the reason this is worth pulling out -- `shrink_to`, which is the
+/// first caller that makes the region *smaller*. Growing into a region that is too small is caught
+/// by the next insert; shrinking into one is not, so the rule now has to be right in a direction it
+/// was never exercised in.
+#[must_use]
+pub fn region_for(n: usize) -> usize {
+    let mut slots = MIN_SLOTS;
+    while limit(slots) < n {
+        slots *= 2;
+    }
+    slots
+}
+
 /// A region could not be allocated.
 ///
 /// `std`'s `TryReserveError` has no public constructor, so this is the crate's own. It carries the
@@ -1651,6 +1699,7 @@ impl<H, V> Drop for Salvage<H, V> {
 impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// Read through a borrowed view: `map.get_at("resref")` on a `Map<String, V>`.
     #[must_use]
+    #[inline]
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
         let p = self.salt.spread(q.coord_at(self.salt.pepper()));
         let i = self.find(p, |h| h.p == p && q.same(&h.k))?;
@@ -1659,6 +1708,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     }
 
     /// The value a view names, mutably.
+    #[inline]
     pub fn get_mut_at<Q: Locate<K>>(&mut self, q: Q) -> Option<&mut V> {
         let p = self.salt.spread(q.coord_at(self.salt.pepper()));
         let i = self.find(p, |h| h.p == p && q.same(&h.k))?;
@@ -1668,12 +1718,14 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 
     #[must_use]
     /// Whether a view's key is present.
+    #[inline]
     pub fn contains_at<Q: Locate<K>>(&self, q: Q) -> bool {
         let p = self.salt.spread(q.coord_at(self.salt.pepper()));
         self.find(p, |h| h.p == p && q.same(&h.k)).is_some()
     }
 
     /// Insert through a view, taking ownership of the key only on a miss.
+    #[inline]
     pub fn insert_at<Q: Absorb<K>>(&mut self, q: Q, v: V) -> Option<V> {
         self.reserve(1);
         let p = self.salt.spread(q.coord_at(self.salt.pepper()));
@@ -2000,6 +2052,7 @@ impl<'a, K: Coord + Eq, V> Entry<'a, K, V, Stored<K>> {
 
 impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// One probe, held open, so a read-modify-write costs one probe and not two.
+    #[inline]
     pub fn entry(&mut self, k: K) -> Entry<'_, K, V, H> {
         self.reserve(1);
         let p = H::address(self.salt, &k);

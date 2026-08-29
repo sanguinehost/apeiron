@@ -15,7 +15,7 @@ fn unxorshift(mut v: u64, s: u32) -> u64 {
     let mut acc = v;
     while shift < 64 {
         acc ^= v >> shift;
-        v = acc;
+        let _ = acc; // the fold's last value is not read; only the bucket it lands in is
         shift += s;
         // recompute from scratch each round is unnecessary; the loop converges in ceil(64/s)
         v = acc;

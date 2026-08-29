@@ -21,9 +21,9 @@ fn sac(mix: impl Fn(u64) -> u64) -> (f64, f64) {
     for _ in 0..SAMPLES {
         let x = next();
         let h = mix(x);
-        for i in 0..64 {
+        for (i, flip) in flips.iter_mut().enumerate() {
             let d = mix(x ^ (1u64 << i)) ^ h;
-            for (o, f) in flips[i].iter_mut().enumerate() {
+            for (o, f) in flip.iter_mut().enumerate() {
                 *f += ((d >> o) & 1) as u32;
             }
         }
@@ -49,7 +49,8 @@ fn main() {
     let hi = |p: u128| (p >> 64) as u64;
 
     // Cheap candidates that are still bijections, so `bucket` never merges what `packed` split.
-    let arms: [(&str, Box<dyn Fn(u64) -> u64>); 10] = [
+    type Reduce = (&'static str, Box<dyn Fn(u64) -> u64>);
+    let arms: [Reduce; 10] = [
         ("parabolic  lo",     Box::new(move |x| lo(prod(x)))),
         ("hyperbolic lo+hi",  Box::new(move |x| lo(prod(x)).wrapping_add(hi(prod(x))))),
         ("elliptic   lo-hi",  Box::new(move |x| lo(prod(x)).wrapping_sub(hi(prod(x))))),
@@ -59,7 +60,7 @@ fn main() {
             let p = (a as u128).wrapping_mul(C as u128);
             lo(p).wrapping_sub(hi(p))
         })),
-        ("splitmix64 finish", Box::new(|x| apeiron::coord::finish(x))),
+        ("splitmix64 finish", Box::new(apeiron::coord::finish)),
         // mul by odd is a bijection; xorshift is a bijection; so are their compositions.
         ("mul                ", Box::new(|x| x.wrapping_mul(C))),
         ("mul,xs32           ", Box::new(|x| { let h = x.wrapping_mul(C); h ^ (h >> 32) })),
