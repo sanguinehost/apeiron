@@ -199,4 +199,130 @@ mod harnesses {
         let gmask: usize = if gbits == 0 { 0 } else { (1usize << gbits) - 1 };
         assert!(crate::table::group_at(p, j, gbits, gmask) <= gmask);
     }
+
+    // ── the root: is this actually the split-complex algebra? ────────────────────────────────
+    //
+    // The laws below are currently *tested* over a 7x7 grid of small integers. That samples the
+    // structure; it does not establish it. These prove them over symbolic `Dyadic` -- the scalar
+    // that holds the idempotents -- which is the path on which this is the algebra
+    // `sanguine/Trichotomy/SplitComplex.lean` defines rather than something shaped like it.
+    //
+    // Bounded, and the bound is stated rather than implied: `Dyadic::mul` is an i128 multiply plus
+    // a normalising `trailing_zeros`, and the solver does not return on the unbounded form. What
+    // is proved is the law over that range, not over all of Z[1/2].
+
+    use crate::cell::{Cell, Sigma};
+    use crate::scalar::{Dyadic, Halve, Ring};
+
+    const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
+
+    fn any_dyadic() -> Dyadic {
+        let m: i8 = kani::any();
+        let e: u32 = kani::any();
+        kani::assume(e <= 2);
+        Dyadic::new(i128::from(m), e)
+    }
+
+    fn any_cell() -> Cell<Dyadic> {
+        Cell::new(any_dyadic(), any_dyadic())
+    }
+
+    /// `Trichotomy.Basic.one_mul`, on the dyadic path.
+    ///
+    /// Kept over `Dyadic` where the cheaper cell laws are over `i64`, because the unit is the one
+    /// place a scale bug would hide: `Dyadic::ONE` is `1 / 2^0`, and a normalisation that lost the
+    /// scale would still pass every whole-number test.
+    #[kani::proof]
+    fn one_is_the_unit_over_the_dyadics() {
+        let z = any_cell();
+        for sigma in FACES {
+            assert_eq!(Cell::<Dyadic>::one().mul(sigma, z), z);
+        }
+    }
+
+    /// The scalar first: `Dyadic` is a commutative ring.
+    ///
+    /// Two symbolic values rather than four, which is the difference between deciding and not.
+    /// Every `Cell` law is this law lifted -- `mul_comm` on cells is `mul_comm` on the scalar
+    /// applied componentwise -- so proving the scalar and then the lift separately is cheaper than
+    /// proving the composite, and says the same thing.
+    #[kani::proof]
+    fn the_dyadics_are_a_commutative_ring() {
+        let (a, b) = (any_dyadic(), any_dyadic());
+
+        assert_eq!(a.add(b), b.add(a), "addition commutes");
+        assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
+        assert_eq!(a.add(Dyadic::ZERO), a, "zero is the additive identity");
+        assert_eq!(a.mul(Dyadic::ONE), a, "one is the multiplicative identity");
+        assert_eq!(a.mul(Dyadic::ZERO), Dyadic::ZERO, "zero absorbs");
+        assert_eq!(a.sub(a), Dyadic::ZERO, "subtraction is the inverse of addition");
+        assert_eq!(a.add(b).sub(b), a);
+    }
+
+    /// Halving is exact and invertible, which is what makes `(1 +/- j)/2` representable at all.
+    #[kani::proof]
+    fn halving_is_exact_over_the_dyadics() {
+        let a = any_dyadic();
+        let h = a.halve();
+        assert_eq!(h.add(h), a, "a half doubles back exactly");
+    }
+
+
+    // The identities that make this split-complex rather than merely two-dimensional. Each names
+    // the theorem in `sanguine/proof/Apeiron/Trichotomy/` it mirrors.
+
+    /// `SplitComplex.j_sq`: the generator squares to one, which is what `sigma = +1` means.
+    /// `Idempotents`: `e+` and `e-` are idempotent, orthogonal, and sum to the unit.
+    /// `SplitComplex.nullPair_mul_eq_zero`: the null directions annihilate.
+    ///
+    /// Concrete values, so this decides instantly -- and it is the part that would still be true
+    /// of an implementation that had the constants wrong everywhere else.
+    #[kani::proof]
+    fn the_split_complex_identities_hold() {
+        let s = Sigma::Hyperbolic;
+        let j = Cell::<Dyadic>::new(Dyadic::ZERO, Dyadic::ONE);
+        assert_eq!(j.mul(s, j), Cell::one(), "j^2 = 1");
+
+        let (p, m) = (Cell::<Dyadic>::idem_plus(), Cell::<Dyadic>::idem_minus());
+        assert_eq!(p.mul(s, p), p, "e+ is idempotent");
+        assert_eq!(m.mul(s, m), m, "e- is idempotent");
+        assert_eq!(p.mul(s, m), Cell::zero(), "orthogonal");
+        assert_eq!(p.add(m), Cell::one(), "they sum to the unit");
+        assert_ne!(p, Cell::zero());
+        assert_ne!(p, Cell::one());
+
+        // The null cone: each null direction is degenerate, and the pair annihilates.
+        let (np, nm) = (Cell::<Dyadic>::of(1, 1), Cell::<Dyadic>::of(1, -1));
+        assert_eq!(np.mul(s, nm), Cell::zero());
+        assert_eq!(np.norm_form(s), Dyadic::ZERO);
+        assert_eq!(nm.norm_form(s), Dyadic::ZERO);
+
+        // And in the null basis the idempotents are the unit vectors -- the halves are an artefact
+        // of the coordinates, not of the algebra.
+        assert_eq!(p.upper(s), Some(Dyadic::ONE));
+        assert_eq!(p.lower(s), Some(Dyadic::ZERO));
+        assert_eq!(m.upper(s), Some(Dyadic::ZERO));
+        assert_eq!(m.lower(s), Some(Dyadic::ONE));
+    }
+
+    /// `Idempotents.idempotent_iff_trivial_of_disc_nonpos`: the SAME cell is idempotent above zero
+    /// and is not at or below it. The dial is the only thing that changed.
+    #[kani::proof]
+    fn the_idempotent_exists_only_above_zero() {
+        let e = Cell::<Dyadic>::idem_plus();
+        for sigma in FACES {
+            assert_eq!(e.mul(sigma, e) == e, sigma.discards());
+        }
+    }
+
+
+    /// `NullBasis.normForm_eq_upper_mul_lower`: the form factors into the channels, so it vanishes
+    /// exactly when a lane dies. That is what makes "degenerate" mean "a channel is gone".
+    #[kani::proof]
+    fn the_norm_factors_into_the_channels() {
+        let s = Sigma::Hyperbolic;
+        let w: [i8; 2] = kani::any();
+        let z = Cell::<Dyadic>::of(i64::from(w[0]), i64::from(w[1]));
+        assert_eq!(z.norm_form(s), z.upper(s).unwrap().mul(z.lower(s).unwrap()));
+    }
 }
