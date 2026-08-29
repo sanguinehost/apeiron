@@ -329,7 +329,8 @@ mod harnesses {
 
     // -- the map's address bijection and its probe geometry --------------------------------------
 
-    use crate::map::{limit, region_for};
+    use crate::keystore::Keystore;
+    use crate::map::{limit, region_for, Held, Salt, Stored};
 
     /// The elliptic face reads its key back off the address, so the bijection has to be exact --
     /// otherwise the face is not `Being`, it is a lossy fold pretending to be one and every key it
@@ -416,6 +417,162 @@ mod harnesses {
         kani::assume(j < 64);
         let groups = 1usize << gbits;
         assert!(crate::table::group_at(p, j, gbits, groups - 1) < groups);
+    }
+
+
+    // -- the two keyed faces, as laws rather than as prose ----------------------------------------
+
+    /// **The elliptic face's safety property.** Distinct keys get distinct identity words.
+    ///
+    /// `Regen::holds` compares the identity word and *nothing else* -- that is what "the address is
+    /// the key" means and why the face stores no key. If this fails, `Words` does not merely slow
+    /// down: it returns another key's value, silently, for one pair in the corpus.
+    ///
+    /// Stated as a **trivial kernel** rather than as `id(a) != id(b)`, which is the same theorem
+    /// and is not decidable here. `id` is `x * mul`, so `id(a) - id(b) = id(a - b)`, and injectivity
+    /// is exactly "nothing but zero maps to zero". Asking CBMC for the pairwise form makes it
+    /// bit-blast two 64-bit multiplies against each other and it does not return -- measured, 400
+    /// seconds without a verdict, the same wall this crate hit on the old
+    /// `the_address_bijection_round_trips`. The kernel form decides at once, and it is the better
+    /// statement to have written down anyway: it names *why* the face is exact rather than checking
+    /// that it happens to be.
+    #[kani::proof]
+    fn the_elliptic_address_has_a_trivial_kernel() {
+        let d: u64 = kani::any();
+        kani::assume(d != 0);
+        let s = Salt::new(0);
+        assert_ne!(s.spread(d).id, 0, "a nonzero key maps to the same word as zero");
+        assert_eq!(s.spread(0).id, 0, "the map is not linear, so the kernel argument does not apply");
+    }
+
+    /// The same under an arbitrary pepper. Peppering changes the multiplier, and if it could
+    /// produce an even one the elliptic face would stop being exact -- two keys would share an
+    /// identity word and the face compares nothing else. `Salt::new` forces the low bit; this is
+    /// the consequence, checked over every pepper rather than the few a test can reach.
+    #[kani::proof]
+    fn a_peppered_elliptic_address_still_has_a_trivial_kernel() {
+        let pepper: u64 = kani::any();
+        let d: u64 = kani::any();
+        kani::assume(d != 0);
+        let s = Salt::new(pepper);
+        assert_ne!(s.spread(d).id, 0);
+        assert_eq!(s.spread(0).id, 0);
+    }
+
+    /// It runs backwards too -- that is how the face regenerates a key it never stored -- and the
+    /// composite `unspread(spread(x).id) == x` is **not decidable here**: two constant 64-bit
+    /// multiplies, 400 seconds without a verdict. It is proved in pieces instead, which is this
+    /// crate's standing rule for this checker.
+    /// `the_default_multiplier_has_the_inverse_it_claims` pins `mul * inv == 1` concretely, the
+    /// kernel harnesses above pin injectivity, and
+    /// `map::tests::every_pepper_gives_an_invertible_multiplier` runs the composite over twenty
+    /// thousand peppers and their inverses. The mathematics joining those is one line and does not
+    /// need a SAT solver.
+
+    /// **The placement side is a discard, and that is why identity is a separate question.**
+    ///
+    /// The first attempt at this asked whether the *placement word* is non-injective, by looking
+    /// for two keys that share one. That is undecidable here for the same reason the round trip is
+    /// -- pairwise 64-bit multiplies -- and it was the wrong question anyway. Nothing in the design
+    /// needs the placement word to collide; what it needs is that the thing the descent actually
+    /// reads, the **group index**, cannot separate keys. That is pigeonhole and needs no search:
+    /// `gbits` bits cannot distinguish `2^64` addresses, and here is a pair that proves it for
+    /// every table size at once.
+    ///
+    /// So a table cannot answer "is this the same key?" from where the key landed, on any face.
+    /// The elliptic face answers it from the identity word (proved injective above), the parabolic
+    /// face from the key itself, and the hyperbolic face declines to ask. Those are the three
+    /// options and there is no fourth.
+    #[kani::proof]
+    fn the_group_index_cannot_separate_keys() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 16);
+        let gmask = (1usize << gbits) - 1;
+
+        // Two distinct addresses differing only below the descent's first window. The window reads
+        // bits [DESCENT_BITS - gbits, DESCENT_BITS), so flipping bit 0 cannot move it.
+        let q = p ^ 1;
+        assert_ne!(p, q);
+        assert_eq!(
+            crate::table::group_at(p, 0, gbits, gmask),
+            crate::table::group_at(q, 0, gbits, gmask),
+            "the first window separated two addresses it cannot see apart"
+        );
+        // And the tag is no help either: it reads the top seven bits, which bit 0 also does not
+        // reach. Placement carries no identity at all.
+        assert_eq!(crate::table::tag_of(p), crate::table::tag_of(q));
+    }
+
+    /// **The parabolic face is exact whatever its fold does.**
+    ///
+    /// This is the law that licenses `Coord::SPREAD`. On this face the identity word is an
+    /// early-reject hint and the *key* is the decision, so a fold with fibers costs probe length
+    /// and never correctness. The elliptic face has no such licence, which is why `Regen::address`
+    /// does not consult `SPREAD`.
+    #[kani::proof]
+    fn the_parabolic_face_decides_on_the_key() {
+        let stored: u32 = kani::any();
+        let asked: u32 = kani::any();
+        let id: u64 = kani::any();
+        let held = <Stored<u32> as Held<u32>>::hold(id, stored);
+        // Whatever the identity words say, `holds` is true only when the keys are equal.
+        assert_eq!(held.holds(id, &asked), stored == asked);
+    }
+
+    // -- the trichotomy, as a law ------------------------------------------------------------------
+
+    /// **Exactly three faces, and exactly three keystores.** `Keystore::of` and `Keystore::sigma`
+    /// are mutually inverse, so the correspondence is a bijection and not a naming scheme -- a
+    /// fourth keystore would need a fourth algebra, which `classification` says does not exist.
+    #[kani::proof]
+    fn the_keystores_are_the_faces() {
+        for sigma in FACES {
+            assert_eq!(Keystore::of(sigma).sigma(), sigma);
+        }
+        for face in [Keystore::Being, Keystore::BeingOverUnbeing, Keystore::NonBeing] {
+            assert_eq!(Keystore::of(face.sigma()), face);
+        }
+    }
+
+    /// What each face does with a key follows from its discriminant and from nothing else.
+    #[kani::proof]
+    fn only_the_middle_face_carries_a_key() {
+        for sigma in FACES {
+            let face = Keystore::of(sigma);
+            // Parabolic, and only parabolic, has to carry the key beside the address.
+            assert_eq!(face.stores_the_key(), matches!(sigma, Sigma::Parabolic));
+            // Hyperbolic, and only hyperbolic, destroys it -- which is `discards_iff_disc_pos`.
+            assert_eq!(face.key_survives(), !sigma.discards());
+        }
+    }
+
+    /// **Liveness.** The probe cannot spin: past the point where the word is spent the descent
+    /// walks one group at a time, so within `groups` further steps it has visited every group --
+    /// and `a_filled_region_always_keeps_an_empty_slot` says one of them holds an empty slot.
+    ///
+    /// Stated as coverage rather than as "it advances", because advancing is what
+    /// `the_spent_descent_advances_by_exactly_one_group` proves and termination is what a table fed
+    /// hostile keys actually needs.
+    #[kani::proof]
+    fn the_descent_visits_every_group() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 5);
+        let groups = 1usize << gbits;
+        let gmask = groups - 1;
+        let full = crate::table::DESCENT_BITS / gbits;
+
+        // Any group we care to name.
+        let target: usize = kani::any();
+        kani::assume(target <= gmask);
+
+        // The sweep starts somewhere and advances by one each step, so the offset that reaches
+        // `target` is inside one lap.
+        let start = crate::table::group_at(p, full, gbits, gmask);
+        let lap = (target + groups - start) & gmask;
+        assert!(lap < groups);
+        assert_eq!(crate::table::group_at(p, full + lap as u32, gbits, gmask), target);
     }
 
 }
