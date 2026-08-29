@@ -1254,8 +1254,11 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     pub fn get(&self, k: &K) -> Option<&V> {
         let a = H::address(self.salt, k);
         let i = self.find(a.place, |h| h.holds(a.id, k))?;
-        // SAFETY: `find` returns only live slots.
-        Some(unsafe { &self.slots[i].assume_init_ref().1 })
+        // SAFETY: `find` returns only live slots, and a live slot's index is a group base plus a
+        // lane -- both bounded by the region, so it is inside `slots` by construction. The bounds
+        // check the indexing operator adds is provably redundant here, and it is not free: it is
+        // what made `get` cost four instructions more than `contains_key`, which never re-indexes.
+        Some(unsafe { &self.slots.get_unchecked(i).assume_init_ref().1 })
     }
 
     /// The value at `k`, mutably.
@@ -1263,8 +1266,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
         let a = H::address(self.salt, k);
         let i = self.find(a.place, |h| h.holds(a.id, k))?;
-        // SAFETY: as `get`.
-        Some(unsafe { &mut self.slots[i].assume_init_mut().1 })
+        // SAFETY: as `get` -- `find`'s index is in bounds by construction.
+        Some(unsafe { &mut self.slots.get_unchecked_mut(i).assume_init_mut().1 })
     }
 
     #[must_use]
@@ -1280,8 +1283,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     pub fn get_key_value(&self, k: &K) -> Option<(H::Ref<'_>, &V)> {
         let a = H::address(self.salt, k);
         let i = self.find(a.place, |h| h.holds(a.id, k))?;
-        // SAFETY: as `get`.
-        let (h, v) = unsafe { self.slots[i].assume_init_ref() };
+        // SAFETY: as `get` -- `find`'s index is in bounds by construction.
+        let (h, v) = unsafe { self.slots.get_unchecked(i).assume_init_ref() };
         Some((h.key(self.salt), v))
     }
 
@@ -1552,7 +1555,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Lyrium's 14 `BTreeSet`s were reaching for when they paid for an ordering they never queried.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, H> {
-        Iter { map: self, i: 0, left: self.live }
+        Iter { map: self, base: 0, mask: 0, ahead: 0, left: self.live }
     }
 
     /// Every entry, with the value mutable.
@@ -1681,25 +1684,56 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 /// [`Map::iter`].
 pub struct Iter<'a, K: Coord + Eq, V, H: Held<K>> {
     map: &'a Map<K, V, H>,
-    i: usize,
+    /// Start of the group `mask` describes.
+    base: usize,
+    /// Live lanes of that group not yet yielded, one bit per lane.
+    mask: u16,
+    /// The next group to load.
+    ahead: usize,
     left: usize,
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> Iter<'_, K, V, H> {
+    /// A walk that reads sixteen tags at a time instead of one.
+    ///
+    /// The obvious loop tests `tags[i] & LIVE` per slot. At the table's 7/8 fill that is a
+    /// predictable branch, but it is still one bounds-checked load and one test per slot, and the
+    /// tombstones and empties are walked over one at a time. The scan the *probe* already uses
+    /// answers the same question for a whole group in one instruction:
+    /// [`crate::table::scan::occupied`] gathers the top bit of sixteen tags into a `u16`, and
+    /// `EMPTY` is `0` and `TOMB` is `1`, so the mask is exactly the live lanes.
+    ///
+    /// Iterating the set bits of that mask is then `trailing_zeros` and `m & (m - 1)`, and an
+    /// empty group costs one load and one test rather than sixteen.
+    #[inline]
+    fn refill(&mut self) -> bool {
+        while self.ahead + GROUP <= self.map.tags.len() {
+            self.base = self.ahead;
+            self.ahead += GROUP;
+            self.mask = crate::table::scan::occupied(self.map.line(self.base));
+            if self.mask != 0 {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for Iter<'a, K, V, H> {
     type Item = (H::Ref<'a>, &'a V);
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while self.i < self.map.tags.len() {
-            let i = self.i;
-            self.i += 1;
-            if self.map.tags[i] & LIVE == 0 {
-                continue;
-            }
-            self.left -= 1;
-            // SAFETY: the tag says live.
-            let (h, v) = unsafe { self.map.slots[i].assume_init_ref() };
-            return Some((h.key(self.map.salt), v));
+        if self.mask == 0 && !self.refill() {
+            return None;
         }
-        None
+        let lane = self.mask.trailing_zeros() as usize;
+        self.mask &= self.mask - 1;
+        let i = self.base + lane;
+        self.left -= 1;
+        // SAFETY: the mask bit is set, which is the tag's live bit, which is the same fact the
+        // per-slot test used to establish.
+        let (h, v) = unsafe { self.map.slots[i].assume_init_ref() };
+        Some((h.key(self.map.salt), v))
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.left, Some(self.left))
@@ -1709,7 +1743,13 @@ impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Iter<'_, K, V, H> {}
 impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Iter<'_, K, V, H> {}
 impl<K: Coord + Eq, V, H: Held<K>> Clone for Iter<'_, K, V, H> {
     fn clone(&self) -> Self {
-        Self { map: self.map, i: self.i, left: self.left }
+        Self {
+            map: self.map,
+            base: self.base,
+            mask: self.mask,
+            ahead: self.ahead,
+            left: self.left,
+        }
     }
 }
 
@@ -2040,8 +2080,11 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
-        // SAFETY: `find` returns only live slots.
-        Some(unsafe { &self.slots[i].assume_init_ref().1 })
+        // SAFETY: `find` returns only live slots, and a live slot's index is a group base plus a
+        // lane -- both bounded by the region, so it is inside `slots` by construction. The bounds
+        // check the indexing operator adds is provably redundant here, and it is not free: it is
+        // what made `get` cost four instructions more than `contains_key`, which never re-indexes.
+        Some(unsafe { &self.slots.get_unchecked(i).assume_init_ref().1 })
     }
 
     /// The value a view names, mutably.
