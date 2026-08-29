@@ -355,7 +355,7 @@ fn schedule(loads: &[usize], workers: usize) -> Vec<Vec<usize>> {
 
 /// Slots per group. One group is scanned before the probe moves on, and it is sixteen because
 /// that is one 128-bit tag compare.
-const GROUP: usize = 16;
+pub const GROUP: usize = 16;
 
 /// The probe sequence: successive windows of the avalanched address, not a linear walk.
 ///
@@ -373,8 +373,22 @@ const GROUP: usize = 16;
 /// the table is right to treat them as one key. The cost of an attack is therefore bounded by the
 /// address width rather than by the index width.
 ///
-/// Seedless deliberately. A random per-table seed would also defeat aiming, and would break
-/// deterministic replay: same inputs must give the same state, which a per-run seed denies.
+/// **A correction, measured 2026-08-29.** The paragraph above is true and it is weaker than it
+/// reads. "Bits of control" is not the same as cost. Every window is a slice of one word, and the
+/// address function -- `finish`, splitmix64's finalizer -- is a public bijection, so an attacker
+/// who wants to match *all* the windows inverts it once and is done. Matching sixty bits is not
+/// sixty times harder than matching fifteen; it is the same single call.
+///
+/// `examples/the_fiber.rs` measures it on `map`, which shares this descent: two hundred thousand
+/// keys aimed by one `unspread` call built **988x** slower than an honest set. The descent bounds
+/// a chain in bits of address. It cannot make those bits dear. Only a secret can, which is why
+/// SipHash is keyed -- and `map::Salt` is this crate's answer, a pepper that becomes the address
+/// multiplier and takes the ratio to 0.9x. `CountTable` does not have one yet, so a counting table
+/// fed keys an attacker chooses has this exposure; that is a gap and not a design.
+///
+/// Seedless *by default*, deliberately. A random per-table seed would also defeat aiming and would
+/// break deterministic replay: same inputs must give the same state, which a per-run seed denies. A
+/// recorded constant does not.
 #[inline]
 fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
     if gbits == 0 {
@@ -404,7 +418,9 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 /// Taken from the *low* bits of the avalanched address, which the descent never looks at -- it
 /// walks windows down from the top -- so a tag hit and a group hit are independent evidence.
 #[inline]
-const fn tag_of(p: u64) -> u8 {
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub const fn tag_of(p: u64) -> u8 {
     0x80 | (p & 0x7F) as u8
 }
 
@@ -506,6 +522,7 @@ pub mod scan {
     #[inline]
     #[must_use]
     #[allow(clippy::cast_sign_loss)]
+    /// Lanes of `line` that are live, one bit per lane. SSE2.
     pub fn occupied_simd(line: &[u8; 16]) -> u16 {
         use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_movemask_epi8};
         // SAFETY: as `match_tag_simd`.
@@ -528,6 +545,7 @@ pub mod scan {
 
     #[inline]
     #[must_use]
+    /// Lanes of `line` that are live, whichever of the two this target compiled to.
     pub fn occupied(line: &[u8; 16]) -> u16 {
         #[cfg(target_arch = "x86_64")]
         {
@@ -626,7 +644,8 @@ pub fn region_slots_for(load: usize) -> usize {
     }
 }
 
-/// `group_of`, exposed for proof. The descent step is the other half of termination.
+/// `group_of`, exposed for proof and for `map`. The descent step is the other half of termination.
+#[inline]
 #[must_use]
 pub fn group_at(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
     group_of(p, j, gbits, gmask)

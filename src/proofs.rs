@@ -326,4 +326,71 @@ mod harnesses {
         assert_eq!(z.norm_form(s), z.upper(s).unwrap().mul(z.lower(s).unwrap()));
     }
 
+
+    // -- the map's address bijection and its probe geometry --------------------------------------
+
+    use crate::map::limit;
+
+    /// The elliptic face reads its key back off the address, so the bijection has to be exact --
+    /// otherwise the face is not `Being`, it is a lossy fold pretending to be one and every key it
+    /// hands back is a guess. The bijection is `x -> (x*M) ^ ((x*M) >> 32)`, so it is exact when its
+    /// two halves are, and the two halves are proved apart because the whole is not decidable here.
+    ///
+    /// **The whole is not decidable here, and that is a tooling boundary rather than a discovery.**
+    /// `unspread(spread(x)) == x` asks CBMC to show `(x * M) * M_inv == x` over all `x`, which is
+    /// full 64-bit multiplier reasoning; it did not return in four minutes, the same wall this
+    /// crate hit before on `a_ring_multiplication_is_commutative`. What follows instead is the two
+    /// halves, each of which decides in under a second, plus `map::tests` running the composite
+    /// over twenty thousand peppers and their inverses.
+    ///
+    /// The xor-fold half: `x ^ (x >> 32)` is an involution. Pure shifts and xors, no multiply.
+    #[kani::proof]
+    fn the_xor_fold_is_its_own_inverse() {
+        let x: u64 = kani::any();
+        let folded = x ^ (x >> 32);
+        assert_eq!(folded ^ (folded >> 32), x);
+    }
+
+    /// The multiply half, at the only two constants the pepper-free path uses. Concrete, so the
+    /// multiplier is a computation rather than a relation, and it decides at once.
+    #[kani::proof]
+    fn the_default_multiplier_has_the_inverse_it_claims() {
+        assert_eq!(crate::coord::PHI.wrapping_mul(crate::coord::PHI_INV), 1);
+        assert_eq!(crate::coord::inverse_odd(crate::coord::PHI), crate::coord::PHI_INV);
+    }
+
+    /// The fill limit is the probe's termination precondition: a region with no empty slot is one
+    /// the probe walks forever. It has been wrong once already, in `table::region_slots_for`, where
+    /// `next_power_of_two` could land exactly on the load.
+    #[kani::proof]
+    fn a_filled_region_always_keeps_an_empty_slot() {
+        let slots: usize = kani::any();
+        kani::assume(slots >= 16 && slots <= 1 << 40 && slots.is_power_of_two());
+        assert!(limit(slots) < slots);
+        assert!(limit(slots) >= slots / 2);
+    }
+
+    /// A tag must never be mistaken for an empty slot or a tombstone, or the probe stops at a live
+    /// entry -- or reads one that is not there.
+    #[kani::proof]
+    fn a_live_tag_is_never_empty_and_never_a_tombstone() {
+        let p: u64 = kani::any();
+        let t = crate::table::tag_of(p);
+        assert!(t & 0x80 != 0);
+        assert!(t != 0 && t != 1);
+    }
+
+    /// The descent must stay inside the region at every step, for every address and every size.
+    /// Leaving it is the one thing `map::line`'s unchecked tag load cannot survive.
+    #[kani::proof]
+    fn the_descent_never_leaves_the_region() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        let j: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 16);
+        kani::assume(j < 64);
+        let groups = 1usize << gbits;
+        assert!(crate::table::group_at(p, j, gbits, groups - 1) < groups);
+    }
+
 }

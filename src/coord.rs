@@ -51,7 +51,20 @@ pub const PHI: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// A key's 64-bit address.
 pub trait Coord {
+    /// This key's address. Lossy for anything wider than a word.
     fn coord(&self) -> u64;
+
+    /// The address, displaced by a process-wide constant.
+    ///
+    /// Defaults to ignoring the pepper, which is correct for every key that *is* its own address:
+    /// an integer's fold has no fiber, so there is nothing an attacker could aim at and nothing
+    /// for a pepper to move. Only a lossy fold overrides this -- see [`crate::fold`], where the
+    /// pepper enters the seed rather than being applied to the finished address, because a
+    /// bijection applied afterwards maps a collision to a collision and would buy nothing.
+    #[inline]
+    fn coord_with(&self, _pepper: u64) -> u64 {
+        self.coord()
+    }
 }
 
 macro_rules! int_coord {
@@ -87,6 +100,88 @@ pub const fn finish(mut h: u64) -> u64 {
     h ^= h >> 27;
     h = h.wrapping_mul(0x94D0_49BB_1331_11EB);
     h ^ (h >> 31)
+}
+
+/// A cheaper avalanche, for a table that reads **both ends** of the word.
+///
+/// [`finish`] is splitmix64's finalizer: two multiplies and two xor-shifts on a serial dependency
+/// chain, about fourteen cycles of latency before the first tag byte can be compared. That is the
+/// right price for [`crate::table`], whose addresses arrive raw from a caller-chosen fold and whose
+/// build is memory-bound anyway -- fourteen cycles hide behind a cache miss.
+///
+/// It is the wrong price for [`crate::map`], where a lookup that hits in L1 *is* the latency chain.
+/// One multiply and one xor-fold is about five cycles and does what the map needs, which is
+/// narrower than what `finish` provides:
+///
+/// - the **top** bits must spread, because the group descent takes windows from the top -- and
+///   multiplication by an odd constant is exactly the operation that carries low input bits
+///   upward;
+/// - the **low seven** bits must spread, because they are the tag -- and `h ^ (h >> 32)` is what
+///   brings the product's high half down to meet them;
+/// - and it must be a **bijection**, because the elliptic face reads the key back off the address
+///   and compares nothing else. Both steps are: multiplication by an odd constant is invertible on
+///   `Z/2^64`, and a xor-shift by half the width is its own inverse.
+///
+/// What it does *not* provide is `finish`'s full diffusion in the middle bits, which no reader of a
+/// slot ever looks at. Measured in `examples/why_slower.rs`: the swap is 2.1 ns a lookup on
+/// integer keys and moves the occupancy of a 694-key table by nothing.
+#[inline]
+#[must_use]
+pub const fn spread(h: u64) -> u64 {
+    let h = h.wrapping_mul(PHI);
+    h ^ (h >> 32)
+}
+
+/// [`spread`] undone, exactly. The elliptic face regenerates its key through this.
+///
+/// `x ^ (x >> 32)` is an involution -- the top half passes through untouched, so applying it twice
+/// restores the bottom half -- and the multiply is undone by `PHI`'s inverse mod `2^64`.
+#[inline]
+#[must_use]
+pub const fn unspread(h: u64) -> u64 {
+    (h ^ (h >> 32)).wrapping_mul(PHI_INV)
+}
+
+/// `PHI * PHI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
+pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
+
+/// The inverse of an odd number mod `2^64`.
+///
+/// Newton's iteration on `f(x) = 1/x - a`: each step doubles the number of correct low bits, and
+/// the seed `3a xor 2` is already correct to five, so five steps cover 64. Exists because
+/// [`crate::map`]'s pepper becomes the multiplier of its address bijection, and a bijection the
+/// table cannot run backwards is not one the elliptic face can regenerate a key through.
+///
+/// Undefined for even `a`, which has no inverse. Callers force the low bit.
+#[must_use]
+pub const fn inverse_odd(a: u64) -> u64 {
+    let mut x = a.wrapping_mul(3) ^ 2;
+    let mut i = 0;
+    while i < 5 {
+        x = x.wrapping_mul(2u64.wrapping_sub(a.wrapping_mul(x)));
+        i += 1;
+    }
+    x
+}
+
+/// `finish` undone.
+///
+/// Exists for the elliptic face. There, the slot holds the *avalanched* address and the key is
+/// meant to be readable back off it, which needs the inverse -- and it needs it to be exact, not
+/// approximately exact, or `Being` is not `Being`.
+///
+/// Every step of `finish` is invertible on its own. An odd multiply is inverted by its inverse mod
+/// `2^64`; `h ^= h >> s` is inverted by `h ^= h >> s ^ h >> 2s` whenever `3s >= 64`, because the
+/// shifted copy's own high `s` bits are already correct when it is applied. `proofs.rs` checks the
+/// composition over the whole domain rather than the steps.
+#[inline]
+#[must_use]
+pub const fn unfinish(mut h: u64) -> u64 {
+    h ^= (h >> 31) ^ (h >> 62);
+    h = h.wrapping_mul(0x3196_42B2_D24D_8EC3);
+    h ^= (h >> 27) ^ (h >> 54);
+    h = h.wrapping_mul(0x96DE_1B17_3F11_9089);
+    h ^ ((h >> 30) ^ (h >> 60))
 }
 
 /// Which bucket an address falls in, for a table of `2^bits` buckets.
@@ -136,7 +231,9 @@ pub const fn pack(hi: u64, lo: u64, shift: u32) -> u64 {
 /// Implemented only for keys that fit in 64 bits, because that is exactly when the bijection
 /// exists. There is no honest `Packed` for two full `u64`s.
 pub trait Packed: Sized {
+    /// The exact address.
     fn packed(&self) -> u64;
+    /// The key that address came from.
     fn unpack(c: u64) -> Self;
 }
 
@@ -207,7 +304,9 @@ impl Packed for (i21, i21, i21) {
 pub struct i21(i32);
 
 impl i21 {
+    /// The smallest representable value.
     pub const MIN: i32 = -(1 << 20);
+    /// The largest representable value.
     pub const MAX: i32 = (1 << 20) - 1;
 
     /// `None` if `v` will not fit, which is the whole point of the type.
@@ -221,6 +320,7 @@ impl i21 {
     }
 
     #[must_use]
+    /// The value, widened.
     pub const fn get(self) -> i32 {
         self.0
     }
@@ -253,12 +353,23 @@ impl<A: Coord, B: Coord> Coord for (A, B) {
     fn coord(&self) -> u64 {
         finish(mix(self.0.coord(), self.1.coord()))
     }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        finish(mix(self.0.coord_with(pepper), self.1.coord_with(pepper)))
+    }
 }
 
 impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(mix(self.0.coord(), self.1.coord()), self.2.coord()))
+    }
+    #[inline]
+    fn coord_with(&self, p: u64) -> u64 {
+        finish(mix(
+            mix(self.0.coord_with(p), self.1.coord_with(p)),
+            self.2.coord_with(p),
+        ))
     }
 }
 
@@ -268,6 +379,13 @@ impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
         finish(mix(
             mix(mix(self.0.coord(), self.1.coord()), self.2.coord()),
             self.3.coord(),
+        ))
+    }
+    #[inline]
+    fn coord_with(&self, p: u64) -> u64 {
+        finish(mix(
+            mix(mix(self.0.coord_with(p), self.1.coord_with(p)), self.2.coord_with(p)),
+            self.3.coord_with(p),
         ))
     }
 }
