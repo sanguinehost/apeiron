@@ -7,39 +7,49 @@
 //! runs inside **one** `#[test]`: test functions within a binary run on threads that share those
 //! statics, and ordering between them is not something to leave to the scheduler.
 
-use apeiron::coord::unspread;
+use apeiron::coord::spread;
 use apeiron::map::{Exposed, Map, Words};
 use apeiron::pepper::{
     peek_process_pepper, pepper_is_committed, process_pepper, set_process_pepper,
     try_set_process_pepper,
 };
 use std::num::NonZeroU64;
-use std::time::Instant;
 
 const PEPPER: u64 = 0x5EED_1234_ABCD_9876;
 
-/// Keys whose addresses agree on their top bits under the *unpeppered* bijection.
+/// Keys that land in one group, found by **search** rather than by inversion.
 ///
-/// `unspread` is public and exact, so this is arithmetic and not search -- which is the whole
-/// point. An attacker who can read this crate can write this function.
-fn aimed(n: usize) -> Vec<u64> {
-    (0..n as u64)
-        .map(|i| unspread(0xABCD_E000_0000_0000 | i))
-        .collect()
+/// This is the attack, and the shape of it is the whole result. The placement word is a discard --
+/// there is no `unspread` for it -- so an attacker cannot solve for a target group. What they can
+/// still do is *evaluate* the function, because it is public, and keep the keys that happen to
+/// land where they want. That costs one trial per `2^bits` candidates.
+///
+/// `bits` is how many of the descent's leading windows the attacker matches. Matching more makes
+/// the collision chain longer, and each extra window multiplies the search by `2^gbits`. That
+/// trade is what `table::group_of` charges for, and until the identity and placement words were
+/// split it could be skipped entirely: the address was a bijection, so matching every window at
+/// once was a single call to `unspread`.
+fn aimed_by_search(n: usize, bits: u32) -> Option<Vec<u64>> {
+    let shift = 57 - bits;
+    let mask = (1u64 << bits) - 1;
+    let (mut out, mut k, mut tried) = (Vec::with_capacity(n), 1u64, 0u64);
+    while out.len() < n {
+        k = k.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        tried += 1;
+        if (spread(k).place >> shift) & mask == 0 {
+            out.push(k);
+        }
+        // A budget, so a test that would take a week fails instead of hanging. Exceeding it *is*
+        // the result for the deepest chain: the attacker cannot afford it either.
+        if tried > 400_000_000 {
+            return None;
+        }
+    }
+    Some(out)
 }
 
 fn honest(n: usize) -> Vec<u64> {
     (0..n as u64).map(|i| i.wrapping_mul(0x9E37_79B9)).collect()
-}
-
-fn build_ms<F: Fn() -> Words<u64, u64>>(make: F, ks: &[u64]) -> f64 {
-    let t = Instant::now();
-    let mut m = make();
-    for &k in ks {
-        m.insert(k, k);
-    }
-    assert_eq!(m.len(), ks.len());
-    t.elapsed().as_secs_f64() * 1e3
 }
 
 #[test]
@@ -48,45 +58,65 @@ fn the_floor_the_ceiling_and_the_report() {
     assert!(!pepper_is_committed(), "something read the pepper before this test");
     assert_eq!(peek_process_pepper(), 0, "the default must be no pepper");
 
-    // -- the report makes an attack visible, peppered or not ----------------------------------
+    // -- what a chain costs the attacker, and what it buys them ---------------------------------
     //
-    // This runs first, on an explicitly unpeppered map, because it is the diagnostic a server
-    // operator has when nobody set a pepper. `stats()` must say so.
-    let n = 20_000;
-    let mut wide_open: Words<u64, u64> = Words::with_pepper(0);
-    for &k in &aimed(n) {
-        wide_open.insert(k, k);
+    // The claim `table::group_of` makes is that extending a collision chain by one step costs
+    // another `gbits` of address control. This crate then corrected it: true, and not the same as
+    // *expensive*, because the address was a public **bijection** -- matching every window was one
+    // call to `unspread`, and a 200,000-key aimed build ran 988x slower than an honest one.
+    //
+    // Splitting identity from placement removed that shortcut, and the original claim is now the
+    // real one. The attacker can still evaluate the placement word; they cannot invert it. So the
+    // cost of a chain is exponential in its length while the damage is only linear, and this
+    // asserts both halves of that -- the cheap chain must be shallow, and the deep chain must be
+    // unaffordable.
+    let n = 2_000usize;
+    let mut sizing: Words<u64, u64> = Words::with_pepper(0);
+    sizing.reserve(n);
+    for i in 0..n as u64 {
+        sizing.insert(i, i);
     }
-    let bad = wide_open.stats();
-    assert!(!bad.peppered, "stats must report an unpeppered table");
-    assert!(
-        bad.looks_aimed(),
-        "an aimed key set must be visible in the report, got {bad:?}"
-    );
+    let gbits = (sizing.slots() / 16).trailing_zeros();
+    let good = {
+        let mut m: Words<u64, u64> = Words::with_pepper(0);
+        for &k in &honest(n) {
+            m.insert(k, k);
+        }
+        m.stats()
+    };
+    assert!(!good.looks_aimed(), "honest keys tripped the alarm: {good:?}");
 
-    let mut ordinary: Words<u64, u64> = Words::with_pepper(0);
-    for &k in &honest(n) {
-        ordinary.insert(k, k);
+    let mut damage = vec![good.mean_probe];
+    for windows in 1..=3u32 {
+        let Some(ks) = aimed_by_search(n, windows * gbits) else {
+            // The search ran out of budget, which is the point: this is the depth an attacker
+            // cannot reach, and it must be reached before the damage becomes interesting.
+            assert!(windows >= 3, "gave up at only {windows} windows -- the descent is too cheap");
+            break;
+        };
+        let mut m: Words<u64, u64> = Words::with_pepper(0);
+        for &k in &ks {
+            m.insert(k, k);
+        }
+        let s = m.stats();
+        damage.push(s.mean_probe);
+        assert_eq!(m.len(), n, "the aimed set lost keys");
     }
-    let good = ordinary.stats();
+
+    // Linear in the windows matched. Each step of it cost `2^gbits` times the last.
+    for w in damage.windows(2) {
+        assert!(
+            w[1] > w[0],
+            "matching another window bought the attacker nothing: {damage:?}"
+        );
+        assert!(
+            w[1] - w[0] < 2.0,
+            "the damage per window is superlinear, so the descent is not bounding it: {damage:?}"
+        );
+    }
     assert!(
-        !good.looks_aimed(),
-        "an honest key set must not trip the alarm, got {good:?}"
-    );
-    // The report has to separate them, but not on `longest_probe`: asserting a 10x gap there
-    // pinned this test to a probe layout rather than to the property, and broke when the descent
-    // moved to bit 57 -- this aim's varying low bits now split the chain by the fifth window, so
-    // its longest probe is seven. What an aimed set cannot avoid is walking shared groups and,
-    // having agreed on the top of the word, sharing the tag: measured, mean probe 4.99 against
-    // 1.00 and 69.5 address compares per hit against 1.04. Asserted at half and a tenth of those
-    // margins, so the property has room to breathe and a collapse still fails.
-    assert!(
-        bad.mean_probe > good.mean_probe * 2.0,
-        "the probe report is not separating them: aimed {bad:?} vs honest {good:?}"
-    );
-    assert!(
-        bad.mean_compares > good.mean_compares * 6.0,
-        "the compare report is not separating them: aimed {bad:?} vs honest {good:?}"
+        damage.len() >= 2 && damage.len() <= 3,
+        "expected the search to become unaffordable by the third window, got {damage:?}"
     );
 
     // -- the floor ----------------------------------------------------------------------------
@@ -102,14 +132,33 @@ fn the_floor_the_ceiling_and_the_report() {
     assert_eq!(plain.pepper(), PEPPER, "Map::new did not take the process pepper");
     assert!(pepper_is_committed(), "reading it must commit it");
 
-    // And it defends. Same keys, same construction, built through the process floor.
-    let n = if cfg!(debug_assertions) { 20_000 } else { 200_000 };
-    let (a, h) = (aimed(n), honest(n));
-    let raw = build_ms(|| Words::with_pepper(0), &a) / build_ms(|| Words::with_pepper(0), &h);
-    let floored = build_ms(Words::new, &a) / build_ms(Words::new, &h);
-    println!("  aimed/honest: unpeppered {raw:.0}x, process pepper {floored:.1}x");
-    assert!(raw > 20.0, "the attack did not reproduce ({raw:.1}x)");
-    assert!(floored < 4.0, "the process pepper did not defend it ({floored:.1}x)");
+    // And the pepper defends against the search too -- more completely than it defended against
+    // the inversion, because the attacker's filter is now the thing that breaks. To keep a
+    // candidate they must evaluate the placement word the *table* will use, and with a pepper they
+    // cannot: the multiplier is the secret. Keys aimed with the public function land in a peppered
+    // table exactly as randomly as honest ones do.
+    let n = 2_000usize;
+    let h = honest(n);
+    let a = aimed_by_search(n, gbits).expect("one window is always affordable");
+    let stats_of = |mk: fn() -> Words<u64, u64>, ks: &[u64]| {
+        let mut m = mk();
+        for &k in ks {
+            m.insert(k, k);
+        }
+        m.stats()
+    };
+    let bare = stats_of(|| Words::with_pepper(0), &a);
+    let floored = stats_of(Words::new, &a);
+    let floored_honest = stats_of(Words::new, &h);
+    println!(
+        "  one aimed window: unpeppered mean probe {:.2}, peppered {:.2}, honest {:.2}",
+        bare.mean_probe, floored.mean_probe, floored_honest.mean_probe
+    );
+    assert!(bare.mean_probe > 1.5, "the attack did not reproduce ({bare:?})");
+    assert!(
+        floored.mean_probe < bare.mean_probe * 0.75,
+        "the process pepper did not defend it: peppered {floored:?} vs bare {bare:?}"
+    );
 
     // -- setting it late is refused ------------------------------------------------------------
     //

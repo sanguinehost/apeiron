@@ -390,18 +390,39 @@ pub const GROUP: usize = 16;
 /// the table is right to treat them as one key. The cost of an attack is therefore bounded by the
 /// address width rather than by the index width.
 ///
-/// **A correction, measured 2026-08-29.** The paragraph above is true and it is weaker than it
-/// reads. "Bits of control" is not the same as cost. Every window is a slice of one word, and the
-/// address function -- `finish`, splitmix64's finalizer -- is a public bijection, so an attacker
-/// who wants to match *all* the windows inverts it once and is done. Matching sixty bits is not
-/// sixty times harder than matching fifteen; it is the same single call.
+/// **A correction, and then a correction to the correction.** Both are worth keeping, because the
+/// claim above was right, then wrong, then right again for a different reason.
 ///
-/// `examples/the_fiber.rs` measures it on `map`, which shares this descent: two hundred thousand
-/// keys aimed by one `unspread` call built **988x** slower than an honest set. The descent bounds
-/// a chain in bits of address. It cannot make those bits dear. Only a secret can, which is why
-/// SipHash is keyed -- and `map::Salt` is this crate's answer, a pepper that becomes the address
-/// multiplier and takes the ratio to 0.9x. `CountTable` does not have one yet, so a counting table
-/// fed keys an attacker chooses has this exposure; that is a gap and not a design.
+/// The first correction said: "bits of control" is not the same as cost. Every window is a slice of
+/// one word, `map`'s address was a public *bijection*, and an attacker who wanted to match all of
+/// them inverted it once. Matching sixty bits was not sixty times harder than matching fifteen; it
+/// was the same single call. Measured, 200,000 keys aimed by one `unspread` call built **988x**
+/// slower than an honest set, and the conclusion was that only a secret defends.
+///
+/// That was true of the design as it stood. `map` then split its address into an **identity** word
+/// and a **placement** word (`coord::Addr`): the identity word is still a bijection, because the
+/// elliptic face reads keys back off it, but the *placement* word -- the one this descent and
+/// `tag_of` actually read -- is a fold of both halves of a widening multiply, and there is no
+/// inverse to solve with. The attacker can still evaluate it. They can no longer invert it.
+///
+/// So the original claim became the real one. Keys agreeing on `j` windows have to be **found**, at
+/// `2^(j * gbits)` trials each. Measured on a 2,000-key table with `gbits = 8`
+/// (`examples/the_fiber.rs`):
+///
+/// | windows matched | trials per key | search | mean probe |
+/// |---|---|---|---|
+/// | honest | -- | -- | 1.02 |
+/// | 1 | 254 | instant | 2.00 |
+/// | 2 | 67,682 | 0.10 s | 2.99 |
+/// | 3 | > 4 x 10^9 | unaffordable | -- |
+///
+/// **Exponential cost, linear damage.** That is what a structural bound is. It is not a substitute
+/// for a pepper -- one free window still doubles the probe, and this is against an attacker who
+/// knows the multiplier -- but the unpeppered default went from catastrophic to bounded.
+///
+/// `CountTable` addresses through `finish`, which is still a public bijection, so **this table
+/// keeps the older, weaker story**: aiming it is one inversion away. That is a gap, written down
+/// here rather than left as a claim, and the fix is the same split `map` took.
 ///
 /// Seedless *by default*, deliberately. A random per-table seed would also defeat aiming and would
 /// break deterministic replay: same inputs must give the same state, which a per-run seed denies. A

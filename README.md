@@ -84,16 +84,27 @@ than a secret -- `table::group_of` descends successive windows of the whole 64-b
 extending a chain by one step costs the attacker another `gbits` of control and an unbounded chain
 costs all 64.
 
-**Every sentence of that is true and the conclusion does not follow.** "Bits of control" is not the
-same as cost. All the windows are slices of *one* word, and the address function is a public
-bijection, so an attacker who wants to match all of them inverts it once. Matching sixty bits is
-not sixty times harder than matching fifteen; it is the same single call.
+**That was true, and then it stopped being true.** "Bits of control" is not the same as cost while
+the address is a public *bijection*: all the windows are slices of one word, so matching every one
+of them was a single call to `unspread`. Measured, 200,000 keys aimed that way built **988x** slower
+than an honest set.
 
-`examples/hashdos.rs` did not catch this because it aims at a *shard*, and `CountTable` sizes each
-shard's region to the keys that actually landed in it -- a shard holding everything gets a region
-for everything, so the attack lands in one 128 KB region and finishes faster than honest traffic.
-`map` has no shards. Measured in `tests/the_pepper_is_the_defence.rs`, 200,000 keys aimed by one
-call to `unspread` build **802x** slower than an honest set.
+`map` then split its address in two (`coord::Addr`). The **identity** word is still a bijection --
+the elliptic face reads keys back off it -- but the **placement** word, the one the descent and the
+tag actually read, is a fold of both halves of a widening multiply and has no inverse. An attacker
+can still evaluate it; they can no longer solve it. So keys agreeing on `j` windows must be *found*,
+at `2^(j * gbits)` trials each:
+
+| windows matched | trials per key | search | mean probe |
+|---|---|---|---|
+| honest | — | — | 1.02 |
+| 1 | 254 | instant | 2.00 |
+| 2 | 67,682 | 0.10 s | 2.99 |
+| 3 | > 4 × 10⁹ | unaffordable | — |
+
+Exponential cost, linear damage — which is what the original claim always meant and could not
+deliver while the word was invertible. `CountTable` still addresses through `finish`, a bijection,
+so it keeps the weaker story; that is a gap and is written down as one.
 
 What defends it is a secret, as it is for SipHash. `map::Salt` is that secret and `pepper` is how it
 gets set:
