@@ -171,6 +171,27 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
         self.0.retain(|k, ()| keep(k));
     }
 
+    /// Remove and yield the elements `pred` accepts, leaving the rest.
+    ///
+    /// The std shape: `HashSet::extract_if`. Elements are removed as the iterator yields them, and
+    /// dropping it early leaves the untested elements in place -- the same contract [`Map`] has.
+    ///
+    /// ```
+    /// use apeiron::set::Set;
+    ///
+    /// let mut s: Set<u64> = (0u64..10).collect();
+    /// let mut even: Vec<u64> = s.extract_if(|k| k % 2 == 0).collect();
+    /// even.sort_unstable();
+    /// assert_eq!(even, [0, 2, 4, 6, 8]);
+    /// assert_eq!(s.len(), 5);
+    /// ```
+    pub fn extract_if<'a, F: FnMut(H::Ref<'_>) -> bool + 'a>(
+        &'a mut self,
+        mut pred: F,
+    ) -> impl Iterator<Item = K> + 'a {
+        self.0.extract_if(move |k, ()| pred(k)).map(|(k, ())| k)
+    }
+
     /// Drop every element, keeping the allocation.
     pub fn clear(&mut self) {
         self.0.clear();
