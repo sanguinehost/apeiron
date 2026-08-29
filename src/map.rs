@@ -296,6 +296,25 @@ impl Default for Salt {
 }
 
 /// What one group's scan concluded.
+/// [`Step`], but naming the slot by reference rather than by index.
+///
+/// The two exist for one measured reason. `find` returns an index, and a reader then has to turn
+/// that index back into an address -- `shl $0x4` and an add -- even though the scan computed
+/// exactly that address a moment earlier to read the slot's key half. LLVM keeps the index live
+/// and redoes the arithmetic instead of reusing it, so `get` costs four instructions more than
+/// `contains_key` while `hashbrown`'s two are identical. Handing back the reference the scan
+/// already formed removes the recomputation.
+///
+/// The index form stays for insertion and removal, which need a *position* rather than a value.
+enum Probe<'a, H, V> {
+    /// The key is here.
+    Hit(&'a (H, V)),
+    /// This group holds an empty slot, so the key is nowhere.
+    Absent,
+    /// Full of live entries and tombstones; the probe continues.
+    Onward,
+}
+
 enum Step {
     /// The key is here.
     Found(usize),
@@ -336,6 +355,25 @@ impl Geom {
     /// knows. Recomputing `groups.trailing_zeros()` per lookup put a `tzcnt` and a variable-shift
     /// setup in front of every probe; caching it is the difference between five instructions before
     /// the tag load and two.
+    ///
+    /// # Why it is not one mask, like `hashbrown`'s
+    ///
+    /// `hashbrown` reaches its first group with a single `and` -- `hash & bucket_mask` -- while
+    /// this pays a *variable* shift whose amount the compiler reloads from the `Geom` on every
+    /// lookup (`mov 0x30(%rsp),%rcx`, `shr %cl,%rax`). Taking the window from the bottom of the
+    /// placement word instead would be one `and` and was tried.
+    ///
+    /// It **fails the flatness gate**: `pairlike` keys at n = 5,000 gave a mean probe of 1.672
+    /// against the 1.5 bound. The reason is the first thing this crate's own `coord` doc says --
+    /// a multiply carries entropy upward and never downward, so a product's low bits are its
+    /// least mixed. `place` is `rotl(hi, 32) ^ lo`, and its low half is `hi`'s *top* half xored
+    /// with `lo`'s bottom half; for a packed key small enough that `x * mul` does not fill 128
+    /// bits, `hi`'s top half is zero, and the low window collapses to the raw low bits of a
+    /// product. The high window is chosen, not arbitrary.
+    ///
+    /// The identity `first == group_of(p, 0)` is what makes this checkable: get it wrong and
+    /// `rebuild` places entries where `find` will not look. `the_carried_descent_is_the_computed_one`
+    /// fails immediately, which is how the first attempt at this was caught.
     #[inline(always)]
     fn first(self, p: u64) -> usize {
         #[expect(
@@ -1076,6 +1114,51 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         }
     }
 
+    /// [`Self::scan_group`], returning the slot itself. See [`Probe`] for why both exist.
+    #[inline(always)]
+    fn scan_group_ref(&self, base: usize, tag: u8, is: &impl Fn(&H) -> bool) -> Probe<'_, H, V> {
+        let line = self.line(base);
+        let mut hits = scan::match_tag(line, tag);
+        while hits != 0 {
+            let lane = base + hits.trailing_zeros() as usize;
+            // SAFETY: as `scan_group` -- a matched tag has `LIVE` set, so the slot is initialised,
+            // and `lane` is inside the line, which is inside the region.
+            let slot = unsafe { self.slots.get_unchecked(lane).assume_init_ref() };
+            if is(&slot.0) {
+                return Probe::Hit(slot);
+            }
+            hits &= hits - 1;
+        }
+        if scan::match_tag(line, EMPTY) != 0 {
+            Probe::Absent
+        } else {
+            Probe::Onward
+        }
+    }
+
+    /// [`Self::find`], returning the slot itself. See [`Probe`].
+    #[inline(always)]
+    fn find_ref(&self, p: u64, is: impl Fn(&H) -> bool) -> Option<&(H, V)> {
+        if self.slots.len() < MIN_SLOTS {
+            return None;
+        }
+        let tag = tag_of(p);
+        let base = self.geom.first(p);
+        match self.scan_group_ref(base, tag, &is) {
+            Probe::Hit(s) => return Some(s),
+            Probe::Absent => return None,
+            Probe::Onward => {}
+        }
+        let mut d = Descent::after_first(p, self.geom);
+        loop {
+            match self.scan_group_ref(d.next(), tag, &is) {
+                Probe::Hit(s) => return Some(s),
+                Probe::Absent => return None,
+                Probe::Onward => {}
+            }
+        }
+    }
+
     /// `Ok(slot)` when present, `Err(slot)` naming where it would go.
     ///
     /// The vacant answer prefers the earliest **tombstone** over the first empty slot. Reusing one
@@ -1253,12 +1336,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     #[inline]
     pub fn get(&self, k: &K) -> Option<&V> {
         let a = H::address(self.salt, k);
-        let i = self.find(a.place, |h| h.holds(a.id, k))?;
-        // SAFETY: `find` returns only live slots, and a live slot's index is a group base plus a
-        // lane -- both bounded by the region, so it is inside `slots` by construction. The bounds
-        // check the indexing operator adds is provably redundant here, and it is not free: it is
-        // what made `get` cost four instructions more than `contains_key`, which never re-indexes.
-        Some(unsafe { &self.slots.get_unchecked(i).assume_init_ref().1 })
+        self.find_ref(a.place, |h| h.holds(a.id, k)).map(|s| &s.1)
     }
 
     /// The value at `k`, mutably.
