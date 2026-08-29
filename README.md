@@ -49,22 +49,33 @@ comment.
 ## What it costs
 
 `benches/spatial_binning.rs`: a clustered scene of signed world coordinates binned into cells,
-counted, then probed for every occupied cell. `n = 1,000,000`, 16 threads, criterion mean, one
-uninterrupted run.
+counted, then probed for every occupied cell. Criterion, 20 samples, median and 95% interval.
 
-| arm | ms | exact | deterministic across processes | HashDoS |
-|---|---|---|---|---|
-| **apeiron_par16** | **3.16** | yes | **yes** | **structural** |
-| fxhash_par16 | 3.99 | yes | yes | none |
-| foldhash_par16 | 4.14 | yes | no | none advertised |
-| std_siphash_par16 | 6.81 | yes | no | by random seed |
-| hashtrinity_packed | 10.27 | yes | yes | none |
-| apeiron_tuple_par16 | 10.42 | yes | yes | structural |
-| hashtrinity_tuple | 12.09 | **no, off by 8236** | yes | none |
-| apeiron_serial | 32.70 | yes | yes | structural |
-| hashbrown_foldhash | 33.71 | yes | no | none advertised |
-| hashbrown_fxhash | 36.00 | yes | yes | none |
-| std_siphash | 102.67 | yes | no | by random seed |
+**Single-threaded**, where the measurement is trustworthy -- every interval below is within 3.5%,
+because one thread does not compete with whatever else the machine is doing:
+
+| arm | 100k | 1M | exact | deterministic across processes | HashDoS |
+|---|---|---|---|---|---|
+| **apeiron_serial** | **1.06 ms** | **27.7 ms** | yes | **yes** | **structural** |
+| hashbrown_foldhash | 1.44 | 35.2 | yes | no | none advertised |
+| hashbrown_fxhash | 1.45 | 35.4 | yes | yes | none |
+| std_siphash | 4.25 | 108.2 | yes | no | by random seed |
+
+21% to 26% ahead, deterministic, and the only arm with a structural answer on the last column.
+
+**The 16-thread comparison is owed a quiet machine and is not published here.** The run these
+numbers come from had a background process holding about 3.6 cores, and it shows: the `par16` arms
+came back with intervals from 9% to 62% wide, against 1-3% for the serial arms, so their *ordering*
+is not resolvable from it. What can be said is that the spread is not evenly distributed --
+`apeiron_par16` was the widest arm in the 1M group at +/-50%, against +/-12% for `fxhash_par16` --
+which suggests its two-level partition is more sensitive to core contention than the competitors'
+flat sharding, and is worth measuring on its own rather than assuming.
+
+One thing does survive the noise, because it is a comparison against apeiron's own serial arm in
+the same run: **at 100k the serial build beats every parallel arm, including apeiron's**, at 1.06 ms
+against a best case of 1.42. The partition is a fixed cost that has not started paying at that size.
+At 1M it has: 27.7 ms serial against 7.6 parallel. The crossover sits between, and
+`CountTable::build_parallel` does not currently know about it -- it partitions at every size.
 
 Every arm ending `par16` is sharded and threaded the same way: the same shard function, the same
 two-level parallel partition, one map per shard, and probes grouped exactly as the build was.
@@ -145,18 +156,36 @@ surface so `Map<String, V>` is probed with `&str` and `Map<(String, u16), V>` wi
 allocating nothing on a hit. `#[derive(Coord)]` and `#[derive(Packed)]` behind the `derive` feature,
 which is off by default so the ordinary build keeps zero dependencies.
 
-Per lookup, 694 keys, L1-resident, `perf stat` on one core:
+Per lookup, 694 keys, L1-resident, `perf stat` on one core. Instructions retired rather than
+cycles: the count is per-process and reproduces on a machine that is doing other work, which cycles
+do not.
 
-| | instr/lookup | cycles/lookup | deterministic | DoS |
-|---|---|---|---|---|
-| apeiron, `u64` | 35.9 | 6.5 | yes | by pepper |
-| hashbrown + fxhash | 32.2 | 5.7 | yes | none |
-| std (SipHash) | 105.2 | 26.2 | no | by random seed |
+| | instr/lookup | deterministic | DoS |
+|---|---|---|---|
+| **apeiron, `u64`** | **34.8** | yes | by pepper |
+| hashbrown + foldhash | 35.3 | no | none advertised |
+| hashbrown + fxhash | 34.2 | yes | none |
+| std (SipHash) | 128.2 | no | by random seed |
+| **apeiron, `String`** | 93.4 | yes | by pepper |
+| hashbrown + foldhash, `String` | 83.9 | no | none advertised |
+| hashbrown + fxhash, `String` | 92.3 | yes | none |
 
-The gap was 70 instructions until `get` and `find` were made to actually inline; IPC was already as
-high as hashbrown's, which is what said the problem was instruction count rather than stalls.
-`String` keys stay about 22% behind hashbrown, which is the price of carrying the address beside the
-key -- growth is then a probe per entry rather than a re-fold of every byte.
+On `u64` keys the probe is half an instruction under the flat competitor and within one of fxhash,
+which buys its count by having no resistance to pay for. On a quiet machine that read 6.84 cycles
+against foldhash's 6.62.
+
+The `u64` gap was 70 instructions until `get` and `find` were made to actually inline; IPC was
+already as high as hashbrown's, which is what said the problem was instruction count rather than
+stalls.
+
+The `String` gap is 9.4 instructions and **its cause is not known**. It is not the fold: the two
+folds are at instruction parity on this corpus, 23.1 against 24.1. The obvious suspect was tested
+and did not survive -- a map with a zero-sized value brings the slot to 32 bytes, the same as
+hashbrown's, and is no faster (93.2 against 93.4). It is recorded as open rather than attributed,
+because a wrong cause forecloses the next measurement. Note also that this is the lookup column
+only: on build-then-look-up, apeiron takes every row from 8 keys to 500,000, which is where
+carrying the address beside the key pays -- growth is a probe per entry rather than a re-fold of
+every key's bytes.
 
 ## The coordinate fold, which is three folds
 
