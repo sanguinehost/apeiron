@@ -72,7 +72,11 @@ fn every_distribution_probes_flat_at_every_size() {
     #[cfg(miri)]
     let sizes: &[usize] = &[700];
     #[cfg(not(miri))]
-    let sizes: &[usize] = &[5_000, 200_000, 1_500_000];
+    // Miri cannot walk a million and a half keys. The smallest size still exercises the descent
+    // and the flatness bounds; the two large ones are what make the *distribution* argument, and
+    // they run natively, which is where that argument is made.
+    let sizes: &[usize] =
+        if cfg!(miri) { &[2_000] } else { &[5_000, 200_000, 1_500_000] };
     for &n in sizes {
         for (name, f) in u64_distributions() {
             let mut m: Words<u64, u64> = Words::new();
@@ -93,12 +97,12 @@ fn low_entropy_keys_probe_flat_after_dedup() {
     #[cfg(miri)]
     let n = 700u64;
     #[cfg(not(miri))]
-    let n = 65_536u64;
+    let n = if cfg!(miri) { 2_048u64 } else { 65_536 };
     let mut m: Words<u64, u64> = Words::new();
     for i in 0..n {
         m.insert(i & 0xFFFF, i);
     }
-    assert_eq!(m.len() as u64, n.min(65_536));
+    assert_eq!(m.len() as u64, n);
     check("low16", &m.stats());
 }
 
@@ -109,7 +113,7 @@ fn one_axis_worlds_probe_flat() {
     #[cfg(miri)]
     let half = 350i64;
     #[cfg(not(miri))]
-    let half = 750_000i64;
+    let half = if cfg!(miri) { 2_000i64 } else { 750_000 };
     let mut m: Words<(i21, i21, i21), u32> = Words::new();
     let zero = i21::new(0).unwrap();
     for v in -half..half {
@@ -126,7 +130,7 @@ fn string_keys_probe_flat() {
     #[cfg(miri)]
     let n = 500;
     #[cfg(not(miri))]
-    let n = 50_000;
+    let n = if cfg!(miri) { 2_000 } else { 50_000 };
     let mut m: Map<String, u32> = Map::new();
     for i in 0..n {
         m.insert(format!("key{i}"), i);

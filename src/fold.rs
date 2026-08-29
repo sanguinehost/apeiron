@@ -340,17 +340,19 @@ mod tests {
     /// possible tail.
     #[test]
     fn a_zeroed_operand_does_not_collapse_the_fold() {
-        let mut seen = std::collections::HashSet::new();
-        for c in 0..4096u64 {
-            seen.insert(mix2(0, c));
-        }
-        assert_eq!(seen.len(), 4096, "mix2(0, .) must stay injective");
+        const N: u64 = if cfg!(miri) { 256 } else { 4096 };
 
         let mut seen = std::collections::HashSet::new();
-        for a in 0..4096u64 {
+        for c in 0..N {
+            seen.insert(mix2(0, c));
+        }
+        assert_eq!(seen.len(), N as usize, "mix2(0, .) must stay injective");
+
+        let mut seen = std::collections::HashSet::new();
+        for a in 0..N {
             seen.insert(mix2(a, 0));
         }
-        assert_eq!(seen.len(), 4096, "mix2(., 0) must stay injective");
+        assert_eq!(seen.len(), N as usize, "mix2(., 0) must stay injective");
     }
 
     /// Swapping the two words is a different key and must be a different address.
@@ -389,7 +391,9 @@ mod tests {
         #[cfg(miri)]
         let n = 2_000u32;
         #[cfg(not(miri))]
-        let n = 100_000u32;
+        // Miri interprets every fold, and a hundred thousand of them is a ten-minute test. The
+        // birthday bound is what this checks and it is a property of the fold, not of the count.
+        let n = if cfg!(miri) { 2_000u32 } else { 100_000u32 };
         for i in 0..n {
             // Lengths from 0 to ~40, so all five branches run.
             let s = format!("{}{}", "resref_".repeat((i % 6) as usize), i);
@@ -415,7 +419,14 @@ mod tests {
     #[test]
     fn one_input_bit_moves_about_half_the_output_at_every_length() {
         // One length either side of each boundary, plus a key long enough to take several rounds.
-        for len in [1usize, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200, 231] {
+        // Every boundary of the ladder is still visited under Miri; the two long lengths, which
+        // are the ones that cost (231 bytes is 1,848 bit-flips, each a full fold), are not.
+        let lengths: &[usize] = if cfg!(miri) {
+            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 40]
+        } else {
+            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200, 231]
+        };
+        for &len in lengths {
             let base: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(7)).collect();
             let h = fold_bytes(&base);
             let mut worst = (0usize, 0.5f64);
@@ -441,8 +452,9 @@ mod tests {
     #[test]
     fn no_two_keys_collide_across_the_length_ladder() {
         let mut seen = std::collections::HashMap::new();
-        for len in 0..=140usize {
-            for variant in 0..64u8 {
+        let (max_len, variants) = if cfg!(miri) { (40usize, 8u8) } else { (140usize, 64u8) };
+        for len in 0..=max_len {
+            for variant in 0..variants {
                 let mut k: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(17)).collect();
                 if len > 0 {
                     // Vary a byte at each end and in the middle, so a round that dropped a slice

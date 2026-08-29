@@ -125,7 +125,7 @@ fn the_algebra_agrees_with_std() {
 fn string_elements_work_borrowed() {
     let mut ours: Set<String> = Set::new();
     let mut theirs: HashSet<String> = HashSet::new();
-    for i in 0..3000u32 {
+    for i in 0..if cfg!(miri) { 120 } else { 3000u32 } {
         let k = format!("nw_wswmg{:03}", i % 900);
         assert_eq!(ours.insert_at(k.as_str()), theirs.insert(k.clone()), "at {i}");
         assert_eq!(ours.contains_at(k.as_str()), theirs.contains(k.as_str()));
@@ -140,21 +140,24 @@ fn string_elements_work_borrowed() {
 /// The elliptic face stores no element at all -- only the address it came from.
 #[test]
 fn the_word_face_stores_nothing_but_addresses() {
+    // Miri interprets every one of these inserts, so the native count turns a fast test into a
+    // ten-minute one. The property is about the face, not the size, and it is as visible at 200.
+    const N: u32 = if cfg!(miri) { 200 } else { 10_000 };
     let mut s: WordSet<u32> = WordSet::new();
-    for i in 0..10_000u32 {
+    for i in 0..N {
         assert!(s.insert(i));
     }
-    assert!(!s.insert(500));
-    assert_eq!(s.len(), 10_000);
+    assert!(!s.insert(N / 2));
+    assert_eq!(s.len(), N as usize);
     assert_eq!(s.face(), apeiron::Keystore::Being);
-    assert!(s.contains(&9999) && !s.contains(&10_000));
+    assert!(s.contains(&(N - 1)) && !s.contains(&N));
 
     // The elements come back off the addresses alone.
     let mut all: Vec<u32> = s.iter().collect();
     all.sort_unstable();
-    assert_eq!(all, (0..10_000).collect::<Vec<u32>>());
+    assert_eq!(all, (0..N).collect::<Vec<u32>>());
 
-    for i in 0..10_000u32 {
+    for i in 0..N {
         assert!(s.remove(&i));
     }
     assert!(s.is_empty());

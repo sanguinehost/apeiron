@@ -14,6 +14,7 @@ use apeiron::scalar::{Dyadic, Ring};
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
 /// `idempotent_idemPlus` / `idempotent_idemMinus`: both are idempotent above zero.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_idempotents_are_idempotent_above_zero() {
     let e_plus = Cell::<Dyadic>::idem_plus();
@@ -25,6 +26,7 @@ fn the_idempotents_are_idempotent_above_zero() {
 }
 
 /// `idemPlus_nontrivial`: neither is `0` or `1`, which is the whole content of "nontrivial".
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_idempotents_are_neither_zero_nor_one() {
     for e in [Cell::<Dyadic>::idem_plus(), Cell::<Dyadic>::idem_minus()] {
@@ -37,6 +39,7 @@ fn the_idempotents_are_neither_zero_nor_one() {
 ///
 /// This is the decomposition itself. A cell above zero is `upper * e+ + lower * e-`, which is why
 /// the two lanes never interact.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_idempotents_split_the_unit() {
     let sigma = Sigma::Hyperbolic;
@@ -52,6 +55,7 @@ fn the_idempotents_split_the_unit() {
 ///
 /// This is why they look non-integral and are not: `(1/2, 1/2)` in the standard basis is `(1, 0)`
 /// in the null basis. The halves are an artefact of the coordinates, not of the algebra.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn in_the_null_basis_the_idempotents_are_the_unit_vectors() {
     let sigma = Sigma::Hyperbolic;
@@ -68,6 +72,7 @@ fn in_the_null_basis_the_idempotents_are_the_unit_vectors() {
 ///
 /// The K combinator, in the algebra: of two things given, return one and discard the other. This
 /// is the operation `discards_iff_disc_pos` says exists only above zero.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn projection_keeps_one_channel_and_destroys_the_other() {
     let sigma = Sigma::Hyperbolic;
@@ -91,6 +96,7 @@ fn projection_keeps_one_channel_and_destroys_the_other() {
 ///
 /// The same cell, the same scalar, a different dial -- so the difference is the discriminant and
 /// nothing else. This is the test that would fail if `Sigma` were decoration.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_same_cell_is_idempotent_only_above_zero() {
     let e = Cell::<Dyadic>::idem_plus();
@@ -105,6 +111,7 @@ fn the_same_cell_is_idempotent_only_above_zero() {
 }
 
 /// And the scope, stated as a compiling fact: the null basis needs halves too.
+#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_null_basis_change_needs_halves() {
     // `of_halves` is on `Cell<R: Halve>`, so this is available over Dyadic...

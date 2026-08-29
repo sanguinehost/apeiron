@@ -114,7 +114,7 @@ fn a_spatial_scene_counts_exactly() {
 fn a_stream_aimed_at_one_shard_still_counts_exactly() {
     let mut next = rng();
     let mut addrs = Vec::new();
-    while addrs.len() < 40_000 {
+    while addrs.len() < 40_000 / SCALE {
         let a = next();
         if apeiron::table::shard_of(apeiron::map::Salt::default(), a) == 0 {
             addrs.push(a);
@@ -140,10 +140,15 @@ fn counts_do_not_depend_on_the_worker_count() {
 
 /// `build_parallel` builds serially below `PARALLEL_FLOOR`, and that must be invisible.
 ///
+/// Not run under Miri. The boundary this checks is at 65,536 keys and there is no smaller version
+/// of it -- a scaled-down floor would be testing a threshold the code does not have. Miri cannot
+/// interpret three tables that size, so the choice is this test or a finishing Miri run.
+///
 /// The fallback is a performance decision -- the partition costs more than the threads save at
 /// small `n` -- so the one thing it may not do is change an answer. Checked either side of the
 /// boundary, because a threshold is exactly the kind of thing that is right in the middle of a
 /// range and wrong at its edge.
+#[cfg_attr(miri, ignore = "the boundary is at 65,536 keys and does not scale down")]
 #[test]
 fn the_parallel_floor_does_not_change_any_count() {
     let mut next = rng();

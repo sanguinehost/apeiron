@@ -52,6 +52,7 @@ fn honest(n: usize) -> Vec<u64> {
     (0..n as u64).map(|i| i.wrapping_mul(0x9E37_79B9)).collect()
 }
 
+#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
 #[test]
 fn the_floor_the_ceiling_and_the_report() {
     // -- before anything reads it -------------------------------------------------------------

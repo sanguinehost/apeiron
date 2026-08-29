@@ -75,7 +75,7 @@ const _: () = assert!(<[u8] as Coord>::SPREAD);
 #[test]
 fn the_elliptic_face_hands_back_the_key_it_was_given() {
     let mut m: Words<u64, u32> = Words::new();
-    let keys: Vec<u64> = (0..5_000u64)
+    let keys: Vec<u64> = (0..if cfg!(miri) { 200 } else { 5_000u64 })
         .map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (i << 40))
         .collect();
     for (i, &k) in keys.iter().enumerate() {
@@ -108,25 +108,29 @@ fn the_parabolic_face_is_right_even_when_the_address_collides() {
         }
     }
 
+    // `Lossy` folds to sixteen addresses on purpose, so every insert walks a fiber and the build
+    // is quadratic *by design*. That is cheap at 4,096 natively and is the slowest thing in the
+    // file under Miri; the fiber behaviour it checks is the same at 512.
+    const LOSSY: u32 = if cfg!(miri) { 512 } else { 4_096 };
     let mut m: Map<Lossy, u32> = Map::new();
-    for i in 0..4_096u32 {
+    for i in 0..LOSSY {
         m.insert(Lossy(i), i);
     }
-    assert_eq!(m.len(), 4_096, "the fibers swallowed keys");
+    assert_eq!(m.len(), LOSSY as usize, "the fibers swallowed keys");
     assert_eq!(m.face(), Keystore::BeingOverUnbeing);
-    for i in 0..4_096u32 {
+    for i in 0..LOSSY {
         assert_eq!(m.get(&Lossy(i)), Some(&i), "wrong value for {i}");
     }
-    assert_eq!(m.get(&Lossy(9_999)), None);
+    assert_eq!(m.get(&Lossy(LOSSY + 1)), None);
 
     // It is right, and it is *slow*, which is the honest cost of a bad fold on this face: the
     // report says so rather than hiding it.
     let s = m.stats();
     assert!(s.looks_aimed(), "a 16-address fold should be visible in the report: {s:?}");
-    for i in (0..4_096u32).step_by(7) {
+    for i in (0..LOSSY).step_by(7) {
         assert_eq!(m.remove(&Lossy(i)), Some(i));
     }
-    for i in 0..4_096u32 {
+    for i in 0..LOSSY {
         let want = if i % 7 == 0 { None } else { Some(&i) };
         assert_eq!(m.get(&Lossy(i)), want);
     }
@@ -185,7 +189,7 @@ fn a_face_costs_exactly_what_its_discriminant_says() {
 fn a_commutative_merge_does_not_care_about_order() {
     use apeiron::merge::{count_into, set_into};
 
-    let pairs: Vec<(u64, i64)> = (0..2_000u64).map(|i| (i % 250, i as i64)).collect();
+    let pairs: Vec<(u64, i64)> = (0..if cfg!(miri) { 500 } else { 2_000u64 }).map(|i| (i % 250, i as i64)).collect();
     let mut reversed = pairs.clone();
     reversed.reverse();
 

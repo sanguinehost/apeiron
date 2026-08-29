@@ -54,7 +54,13 @@ fn lines() -> Vec<[u8; 16]> {
         r ^= r << 17;
         r
     };
-    for _ in 0..4000 {
+    // Miri emulates the SSE2 intrinsics an instruction at a time, and this file is three tests x
+    // `lines()` x 256 tags. At the native count that is several million emulated comparisons and
+    // the run does not finish in any useful time. The structured cases above are the ones that
+    // discriminate -- all-empty, all-full, one lane either way -- so they stay whole, and only the
+    // random fill is cut. Same idiom as `SCALE` in `tests/the_counts_are_exact.rs`.
+    const FILL: usize = if cfg!(miri) { 40 } else { 4000 };
+    for _ in 0..FILL {
         let mut l = [0u8; 16];
         for b in &mut l {
             let v = next();
@@ -68,7 +74,7 @@ fn lines() -> Vec<[u8; 16]> {
 #[test]
 fn the_swar_scan_is_the_scalar_definition() {
     for l in lines() {
-        for tag in 0u8..=255 {
+        for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
             assert_eq!(scan::match_tag_swar(&l, tag), reference_match(&l, tag), "line {l:?} tag {tag}");
         }
         assert_eq!(scan::occupied_swar(&l), reference_occupied(&l), "line {l:?}");
@@ -79,7 +85,7 @@ fn the_swar_scan_is_the_scalar_definition() {
 #[test]
 fn the_simd_scan_is_the_swar_scan() {
     for l in lines() {
-        for tag in 0u8..=255 {
+        for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
             assert_eq!(
                 scan::match_tag_simd(&l, tag),
                 scan::match_tag_swar(&l, tag),
@@ -94,7 +100,7 @@ fn the_simd_scan_is_the_swar_scan() {
 #[test]
 fn the_chosen_scan_is_the_scalar_definition() {
     for l in lines() {
-        for tag in 0u8..=255 {
+        for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
             assert_eq!(scan::match_tag(&l, tag), reference_match(&l, tag));
         }
         assert_eq!(scan::occupied(&l), reference_occupied(&l));
