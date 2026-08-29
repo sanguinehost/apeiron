@@ -46,7 +46,7 @@
 //! the identical probe sequence, and the descent cannot separate them: a fiber of size `m` costs
 //! `O(m^2)` to insert. **This is the parabolic face's exposure and it is not structural.** It is
 //! the same exposure `hashbrown` has with a fixed hasher, and the answer is the same one:
-//! [`Pepper`], a process-wide constant supplied by the caller, which moves the fibers somewhere
+//! [`crate::pepper`], a process-wide constant supplied by the caller, which moves the fibers somewhere
 //! the attacker cannot precompute. It is a *constant*, not a per-table random seed, so a recorded
 //! pepper replays a run exactly -- determinism and unpredictability are not in conflict here,
 //! because only reproducibility across runs of *the same recorded session* was ever required.
@@ -63,23 +63,8 @@ pub const NU: u64 = 0xD6E8_FEB8_6659_FD93;
 /// game engine replaying a recorded session must address keys the same way it did when it recorded
 /// it, and because a table that is never shown untrusted keys gains nothing from one.
 ///
-/// A server that accepts keys from the network should set one. See [`Pepper`].
+/// A server that accepts keys from the network should set one. See [`crate::pepper`].
 pub const NO_PEPPER: u64 = 0;
-
-/// A process-wide constant mixed into every byte fold, so an attacker cannot precompute a fiber.
-///
-/// Deliberately not per-table and not per-run-random. Two tables in the same process must address
-/// the same key the same way or a value moved between them is lost, and a run must be replayable
-/// from a recording, which a value nobody wrote down is not. Choose it once at startup, from the
-/// OS or from config, **log it**, and a crash report replays.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Pepper(pub u64);
-
-impl Default for Pepper {
-    fn default() -> Self {
-        Self(NO_PEPPER)
-    }
-}
 
 /// Two words to one, with no fiber an attacker can name.
 ///

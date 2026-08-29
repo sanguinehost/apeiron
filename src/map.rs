@@ -55,6 +55,7 @@ use crate::coord::{finish, inverse_odd, Coord, Packed, PHI, PHI_INV};
 use crate::keystore::Keystore;
 use crate::table::{group_at, scan, tag_of, GROUP};
 use std::marker::PhantomData;
+use std::num::NonZeroU64;
 use std::mem::MaybeUninit;
 
 /// An unused slot. Zero, so a fresh region is a `calloc` the kernel may hand over lazily rather
@@ -557,15 +558,31 @@ impl<K: Coord + Eq, V, H: Held<K>> Default for Map<K, V, H> {
 
 impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// An empty map. Allocates nothing, so one that is declared and never filled costs a few words.
+    ///
+    /// Takes the pepper from [`crate::pepper`], which is zero unless the process set one at
+    /// startup. That is the floor: a map written by someone who was thinking about parsing rather
+    /// than about addressing still gets whatever protection the process asked for, without the
+    /// call site mentioning it. [`Map::with_pepper`] overrides it, and [`Exposed`] refuses to exist
+    /// without one.
     #[must_use]
     pub fn new() -> Self {
+        Self::with_salt(Salt::new(crate::pepper::process_pepper()))
+    }
+
+    /// An empty map with a given address bijection, ignoring the process pepper.
+    ///
+    /// The analogue of `HashMap::with_hasher`. There is no `BuildHasher` here because there is no
+    /// hasher to build -- the address function is fixed and the [`Salt`] is the only thing that
+    /// varies, which is what makes the layout reproducible from a recorded constant.
+    #[must_use]
+    pub fn with_salt(salt: Salt) -> Self {
         Self {
             tags: Box::new([]),
             slots: Box::new([]),
             live: 0,
             used: 0,
             geom: Geom::default(),
-            salt: Salt::new(0),
+            salt,
             _k: PhantomData,
         }
     }
@@ -598,9 +615,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// are not in conflict, because only reproducibility of *a recorded run* was ever needed.
     #[must_use]
     pub fn with_pepper(pepper: u64) -> Self {
-        let mut m = Self::new();
-        m.salt = Salt::new(pepper);
-        m
+        Self::with_salt(Salt::new(pepper))
     }
 
     /// This map's pepper.
@@ -643,6 +658,67 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     #[must_use]
     pub const fn slots(&self) -> usize {
         self.slots.len()
+    }
+
+    /// What this table currently looks like, measured rather than tracked.
+    ///
+    /// The probe lengths are computed by re-probing every live entry, so this is `O(n)` and costs
+    /// **nothing** on the insert and lookup paths. That is the deliberate trade: a counter
+    /// maintained on the hot path would be a store per insert forever, to serve a question that
+    /// gets asked when someone is already worried.
+    ///
+    /// `longest_probe` is the number to watch. An honest key set keeps it in the low single digits
+    /// whatever the size; an aimed one drives it to hundreds or thousands, because every aimed key
+    /// walks past every other one. That is what makes an attack *visible* instead of merely slow --
+    /// see [`crate::map::Salt`] for what to do about it.
+    #[must_use]
+    pub fn stats(&self) -> Stats {
+        let mut longest = 0u32;
+        let mut total = 0u64;
+        for (i, &t) in self.tags.iter().enumerate() {
+            if t & LIVE == 0 {
+                continue;
+            }
+            // SAFETY: the tag says live.
+            let (h, _) = unsafe { self.slots[i].assume_init_ref() };
+            let steps = self.probe_len(h.addr(), i);
+            longest = longest.max(steps);
+            total += u64::from(steps);
+        }
+        Stats {
+            face: H::FACE,
+            live: self.live,
+            tombstones: self.used - self.live,
+            slots: self.slots.len(),
+            peppered: self.salt.pepper() != 0,
+            longest_probe: longest,
+            mean_probe: if self.live == 0 {
+                0.0
+            } else {
+                total as f64 / self.live as f64
+            },
+        }
+    }
+
+    /// How many groups the descent visits before reaching slot `at`.
+    ///
+    /// One rather than zero for an entry found in the first group, so the mean reads as "groups
+    /// touched per lookup" and a perfect table reads 1.0.
+    fn probe_len(&self, p: u64, at: usize) -> u32 {
+        let mut base = self.geom.first(p);
+        let mut d = Descent::after_first(p, self.geom);
+        let mut steps = 1u32;
+        // Bounded by the number of groups: the descent's sweep visits each at most once before
+        // repeating, and the entry is certainly in one of them.
+        let cap = (self.slots.len() / GROUP).max(1) as u32 + 1;
+        while steps <= cap {
+            if at >= base && at < base + GROUP {
+                return steps;
+            }
+            base = d.next();
+            steps += 1;
+        }
+        steps
     }
 
     /// Slots holding a removed entry. Nonzero means the next growth may be a rebuild in place.
@@ -718,7 +794,12 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// it is sound because the key's own probe order passed through that tombstone on the way here.
     #[inline]
     fn site(&self, p: u64, is: impl Fn(&H) -> bool) -> Result<usize, usize> {
-        debug_assert!(self.slots.len() >= MIN_SLOTS, "probing an unallocated table");
+        // A real assertion, not a `debug_assert`. `line` reads sixteen tag bytes without a bounds
+        // check, so an unallocated table would read past an empty box -- and the only thing
+        // standing between this and that was every caller happening to call `reserve(1)` first.
+        // One predictable branch on a path that already allocates is the right price for turning
+        // undefined behaviour into a panic.
+        assert!(self.slots.len() >= MIN_SLOTS, "probing an unallocated table");
         let tag = tag_of(p);
         let mut vacant: Option<usize> = None;
         let mut base = self.geom.first(p);
@@ -752,6 +833,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     #[inline]
     fn line(&self, base: usize) -> &[u8; GROUP] {
+        debug_assert!(base + GROUP <= self.tags.len(), "group {base} is outside the region");
         // SAFETY: `Descent` yields a group start below `tags.len() / GROUP`, so the sixteen bytes
         // from there are inside the array. `tags.len() == slots.len()` and both are a multiple of
         // `GROUP` -- `rebuild` is the only thing that sizes them and it allocates in groups.
@@ -816,18 +898,28 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         }
     }
 
-    /// **The merge.** Combine `v` with whatever is already at `k`, in one probe.
+    /// **The merge.** Combine `v` into whatever is already at `k`, in one probe.
+    ///
+    /// `f` takes the slot **by reference**, not by value. That is what makes it panic-safe rather
+    /// than panic-tolerant: the earlier form was `FnOnce(V, V) -> V`, which had to move the old
+    /// value out of the slot to call `f`, and a panic inside `f` left an initialised-looking slot
+    /// holding nothing. The entry was lost. Here the value never leaves, so there is no window to
+    /// unwind out of -- the failure mode is gone by construction, not handled.
     ///
     /// This is the primitive; every other writer here is a special case of it. It is also the one
     /// the algebra has something to say about: `fold`'s commutativity and associativity hold on
     /// every face with no hypothesis on the dial, so which merge is chosen never depends on the
     /// keystore. **One merge, three keystores** -- see [`crate::keystore`], and [`crate::merge`]
     /// for the four that a table is ordinarily built with.
-    pub fn insert_with(&mut self, k: K, v: V, f: impl FnOnce(V, V) -> V) {
+    pub fn insert_with(&mut self, k: K, v: V, f: impl FnOnce(&mut V, V)) {
         self.reserve(1);
         let p = H::address(self.salt, &k);
         match self.site(p, |h| h.holds(p, &k)) {
-            Ok(i) => self.merge_at(i, p, v, f),
+            Ok(i) => {
+                // SAFETY: `site`'s `Ok` names a live slot.
+                let slot = unsafe { self.slots[i].assume_init_mut() };
+                f(&mut slot.1, v);
+            }
             Err(i) => self.place(i, p, k, v),
         }
     }
@@ -841,27 +933,6 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         self.live += 1;
         self.slots[i] = MaybeUninit::new((H::hold(p, k), v));
         self.tags[i] = tag_of(p);
-    }
-
-    /// Replace slot `i`'s value with `f(new, old)`.
-    ///
-    /// The tag is cleared for the duration. `f` is caller code and may panic; if it does, the slot
-    /// holds a value that has been moved out of, and the cleared tag is what stops the unwind from
-    /// dropping it or a later probe from reading it. The entry is lost -- a tombstone in its place
-    /// -- which is the honest outcome for a merge that did not complete.
-    #[inline]
-    fn merge_at(&mut self, i: usize, p: u64, v: V, f: impl FnOnce(V, V) -> V) {
-        self.tags[i] = TOMB;
-        self.live -= 1;
-        let slot = self.slots[i].as_mut_ptr();
-        // SAFETY: the slot was live, so it is initialised; the tag now says it is not, so nothing
-        // else will read or drop it while the value is out.
-        let old = unsafe { std::ptr::read(std::ptr::addr_of!((*slot).1)) };
-        let merged = f(v, old);
-        // SAFETY: writing back into the slot the value came out of.
-        unsafe { std::ptr::write(std::ptr::addr_of_mut!((*slot).1), merged) };
-        self.tags[i] = tag_of(p);
-        self.live += 1;
     }
 
     /// Remove, returning the value.
@@ -950,21 +1021,30 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// and not a hash per entry. For a hundred thousand strings that is the difference between
     /// re-reading megabytes of bytes and reading a word.
     fn rebuild(&mut self, slots: usize) {
+        debug_assert!(slots >= MIN_SLOTS && slots.is_power_of_two());
+        debug_assert!(limit(slots) >= self.live, "rebuilding into a region that cannot hold it");
         let mut tags = vec![EMPTY; slots].into_boxed_slice();
         let mut fresh: Box<[MaybeUninit<(H, V)>]> =
             (0..slots).map(|_| MaybeUninit::uninit()).collect();
         let geometry = Geom::of(slots / GROUP);
         let (gbits, gmask) = (geometry.gbits, geometry.gmask);
 
-        let old_tags = std::mem::replace(&mut self.tags, Box::new([]));
-        let old_slots = std::mem::replace(&mut self.slots, Box::new([]));
-        for (i, &t) in old_tags.iter().enumerate() {
-            if t & LIVE == 0 {
+        // `self` is handed empty arrays now, so from here until the swap at the end it owns
+        // nothing -- `Map::drop` would find a zero-length tag line and free none of the entries
+        // still sitting in the old region. `Salvage` is what covers that gap.
+        let mut old = Salvage {
+            tags: std::mem::replace(&mut self.tags, Box::new([])),
+            slots: std::mem::replace(&mut self.slots, Box::new([])),
+            taken: 0,
+        };
+        for i in 0..old.tags.len() {
+            old.taken = i + 1;
+            if old.tags[i] & LIVE == 0 {
                 continue;
             }
-            // SAFETY: the tag says live. `MaybeUninit` has no drop glue, so moving the entry out
-            // here is the only move -- the old array is dropped as raw storage below.
-            let entry = unsafe { old_slots[i].assume_init_read() };
+            // SAFETY: the tag says live, and `taken` now covers this index, so the salvage guard
+            // will not drop it again if anything below unwinds.
+            let entry = unsafe { old.slots[i].assume_init_read() };
             let p = entry.0.addr();
             let mut j = 0u32;
             let at = loop {
@@ -1046,6 +1126,36 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         self.live = 0;
         self.used = 0;
         out
+    }
+}
+
+/// The old region, while [`Map::rebuild`] is walking it.
+///
+/// `rebuild` takes the arrays off the map before it starts moving entries across, which means that
+/// for the length of the loop the map owns nothing and its `Drop` would free nothing. If the loop
+/// unwound there, every entry not yet moved would leak. This owns them for that window and drops
+/// whatever is left.
+///
+/// `taken` is the number of slots already accounted for -- moved out, or skipped as not live -- so
+/// the guard drops exactly the tail it is still responsible for and never an entry twice.
+struct Salvage<H, V> {
+    tags: Box<[u8]>,
+    slots: Box<[MaybeUninit<(H, V)>]>,
+    taken: usize,
+}
+
+impl<H, V> Drop for Salvage<H, V> {
+    fn drop(&mut self) {
+        if !std::mem::needs_drop::<(H, V)>() {
+            return;
+        }
+        for i in self.taken..self.tags.len() {
+            if self.tags[i] & LIVE != 0 {
+                // SAFETY: the tag says live and this index is past `taken`, so nothing has moved
+                // it out. Each index is visited once.
+                unsafe { self.slots[i].assume_init_drop() };
+            }
+        }
     }
 }
 
@@ -1134,11 +1244,15 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 
     /// The merge, through a view.
     /// The merge, through a view.
-    pub fn insert_with_at<Q: Absorb<K>>(&mut self, q: Q, v: V, f: impl FnOnce(V, V) -> V) {
+    pub fn insert_with_at<Q: Absorb<K>>(&mut self, q: Q, v: V, f: impl FnOnce(&mut V, V)) {
         self.reserve(1);
         let p = self.salt.spread(q.coord_at(self.salt.pepper()));
         match self.site(p, |h| h.p == p && q.same(&h.k)) {
-            Ok(i) => self.merge_at(i, p, v, f),
+            Ok(i) => {
+                // SAFETY: `site`'s `Ok` names a live slot.
+                let slot = unsafe { self.slots[i].assume_init_mut() };
+                f(&mut slot.1, v);
+            }
             Err(i) => self.place(i, p, q.absorb(), v),
         }
     }
@@ -1172,6 +1286,127 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 }
 
 // -- entry -----------------------------------------------------------------------------------------
+
+/// What a table looks like right now: the report [`Map::stats`] returns.
+///
+/// Lyrium's own ARCHITECTURE.md asks every data-driven subsystem for a report that answers in
+/// counts and reasons rather than prose, so that "absent", "present but degraded" and "present and
+/// fine" are distinguishable without a screenshot. This is that, for a table.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stats {
+    /// Which keyed face this table is on.
+    pub face: Keystore,
+    /// Live entries.
+    pub live: usize,
+    /// Slots holding a removed entry: they occupy probe order but hold nothing.
+    pub tombstones: usize,
+    /// Slots allocated.
+    pub slots: usize,
+    /// Whether this table's addresses are peppered. **A `false` here on a table fed from outside
+    /// the process is the finding**, whatever the probe lengths currently say.
+    pub peppered: bool,
+    /// Groups the worst entry's probe touches. Low single digits on an honest key set at any size.
+    pub longest_probe: u32,
+    /// Groups an average entry's probe touches. 1.0 is perfect.
+    pub mean_probe: f64,
+}
+
+impl Stats {
+    /// Live entries over slots.
+    #[must_use]
+    pub fn load(&self) -> f64 {
+        if self.slots == 0 {
+            0.0
+        } else {
+            self.live as f64 / self.slots as f64
+        }
+    }
+
+    /// Whether the probe lengths look like an attack rather than a workload.
+    ///
+    /// Deliberately a wide bar. A table under a chosen-key attack does not sit at eight groups, it
+    /// sits at hundreds -- every aimed key walks past every other one -- so anything that trips
+    /// this is worth a log line, and nothing that does not trip it is worth waking anyone for.
+    #[must_use]
+    pub fn looks_aimed(&self) -> bool {
+        self.longest_probe > 32 || self.mean_probe > 4.0
+    }
+}
+
+/// A map that **cannot** be built without a pepper.
+///
+/// [`Map::new`] takes the process pepper, which is the floor. This is the ceiling: a table whose
+/// keys come from outside the process says so at its declaration, and the compiler holds it to
+/// that. The pepper is a [`NonZeroU64`], so there is no constructor that takes zero and no runtime
+/// check to forget -- an unpeppered `Exposed` is not a value that exists.
+///
+/// Use it wherever an attacker picks the keys: a resource index built from an archive header, a
+/// field table keyed by labels read out of a file, anything arriving on a socket.
+///
+/// ```
+/// use apeiron::map::Exposed;
+/// use std::num::NonZeroU64;
+///
+/// let pepper = NonZeroU64::new(0x5EED_1234_ABCD_9876).unwrap();
+/// let mut index: Exposed<String, u32> = Exposed::new(pepper);
+/// index.insert("nw_wswmg001".into(), 7);          // Deref gives the whole `Map` surface
+/// assert_eq!(index.get_at("nw_wswmg001"), Some(&7));
+/// ```
+pub struct Exposed<K, V, H = Stored<K>>(Map<K, V, H>);
+
+/// [`Exposed`] on the elliptic face, for keys that fit in a word.
+pub type ExposedWords<K, V> = Exposed<K, V, Regen<K>>;
+
+impl<K: Coord + Eq, V, H: Held<K>> Exposed<K, V, H> {
+    /// An empty table with a pepper that cannot be zero.
+    #[must_use]
+    pub fn new(pepper: NonZeroU64) -> Self {
+        Self(Map::with_pepper(pepper.get()))
+    }
+
+    /// The same, sized for `n` entries.
+    #[must_use]
+    pub fn with_capacity(pepper: NonZeroU64, n: usize) -> Self {
+        let mut m = Map::with_pepper(pepper.get());
+        m.reserve(n);
+        Self(m)
+    }
+
+    /// Take the process pepper, if the process set one.
+    ///
+    /// `None` when it is still zero -- which is the point. A caller that reaches for this and gets
+    /// `None` has found out at startup that nobody called
+    /// [`set_process_pepper`](crate::pepper::set_process_pepper), rather than finding out under
+    /// load.
+    #[must_use]
+    pub fn from_process_pepper() -> Option<Self> {
+        NonZeroU64::new(crate::pepper::process_pepper()).map(Self::new)
+    }
+
+    /// The plain map underneath.
+    pub fn into_inner(self) -> Map<K, V, H> {
+        self.0
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> std::ops::Deref for Exposed<K, V, H> {
+    type Target = Map<K, V, H>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> std::ops::DerefMut for Exposed<K, V, H> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> std::fmt::Debug for Exposed<K, V, H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Exposed({:?})", self.0)
+    }
+}
 
 /// A located slot, occupied or not: one probe, held open.
 ///

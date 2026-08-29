@@ -76,7 +76,7 @@ fn diverges(ops: &[Op]) -> Option<usize> {
         let agree = match *op {
             Op::Insert(k, v) => ours.insert(k, v) == theirs.insert(k, v),
             Op::Merge(k, v) => {
-                ours.insert_with(k, v, |new, old| new.wrapping_add(old));
+                ours.insert_with(k, v, |slot, new| *slot = new.wrapping_add(*slot));
                 let e = theirs.entry(k).or_insert(0);
                 *e = v.wrapping_add(*e);
                 true
@@ -163,7 +163,7 @@ fn the_elliptic_face_agrees_with_std_too() {
                     assert_eq!(ours.insert(u64::from(k), v), theirs.insert(u64::from(k), v), "seed {seed} op {i}");
                 }
                 Op::Merge(k, v) => {
-                    ours.insert_with(u64::from(k), v, |n, o| n.wrapping_add(o));
+                    ours.insert_with(u64::from(k), v, |slot, n| *slot = n.wrapping_add(*slot));
                     let e = theirs.entry(u64::from(k)).or_insert(0);
                     *e = v.wrapping_add(*e);
                 }
@@ -322,4 +322,86 @@ fn a_churned_map_equals_a_fresh_one_with_the_same_entries() {
     assert!(churned.tombstones() > 0);
     assert_eq!(churned, fresh);
     assert_eq!(churned.clone(), fresh);
+}
+
+/// A merge closure that panics must leave the map exactly as it was.
+///
+/// This is the whole point of `insert_with` taking `&mut V` rather than `V`. The earlier form had
+/// to move the old value out of the slot to call the closure, so an unwind left the slot
+/// initialised-looking and holding nothing; the entry was tombstoned and lost. Now the value never
+/// leaves the slot, so there is no window -- and this asserts that from the outside: the entry is
+/// still there, still readable, still counted, and the map still answers about every other key.
+#[test]
+fn a_merge_that_panics_leaves_the_map_intact() {
+    let mut m: Map<String, u64> = Map::new();
+    for i in 0..500u64 {
+        m.insert(format!("k{i}"), i);
+    }
+    let before = m.len();
+
+    for i in (0..500u64).step_by(7) {
+        let key = format!("k{i}");
+        let boom = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            m.insert_with(key.clone(), 1, |slot, _new| {
+                *slot += 1;
+                panic!("merge failed halfway");
+            });
+        }));
+        assert!(boom.is_err(), "the closure was supposed to panic");
+
+        // The entry survives, and it survives with whatever the closure managed to write.
+        assert_eq!(m.get(&key), Some(&(i + 1)), "entry lost on {key}");
+        assert_eq!(m.len(), before, "length moved");
+        assert_eq!(m.tombstones(), 0, "a failed merge left a tombstone");
+    }
+
+    // And nothing else was disturbed.
+    for i in 0..500u64 {
+        let want = if i % 7 == 0 { i + 1 } else { i };
+        assert_eq!(m.get(&format!("k{i}")), Some(&want));
+    }
+    assert_eq!(m.len(), 500);
+}
+
+/// A value whose `Drop` runs must still run exactly once when a merge panics.
+#[test]
+fn a_panicking_merge_does_not_leak_or_double_drop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static MADE: AtomicUsize = AtomicUsize::new(0);
+    static GONE: AtomicUsize = AtomicUsize::new(0);
+
+    struct Counted(#[allow(dead_code)] String);
+    impl Counted {
+        fn new(s: &str) -> Self {
+            MADE.fetch_add(1, Ordering::Relaxed);
+            Self(s.to_owned())
+        }
+    }
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            GONE.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    {
+        let mut m: Map<u32, Counted> = Map::new();
+        for i in 0..200u32 {
+            m.insert(i, Counted::new("v"));
+        }
+        for i in 0..200u32 {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // The closure takes ownership of `new` and panics; `new` must be dropped by the
+                // unwind, and the slot's own value must not be.
+                m.insert_with(i, Counted::new("w"), |_slot, _new| panic!("no"));
+            }));
+        }
+        assert_eq!(m.len(), 200);
+    }
+    assert_eq!(
+        MADE.load(Ordering::Relaxed),
+        GONE.load(Ordering::Relaxed),
+        "made {} but dropped {}",
+        MADE.load(Ordering::Relaxed),
+        GONE.load(Ordering::Relaxed)
+    );
 }

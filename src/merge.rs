@@ -93,6 +93,43 @@ pub fn link<T>(mut new: Vec<T>, old: Vec<T>) -> Vec<T> {
     new
 }
 
+// -- the same four, in place ---------------------------------------------------------------------
+//
+// `Map::insert_with` takes `FnOnce(&mut V, V)` rather than `FnOnce(V, V) -> V`, because a merge
+// that has to move the old value out of the slot to call the closure leaves the slot holding
+// nothing for the duration -- and a panic in there loses the entry. The four above are the
+// *statement*; these are how a table applies them. Each is checked against its pure twin.
+
+/// [`keep`], applied in place.
+#[inline]
+pub fn keep_into(slot: &mut bool, new: bool) {
+    *slot = keep(new, *slot);
+}
+
+/// [`set`], applied in place.
+#[inline]
+pub fn set_into<V>(slot: &mut V, new: V) {
+    *slot = new;
+}
+
+/// [`count`], applied in place.
+///
+/// The old value is swapped out for the monoid's identity rather than read out and abandoned, so
+/// the slot always holds a live `V`. If `combine` panics the entry survives holding the identity,
+/// which is a value the caller can see and reason about -- not an uninitialised slot.
+#[inline]
+pub fn count_into<V: Monoid>(slot: &mut V, new: V) {
+    let old = core::mem::replace(slot, V::identity());
+    *slot = count(new, old);
+}
+
+/// [`link`], applied in place: `new` is spliced onto the front, newest first, without rebuilding
+/// the tail.
+#[inline]
+pub fn link_into<T>(slot: &mut Vec<T>, new: Vec<T>) {
+    slot.splice(0..0, new);
+}
+
 /// A commutative monoid: what makes a counting build order-free, and therefore splittable.
 pub trait Monoid {
     /// What an absent key reads as.
@@ -151,6 +188,39 @@ mod tests {
         assert_eq!(all.iter().filter(|f| f.is_fusible()).count(), 2);
         assert!(Face::Keep.is_fusible() && Face::Count.is_fusible());
         assert!(!Face::Set.is_fusible() && !Face::Link.is_fusible());
+    }
+
+    /// Each in-place merge must be the pure one it is named after. They are separate code -- one
+    /// returns a value, the other writes through a reference -- so agreeing is a property to check,
+    /// not a thing to assume.
+    #[test]
+    fn every_in_place_merge_agrees_with_its_pure_twin() {
+        for &new in &[false, true] {
+            for &old in &[false, true] {
+                let mut slot = old;
+                keep_into(&mut slot, new);
+                assert_eq!(slot, keep(new, old), "keep({new}, {old})");
+            }
+        }
+        for new in -50i64..50 {
+            for old in -50i64..50 {
+                let mut slot = old;
+                count_into(&mut slot, new);
+                assert_eq!(slot, count(new, old), "count({new}, {old})");
+
+                let mut slot = old;
+                set_into(&mut slot, new);
+                assert_eq!(slot, set(new, old), "set({new}, {old})");
+            }
+        }
+        for n in 0..6usize {
+            for o in 0..6usize {
+                let (new, old): (Vec<usize>, Vec<usize>) = ((0..n).collect(), (100..100 + o).collect());
+                let mut slot = old.clone();
+                link_into(&mut slot, new.clone());
+                assert_eq!(slot, link(new, old), "link at {n}/{o}");
+            }
+        }
     }
 
     /// The claim `Species::Free` makes, checked rather than asserted.
