@@ -46,29 +46,36 @@
 //!
 //! | | instructions/lookup | cycles/lookup | IPC |
 //! |---|---|---|---|
-//! | apeiron, `u64` keys | 35.9 | 6.5 | 5.5 |
-//! | hashbrown + fxhash | 32.2 | 5.7 | 5.6 |
-//! | std | 105.2 | 26.2 | 4.0 |
-//! | apeiron, `String` keys | 108.9 | 24.1 | 4.5 |
-//! | hashbrown + fxhash, `String` | 89.3 | 19.2 | 4.6 |
+//! | apeiron, `u64` keys | 37.5 | 8.9 | 4.2 |
+//! | hashbrown + fxhash | 32.2 | 6.0 | 5.4 |
+//! | std | 127.1 | 29.6 | 4.3 |
+//! | apeiron, `String` keys | 112.3 | 26.1 | 4.3 |
+//! | hashbrown + fxhash, `String` | 90.3 | 18.9 | 4.8 |
 //!
-//! The IPC column is the useful one: it was already as high as hashbrown's when the lookup took
-//! twice as long, which said the gap was **instruction count and not stalls** -- there was nothing
-//! to prefetch or reorder, there were simply too many instructions. That is what made the fix
-//! findable.
+//! Two findings live in this table, from two rounds of measurement.
 //!
-//! It was one thing. `get` and `find` were `#[inline]` but the compiler outlined them anyway, so
-//! every lookup paid a call, a return, and the register save/restore around both: **70 instructions
-//! and 12.0 cycles**, against hashbrown's 32. `#[inline(always)]` on the probe internals and
-//! `#[inline]` on the public readers took it to 35.9 and 6.5, or 2.43 ns to 1.14 in the end-to-end
-//! sweep. Guessing would not have found that; three earlier guesses at the arithmetic each bought
-//! a few percent, and the whole gap was a call instruction.
+//! The first was outlining. `get` and `find` were `#[inline]` but the compiler outlined them
+//! anyway, so every lookup paid a call, a return, and the register save/restore around both:
+//! **70 instructions and 12.0 cycles**, against hashbrown's 32 -- at an IPC already as high as
+//! hashbrown's, which said the gap was instruction count and not stalls. `#[inline(always)]` on
+//! the probe internals and `#[inline]` on the public readers took it to 35.9 and 6.5. Guessing
+//! would not have found that; three earlier guesses at the arithmetic each bought a few percent,
+//! and the whole gap was a call instruction.
 //!
-//! The remaining 22% on `String` keys is not outlining -- both sides are near a hundred
-//! instructions there, dominated by the fold and the compare. It is the price of two decisions
-//! stated elsewhere: the slot carries the address as well as the key (40 bytes against 32, so
-//! growth is a probe per entry rather than a re-fold of every byte), and the address is peppered
-//! twice, once into the fold's seed and once into the bijection's multiplier.
+//! The second is the current gap, and it points the other way: IPC **fell** to 4.2 when the
+//! address became two multiplies ([`crate::coord::spread`]), because an L1-resident hit is a
+//! latency chain and the second multiply sits at the head of it before the first tag line can
+//! load. That is 2.3 cycles a lookup over the one-fold address it replaced -- paid knowingly:
+//! the placement simulation broke every cheaper address on some honest distribution, including
+//! a staged probe engineered to hide exactly this latency (first window and tag off the first
+//! product: highbits keys then double their mean probe). This loop is also the worst case; a
+//! lookup that misses cache hides the whole chain behind the miss.
+//!
+//! The `String` gap is not outlining either -- both sides are near a hundred instructions,
+//! dominated by the fold and the compare. It is the price of two decisions stated elsewhere: the
+//! slot carries the address as well as the key (40 bytes against 32, so growth is a probe per
+//! entry rather than a re-fold of every byte), and the address is peppered twice, once into the
+//! fold's seed and once into the bijection's multiplier.
 //!
 //! # Why the borrowed-key API is not a convenience
 //!
@@ -82,9 +89,9 @@
 #![allow(clippy::needless_pass_by_value)] // a `Locate` view IS the borrow; taking it by reference
                                           // would put a second indirection on the probe.
 
-use crate::coord::{finish, inverse_odd, Coord, Packed, PHI, PHI_INV};
+use crate::coord::{finish, inverse_odd, Coord, Packed, PHI, PHI_INV, PSI, PSI_INV};
 use crate::keystore::Keystore;
-use crate::table::{group_at, scan, tag_of, GROUP};
+use crate::table::{group_at, scan, tag_of, DESCENT_BITS, GROUP};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::mem::MaybeUninit;
@@ -132,12 +139,11 @@ pub const fn limit(slots: usize) -> usize {
 /// The address bijection's secret half.
 ///
 /// A pepper cannot be *added* to a key and do any good, and finding that out is what this type is
-/// for. `spread` is `x -> (x * M) ^ ((x * M) >> 32)`; the top 32 bits of the answer are the top 32
-/// bits of `x * M` untouched. Adding a constant to `x` before the multiply is adding `c * M` after
-/// it, a translation -- and a set of keys chosen to agree on their high bits still agrees on them
-/// after a translation. Measured: an additive pepper left a 200,000-key aimed build 996x slower
-/// than an honest one, against 1008x with no pepper at all. It bought nothing, and it looked like
-/// it should have.
+/// for. `spread` opens with `x * M`, and every later step is a public bijection. Adding a constant
+/// to `x` before the multiply is adding `c * M` after it, a translation -- and a set of keys
+/// chosen to agree on their high bits still agrees on them after a translation. Measured: an
+/// additive pepper left a 200,000-key aimed build 996x slower than an honest one, against 1008x
+/// with no pepper at all. It bought nothing, and it looked like it should have.
 ///
 /// So the pepper becomes **the multiplier**. An attacker who does not know `M` cannot choose keys
 /// whose products have chosen high bits, because that is inverting a multiplication they cannot
@@ -175,21 +181,24 @@ impl Salt {
         }
     }
 
-    /// Avalanche: one multiply and one xor-fold. The top bits spread because multiplication by an
-    /// odd constant carries low bits upward; the low seven -- the tag -- spread because the fold
-    /// brings the product's high half down to meet them.
+    /// The address: the peppered multiply, then [`crate::coord::spread`]'s public tail -- fold
+    /// the top sixteen bits down, multiply by `PSI`. The pepper stays in the first multiplier
+    /// only: the tail is a fixed bijection, so it moves no collision and hides nothing, and one
+    /// secret multiplier is already what makes the top of the product unaimable.
     #[inline]
     #[must_use]
     pub const fn spread(self, x: u64) -> u64 {
         let h = x.wrapping_mul(self.mul);
-        h ^ (h >> 32)
+        (h ^ (h >> 48)).wrapping_mul(PSI)
     }
 
-    /// Exactly undone. `x ^ (x >> 32)` is an involution and the multiply is odd.
+    /// Exactly undone, step by step in reverse: both multipliers are odd, and the xor-fold is an
+    /// involution.
     #[inline]
     #[must_use]
     pub const fn unspread(self, h: u64) -> u64 {
-        (h ^ (h >> 32)).wrapping_mul(self.inv)
+        let h = h.wrapping_mul(PSI_INV);
+        (h ^ (h >> 48)).wrapping_mul(self.inv)
     }
 
     #[must_use]
@@ -220,9 +229,7 @@ enum Step {
 struct Geom {
     /// `log2(groups)`.
     gbits: u32,
-    /// `64 - gbits`, and 64 when a region is one group -- a shift *by* 64 is undefined, so it is
-    /// taken with `wrapping_shr`, which then shifts by nothing and the mask (zero) makes the answer
-    /// group zero, which is right because group zero is the whole region.
+    /// `DESCENT_BITS - gbits`: where the first window starts, just below the tag's seven bits.
     gshift: u32,
     /// `groups - 1`.
     gmask: usize,
@@ -233,7 +240,7 @@ impl Geom {
         let gbits = groups.trailing_zeros();
         Self {
             gbits,
-            gshift: 64 - gbits,
+            gshift: DESCENT_BITS.saturating_sub(gbits),
             gmask: groups.saturating_sub(1),
         }
     }
@@ -266,8 +273,9 @@ struct Descent {
     /// What is left of the word; the next window is its top `gbits`.
     window: u64,
     j: u32,
-    /// Bits of `p` consumed. Compared against 64 rather than against `64 / gbits`, because that
-    /// quotient is an integer division on a runtime value and would sit on every probe.
+    /// Bits of `p` consumed. Compared against [`DESCENT_BITS`] rather than against
+    /// `DESCENT_BITS / gbits`, because that quotient is an integer division on a runtime value and
+    /// would sit on every probe.
     spent: u32,
     g: Geom,
 }
@@ -278,6 +286,8 @@ impl Descent {
     fn after_first(p: u64, g: Geom) -> Self {
         Self {
             p,
+            // Shifting the tag's bits off the top is not needed and would be wrong: `gshift` is
+            // `DESCENT_BITS - gbits`, so the mask already keeps only bits below 57.
             window: p.wrapping_shl(g.gbits),
             j: 1,
             spent: g.gbits,
@@ -291,7 +301,7 @@ impl Descent {
         let j = self.j;
         self.j += 1;
         self.spent += self.g.gbits;
-        if self.spent > 64 || self.g.gbits == 0 {
+        if self.spent > DESCENT_BITS || self.g.gbits == 0 {
             // The word is spent, or the region is a single group and every window is group zero.
             return group_at(self.p, j, self.g.gbits, self.g.gmask) * GROUP;
         }
@@ -754,15 +764,17 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     pub fn stats(&self) -> Stats {
         let mut longest = 0u32;
         let mut total = 0u64;
+        let mut compared = 0u64;
         for (i, &t) in self.tags.iter().enumerate() {
             if t & LIVE == 0 {
                 continue;
             }
             // SAFETY: the tag says live.
             let (h, _) = unsafe { self.slots[i].assume_init_ref() };
-            let steps = self.probe_len(h.addr(), i);
+            let (steps, compares) = self.probe_cost(h.addr(), i);
             longest = longest.max(steps);
             total += u64::from(steps);
+            compared += u64::from(compares);
         }
         Stats {
             face: H::FACE,
@@ -776,28 +788,44 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             } else {
                 total as f64 / self.live as f64
             },
+            mean_compares: if self.live == 0 {
+                0.0
+            } else {
+                compared as f64 / self.live as f64
+            },
         }
     }
 
-    /// How many groups the descent visits before reaching slot `at`.
+    /// How many groups the descent visits before reaching slot `at`, and how many full addresses
+    /// the tag lines make it compare on the way.
     ///
-    /// One rather than zero for an entry found in the first group, so the mean reads as "groups
-    /// touched per lookup" and a perfect table reads 1.0.
-    fn probe_len(&self, p: u64, at: usize) -> u32 {
+    /// One rather than zero for an entry found in the first group, so the means read as "groups
+    /// touched per lookup" and "addresses compared per lookup", and a perfect table reads 1.0 in
+    /// both. The compare count replays what `find` does: every matching tag in a group it passes
+    /// through, and in the group it stops at, the matching lanes the scan visits up to its own.
+    fn probe_cost(&self, p: u64, at: usize) -> (u32, u32) {
+        let tag = tag_of(p);
         let mut base = self.geom.first(p);
         let mut d = Descent::after_first(p, self.geom);
         let mut steps = 1u32;
+        let mut compares = 0u32;
         // Bounded by the number of groups: the descent's sweep visits each at most once before
         // repeating, and the entry is certainly in one of them.
         let cap = (self.slots.len() / GROUP).max(1) as u32 + 1;
         while steps <= cap {
             if at >= base && at < base + GROUP {
-                return steps;
+                for lane in base..=at {
+                    compares += u32::from(self.tags[lane] == tag);
+                }
+                return (steps, compares);
+            }
+            for lane in base..base + GROUP {
+                compares += u32::from(self.tags[lane] == tag);
             }
             base = d.next();
             steps += 1;
         }
-        steps
+        (steps, compares)
     }
 
     /// Slots holding a removed entry. Nonzero means the next growth may be a rebuild in place.
@@ -1809,6 +1837,11 @@ pub struct Stats {
     pub longest_probe: u32,
     /// Groups an average entry's probe touches. 1.0 is perfect.
     pub mean_probe: f64,
+    /// Full addresses an average hit compares. 1.0 is perfect; the birthday floor for a seven-bit
+    /// tag at seven-eighths load is about 1.05. This is the statistic `mean_probe` cannot see: a
+    /// tag that stops discriminating leaves every probe one group long and every scan sixteen
+    /// compares wide, which is how the original low-tag defect stayed invisible.
+    pub mean_compares: f64,
 }
 
 impl Stats {
@@ -1824,12 +1857,19 @@ impl Stats {
 
     /// Whether the probe lengths look like an attack rather than a workload.
     ///
-    /// Deliberately a wide bar. A table under a chosen-key attack does not sit at eight groups, it
-    /// sits at hundreds -- every aimed key walks past every other one -- so anything that trips
+    /// Deliberately a wide bar: an honest key set measures mean 1.03, longest 8 and 1.05 compares
+    /// at worst across every distribution the placement simulation covers, so anything that trips
     /// this is worth a log line, and nothing that does not trip it is worth waking anyone for.
+    ///
+    /// Three statistics, because an attacker chooses which one to spend their bits on. Keys aimed
+    /// at the descent's windows pile into shared groups -- that is `mean_probe`, and with enough
+    /// agreed bits, `longest_probe`. Keys that agree on the whole top of the address also share
+    /// their **tag**, and sixteen full-width compares per group is a cost `mean_probe` never
+    /// sees: the measured 20,000-key aimed build sits at 69 compares per hit against an honest
+    /// 1.04, while its longest probe is seven.
     #[must_use]
     pub fn looks_aimed(&self) -> bool {
-        self.longest_probe > 32 || self.mean_probe > 4.0
+        self.longest_probe > 32 || self.mean_probe > 4.0 || self.mean_compares > 8.0
     }
 }
 
@@ -2367,6 +2407,42 @@ mod tests {
         for x in [0u64, 1, u64::MAX, PHI, 0x0123_4567_89AB_CDEF] {
             assert_eq!(s.spread(x), crate::coord::spread(x));
             assert_eq!(s.unspread(s.spread(x)), x);
+        }
+    }
+
+    /// The whole address bijection, run over the inputs Kani cannot reach as one formula.
+    ///
+    /// `proofs.rs` decides the steps -- the fold is an involution, each multiplier has the inverse
+    /// it claims -- because the composite `unspread(spread(x)) == x` is 64-bit multiplier
+    /// reasoning CBMC does not return on. This is the composite's half of that bargain: exact
+    /// round trips both ways, over the edges and a spray of random words, under the default
+    /// multiplier and under pepper-derived ones. The elliptic face regenerates every key through
+    /// `unspread`, so "almost a bijection" is a map that hands back wrong keys.
+    #[test]
+    fn the_address_bijection_round_trips() {
+        let mut inputs = vec![0u64, 1, 2, u64::MAX, PHI, PSI, PHI_INV, PSI_INV];
+        for b in 0..64 {
+            inputs.push(1u64 << b);
+            inputs.push((1u64 << b).wrapping_sub(1));
+            inputs.push(!(1u64 << b));
+        }
+        let mut r = 0x243F_6A88_85A3_08D3u64;
+        for _ in 0..10_000 {
+            r ^= r << 13;
+            r ^= r >> 7;
+            r ^= r << 17;
+            inputs.push(r);
+        }
+        for pepper in [0u64, 1, 0xDEAD_BEEF, 20_260_829, u64::MAX] {
+            let s = Salt::new(pepper);
+            for &x in &inputs {
+                assert_eq!(s.unspread(s.spread(x)), x, "pepper {pepper:#x}, x {x:#x}");
+                assert_eq!(s.spread(s.unspread(x)), x, "pepper {pepper:#x}, h {x:#x}");
+            }
+        }
+        for &x in &inputs {
+            assert_eq!(crate::coord::unspread(crate::coord::spread(x)), x, "x {x:#x}");
+            assert_eq!(crate::coord::spread(crate::coord::unspread(x)), x, "h {x:#x}");
         }
     }
 

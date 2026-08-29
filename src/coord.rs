@@ -102,48 +102,87 @@ pub const fn finish(mut h: u64) -> u64 {
     h ^ (h >> 31)
 }
 
-/// A cheaper avalanche, for a table that reads **both ends** of the word.
+/// The map's address bijection: multiply, fold the top sixteen bits down, multiply again.
 ///
-/// [`finish`] is splitmix64's finalizer: two multiplies and two xor-shifts on a serial dependency
-/// chain, about fourteen cycles of latency before the first tag byte can be compared. That is the
-/// right price for [`crate::table`], whose addresses arrive raw from a caller-chosen fold and whose
-/// build is memory-bound anyway -- fourteen cycles hide behind a cache miss.
+/// [`finish`] is splitmix64's finalizer -- two multiplies and three xor-shifts on a serial chain,
+/// about fourteen cycles before the first tag byte can be compared. [`crate::table`] pays that
+/// happily because its build is memory-bound. [`crate::map`] cannot: a lookup that hits in L1 *is*
+/// the latency chain. This is `finish` minus two of its three xor-shifts, and every removal
+/// cheaper than that failed a measurement below.
 ///
-/// It is the wrong price for [`crate::map`], where a lookup that hits in L1 *is* the latency chain.
-/// One multiply and one xor-fold is about five cycles and does what the map needs, which is
-/// narrower than what `finish` provides:
+/// The shape is forced from both ends. A multiply by an odd constant carries entropy upward and
+/// never downward, so whatever the key set, **the top of the product varies** -- and only the top
+/// is guaranteed to. `h ^ (h >> 48)` copies that guaranteed top into the low sixteen bits, and the
+/// second multiply carries it back up through the whole word. One multiply cannot do this, and no
+/// pile of xor-shifts around one multiply can either: conditioned on the multiply, xor-shifts are
+/// linear over `GF(2)`, so a structured key set -- an interval, a stride, a packed coordinate --
+/// stays a coset, and some slice of the word is always a rank-deficient image of it. The second
+/// multiply is what breaks the coset, exactly as splitmix's alternation of the two algebras does.
 ///
-/// - the **top** bits must spread, because the group descent takes windows from the top -- and
-///   multiplication by an odd constant is exactly the operation that carries low input bits
-///   upward;
-/// - the **low seven** bits must spread, because they are the tag -- and `h ^ (h >> 32)` is what
-///   brings the product's high half down to meet them;
-/// - and it must be a **bijection**, because the elliptic face reads the key back off the address
-///   and compares nothing else. Both steps are: multiplication by an odd constant is invertible on
-///   `Z/2^64`, and a xor-shift by half the width is its own inverse.
+/// # How this was got wrong twice, and what the placement simulation says
 ///
-/// What it does *not* provide is `finish`'s full diffusion in the middle bits, which no reader of a
-/// slot ever looks at. Measured in `examples/why_slower.rs`: the swap is 2.1 ns a lookup on
-/// integer keys and moves the occupancy of a 694-key table by nothing.
+/// This was one multiply and `h ^ (h >> 32)`, with the tag read off the *bottom* of the word.
+/// `hashbrown`'s `highbits` distribution (`i.swap_bytes()`, all entropy in the top of the word)
+/// broke it: the product's low 48 bits never vary, so five thousand keys shared **one** tag and
+/// every group scan compared all sixteen lanes. The first fix moved the tag to the top seven bits
+/// (right, kept -- see [`crate::table::tag_of`]) and dropped the fold entirely (wrong): with
+/// nothing below bit 48 varying, every descent window past the first was constant, and every
+/// group overflow collapsed into group zero. A slice-scoring experiment blessed that mistake
+/// because it scored (first window, tag) independence and never played out the placement.
+///
+/// So the placement is what is simulated now: first-fit along the real descent, mean/max groups
+/// per hit and address compares per hit, on eight key distributions at n = 5,000 / 200,000 /
+/// 1,500,000, against BLAKE2 as the ideal-hash control. The worst cell of each candidate:
+///
+/// | candidate | worst mean probe | worst max | worst compares |
+/// |---|---|---|---|
+/// | multiply only (the mistake) | did not finish | 4,072+ | 17.5 |
+/// | mul + fold32, low tag (the original) | 1.000 | 1 | **6.61** |
+/// | mul + fold32, top tag | did not finish | 4,941+ | 18.3 |
+/// | mul + fold32 + fold16, top tag | **1.951** | 14 | 4.96 |
+/// | fold32 then mul, top tag | **2.507** | 334 | 1.39 |
+/// | mul + fold48 + mul (this) | 1.030 | 7 | 1.051 |
+/// | splitmix `finish` | 1.029 | 7 | 1.051 |
+/// | BLAKE2 (ideal control) | 1.029 | 8 | 1.051 |
+///
+/// Every cheaper candidate has a distribution that breaks it -- and not an exotic one:
+/// [`Packed for (i21, i21, i21)`](Packed) puts the first coordinate in bits 42..63, so a world
+/// whose objects vary mostly along one axis produces exactly the `highbits`/`i21hi` key set out
+/// of this crate's own packing. This shape matches the control everywhere, on several structured
+/// distributions beats it (a bijection cannot birthday-collide keys the way a random hash can),
+/// and gives back two xor-shifts of `finish`'s latency.
+///
+/// Still a **bijection**, because the elliptic face reads the key back off the address: both
+/// multipliers are odd and `x ^ (x >> 48)` is an involution -- the shift is at least half the
+/// width, so applying it twice restores the word.
 #[inline]
 #[must_use]
 pub const fn spread(h: u64) -> u64 {
     let h = h.wrapping_mul(PHI);
-    h ^ (h >> 32)
+    (h ^ (h >> 48)).wrapping_mul(PSI)
 }
 
 /// [`spread`] undone, exactly. The elliptic face regenerates its key through this.
 ///
-/// `x ^ (x >> 32)` is an involution -- the top half passes through untouched, so applying it twice
-/// restores the bottom half -- and the multiply is undone by `PHI`'s inverse mod `2^64`.
+/// Each step in reverse: `PSI` and `PHI` are undone by their inverses mod `2^64`, and the
+/// xor-fold undoes itself -- the top sixteen bits pass through untouched, so applying it twice
+/// restores the bottom.
 #[inline]
 #[must_use]
 pub const fn unspread(h: u64) -> u64 {
-    (h ^ (h >> 32)).wrapping_mul(PHI_INV)
+    let h = h.wrapping_mul(PSI_INV);
+    (h ^ (h >> 48)).wrapping_mul(PHI_INV)
 }
 
 /// `PHI * PHI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
 pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
+
+/// [`spread`]'s second multiplier: splitmix64's, which sits between xor-shifts there for the same
+/// reason it sits after one here. Odd, so it is a bijection on `Z/2^64`.
+pub const PSI: u64 = 0x94D0_49BB_1331_11EB;
+
+/// `PSI * PSI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
+pub const PSI_INV: u64 = 0x319642B2D24D8EC3;
 
 /// The inverse of an odd number mod `2^64`.
 ///

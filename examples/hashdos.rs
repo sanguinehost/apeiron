@@ -53,7 +53,10 @@ fn main() {
     let mut attack: Vec<u64> = Vec::with_capacity(n);
     let mut k = 0u64;
     while attack.len() < n {
-        let target = k; // top `bits` are zero, so bucket() is zero
+        // Top `bits` are zero, so bucket() is zero; bottom byte is zero, so the shard is too.
+        // (The shard moved from the address's top byte to its bottom byte -- see `shard_of` --
+        // and the aim moves with it, because aiming is exactly this cheap either way.)
+        let target = k << 8;
         let a = finish_inv(target);
         if a < (1 << 63) {
             attack.push(a);
