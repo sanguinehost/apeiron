@@ -13,6 +13,14 @@
 use apeiron::map::{Map, Words};
 use std::collections::HashMap;
 
+/// Miri interprets rather than runs, so the same programs at the same sizes take hours. The shapes
+/// are what find bugs -- growth, tombstone reuse, drop -- and those all happen well before a
+/// thousand seeds. Native keeps the full sweep; Miri gets enough of it to exercise every path.
+#[cfg(miri)]
+const SCALE: usize = 40;
+#[cfg(not(miri))]
+const SCALE: usize = 1;
+
 /// A deterministic generator. `SplitMix64`, so a failing seed is a reproducible program.
 struct Rng(u64);
 impl Rng {
@@ -122,9 +130,9 @@ fn shrink(ops: &[Op]) -> Vec<Op> {
 
 #[test]
 fn a_thousand_random_programs_agree_with_std() {
-    for seed in 0..1000u64 {
+    for seed in 0..(1000 / SCALE as u64).max(4) {
         // A narrow key space so collisions, reuse and tombstone reuse all actually happen.
-        let ops = program(seed, 400, 64);
+        let ops = program(seed, 400 / SCALE.max(1), 64);
         if let Some(at) = diverges(&ops) {
             panic!("seed {seed} diverged at op {at}\nshortest: {:?}", shrink(&ops));
         }
@@ -134,8 +142,8 @@ fn a_thousand_random_programs_agree_with_std() {
 /// The same, wide enough that the table grows several times.
 #[test]
 fn programs_that_force_growth_agree_with_std() {
-    for seed in 5000..5040u64 {
-        let ops = program(seed, 4000, 2000);
+    for seed in 5000..(5000 + (40 / SCALE).max(2) as u64) {
+        let ops = program(seed, 4000 / SCALE, 2000);
         if let Some(at) = diverges(&ops) {
             panic!("seed {seed} diverged at op {at}\nshortest: {:?}", shrink(&ops));
         }
@@ -145,8 +153,8 @@ fn programs_that_force_growth_agree_with_std() {
 /// The elliptic face runs the same program, so the two faces are held to one specification.
 #[test]
 fn the_elliptic_face_agrees_with_std_too() {
-    for seed in 900..960u64 {
-        let ops = program(seed, 600, 128);
+    for seed in 900..(900 + (60 / SCALE).max(2) as u64) {
+        let ops = program(seed, 600 / SCALE, 128);
         let mut ours: Words<u64, u32> = Words::new();
         let mut theirs: HashMap<u64, u32> = HashMap::new();
         for (i, op) in ops.iter().enumerate() {
@@ -189,7 +197,7 @@ fn string_keys_agree_with_std_through_the_borrowed_surface() {
     let mut r = Rng(77);
     let mut ours: Map<String, u32> = Map::new();
     let mut theirs: HashMap<String, u32> = HashMap::new();
-    for i in 0..20_000u32 {
+    for i in 0..(20_000 / SCALE as u32) {
         let k = format!("res{}_{}", r.below(3000), "x".repeat((i % 30) as usize));
         match r.below(4) {
             0 => {
@@ -225,7 +233,7 @@ fn filling_and_draining_forever_does_not_grow_the_table() {
     let settled = m.slots();
     // Fresh keys every round, so every insert is a genuine placement rather than an overwrite --
     // otherwise the tombstones are never in the way of anything and the test proves nothing.
-    for round in 1..500u64 {
+    for round in 1..(500 / SCALE as u64).max(3) {
         for i in 0..200u64 {
             assert!(m.remove(&(i + (round - 1) * 1000)).is_some());
         }
@@ -260,25 +268,25 @@ fn every_value_is_dropped_exactly_once() {
 
     {
         let mut m: Map<String, Counted> = Map::new();
-        for i in 0..5000u32 {
+        for i in 0..(5000 / SCALE as u32) {
             m.insert(format!("k{i}"), Counted::new("v"));
         }
-        for i in (0..5000u32).step_by(3) {
+        for i in (0..(5000 / SCALE as u32)).step_by(3) {
             drop(m.remove(&format!("k{i}")));
         }
-        for i in 0..2000u32 {
+        for i in 0..(2000 / SCALE as u32) {
             m.insert(format!("k{i}"), Counted::new("w"));
         }
         m.retain(|k, _| !k.ends_with('7'));
         let taken = m.drain();
         assert!(!taken.is_empty());
         drop(taken);
-        for i in 0..1000u32 {
+        for i in 0..(1000 / SCALE as u32) {
             m.insert(format!("z{i}"), Counted::new("z"));
         }
     }
     assert_eq!(MADE.load(Ordering::Relaxed), GONE.load(Ordering::Relaxed));
-    assert!(MADE.load(Ordering::Relaxed) > 5000);
+    assert!(MADE.load(Ordering::Relaxed) > 5000 / SCALE);
 }
 
 /// The same keys give the same iteration order, on every run. Determinism is the property the
@@ -287,7 +295,7 @@ fn every_value_is_dropped_exactly_once() {
 fn iteration_order_is_the_same_every_time() {
     let build = || {
         let mut m: Map<String, u32> = Map::new();
-        for i in 0..500u32 {
+        for i in 0..(500 / SCALE as u32) {
             m.insert(format!("entry-{i}"), i);
         }
         m.remove_at("entry-7");
@@ -297,7 +305,7 @@ fn iteration_order_is_the_same_every_time() {
     let a = build();
     let b = build();
     assert_eq!(a, b);
-    assert_eq!(a.len(), 500);
+    assert_eq!(a.len(), 500 / SCALE);
 }
 
 /// Equality is over the entries, so churn history must not show through it.

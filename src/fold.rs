@@ -343,7 +343,11 @@ mod tests {
     fn no_two_of_a_hundred_thousand_distinct_strings_share_an_address() {
         let mut seen = std::collections::HashSet::new();
         let mut lengths = [false; 5];
-        for i in 0..100_000u32 {
+        #[cfg(miri)]
+        let n = 2_000u32;
+        #[cfg(not(miri))]
+        let n = 100_000u32;
+        for i in 0..n {
             // Lengths from 0 to ~40, so all five branches run.
             let s = format!("{}{}", "resref_".repeat((i % 6) as usize), i);
             match s.len() {
