@@ -114,7 +114,7 @@
 #![allow(clippy::needless_pass_by_value)] // a `Locate` view IS the borrow; taking it by reference
                                           // would put a second indirection on the probe.
 
-use crate::coord::{finish, inverse_odd, Coord, Packed, PHI, PHI_INV, PSI, PSI_INV};
+use crate::coord::{finish, inverse_odd, Addr, Coord, Packed, PHI, PHI_INV};
 use crate::keystore::Keystore;
 use crate::table::{group_at, scan, tag_of, DESCENT_BITS, GROUP};
 use std::marker::PhantomData;
@@ -206,24 +206,35 @@ impl Salt {
         }
     }
 
-    /// The address: the peppered multiply, then [`crate::coord::spread`]'s public tail -- fold
-    /// the top sixteen bits down, multiply by `PSI`. The pepper stays in the first multiplier
-    /// only: the tail is a fixed bijection, so it moves no collision and hides nothing, and one
-    /// secret multiplier is already what makes the top of the product unaimable.
+    /// The address, split into identity and placement -- see [`crate::coord::Addr`] and
+    /// [`crate::coord::spread`]. One widening multiply by the peppered multiplier: the low half is
+    /// the identity bijection `x * mul`, the folded halves `rotl(hi, 32) ^ lo` are the placement.
+    /// The pepper is the multiplier, so an attacker who does not know it cannot choose the high
+    /// half `hi` that the placement fold mixes in -- which is what leaves the descent unaimable.
     #[inline]
     #[must_use]
-    pub const fn spread(self, x: u64) -> u64 {
-        let h = x.wrapping_mul(self.mul);
-        (h ^ (h >> 48)).wrapping_mul(PSI)
+    pub const fn spread(self, x: u64) -> Addr {
+        let w = (x as u128).wrapping_mul(self.mul as u128);
+        let lo = w as u64;
+        let hi = (w >> 64) as u64;
+        Addr { place: hi.rotate_left(32) ^ lo, id: lo }
     }
 
-    /// Exactly undone, step by step in reverse: both multipliers are odd, and the xor-fold is an
-    /// involution.
+    /// The identity word undone: `id * inv`, one multiply, where `inv` is the peppered multiplier's
+    /// inverse mod `2^64`. Inverts [`Addr::id`] only -- the placement fold is one-way.
     #[inline]
     #[must_use]
-    pub const fn unspread(self, h: u64) -> u64 {
-        let h = h.wrapping_mul(PSI_INV);
-        (h ^ (h >> 48)).wrapping_mul(self.inv)
+    pub const fn unspread(self, id: u64) -> u64 {
+        id.wrapping_mul(self.inv)
+    }
+
+    /// The placement word recovered from a stored identity word. Two multiplies: undo the identity
+    /// bijection to get the key's coordinate, then redo the widening multiply. Used off the hot
+    /// path -- growth and diagnostics walk stored slots, which keep only the identity.
+    #[inline]
+    #[must_use]
+    pub const fn placement_of(self, id: u64) -> u64 {
+        self.spread(self.unspread(id)).place
     }
 
     #[must_use]
@@ -360,23 +371,27 @@ pub trait Held<K: Coord + Eq>: Sized {
         Self: 'a,
         K: 'a;
 
-    /// The avalanched address of `k` under `pepper`.
+    /// The address of `k` under `pepper` -- both its words, [`Addr::place`] to descend and
+    /// [`Addr::id`] to compare, from the one widening multiply.
     ///
     /// Not the same function on the two faces, and it must not be: the elliptic face addresses by
     /// [`Packed::packed`], a bijection, while the parabolic face addresses by [`Coord::coord_with`],
     /// a discard. For an integer these coincide; for `(i21, i21, i21)` they do not, and reading the
     /// wrong one would silently give the elliptic face a lossy address and with it a key compare it
     /// does not perform.
-    fn address(salt: Salt, k: &K) -> u64;
+    fn address(salt: Salt, k: &K) -> Addr;
 
-    /// Build a slot's key half from the address and the key that produced it.
-    fn hold(p: u64, k: K) -> Self;
+    /// Build a slot's key half from the address's **identity** word and the key that produced it.
+    /// The placement word is not stored -- it is recovered from the identity when growth needs it.
+    fn hold(id: u64, k: K) -> Self;
 
-    /// The avalanched address this slot was placed at.
-    fn addr(&self) -> u64;
+    /// The **identity** word this slot stored: `x * mul`, the bijection. *Not* the placement word
+    /// -- growth and diagnostics recover placement from this through [`Salt::placement_of`]. Named
+    /// apart from placement deliberately: the two used to be one word and are now different jobs.
+    fn id(&self) -> u64;
 
-    /// Whether this slot holds `k`, given `k`'s address.
-    fn holds(&self, p: u64, k: &K) -> bool;
+    /// Whether this slot holds `k`, given `k`'s **identity** word.
+    fn holds(&self, id: u64, k: &K) -> bool;
 
     /// Whether two slots hold the same key. Used by equality, which has a slot and not a key.
     fn same_slot(&self, other: &Self) -> bool;
@@ -407,7 +422,7 @@ pub trait Held<K: Coord + Eq>: Sized {
 /// 1-in-128 false-hit rate, so on the ordinary miss the key is never touched -- which is what keeps
 /// a `String` table's probe off a second allocation.
 pub struct Stored<K> {
-    p: u64,
+    id: u64,
     k: K,
 }
 
@@ -419,24 +434,24 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
         K: 'a;
 
     #[inline]
-    fn address(salt: Salt, k: &K) -> u64 {
+    fn address(salt: Salt, k: &K) -> Addr {
         salt.spread(k.coord_with(salt.pepper()))
     }
     #[inline]
-    fn hold(p: u64, k: K) -> Self {
-        Self { p, k }
+    fn hold(id: u64, k: K) -> Self {
+        Self { id, k }
     }
     #[inline]
-    fn addr(&self) -> u64 {
-        self.p
+    fn id(&self) -> u64 {
+        self.id
     }
     #[inline]
-    fn holds(&self, p: u64, k: &K) -> bool {
-        self.p == p && self.k == *k
+    fn holds(&self, id: u64, k: &K) -> bool {
+        self.id == id && self.k == *k
     }
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
-        self.p == other.p && self.k == other.k
+        self.id == other.id && self.k == other.k
     }
     #[inline]
     fn with_key<R>(&self, _salt: Salt, f: impl FnOnce(&K) -> R) -> R {
@@ -452,12 +467,14 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
     }
 }
 
-/// **B, the elliptic face.** The address *is* the key, so the slot keeps only the address.
+/// **B, the elliptic face.** The address *is* the key, so the slot keeps only the identity word.
 ///
-/// `spread` is a bijection and so is [`Packed::packed`], so the composite is one: equal addresses
-/// are equal keys, exactly rather than probably. The key compare is not skipped as an optimisation,
-/// it is **absent**, because there is no second thing to compare -- and the key is read back by
-/// running the bijection the other way rather than by storing it.
+/// The identity `x * mul` is a bijection and so is [`Packed::packed`], so the composite is one:
+/// equal identity words are equal keys, exactly rather than probably. The key compare is not
+/// skipped as an optimisation, it is **absent**, because there is no second thing to compare -- and
+/// the key is read back by running the bijection the other way ([`Salt::unspread`], one multiply)
+/// rather than by storing it. The placement word is not kept: `rehome` recovers it from the
+/// identity when it has to re-place the slot.
 ///
 /// The pepper is folded in *before* the bijection and taken back out on the way home, so this face
 /// carries one without storing one. It is not needed for correctness here -- a bijection has no
@@ -473,20 +490,20 @@ impl<K: Coord + Packed + Eq> Held<K> for Regen<K> {
         K: 'a;
 
     #[inline]
-    fn address(salt: Salt, k: &K) -> u64 {
+    fn address(salt: Salt, k: &K) -> Addr {
         salt.spread(k.packed())
     }
     #[inline]
-    fn hold(p: u64, _k: K) -> Self {
-        Self(p, PhantomData)
+    fn hold(id: u64, _k: K) -> Self {
+        Self(id, PhantomData)
     }
     #[inline]
-    fn addr(&self) -> u64 {
+    fn id(&self) -> u64 {
         self.0
     }
     #[inline]
-    fn holds(&self, p: u64, _k: &K) -> bool {
-        self.0 == p
+    fn holds(&self, id: u64, _k: &K) -> bool {
+        self.0 == id
     }
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
@@ -741,12 +758,16 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// probe sequence and can only be separated by the key compare, which is `O(m)` for a fiber of
     /// size `m`. A pepper moves the fibers somewhere an attacker cannot precompute.
     ///
-    /// *Aiming.* This one is worse and applies to **both** faces, integer keys included. The
-    /// address function is a public bijection, so keys whose addresses agree on any number of bits
-    /// are one inversion away -- and every window of the descent is a slice of that one word.
-    /// Measured in `examples/the_fiber.rs`: two hundred thousand aimed `u64` keys build **988x**
-    /// slower than an honest set, and **0.9x** with a pepper. The window descent bounds a chain in
-    /// bits of address and cannot make those bits expensive; only a secret can.
+    /// *Aiming.* An attacker who can choose keys can try to crowd them into one group. They cannot
+    /// *solve* for it -- the placement word is a discard, see [`crate::coord::Addr`] -- but the
+    /// function is public, so they can evaluate it and keep what lands where they want. That costs
+    /// `2^(j * gbits)` trials to match `j` windows of the descent, which is exponential in the
+    /// chain length for damage that is only linear in it: measured, one window is free and doubles
+    /// the mean probe, two cost 67,682 trials per key for a third step, and three are unaffordable.
+    ///
+    /// A pepper breaks the filter itself. The multiplier is the secret, so an attacker cannot
+    /// evaluate the placement word the table will use, and the keys they aimed land as randomly as
+    /// honest ones -- measured at mean probe 1.00 against 2.00 unpeppered.
     ///
     /// A pepper is a process-wide **constant**, not a per-run random seed. Choose it once at
     /// startup, log it, and a recorded session replays exactly -- determinism and unpredictability
@@ -820,7 +841,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             }
             // SAFETY: the tag says live.
             let (h, _) = unsafe { self.slots[i].assume_init_ref() };
-            let (steps, compares) = self.probe_cost(h.addr(), i);
+            let (steps, compares) = self.probe_cost(self.salt.placement_of(h.id()), i);
             longest = longest.max(steps);
             total += u64::from(steps);
             compared += u64::from(compares);
@@ -1002,8 +1023,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// The value at `k`.
     #[inline]
     pub fn get(&self, k: &K) -> Option<&V> {
-        let p = H::address(self.salt, k);
-        let i = self.find(p, |h| h.holds(p, k))?;
+        let a = H::address(self.salt, k);
+        let i = self.find(a.place, |h| h.holds(a.id, k))?;
         // SAFETY: `find` returns only live slots.
         Some(unsafe { &self.slots[i].assume_init_ref().1 })
     }
@@ -1011,8 +1032,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// The value at `k`, mutably.
     #[inline]
     pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
-        let p = H::address(self.salt, k);
-        let i = self.find(p, |h| h.holds(p, k))?;
+        let a = H::address(self.salt, k);
+        let i = self.find(a.place, |h| h.holds(a.id, k))?;
         // SAFETY: as `get`.
         Some(unsafe { &mut self.slots[i].assume_init_mut().1 })
     }
@@ -1021,15 +1042,15 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Whether `k` is present.
     #[inline]
     pub fn contains_key(&self, k: &K) -> bool {
-        let p = H::address(self.salt, k);
-        self.find(p, |h| h.holds(p, k)).is_some()
+        let a = H::address(self.salt, k);
+        self.find(a.place, |h| h.holds(a.id, k)).is_some()
     }
 
     /// The stored key and its value.
     #[must_use]
     pub fn get_key_value(&self, k: &K) -> Option<(H::Ref<'_>, &V)> {
-        let p = H::address(self.salt, k);
-        let i = self.find(p, |h| h.holds(p, k))?;
+        let a = H::address(self.salt, k);
+        let i = self.find(a.place, |h| h.holds(a.id, k))?;
         // SAFETY: as `get`.
         let (h, v) = unsafe { self.slots[i].assume_init_ref() };
         Some((h.key(self.salt), v))
@@ -1044,15 +1065,15 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     #[inline]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         self.reserve(1);
-        let p = H::address(self.salt, &k);
-        match self.site(p, |h| h.holds(p, &k)) {
+        let a = H::address(self.salt, &k);
+        match self.site(a.place, |h| h.holds(a.id, &k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
                 let slot = unsafe { self.slots[i].assume_init_mut() };
                 Some(std::mem::replace(&mut slot.1, v))
             }
             Err(i) => {
-                self.place(i, p, k, v);
+                self.place(i, a, k, v);
                 None
             }
         }
@@ -1073,26 +1094,27 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// for the four that a table is ordinarily built with.
     pub fn insert_with(&mut self, k: K, v: V, f: impl FnOnce(&mut V, V)) {
         self.reserve(1);
-        let p = H::address(self.salt, &k);
-        match self.site(p, |h| h.holds(p, &k)) {
+        let a = H::address(self.salt, &k);
+        match self.site(a.place, |h| h.holds(a.id, &k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
                 let slot = unsafe { self.slots[i].assume_init_mut() };
                 f(&mut slot.1, v);
             }
-            Err(i) => self.place(i, p, k, v),
+            Err(i) => self.place(i, a, k, v),
         }
     }
 
-    /// Write a fresh entry into a vacant slot.
+    /// Write a fresh entry into a vacant slot. Stores the identity word; the tag comes off the
+    /// placement word. Both are already in `a` from the one address multiply.
     #[inline]
-    fn place(&mut self, i: usize, p: u64, k: K, v: V) {
+    fn place(&mut self, i: usize, a: Addr, k: K, v: V) {
         if self.tags[i] == EMPTY {
             self.used += 1;
         }
         self.live += 1;
-        self.slots[i] = MaybeUninit::new((H::hold(p, k), v));
-        self.tags[i] = tag_of(p);
+        self.slots[i] = MaybeUninit::new((H::hold(a.id, k), v));
+        self.tags[i] = tag_of(a.place);
     }
 
     /// Remove, returning the value.
@@ -1109,8 +1131,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     /// Remove, returning the key as well.
     pub fn remove_entry(&mut self, k: &K) -> Option<(K, V)> {
-        let p = H::address(self.salt, k);
-        let i = self.find(p, |h| h.holds(p, k))?;
+        let a = H::address(self.salt, k);
+        let i = self.find(a.place, |h| h.holds(a.id, k))?;
         Some(self.evict(i))
     }
 
@@ -1216,7 +1238,11 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             // SAFETY: the tag says live, and `taken` now covers this index, so the salvage guard
             // will not drop it again if anything below unwinds.
             let entry = unsafe { old.slots[i].assume_init_read() };
-            let p = entry.0.addr();
+            // The slot stored only the identity word; the descent runs on the placement word.
+            // Recover it -- one multiply back to the coordinate, one widening multiply forward --
+            // rather than re-folding the key, so growth stays a probe per entry and not a hash per
+            // entry even though the placement is no longer sitting in the slot.
+            let p = self.salt.placement_of(entry.0.id());
             let mut j = 0u32;
             let at = loop {
                 let base = group_at(p, j, gbits, gmask) * GROUP;
@@ -1387,8 +1413,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     pub fn get_disjoint_mut<const N: usize>(&mut self, ks: [&K; N]) -> [Option<&mut V>; N] {
         let mut at: [Option<usize>; N] = [None; N];
         for (slot, k) in at.iter_mut().zip(ks) {
-            let p = H::address(self.salt, k);
-            *slot = self.find(p, |h| h.holds(p, k));
+            let a = H::address(self.salt, k);
+            *slot = self.find(a.place, |h| h.holds(a.id, k));
         }
         for i in 0..N {
             for j in 0..i {
@@ -1778,8 +1804,8 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     #[must_use]
     #[inline]
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        let i = self.find(p, |h| h.p == p && q.same(&h.k))?;
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: `find` returns only live slots.
         Some(unsafe { &self.slots[i].assume_init_ref().1 })
     }
@@ -1787,8 +1813,8 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// The value a view names, mutably.
     #[inline]
     pub fn get_mut_at<Q: Locate<K>>(&mut self, q: Q) -> Option<&mut V> {
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        let i = self.find(p, |h| h.p == p && q.same(&h.k))?;
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: as `get_at`.
         Some(unsafe { &mut self.slots[i].assume_init_mut().1 })
     }
@@ -1797,23 +1823,23 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// Whether a view's key is present.
     #[inline]
     pub fn contains_at<Q: Locate<K>>(&self, q: Q) -> bool {
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        self.find(p, |h| h.p == p && q.same(&h.k)).is_some()
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        self.find(a.place, |h| h.id == a.id && q.same(&h.k)).is_some()
     }
 
     /// Insert through a view, taking ownership of the key only on a miss.
     #[inline]
     pub fn insert_at<Q: Absorb<K>>(&mut self, q: Q, v: V) -> Option<V> {
         self.reserve(1);
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        match self.site(p, |h| h.p == p && q.same(&h.k)) {
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
                 let slot = unsafe { self.slots[i].assume_init_mut() };
                 Some(std::mem::replace(&mut slot.1, v))
             }
             Err(i) => {
-                self.place(i, p, q.absorb(), v);
+                self.place(i, a, q.absorb(), v);
                 None
             }
         }
@@ -1823,14 +1849,14 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// The merge, through a view.
     pub fn insert_with_at<Q: Absorb<K>>(&mut self, q: Q, v: V, f: impl FnOnce(&mut V, V)) {
         self.reserve(1);
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        match self.site(p, |h| h.p == p && q.same(&h.k)) {
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(i) => {
                 // SAFETY: `site`'s `Ok` names a live slot.
                 let slot = unsafe { self.slots[i].assume_init_mut() };
                 f(&mut slot.1, v);
             }
-            Err(i) => self.place(i, p, q.absorb(), v),
+            Err(i) => self.place(i, a, q.absorb(), v),
         }
     }
 
@@ -1841,21 +1867,21 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 
     /// Remove through a view, returning the key as well.
     pub fn remove_entry_at<Q: Locate<K>>(&mut self, q: Q) -> Option<(K, V)> {
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        let i = self.find(p, |h| h.p == p && q.same(&h.k))?;
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         Some(self.evict(i))
     }
 
     /// One probe, held open, through a view: the owned key is built only on a miss.
     pub fn entry_at<Q: Absorb<K>>(&mut self, q: Q) -> Entry<'_, K, V, Stored<K>> {
         self.reserve(1);
-        let p = self.salt.spread(q.coord_at(self.salt.pepper()));
-        match self.site(p, |h| h.p == p && q.same(&h.k)) {
+        let a = self.salt.spread(q.coord_at(self.salt.pepper()));
+        match self.site(a.place, |h| h.id == a.id && q.same(&h.k)) {
             Ok(at) => Entry::Occupied(OccupiedEntry { map: self, at }),
             Err(at) => Entry::Vacant(VacantEntry {
                 map: self,
                 at,
-                p,
+                a,
                 key: q.absorb(),
             }),
         }
@@ -2019,7 +2045,7 @@ pub struct OccupiedEntry<'a, K: Coord + Eq, V, H: Held<K>> {
 pub struct VacantEntry<'a, K: Coord + Eq, V, H: Held<K>> {
     map: &'a mut Map<K, V, H>,
     at: usize,
-    p: u64,
+    a: Addr,
     key: K,
 }
 
@@ -2075,8 +2101,8 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> VacantEntry<'a, K, V, H> {
     }
     /// Fill the slot.
     pub fn insert(self, v: V) -> &'a mut V {
-        let Self { map, at, p, key } = self;
-        map.place(at, p, key, v);
+        let Self { map, at, a, key } = self;
+        map.place(at, a, key, v);
         // SAFETY: just written.
         unsafe { &mut map.slots[at].assume_init_mut().1 }
     }
@@ -2144,13 +2170,13 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     #[inline]
     pub fn entry(&mut self, k: K) -> Entry<'_, K, V, H> {
         self.reserve(1);
-        let p = H::address(self.salt, &k);
-        match self.site(p, |h| h.holds(p, &k)) {
+        let a = H::address(self.salt, &k);
+        match self.site(a.place, |h| h.holds(a.id, &k)) {
             Ok(at) => Entry::Occupied(OccupiedEntry { map: self, at }),
             Err(at) => Entry::Vacant(VacantEntry {
                 map: self,
                 at,
-                p,
+                a,
                 key: k,
             }),
         }
@@ -2203,7 +2229,7 @@ impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
 impl<K: Clone> Clone for Stored<K> {
     fn clone(&self) -> Self {
         Self {
-            p: self.p,
+            id: self.id,
             k: self.k.clone(),
         }
     }
@@ -2280,7 +2306,9 @@ impl<K: Coord + Eq, V: PartialEq, H: Held<K>> PartialEq for Map<K, V, H> {
             }
             // SAFETY: the tag says live.
             let (h, v) = unsafe { self.slots[i].assume_init_ref() };
-            let p = h.addr();
+            // Salts are equal (checked above), so the placement `other` would descend on is the one
+            // recovered from this slot's identity word.
+            let p = self.salt.placement_of(h.id());
             let Some(j) = other.find(p, |o| o.same_slot(h)) else {
                 return false;
             };
@@ -2437,14 +2465,16 @@ mod tests {
         assert_eq!(live + tombs, m.used);
         assert_eq!(live + tombs + empty, m.tags.len());
         assert_eq!(m.tags.len(), m.slots.len());
-        // Every live slot's stored address is the one the map would compute for its key.
+        // Every live slot's stored identity word is the one the map would compute for its key, and
+        // its tag is the one the placement word carries.
         for (i, &t) in m.tags.iter().enumerate() {
             if t & LIVE == 0 {
                 continue;
             }
             let (h, _) = unsafe { m.slots[i].assume_init_ref() };
-            assert_eq!(h.addr(), Stored::<String>::address(m.salt, h.key(m.salt)));
-            assert_eq!(t, tag_of(h.addr()));
+            let a = Stored::<String>::address(m.salt, h.key(m.salt));
+            assert_eq!(h.id(), a.id);
+            assert_eq!(t, tag_of(a.place));
         }
     }
 
@@ -2455,21 +2485,23 @@ mod tests {
         let s = Salt::new(0);
         for x in [0u64, 1, u64::MAX, PHI, 0x0123_4567_89AB_CDEF] {
             assert_eq!(s.spread(x), crate::coord::spread(x));
-            assert_eq!(s.unspread(s.spread(x)), x);
+            assert_eq!(s.unspread(s.spread(x).id), x);
         }
     }
 
-    /// The whole address bijection, run over the inputs Kani cannot reach as one formula.
+    /// The identity bijection, run over the inputs Kani reaches as one formula but which are worth
+    /// the wider spray anyway.
     ///
-    /// `proofs.rs` decides the steps -- the fold is an involution, each multiplier has the inverse
-    /// it claims -- because the composite `unspread(spread(x)) == x` is 64-bit multiplier
-    /// reasoning CBMC does not return on. This is the composite's half of that bargain: exact
-    /// round trips both ways, over the edges and a spray of random words, under the default
-    /// multiplier and under pepper-derived ones. The elliptic face regenerates every key through
-    /// `unspread`, so "almost a bijection" is a map that hands back wrong keys.
+    /// The bijection is now a single odd multiply each way -- `spread(x).id == x * mul`,
+    /// `unspread(id) == id * inv` -- so `proofs.rs` decides the whole composite as a concrete
+    /// equation (`mul * inv == 1`) rather than leaving it to CBMC's 64-bit multiplier reasoning,
+    /// which is what stalled on the old two-multiply-plus-fold word. This runs the composite both
+    /// ways over the edges and a spray of random words, under the default multiplier and under
+    /// pepper-derived ones. The elliptic face regenerates every key through `unspread`, so "almost
+    /// a bijection" is a map that hands back wrong keys.
     #[test]
     fn the_address_bijection_round_trips() {
-        let mut inputs = vec![0u64, 1, 2, u64::MAX, PHI, PSI, PHI_INV, PSI_INV];
+        let mut inputs = vec![0u64, 1, 2, u64::MAX, PHI, PHI_INV];
         for b in 0..64 {
             inputs.push(1u64 << b);
             inputs.push((1u64 << b).wrapping_sub(1));
@@ -2485,13 +2517,13 @@ mod tests {
         for pepper in [0u64, 1, 0xDEAD_BEEF, 20_260_829, u64::MAX] {
             let s = Salt::new(pepper);
             for &x in &inputs {
-                assert_eq!(s.unspread(s.spread(x)), x, "pepper {pepper:#x}, x {x:#x}");
-                assert_eq!(s.spread(s.unspread(x)), x, "pepper {pepper:#x}, h {x:#x}");
+                assert_eq!(s.unspread(s.spread(x).id), x, "pepper {pepper:#x}, x {x:#x}");
+                assert_eq!(s.spread(s.unspread(x)).id, x, "pepper {pepper:#x}, h {x:#x}");
             }
         }
         for &x in &inputs {
-            assert_eq!(crate::coord::unspread(crate::coord::spread(x)), x, "x {x:#x}");
-            assert_eq!(crate::coord::spread(crate::coord::unspread(x)), x, "h {x:#x}");
+            assert_eq!(crate::coord::unspread(crate::coord::spread(x).id), x, "x {x:#x}");
+            assert_eq!(crate::coord::spread(crate::coord::unspread(x)).id, x, "h {x:#x}");
         }
     }
 
@@ -2510,7 +2542,7 @@ mod tests {
             assert_eq!(s.mul & 1, 1, "pepper {r:#x} gave an even multiplier");
             assert_eq!(s.mul.wrapping_mul(s.inv), 1, "pepper {r:#x}");
             for x in [0u64, 1, r, u64::MAX] {
-                assert_eq!(s.unspread(s.spread(x)), x, "pepper {r:#x}, x {x:#x}");
+                assert_eq!(s.unspread(s.spread(x).id), x, "pepper {r:#x}, x {x:#x}");
             }
         }
     }
