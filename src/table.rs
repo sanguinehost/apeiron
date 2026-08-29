@@ -546,6 +546,8 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 /// [`shard_of`].
 #[inline]
 #[must_use]
+// Seven bits by construction: `p >> 57` leaves at most 7, and the `0x80` sets the live bit.
+// Nothing is truncated that was not already zero.
 #[allow(clippy::cast_possible_truncation)]
 pub const fn tag_of(p: u64) -> u8 {
     0x80 | (p >> 57) as u8
@@ -570,6 +572,8 @@ pub mod scan {
     #[inline]
     const fn gather(marked: u64) -> u8 {
         const GATHER: u64 = 0x0002_0408_1020_4081;
+        // The multiply gathers one bit per lane into the top byte; `>> 56` puts them in the low
+        // eight, so the cast keeps every bit it was built to keep.
         #[allow(clippy::cast_possible_truncation)]
         {
             (marked.wrapping_mul(GATHER) >> 56) as u8
@@ -632,6 +636,8 @@ pub mod scan {
     #[cfg(target_arch = "x86_64")]
     #[inline]
     #[must_use]
+    // `_mm_set1_epi8` takes `i8` and `_mm_movemask_epi8` returns `i32` whose low 16 bits are the
+    // lane mask. Both casts are the intrinsics' own signedness, not a value conversion.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
     pub fn match_tag_simd(line: &[u8; 16], tag: u8) -> u16 {
         use std::arch::x86_64::{
@@ -645,11 +651,12 @@ pub mod scan {
         }
     }
 
+    /// Lanes of `line` that are live, one bit per lane. SSE2.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     #[must_use]
+    // As `match_tag_simd`: `_mm_movemask_epi8` returns a sign-typed `i32` holding a 16-bit mask.
     #[allow(clippy::cast_sign_loss)]
-    /// Lanes of `line` that are live, one bit per lane. SSE2.
     pub fn occupied_simd(line: &[u8; 16]) -> u16 {
         use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_movemask_epi8};
         // SAFETY: as `match_tag_simd`.
@@ -732,7 +739,7 @@ const EMPTY_LINE: [u8; 16] = [0; 16];
 
 /// A shard's storage: a tag line beside the slots, so a group scan touches one cache line.
 #[derive(Clone)]
-pub struct Region {
+pub(crate) struct Region {
     /// One tag byte per slot, so a group is sixteen contiguous bytes and one vector load.
     tags: Vec<u8>,
     /// The **avalanched** address and its count. An empty slot is `(0, 0)` and is told apart by

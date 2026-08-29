@@ -87,6 +87,8 @@ pub const NO_PEPPER: u64 = 0;
 #[must_use]
 pub const fn mix2(a: u64, b: u64) -> u64 {
     let w = (a as u128).wrapping_mul(b as u128);
+    // The fold *is* the truncation: `lo ^ hi` of a 128-bit product keeps 64 bits on purpose,
+    // which is what makes a widening multiply a mixing step rather than a widening one.
     #[allow(clippy::cast_possible_truncation)]
     let p = ((w >> 64) as u64) ^ (w as u64);
     // Rotating `b` before adding means the guard is not symmetric in its arguments, so a swapped
@@ -292,6 +294,8 @@ impl Coord for bool {
 /// Wider than a word, so it folds rather than packs.
 impl Coord for u128 {
     #[inline]
+    // Both halves of the `u128` are consumed -- `as u64` takes the low one, the shift takes the
+    // high one -- so nothing is dropped; the cast is how each half is named.
     #[allow(clippy::cast_possible_truncation)]
     fn coord(&self) -> u64 {
         mix2((*self as u64).wrapping_add(PHI), ((*self >> 64) as u64).wrapping_add(NU))
@@ -300,6 +304,9 @@ impl Coord for u128 {
 
 impl Coord for i128 {
     #[inline]
+    // An `i128` is folded through the `u128` impl by reinterpretation, so a negative key and its
+    // two's-complement bit pattern get the same address. That is required, not tolerated: `Eq`
+    // agrees with the bit pattern here.
     #[allow(clippy::cast_sign_loss)]
     fn coord(&self) -> u64 {
         (*self as u128).coord()

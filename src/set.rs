@@ -18,7 +18,7 @@
 //! fingerprinted in a test rather than because anything queries a range. A set that iterates
 //! reproducibly without paying for a tree serves that directly.
 
-use crate::coord::{Coord, Packed};
+use crate::coord::Coord;
 use crate::keystore::Keystore;
 use crate::map::{Absorb, Drain, Held, IntoKeys, Keys, Locate, Map, Regen, Salt, Stats, Stored};
 use std::num::NonZeroU64;
@@ -64,6 +64,18 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
     }
 
     /// The map underneath, for the operations a set does not name.
+    ///
+    /// `Set` is deliberately thinner than [`Map`] -- it has no `entry`, no `extract_if`, no
+    /// `Index` -- because nothing has needed them yet. This is the escape hatch that keeps that
+    /// decision cheap to have got wrong: a reader that a set does not expose is one deref away.
+    ///
+    /// ```
+    /// use apeiron::set::Set;
+    ///
+    /// let s: Set<u64> = [1u64, 2, 3].into_iter().collect();
+    /// assert_eq!(s.as_map().len(), 3);
+    /// assert!(s.as_map().contains_key(&2));
+    /// ```
     #[must_use]
     pub fn as_map(&self) -> &Map<K, (), H> {
         &self.0
@@ -454,11 +466,3 @@ where
     }
 }
 
-/// `Packed` elements get the elliptic face, so a `WordSet<u32>` is one `u64` a slot.
-impl<K: Coord + Packed + Eq> WordSet<K> {
-    /// An empty word set.
-    #[must_use]
-    pub fn words() -> Self {
-        Self::new()
-    }
-}

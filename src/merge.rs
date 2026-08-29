@@ -24,6 +24,31 @@
 //! commutative and two are directional, and [`Species`] records which, because a table built with
 //! a directional merge cannot be built in parallel and recombined -- that is a real precondition
 //! and it belongs beside the merge rather than in a caller's head.
+//!
+//! # Why each merge appears twice
+//!
+//! [`keep`], [`set`], [`count`] and [`link`] are the merges *as functions*, `(new, old) -> V`.
+//! That is the form the table above names and the form the commutativity and associativity
+//! arguments are stated about, so they are the definitions.
+//!
+//! [`keep_into`], [`set_into`], [`count_into`] and [`link_into`] are the same four with the
+//! signature [`crate::map::Map::insert_with`] actually takes, `(&mut V, V)`. **Use these.** The
+//! in-place form is the crate's insertion primitive rather than a convenience over the by-value
+//! one, and the reason is failure atomicity: a merge that panics has to leave the map exactly as
+//! it was, which a `(new, old) -> V` merge cannot promise because it has already moved the old
+//! value out of the slot. `a_merge_that_panics_leaves_the_map_intact`, in
+//! `tests/a_map_is_a_map.rs`, is what holds that.
+//!
+//! ```
+//! use apeiron::map::Map;
+//!
+//! let mut counts: Map<u64, u32> = Map::new();
+//! for k in [7, 7, 9] {
+//!     counts.insert_with(k, 1, apeiron::merge::count_into);
+//! }
+//! assert_eq!(counts.get(&7), Some(&2));
+//! assert_eq!(counts.get(&9), Some(&1));
+//! ```
 
 /// Which merge a table is built with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
