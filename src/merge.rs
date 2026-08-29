@@ -152,6 +152,31 @@ macro_rules! sum_monoid {
 }
 sum_monoid!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
+macro_rules! wide_sum_monoid {
+    ($($t:ty),*) => {$(
+        impl Monoid for $t {
+            #[inline]
+            fn identity() -> Self { 0 }
+            #[inline]
+            fn combine(self, other: Self) -> Self { self.wrapping_add(other) }
+        }
+    )*};
+}
+wide_sum_monoid!(u128, i128);
+
+impl Monoid for f32 {
+    #[inline]
+    fn identity() -> Self {
+        0.0
+    }
+    /// As [`f64`]'s: not associative in the reals' sense, so a parallel build over it is
+    /// deterministic only because the partition is.
+    #[inline]
+    fn combine(self, other: Self) -> Self {
+        self + other
+    }
+}
+
 impl Monoid for f64 {
     #[inline]
     fn identity() -> Self {
