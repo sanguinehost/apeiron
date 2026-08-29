@@ -1651,7 +1651,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// The values, in slot order.
     #[must_use]
     pub fn values(&self) -> Values<'_, K, V, H> {
-        Values(self.iter())
+        Values { map: self, base: 0, mask: 0, ahead: 0, left: self.live }
     }
 
     /// The values, in slot order, mutably.
@@ -1666,7 +1666,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Dropping it early still empties the map, which is what makes it a drain rather than an
     /// iterator that happens to remove things.
     pub fn drain(&mut self) -> Drain<'_, K, V, H> {
-        Drain { map: self, i: 0 }
+        Drain { map: self, base: 0, mask: 0, ahead: 0 }
     }
 
     /// The keys, consuming the map.
@@ -1846,14 +1846,43 @@ impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Keys<'_, K, V, H> {}
 impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Keys<'_, K, V, H> {}
 
 /// [`Map::values`].
-pub struct Values<'a, K: Coord + Eq, V, H: Held<K>>(Iter<'a, K, V, H>);
+/// The values, and **only** the values.
+///
+/// This wrapped [`Iter`] and threw the key half away. On the elliptic face a key is not stored, it
+/// is regenerated from the address by a multiply, so wrapping the pair iterator meant computing a
+/// key per entry for a caller that had already said it did not want one. Walking the groups
+/// directly is the same scan without that.
+pub struct Values<'a, K: Coord + Eq, V, H: Held<K>> {
+    map: &'a Map<K, V, H>,
+    base: usize,
+    mask: u16,
+    ahead: usize,
+    left: usize,
+}
+
 impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for Values<'a, K, V, H> {
     type Item = &'a V;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(_, v)| v)
+        loop {
+            if self.mask != 0 {
+                let i = self.base + self.mask.trailing_zeros() as usize;
+                self.mask &= self.mask - 1;
+                self.left -= 1;
+                // SAFETY: the bit came from `occupied`, so the tag carries the live bit and the
+                // slot invariant makes the entry initialised.
+                return Some(unsafe { &self.map.slots.get_unchecked(i).assume_init_ref().1 });
+            }
+            if self.ahead + GROUP > self.map.tags.len() {
+                return None;
+            }
+            self.base = self.ahead;
+            self.ahead += GROUP;
+            self.mask = scan::occupied(self.map.line(self.base));
+        }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
+        (self.left, Some(self.left))
     }
 }
 impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Values<'_, K, V, H> {}
@@ -1876,34 +1905,79 @@ impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for ValuesMut<'_, K,
 /// [`Map::drain`].
 pub struct Drain<'a, K: Coord + Eq, V, H: Held<K>> {
     map: &'a mut Map<K, V, H>,
-    i: usize,
+    /// Start of the group `mask` describes. Its tags are already blanked.
+    base: usize,
+    /// Live lanes of that group whose values have not been handed out yet.
+    mask: u16,
+    /// The next group to claim.
+    ahead: usize,
 }
 
 impl<K: Coord + Eq, V, H: Held<K>> Drain<'_, K, V, H> {
     /// Take the next entry out, clearing tombstones on the way past.
     ///
-    /// The counters move **per entry**, not at the end. A `Drain` that is forgotten rather than
-    /// dropped then leaves the map holding exactly what the iterator did not reach -- a smaller
-    /// map, not a corrupt one.
+    /// The tags and the counters move a **group** at a time, in [`Self::claim_group`], and the map
+    /// is consistent after every one: the sixteen tags read `EMPTY` and `live`/`used` agree with
+    /// them. Dropping a `Drain` early still empties the map -- that is what makes it a drain, and
+    /// `Drop` walks the rest.
+    ///
+    /// The one thing this gives up against the older per-entry form is the behaviour of
+    /// `mem::forget` mid-group: the values of that group's unvisited lanes are leaked rather than
+    /// left in the map. The map stays valid either way. `std`'s own `Drain` leaks on `forget`, and
+    /// `forget` is a safe function precisely because a leak is not unsoundness.
     fn take_next(&mut self) -> Option<(K, V)> {
-        while self.i < self.map.tags.len() {
-            let i = self.i;
-            self.i += 1;
-            let tag = self.map.tags[i];
-            if tag == EMPTY {
+        loop {
+            if self.mask != 0 {
+                let i = self.base + self.mask.trailing_zeros() as usize;
+                self.mask &= self.mask - 1;
+                // SAFETY: the bit came from `occupied`, so this slot's tag carried the live bit
+                // when the group was claimed and the slot invariant makes it initialised. Its tag
+                // now reads `EMPTY`, so nothing else will read or drop the entry.
+                let (h, v) = unsafe { self.map.slots.get_unchecked(i).assume_init_read() };
+                return Some((h.into_key(self.map.salt), v));
+            }
+            if !self.claim_group() {
+                return None;
+            }
+        }
+    }
+
+    /// Claim the next group holding anything: blank its sixteen tags in one store, move the
+    /// counters by that group's counts, and keep its live lanes to yield from.
+    ///
+    /// A group at a time, not an entry at a time. Writing a tag and moving two counters per
+    /// element made `drain` five times slower than `std`'s, which clears its control bytes in
+    /// bulk.
+    #[inline]
+    fn claim_group(&mut self) -> bool {
+        while self.ahead + GROUP <= self.map.tags.len() {
+            self.base = self.ahead;
+            self.ahead += GROUP;
+            let (live, filled) = {
+                // SAFETY: the loop condition bounds these sixteen bytes to the tag array.
+                let line: &[u8; GROUP] =
+                    unsafe { &*self.map.tags.as_ptr().add(self.base).cast::<[u8; GROUP]>() };
+                (scan::occupied(line), !scan::match_tag(line, EMPTY))
+            };
+            if filled == 0 {
                 continue;
             }
-            self.map.tags[i] = EMPTY;
-            self.map.used -= 1;
-            if tag & LIVE == 0 {
-                continue; // a tombstone: it occupied `used`, it holds nothing
+            // Written as a whole `[u8; GROUP]`, not `slice::fill`: the slice form does not know
+            // its length at compile time and can come out as a call to `memset` for sixteen
+            // bytes. The array form is one store.
+            //
+            // SAFETY: `self.base + GROUP <= tags.len()`, checked by the loop condition above.
+            unsafe {
+                *self.map.tags.as_mut_ptr().add(self.base).cast::<[u8; GROUP]>() = [EMPTY; GROUP];
             }
-            self.map.live -= 1;
-            // SAFETY: the tag said live and now says empty, so nothing else will read or drop it.
-            let (h, v) = unsafe { self.map.slots[i].assume_init_read() };
-            return Some((h.into_key(self.map.salt), v));
+            self.map.used -= filled.count_ones() as usize;
+            self.map.live -= live.count_ones() as usize;
+            self.mask = live;
+            if live != 0 {
+                return true;
+            }
         }
-        None
+        false
     }
 }
 
@@ -2564,20 +2638,51 @@ impl<K, V, H> Drop for Map<K, V, H> {
     }
 }
 
+/// Visit every live slot index, sixteen tags at a time.
+///
+/// The same scan the probe uses, factored out because `clone` and the rest walked the tag array
+/// one byte at a time -- a load, a mask and a branch per slot, including for the empties, which at
+/// a fresh 7/8 fill are an eighth of the array and after a `retain` can be most of it.
+#[inline]
+fn for_each_live(tags: &[u8], mut f: impl FnMut(usize)) {
+    let mut base = 0;
+    while base + GROUP <= tags.len() {
+        // SAFETY: `base + GROUP <= tags.len()` is the loop condition.
+        let line: &[u8; GROUP] = unsafe { &*tags.as_ptr().add(base).cast::<[u8; GROUP]>() };
+        let mut m = scan::occupied(line);
+        while m != 0 {
+            f(base + m.trailing_zeros() as usize);
+            m &= m - 1;
+        }
+        base += GROUP;
+    }
+}
+
+/// `n` uninitialised slots, without touching them.
+///
+/// `(0..n).map(|_| MaybeUninit::uninit()).collect()` walks the whole range to build a box of
+/// values that are by definition not worth writing, and at a million entries that loop was most of
+/// what `clone` cost.
+fn uninit_slots<T>(n: usize) -> Box<[MaybeUninit<T>]> {
+    let mut v: Vec<MaybeUninit<T>> = Vec::with_capacity(n);
+    // SAFETY: `MaybeUninit<T>` has no validity requirement, so every element of the reserved
+    // capacity is already a valid `MaybeUninit<T>`. `len == capacity`, so no reallocation happens.
+    unsafe { v.set_len(n) };
+    v.into_boxed_slice()
+}
+
 impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
     /// The copy holds every entry in the *same slot* the original does, so the two iterate in the
     /// same order and probe identically. Rebuilding by reinsertion would not guarantee that once
     /// tombstones are in play.
     fn clone(&self) -> Self {
-        let n = self.slots.len();
-        let mut slots: Box<[MaybeUninit<(H, V)>]> = (0..n).map(|_| MaybeUninit::uninit()).collect();
-        for (i, &t) in self.tags.iter().enumerate() {
-            if t & LIVE != 0 {
-                // SAFETY: the tag says live.
-                let (h, v) = unsafe { self.slots[i].assume_init_ref() };
-                slots[i] = MaybeUninit::new((h.clone(), v.clone()));
-            }
-        }
+        let mut slots: Box<[MaybeUninit<(H, V)>]> = uninit_slots(self.slots.len());
+        for_each_live(&self.tags, |i| {
+            // SAFETY: `for_each_live` yields only lanes whose tag carries the live bit, and the
+            // slot invariant says such a slot is initialised.
+            let (h, v) = unsafe { self.slots.get_unchecked(i).assume_init_ref() };
+            slots[i] = MaybeUninit::new((h.clone(), v.clone()));
+        });
         Self {
             tags: self.tags.clone(),
             slots,
