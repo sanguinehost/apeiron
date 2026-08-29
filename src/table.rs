@@ -159,13 +159,51 @@ impl CountTable {
     }
 
     /// The same, with a given address bijection.
+    ///
+    /// Falls back to the serial build below [`Self::PARALLEL_FLOOR`] keys, because below it the
+    /// threads cost more than they save.
     #[must_use]
     pub fn build_parallel_with(salt: Salt, addresses: &[u64], bits: u32, threads: usize) -> Self {
+        if addresses.len() < Self::PARALLEL_FLOOR {
+            return Self::build_with(salt, addresses, bits);
+        }
         let _ = bits;
         let workers = threads.max(1);
         let parts = Parts::of(salt, addresses, workers);
         Self::assemble(salt, &parts, &schedule(&parts.loads(), workers))
     }
+
+    /// Below this many keys, [`Self::build_parallel`] builds serially instead.
+    ///
+    /// `Parts::PER_WORKER` clamps how many workers a build may use, which stops it spawning a
+    /// thread per handful of keys. It does not stop it partitioning at all, and the partition is
+    /// the fixed cost that decides this: two passes over the keys and a scatter, paid whether or
+    /// not the threads earn it back.
+    ///
+    /// Measured on the `spatial_binning` scene, build and probe, best of 40 rounds with each arm
+    /// in **its own process** -- see `examples/where_parallel_pays.rs`:
+    ///
+    /// | keys | serial | 16 threads | |
+    /// |---|---|---|---|
+    /// | 25,000 | **0.37 ms** | 0.65 | serial, 1.8x |
+    /// | 50,000 | 0.82 | 1.05 | ambiguous -- the two swap places between runs |
+    /// | 100,000 | 1.75 | **0.69** | parallel, 2.5x |
+    /// | 1,000,000 | 34.2 | **2.26** | parallel, 15x |
+    ///
+    /// So the crossover is between 50,000 and 100,000, and the floor is set above the ambiguous
+    /// point rather than inside it: at 65,536 the fallback cannot lose much, and it cannot take
+    /// the 1.8x loss that 25,000 keys pays without it.
+    ///
+    /// **Each arm has to be measured in its own process, and this is the trap.** Interleaved in
+    /// one process, the parallel arm's per-thread regions churn the allocator's free list under
+    /// the serial arm and move the crossover. Worse, on a machine that is doing anything else, a
+    /// 16-thread arm competes for cores that a 1-thread arm does not need, so contention is a
+    /// systematic bias *in favour of the serial arm* -- which is exactly how a criterion run at
+    /// 100,000 keys came back with the serial build apparently beating every parallel arm,
+    /// including this one, at 1.06 ms against 1.60. Isolated, the same comparison is 1.75 against
+    /// 0.69 the other way. A wide confidence interval was the tell: that arm's was +/-13.5% and
+    /// the serial arm's +/-1.3%.
+    pub const PARALLEL_FLOOR: usize = 65_536;
 
     /// Build the shards each worker was given, then place them. A worker creates its own regions,
     /// so the 33.6 MB of zeroing that a million keys' worth of regions costs is spread over the

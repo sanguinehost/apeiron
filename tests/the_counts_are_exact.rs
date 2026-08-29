@@ -137,3 +137,26 @@ fn counts_do_not_depend_on_the_worker_count() {
         assert_eq!(one.slots(), many.slots(), "slot count at {threads} threads");
     }
 }
+
+/// `build_parallel` builds serially below `PARALLEL_FLOOR`, and that must be invisible.
+///
+/// The fallback is a performance decision -- the partition costs more than the threads save at
+/// small `n` -- so the one thing it may not do is change an answer. Checked either side of the
+/// boundary, because a threshold is exactly the kind of thing that is right in the middle of a
+/// range and wrong at its edge.
+#[test]
+fn the_parallel_floor_does_not_change_any_count() {
+    let mut next = rng();
+    let floor = CountTable::PARALLEL_FLOOR;
+    for n in [floor - 1, floor, floor + 1] {
+        let addrs: Vec<u64> = (0..n).map(|_| next() % 5000).collect();
+        let one = CountTable::build(&addrs, 16);
+        for threads in [1usize, 4, 16] {
+            let many = CountTable::build_parallel(&addrs, 16, threads);
+            assert_eq!(one.slots(), many.slots(), "n {n}, {threads} threads: slot count");
+            for &a in &addrs {
+                assert_eq!(one.get(a), many.get(a), "n {n}, {threads} threads, key {a}");
+            }
+        }
+    }
+}

@@ -71,11 +71,27 @@ is not resolvable from it. What can be said is that the spread is not evenly dis
 which suggests its two-level partition is more sensitive to core contention than the competitors'
 flat sharding, and is worth measuring on its own rather than assuming.
 
-One thing does survive the noise, because it is a comparison against apeiron's own serial arm in
-the same run: **at 100k the serial build beats every parallel arm, including apeiron's**, at 1.06 ms
-against a best case of 1.42. The partition is a fixed cost that has not started paying at that size.
-At 1M it has: 27.7 ms serial against 7.6 parallel. The crossover sits between, and
-`CountTable::build_parallel` does not currently know about it -- it partitions at every size.
+That run also appeared to say something stronger -- that at 100k the serial build beat every
+parallel arm, apeiron's included, 1.06 ms against 1.60 -- and **it was an artefact of the same
+contention.** A 16-thread arm competes for cores a 1-thread arm never asks for, so a busy machine
+does not slow both arms equally: it biases the comparison systematically toward the serial one.
+Re-measured with each arm alone in its own process, best of 40 rounds, the same point reads 1.75 ms
+serial against 0.69 parallel -- 2.5x the other way.
+
+What that re-measurement does establish is where the crossover actually is
+(`examples/where_parallel_pays.rs`):
+
+| keys | serial | 16 threads | |
+|---|---|---|---|
+| 25,000 | **0.37 ms** | 0.65 | serial, 1.8x |
+| 50,000 | 0.82 | 1.05 | ambiguous -- they swap places between runs |
+| 100,000 | 1.75 | **0.69** | parallel, 2.5x |
+| 1,000,000 | 34.2 | **2.26** | parallel, 15x |
+
+`CountTable::build_parallel` used to partition at every size and pay that 1.8x at the small end.
+It now falls back to the serial build below `PARALLEL_FLOOR`, set at 65,536 -- above the ambiguous
+point rather than inside it. `the_parallel_floor_does_not_change_any_count` checks the fallback is
+invisible on both sides of the boundary.
 
 Every arm ending `par16` is sharded and threaded the same way: the same shard function, the same
 two-level parallel partition, one map per shard, and probes grouped exactly as the build was.
