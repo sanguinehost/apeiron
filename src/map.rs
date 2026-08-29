@@ -41,16 +41,30 @@
 //!
 //! # What the probe costs, measured
 //!
-//! `perf stat` on a 694-key L1-resident hit loop, one core, against `hashbrown` with `fxhash`
-//! (which has no DoS resistance at all) and `std` (SipHash, seeded, not reproducible):
+//! `perf stat` on a 694-key L1-resident hit loop, one core, against `hashbrown` with `foldhash`
+//! -- the flat competitor, since `hashbrown` with `fxhash` is 209 ns on `highbits` against this
+//! crate's 1.35 and is therefore not a comparison -- and `std` (SipHash, seeded, not reproducible).
 //!
-//! | | instructions/lookup | cycles/lookup | IPC |
-//! |---|---|---|---|
-//! | apeiron, `u64` keys | 36.5 | 8.4 | 4.4 |
-//! | hashbrown + fxhash | 32.2 | 5.9 | 5.5 |
-//! | std | 127.1 | 29.6 | 4.3 |
-//! | apeiron, `String` keys | 97.3 | 22.2 | 4.4 |
-//! | hashbrown + fxhash, `String` | 90.3 | 18.6 | 4.9 |
+//! Instructions retired, and **not** cycles: a retired-instruction count is per-process and does
+//! not move with machine load, while cycles do. This table is the load-independent column and can
+//! be reproduced on a busy machine. The cycle findings are in prose underneath, each with the
+//! condition it needs.
+//!
+//! | | instructions/lookup |
+//! |---|---|
+//! | apeiron, `u64` keys | **34.8** |
+//! | hashbrown + foldhash | 35.3 |
+//! | hashbrown + fxhash | 34.2 |
+//! | std | 128.2 |
+//! | apeiron, `String` keys | 93.4 |
+//! | hashbrown + foldhash, `String` | 83.9 |
+//! | hashbrown + fxhash, `String` | 92.3 |
+//!
+//! On `u64` keys the probe is half an instruction *under* the flat competitor, and within one of
+//! `fxhash`, which buys its count by having no resistance to pay for. On a quiet machine that came
+//! out at 6.84 cycles against foldhash's 6.62: parity in time off fewer instructions, which places
+//! what remains in chain latency rather than in work. Reproducing that number needs an unloaded
+//! machine, and a reading taken under load is not evidence about it either way.
 //!
 //! Three findings live in this table, from three rounds of measurement.
 //!
@@ -62,23 +76,40 @@
 //! would not have found that; three earlier guesses at the arithmetic each bought a few percent,
 //! and the whole gap was a call instruction.
 //!
-//! The second is the current gap, and it points the other way: IPC **fell** to 4.2 when the
-//! address became two multiplies ([`crate::coord::spread`]), because an L1-resident hit is a
-//! latency chain and the second multiply sits at the head of it before the first tag line can
-//! load. That is 2.3 cycles a lookup over the one-fold address it replaced -- paid knowingly:
-//! the placement simulation broke every cheaper address on some honest distribution, including
-//! a staged probe engineered to hide exactly this latency (first window and tag off the first
-//! product: highbits keys then double their mean probe). This loop is also the worst case; a
-//! lookup that misses cache hides the whole chain behind the miss.
+//! The second was the address's own latency, and it has since been retired rather than paid.
+//! [`crate::coord::spread`] used to be two serial multiplies, and IPC *fell* to 4.2 when that
+//! landed: an L1-resident hit is a latency chain, and the second multiply sat at the head of it
+//! before the first tag line could load, for 2.3 cycles a lookup. It was paid knowingly, because
+//! the placement simulation broke every cheaper address on some honest distribution. The
+//! identity/placement split then removed the payment instead of accepting it. One **widening**
+//! multiply produces both words at once -- `id = x * mul`, the elliptic bijection, from the low
+//! half, and `place = rotl(hi, 32) ^ lo`, a hyperbolic discard, from both -- so the two words
+//! now cost one multiply's latency between them rather than two in series, and the placement is
+//! a function of the *full* 128-bit product rather than of a second pass over the first. The
+//! staged-probe experiment that this latency kept inviting stays dead for the reason in the table
+//! below: the split got the cycles back without spending any placement quality to do it.
 //!
 //! The third finding is that the outlining lesson had to be learned twice. The `String` row sat
-//! at 112.3 and 25.7 for a release because `fold_bytes_with` carried no `#[inline]` -- a
-//! non-generic function is codegenned once in the rlib, so every cross-crate `String` lookup paid
-//! a call and the register traffic around it while fxhash inlined. One attribute took it to 97.3
-//! and 22.2. The seven instructions that remain against hashbrown are the price of two decisions
-//! stated elsewhere: the slot carries the address as well as the key (40 bytes against 32, so
-//! growth is a probe per entry rather than a re-fold of every byte), and the address is peppered
-//! twice, once into the fold's seed and once into the bijection's multiplier.
+//! at 112.3 for a release because `fold_bytes_with` carried no `#[inline]` -- a non-generic
+//! function is codegenned once in the rlib, so every cross-crate `String` lookup paid a call and
+//! the register traffic around it while fxhash inlined. One attribute took it to 97.3, and the
+//! address split and the wider fold round have since taken it to 93.4, which is a shade under
+//! fxhash on the same keys.
+//!
+//! The 9.4 instructions that remain against foldhash on `String` keys are **not in the fold**, and
+//! their cause is not yet located. `examples/hash_only.rs` puts the two folds at instruction
+//! parity on this corpus -- 23.1 against 24.1 on a 13-byte resref -- so the difference is
+//! somewhere in the table. The obvious suspect was tested and did not survive: the slot carries
+//! the address beside the key, 40 bytes against hashbrown's 32, but a map built with a
+//! zero-sized value, which brings the slot back to 32, is **no faster** -- 93.2 instructions
+//! against 93.4, a difference of 0.13 (`LOOKUP_ARM=apstrzst`, beside `apstr` in
+//! `examples/probe_cost.rs`, so the comparison stays runnable). Slot width is therefore
+//! not the explanation, and the honest position is that this gap is open. It is recorded here
+//! rather than attributed, because a wrong cause in a doc comment forecloses the next
+//! measurement.
+//!
+//! What the 40-byte slot does buy is stated where it belongs: growth is a probe per entry rather
+//! than a re-fold of every key's bytes. That trade stands on its own measurement, not on this row.
 //!
 //! # Where the cycles sit, and what was tried against them
 //!
@@ -92,7 +123,7 @@
 //! | change | cycles/lookup | verdict |
 //! |---|---|---|
 //! | baseline, this table's parent commit | 8.8 | |
-//! | group mask pre-scaled to bytes ([`Geom`]) | 8.4 | **taken**: one `shl` off the load-address chain |
+//! | group mask pre-scaled to bytes (`Geom`) | 8.4 | **taken**: one `shl` off the load-address chain |
 //! | first window off the *first* multiply, tag off the second | 8.0 | **dead**: `the_probe_stays_flat` fails -- `highbits` mean probe 1.95 at n=5,000, one-axis `(i21,i21,i21)` 1.93 at 1.5M. The first product's window is a rank-deficient image of exactly the structured key sets the second multiply exists to spread |
 //! | tag broadcast as a `u64` multiply instead of `_mm_set1_epi8` | 8.4 | no-op: LLVM canonicalises the splat and emits the identical five instructions |
 //!
@@ -150,17 +181,6 @@ pub const fn limit(slots: usize) -> usize {
     slots / FILL_DEN * FILL_NUM
 }
 
-/// The probe order: successive `gbits`-wide windows of the whole avalanched word.
-///
-/// [`crate::table::group_at`] computes the `j`-th window from scratch, which costs two branches and
-/// a variable shift on every step of every probe. A probe walks its windows in order, so the state
-/// can just be *carried*: each step takes the top `gbits` and shifts the word left by that much.
-/// The two agree step for step -- `tests/the_descent_is_the_descent.rs` checks it over the whole
-/// range -- and this one is a shift and a mask.
-///
-/// Once the word is spent the two must still agree, and there the carried form has nothing left to
-/// shift, so it falls back to the function. That path is the one an attacker with a long collision
-/// chain reaches, and it is deliberately the slow one: the fast path is the honest case.
 /// The address bijection's secret half.
 ///
 /// A pepper cannot be *added* to a key and do any good, and finding that out is what this type is
@@ -169,6 +189,12 @@ pub const fn limit(slots: usize) -> usize {
 /// chosen to agree on their high bits still agrees on them after a translation. Measured: an
 /// additive pepper left a 200,000-key aimed build 996x slower than an honest one, against 1008x
 /// with no pepper at all. It bought nothing, and it looked like it should have.
+///
+/// (Both figures are from the pre-split design, where aiming was one `unspread` call; the same
+/// quantity reads 988x in `crate::table` and in the README from a different run of it. The
+/// disagreement is run-to-run noise on a ~1000x effect, and the effect is what the argument uses.
+/// The closed-form attack itself is gone -- see `coord::Addr` -- but the conclusion about
+/// *additive* peppering is a fact about translations and does not depend on that.)
 ///
 /// So the pepper becomes **the multiplier**. An attacker who does not know `M` cannot choose keys
 /// whose products have chosen high bits, because that is inverting a multiplication they cannot
@@ -304,8 +330,8 @@ impl Geom {
 ///
 /// [`crate::table::group_at`] computes the `j`-th window from scratch. A probe walks its windows in
 /// order, so the state can be *carried* instead: each step takes the top `gbits` of what is left
-/// and shifts. The two agree step for step -- `tests/the_descent_is_the_descent.rs` checks it over
-/// the range -- and this one is a shift and a mask.
+/// and shifts. The two agree step for step -- `the_carried_descent_is_the_computed_one`, in this
+/// module's own tests -- and this one is a shift and a mask.
 ///
 /// Once the word is spent the two must still agree, and there the carried form has nothing left to
 /// shift, so it falls back to the function. That path is the one an attacker with a long collision
@@ -711,7 +737,7 @@ fn already_mixed<K: Coord + Eq + ?Sized>(salt: Salt, c: u64) -> Addr {
 ///
 /// # The header is 88 bytes, against `std`'s 48
 ///
-/// Two boxed slices (32), the counters (16), [`Geom`] (16) and [`Salt`] (24). The size is not
+/// Two boxed slices (32), the counters (16), `Geom` (16) and [`Salt`] (24). The size is not
 /// free: the same map-of-maps workload the field order was measured on runs 25% slower with the
 /// header padded to 128, so a struct holding many maps does pay for these bytes. What 88 buys is
 /// on the probe: `Geom` cached is two instructions before the tag load against five recomputed

@@ -122,7 +122,7 @@ impl CountTable {
     /// Build with an explicit pepper, ignoring the process one.
     ///
     /// Set one on any counting table whose addresses an attacker can choose. See
-    /// [`crate::pepper`], and [`group_of`] for what a chain costs once the placement word cannot be
+    /// [`crate::pepper`], and [`group_at`] for what a chain costs once the placement word cannot be
     /// inverted.
     #[must_use]
     pub fn with_pepper(pepper: u64, addresses: &[u64], bits: u32) -> Self {

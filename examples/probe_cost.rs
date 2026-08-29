@@ -56,6 +56,15 @@ fn main() {
             for k in &ks { m.insert(k.clone(), 1); }
             for _ in 0..REPS { for k in &ks { hits += usize::from(m.contains_at(k.as_str())); } }
         }
+        // Slot width, isolated: `()` values bring `Stored<String>` + value to 32 bytes, the same
+        // as hashbrown's `(String, u64)`. If slot width explained the `String` gap this arm would
+        // close it.
+        "apstrzst" => {
+            let ks: Vec<String> = (0..N).map(|i| format!("nw_wswmg{i:05}")).collect();
+            let mut m: Map<String, ()> = Map::new();
+            for k in &ks { m.insert(k.clone(), ()); }
+            for _ in 0..REPS { for k in &ks { hits += usize::from(m.contains_at(k.as_str())); } }
+        }
         "fxstr" => {
             type Fx = BuildHasherDefault<rustc_hash::FxHasher>;
             let ks: Vec<String> = (0..N).map(|i| format!("nw_wswmg{i:05}")).collect();
