@@ -15,6 +15,14 @@ use std::collections::HashMap;
 use apeiron::coord::{i21, Packed};
 use apeiron::table::CountTable;
 
+/// Miri interprets rather than runs, so two hundred thousand keys is an hour. The shapes that find
+/// bugs -- a shard that overflows, a worker split that reorders, a key at the extremes of the word
+/// -- all happen well below that, and a native run keeps the real scale.
+#[cfg(miri)]
+const SCALE: usize = 100;
+#[cfg(not(miri))]
+const SCALE: usize = 1;
+
 fn reference(addrs: &[u64]) -> HashMap<u64, i64> {
     let mut m = HashMap::new();
     for &a in addrs {
@@ -72,7 +80,7 @@ fn an_empty_stream_builds_a_table_that_answers_zero() {
 
 #[test]
 fn a_single_key_repeated_counts_once_per_occurrence() {
-    for n in [1usize, 2, 17, 1000] {
+    for n in [1usize, 2, 17, 1000 / SCALE] {
         check(&format!("one key x{n}"), &vec![0x1234_5678_9ABC_DEF0u64; n]);
     }
 }
@@ -86,7 +94,7 @@ fn the_extremes_of_the_word_are_ordinary_keys() {
 #[test]
 fn a_spatial_scene_counts_exactly() {
     let mut next = rng();
-    let addrs: Vec<u64> = (0..200_000)
+    let addrs: Vec<u64> = (0..200_000 / SCALE)
         .map(|_| {
             let v = next();
             let c = |s: u32| ((v >> s) as i32 % 300) - 150;
@@ -108,18 +116,18 @@ fn a_stream_aimed_at_one_shard_still_counts_exactly() {
     let mut addrs = Vec::new();
     while addrs.len() < 40_000 {
         let a = next();
-        if apeiron::table::shard_of(a) == 0 {
+        if apeiron::table::shard_of(apeiron::map::Salt::default(), a) == 0 {
             addrs.push(a);
         }
     }
-    assert!(addrs.iter().all(|&a| apeiron::table::shard_of(a) == 0));
+    assert!(addrs.iter().all(|&a| apeiron::table::shard_of(apeiron::map::Salt::default(), a) == 0));
     check("one shard", &addrs);
 }
 
 #[test]
 fn counts_do_not_depend_on_the_worker_count() {
     let mut next = rng();
-    let addrs: Vec<u64> = (0..100_000).map(|_| next() % 5000).collect();
+    let addrs: Vec<u64> = (0..100_000 / SCALE).map(|_| next() % 5000).collect();
     let one = CountTable::build(&addrs, 16);
     for threads in [2usize, 5, 16, 31] {
         let many = CountTable::build_parallel(&addrs, 16, threads);

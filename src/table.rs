@@ -5,8 +5,8 @@
 //! is a miss, and adding threads to a miss-bound loop buys much less than the thread count -- 32
 //! threads move it 2.35x.
 //!
-//! So the build is partitioned first. Keys are sorted into shards by the top bits of their
-//! avalanched address, each shard's sub-table is small enough to sit in L2, and the scatter that
+//! So the build is partitioned first. Keys are sorted into shards by the bottom bits of their
+//! placement word, each shard's sub-table is small enough to sit in L2, and the scatter that
 //! gets them there is sequential. What the algebra contributes is the licence:
 //! `Table.build_eq_of_key_streams_eq` says a build depends on the stream only through each key's
 //! values in their stream order, for **every** merge -- so sharding by key is legal, and the
@@ -65,29 +65,31 @@
 //!
 //! `SHARD_BITS` at 6 and 7 rather than 8 measured 3.79 and 3.43 against 3.44: no signal.
 //!
-use crate::coord::finish;
+use crate::map::Salt;
 use std::cmp::Reverse;
 
 /// How many shards to cut the key space into. Chosen so a shard's sub-table stays inside L2.
 const SHARD_BITS: u32 = 8;
 const SHARDS: usize = 1 << SHARD_BITS;
 
-/// A key's shard: the **bottom** bits of its avalanched address.
+/// A key's shard: the **bottom** bits of its placement word.
 ///
 /// It was the top bits, "which is also where the group descent starts, so a shard owns a
 /// contiguous run of the descent's first window". That stopped being an alignment and became a
-/// collision when the tag moved to bits 57..64: the top eight bits are constant within a shard,
-/// so every key in a region shared one tag and every group scan compared all sixteen lanes --
-/// the exact defect the tag move was fixing in `map`, reintroduced here by the shard. The bottom
-/// eight bits overlap neither the tag nor any window the descent reads before its sweep, and
-/// `finish` spreads them as well as it spreads the top.
+/// collision when the tag moved to bits 57..64: the top eight bits are constant within a shard, so
+/// every key in a region shared one tag and every group scan compared all sixteen lanes -- the
+/// exact defect the tag move was fixing in `map`, reintroduced here by the shard. The bottom eight
+/// overlap neither the tag nor any window the descent reads before its sweep.
+///
+/// Takes a [`Salt`] because a `CountTable` has one now. Pass `Salt::default()` for the unpeppered
+/// view, which is what a table built without a process pepper uses.
 #[inline]
 #[must_use]
-pub fn shard_of(address: u64) -> usize {
-    home(finish(address))
+pub fn shard_of(salt: Salt, address: u64) -> usize {
+    home(salt.spread(address).place)
 }
 
-/// The same thing, for an address that has already been through `finish`.
+/// The shard of a placement word that has already been computed.
 #[inline]
 const fn home(p: u64) -> usize {
     (p as usize) & (SHARDS - 1)
@@ -103,6 +105,10 @@ pub struct CountTable {
     /// partitioning removes the assumption -- a shard holding every key gets a region for every
     /// key.
     shards: Vec<Region>,
+    /// The address bijection. A `CountTable`'s key *is* its address, so this is the elliptic face:
+    /// the slot keeps the identity word and compares nothing else, and the placement word -- a
+    /// discard -- is what the shard, the descent and the tag read. See [`crate::coord::Addr`].
+    salt: Salt,
 }
 
 impl CountTable {
@@ -110,32 +116,65 @@ impl CountTable {
     /// is sized to its own load, so the hint never bounds a shard.
     #[must_use]
     pub fn build(addresses: &[u64], bits: u32) -> Self {
+        Self::build_with(Salt::new(crate::pepper::process_pepper()), addresses, bits)
+    }
+
+    /// Build with an explicit pepper, ignoring the process one.
+    ///
+    /// Set one on any counting table whose addresses an attacker can choose. See
+    /// [`crate::pepper`], and [`group_of`] for what a chain costs once the placement word cannot be
+    /// inverted.
+    #[must_use]
+    pub fn with_pepper(pepper: u64, addresses: &[u64], bits: u32) -> Self {
+        Self::build_with(Salt::new(pepper), addresses, bits)
+    }
+
+    /// Build with a given address bijection.
+    #[must_use]
+    pub fn build_with(salt: Salt, addresses: &[u64], bits: u32) -> Self {
         let _ = bits;
-        Self::assemble(&Parts::of(addresses, 1), &[(0..SHARDS).collect()])
+        Self::assemble(salt, &Parts::of(salt, addresses, 1), &[(0..SHARDS).collect()])
+    }
+
+    /// This table's pepper.
+    #[must_use]
+    pub fn pepper(&self) -> u64 {
+        self.salt.pepper()
     }
 
     /// Build across `threads` workers. Shards hold disjoint keys, so each worker owns a run of
     /// buckets outright and there is no merge and no synchronisation on the hot path.
     #[must_use]
     pub fn build_parallel(addresses: &[u64], bits: u32, threads: usize) -> Self {
+        Self::build_parallel_with(
+            Salt::new(crate::pepper::process_pepper()),
+            addresses,
+            bits,
+            threads,
+        )
+    }
+
+    /// The same, with a given address bijection.
+    #[must_use]
+    pub fn build_parallel_with(salt: Salt, addresses: &[u64], bits: u32, threads: usize) -> Self {
         let _ = bits;
         let workers = threads.max(1);
-        let parts = Parts::of(addresses, workers);
-        Self::assemble(&parts, &schedule(&parts.loads(), workers))
+        let parts = Parts::of(salt, addresses, workers);
+        Self::assemble(salt, &parts, &schedule(&parts.loads(), workers))
     }
 
     /// Build the shards each worker was given, then place them. A worker creates its own regions,
     /// so the 33.6 MB of zeroing that a million keys' worth of regions costs is spread over the
     /// workers instead of run on the main thread before any of them start.
-    fn assemble(parts: &Parts, bins: &[Vec<usize>]) -> Self {
+    fn assemble(salt: Salt, parts: &Parts, bins: &[Vec<usize>]) -> Self {
         let loads = parts.loads();
         let build_bin = |mine: &Vec<usize>| -> Vec<(usize, Region)> {
             mine.iter()
                 .map(|&s| {
                     let mut region = region_for(loads[s]);
                     for run in parts.runs(s) {
-                        for &p in run {
-                            insert_into(&mut region, p);
+                        for &a in run {
+                            insert_into(&mut region, salt.spread(a));
                         }
                     }
                     (s, region)
@@ -161,22 +200,26 @@ impl CountTable {
                 shards[s] = region;
             }
         }
-        Self { shards }
+        Self { shards, salt }
     }
 
     /// The count for an address, or zero.
     #[must_use]
     pub fn get(&self, a: u64) -> i64 {
-        self.get_finished(finish(a))
+        self.get_addr(self.salt.spread(a))
     }
 
+    /// The count for an address already through the bijection.
+    ///
+    /// The placement word picks the shard, walks the descent and makes the tag; the identity word
+    /// is what a slot is compared against. Two words, two jobs -- see [`crate::coord::Addr`].
     #[inline]
-    fn get_finished(&self, p: u64) -> i64 {
-        let region = &self.shards[home(p)];
+    fn get_addr(&self, ad: crate::coord::Addr) -> i64 {
+        let region = &self.shards[home(ad.place)];
         if region.is_empty() {
             return 0;
         }
-        let (i, found) = locate(region, p);
+        let (i, found) = locate(region, ad);
         if found {
             region.slots[i].1
         } else {
@@ -198,14 +241,14 @@ impl CountTable {
     #[must_use]
     pub fn sum_parallel(&self, addresses: &[u64], threads: usize) -> i64 {
         let workers = threads.max(1);
-        let parts = Parts::of(addresses, workers);
+        let parts = Parts::of(self.salt, addresses, workers);
         let bins = schedule(&parts.loads(), workers);
         let sum_bin = |mine: &Vec<usize>| -> i64 {
             let mut acc = 0i64;
             for &s in mine {
                 for run in parts.runs(s) {
-                    for &p in run {
-                        acc += self.get_finished(p);
+                    for &a in run {
+                        acc += self.get_addr(self.salt.spread(a));
                     }
                 }
             }
@@ -252,7 +295,7 @@ impl Parts {
     /// start and stop, and partitioning a key costs about 1.6 ns.
     const PER_WORKER: usize = 4096;
 
-    fn of(addresses: &[u64], workers: usize) -> Self {
+    fn of(salt: Salt, addresses: &[u64], workers: usize) -> Self {
         let workers = workers.clamp(1, (addresses.len() / Self::PER_WORKER).max(1));
         if addresses.is_empty() {
             return Self {
@@ -262,12 +305,12 @@ impl Parts {
         }
         let chunk = addresses.len().div_ceil(workers).max(1);
         let done: Vec<Chunk> = if workers == 1 || addresses.len() <= chunk {
-            addresses.chunks(chunk).map(partition_chunk).collect()
+            addresses.chunks(chunk).map(|c| partition_chunk(salt, c)).collect()
         } else {
             std::thread::scope(|scope| {
                 let handles: Vec<_> = addresses
                     .chunks(chunk)
-                    .map(|c| scope.spawn(move || partition_chunk(c)))
+                    .map(|c| scope.spawn(move || partition_chunk(salt, c)))
                     .collect();
                 handles.into_iter().map(join_or_panic).collect()
             })
@@ -308,10 +351,10 @@ type Chunk = (Vec<u64>, [usize; SHARDS + 1]);
 /// results in a scratch buffer to spare the second pass a recomputation was measured 12% *slower*
 /// -- 3.95 ms against 3.48 -- because the buffer is 8 MB written and 8 MB read back and two
 /// multiplies are not. The workload is memory-bound; arithmetic is the cheap side of that trade.
-fn partition_chunk(keys: &[u64]) -> Chunk {
+fn partition_chunk(salt: Salt, keys: &[u64]) -> Chunk {
     let mut counts = [0usize; SHARDS];
     for &a in keys {
-        counts[home(finish(a))] += 1;
+        counts[home(salt.spread(a).place)] += 1;
     }
     let mut ends = [0usize; SHARDS + 1];
     let mut cursor = [0usize; SHARDS];
@@ -325,9 +368,13 @@ fn partition_chunk(keys: &[u64]) -> Chunk {
 
     let mut buf = vec![0u64; keys.len()];
     for &a in keys {
-        let p = finish(a);
-        let s = home(p);
-        buf[cursor[s]] = p;
+        let s = home(salt.spread(a).place);
+        // The **raw** address is what gets written, not a word derived from it. The address now
+        // splits into two -- a placement word and an identity word -- and carrying both would
+        // double a buffer this build is already memory-bound on. Carrying the address instead
+        // costs one widening multiply per key downstream and is *cheaper* than what it replaced:
+        // this loop used to run `finish`, which is two multiplies and three xor-shifts.
+        buf[cursor[s]] = a;
         cursor[s] += 1;
     }
     (buf, ends)
@@ -420,9 +467,30 @@ pub const GROUP: usize = 16;
 /// for a pepper -- one free window still doubles the probe, and this is against an attacker who
 /// knows the multiplier -- but the unpeppered default went from catastrophic to bounded.
 ///
-/// `CountTable` addresses through `finish`, which is still a public bijection, so **this table
-/// keeps the older, weaker story**: aiming it is one inversion away. That is a gap, written down
-/// here rather than left as a claim, and the fix is the same split `map` took.
+/// `CountTable` took the same split on 2026-08-29 and the same bound came with it. It addresses
+/// through [`crate::coord::spread`] now: an identity word, which is what a slot keeps and compares,
+/// and a placement word, which is what the shard, this descent and [`tag_of`] read and which has no
+/// inverse.
+///
+/// The attack has to aim at **both ends** of that word -- the shard is its bottom eight bits and
+/// the descent walks down from bit 57 -- so crowding one region costs `2^(8 + j * gbits)` trials
+/// per key. Measured on two thousand keys with `gbits = 8` (`examples/hashdos.rs`):
+///
+/// | aimed at | trials per key | search | vs honest |
+/// |---|---|---|---|
+/// | the shard alone | 247 | instant | **0.71x** |
+/// | shard + one window | 63,839 | 0.13 s | 1.74x |
+/// | shard + two windows | > 10,000,000 | unaffordable | -- |
+///
+/// The first row is why the old version of that example reported this attack as a *speed-up*: a
+/// shard's region is sized to the keys that land in it, so crowding one buys a bigger region and a
+/// shorter probe. Aiming a shard was never the attack; aiming the descent is, and it now costs what
+/// the claim above says it should.
+///
+/// A pepper does not make it dearer, it makes the filter impossible -- an attacker who cannot
+/// evaluate the placement word cannot keep the candidates that land where they want. The same aimed
+/// keys reach **one** shard of 256 under the salt they were aimed at and **all 256** under a
+/// peppered table, against 255 for honest traffic.
 ///
 /// Seedless *by default*, deliberately. A random per-table seed would also defeat aiming and would
 /// break deterministic replay: same inputs must give the same state, which a per-run seed denies. A
@@ -627,7 +695,8 @@ pub mod scan {
 /// Stops at the first group holding an empty slot: placement is first-fit and occupancy only
 /// grows, so an empty slot means the key would have been placed at or before here, and is absent.
 #[inline]
-fn locate(region: &Region, p: u64) -> (usize, bool) {
+fn locate(region: &Region, ad: crate::coord::Addr) -> (usize, bool) {
+    let (p, id) = (ad.place, ad.id);
     let groups = region.slots.len() / GROUP;
     let gbits = groups.trailing_zeros();
     let gmask = groups - 1;
@@ -641,7 +710,9 @@ fn locate(region: &Region, p: u64) -> (usize, bool) {
         let mut hits = scan::match_tag(line, tag);
         while hits != 0 {
             let lane = base + hits.trailing_zeros() as usize;
-            if region.slots[lane].0 == p {
+            // The **identity** word decides, never the placement word: `place` is a discard and
+            // would fold two distinct addresses into one count.
+            if region.slots[lane].0 == id {
                 return (lane, true);
             }
             hits &= hits - 1;
@@ -718,12 +789,14 @@ fn region_for(load: usize) -> Region {
 }
 
 #[inline]
-fn insert_into(region: &mut Region, p: u64) {
-    let (i, found) = locate(region, p);
+fn insert_into(region: &mut Region, ad: crate::coord::Addr) {
+    let (i, found) = locate(region, ad);
     if found {
         region.slots[i].1 += 1;
     } else {
-        region.slots[i] = (p, 1);
-        region.tags[i] = tag_of(p);
+        // The slot keeps the **identity** word: a bijection of the address, so equal slots are
+        // equal keys exactly. The placement word is a discard and would count two keys as one.
+        region.slots[i] = (ad.id, 1);
+        region.tags[i] = tag_of(ad.place);
     }
 }
