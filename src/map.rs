@@ -46,13 +46,13 @@
 //!
 //! | | instructions/lookup | cycles/lookup | IPC |
 //! |---|---|---|---|
-//! | apeiron, `u64` keys | 37.5 | 8.9 | 4.2 |
-//! | hashbrown + fxhash | 32.2 | 6.0 | 5.4 |
+//! | apeiron, `u64` keys | 36.5 | 8.4 | 4.4 |
+//! | hashbrown + fxhash | 32.2 | 5.9 | 5.5 |
 //! | std | 127.1 | 29.6 | 4.3 |
-//! | apeiron, `String` keys | 112.3 | 26.1 | 4.3 |
-//! | hashbrown + fxhash, `String` | 90.3 | 18.9 | 4.8 |
+//! | apeiron, `String` keys | 97.3 | 22.2 | 4.4 |
+//! | hashbrown + fxhash, `String` | 90.3 | 18.6 | 4.9 |
 //!
-//! Two findings live in this table, from two rounds of measurement.
+//! Three findings live in this table, from three rounds of measurement.
 //!
 //! The first was outlining. `get` and `find` were `#[inline]` but the compiler outlined them
 //! anyway, so every lookup paid a call, a return, and the register save/restore around both:
@@ -71,11 +71,36 @@
 //! product: highbits keys then double their mean probe). This loop is also the worst case; a
 //! lookup that misses cache hides the whole chain behind the miss.
 //!
-//! The `String` gap is not outlining either -- both sides are near a hundred instructions,
-//! dominated by the fold and the compare. It is the price of two decisions stated elsewhere: the
-//! slot carries the address as well as the key (40 bytes against 32, so growth is a probe per
-//! entry rather than a re-fold of every byte), and the address is peppered twice, once into the
-//! fold's seed and once into the bijection's multiplier.
+//! The third finding is that the outlining lesson had to be learned twice. The `String` row sat
+//! at 112.3 and 25.7 for a release because `fold_bytes_with` carried no `#[inline]` -- a
+//! non-generic function is codegenned once in the rlib, so every cross-crate `String` lookup paid
+//! a call and the register traffic around it while fxhash inlined. One attribute took it to 97.3
+//! and 22.2. The seven instructions that remain against hashbrown are the price of two decisions
+//! stated elsewhere: the slot carries the address as well as the key (40 bytes against 32, so
+//! growth is a probe per entry rather than a re-fold of every byte), and the address is peppered
+//! twice, once into the fold's seed and once into the bijection's multiplier.
+//!
+//! # Where the cycles sit, and what was tried against them
+//!
+//! `perf`'s top-down accounting on the `u64` hit loop, pinned to one P-core: 67% of issue slots
+//! retire, 13% are lost to branch misprediction (one extra tag lane in ~2% of lookups; the lanes
+//! an attacker cannot aim are also the lanes a predictor cannot learn), 17% to the backend --
+//! and no execution port is saturated (the busiest, port 6, carries 5.9 uops against 8.8 cycles).
+//! So the loop is bounded by its own uop count first (36.5 / 6-wide allocation is 6.1 cycles),
+//! misprediction second, chain latency third. Measured against that ranking:
+//!
+//! | change | cycles/lookup | verdict |
+//! |---|---|---|
+//! | baseline, this table's parent commit | 8.8 | |
+//! | group mask pre-scaled to bytes ([`Geom`]) | 8.4 | **taken**: one `shl` off the load-address chain |
+//! | first window off the *first* multiply, tag off the second | 8.0 | **dead**: `the_probe_stays_flat` fails -- `highbits` mean probe 1.95 at n=5,000, one-axis `(i21,i21,i21)` 1.93 at 1.5M. The first product's window is a rank-deficient image of exactly the structured key sets the second multiply exists to spread |
+//! | tag broadcast as a `u64` multiply instead of `_mm_set1_epi8` | 8.4 | no-op: LLVM canonicalises the splat and emits the identical five instructions |
+//!
+//! The middle row is the experiment the second multiply's latency keeps inviting: the tag-line
+//! load could issue five cycles earlier, and the placement simulation said, correctly, that the
+//! placement would collapse. The broadcast row says the five-instruction `movd`/`punpcklbw`/`pshuflw`/
+//! `pshufd` sequence is off the critical path anyway -- the timeline has it ready two cycles
+//! before the tag line arrives -- so there is nothing there to recover.
 //!
 //! # Why the borrowed-key API is not a convenience
 //!
@@ -229,9 +254,10 @@ enum Step {
 struct Geom {
     /// `log2(groups)`.
     gbits: u32,
-    /// `DESCENT_BITS - gbits`: where the first window starts, just below the tag's seven bits.
+    /// `DESCENT_BITS - gbits - 4`: shifts a window straight to a **byte offset** (group * GROUP),
+    /// so the load address is one shift and one mask with no scale step after the mask.
     gshift: u32,
-    /// `groups - 1`.
+    /// `(groups - 1) * GROUP`: the group mask, pre-scaled to bytes for the same reason.
     gmask: usize,
 }
 
@@ -240,9 +266,14 @@ impl Geom {
         let gbits = groups.trailing_zeros();
         Self {
             gbits,
-            gshift: DESCENT_BITS.saturating_sub(gbits),
-            gmask: groups.saturating_sub(1),
+            gshift: (DESCENT_BITS - 4).saturating_sub(gbits),
+            gmask: groups.saturating_sub(1) * GROUP,
         }
+    }
+
+    /// The unscaled group mask, for the sweep fallback and the rebuild, which use [`group_at`].
+    fn mask(self) -> usize {
+        self.gmask / GROUP
     }
 
     /// The first group, straight-line: one shift and one mask, from geometry the table already
@@ -253,7 +284,7 @@ impl Geom {
     fn first(self, p: u64) -> usize {
         #[allow(clippy::cast_possible_truncation)]
         {
-            (p.wrapping_shr(self.gshift) as usize & self.gmask) * GROUP
+            p.wrapping_shr(self.gshift) as usize & self.gmask
         }
     }
 }
@@ -303,12 +334,12 @@ impl Descent {
         self.spent += self.g.gbits;
         if self.spent > DESCENT_BITS || self.g.gbits == 0 {
             // The word is spent, or the region is a single group and every window is group zero.
-            return group_at(self.p, j, self.g.gbits, self.g.gmask) * GROUP;
+            return group_at(self.p, j, self.g.gbits, self.g.mask()) * GROUP;
         }
         #[allow(clippy::cast_possible_truncation)]
         let g = (self.window >> self.g.gshift) as usize & self.g.gmask;
         self.window <<= self.g.gbits;
-        g * GROUP
+        g
     }
 }
 
@@ -612,6 +643,18 @@ impl<A: Coord + Eq, B: Coord + Eq, PA: Absorb<A>, PB: Absorb<B>> Absorb<(A, B)> 
 ///
 /// `Map<K, V>` is the parabolic default and takes any `K: Coord + Eq`. [`Words`] is the elliptic
 /// alias, for keys that fit in a word.
+///
+/// # The header is 88 bytes, against `std`'s 48
+///
+/// Two boxed slices (32), the counters (16), [`Geom`] (16) and [`Salt`] (24). The size is not
+/// free: the same map-of-maps workload the field order was measured on runs 25% slower with the
+/// header padded to 128, so a struct holding many maps does pay for these bytes. What 88 buys is
+/// on the probe: `Geom` cached is two instructions before the tag load against five recomputed
+/// (`trailing_zeros` plus variable-shift setup, measured when it was added), and `Salt::inv` is
+/// what lets the elliptic face read keys back without a 21-instruction Newton inversion per
+/// entry. 64 is reachable -- derive the lengths from `gmask`, recompute `inv` on the readback
+/// path -- but it is thin-pointer surgery through every slice access, and the field order below
+/// already claimed the cheap part of the win; measured as worth revisiting, not taken yet.
 pub struct Map<K, V, H = Stored<K>> {
     /// One byte per slot: [`EMPTY`], [`TOMB`], or a live slot's seven-bit tag with [`LIVE`] set.
     /// Sixteen of these are one vector compare, which is what makes a group scan one instruction
@@ -620,14 +663,20 @@ pub struct Map<K, V, H = Stored<K>> {
     /// The entries. **`slots[i]` is initialised exactly when `tags[i] & LIVE != 0`.** That is the
     /// whole safety invariant of this module; every `unsafe` below cites it and nothing else.
     slots: Box<[MaybeUninit<(H, V)>]>,
+    /// The region's probe geometry, recomputed only when the region is.
+    ///
+    /// Sits here, not after the counters: a lookup reads `tags`, `slots`, `geom` and `salt.mul`
+    /// and nothing else, and in this order the four fit the first 64 bytes of the struct -- one
+    /// cache line instead of two when the map itself is cold. Measured on 65,536 four-entry maps
+    /// probed at random: 57.0 against 61.7 cycles a lookup, interleaved runs. The counters are
+    /// write-path fields and ride behind.
+    geom: Geom,
+    salt: Salt,
     /// Live entries.
     live: usize,
     /// Live entries plus tombstones -- what the fill limit is measured against, because a tombstone
     /// occupies probe order even though it holds nothing.
     used: usize,
-    /// The region's probe geometry, recomputed only when the region is.
-    geom: Geom,
-    salt: Salt,
     _k: PhantomData<K>,
 }
 
@@ -1149,7 +1198,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         debug_assert_eq!(slots, fresh.len());
         debug_assert!(limit(slots) >= self.live, "rehoming into a region that cannot hold it");
         let geometry = Geom::of(slots / GROUP);
-        let (gbits, gmask) = (geometry.gbits, geometry.gmask);
+        let (gbits, gmask) = (geometry.gbits, geometry.mask());
 
         // `self` is handed empty arrays now, so from here until the swap at the end it owns
         // nothing -- `Map::drop` would find a zero-length tag line and free none of the entries

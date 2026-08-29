@@ -145,6 +145,13 @@ pub const fn finish(mut h: u64) -> u64 {
 /// | splitmix `finish` | 1.029 | 7 | 1.051 |
 /// | BLAKE2 (ideal control) | 1.029 | 8 | 1.051 |
 ///
+/// The staged probe was later rebuilt for real rather than in simulation -- first window taken
+/// from the first product so the tag-line load issues five cycles earlier, tag kept on the second
+/// -- and the machine agreed with the simulation from both sides: 8.8 to 8.0 cycles on the
+/// L1-resident hit loop, and `tests/the_probe_stays_flat.rs` failing at mean probe 1.95 on
+/// `highbits` at five thousand keys. A window read off the first product is a rank-deficient
+/// image of exactly the structured sets above, whatever the tag does.
+///
 /// Every cheaper candidate has a distribution that breaks it -- and not an exotic one:
 /// [`Packed for (i21, i21, i21)`](Packed) puts the first coordinate in bits 42..63, so a world
 /// whose objects vary mostly along one axis produces exactly the `highbits`/`i21hi` key set out
