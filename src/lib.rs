@@ -1,5 +1,21 @@
 #![warn(missing_docs)]
-#![allow(unexpected_cfgs)] // `cfg(kani)` is set by `cargo kani`, which cargo does not know about.
+// Every lint suppression states why. This is the crate's own rule -- a claim carries its
+// justification -- applied to the one place it was not being applied.
+//
+// The companion lint `clippy::allow_attributes`, which would additionally force every suppression
+// to be `#[expect]`, is deliberately **not** enabled. `#[expect]` is the better tool and is used
+// everywhere it works: it warns when the lint it silences stops firing, so a suppression whose
+// cause has been engineered away removes itself rather than accruing. Turning it on found four
+// such cases here immediately. But it cannot express "fires for some expansions of this macro and
+// not others", which is exactly the shape of the four remaining `#[allow]`s, and the exemption
+// would have to nest inside the macro body to take effect. A rule with a self-referential escape
+// hatch in it is worse than a rule plus a convention, so: `expect` by default, `allow` with a
+// reason where `expect` cannot apply, and that constraint is enforced.
+#![warn(clippy::allow_attributes_without_reason)]
+#![allow(
+    unexpected_cfgs,
+    reason = "`cfg(kani)` is set by `cargo kani`, which cargo itself does not know about"
+)]
 
 //! The two-slot algebra, and what it licenses.
 //!

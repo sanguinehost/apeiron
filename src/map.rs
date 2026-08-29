@@ -43,7 +43,7 @@
 //!
 //! `perf stat` on a 694-key L1-resident hit loop, one core, against `hashbrown` with `foldhash`
 //! -- the flat competitor, since `hashbrown` with `fxhash` is 209 ns on `highbits` against this
-//! crate's 1.35 and is therefore not a comparison -- and `std` (SipHash, seeded, not reproducible).
+//! crate's 1.35 and is therefore not a comparison -- and `std` (`SipHash`, seeded, not reproducible).
 //!
 //! Instructions retired, and **not** cycles: a retired-instruction count is per-process and does
 //! not move with machine load, while cycles do. This table is the load-independent column and can
@@ -142,8 +142,22 @@
 //! `Map<(String, String), V>` with no allocation at all. It is offered on the parabolic face only,
 //! because the elliptic face's keys fit in a word and there is nothing to borrow.
 
-#![allow(clippy::needless_pass_by_value)] // a `Locate` view IS the borrow; taking it by reference
-                                          // would put a second indirection on the probe.
+#![expect(
+    clippy::inline_always,
+    reason = "measured, not assumed. `get` and `find` were `#[inline]` and the compiler outlined \
+              them anyway, so every lookup paid a call and the register traffic around it: 70 \
+              instructions and 12.0 cycles against hashbrown's 32. `#[inline(always)]` on the \
+              probe internals took it to 35.9 and 6.5. The numbers are in this module's doc"
+)]
+#![expect(
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    reason = "`p` is the placement word, `g` the group, `j` the descent step, `lo`/`hi` the \
+              halves of the widening product. These are the names the algebra and the papers use, \
+              and expanding them to `placement_word` would make the probe harder to check against \
+              the equations it implements, not easier"
+)]
+
 
 use crate::coord::{finish, inverse_odd, Addr, Coord, Packed, PHI, PHI_INV};
 use crate::keystore::Keystore;
@@ -239,6 +253,11 @@ impl Salt {
     /// half `hi` that the placement fold mixes in -- which is what leaves the descent unaimable.
     #[inline]
     #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the truncations ARE the split, as in `coord::spread`: `lo` is the low half of \
+                  the 128-bit product and `hi` the high half"
+    )]
     pub const fn spread(self, x: u64) -> Addr {
         let w = (x as u128).wrapping_mul(self.mul as u128);
         let lo = w as u64;
@@ -319,9 +338,11 @@ impl Geom {
     /// the tag load and two.
     #[inline(always)]
     fn first(self, p: u64) -> usize {
-        // `gshift` is chosen so the result is already below `gmask`, which is at most `slots * GROUP`
-        // and therefore a `usize`. The mask makes the truncation unobservable.
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "`gshift` is chosen so the result is already below `gmask`, which is at most `slots * \
+                          GROUP` and therefore a `usize`. The mask makes the truncation unobservable."
+        )]
         {
             p.wrapping_shr(self.gshift) as usize & self.gmask
         }
@@ -375,9 +396,11 @@ impl Descent {
             // The word is spent, or the region is a single group and every window is group zero.
             return group_at(self.p, j, self.g.gbits, self.g.mask()) * GROUP;
         }
-        // As `Geom::first`: masked to `gmask` immediately, so the discarded bits cannot reach the
-        // group index.
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "As `Geom::first`: masked to `gmask` immediately, so the discarded bits cannot reach \
+                          the group index."
+        )]
         let g = (self.window >> self.g.gshift) as usize & self.g.gmask;
         self.window <<= self.g.gbits;
         g
@@ -909,6 +932,12 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// walks past every other one. That is what makes an attack *visible* instead of merely slow --
     /// see [`crate::map::Salt`] for what to do about it.
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a mean over probe counts, for a diagnostic report. The numerator would have to \
+                  exceed 2^53 for the conversion to lose anything, which is more entries than the \
+                  table can hold"
+    )]
     pub fn stats(&self) -> Stats {
         let mut longest = 0u32;
         let mut total = 0u64;
@@ -959,6 +988,11 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let mut compares = 0u32;
         // Bounded by the number of groups: the descent's sweep visits each at most once before
         // repeating, and the entry is certainly in one of them.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a table with more than 2^32 groups is 2^36 slots and 2^41 bytes; the \
+                      allocation fails long before the count does"
+        )]
         let cap = (self.slots.len() / GROUP).max(1) as u32 + 1;
         while steps <= cap {
             if at >= base && at < base + GROUP {
@@ -1399,6 +1433,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// It is however the *same* order for the same keys under the same pepper, on every machine and
     /// every run: nothing here is seeded and nothing is randomised. That is the property 13 of
     /// Lyrium's 14 `BTreeSet`s were reaching for when they paid for an ordering they never queried.
+    #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, H> {
         Iter { map: self, i: 0, left: self.live }
     }
@@ -1410,11 +1445,13 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     }
 
     /// The keys, in slot order.
+    #[must_use]
     pub fn keys(&self) -> Keys<'_, K, V, H> {
         Keys(self.iter())
     }
 
     /// The values, in slot order.
+    #[must_use]
     pub fn values(&self) -> Values<'_, K, V, H> {
         Values(self.iter())
     }
@@ -1435,11 +1472,13 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     }
 
     /// The keys, consuming the map.
+    #[must_use]
     pub fn into_keys(self) -> IntoKeys<K, V, H> {
         IntoKeys(self.into_iter())
     }
 
     /// The values, consuming the map.
+    #[must_use]
     pub fn into_values(self) -> IntoValues<K, V, H> {
         IntoValues(self.into_iter())
     }
@@ -2000,6 +2039,12 @@ pub struct Stats {
 impl Stats {
     /// Live entries over slots.
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a mean over probe counts, for a diagnostic report. The numerator would have to \
+                  exceed 2^53 for the conversion to lose anything, which is more entries than the \
+                  table can hold"
+    )]
     pub fn load(&self) -> f64 {
         if self.slots == 0 {
             0.0
@@ -2077,6 +2122,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Exposed<K, V, H> {
     }
 
     /// The plain map underneath.
+    #[must_use]
     pub fn into_inner(self) -> Map<K, V, H> {
         self.0
     }
@@ -2156,10 +2202,12 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> OccupiedEntry<'a, K, V, H> {
         std::mem::replace(self.get_mut(), v)
     }
     /// Take the entry out, returning the value.
+    #[must_use]
     pub fn remove(self) -> V {
         self.remove_entry().1
     }
     /// Take the entry out, key and value.
+    #[must_use]
     pub fn remove_entry(self) -> (K, V) {
         let at = self.at;
         self.map.evict(at)
@@ -2228,7 +2276,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
     }
 }
 
-impl<'a, K: Coord + Eq, V> Entry<'a, K, V, Stored<K>> {
+impl<K: Coord + Eq, V> Entry<'_, K, V, Stored<K>> {
     /// The key this entry is for, occupied or not.
     ///
     /// Offered on the parabolic face only. There `H::Ref` is `&K`, so an occupied slot and a vacant
@@ -2528,6 +2576,12 @@ mod tests {
     /// Every `unsafe` in this module cites it, so it is worth a test that does not go through the
     /// public surface to look.
     #[test]
+    #[expect(
+        clippy::naive_bytecount,
+        reason = "clippy suggests the `bytecount` crate. This crate has no dependencies and that \
+                  is a deliberate property of it; a test counting a few hundred tags is not the \
+                  reason to acquire the first one"
+    )]
     fn a_tag_says_live_exactly_when_a_slot_holds_something() {
         let mut m: Map<String, u32> = Map::new();
         for i in 0..400u32 {

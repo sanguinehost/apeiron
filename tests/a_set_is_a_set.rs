@@ -6,6 +6,14 @@
 //! means it inherits the map's correctness -- and also every way the wrapper itself can be wrong,
 //! which is what this is for. `insert` returning the wrong boolean is invisible to the map's tests.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them. \
+              Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
+              yet trigger still surfaces"
+)]
+
 use apeiron::set::{Set, WordSet};
 use std::collections::HashSet;
 

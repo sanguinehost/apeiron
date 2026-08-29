@@ -14,6 +14,21 @@
 //! Two distributions, because structure is what breaks multiplicative folds:
 //! uniform token ids, and Zipfian ones, which is what real text gives.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::unreadable_literal,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; the reverse of that reinterpretation; counts converted to floats to report \
+              rates; a harness would need 2^53 samples to lose a bit; signed world coordinates \
+              reinterpreted, which is what the packing does; a constant quoted from elsewhere. Listed \
+              individually rather than suppressed wholesale, so a pedantic lint this file does not yet \
+              trigger still surfaces"
+)]
+
 use std::collections::HashSet;
 
 const B: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -57,7 +72,7 @@ fn main() {
             let mut ctxs: HashSet<Vec<u32>> = HashSet::with_capacity(n);
             let mut ctx = vec![0u32; order];
             for _ in 0..n {
-                for c in ctx.iter_mut() {
+                for c in &mut ctx {
                     *c = if zipf {
                         // heavy head: most mass on a few hundred ids, the shape real text has
                         let u = (r() >> 11) as f64 / (1u64 << 53) as f64;

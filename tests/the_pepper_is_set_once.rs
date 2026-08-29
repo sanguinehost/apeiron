@@ -9,6 +9,13 @@
 //! server that initialises subsystems in parallel that is not a hypothetical ordering -- it is the
 //! ordinary one. The state is one word now and every transition is a `compare_exchange`.
 
+#![expect(
+    clippy::items_after_statements,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: constants declared next to the loop that uses them. Listed individually rather \
+              than suppressed wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::map::Map;
 use apeiron::pepper::{
     peek_process_pepper, pepper_is_committed, process_pepper, try_set_process_pepper,

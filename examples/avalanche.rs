@@ -12,6 +12,17 @@
 //! bit flips. Perfect is 50% for every one of the 64x64 pairs. Reported as the worst pair and the
 //! mean absolute deviation, because an average near 50% hides a single bit that never moves.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::items_after_statements,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; counts converted to floats to report rates; a harness would need 2^53 samples \
+              to lose a bit; constants declared next to the loop that uses them. Listed individually rather \
+              than suppressed wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 const SAMPLES: usize = 20_000;
 
 fn sac(mix: impl Fn(u64) -> u64) -> (f64, f64) {
@@ -32,7 +43,7 @@ fn sac(mix: impl Fn(u64) -> u64) -> (f64, f64) {
     let mut total = 0.0f64;
     for row in &flips {
         for &f in row {
-            let p = f as f64 / SAMPLES as f64;
+            let p = f64::from(f) / SAMPLES as f64;
             let dev = (p - 0.5).abs();
             worst = worst.max(dev);
             total += dev;
@@ -44,7 +55,7 @@ fn sac(mix: impl Fn(u64) -> u64) -> (f64, f64) {
 const C: u64 = 0x2d35_8dcc_aa6c_78a5; // foldhash's own ARBITRARY constant
 
 fn main() {
-    let prod = |x: u64| (x as u128).wrapping_mul(C as u128);
+    let prod = |x: u64| u128::from(x).wrapping_mul(u128::from(C));
     let lo = |p: u128| p as u64;
     let hi = |p: u128| (p >> 64) as u64;
 
@@ -57,7 +68,7 @@ fn main() {
         ("foldhash   lo^hi",  Box::new(move |x| lo(prod(x)) ^ hi(prod(x)))),
         ("elliptic x2",       Box::new(move |x| {
             let a = lo(prod(x)).wrapping_sub(hi(prod(x)));
-            let p = (a as u128).wrapping_mul(C as u128);
+            let p = u128::from(a).wrapping_mul(u128::from(C));
             lo(p).wrapping_sub(hi(p))
         })),
         ("splitmix64 finish", Box::new(apeiron::coord::finish)),

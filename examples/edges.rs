@@ -1,4 +1,13 @@
 //! Edges a port hits on day one.
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::unreadable_literal,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; a constant quoted from elsewhere. Listed individually rather than suppressed \
+              wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::Coord;
 use apeiron::map::{Map, Words};
 
@@ -52,6 +61,6 @@ fn main() {
         let before = m.slots();
         for i in 0..n as u64 { m.insert(i, i); }
         let grew = m.slots() != before;
-        println!("with_capacity({n:>5}) -> {:>6} slots, grew filling it: {grew}", before);
+        println!("with_capacity({n:>5}) -> {before:>6} slots, grew filling it: {grew}");
     }
 }

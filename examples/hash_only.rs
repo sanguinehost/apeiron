@@ -2,6 +2,14 @@
 //!
 //! A lookup is a fold plus a probe plus a compare. If apeiron's String lookup is behind, this says
 //! whether the fold is the reason or whether the table is.
+#![expect(
+    clippy::cast_precision_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: counts converted to floats to report rates; a harness would need \
+              2^53 samples to lose a bit. Listed individually rather than suppressed wholesale, so a \
+              pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::fold::fold_bytes;
 use std::hash::BuildHasher;
 use std::hint::black_box;

@@ -5,6 +5,14 @@
 //! quadratic on another. This runs the same distributions `tests/the_probe_stays_flat.rs` holds
 //! apeiron to, against each competitor, and reports lookup time rather than probe length because
 //! the competitors' internals are not ours to read.
+#![expect(
+    clippy::cast_precision_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: counts converted to floats to report rates; a harness would need \
+              2^53 samples to lose a bit. Listed individually rather than suppressed wholesale, so a \
+              pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::map::Words;
 use hashbrown::HashMap as HbMap;
 use std::collections::HashMap;

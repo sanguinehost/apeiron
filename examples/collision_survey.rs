@@ -4,6 +4,19 @@
 //! in 64 bits and still pile them into the same bucket: a table masks some of those bits away,
 //! and which end it takes from decides whether a multiplicative hash works at all.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; the reverse of that reinterpretation; counts converted to floats to report \
+              rates; a harness would need 2^53 samples to lose a bit; signed world coordinates \
+              reinterpreted, which is what the packing does. Listed individually rather than suppressed \
+              wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::{bucket, i21, Coord, Packed, PHI};
 use std::collections::HashSet;
 
@@ -95,7 +108,7 @@ fn main() {
         seed
     };
     for c in 0..8 {
-        let (cx, cy) = ((c as i64 - 4) * 5000, (c as i64 % 3 - 1) * 5000);
+        let (cx, cy) = ((i64::from(c) - 4) * 5000, (i64::from(c) % 3 - 1) * 5000);
         for _ in 0..4096 {
             let r = next();
             keys.push((

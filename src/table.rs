@@ -95,6 +95,11 @@ pub fn shard_of(salt: Salt, address: u64) -> usize {
 
 /// The shard of a placement word that has already been computed.
 #[inline]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "masked to `SHARDS - 1` (255) immediately, so only the bottom byte survives on any \
+              target and the width of `usize` cannot change the answer"
+)]
 const fn home(p: u64) -> usize {
     (p as usize) & (SHARDS - 1)
 }
@@ -543,6 +548,11 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
         return 0;
     }
     let used = gbits * (j + 1);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "both arms mask with `gmask`, which is at most `groups - 1`, so the discarded \
+                  high bits cannot reach the group index on a 32-bit target either"
+    )]
     if used <= DESCENT_BITS {
         (p >> (DESCENT_BITS - used)) as usize & gmask
     } else {
@@ -588,16 +598,15 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 /// [`shard_of`].
 #[inline]
 #[must_use]
-// Seven bits by construction: `p >> 57` leaves at most 7, and the `0x80` sets the live bit.
-// Nothing is truncated that was not already zero.
-#[allow(clippy::cast_possible_truncation)]
 pub const fn tag_of(p: u64) -> u8 {
+    // Seven bits by construction: `p >> 57` leaves at most 7, and `0x80` sets the live bit, so
+    // nothing is truncated that was not already zero. No suppression: clippy sees the range.
     0x80 | (p >> 57) as u8
 }
 
 /// Sixteen lanes at a time, two ways.
 ///
-/// A group is sixteen slots, so a group scan is one 128-bit compare on x86_64 and a pair of SWAR
+/// A group is sixteen slots, so a group scan is one 128-bit compare on `x86_64` and a pair of SWAR
 /// words everywhere else. Both are compiled on every target and `tests/both_tag_paths_agree.rs`
 /// asserts they are the same function, because the one this build does not select is exactly the
 /// code that rots.
@@ -614,12 +623,10 @@ pub mod scan {
     #[inline]
     const fn gather(marked: u64) -> u8 {
         const GATHER: u64 = 0x0002_0408_1020_4081;
-        // The multiply gathers one bit per lane into the top byte; `>> 56` puts them in the low
-        // eight, so the cast keeps every bit it was built to keep.
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            (marked.wrapping_mul(GATHER) >> 56) as u8
-        }
+        // The multiply gathers one bit per lane into the top byte and `>> 56` puts them in the
+        // low eight, so the cast keeps every bit it was built to keep -- and clippy can see that,
+        // which is why there is no suppression here.
+        (marked.wrapping_mul(GATHER) >> 56) as u8
     }
 
     /// `0x80` at each lane of `word` equal to `byte`, and nowhere else.
@@ -673,14 +680,22 @@ pub mod scan {
         u16::from(gather(lo & HI)) | (u16::from(gather(hi & HI)) << 8)
     }
 
-    /// SSE2, which is in the x86_64 baseline: no target feature, no runtime check, and no path
+    /// SSE2, which is in the `x86_64` baseline: no target feature, no runtime check, and no path
     /// that only some machines take.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     #[must_use]
-    // `_mm_set1_epi8` takes `i8` and `_mm_movemask_epi8` returns `i32` whose low 16 bits are the
-    // lane mask. Both casts are the intrinsics' own signedness, not a value conversion.
-    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    #[expect(
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_ptr_alignment,
+        reason = "the intrinsics' own signatures, not value conversions: `_mm_set1_epi8` takes \
+                  `i8`, and `_mm_movemask_epi8` returns an `i32` whose low 16 bits are the lane \
+                  mask, so the narrowing to `u16` drops bits the instruction never sets. The \
+                  pointer cast is to `_mm_loadu_si128`, the explicitly *unaligned* load, which is \
+                  why a 1-byte-aligned source is correct here"
+    )]
     pub fn match_tag_simd(line: &[u8; 16], tag: u8) -> u16 {
         use std::arch::x86_64::{
             __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
@@ -697,8 +712,13 @@ pub mod scan {
     #[cfg(target_arch = "x86_64")]
     #[inline]
     #[must_use]
-    // As `match_tag_simd`: `_mm_movemask_epi8` returns a sign-typed `i32` holding a 16-bit mask.
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_ptr_alignment,
+        reason = "as `match_tag_simd`: a sign-typed `i32` holding a 16-bit mask, read through the \
+                  unaligned load"
+    )]
     pub fn occupied_simd(line: &[u8; 16]) -> u16 {
         use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_movemask_epi8};
         // SAFETY: as `match_tag_simd`.
@@ -744,6 +764,12 @@ pub mod scan {
 /// Stops at the first group holding an empty slot: placement is first-fit and occupancy only
 /// grows, so an empty slot means the key would have been placed at or before here, and is absent.
 #[inline]
+#[expect(
+    clippy::similar_names,
+    reason = "`line` is the sixteen tag bytes a scan loads and `lane` is the slot inside it; \
+              they are near-anagrams because they name adjacent parts of one structure, and \
+              renaming either makes the scan read worse than the lint does"
+)]
 fn locate(region: &Region, ad: crate::coord::Addr) -> (usize, bool) {
     let (p, id) = (ad.place, ad.id);
     let groups = region.slots.len() / GROUP;

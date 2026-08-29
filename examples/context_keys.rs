@@ -25,6 +25,17 @@
 //!
 //! Run: `cargo run --release --example context_keys -- <corpus path>`
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; the reverse of that reinterpretation; counts converted to floats to report \
+              rates; a harness would need 2^53 samples to lose a bit. Listed individually rather than \
+              suppressed wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::{bucket, finish, mix, pack, PHI};
 use std::collections::HashSet;
 

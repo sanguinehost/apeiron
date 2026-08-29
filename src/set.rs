@@ -156,6 +156,7 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
     }
 
     /// The elements, in address order.
+    #[must_use]
     pub fn iter(&self) -> Keys<'_, K, (), H> {
         self.0.keys()
     }
@@ -398,6 +399,7 @@ impl<K: Coord + Eq, H: Held<K>> ExposedSet<K, H> {
     }
 
     /// The plain set underneath.
+    #[must_use]
     pub fn into_inner(self) -> Set<K, H> {
         self.0
     }

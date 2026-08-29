@@ -88,8 +88,13 @@ macro_rules! int_coord {
         impl Coord for $t {
             #[inline]
             fn coord(&self) -> u64 {
-                // Sign extension is deliberate and is what makes `from_coord` round-trip.
-                #[allow(clippy::cast_sign_loss, clippy::cast_lossless)]
+                // `allow` and not `expect`: this macro expands for ten types and the lints fire
+                // only for some of them, so an expectation would be unfulfilled on the rest.
+                #[allow(
+                    clippy::cast_sign_loss,
+                    clippy::cast_lossless,
+                    reason = "sign extension is deliberate, and is what makes `from_coord` round-trip"
+                )]
                 { *self as u64 }
             }
         }
@@ -262,6 +267,12 @@ pub struct Addr {
 /// so `unspread(spread(x).id) == x`), `place` is the fold the descent uses.
 #[inline]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the two truncations ARE the split: `lo` is the low half of the 128-bit product and \
+              `hi` the high half, and taking each is what makes one widening multiply yield both \
+              an identity word and a placement word"
+)]
 pub const fn spread(x: u64) -> Addr {
     let w = (x as u128).wrapping_mul(PHI as u128);
     let lo = w as u64;
@@ -295,7 +306,7 @@ pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
 pub const PSI: u64 = 0x94D0_49BB_1331_11EB;
 
 /// `PSI * PSI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
-pub const PSI_INV: u64 = 0x319642B2D24D8EC3;
+pub const PSI_INV: u64 = 0x3196_42B2_D24D_8EC3;
 
 /// The inverse of an odd number mod `2^64`.
 ///
@@ -374,15 +385,23 @@ macro_rules! int_packed {
     ($($t:ty),*) => {$(
         impl Packed for $t {
             #[inline]
-            // Half of a round trip, not a conversion: a signed value is reinterpreted so its sign bit
-            // travels as data. `unpack` restores it exactly, and `tests/coord_is_injective.rs` checks the
-            // round trip over the full range of every type this macro covers.
-            #[allow(clippy::cast_sign_loss, clippy::cast_lossless)]
+            // `allow` and not `expect`: ten expansions, and the lints fire for only some.
+            #[allow(
+                clippy::cast_sign_loss,
+                clippy::cast_lossless,
+                reason = "half of a round trip, not a conversion: the sign bit travels as data, \
+                          `unpack` restores it exactly, and `tests/coord_is_injective.rs` checks \
+                          that round trip over the full range of every type this macro covers"
+            )]
             fn packed(&self) -> u64 { *self as u64 }
             #[inline]
-            // The other half. `c` came from `packed`, so the bits truncated here are exactly the sign
-            // extension it produced -- for any other `c` this is not claimed to mean anything.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_possible_wrap,
+                reason = "the other half: `c` came from `packed`, so the bits dropped here are \
+                          exactly the sign extension it produced -- for any other `c` this claims \
+                          nothing"
+            )]
             fn unpack(c: u64) -> Self { c as Self }
         }
     )*};
@@ -396,9 +415,11 @@ impl Packed for (u32, u32) {
         pack(u64::from(self.0), u64::from(self.1), 32)
     }
     #[inline]
-    // `pack` put the two halves at 32 and 0; recovering them is a shift and a truncation, which
-    // is that composition run backwards.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`pack` put the two halves at 32 and 0; recovering them is a shift and a truncation, \
+                      which is that composition run backwards."
+    )]
     fn unpack(c: u64) -> Self {
         ((c >> 32) as u32, c as u32)
     }
@@ -407,17 +428,19 @@ impl Packed for (u32, u32) {
 /// Signed halves, bit-cast. Two's complement makes the round-trip exact.
 impl Packed for (i32, i32) {
     #[inline]
-    // The sign bit is carried as data so negative coordinates survive the pack. Losing the sign
-    // *interpretation* is the point; no information is lost, and `unpack` sign-extends it back.
-    #[allow(clippy::cast_sign_loss)]
     fn packed(&self) -> u64 {
-        pack(u64::from(self.0 as u32), u64::from(self.1 as u32), 32)
+        // `cast_unsigned` rather than `as u32`: the sign bit is being carried as data, and saying
+        // so in the type system is better than silencing a lint that is right to ask.
+        pack(u64::from(self.0.cast_unsigned()), u64::from(self.1.cast_unsigned()), 32)
     }
     #[inline]
-    // Reinterpretation, the exact inverse of `packed`'s: the wrap is the sign coming back.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`pack` put the halves at 32 and 0, so recovering them is that composition run \
+                  backwards; `cast_signed` carries the sign back without a second suppression"
+    )]
     fn unpack(c: u64) -> Self {
-        (((c >> 32) as u32) as i32, (c as u32) as i32)
+        (((c >> 32) as u32).cast_signed(), (c as u32).cast_signed())
     }
 }
 
@@ -443,9 +466,11 @@ impl Packed for (i21, i21, i21) {
 /// Exists because the elliptic face's bijection is only available when the key actually fits, and
 /// a type that cannot hold an out-of-range value is how that is enforced rather than hoped for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-// Named for the width it holds, the way `i32` and `u8` are. Camel case would hide that this
-// is an integer type and not a struct that happens to wrap one.
-#[allow(non_camel_case_types)]
+#[expect(
+    non_camel_case_types,
+    reason = "Named for the width it holds, the way `i32` and `u8` are. Camel case would hide that this is \
+                  an integer type and not a struct that happens to wrap one."
+)]
 pub struct i21(i32);
 
 impl i21 {
@@ -471,20 +496,18 @@ impl i21 {
     }
 
     #[inline]
-    // The sign bit is carried into the 21-bit field as data. `from_bits` sign-extends it back,
-    // and the constructor has already bounded the value to `MIN..=MAX`.
-    #[allow(clippy::cast_sign_loss)]
     const fn bits(self) -> u64 {
-        (self.0 as u64) & 0x1F_FFFF
+        // The sign bit travels into the 21-bit field as data; `from_bits` sign-extends it back,
+        // and the constructor has already bounded the value to `MIN..=MAX`.
+        (self.0.cast_unsigned() as u64) & 0x1F_FFFF
     }
 
     #[inline]
-    // A left shift into the top and an arithmetic right shift back is sign extension; both casts
-    // are reinterpretations along the way, and the wrap is the sign being restored.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     const fn from_bits(b: u64) -> Self {
-        // Sign-extend from bit 20.
-        Self((((b << 43) as i64) >> 43) as i32)
+        // Sign-extend from bit 20. `cast_signed` before the arithmetic shift leaves a value in
+        // `i21::MIN..=i21::MAX`, which is why the narrowing needs no suppression: clippy can see
+        // the range. It used to carry two.
+        Self(((b << 43).cast_signed() >> 43) as i32)
     }
 }
 

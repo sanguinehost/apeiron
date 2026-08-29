@@ -9,6 +9,16 @@
 //! looks like and it is the case the folds disagree on. Every arm is checked to produce the same
 //! answer outside the timed region.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "this is a benchmark, not library code, and each lint below is listed because this file \
+              actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; counts converted to floats to report rates; a harness would need 2^53 samples \
+              to lose a bit. Listed individually rather than suppressed wholesale, so a pedantic lint this \
+              file does not yet trigger still surfaces"
+)]
+
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 

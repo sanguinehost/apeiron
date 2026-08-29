@@ -10,6 +10,14 @@
 //! placed past it while it was live -- and the table still answers, still has the right length, and
 //! is wrong only for the keys that happened to sit beyond it. No hand-written test finds that.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them. \
+              Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
+              yet trigger still surfaces"
+)]
+
 use apeiron::map::{Map, Words};
 use std::collections::HashMap;
 
