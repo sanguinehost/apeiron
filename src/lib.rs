@@ -49,10 +49,19 @@ pub mod merge;
 pub mod pepper;
 pub mod proofs;
 pub mod scalar;
+pub mod set;
 pub mod table;
+
+/// `#[derive(Coord)]` and `#[derive(Packed)]`, behind the `derive` feature.
+///
+/// Off by default so the ordinary build keeps zero dependencies; turning it on is what a codebase
+/// with its own key types wants.
+#[cfg(feature = "derive")]
+pub use apeiron_derive::{Coord, Packed};
 
 pub use cell::{Cell, Sigma};
 pub use keystore::Keystore;
 pub use map::{Exposed, ExposedWords, Map, Stats, Words};
+pub use set::{ExposedSet, Set, WordSet};
 pub use pepper::{process_pepper, set_process_pepper};
 pub use table::CountTable;

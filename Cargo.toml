@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls out of it."
 
+[features]
+# Off by default, so the ordinary build of this crate still has **zero** dependencies. Turning it
+# on pulls syn/quote/proc-macro2 in as build-time-only deps of the derive crate.
+derive = ["dep:apeiron-derive"]
+
 [dependencies]
+apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -12,6 +18,9 @@ hashbrown = "0.15"
 foldhash = "0.1"
 rustc-hash = "2"
 hashtrinity = { path = "../fold/hashtrinity" }
+
+[workspace]
+members = ["derive"]
 
 [[bench]]
 name = "spatial_binning"

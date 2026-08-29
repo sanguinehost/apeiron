@@ -45,6 +45,10 @@ enum Op {
     Retain(u32),
     Clear,
     Reserve(u32),
+    Shrink,
+    ExtractIf(u32),
+    DrainSome(u32),
+    Disjoint(u32, u32, u32),
 }
 
 fn program(seed: u64, len: usize, spread: u64) -> Vec<Op> {
@@ -60,9 +64,13 @@ fn program(seed: u64, len: usize, spread: u64) -> Vec<Op> {
                 40..=54 => Op::Merge(k, v),
                 55..=74 => Op::Get(k),
                 75..=91 => Op::Remove(k),
-                92..=95 => Op::Retain(r.below(8) as u32),
-                96..=97 => Op::Reserve(r.below(64) as u32),
-                _ => Op::Clear,
+                92..=93 => Op::Retain(r.below(8) as u32),
+                94 => Op::Reserve(r.below(64) as u32),
+                95 => Op::Shrink,
+                96..=97 => Op::ExtractIf(r.below(8) as u32),
+                98 => Op::DrainSome(r.below(6) as u32),
+                _ if r.below(3) == 0 => Op::Clear,
+                _ => Op::Disjoint(k, r.below(spread) as u32, r.below(spread) as u32),
             }
         })
         .collect()
@@ -98,6 +106,52 @@ fn diverges(ops: &[Op]) -> Option<usize> {
                 ours.clear();
                 theirs.clear();
                 true
+            }
+            Op::Shrink => {
+                // A rehome into a smaller region rebuilds every placement, so it is the operation
+                // most likely to lose an entry, and the cheapest to get subtly wrong.
+                ours.shrink_to_fit();
+                theirs.shrink_to_fit();
+                true
+            }
+            Op::ExtractIf(m) => {
+                let m = m.max(1);
+                let mut a: Vec<(u32, u32)> = ours.extract_if(|k, _| k % m == 0).collect();
+                let mut b: Vec<(u32, u32)> =
+                    theirs.extract_if(|k, _| k % m == 0).collect();
+                a.sort_unstable();
+                b.sort_unstable();
+                a == b
+            }
+            Op::DrainSome(take) => {
+                // Dropping a `Drain` early must still empty the map -- that is what makes it a
+                // drain rather than an iterator that happens to remove things.
+                let got: Vec<(u32, u32)> = ours.drain().take(take as usize).collect();
+                let want: Vec<(u32, u32)> = theirs.drain().take(take as usize).collect();
+                got.len() == want.len() && ours.is_empty() && theirs.is_empty()
+            }
+            Op::Disjoint(a, b, c) => {
+                // Three keys, deduplicated: `get_disjoint_mut` panics on a repeat, and that is the
+                // documented contract rather than something to trip over here.
+                let mut ks = vec![a, b, c];
+                ks.sort_unstable();
+                ks.dedup();
+                let want: Vec<Option<u32>> =
+                    ks.iter().map(|k| theirs.get(k).copied()).collect();
+                let got: Vec<Option<u32>> = match ks.len() {
+                    1 => ours.get_disjoint_mut([&ks[0]]).iter().map(|v| v.as_deref().copied()).collect(),
+                    2 => ours
+                        .get_disjoint_mut([&ks[0], &ks[1]])
+                        .iter()
+                        .map(|v| v.as_deref().copied())
+                        .collect(),
+                    _ => ours
+                        .get_disjoint_mut([&ks[0], &ks[1], &ks[2]])
+                        .iter()
+                        .map(|v| v.as_deref().copied())
+                        .collect(),
+                };
+                got == want
             }
         };
         let same_len = ours.len() == theirs.len();
@@ -184,6 +238,10 @@ fn the_elliptic_face_agrees_with_std_too() {
                     ours.clear();
                     theirs.clear();
                 }
+                // The operations added for the wider surface are exercised against `std` in
+                // `diverges` above, which runs the parabolic face. This walk exists to hold the
+                // *elliptic* face to the same core specification, so it stays on the core ops.
+                Op::Shrink | Op::ExtractIf(_) | Op::DrainSome(_) | Op::Disjoint(..) => {}
             }
             assert_eq!(ours.len(), theirs.len(), "seed {seed} op {i}");
             assert!(theirs.iter().all(|(k, v)| ours.get(k) == Some(v)), "seed {seed} op {i}");
@@ -278,7 +336,7 @@ fn every_value_is_dropped_exactly_once() {
             m.insert(format!("k{i}"), Counted::new("w"));
         }
         m.retain(|k, _| !k.ends_with('7'));
-        let taken = m.drain();
+        let taken: Vec<_> = m.drain().collect();
         assert!(!taken.is_empty());
         drop(taken);
         for i in 0..(1000 / SCALE as u32) {

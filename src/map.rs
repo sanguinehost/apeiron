@@ -318,6 +318,14 @@ pub trait Held<K: Coord + Eq>: Sized {
 
     /// The key, owned, consuming the slot.
     fn into_key(self, salt: Salt) -> K;
+
+    /// Run `f` on this slot's key as a plain `&K`, whatever the face stores.
+    ///
+    /// The two faces disagree about what a key *is* on the way out -- a borrow on one, a value
+    /// rebuilt from the address on the other -- and a caller that wants to probe another table with
+    /// it needs one shape. A callback rather than a return type is what makes that possible without
+    /// allocating: the elliptic face's key is a temporary, so it can be lent but not returned.
+    fn with_key<R>(&self, salt: Salt, f: impl FnOnce(&K) -> R) -> R;
 }
 
 /// **B/U, the parabolic face.** The key is carried beside its address.
@@ -357,6 +365,10 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
         self.p == other.p && self.k == other.k
+    }
+    #[inline]
+    fn with_key<R>(&self, _salt: Salt, f: impl FnOnce(&K) -> R) -> R {
+        f(&self.k)
     }
     #[inline]
     fn key(&self, _salt: Salt) -> &K {
@@ -407,6 +419,10 @@ impl<K: Coord + Packed + Eq> Held<K> for Regen<K> {
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+    #[inline]
+    fn with_key<R>(&self, salt: Salt, f: impl FnOnce(&K) -> R) -> R {
+        f(&K::unpack(salt.unspread(self.0)))
     }
     #[inline]
     fn key(&self, salt: Salt) -> K {
@@ -460,6 +476,38 @@ impl<K: Coord + Eq + Clone> Absorb<K> for &K {
         self.clone()
     }
 }
+
+/// A small key **by value**, so a composite view need not reference every component.
+///
+/// `(&str, u16)` is the shape a `(String, u16)` index is actually probed with -- Lyrium keys every
+/// archive by `(resref, restype)` and the type is a bare `u16` at the call site, six times over.
+/// Without this the caller writes `(&str, &u16)`, which compiles and reads like a mistake.
+///
+/// A blanket `impl<K: Copy> Locate<K> for K` would be the obvious way to write it and does not
+/// compile: it overlaps the tuple impl below, because a tuple of `Copy` views is itself `Copy` and
+/// could be its own key. So it is a list, and the list is the primitives that are plausibly one
+/// component of a composite key.
+macro_rules! locate_by_value {
+    ($($t:ty),*) => {$(
+        impl Locate<$t> for $t {
+            #[inline]
+            fn coord_at(&self, pepper: u64) -> u64 {
+                Coord::coord_with(self, pepper)
+            }
+            #[inline]
+            fn same(&self, k: &$t) -> bool {
+                self == k
+            }
+        }
+        impl Absorb<$t> for $t {
+            #[inline]
+            fn absorb(self) -> $t {
+                self
+            }
+        }
+    )*};
+}
+locate_by_value!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, char, bool);
 
 impl Locate<String> for &str {
     #[inline]
@@ -1007,11 +1055,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             return;
         }
         let want = self.live + additional;
-        let mut slots = self.slots.len().max(MIN_SLOTS);
-        while limit(slots) < want {
-            slots *= 2;
-        }
-        self.rebuild(slots);
+        self.rebuild(Self::region_for(want).max(self.slots.len()));
     }
 
     /// Move every live entry into a fresh region of `slots` slots.
@@ -1021,11 +1065,25 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// and not a hash per entry. For a hundred thousand strings that is the difference between
     /// re-reading megabytes of bytes and reading a word.
     fn rebuild(&mut self, slots: usize) {
+        let tags = vec![EMPTY; slots].into_boxed_slice();
+        let fresh: Box<[MaybeUninit<(H, V)>]> = (0..slots).map(|_| MaybeUninit::uninit()).collect();
+        self.rehome(tags, fresh);
+    }
+
+    /// Move every live entry into arrays the caller allocated.
+    ///
+    /// Split from [`Self::rebuild`] so [`Self::try_reserve`] can allocate fallibly and then hand
+    /// the result here -- the placement is the same either way, and having one copy of it means a
+    /// fallible path cannot drift from the infallible one.
+    ///
+    /// Nothing is re-folded. The address is in the slot, and it is the *avalanched* address, so a
+    /// move costs a probe per entry and not a hash per entry. For a hundred thousand strings that
+    /// is the difference between re-reading megabytes of bytes and reading a word.
+    fn rehome(&mut self, mut tags: Box<[u8]>, mut fresh: Box<[MaybeUninit<(H, V)>]>) {
+        let slots = tags.len();
         debug_assert!(slots >= MIN_SLOTS && slots.is_power_of_two());
-        debug_assert!(limit(slots) >= self.live, "rebuilding into a region that cannot hold it");
-        let mut tags = vec![EMPTY; slots].into_boxed_slice();
-        let mut fresh: Box<[MaybeUninit<(H, V)>]> =
-            (0..slots).map(|_| MaybeUninit::uninit()).collect();
+        debug_assert_eq!(slots, fresh.len());
+        debug_assert!(limit(slots) >= self.live, "rehoming into a region that cannot hold it");
         let geometry = Geom::of(slots / GROUP);
         let (gbits, gmask) = (geometry.gbits, geometry.gmask);
 
@@ -1069,69 +1127,498 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         self.used = self.live;
     }
 
-    // -- iteration -----------------------------------------------------------------------------
+    /// The smallest region that holds `n` entries.
+    fn region_for(n: usize) -> usize {
+        let mut slots = MIN_SLOTS;
+        while limit(slots) < n {
+            slots *= 2;
+        }
+        slots
+    }
+
+    /// [`Self::reserve`], reporting an allocation failure instead of aborting on it.
+    ///
+    /// # Errors
+    ///
+    /// [`AllocFailed`] when the region cannot be allocated. A persistent world that has just been
+    /// handed an archive header claiming four billion resources would rather refuse the file than
+    /// take the process down, and `reserve` gives it no way to.
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), AllocFailed> {
+        if self.used + additional <= limit(self.slots.len()) {
+            return Ok(());
+        }
+        let want = self.live + additional;
+        let slots = Self::region_for(want).max(self.slots.len());
+
+        let mut tags: Vec<u8> = Vec::new();
+        tags.try_reserve_exact(slots).map_err(|_| AllocFailed { slots })?;
+        tags.resize(slots, EMPTY);
+
+        let mut fresh: Vec<MaybeUninit<(H, V)>> = Vec::new();
+        fresh.try_reserve_exact(slots).map_err(|_| AllocFailed { slots })?;
+        // SAFETY: the capacity was just reserved, and `MaybeUninit<T>` needs no initialisation --
+        // that is the whole reason a slot array can be `calloc`-cheap.
+        unsafe { fresh.set_len(slots) };
+
+        self.rehome(tags.into_boxed_slice(), fresh.into_boxed_slice());
+        Ok(())
+    }
+
+    /// Give back every slot the entries do not need.
+    ///
+    /// Also drops every tombstone, since a rehome rebuilds placement from scratch.
+    pub fn shrink_to_fit(&mut self) {
+        self.shrink_to(0);
+    }
+
+    /// Shrink, but keep room for at least `min` entries.
+    pub fn shrink_to(&mut self, min: usize) {
+        if self.slots.is_empty() {
+            return;
+        }
+        let want = Self::region_for(self.live.max(min));
+        if want < self.slots.len() {
+            self.rebuild(want);
+        }
+    }
 
     /// Every entry, in slot order -- which is address order, so neither insertion order nor sorted.
     /// It is however the *same* order for the same keys under the same pepper, on every machine and
-    /// every run: nothing here is seeded and nothing is randomised.
-    pub fn iter(&self) -> impl Iterator<Item = (H::Ref<'_>, &V)> {
-        self.tags
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| **t & LIVE != 0)
-            .map(move |(i, _)| {
-                // SAFETY: the tag says live.
-                let (h, v) = unsafe { self.slots[i].assume_init_ref() };
-                (h.key(self.salt), v)
-            })
+    /// every run: nothing here is seeded and nothing is randomised. That is the property 13 of
+    /// Lyrium's 14 `BTreeSet`s were reaching for when they paid for an ordering they never queried.
+    pub fn iter(&self) -> Iter<'_, K, V, H> {
+        Iter { map: self, i: 0, left: self.live }
     }
 
-    /// Every entry, in slot order, with the value mutable.
+    /// Every entry, with the value mutable.
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V, H> {
-        IterMut {
-            n: self.tags.len(),
-            i: 0,
-            map: std::ptr::from_mut(self),
-            _m: PhantomData,
-        }
+        let (n, left) = (self.tags.len(), self.live);
+        IterMut { map: std::ptr::from_mut(self), i: 0, n, left, _m: PhantomData }
     }
 
     /// The keys, in slot order.
-    pub fn keys(&self) -> impl Iterator<Item = H::Ref<'_>> {
-        self.iter().map(|(k, _)| k)
+    pub fn keys(&self) -> Keys<'_, K, V, H> {
+        Keys(self.iter())
     }
 
     /// The values, in slot order.
-    pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.iter().map(|(_, v)| v)
+    pub fn values(&self) -> Values<'_, K, V, H> {
+        Values(self.iter())
     }
 
     /// The values, in slot order, mutably.
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
-        self.iter_mut().map(|(_, v)| v)
+    pub fn values_mut(&mut self) -> ValuesMut<'_, K, V, H> {
+        ValuesMut(self.iter_mut())
     }
 
     /// Take every entry out, keeping the allocation.
-    pub fn drain(&mut self) -> Vec<(K, V)> {
-        let mut out = Vec::with_capacity(self.live);
-        for i in 0..self.tags.len() {
-            let live = self.tags[i] & LIVE != 0;
-            self.tags[i] = EMPTY;
-            if live {
-                // SAFETY: the slot was live and its tag now says it is empty.
-                let (h, v) = unsafe { self.slots[i].assume_init_read() };
-                out.push((h.into_key(self.salt), v));
+    ///
+    /// A real iterator, not a `Vec`. Draining a hundred thousand entries to look at them one at a
+    /// time used to allocate a hundred thousand entries' worth of somewhere else to look at them.
+    /// Dropping it early still empties the map, which is what makes it a drain rather than an
+    /// iterator that happens to remove things.
+    pub fn drain(&mut self) -> Drain<'_, K, V, H> {
+        Drain { map: self, i: 0 }
+    }
+
+    /// The keys, consuming the map.
+    pub fn into_keys(self) -> IntoKeys<K, V, H> {
+        IntoKeys(self.into_iter())
+    }
+
+    /// The values, consuming the map.
+    pub fn into_values(self) -> IntoValues<K, V, H> {
+        IntoValues(self.into_iter())
+    }
+
+    /// Take out every entry `pred` accepts, leaving the rest.
+    ///
+    /// Removal is by tombstone, as everywhere else here. Dropping the iterator early stops the scan
+    /// and leaves what it has not reached, matching `std`.
+    pub fn extract_if<F: FnMut(H::Ref<'_>, &mut V) -> bool>(
+        &mut self,
+        pred: F,
+    ) -> ExtractIf<'_, K, V, H, F> {
+        ExtractIf { map: self, i: 0, pred }
+    }
+
+    /// Whether `f` holds for every key. Stops at the first that fails.
+    ///
+    /// Takes a `&K` on both faces, via [`Held::with_key`], which is what makes it usable to probe
+    /// a *second* table -- the thing set algebra is made of.
+    pub fn all_keys(&self, mut f: impl FnMut(&K) -> bool) -> bool {
+        for (i, &t) in self.tags.iter().enumerate() {
+            if t & LIVE == 0 {
+                continue;
+            }
+            // SAFETY: the tag says live.
+            let (h, _) = unsafe { self.slots[i].assume_init_ref() };
+            if !h.with_key(self.salt, &mut f) {
+                return false;
             }
         }
-        self.live = 0;
-        self.used = 0;
-        out
+        true
+    }
+
+    /// Visit every key as a `&K`.
+    pub fn for_each_key(&self, mut f: impl FnMut(&K)) {
+        self.all_keys(|k| {
+            f(k);
+            true
+        });
+    }
+
+    /// Several values at once, mutably, from keys that must be distinct.
+    ///
+    /// # Panics
+    ///
+    /// If two of `ks` name the same slot, as `std` does. Handing out two `&mut` to one value is the
+    /// thing this exists to make impossible, so it is a bug in the caller rather than a `None` to
+    /// thread through.
+    pub fn get_disjoint_mut<const N: usize>(&mut self, ks: [&K; N]) -> [Option<&mut V>; N] {
+        let mut at: [Option<usize>; N] = [None; N];
+        for (slot, k) in at.iter_mut().zip(ks) {
+            let p = H::address(self.salt, k);
+            *slot = self.find(p, |h| h.holds(p, k));
+        }
+        for i in 0..N {
+            for j in 0..i {
+                assert!(
+                    at[i].is_none() || at[i] != at[j],
+                    "get_disjoint_mut was given the same key twice"
+                );
+            }
+        }
+        let base = self.slots.as_mut_ptr();
+        at.map(|found| {
+            found.map(|i| {
+                // SAFETY: `find` returns live slots; the indices were just checked pairwise
+                // distinct; each is yielded once. So no two of the returned references alias, which
+                // is the whole precondition -- the raw round trip is only what lets N of them live
+                // at the same time.
+                unsafe { &mut (*base.add(i)).assume_init_mut().1 }
+            })
+        })
     }
 }
 
-/// The old region, while [`Map::rebuild`] is walking it.
+// -- iterators -------------------------------------------------------------------------------------
+//
+// All of these walk the tag line and read the slots it says are live, which is the slot invariant
+// and the only thing their `unsafe` rests on. They are named types rather than `impl Iterator`
+// because `std`'s are, because a named type can carry `ExactSizeIterator`, and because `Drain` has
+// to have a `Drop`.
+
+/// [`Map::iter`].
+pub struct Iter<'a, K: Coord + Eq, V, H: Held<K>> {
+    map: &'a Map<K, V, H>,
+    i: usize,
+    left: usize,
+}
+
+impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for Iter<'a, K, V, H> {
+    type Item = (H::Ref<'a>, &'a V);
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.i < self.map.tags.len() {
+            let i = self.i;
+            self.i += 1;
+            if self.map.tags[i] & LIVE == 0 {
+                continue;
+            }
+            self.left -= 1;
+            // SAFETY: the tag says live.
+            let (h, v) = unsafe { self.map.slots[i].assume_init_ref() };
+            return Some((h.key(self.map.salt), v));
+        }
+        None
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.left, Some(self.left))
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Iter<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Iter<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> Clone for Iter<'_, K, V, H> {
+    fn clone(&self) -> Self {
+        Self { map: self.map, i: self.i, left: self.left }
+    }
+}
+
+/// [`Map::keys`].
+pub struct Keys<'a, K: Coord + Eq, V, H: Held<K>>(Iter<'a, K, V, H>);
+impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for Keys<'a, K, V, H> {
+    type Item = H::Ref<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, _)| k)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Keys<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Keys<'_, K, V, H> {}
+
+/// [`Map::values`].
+pub struct Values<'a, K: Coord + Eq, V, H: Held<K>>(Iter<'a, K, V, H>);
+impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for Values<'a, K, V, H> {
+    type Item = &'a V;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(_, v)| v)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for Values<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Values<'_, K, V, H> {}
+
+/// [`Map::values_mut`].
+pub struct ValuesMut<'a, K: Coord + Eq, V, H: Held<K>>(IterMut<'a, K, V, H>);
+impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for ValuesMut<'a, K, V, H> {
+    type Item = &'a mut V;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(_, v)| v)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for ValuesMut<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for ValuesMut<'_, K, V, H> {}
+
+/// [`Map::drain`].
+pub struct Drain<'a, K: Coord + Eq, V, H: Held<K>> {
+    map: &'a mut Map<K, V, H>,
+    i: usize,
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> Drain<'_, K, V, H> {
+    /// Take the next entry out, clearing tombstones on the way past.
+    ///
+    /// The counters move **per entry**, not at the end. A `Drain` that is forgotten rather than
+    /// dropped then leaves the map holding exactly what the iterator did not reach -- a smaller
+    /// map, not a corrupt one.
+    fn take_next(&mut self) -> Option<(K, V)> {
+        while self.i < self.map.tags.len() {
+            let i = self.i;
+            self.i += 1;
+            let tag = self.map.tags[i];
+            if tag == EMPTY {
+                continue;
+            }
+            self.map.tags[i] = EMPTY;
+            self.map.used -= 1;
+            if tag & LIVE == 0 {
+                continue; // a tombstone: it occupied `used`, it holds nothing
+            }
+            self.map.live -= 1;
+            // SAFETY: the tag said live and now says empty, so nothing else will read or drop it.
+            let (h, v) = unsafe { self.map.slots[i].assume_init_read() };
+            return Some((h.into_key(self.map.salt), v));
+        }
+        None
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> Iterator for Drain<'_, K, V, H> {
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.take_next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.map.live))
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for Drain<'_, K, V, H> {}
+
+impl<K: Coord + Eq, V, H: Held<K>> Drop for Drain<'_, K, V, H> {
+    fn drop(&mut self) {
+        while self.take_next().is_some() {}
+    }
+}
+
+/// [`Map::extract_if`].
+pub struct ExtractIf<'a, K: Coord + Eq, V, H: Held<K>, F> {
+    map: &'a mut Map<K, V, H>,
+    i: usize,
+    pred: F,
+}
+
+impl<K: Coord + Eq, V, H: Held<K>, F> Iterator for ExtractIf<'_, K, V, H, F>
+where
+    F: FnMut(H::Ref<'_>, &mut V) -> bool,
+{
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.i < self.map.tags.len() {
+            let i = self.i;
+            self.i += 1;
+            if self.map.tags[i] & LIVE == 0 {
+                continue;
+            }
+            let salt = self.map.salt;
+            // SAFETY: the tag says live. The two references are to disjoint fields of one entry.
+            let entry = unsafe { self.map.slots[i].assume_init_mut() };
+            let (h, v) = (&entry.0, &mut entry.1);
+            if (self.pred)(h.key(salt), v) {
+                return Some(self.map.evict(i));
+            }
+        }
+        None
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.map.live))
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>, F> std::iter::FusedIterator for ExtractIf<'_, K, V, H, F> where
+    F: FnMut(H::Ref<'_>, &mut V) -> bool
+{
+}
+
+/// [`Map::into_iter`]. Owns the region, so a partially-consumed one still drops the rest.
+pub struct IntoIter<K: Coord + Eq, V, H: Held<K>> {
+    tags: Box<[u8]>,
+    slots: Box<[MaybeUninit<(H, V)>]>,
+    salt: Salt,
+    i: usize,
+    left: usize,
+    _k: PhantomData<K>,
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> Iterator for IntoIter<K, V, H> {
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.i < self.tags.len() {
+            let i = self.i;
+            self.i += 1;
+            if self.tags[i] & LIVE == 0 {
+                continue;
+            }
+            self.tags[i] = EMPTY;
+            self.left -= 1;
+            // SAFETY: the tag said live and now says empty, so `Drop` will not take it again.
+            let (h, v) = unsafe { self.slots[i].assume_init_read() };
+            return Some((h.into_key(self.salt), v));
+        }
+        None
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.left, Some(self.left))
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for IntoIter<K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for IntoIter<K, V, H> {}
+
+impl<K: Coord + Eq, V, H: Held<K>> Drop for IntoIter<K, V, H> {
+    fn drop(&mut self) {
+        if !std::mem::needs_drop::<(H, V)>() {
+            return;
+        }
+        for i in self.i..self.tags.len() {
+            if self.tags[i] & LIVE != 0 {
+                // SAFETY: past the cursor, so `next` has not taken it.
+                unsafe { self.slots[i].assume_init_drop() };
+            }
+        }
+    }
+}
+
+/// [`Map::into_keys`].
+pub struct IntoKeys<K: Coord + Eq, V, H: Held<K>>(IntoIter<K, V, H>);
+impl<K: Coord + Eq, V, H: Held<K>> Iterator for IntoKeys<K, V, H> {
+    type Item = K;
+    fn next(&mut self) -> Option<K> {
+        self.0.next().map(|(k, _)| k)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for IntoKeys<K, V, H> {}
+
+/// [`Map::into_values`].
+pub struct IntoValues<K: Coord + Eq, V, H: Held<K>>(IntoIter<K, V, H>);
+impl<K: Coord + Eq, V, H: Held<K>> Iterator for IntoValues<K, V, H> {
+    type Item = V;
+    fn next(&mut self) -> Option<V> {
+        self.0.next().map(|(_, v)| v)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for IntoValues<K, V, H> {}
+
+/// `iter_mut`, as a named type because the key and the value come out of the same entry.
 ///
-/// `rebuild` takes the arrays off the map before it starts moving entries across, which means that
+/// `std` can hand back `(&K, &mut V)` from safe code because its key and value live in separate
+/// arrays. Here they are two fields of one tuple, which is just as disjoint but not expressible
+/// through a single borrow, so the split is made through a pointer and stated here rather than
+/// hidden in a closure.
+pub struct IterMut<'a, K: Coord + Eq, V, H: Held<K>> {
+    map: *mut Map<K, V, H>,
+    i: usize,
+    n: usize,
+    left: usize,
+    _m: PhantomData<&'a mut Map<K, V, H>>,
+}
+
+impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for IterMut<'a, K, V, H> {
+    type Item = (H::Ref<'a>, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.i < self.n {
+            let i = self.i;
+            self.i += 1;
+            // SAFETY: `map` came from a `&'a mut` and no other reference to it exists for `'a`.
+            // Each index is visited exactly once and the two references are to disjoint fields of
+            // one entry, so nothing handed out ever aliases anything else handed out.
+            unsafe {
+                let m = &mut *self.map;
+                let salt = m.salt;
+                if m.tags[i] & LIVE == 0 {
+                    continue;
+                }
+                self.left -= 1;
+                let entry = m.slots[i].as_mut_ptr();
+                let h: &'a H = &*std::ptr::addr_of!((*entry).0);
+                let v: &'a mut V = &mut *std::ptr::addr_of_mut!((*entry).1);
+                return Some((h.key(salt), v));
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.left, Some(self.left))
+    }
+}
+impl<K: Coord + Eq, V, H: Held<K>> ExactSizeIterator for IterMut<'_, K, V, H> {}
+impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for IterMut<'_, K, V, H> {}
+
+/// A region could not be allocated.
+///
+/// `std`'s `TryReserveError` has no public constructor, so this is the crate's own. It carries the
+/// slot count that failed, because "we could not allocate" is not actionable and "we could not
+/// allocate 2^31 slots" names the input that asked for it -- which, for a parser handed an archive
+/// header claiming four billion resources, is the whole diagnosis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllocFailed {
+    /// Slots the failed region would have held.
+    pub slots: usize,
+}
+
+impl std::fmt::Display for AllocFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "could not allocate a region of {} slots", self.slots)
+    }
+}
+
+impl std::error::Error for AllocFailed {}
+
+/// The old region, while [`Map::rehome`] is walking it.
+///
+/// `rehome` takes the arrays off the map before it starts moving entries across, which means that
 /// for the length of the loop the map owns nothing and its `Drop` would free nothing. If the loop
 /// unwound there, every entry not yet moved would leak. This owns them for that window and drops
 /// whatever is left.
@@ -1156,45 +1643,6 @@ impl<H, V> Drop for Salvage<H, V> {
                 unsafe { self.slots[i].assume_init_drop() };
             }
         }
-    }
-}
-
-/// `iter_mut`, as a named type because the key and the value come out of the same entry.
-///
-/// `std` can hand back `(&K, &mut V)` from safe code because its key and value live in separate
-/// arrays. Here they are two fields of one tuple, which is just as disjoint but not expressible
-/// through a single borrow, so the split is made through a pointer and stated here rather than
-/// hidden in a closure.
-pub struct IterMut<'a, K: Coord + Eq, V, H: Held<K>> {
-    map: *mut Map<K, V, H>,
-    i: usize,
-    n: usize,
-    _m: PhantomData<&'a mut Map<K, V, H>>,
-}
-
-impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for IterMut<'a, K, V, H> {
-    type Item = (H::Ref<'a>, &'a mut V);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.i < self.n {
-            let i = self.i;
-            self.i += 1;
-            // SAFETY: `map` came from a `&'a mut` and no other reference to it exists for `'a`.
-            // Each index is visited exactly once and the two references are to disjoint fields of
-            // one entry, so nothing handed out ever aliases anything else handed out.
-            unsafe {
-                let m = &mut *self.map;
-                let salt = m.salt;
-                if m.tags[i] & LIVE == 0 {
-                    continue;
-                }
-                let entry = m.slots[i].as_mut_ptr();
-                let h: &'a H = &*std::ptr::addr_of!((*entry).0);
-                let v: &'a mut V = &mut *std::ptr::addr_of_mut!((*entry).1);
-                return Some((h.key(salt), v));
-            }
-        }
-        None
     }
 }
 
@@ -1404,7 +1852,7 @@ impl<K: Coord + Eq, V, H: Held<K>> std::ops::DerefMut for Exposed<K, V, H> {
 
 impl<K: Coord + Eq, V, H: Held<K>> std::fmt::Debug for Exposed<K, V, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Exposed({:?})", self.0)
+        write!(f, "Exposed({})", self.0.summary())
     }
 }
 
@@ -1535,6 +1983,21 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
     }
 }
 
+impl<'a, K: Coord + Eq, V> Entry<'a, K, V, Stored<K>> {
+    /// The key this entry is for, occupied or not.
+    ///
+    /// Offered on the parabolic face only. There `H::Ref` is `&K`, so an occupied slot and a vacant
+    /// one hand back the same type; on the elliptic face an occupied entry *regenerates* its key as
+    /// a value while a vacant one owns it, and there is no single type that is both.
+    #[must_use]
+    pub fn key(&self) -> &K {
+        match self {
+            Self::Occupied(e) => e.key(),
+            Self::Vacant(e) => e.key(),
+        }
+    }
+}
+
 impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// One probe, held open, so a read-modify-write costs one probe and not two.
     pub fn entry(&mut self, k: K) -> Entry<'_, K, V, H> {
@@ -1610,10 +2073,29 @@ impl<K> Clone for Regen<K> {
     }
 }
 
-impl<K: Coord + Eq, V, H: Held<K>> std::fmt::Debug for Map<K, V, H> {
+/// Prints the entries, like `std`'s.
+///
+/// The `for<'a> H::Ref<'a>: Debug` bound is what lets one impl serve both faces: on the parabolic
+/// one that is `&K: Debug`, on the elliptic one it is `K: Debug`. A map whose types do not satisfy
+/// it still prints -- see [`Map::summary`] -- it just prints the shape rather than the contents.
+impl<K: Coord + Eq, V: std::fmt::Debug, H: Held<K>> std::fmt::Debug for Map<K, V, H>
+where
+    for<'a> H::Ref<'a>: std::fmt::Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
+    /// The shape, not the contents: face, occupancy, size.
+    ///
+    /// What `Debug` used to print. Kept as a method because it is the useful thing in a log line --
+    /// a hundred thousand entries in a tracing field is not a diagnostic -- and because it works
+    /// for every `V`, including the ones that are not `Debug`.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        format!(
             "Map<{:?}>({} live, {} tombstoned, {} slots)",
             H::FACE,
             self.live,
@@ -1671,11 +2153,83 @@ impl<K: Coord + Eq, V: PartialEq, H: Held<K>> PartialEq for Map<K, V, H> {
 
 impl<K: Coord + Eq, V: Eq, H: Held<K>> Eq for Map<K, V, H> {}
 
+/// `map["resref"]`, panicking on an absent key, as `std` does.
+///
+/// Indexed by a [`Locate`] view rather than by `&K`, which is what makes `m["a"]` work on a
+/// `Map<String, V>` -- the same thing `std` gets from `Borrow<Q>`. It matters more here than for
+/// the other readers because an operator cannot be spelled a second way: `get` has `get_at` beside
+/// it, and `[]` has nothing.
+impl<K: Coord + Eq, V, Q: Locate<K>> std::ops::Index<Q> for Map<K, V, Stored<K>> {
+    type Output = V;
+    fn index(&self, q: Q) -> &V {
+        self.get_at(q).expect("no entry found for key")
+    }
+}
+
+/// The elliptic face indexes by the key itself: its address is a bijection of `Packed::packed`, not
+/// of `Coord::coord_with`, so a `Locate` view would compute a different address and miss.
+impl<K: Coord + Packed + Eq, V> std::ops::Index<&K> for Map<K, V, Regen<K>> {
+    type Output = V;
+    fn index(&self, k: &K) -> &V {
+        self.get(k).expect("no entry found for key")
+    }
+}
+
+impl<K: Coord + Eq, V, H: Held<K>, const N: usize> From<[(K, V); N]> for Map<K, V, H> {
+    fn from(entries: [(K, V); N]) -> Self {
+        let mut m = Self::with_capacity(N);
+        for (k, v) in entries {
+            m.insert(k, v);
+        }
+        m
+    }
+}
+
+/// Copies out of a borrowed stream, the way `std` lets you extend from `&other`.
+impl<'a, K: Coord + Eq + Copy + 'a, V: Copy + 'a, H: Held<K>> Extend<(&'a K, &'a V)>
+    for Map<K, V, H>
+{
+    fn extend<T: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, it: T) {
+        for (k, v) in it {
+            self.insert(*k, *v);
+        }
+    }
+}
+
 impl<K: Coord + Eq, V, H: Held<K>> IntoIterator for Map<K, V, H> {
     type Item = (K, V);
-    type IntoIter = std::vec::IntoIter<(K, V)>;
-    fn into_iter(mut self) -> Self::IntoIter {
-        self.drain().into_iter()
+    type IntoIter = IntoIter<K, V, H>;
+
+    /// Takes the region with it, rather than draining into a `Vec` first. A partially consumed
+    /// `IntoIter` still drops what is left, which is why it owns the arrays instead of borrowing.
+    fn into_iter(self) -> Self::IntoIter {
+        // The map must not run its own `Drop` after the arrays are taken -- it would find them
+        // empty and free nothing, but `ManuallyDrop` says so rather than relying on that.
+        let mut m = std::mem::ManuallyDrop::new(self);
+        IntoIter {
+            tags: std::mem::replace(&mut m.tags, Box::new([])),
+            slots: std::mem::replace(&mut m.slots, Box::new([])),
+            salt: m.salt,
+            i: 0,
+            left: m.live,
+            _k: PhantomData,
+        }
+    }
+}
+
+impl<'a, K: Coord + Eq, V, H: Held<K>> IntoIterator for &'a Map<K, V, H> {
+    type Item = (H::Ref<'a>, &'a V);
+    type IntoIter = Iter<'a, K, V, H>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, K: Coord + Eq, V, H: Held<K>> IntoIterator for &'a mut Map<K, V, H> {
+    type Item = (H::Ref<'a>, &'a mut V);
+    type IntoIter = IterMut<'a, K, V, H>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
