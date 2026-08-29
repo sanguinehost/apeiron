@@ -8,6 +8,16 @@
 //! runs), `hb+fold` is hashbrown with foldhash, `hb+fx` is hashbrown with fxhash (fast and
 //! trivially attackable), and `htrin` is the fold crate's `Table`.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; counts converted to floats to report rates; a harness would need 2^53 samples \
+              to lose a bit. Listed individually rather than suppressed wholesale, so a pedantic lint this \
+              file does not yet trigger still surfaces"
+)]
+
 use apeiron::map::{Map, Words};
 use hashbrown::HashMap as HbMap;
 use std::collections::HashMap;

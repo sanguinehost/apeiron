@@ -72,9 +72,11 @@ impl Ring for i8 {
     fn mul(self, other: Self) -> Self {
         self.wrapping_mul(other)
     }
-    // The narrowing is the caller's declared intent -- this is the `i64` -> `Self` direction of a
-    // scalar conversion whose contract is wrapping, matching the rest of the trait.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "The narrowing is the caller's declared intent -- this is the `i64` -> `Self` direction \
+                      of a scalar conversion whose contract is wrapping, matching the rest of the trait."
+    )]
     fn from_i64(v: i64) -> Self {
         v as Self
     }

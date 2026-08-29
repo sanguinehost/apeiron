@@ -6,6 +6,15 @@
 //! algebra makes for it, on real keys, including the ones a proof cannot reach because they involve
 //! `String` and an allocator.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them; \
+              the reverse of that reinterpretation. Listed individually rather than suppressed wholesale, so \
+              a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::Coord;
 use apeiron::keystore::Keystore;
 use apeiron::map::{Map, Words};

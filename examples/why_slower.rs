@@ -1,6 +1,15 @@
 //! Where the serial version's time goes: hashing, then the flat unpartitioned build, then the probe.
 //!
 //! The partitioned build is in `examples/phases.rs`; this one is the shape it replaced.
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::many_single_char_names,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; the algebra's own names. Listed individually rather than suppressed wholesale, \
+              so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::{bucket, i21, Packed};
 use std::time::Instant;
 

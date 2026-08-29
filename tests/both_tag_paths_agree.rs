@@ -1,9 +1,20 @@
 //! The two tag-scan paths must be the same function.
 //!
 //! A group scan is sixteen lanes at once, and there are two ways to get them: `_mm_cmpeq_epi8`
-//! plus `_mm_movemask_epi8` on x86_64, and a SWAR word pair everywhere else. Only one of them
+//! plus `_mm_movemask_epi8` on `x86_64`, and a SWAR word pair everywhere else. Only one of them
 //! runs on any given build, so the other is exactly the kind of code that rots. These tests run
 //! both and assert they agree, against a scalar reference that is obviously right.
+
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::items_after_statements,
+    clippy::verbose_bit_mask,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them; \
+              constants declared next to the loop that uses them; the mask is the definition being checked. \
+              Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
+              yet trigger still surfaces"
+)]
 
 use apeiron::table::scan;
 

@@ -2,6 +2,16 @@
 //!
 //! Same scene as `benches/spatial_binning.rs`, so the numbers are comparable to the headline.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "this is a measurement harness, not library code, and each lint below is listed because this \
+              file actually triggers it: sizes and indices narrowed to build keys, bounded by the loop that \
+              produced them; counts converted to floats to report rates; a harness would need 2^53 samples \
+              to lose a bit. Listed individually rather than suppressed wholesale, so a pedantic lint this \
+              file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::{finish, i21, Packed};
 use apeiron::map::Salt;
 use apeiron::table::{shard_of, CountTable};

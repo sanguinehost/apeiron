@@ -87,9 +87,11 @@ pub const NO_PEPPER: u64 = 0;
 #[must_use]
 pub const fn mix2(a: u64, b: u64) -> u64 {
     let w = (a as u128).wrapping_mul(b as u128);
-    // The fold *is* the truncation: `lo ^ hi` of a 128-bit product keeps 64 bits on purpose,
-    // which is what makes a widening multiply a mixing step rather than a widening one.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "The fold *is* the truncation: `lo ^ hi` of a 128-bit product keeps 64 bits on purpose, \
+                      which is what makes a widening multiply a mixing step rather than a widening one."
+    )]
     let p = ((w >> 64) as u64) ^ (w as u64);
     // Rotating `b` before adding means the guard is not symmetric in its arguments, so a swapped
     // pair does not survive it, and it is injective in each argument with the other held fixed.
@@ -294,9 +296,11 @@ impl Coord for bool {
 /// Wider than a word, so it folds rather than packs.
 impl Coord for u128 {
     #[inline]
-    // Both halves of the `u128` are consumed -- `as u64` takes the low one, the shift takes the
-    // high one -- so nothing is dropped; the cast is how each half is named.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Both halves of the `u128` are consumed -- `as u64` takes the low one, the shift takes \
+                      the high one -- so nothing is dropped; the cast is how each half is named."
+    )]
     fn coord(&self) -> u64 {
         mix2((*self as u64).wrapping_add(PHI), ((*self >> 64) as u64).wrapping_add(NU))
     }
@@ -304,10 +308,12 @@ impl Coord for u128 {
 
 impl Coord for i128 {
     #[inline]
-    // An `i128` is folded through the `u128` impl by reinterpretation, so a negative key and its
-    // two's-complement bit pattern get the same address. That is required, not tolerated: `Eq`
-    // agrees with the bit pattern here.
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "An `i128` is folded through the `u128` impl by reinterpretation, so a negative key and \
+                      its two's-complement bit pattern get the same address. That is required, not tolerated: \
+                      `Eq` agrees with the bit pattern here."
+    )]
     fn coord(&self) -> u64 {
         (*self as u128).coord()
     }
@@ -339,6 +345,11 @@ mod tests {
     /// attacker who fixes the first eight bytes to cancel the seed gets one address for every
     /// possible tail.
     #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`N` is 4,096 at most and `usize` is at least 32 bits on every target this \
+                  builds for"
+    )]
     fn a_zeroed_operand_does_not_collapse_the_fold() {
         const N: u64 = if cfg!(miri) { 256 } else { 4096 };
 
@@ -417,6 +428,11 @@ mod tests {
     /// thirty-two bytes rather than sixteen, which moved where every long key is folded. A single
     /// length is not a test of a ladder.
     #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the truncation is the point: the key bytes are a repeating pattern derived from \
+                  the index, and wrapping is what makes it repeat"
+    )]
     fn one_input_bit_moves_about_half_the_output_at_every_length() {
         // One length either side of each boundary, plus a key long enough to take several rounds.
         // Every boundary of the ladder is still visited under Miri; the two long lengths, which
@@ -450,6 +466,11 @@ mod tests {
     /// Every length in the ladder must separate keys, including across a boundary. A round that
     /// consumed the wrong bytes would collide two keys that differ only in the region it skipped.
     #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the truncation is the point: the key bytes are a repeating pattern derived from \
+                  the index, and wrapping is what makes it repeat"
+    )]
     fn no_two_keys_collide_across_the_length_ladder() {
         let mut seen = std::collections::HashMap::new();
         let (max_len, variants) = if cfg!(miri) { (40usize, 8u8) } else { (140usize, 64u8) };

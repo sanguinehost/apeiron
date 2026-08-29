@@ -12,6 +12,14 @@
 //! bounded model checker unrolls forever. The keys below cover every branch of the length ladder,
 //! which is where an implementation would actually diverge.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them. \
+              Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
+              yet trigger still surfaces"
+)]
+
 use apeiron::coord::Coord;
 use apeiron::map::{Locate, Map};
 

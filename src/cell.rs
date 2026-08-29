@@ -133,7 +133,11 @@ impl<R: Ring> Cell<R> {
     /// Componentwise addition. Named rather than the `Add` operator because `mul` cannot be
     /// `Mul` -- it takes the dial -- and one of the pair being an operator and the other a method
     /// would read as though they were different kinds of thing.
-    #[allow(clippy::should_implement_trait)]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "`mul` cannot be `Mul` because it takes the dial, and a pair where one half is \
+                  an operator and the other a method reads as two different kinds of thing"
+    )]
     #[must_use]
     pub fn add(self, other: Self) -> Self {
         Self {

@@ -12,6 +12,13 @@
 //! 8, compares 1.051, and the defects sat at 2.0 to 137, so anything that trips this is a real
 //! regression and nothing that passes it is worth tuning for.
 
+#![expect(
+    clippy::cast_possible_wrap,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: the reverse of that reinterpretation. Listed individually rather than suppressed \
+              wholesale, so a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::coord::i21;
 use apeiron::map::{Map, Stats, Words};
 

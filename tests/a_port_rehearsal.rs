@@ -17,6 +17,14 @@
 //! testing as one thing rather than as seven, because the failure it guards against is not a bug --
 //! it is discovering halfway through a migration that one shape needs an impl nobody can write.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them. \
+              Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
+              yet trigger still surfaces"
+)]
+
 #![cfg(feature = "derive")]
 
 use apeiron::map::Exposed;

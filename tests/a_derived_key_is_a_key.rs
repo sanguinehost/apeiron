@@ -6,6 +6,17 @@
 //! or the claim that a derived struct addresses the same way the equivalent tuple does -- which is
 //! what makes the generated code reviewable at all.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::items_after_statements,
+    clippy::many_single_char_names,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: sizes and indices narrowed to build keys, bounded by the loop that produced them; \
+              constants declared next to the loop that uses them; the algebra's own names. Listed \
+              individually rather than suppressed wholesale, so a pedantic lint this file does not yet \
+              trigger still surfaces"
+)]
+
 #![cfg(feature = "derive")]
 
 use apeiron::coord::{Coord, Packed};

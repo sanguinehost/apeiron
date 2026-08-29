@@ -17,6 +17,13 @@
 //! statement belongs in `sanguine`, where `ring` normalises both sides and no model is enumerated
 //! at all; this is the implementation agreeing with it, and the gate that keeps it agreeing.
 
+#![expect(
+    clippy::many_single_char_names,
+    reason = "this is a test, not library code, and each lint below is listed because this file actually \
+              triggers it: the algebra's own names. Listed individually rather than suppressed wholesale, so \
+              a pedantic lint this file does not yet trigger still surfaces"
+)]
+
 use apeiron::cell::{Cell, Sigma};
 use apeiron::scalar::Ring;
 use std::time::Instant;
