@@ -17,7 +17,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 hashbrown = "0.15"
 foldhash = "0.1"
 rustc-hash = "2"
-hashtrinity = { path = "../fold/hashtrinity" }
 
 [workspace]
 members = ["derive"]

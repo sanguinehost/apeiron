@@ -1,137 +1,19 @@
-//! What a lossy address costs when the key is not kept beside it.
+//! What a collision chain costs an attacker, and what a pepper adds on top of that.
 //!
-//! The parabolic face carries the key. That is the expensive decision in `apeiron::map` -- eight
-//! bytes and a compare per slot -- and the reason for it is not caution. It is that a byte fold is
-//! a **discard**, a discard has fibers, and a table that keeps only the fold cannot tell two keys
-//! in one fiber apart. This program finds such a fiber, by construction and not by search, and
-//! shows what each table does with it.
+//! A *fiber* is a set of keys the placement word cannot tell apart. The descent reads successive
+//! windows of that word, so a chain is a fiber of the first `j` windows, and the question this
+//! program answers is what one costs to build and what it buys once built.
+//!
+//! This used to open by constructing a fiber of `hashtrinity`'s fold from published constants --
+//! 4,096 keys, one address, of which its table kept 1 and answered 4,095 lookups with another
+//! key's value. That dependency is gone; the finding is kept as prose in `apeiron::fold`, where
+//! the guard against it lives.
 //!
 //! Run: `cargo run --release --example the_fiber`
 
-use apeiron::map::Map;
 use std::time::Instant;
 
-/// `Vec<u8>` addressed by hashtrinity's own byte fold. The glue only forwards to
-/// `<[u8] as hashtrinity::Coord>::coord`, which is the function hashtrinity uses for `String`.
-#[derive(PartialEq, Eq, Clone, Debug)]
-struct Bytes(Vec<u8>);
-
-impl hashtrinity::Coord for Bytes {
-    fn coord(&self) -> u64 {
-        <[u8] as hashtrinity::Coord>::coord(&self.0)
-    }
-}
-
-/// Keys that hashtrinity addresses identically, derived rather than searched for.
-///
-/// Its fold takes a 16-byte key to `folded_mul(a ^ seed, c ^ PHI_HI)`, where `a` is the first eight
-/// bytes, `c` the last eight, and `seed = PHI ^ (16 * PHI_HI)`. A folded multiply is `lo ^ hi` of a
-/// 128-bit product, so **either operand being zero takes the whole thing to zero**. Setting the
-/// first eight bytes to `seed` does that, and the last eight are then free: `2^64` keys, one
-/// address, and the constants are in the source.
-///
-/// This is the defect `apeiron::fold::mix2` carries a guard against. Not a hypothetical one --
-/// `wyhash` and its descendants close it with a secret seed, which is exactly the admission that
-/// it is there.
-fn one_fiber(n: usize) -> Vec<Bytes> {
-    const PHI: u64 = 0x9E37_79B9_7F4A_7C15;
-    const PHI_HI: u64 = 0xF39C_C060_5CED_C835;
-    let seed = PHI ^ 16u64.wrapping_mul(PHI_HI);
-    (0..n as u64)
-        .map(|t| {
-            let mut k = Vec::with_capacity(16);
-            k.extend_from_slice(&seed.to_le_bytes());
-            k.extend_from_slice(&t.to_le_bytes());
-            Bytes(k)
-        })
-        .collect()
-}
-
 fn main() {
-    let n = 4096;
-    let fiber = one_fiber(n);
-
-    let addrs: Vec<u64> = fiber.iter().map(hashtrinity::Coord::coord).collect();
-    let distinct_ht = addrs.iter().collect::<std::collections::HashSet<_>>().len();
-    let ours: Vec<u64> = fiber
-        .iter()
-        .map(|b| apeiron::coord::Coord::coord(&b.0))
-        .collect();
-    let distinct_ap = ours.iter().collect::<std::collections::HashSet<_>>().len();
-
-    println!("{n} distinct 16-byte keys, built from published constants in one line each");
-    println!("  hashtrinity addresses: {distinct_ht} distinct   (first: {:#018x})", addrs[0]);
-    println!("  apeiron addresses:     {distinct_ap} distinct   (first: {:#018x})", ours[0]);
-
-    // -- what each table then does -------------------------------------------------------------
-
-    let t = Instant::now();
-    let mut ht: hashtrinity::Table<Bytes, u32> = hashtrinity::Table::new();
-    for (i, k) in fiber.iter().enumerate() {
-        ht.insert(k.clone(), i as u32);
-    }
-    let ht_build = t.elapsed();
-    let ht_wrong = fiber
-        .iter()
-        .enumerate()
-        .filter(|(i, k)| ht.get(k) != Some(&(*i as u32)))
-        .count();
-
-    let t = Instant::now();
-    let mut ap: Map<Vec<u8>, u32> = Map::new();
-    for (i, k) in fiber.iter().enumerate() {
-        ap.insert(k.0.clone(), i as u32);
-    }
-    let ap_build = t.elapsed();
-    let ap_wrong = fiber
-        .iter()
-        .enumerate()
-        .filter(|(i, k)| ap.get(&k.0) != Some(&(*i as u32)))
-        .count();
-
-    // The pepper is the answer to the cost, not to the correctness -- which was never in question.
-    let t = Instant::now();
-    let mut peppered: Map<Vec<u8>, u32> = Map::with_pepper(0x5EED_1234_ABCD_9876);
-    for (i, k) in fiber.iter().enumerate() {
-        peppered.insert(k.0.clone(), i as u32);
-    }
-    let pep_build = t.elapsed();
-
-    println!("\n  {:<22} {:>8} {:>10} {:>14}", "", "entries", "wrong", "build");
-    println!(
-        "  {:<22} {:>8} {:>10} {:>11.2} ms",
-        "hashtrinity",
-        ht.len(),
-        ht_wrong,
-        ht_build.as_secs_f64() * 1e3
-    );
-    println!(
-        "  {:<22} {:>8} {:>10} {:>11.2} ms",
-        "apeiron",
-        ap.len(),
-        ap_wrong,
-        ap_build.as_secs_f64() * 1e3
-    );
-    println!(
-        "  {:<22} {:>8} {:>10} {:>11.2} ms",
-        "apeiron, peppered",
-        peppered.len(),
-        0,
-        pep_build.as_secs_f64() * 1e3
-    );
-
-    println!(
-        "\n  hashtrinity kept {} of {n} keys and answered {ht_wrong} of {n} lookups with another",
-        ht.len()
-    );
-    println!("  key's value. Its `get` compares the coordinate and never the key -- `face.rs` has");
-    println!("  a `get_exact_at` that compares, and it is not what `get` calls -- so a fiber is not");
-    println!("  a slow path for it, it is a wrong answer.");
-    println!("\n  apeiron gave the {n} keys {distinct_ap} addresses. The guard in `mix2` is exactly");
-    println!("  this construction's refutation -- there is no fiber here, so no chain, and the");
-    println!("  peppered row costs nothing because it had nothing to move. That is the guard being");
-    println!("  measured, not the pepper.");
-
     aimed();
 }
 
