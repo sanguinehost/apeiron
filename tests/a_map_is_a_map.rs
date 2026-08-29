@@ -125,8 +125,19 @@ fn diverges(ops: &[Op]) -> Option<usize> {
             Op::ExtractIf(m) => {
                 let m = m.max(1);
                 let mut a: Vec<(u32, u32)> = ours.extract_if(|k, _| k % m == 0).collect();
-                let mut b: Vec<(u32, u32)> =
-                    theirs.extract_if(|k, _| k % m == 0).collect();
+                // Spelled out rather than calling `HashMap::extract_if`, which is stable only
+                // since 1.88 and would drag the crate's floor up for a test. Writing the oracle by
+                // hand is the better differential anyway: it compares against the *definition*
+                // rather than against a std method of the same name.
+                let mut b: Vec<(u32, u32)> = Vec::new();
+                theirs.retain(|&k, &mut v| {
+                    if k % m == 0 {
+                        b.push((k, v));
+                        false
+                    } else {
+                        true
+                    }
+                });
                 a.sort_unstable();
                 b.sort_unstable();
                 a == b
