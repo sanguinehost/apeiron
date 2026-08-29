@@ -385,8 +385,17 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
         (p >> (64 - used)) as usize & gmask
     } else {
         // The word is spent; sweep, offset so a step never re-scans the group just examined.
+        //
+        // Wrapping, and it has to be: when `gbits` divides 64 -- region sizes of 2, 4, 16 or 256
+        // groups, and 32 slots is the smallest region this crate allocates -- the shift below is
+        // zero, so the base is the whole word and adding to it overflows. The mask makes the
+        // result correct either way; what the wrap avoids is a debug-build panic on a small shard
+        // with a long chain, which is the case an attacker aims at.
         let full = 64 / gbits;
-        ((p >> (64 - gbits * full)) as usize + (j - full) as usize + 1) & gmask
+        (p >> (64 - gbits * full))
+            .wrapping_add(u64::from(j - full))
+            .wrapping_add(1) as usize
+            & gmask
     }
 }
 
@@ -604,11 +613,30 @@ impl Region {
 
 /// A region for `load` keys: at least two groups, and at most half full, rounded to a power of
 /// two so the group index is a mask.
+/// The slot count `region_for` will allocate for `load` keys.
+///
+/// Split out so the sizing rule can be proved on its own: it is `locate`'s termination
+/// precondition and it has been wrong once.
+#[must_use]
+pub fn region_slots_for(load: usize) -> usize {
+    if load == 0 {
+        0
+    } else {
+        (load * 2).max(GROUP * 2).next_power_of_two()
+    }
+}
+
+/// `group_of`, exposed for proof. The descent step is the other half of termination.
+#[must_use]
+pub fn group_at(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
+    group_of(p, j, gbits, gmask)
+}
+
 fn region_for(load: usize) -> Region {
     if load == 0 {
         return Region::new(0);
     }
-    Region::new((load * 2).max(GROUP * 2).next_power_of_two())
+    Region::new(region_slots_for(load))
 }
 
 #[inline]
