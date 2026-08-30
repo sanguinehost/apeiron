@@ -484,40 +484,18 @@ pub const DESCENT_BITS: u32 = 57;
 /// that is one 128-bit tag compare.
 pub const GROUP: usize = 16;
 
-/// The probe sequence: successive windows of the avalanched address, not a linear walk.
+/// The probe sequence: successive `gbits`-wide windows of the placement word, from bit 57 down.
 ///
-/// This is what makes the table structurally hard to attack, and it is the difference between
-/// bounded and unbounded collision chains.
+/// Takes the placement word, a step `j`, the window width and the group mask; returns a group
+/// index. Step `j` reads the window at `DESCENT_BITS - gbits * (j + 1)`; once the word is spent it
+/// sweeps one group at a time so the probe terminates.
 ///
-/// A linear probe uses only the `bits` of the bucket index. Two keys that agree on those bits
-/// chain for as long as the attacker likes, and with an unseeded hash those bits are cheap to
-/// aim: inverting `finish` -- splitmix64's finalizer, public constants -- puts twenty thousand
-/// keys in one bucket and costs ten thousand probe steps each, against one.
+/// A linear probe uses only the bucket index, so two keys agreeing on those bits collide for
+/// every step and a chain is unbounded in damage for a fixed cost. Here each further step reads a
+/// disjoint slice, so matching `j` of them costs `2^(j * gbits)` trials: exponential cost, linear
+/// damage.
 ///
-/// A window descent uses the whole word. To extend a chain by one step an attacker must match
-/// another `gbits` of the address, so a chain of `j` steps costs `j * gbits` bits of control, and
-/// an unbounded chain requires matching all 64 -- at which point the two addresses are equal and
-/// the table is right to treat them as one key. The cost of an attack is therefore bounded by the
-/// address width rather than by the index width.
-///
-/// **A correction, and then a correction to the correction.** Both are worth keeping, because the
-/// claim above was right, then wrong, then right again for a different reason.
-///
-/// The first correction said: "bits of control" is not the same as cost. Every window is a slice of
-/// one word, `map`'s address was a public *bijection*, and an attacker who wanted to match all of
-/// them inverted it once. Matching sixty bits was not sixty times harder than matching fifteen; it
-/// was the same single call. Measured, 200,000 keys aimed by one `unspread` call built **988x**
-/// slower than an honest set, and the conclusion was that only a secret defends.
-///
-/// That was true of the design as it stood. `map` then split its address into an **identity** word
-/// and a **placement** word (`coord::Addr`): the identity word is still a bijection, because the
-/// elliptic face reads keys back off it, but the *placement* word -- the one this descent and
-/// `tag_of` actually read -- is a fold of both halves of a widening multiply, and there is no
-/// inverse to solve with. The attacker can still evaluate it. They can no longer invert it.
-///
-/// So the original claim became the real one. Keys agreeing on `j` windows have to be **found**, at
-/// `2^(j * gbits)` trials each. Measured on a 2,000-key table with `gbits = 8`
-/// (`examples/the_fiber.rs`):
+/// Measured on a 2,000-key map, `gbits = 8` (`examples/the_fiber.rs`):
 ///
 /// | windows matched | trials per key | search | mean probe |
 /// |---|---|---|---|
@@ -526,38 +504,21 @@ pub const GROUP: usize = 16;
 /// | 2 | 67,682 | 0.10 s | 2.99 |
 /// | 3 | > 4 x 10^9 | unaffordable | -- |
 ///
-/// **Exponential cost, linear damage.** That is what a structural bound is. It is not a substitute
-/// for a pepper -- one free window still doubles the probe, and this is against an attacker who
-/// knows the multiplier -- but the unpeppered default went from catastrophic to bounded.
-///
-/// `CountTable` took the same split on 2026-08-29 and the same bound came with it. It addresses
-/// through [`crate::coord::spread`] now: an identity word, which is what a slot keeps and compares,
-/// and a placement word, which is what the shard, this descent and [`tag_of`] read and which has no
-/// inverse.
-///
-/// The attack has to aim at **both ends** of that word -- the shard is its bottom eight bits and
-/// the descent walks down from bit 57 -- so crowding one region costs `2^(8 + j * gbits)` trials
-/// per key. Measured on two thousand keys with `gbits = 8` (`examples/hashdos.rs`):
+/// `CountTable` adds its shard, so crowding one region costs `2^(8 + j * gbits)`
+/// (`examples/hashdos.rs`):
 ///
 /// | aimed at | trials per key | search | vs honest |
 /// |---|---|---|---|
 /// | the shard alone | 247 | instant | **0.71x** |
 /// | shard + one window | 63,839 | 0.13 s | 1.74x |
-/// | shard + two windows | > 10,000,000 | unaffordable | -- |
+/// | shard + two | > 10^7 | unaffordable | -- |
 ///
-/// The first row is why the old version of that example reported this attack as a *speed-up*: a
-/// shard's region is sized to the keys that land in it, so crowding one buys a bigger region and a
-/// shorter probe. Aiming a shard was never the attack; aiming the descent is, and it now costs what
-/// the claim above says it should.
+/// The shard-alone row is a *speed-up* because a region is sized to its own load.
 ///
-/// A pepper does not make it dearer, it makes the filter impossible -- an attacker who cannot
-/// evaluate the placement word cannot keep the candidates that land where they want. The same aimed
-/// keys reach **one** shard of 256 under the salt they were aimed at and **all 256** under a
-/// peppered table, against 255 for honest traffic.
-///
-/// Seedless *by default*, deliberately. A random per-table seed would also defeat aiming and would
-/// break deterministic replay: same inputs must give the same state, which a per-run seed denies. A
-/// recorded constant does not.
+/// This bound only became true once `place` stopped being invertible: while the address was a
+/// bijection, matching every window at once was a single `unspread` call, and a 200,000-key aimed
+/// build ran ~1000x an honest one. It is not a substitute for [`crate::pepper`] -- an attacker
+/// who cannot evaluate the placement word cannot filter candidates at all.
 #[inline]
 fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
     if gbits == 0 {

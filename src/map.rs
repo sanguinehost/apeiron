@@ -1,147 +1,39 @@
-//! The two keyed faces: **elliptic** (the address is the key) and **parabolic** (the key rides
-//! beside it).
+//! Keyed hash maps on the two keyed faces.
 //!
-//! [`crate::table`] is the third face. It keeps a fold and a count and throws the key away, which
-//! is what hyperbolic licenses and nothing else does. A map cannot do that -- it has to hand the
-//! value back to whoever names the key -- so a map lives on one of the two faces that keep
-//! something, and *which* one is decided by the key type rather than by preference:
+//! [`Map<K, V>`] carries the key beside its address (parabolic; any `K: Coord + Eq`).
+//! [`Words<K, V>`] stores only the address and regenerates the key from it (elliptic;
+//! `K: Packed`). Both are open-addressed, 7/8 fill, sixteen-slot groups with a one-byte tag each.
 //!
-//! | key | its fold | face | a slot holds | a hit costs |
-//! |---|---|---|---|---|
-//! | fits in a word ([`Packed`]) | a bijection | elliptic, *regenerated* | the address | one compare |
-//! | wider ([`Coord`] only) | a discard | parabolic, *carried* | address **and** key | a compare, then the key |
+//! **Probe.** One widening multiply gives `Addr { id, place }`. `place` picks the first group and
+//! the seven-bit tag; a group is one vector compare of sixteen tags; candidates are settled by
+//! comparing `id`, then the key on the parabolic face. Misses walk successive `gbits`-wide windows
+//! of `place` from bit 57 down (the window descent), so extending a collision chain by a step costs the
+//! attacker another `gbits`.
 //!
-//! The second row is not a safety margin. `str -> u64` has fibers by counting; two keys in one
-//! fiber get the same address and therefore the *same probe sequence*, and the only thing that can
-//! tell them apart is the key itself. `Projection.discards_iff_disc_pos` says the parabolic face
-//! has no discard available, so the key cannot be thrown away -- the same sentence read from the
-//! algebra's side.
+//! **Cost**, instructions per lookup, 694 keys, L1-resident (`examples/probe_cost.rs`):
 //!
-//! The first row is not a micro-optimisation either. [`Regen`] stores no key at all, so a
-//! `u64 -> u32` table is eight bytes a slot lighter than the same table on the parabolic face,
-//! growth never touches a key, and a hit never reads past the slot it landed on. That is what
-//! "the address determines the key" *buys*, stated as bytes.
-//!
-//! ```
-//! use apeiron::map::{Map, Words};
-//! let mut resrefs: Map<String, u32> = Map::new();       // parabolic: the key is carried
-//! resrefs.insert("nw_wswmg001".into(), 7);
-//! assert_eq!(resrefs.get_at("nw_wswmg001"), Some(&7));  // no String materialised
-//!
-//! let mut ids: Words<u64, u32> = Words::new();          // elliptic: the address is the key
-//! ids.insert(4096, 1);
-//! assert_eq!(ids.get(&4096), Some(&1));
-//! ```
-//!
-//! # The probe
-//!
-//! Unchanged from [`crate::table`]: successive `gbits`-wide windows of the whole avalanched word,
-//! not a linear walk, so extending a collision chain by one step costs another `gbits` bits of
-//! control rather than being free. What is new here is removal, and removal is where a descent and
-//! a tombstone have to be made to agree -- see [`Map::remove`].
-//!
-//! # What the probe costs, measured
-//!
-//! `perf stat` on a 694-key L1-resident hit loop, one core, against `hashbrown` with `foldhash`
-//! -- the flat competitor, since `hashbrown` with `fxhash` is 209 ns on `highbits` against this
-//! crate's 1.35 and is therefore not a comparison -- and `std` (`SipHash`, seeded, not reproducible).
-//!
-//! Instructions retired, and **not** cycles: a retired-instruction count is per-process and does
-//! not move with machine load, while cycles do. This table is the load-independent column and can
-//! be reproduced on a busy machine. The cycle findings are in prose underneath, each with the
-//! condition it needs.
-//!
-//! | | instructions/lookup |
-//! |---|---|
-//! | apeiron, `u64` keys | **34.8** |
-//! | hashbrown + foldhash | 35.3 |
-//! | hashbrown + fxhash | 34.2 |
-//! | std | 128.2 |
-//! | apeiron, `String` keys | 93.4 |
-//! | hashbrown + foldhash, `String` | 83.9 |
-//! | hashbrown + fxhash, `String` | 92.3 |
-//!
-//! On `u64` keys the probe is half an instruction *under* the flat competitor, and within one of
-//! `fxhash`, which buys its count by having no resistance to pay for. On a quiet machine that came
-//! out at 6.84 cycles against foldhash's 6.62: parity in time off fewer instructions, which places
-//! what remains in chain latency rather than in work. Reproducing that number needs an unloaded
-//! machine, and a reading taken under load is not evidence about it either way.
-//!
-//! Three findings live in this table, from three rounds of measurement.
-//!
-//! The first was outlining. `get` and `find` were `#[inline]` but the compiler outlined them
-//! anyway, so every lookup paid a call, a return, and the register save/restore around both:
-//! **70 instructions and 12.0 cycles**, against hashbrown's 32 -- at an IPC already as high as
-//! hashbrown's, which said the gap was instruction count and not stalls. `#[inline(always)]` on
-//! the probe internals and `#[inline]` on the public readers took it to 35.9 and 6.5. Guessing
-//! would not have found that; three earlier guesses at the arithmetic each bought a few percent,
-//! and the whole gap was a call instruction.
-//!
-//! The second was the address's own latency, and it has since been retired rather than paid.
-//! [`crate::coord::spread`] used to be two serial multiplies, and IPC *fell* to 4.2 when that
-//! landed: an L1-resident hit is a latency chain, and the second multiply sat at the head of it
-//! before the first tag line could load, for 2.3 cycles a lookup. It was paid knowingly, because
-//! the placement simulation broke every cheaper address on some honest distribution. The
-//! identity/placement split then removed the payment instead of accepting it. One **widening**
-//! multiply produces both words at once -- `id = x * mul`, the elliptic bijection, from the low
-//! half, and `place = rotl(hi, 32) ^ lo`, a hyperbolic discard, from both -- so the two words
-//! now cost one multiply's latency between them rather than two in series, and the placement is
-//! a function of the *full* 128-bit product rather than of a second pass over the first. The
-//! staged-probe experiment that this latency kept inviting stays dead for the reason in the table
-//! below: the split got the cycles back without spending any placement quality to do it.
-//!
-//! The third finding is that the outlining lesson had to be learned twice. The `String` row sat
-//! at 112.3 for a release because `fold_bytes_with` carried no `#[inline]` -- a non-generic
-//! function is codegenned once in the rlib, so every cross-crate `String` lookup paid a call and
-//! the register traffic around it while fxhash inlined. One attribute took it to 97.3, and the
-//! address split and the wider fold round have since taken it to 93.4, which is a shade under
-//! fxhash on the same keys.
-//!
-//! The 9.4 instructions that remain against foldhash on `String` keys are **not in the fold**, and
-//! their cause is not yet located. `examples/hash_only.rs` puts the two folds at instruction
-//! parity on this corpus -- 23.1 against 24.1 on a 13-byte resref -- so the difference is
-//! somewhere in the table. The obvious suspect was tested and did not survive: the slot carries
-//! the address beside the key, 40 bytes against hashbrown's 32, but a map built with a
-//! zero-sized value, which brings the slot back to 32, is **no faster** -- 93.2 instructions
-//! against 93.4, a difference of 0.13 (`LOOKUP_ARM=apstrzst`, beside `apstr` in
-//! `examples/probe_cost.rs`, so the comparison stays runnable). Slot width is therefore
-//! not the explanation, and the honest position is that this gap is open. It is recorded here
-//! rather than attributed, because a wrong cause in a doc comment forecloses the next
-//! measurement.
-//!
-//! What the 40-byte slot does buy is stated where it belongs: growth is a probe per entry rather
-//! than a re-fold of every key's bytes. That trade stands on its own measurement, not on this row.
-//!
-//! # Where the cycles sit, and what was tried against them
-//!
-//! `perf`'s top-down accounting on the `u64` hit loop, pinned to one P-core: 67% of issue slots
-//! retire, 13% are lost to branch misprediction (one extra tag lane in ~2% of lookups; the lanes
-//! an attacker cannot aim are also the lanes a predictor cannot learn), 17% to the backend --
-//! and no execution port is saturated (the busiest, port 6, carries 5.9 uops against 8.8 cycles).
-//! So the loop is bounded by its own uop count first (36.5 / 6-wide allocation is 6.1 cycles),
-//! misprediction second, chain latency third. Measured against that ranking:
-//!
-//! | change | cycles/lookup | verdict |
+//! | | `u64` | `String` |
 //! |---|---|---|
-//! | baseline, this table's parent commit | 8.8 | |
-//! | group mask pre-scaled to bytes (`Geom`) | 8.4 | **taken**: one `shl` off the load-address chain |
-//! | first window off the *first* multiply, tag off the second | 8.0 | **dead**: `the_probe_stays_flat` fails -- `highbits` mean probe 1.95 at n=5,000, one-axis `(i21,i21,i21)` 1.93 at 1.5M. The first product's window is a rank-deficient image of exactly the structured key sets the second multiply exists to spread |
-//! | tag broadcast as a `u64` multiply instead of `_mm_set1_epi8` | 8.4 | no-op: LLVM canonicalises the splat and emits the identical five instructions |
+//! | apeiron | **34.8** | 93.4 |
+//! | hashbrown + foldhash | 35.3 | **83.9** |
+//! | hashbrown + fxhash | 34.2 | 92.3 |
+//! | std | 128.2 | -- |
 //!
-//! The middle row is the experiment the second multiply's latency keeps inviting: the tag-line
-//! load could issue five cycles earlier, and the placement simulation said, correctly, that the
-//! placement would collapse. The broadcast row says the five-instruction `movd`/`punpcklbw`/`pshuflw`/
-//! `pshufd` sequence is off the critical path anyway -- the timeline has it ready two cycles
-//! before the tag line arrives -- so there is nothing there to recover.
+//! The `String` gap is not the fold, which is at parity (23.1 against 24.1), and not the slot
+//! width, which `LOOKUP_ARM=apstrzst` refutes at 93.2 against 93.4. It is open.
 //!
-//! # Why the borrowed-key API is not a convenience
+//! **Rejected**, cycles per `u64` lookup, baseline 8.8:
 //!
-//! `HashMap<String, V>` is probed with `&str` through `Borrow`. A map whose `get` takes `&K` is
-//! probed, by every mechanical port, with `map.get(&s.to_string())` -- which compiles, runs, and
-//! allocates once per lookup. [`Locate`] is the same idea expressed through the fold: a borrowed
-//! view that lands on the address its owned key lands on, so `(&str, &str)` probes a
-//! `Map<(String, String), V>` with no allocation at all. It is offered on the parabolic face only,
-//! because the elliptic face's keys fit in a word and there is nothing to borrow.
+//! | change | cyc | |
+//! |---|---|---|
+//! | group mask pre-scaled to bytes | 8.4 | taken |
+//! | first window off the first multiply | 8.0 | dead: `highbits` mean probe 1.95 at n=5,000 |
+//! | tag broadcast as a multiply | 8.4 | no-op: LLVM emits the same five instructions |
+//!
+//! **Borrowed keys.** `get_at`/`insert_at` probe `Map<String, V>` with `&str` and
+//! `Map<(String, u16), V>` with `(&str, u16)`, allocating nothing on a hit. Required, not
+//! convenient: the parabolic face compares the key on every hit, so without it every lookup would
+//! build one.
 
 #![expect(
     clippy::inline_always,
@@ -179,6 +71,9 @@ const LIVE: u8 = 0x80;
 
 /// Fill limit, as a fraction. Seven eighths, where `hashbrown` sits, so a memory comparison
 /// against it compares layouts rather than load factors.
+/// `site`'s "no vacancy seen yet". Not a valid slot index on any target.
+const NONE: usize = usize::MAX;
+
 const FILL_NUM: usize = 7;
 const FILL_DEN: usize = 8;
 
@@ -1200,8 +1095,11 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         // One predictable branch on a path that already allocates is the right price for turning
         // undefined behaviour into a panic.
         assert!(self.slots.len() >= MIN_SLOTS, "probing an unallocated table");
+        // `usize::MAX` as "no vacancy seen", not `Option<usize>`: the option is sixteen bytes, so
+        // it lived on the stack and cost a store, a test and a reload per group of every insert.
+        // No slot index can reach it -- the region's byte size has to fit in an allocation.
+        let mut vacant = NONE;
         let tag = tag_of(p);
-        let mut vacant: Option<usize> = None;
         let mut base = self.geom.first(p);
         let mut d = Descent::after_first(p, self.geom);
         loop {
@@ -1216,16 +1114,16 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
                 }
                 hits &= hits - 1;
             }
-            if vacant.is_none() {
+            if vacant == NONE {
                 // Empty or tombstoned: both are free, and the earliest in probe order wins.
                 let free = !scan::occupied(line);
                 if free != 0 {
-                    vacant = Some(base + free.trailing_zeros() as usize);
+                    vacant = base + free.trailing_zeros() as usize;
                 }
             }
             if scan::match_tag(line, EMPTY) != 0 {
                 // An empty slot ends the search, and it is itself free, so `vacant` is set.
-                return Err(vacant.unwrap_or(base));
+                return Err(if vacant == NONE { base } else { vacant });
             }
             base = d.next();
         }
@@ -1523,10 +1421,28 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Grows when the fill limit would be crossed. When most of what fills the table is tombstones
     /// rather than entries it rebuilds at the *same* size instead of doubling -- a table churned in
     /// place would otherwise double on garbage.
+    /// # Why the split
+    ///
+    /// Every `insert` calls this, and in the overwhelming case it is a compare and a return. It
+    /// was one function and not `#[inline]`, so that compare cost a call, a return and the
+    /// register traffic around both -- `perf` put **13% of insert's time inside `reserve`**, a
+    /// function that in the measured loop never grew anything. It is the same defect the module
+    /// doc records on the read path, on the write path, found the same way.
+    ///
+    /// The test is now inline and the growth is `#[cold]`, so the branch predictor sees a
+    /// never-taken branch instead of a call.
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         if self.used + additional <= limit(self.slots.len()) {
             return;
         }
+        self.grow_for(additional);
+    }
+
+    /// The growth `reserve` guards, kept out of line so the guard can be inlined.
+    #[cold]
+    #[inline(never)]
+    fn grow_for(&mut self, additional: usize) {
         let want = self.live + additional;
         self.rebuild(Self::region_for(want).max(self.slots.len()));
     }
@@ -1539,7 +1455,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// re-reading megabytes of bytes and reading a word.
     fn rebuild(&mut self, slots: usize) {
         let tags = vec![EMPTY; slots].into_boxed_slice();
-        let fresh: Box<[MaybeUninit<(H, V)>]> = (0..slots).map(|_| MaybeUninit::uninit()).collect();
+        let fresh: Box<[MaybeUninit<(H, V)>]> = uninit_slots(slots);
         self.rehome(tags, fresh);
     }
 
