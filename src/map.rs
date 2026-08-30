@@ -375,6 +375,15 @@ const _: () = {
 /// The two implementations are the two keyed faces of [`Sigma`], and they differ in exactly the
 /// way the discriminant predicts: [`Regen`] keeps nothing, because the address determines the key;
 /// [`Stored`] keeps the key, because it does not.
+/// **There are two impls and there can only be two.**
+///
+/// [`Held::into_key`] hands back the key, so a face that *discards* it cannot implement this
+/// trait -- the hyperbolic one has nowhere to get the return value from. `Held` is therefore the
+/// trait of the key-surviving faces, and [`Sigma::key_survives`] is false exactly where an impl is
+/// impossible. The `const` block above asserts that correspondence rather than trusting it.
+///
+/// So the third face is absent from this module by construction, not by omission. Where it lives
+/// is [`crate::table`], which keys on the address itself.
 pub trait Held<K: Coord + Eq>: Sized {
     /// The face this is the storage of.
     const FACE: Sigma;

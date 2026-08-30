@@ -69,6 +69,7 @@
 //!
 //! `SHARD_BITS` at 6 and 7 rather than 8 measured 3.79 and 3.43 against 3.44: no signal.
 //!
+use crate::cell::Sigma;
 use crate::map::Salt;
 use std::cmp::Reverse;
 
@@ -136,7 +137,24 @@ pub struct CountTable {
     salt: Salt,
 }
 
+/// The face this table stores on, checked rather than asserted.
+///
+/// A slot holds `Addr::id`, which is `address * mul` -- a bijection, so `Salt::unspread` recovers
+/// the address exactly and the key survives. That is the **elliptic** face, the same one
+/// `map::Regen` sits on, and it is why `locate` compares the identity word and never the placement
+/// word: `place` is a discard and would fold two distinct addresses into one count.
+///
+/// It reads as the hyperbolic face because the *fold* that produced the address is a discard. That
+/// is a property of the caller's `Coord`, not of this table's storage.
+const _: () = {
+    assert!(CountTable::FACE.key_survives(), "a stored `id` is a bijection of the address");
+    assert!(!CountTable::FACE.stores_the_key(), "the address is the key; nothing else is stored");
+};
+
 impl CountTable {
+    /// The storage face: elliptic, because a slot holds a bijection of the address.
+    pub const FACE: Sigma = Sigma::Elliptic;
+
     /// Build from a key stream on this thread. `bits` is a hint for the whole table; each shard
     /// is sized to its own load, so the hint never bounds a shard.
     #[must_use]
