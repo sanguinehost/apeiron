@@ -167,11 +167,50 @@ pub struct Addr {
 /// | two serial multiplies (the old `spread`) | 1.69 | 9.6 |
 /// | `mulx` + `rotl` + `xor` (this) | **1.31** | **7.5** |
 ///
-/// A multiply carries entropy upward and never downward, so the top of the product varies
-/// whatever the key set -- in the widening form that guaranteed-varying half is `hi`. Rotating it
-/// down and xoring against `lo` puts that variation where the descent and the tag read. Rotate
-/// and xor are `GF(2)`-linear and cannot break a coset alone; the nonlinearity is carry
-/// propagation in `hi`, which is why the wide product needs no second multiply.
+/// # What the two halves are
+///
+/// `lo` is a ring homomorphism composed with a unit, so it is additive exactly:
+/// `lo(x + y) == lo(x) + lo(y)` in `Z/2^64`. `hi` is additive only up to the carry out of `lo`:
+///
+/// ```text
+/// hi(x + y) == hi(x) + hi(y) + carry(lo(x), lo(y))
+/// ```
+///
+/// Both checked over two million pairs, half of them with a live carry. That carry term is the
+/// whole nonlinearity of the address, and it is why the wide product needs no second multiply.
+///
+/// It also says which face each half is on, without analogy. `lo` is a quotient ring, so it is a
+/// bijection and the elliptic face reads its key back off it. `hi` is a cocycle value, not a ring
+/// element -- there is no modulus in which it is canonical -- so nothing invertible can be built
+/// from it and the hyperbolic face is the only one it can serve. The pair has exactly one
+/// canonical projection and no canonical complement, which is the parabolic shape: **`Addr` is a
+/// `sigma = 0` pair carrying an elliptic `id` and a hyperbolic `place`.**
+///
+/// The `^` is a step out of `Z/2^64` and into `GF(2)^64`, the crossing this module opens by
+/// warning about. It is safe *here* and was not safe there for a stateable reason: hashtrinity
+/// xored two ring elements whose sum still had to be injective, and XOR cannot carry so the two
+/// sign extensions cancelled. This xors a cocycle value into a ring element to produce `place`,
+/// which is judged on distribution and never on injectivity. Different job, different obligation.
+///
+/// # Which bits of `place` are which
+///
+/// `rotate_left(32)` sends bit `j` of `hi` to bit `j + 32`, so the whole word is
+///
+/// ```text
+/// place_i == lo_i ^ hi_((i - 32) mod 64)
+/// ```
+///
+/// -- verified bit for bit over two million keys. Sixty-four independent `GF(2)` functionals of
+/// the 128 product bits, so *disjoint slices of `place` are independent evidence*, which is the
+/// property [`crate::table::tag_of`] needs and the reason the tag may sit directly above the
+/// descent.
+///
+/// It also derives the low-window rejection that `crate::map::Geom::first` records as a
+/// measurement. The tag slice is `lo_57..64 ^ hi_25..32`. A low window would be
+/// `lo_0..32 ^ hi_32..64` -- and `hi_32..64` is zero for every key whose product does not fill 128
+/// bits: over `x < 200_000`, `hi`'s top half took **one** value and the low 32 bits of `place`
+/// equalled the raw low bits of `lo` in 200,000 of 200,000 cases, while the tag took all 128
+/// values. The high window is forced, not preferred.
 ///
 /// | fold | worst mean | worst max | worst compares | fails |
 /// |---|---|---|---|---|
