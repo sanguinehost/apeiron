@@ -63,6 +63,17 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
         Self(Map::with_salt(salt))
     }
 
+    /// Membership for every element of `ks`, in order.
+    pub fn contains_each<'a>(&'a self, ks: &'a [K], mut visit: impl FnMut(&'a K, bool)) {
+        self.0.get_each(ks, |k, v| visit(k, v.is_some()));
+    }
+
+    /// How many of `ks` this set holds.
+    #[must_use]
+    pub fn count_present(&self, ks: &[K]) -> usize {
+        self.0.get_reduce(ks, 0usize, |()| 1usize, |a, b| a + b)
+    }
+
     /// The map underneath, for the operations a set does not name.
     ///
     /// `Set` is deliberately thinner than [`Map`] -- it has no `entry`, no `extract_if`, no
@@ -388,6 +399,15 @@ impl<K: Coord + Eq> Set<K, Stored<K>> {
     #[must_use]
     pub fn contains_at<Q: Locate<K>>(&self, q: Q) -> bool {
         self.0.contains_at(q)
+    }
+
+    /// The stored element a view names, without building one to look it up.
+    ///
+    /// `contains_at` answers whether; this hands back the element itself, so a `Set<String>`
+    /// probed with `&str` yields the `&String` it is holding.
+    #[must_use]
+    pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&K> {
+        self.0.get_key_value_at(q).map(|(k, ())| k)
     }
 
     /// Add through a view, taking ownership only on a miss.

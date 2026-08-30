@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls out of it."
 readme = "README.md"
+authors = ["Lucas 'Paperboy' Rose-Winters"]
+# GPL-3.0, matching lyrium. Note this is viral: a crate that links apeiron must also be GPL-3.0,
+# which for a hash map -- a thing meant to be depended on widely -- is a real constraint. The Rust
+# ecosystem norm for a library like this is `license = "MIT OR Apache-2.0"`; changing it is one
+# line here plus the LICENSE file.
+license-file = "LICENSE"
 keywords = ["hashmap", "hash", "algebra", "deterministic", "hashdos"]
 categories = ["data-structures", "algorithms", "concurrency"]
 # 1.87 is where `i32::cast_unsigned` and its siblings stabilised (`integer_sign_cast`). `coord`

@@ -2198,6 +2198,15 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// Read through a borrowed view: `map.get_at("resref")` on a `Map<String, V>`.
     #[must_use]
     #[inline]
+    /// The stored key and its value, from a view. [`Self::get_key_value`] without building a key.
+    #[must_use]
+    #[inline]
+    pub fn get_key_value_at<Q: Locate<K>>(&self, q: Q) -> Option<(&K, &V)> {
+        let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
+        self.find_ref(a.place, |h| h.id == a.id && q.same(&h.k)).map(|s| (&s.0.k, &s.1))
+    }
+
+    #[inline]
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
