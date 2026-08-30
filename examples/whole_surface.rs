@@ -23,6 +23,18 @@ use std::time::Instant;
 type Fold = foldhash::fast::RandomState;
 type HbMap<K, V> = hashbrown::HashMap<K, V, Fold>;
 
+/// `#[inline(never)]` is the whole measurement, not a detail.
+///
+/// `best` is generic, so each closure gets its own instantiation -- but inlined, all twenty-four of
+/// them land in one `str_surface` frame, and the lookup loops then inherit the callee-saved
+/// registers and the stack frame of an `insert` that inlines a grow path and an allocation. The
+/// register allocator pays for that by rematerialising the fold's seed on every key. Isolated,
+/// `examples/probe_cost.rs` measures the same 13-byte resref lookup at 92.5 instructions where the
+/// shared frame reads 107.7, and `hashbrown`'s arm moves a third as far -- so the shared frame is
+/// not even a fair harness, let alone an accurate one. One frame per timed loop is the fix, and it
+/// is also the shape a caller writes: `map.get(k)` is called from a function that is not also
+/// building the map.
+#[inline(never)]
 fn best(rounds: usize, mut f: impl FnMut() -> u64) -> f64 {
     let mut b = f64::INFINITY;
     for _ in 0..rounds {
@@ -37,6 +49,7 @@ fn best(rounds: usize, mut f: impl FnMut() -> u64) -> f64 {
 ///
 /// `clone().drain()` measures a clone and a drain together, and at these sizes the clone is most
 /// of it. Pre-building one victim per round is the only way to see the drain by itself.
+#[inline(never)]
 fn best_consuming<T>(rounds: usize, make: impl Fn() -> T, mut f: impl FnMut(T) -> u64) -> f64 {
     let victims: Vec<T> = (0..rounds).map(|_| make()).collect();
     let mut b = f64::INFINITY;
