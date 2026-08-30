@@ -448,6 +448,33 @@ impl Descent {
 
 // -- what a slot remembers of its key -----------------------------------------------------------
 
+/// The face constants are **checked against what the impls do**, at compile time.
+///
+/// `Held::FACE` was an annotation: two hand-written constants that no code consulted. Writing
+/// `Sigma::Hyperbolic` on [`Regen`] -- a flat lie, the hyperbolic face discards the key and
+/// `Regen` regenerates it exactly -- would have compiled and passed every test. A label nothing
+/// can falsify is the thing this crate exists not to ship.
+///
+/// [`Sigma::stores_the_key`] is the claim that the key must sit beside the address, so it is the
+/// claim that the slot is wider than the address alone. That is decidable here, so it is decided
+/// here: change either constant and the crate stops building.
+///
+/// The other half -- that a face claiming [`Sigma::key_survives`] can actually reproduce the key
+/// from what it stored -- is a statement about values, not sizes, and lives in
+/// `tests/the_faces_keep_their_promises.rs`.
+const _: () = {
+    assert!(<Stored<u64> as Held<u64>>::FACE.stores_the_key());
+    assert!(size_of::<Stored<u64>>() > size_of::<u64>(), "a carried key needs room for one");
+
+    assert!(!<Regen<u64> as Held<u64>>::FACE.stores_the_key());
+    assert!(size_of::<Regen<u64>>() == size_of::<u64>(), "a regenerated key stores nothing");
+
+    // Neither keyed face may claim the discard: both reproduce the key, one from the address and
+    // one from the slot. The hyperbolic face has no `Held` impl at all.
+    assert!(<Stored<u64> as Held<u64>>::FACE.key_survives());
+    assert!(<Regen<u64> as Held<u64>>::FACE.key_survives());
+};
+
 /// How a live slot holds its key's identity.
 ///
 /// The two implementations are the two keyed faces of [`Sigma`], and they differ in exactly the

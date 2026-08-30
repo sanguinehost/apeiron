@@ -236,3 +236,50 @@ fn a_commutative_merge_does_not_care_about_order() {
         "last-write-wins came out order-free, so the Species distinction is empty"
     );
 }
+
+/// A face claiming [`Sigma::key_survives`] must actually reproduce the key it was given.
+///
+/// The compile-time half of this is in `map.rs`: `stores_the_key` is a claim about the *width* of
+/// a slot, so a `const` block decides it and a wrong constant stops the build. This is the other
+/// half, which sizes cannot see -- that what comes back out is the key that went in, whether the
+/// face kept it or regenerated it from the address.
+///
+/// Written generically over `Held` on purpose. Both keyed faces are held to the same law, and the
+/// law is read off `FACE` rather than off which type it is, so it is the constant that is on trial
+/// and not the implementation.
+fn the_key_survives_exactly_as_the_face_claims<K, H>(keys: &[K])
+where
+    K: Coord + Eq + Clone + std::fmt::Debug,
+    H: apeiron::map::Held<K>,
+{
+    for pepper in [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX] {
+        let salt = apeiron::map::Salt::new(pepper);
+        for k in keys {
+            let a = H::address(salt, k);
+            let held = H::hold(a.id, k.clone());
+
+            assert!(
+                H::FACE.key_survives(),
+                "a `Held` impl on a face that discards the key would have nothing to hand back"
+            );
+            assert_eq!(
+                &held.into_key(salt),
+                k,
+                "{:?} claims the key survives, and it did not come back (pepper {pepper:#x})",
+                H::FACE
+            );
+        }
+    }
+}
+
+#[test]
+fn both_keyed_faces_reproduce_the_key_they_were_given() {
+    let words: Vec<u64> = (0..512u64).map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)).collect();
+    // Elliptic: nothing is stored, so this is the address bijection run backwards.
+    the_key_survives_exactly_as_the_face_claims::<u64, apeiron::map::Regen<u64>>(&words);
+    // Parabolic: the key is carried, so this is that it is carried faithfully.
+    the_key_survives_exactly_as_the_face_claims::<u64, apeiron::map::Stored<u64>>(&words);
+
+    let names: Vec<String> = (0..256).map(|i| format!("nw_wswmg{i:05}")).collect();
+    the_key_survives_exactly_as_the_face_claims::<String, apeiron::map::Stored<String>>(&names);
+}
