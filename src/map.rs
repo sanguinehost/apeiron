@@ -1101,32 +1101,58 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let mut vacant = NONE;
         let tag = tag_of(p);
         let mut base = self.geom.first(p);
+
+        // The first group is peeled, as it is in `find`, and for the same reason: at a 7/8 fill
+        // almost every insert finds its empty slot here and never touches the descent. Left inside
+        // the loop, `Descent::after_first` is built -- five fields written -- before the first tag
+        // line is even loaded, on every insert, to serve the case that almost never happens.
+        match self.scan_site(base, tag, &is, &mut vacant) {
+            Ok(found) => return Ok(found),
+            Err(true) => return Err(if vacant == NONE { base } else { vacant }),
+            Err(false) => {}
+        }
+
         let mut d = Descent::after_first(p, self.geom);
         loop {
-            let line = self.line(base);
-            let mut hits = scan::match_tag(line, tag);
-            while hits != 0 {
-                let lane = base + hits.trailing_zeros() as usize;
-                // SAFETY: as `find`.
-                let (h, _) = unsafe { self.slots.get_unchecked(lane).assume_init_ref() };
-                if is(h) {
-                    return Ok(lane);
-                }
-                hits &= hits - 1;
-            }
-            if vacant == NONE {
-                // Empty or tombstoned: both are free, and the earliest in probe order wins.
-                let free = !scan::occupied(line);
-                if free != 0 {
-                    vacant = base + free.trailing_zeros() as usize;
-                }
-            }
-            if scan::match_tag(line, EMPTY) != 0 {
-                // An empty slot ends the search, and it is itself free, so `vacant` is set.
-                return Err(if vacant == NONE { base } else { vacant });
-            }
             base = d.next();
+            match self.scan_site(base, tag, &is, &mut vacant) {
+                Ok(found) => return Ok(found),
+                Err(true) => return Err(if vacant == NONE { base } else { vacant }),
+                Err(false) => {}
+            }
         }
+    }
+
+    /// One group of [`Self::site`]: `Ok(slot)` on a match, `Err(true)` when this group ends the
+    /// search, `Err(false)` to keep descending. Records the earliest free slot in `vacant`.
+    #[inline(always)]
+    fn scan_site(
+        &self,
+        base: usize,
+        tag: u8,
+        is: &impl Fn(&H) -> bool,
+        vacant: &mut usize,
+    ) -> Result<usize, bool> {
+        let line = self.line(base);
+        let mut hits = scan::match_tag(line, tag);
+        while hits != 0 {
+            let lane = base + hits.trailing_zeros() as usize;
+            // SAFETY: as `find`.
+            let (h, _) = unsafe { self.slots.get_unchecked(lane).assume_init_ref() };
+            if is(h) {
+                return Ok(lane);
+            }
+            hits &= hits - 1;
+        }
+        if *vacant == NONE {
+            // Empty or tombstoned: both are free, and the earliest in probe order wins.
+            let free = !scan::occupied(line);
+            if free != 0 {
+                *vacant = base + free.trailing_zeros() as usize;
+            }
+        }
+        // An empty slot ends the search, and it is itself free, so `vacant` is set.
+        Err(scan::match_tag(line, EMPTY) != 0)
     }
 
     #[inline(always)]
@@ -2431,38 +2457,45 @@ pub struct VacantEntry<'a, K: Coord + Eq, V, H: Held<K>> {
 impl<'a, K: Coord + Eq, V, H: Held<K>> OccupiedEntry<'a, K, V, H> {
     #[must_use]
     /// The key stored here.
+    #[inline]
     pub fn key(&self) -> H::Ref<'_> {
         // SAFETY: an occupied entry names a live slot.
         unsafe { self.map.slots[self.at].assume_init_ref().0.key(self.map.salt) }
     }
     #[must_use]
     /// The value.
+    #[inline]
     pub fn get(&self) -> &V {
         // SAFETY: as above.
         unsafe { &self.map.slots[self.at].assume_init_ref().1 }
     }
     /// The value, mutably.
+    #[inline]
     pub fn get_mut(&mut self) -> &mut V {
         // SAFETY: as above.
         unsafe { &mut self.map.slots[self.at].assume_init_mut().1 }
     }
     #[must_use]
     /// The value, borrowed for as long as the map is.
+    #[inline]
     pub fn into_mut(self) -> &'a mut V {
         // SAFETY: as above.
         unsafe { &mut self.map.slots[self.at].assume_init_mut().1 }
     }
     /// Replace the value, returning the old one.
+    #[inline]
     pub fn insert(&mut self, v: V) -> V {
         std::mem::replace(self.get_mut(), v)
     }
     /// Take the entry out, returning the value.
     #[must_use]
+    #[inline]
     pub fn remove(self) -> V {
         self.remove_entry().1
     }
     /// Take the entry out, key and value.
     #[must_use]
+    #[inline]
     pub fn remove_entry(self) -> (K, V) {
         let at = self.at;
         self.map.evict(at)
@@ -2477,10 +2510,12 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> VacantEntry<'a, K, V, H> {
     }
     #[must_use]
     /// The key, owned.
+    #[inline]
     pub fn into_key(self) -> K {
         self.key
     }
     /// Fill the slot.
+    #[inline]
     pub fn insert(self, v: V) -> &'a mut V {
         let Self { map, at, a, key } = self;
         map.place(at, a, key, v);
@@ -2491,6 +2526,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> VacantEntry<'a, K, V, H> {
 
 impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
     /// The value, inserting `v` if the slot is vacant.
+    #[inline]
     pub fn or_insert(self, v: V) -> &'a mut V {
         match self {
             Self::Occupied(e) => e.into_mut(),
@@ -2498,6 +2534,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
         }
     }
     /// The value, calling `f` for it only if the slot is vacant.
+    #[inline]
     pub fn or_insert_with(self, f: impl FnOnce() -> V) -> &'a mut V {
         match self {
             Self::Occupied(e) => e.into_mut(),
@@ -2505,6 +2542,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
         }
     }
     /// The value, built from the key only if the slot is vacant.
+    #[inline]
     pub fn or_insert_with_key(self, f: impl FnOnce(&K) -> V) -> &'a mut V {
         match self {
             Self::Occupied(e) => e.into_mut(),
@@ -2515,6 +2553,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
         }
     }
     /// The value, defaulted if the slot is vacant.
+    #[inline]
     pub fn or_default(self) -> &'a mut V
     where
         V: Default,
@@ -2523,6 +2562,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Entry<'a, K, V, H> {
     }
     #[must_use]
     /// Run `f` over the value if it is already there.
+    #[inline]
     pub fn and_modify(mut self, f: impl FnOnce(&mut V)) -> Self {
         if let Self::Occupied(e) = &mut self {
             f(e.get_mut());
@@ -2538,6 +2578,7 @@ impl<K: Coord + Eq, V> Entry<'_, K, V, Stored<K>> {
     /// one hand back the same type; on the elliptic face an occupied entry *regenerates* its key as
     /// a value while a vacant one owns it, and there is no single type that is both.
     #[must_use]
+    #[inline]
     pub fn key(&self) -> &K {
         match self {
             Self::Occupied(e) => e.key(),
