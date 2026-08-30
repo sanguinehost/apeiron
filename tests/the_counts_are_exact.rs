@@ -173,3 +173,21 @@ fn the_parallel_floor_does_not_change_any_count() {
         }
     }
 }
+
+/// `CountTable::FACE` is elliptic, and the claim is that a slot's identity word recovers the key.
+#[test]
+fn the_counting_table_regenerates_its_key_from_the_slot() {
+    use apeiron::map::Salt;
+    assert!(CountTable::FACE.key_survives());
+    assert!(!CountTable::FACE.stores_the_key());
+    for pepper in [0u64, 1, 0x5EED_1234_ABCD_9876] {
+        let salt = Salt::new(pepper);
+        let mut next = rng();
+        for _ in 0..2_000 {
+            let a = next();
+            // The slot holds `id`; the address comes back off it exactly, which is what makes the
+            // face elliptic rather than a discard.
+            assert_eq!(salt.unspread(salt.spread(a).id), a, "pepper {pepper:#x}, address {a:#x}");
+        }
+    }
+}
