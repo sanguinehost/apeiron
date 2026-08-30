@@ -1371,12 +1371,17 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// placement word. Both are already in `a` from the one address multiply.
     #[inline]
     fn place(&mut self, i: usize, a: Addr, k: K, v: V) {
-        if self.tags[i] == EMPTY {
-            self.used += 1;
+        // SAFETY: `i` came from `site`, which returns a group base plus a lane -- both bounded by
+        // the region, so it indexes both arrays. Three bounds checks on the write path otherwise,
+        // for an index the probe already proved.
+        unsafe {
+            if *self.tags.get_unchecked(i) == EMPTY {
+                self.used += 1;
+            }
+            self.live += 1;
+            *self.slots.get_unchecked_mut(i) = MaybeUninit::new((H::hold(a.id, k), v));
+            *self.tags.get_unchecked_mut(i) = tag_of(a.place);
         }
-        self.live += 1;
-        self.slots[i] = MaybeUninit::new((H::hold(a.id, k), v));
-        self.tags[i] = tag_of(a.place);
     }
 
     /// Remove, returning the value.
@@ -2468,27 +2473,27 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> OccupiedEntry<'a, K, V, H> {
     #[inline]
     pub fn key(&self) -> H::Ref<'_> {
         // SAFETY: an occupied entry names a live slot.
-        unsafe { self.map.slots[self.at].assume_init_ref().0.key(self.map.salt) }
+        unsafe { self.map.slots.get_unchecked(self.at).assume_init_ref().0.key(self.map.salt) }
     }
     #[must_use]
     /// The value.
     #[inline]
     pub fn get(&self) -> &V {
         // SAFETY: as above.
-        unsafe { &self.map.slots[self.at].assume_init_ref().1 }
+        unsafe { &self.map.slots.get_unchecked(self.at).assume_init_ref().1 }
     }
     /// The value, mutably.
     #[inline]
     pub fn get_mut(&mut self) -> &mut V {
         // SAFETY: as above.
-        unsafe { &mut self.map.slots[self.at].assume_init_mut().1 }
+        unsafe { &mut self.map.slots.get_unchecked_mut(self.at).assume_init_mut().1 }
     }
     #[must_use]
     /// The value, borrowed for as long as the map is.
     #[inline]
     pub fn into_mut(self) -> &'a mut V {
         // SAFETY: as above.
-        unsafe { &mut self.map.slots[self.at].assume_init_mut().1 }
+        unsafe { &mut self.map.slots.get_unchecked_mut(self.at).assume_init_mut().1 }
     }
     /// Replace the value, returning the old one.
     #[inline]
@@ -2528,7 +2533,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> VacantEntry<'a, K, V, H> {
         let Self { map, at, a, key } = self;
         map.place(at, a, key, v);
         // SAFETY: just written.
-        unsafe { &mut map.slots[at].assume_init_mut().1 }
+        unsafe { &mut map.slots.get_unchecked_mut(at).assume_init_mut().1 }
     }
 }
 
