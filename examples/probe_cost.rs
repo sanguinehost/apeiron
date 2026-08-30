@@ -37,6 +37,38 @@
 //! is also not the shape a caller writes: `map.get(k)` is called from a function that is not
 //! simultaneously building the map.
 //!
+//! # The 150k-400k band, and eight things it is not
+//!
+//! Between roughly 150,000 and 400,000 entries -- where the table fits in L3 but not L2 -- a
+//! `Words<u64, u64>` lookup costs 8-21% more **cycles** than `hashbrown` + `foldhash` at equal
+//! instructions and *fewer* cache misses at every level. Above and below that band we are at
+//! parity. Measured at n=300,000: 15.44 cycles against 13.10.
+//!
+//! Eight explanations have been tested and refuted, each with the counter that kills it:
+//!
+//! | hypothesis | measurement |
+//! |---|---|
+//! | spilled loop invariants | constant-folding `gshift`/`gmask` takes L1 loads 7.07 -> 5.08 and cycles 15.44 -> **15.75** |
+//! | outlining the cold descent | removes both spills, costs **+5.4 instructions**, cycles unmoved |
+//! | bounding the group index by the shift | correct, **+1.01 instructions**, cycles worse at every size |
+//! | TLB pressure | 0.0003 misses/lookup against `hashbrown`'s 0.0000; 0.013 walk cycles of 16.09 |
+//! | probe displacement | **anti-correlated**: 0.3% displaced at 300k where the gap is 21%, 2.9% at 100k where it is 8% |
+//! | aligned groups vs a sliding window | simulated: 0.37% -> 0.21% displacement, worth ~0.03 cycles |
+//! | fill factor | 5/8 instead of 7/8 changes nothing (same slot count at this n) |
+//! | branch mispredicts | 0.0336/lookup against 0.0069, but `int_misc.clear_resteer_cycles` prices them at **0.09 of 15.98 cycles** |
+//!
+//! What *is* established: top-down puts both arms at ~54% backend bound with near-identical memory
+//! stalls (2.55 cycles against 2.34, and we are **lower** on L3 stalls), so the difference lives in
+//! the ~13 non-stalled cycles. We issue **7.07 L1 loads per lookup against 4.06**, and
+//! `topdown-heavy-ops` is 303.9M against 170.6M -- but deleting two of those loads changed nothing,
+//! so they are absorbed by the out-of-order engine rather than serialising.
+//!
+//! The remaining candidate is the one structural difference left: `hashbrown` keeps its control
+//! bytes and its buckets in **one** allocation and addresses slots backwards from the ctrl pointer,
+//! while `Map` holds `tags` and `slots` in two boxes. Same total footprint, different page and
+//! prefetch behaviour. Testing it means the single-allocation layout, which is also what would take
+//! `size_of::<Map>()` from 88 to 64 -- a real change, not a probe tweak, and not attempted here.
+//!
 //! **This retires a planned change.** Precomputing the fold's two seed bases in `Salt` was on the
 //! list, costing a defaulted method on `Coord` and `Locate` and sixteen bytes on every `Map`. It
 //! was worth a measured 6.00 instructions -- all of which were this rematerialisation, and none of
