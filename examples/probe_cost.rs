@@ -19,6 +19,28 @@
 //! Five instructions where there were two, and the probe itself byte-identical either side. One
 //! function per arm bounds the inliner's budget to one loop, which is the only way a delta here
 //! means the map and not the register allocator. `str_only.rs` learned this first.
+//!
+//! # Why the build is in a second function
+//!
+//! Same lesson, larger number. With the build loop in the measured frame, the lookup inherits six
+//! callee-saved registers and a 264-byte stack frame from an `insert` that inlines a grow path, a
+//! rehome and an allocation -- and the register allocator answers by **rematerialising** the fold's
+//! seed on every key instead of keeping it live. Split, LLVM hoists `pepper * PHI + PHI` and
+//! `pepper * PSI + PSI` out of the loop by itself, which is what they are: loop-invariant.
+//!
+//! | 13-byte resrefs | shared frame | split |
+//! |---|---|---|
+//! | apeiron `String` | 107.73 | **94.70** |
+//! | hb + foldhash | 84.41 | 80.25 |
+//!
+//! Ours moved three times as far as theirs, so the shared frame was not a fair harness either. It
+//! is also not the shape a caller writes: `map.get(k)` is called from a function that is not
+//! simultaneously building the map.
+//!
+//! **This retires a planned change.** Precomputing the fold's two seed bases in `Salt` was on the
+//! list, costing a defaulted method on `Coord` and `Locate` and sixteen bytes on every `Map`. It
+//! was worth a measured 6.00 instructions -- all of which were this rematerialisation, and none of
+//! which survive the split. There is nothing left for the interface change to buy.
 use apeiron::map::{Map, Words};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
@@ -52,6 +74,11 @@ fn ap_words(ks: &[u64]) -> usize {
     for &k in ks {
         m.insert(k, k);
     }
+    ap_words_probe(&m, ks)
+}
+
+#[inline(never)]
+fn ap_words_probe(m: &Words<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for &k in ks {
@@ -67,6 +94,11 @@ fn ap_map(ks: &[u64]) -> usize {
     for &k in ks {
         m.insert(k, k);
     }
+    ap_map_probe(&m, ks)
+}
+
+#[inline(never)]
+fn ap_map_probe(m: &Map<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for &k in ks {
@@ -82,6 +114,14 @@ fn hb_words<S: std::hash::BuildHasher + Default>(ks: &[u64]) -> usize {
     for &k in ks {
         m.insert(k, k);
     }
+    hb_words_probe(&m, ks)
+}
+
+#[inline(never)]
+fn hb_words_probe<S: std::hash::BuildHasher>(
+    m: &hashbrown::HashMap<u64, u64, S>,
+    ks: &[u64],
+) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for &k in ks {
@@ -97,6 +137,11 @@ fn std_words(ks: &[u64]) -> usize {
     for &k in ks {
         m.insert(k, k);
     }
+    std_words_probe(&m, ks)
+}
+
+#[inline(never)]
+fn std_words_probe(m: &HashMap<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for &k in ks {
@@ -115,6 +160,18 @@ fn ap_str<V: Default + Clone>(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), V::default());
     }
+    ap_str_probe(&m, ks)
+}
+
+/// The lookup loop **alone**, with the build in its own frame.
+///
+/// Not a cosmetic split. Sharing a frame with `insert` -- which inlines a grow path, a rehome and
+/// an allocation -- costs the lookup six callee-saved registers and a 264-byte frame it never
+/// wanted, and the register allocator pays for that by *rematerialising* the fold's seed instead
+/// of keeping it live. A real caller writes `map.get(k)` from a function that is not also building
+/// the map, so this is the faithful shape as well as the cheaper one.
+#[inline(never)]
+fn ap_str_probe<V>(m: &Map<String, V>, ks: &[String]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
@@ -133,6 +190,11 @@ fn ap_map_str(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), 1);
     }
+    ap_map_str_probe(&m, ks)
+}
+
+#[inline(never)]
+fn ap_map_str_probe(m: &Map<String, u64>, ks: &[String]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
@@ -148,6 +210,14 @@ fn hb_str<S: std::hash::BuildHasher + Default>(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), 1);
     }
+    hb_str_probe(&m, ks)
+}
+
+#[inline(never)]
+fn hb_str_probe<S: std::hash::BuildHasher>(
+    m: &hashbrown::HashMap<String, u64, S>,
+    ks: &[String],
+) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
