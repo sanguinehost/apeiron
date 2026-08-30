@@ -63,11 +63,54 @@
 //! `topdown-heavy-ops` is 303.9M against 170.6M -- but deleting two of those loads changed nothing,
 //! so they are absorbed by the out-of-order engine rather than serialising.
 //!
-//! The remaining candidate is the one structural difference left: `hashbrown` keeps its control
-//! bytes and its buckets in **one** allocation and addresses slots backwards from the ctrl pointer,
-//! while `Map` holds `tags` and `slots` in two boxes. Same total footprint, different page and
-//! prefetch behaviour. Testing it means the single-allocation layout, which is also what would take
-//! `size_of::<Map>()` from 88 to 64 -- a real change, not a probe tweak, and not attempted here.
+//! # It is the **aligned group**, and the layout has nothing to do with it
+//!
+//! The single-allocation theory was tested and is **refuted**. A standalone table with the same
+//! geometry and the same probe, built three ways -- two `Vec`s, one block with tags then slots, and
+//! `hashbrown`'s own layout with slots *below* the ctrl pointer addressed backwards -- measures the
+//! same to within noise at every size:
+//!
+//! | n | two allocations | one block | backwards from ctrl |
+//! |---|---|---|---|
+//! | 100,000 | 12.95 | 13.82 | 14.16 |
+//! | 300,000 | 16.50 | 16.22 | 16.17 |
+//! | 400,000 | 18.82 | 19.08 | 19.81 |
+//!
+//! Swapping the **probe** into that same harness moves it immediately, and splitting `hashbrown`'s
+//! probe into its two halves says which half:
+//!
+//! | n = 400,000 | first group | stride after | cycles |
+//! |---|---|---|---|
+//! | ours | aligned window | aligned window | 18.82 |
+//! | | aligned window | **triangular** | 21.71 (worse) |
+//! | | **unaligned** | aligned window | **16.62** |
+//! | `hashbrown` | unaligned | triangular | 14.72 |
+//!
+//! The triangular stride is not the win -- taking it alone is a **loss**. The win is that
+//! `hashbrown`'s window can start at *any* slot, so a group is centred on the key's own position,
+//! while ours starts only at multiples of sixteen and every key in a group reads the same sixteen
+//! tags.
+//!
+//! **And it is separable from the reason the low-bit window was rejected.** `Geom::first`'s doc
+//! records that reading the window from the bottom of the placement word fails the flatness gate --
+//! a product's low bits are its least mixed. That is about *which bits*, not about alignment.
+//! Keeping the top window and dropping only `& !(GROUP - 1)`:
+//!
+//! | n | aligned (ours) | top window, unaligned | `hashbrown` |
+//! |---|---|---|---|
+//! | 100,000 | 12.95 | 12.52 | 11.25 |
+//! | 300,000 | 16.50 | **14.25** | 13.51 |
+//! | 400,000 | 18.82 | **16.18** | 14.72 |
+//!
+//! That recovers about 62% of the gap while keeping the entropy source the crate proved it needs.
+//!
+//! It is **not implemented**, and the reason is scope rather than doubt. `line()` reads
+//! `base..base + GROUP` with no wraparound, so an unaligned base near the end of the region reads
+//! past the array; `hashbrown` pays for this by duplicating its first fifteen control bytes at the
+//! end. Group alignment is also assumed by `Descent`, by `rehome`, and by the `stats` walk. That is
+//! a real change to the unsafe surface, it must pass `tests/the_probe_stays_flat.rs` on every
+//! distribution that has ever broken this crate, and it should be started fresh rather than
+//! appended to the session that found it.
 //!
 //! **This retires a planned change.** Precomputing the fold's two seed bases in `Salt` was on the
 //! list, costing a defaulted method on `Coord` and `Locate` and sixteen bytes on every `Map`. It
