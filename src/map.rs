@@ -22,21 +22,58 @@
 //! The `String` gap is not the fold, which is at parity (23.1 against 24.1), and not the slot
 //! width, which `LOOKUP_ARM=apstrzst` refutes at 93.2 against 93.4. It is open.
 //!
-//! # What the remaining `u64` gap is, priced
+//! # What the remaining `u64` gap is, instruction by instruction
 //!
-//! Measured by deleting the identity/placement split (`place = lo`, no `rotl`, no `xor`) and
-//! re-running the same harnesses. Instructions, and cycles where the table is cache-resident:
+//! `examples/two_gets.rs` puts `Map::get` and `hashbrown::HashMap::get` in one binary behind
+//! `#[inline(never)] extern "C"`, so `objdump` shows each design's whole address-to-load path with
+//! nothing else in it. Both compute one widening multiply. Lined up to the first tag load:
 //!
-//! | op | apeiron | without the split | hashbrown + foldhash |
-//! |---|---|---|---|
-//! | `get` | 36.65 instr, 8.27 cyc | 34.55, **6.97** | 33.16, 7.44 |
-//! | `insert` | 73.74 | **70.74** | 70.77 |
-//! | `entry` | 75.73 | **71.74** | 72.74 |
+//! | | hashbrown + foldhash | apeiron |
+//! |---|---|---|
+//! | guard | `cmpq $0,len` / `je` | `cmpq $16,len` / `jb` |
+//! | mix | `xor` seed, `mulq`, `xor` hi into lo | `mulq`, `rol $32`, `xor` hi into lo |
+//! | tag | `mov`, `shr $57` | `mov`, `shr $57`, **`or $0x80`** |
+//! | group | `mov` mask, `and` | `mov` gshift, **`mov` to `cl`**, `shr %cl`, `mov` mask, `and` |
+//! | total | 12 | 15 |
 //!
-//! Without it the probe beats `hashbrown` on `get` cycles and on `entry`, and ties `insert`. The
-//! split is therefore the whole remaining deficit on these three, at 2.1 to 4.0 instructions, and
-//! it is what makes aiming a collision chain cost `2^(j * gbits)` trials instead of one `unspread`
-//! call. It is a purchase, not waste.
+//! So the split's *mixing* is free: our `rol` + `xor` is two instructions and foldhash's seed
+//! `xor` + fold `xor` is two. The three that differ are none of them the algebra:
+//!
+//! - **`or $0x80`** -- our tag carries the live bit and hashbrown's does not, because its empty
+//!   sentinel is `0xFF` and ours is `0`. Ours makes the allocation a `calloc`. Priced: filling a
+//!   2^20-byte tag array with `0xFF` instead of `0` costs 150 cycles of 65,000, or 0.2%, so
+//!   flipping the sentinel would trade 0.2% of a rebuild for one instruction per probe. Not taken
+//!   yet -- it is a crate-wide invariant, and `or` is one uop off the critical path, which runs
+//!   through the group index and not the tag.
+//! - **`mov` to `cl`** -- a variable shift needs its amount in `cl` on the `x86_64` baseline.
+//!   Under `-C target-cpu=native` it is `shrx` and the `mov` is gone. ISA, not design.
+//! - **one extra `mov`** -- `place` stays live across the whole probe because every descent step
+//!   reads fresh bits of it. hashbrown destroys its hash into the group index at the first group.
+//!   That one is real, and it is the *only* one of the three the descent causes. See below.
+//!
+//! A fourth, `and $0x3f` in front of the variable shift, was `wrapping_shr` honouring the `% 64`
+//! it promises; `Geom::first` now tells LLVM the range and it is gone. It was hoisted out of the
+//! read loop already (`&self`, loop-invariant) but not the write loop, so it showed up as exactly
+//! one instruction on each of `insert` (73.74 -> 72.74) and `entry` (75.73 -> 74.74) and zero on
+//! `get`.
+//!
+//! # Why the last instruction is structural
+//!
+//! hashbrown's probe after the first group is `i + 16(k+1) mod G` -- triangular probing, which
+//! consumes **no** further hash bits. Its whole probe order is a function of `h mod 2^gbits`
+//! alone; everything above `gbits` feeds only the tag. Ours reads a fresh disjoint `gbits`-wide
+//! window per step, so the probe order is a function of all 57 descent bits.
+//!
+//! That is the entire trade, stated exactly: **hashbrown's probe sequence uses `gbits` bits of the
+//! address and ours uses 57.** Keys agreeing on `j` of our windows need `2^(j * gbits)` trials to
+//! find; under triangular probing one solve for the first group makes the rest of the chain free.
+//! The cost of holding 57 bits rather than `gbits` is that the word must stay in a register for
+//! the length of the probe -- one `mov`.
+//!
+//! Measured by deleting the split (`place = lo`, no `rotl`, no `xor`) and re-running: `get` 36.65
+//! -> 34.55 instr, `insert` 73.74 -> 70.74, `entry` 75.73 -> 71.74. That delta is the two mixing
+//! instructions plus the register copies, and the table above says the mixing half of it is
+//! matched instruction for instruction by anything else that mixes. What is left is the descent.
 //!
 //! The cheaper placements were measured and rejected on distribution, in `coord::spread`'s table:
 //! `hi ^ lo` and `hi + lo` both fail `align4096`, and `(hi ^ lo) * PSI` needs a second multiply.
@@ -297,7 +334,12 @@ impl Geom {
                           GROUP` and therefore a `usize`. The mask makes the truncation unobservable."
         )]
         {
-            p.wrapping_shr(self.gshift) as usize & self.gmask
+            // SAFETY: `gshift` is `(DESCENT_BITS - 4).saturating_sub(gbits)`, so at most 53. LLVM
+            // cannot see that across the struct load, so `wrapping_shr` emits an `and $0x3f` to
+            // implement the `% 64` it promises. Telling it the range deletes that instruction.
+            // `Geom::of` is the only constructor and `the_shift_is_in_range` pins the bound.
+            unsafe { std::hint::assert_unchecked(self.gshift < 64) };
+            (p >> self.gshift) as usize & self.gmask
         }
     }
 }
@@ -349,6 +391,8 @@ impl Descent {
             // The word is spent, or the region is a single group and every window is group zero.
             return group_at(self.p, j, self.g.gbits, self.g.mask()) * GROUP;
         }
+        // SAFETY: as `Geom::first`.
+        unsafe { std::hint::assert_unchecked(self.g.gshift < 64) };
         #[expect(
             clippy::cast_possible_truncation,
             reason = "As `Geom::first`: masked to `gmask` immediately, so the discarded bits cannot reach \
@@ -2962,6 +3006,18 @@ mod tests {
     /// the two are written differently on purpose: one shifts a word it is carrying, the other
     /// recomputes the window from scratch, and they must agree at every step -- including past the
     /// point where the word runs out and the carried form has nothing left to shift.
+    /// `Geom::first` and `Descent::next` shift by `gshift` under `assert_unchecked(gshift < 64)`,
+    /// which is unsound if any reachable geometry exceeds it. `Geom::of` is the only constructor.
+    #[test]
+    fn the_shift_amount_is_always_in_range() {
+        for gbits in 0..=48u32 {
+            let g = Geom::of(1usize << gbits);
+            assert!(g.gshift < 64, "gbits {gbits} gave gshift {}", g.gshift);
+        }
+        assert!(Geom::of(0).gshift < 64);
+        assert!(Geom::default().gshift < 64);
+    }
+
     #[test]
     fn the_carried_descent_is_the_computed_one() {
         let mut r = 0x243F_6A88_85A3_08D3u64;
