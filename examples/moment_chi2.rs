@@ -142,7 +142,17 @@ fn fold(variant: u8, len: usize, x: u64) -> u64 {
                 19 => p ^ ((x | y).wrapping_add(x)),
                 20 => p ^ ((x | y).wrapping_add(y)),
                 21 => p ^ ((x | y) ^ (x & y).wrapping_add(x)),
-                _ => p ^ (x.wrapping_add(y) | x),
+                22 => p ^ (x.wrapping_add(y) | x),
+                // Linear guards `a*x + b*y`. Per-argument injective iff `a` and `b` are both odd;
+                // diagonal `(a+b)*t + k` non-injective iff `a+b` is even; asymmetric iff `a != b`.
+                // Two odds sum to an even, so all three hold at once.
+                23 => p ^ x.wrapping_add(y.wrapping_mul(3)),
+                24 => p ^ x.wrapping_mul(3).wrapping_add(y),
+                25 => p ^ x.wrapping_add(y.wrapping_mul(5)),
+                26 => p ^ x.wrapping_mul(3).wrapping_add(y.wrapping_mul(5)),
+                27 => p ^ x.wrapping_add(y.wrapping_mul(7)),
+                // `alpha = 1, beta = -1`: both odd, sum zero (even), difference 2. One `sub`.
+                _ => p ^ x.wrapping_sub(y),
             }
         }
     })
@@ -191,6 +201,12 @@ fn main() {
         (20, "20 (x|y)+y:         p ^ ((x|y) + y)      [asym + non-affine]"),
         (21, "21 or ^ (and+x):    p ^ ((x|y) ^ ((x&y)+x))"),
         (22, "22 (x+y)|x:         p ^ ((x+y) | x)"),
+        (23, "23 x + 3y:          both odd, sum even, asymmetric"),
+        (24, "24 3x + y:          both odd, sum even, asymmetric"),
+        (25, "25 x + 5y:          both odd, sum even, asymmetric"),
+        (26, "26 3x + 5y:         both odd, sum even, asymmetric"),
+        (27, "27 x + 7y:          both odd, sum even, asymmetric"),
+        (28, "28 x - y:           both odd, sum 0, ONE instruction"),
     ] {
         let vs: Vec<String> =
             [4usize, 8].iter().map(|&l| format!("len={l}: {:7.3}", variance(l, |x| fold(v, l, x)))).collect();

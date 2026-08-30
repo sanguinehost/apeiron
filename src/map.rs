@@ -32,17 +32,17 @@
 //!
 //! | corpus | bytes | apeiron | foldhash | |
 //! |---|---|---|---|---|
-//! | short | 2 | 44.1 | 34.1 | +10.0 |
-//! | **resref** | **13** | **30.1** | **22.1** | **+8.0** |
-//! | path | 42 | **71.1** | 73.1 | -2.0 |
-//! | long | 231 | 228.3 | 179.6 | +48.7 |
+//! | short | 2 | 43.1 | 34.1 | +9.0 |
+//! | **resref** | **13** | **29.1** | **22.1** | **+7.0** |
+//! | path | 42 | **69.1** | 73.1 | -4.0 |
+//! | long | 231 | 202.2 | 179.6 | +22.6 |
 //!
-//! Six of the eight are two named steps, priced by stubbing each out and re-measuring:
+//! The two named steps, priced by stubbing each out and re-measuring:
 //!
 //! | | resref | path |
 //! |---|---|---|
 //! | `fold::settle`, the finalizer | **4.00** | 4.00 |
-//! | `fold::mix2`'s zero guard | **2.00** | 18.00 |
+//! | `fold::mix2`'s zero guard | **1.00** | 16.00 |
 //!
 //! Both are bought deliberately. `settle` closes `SMHasher`'s `DiffDist` failure at bit 63, where
 //! `2^63` is a zero divisor and no further multiply repairs it. The guard is what stops `a` or `b`
@@ -50,6 +50,11 @@
 //! the seed is a known constant, so that operand is reachable by choice rather than by luck.
 //! `foldhash` needs neither because it is seeded from process randomness and has no deterministic
 //! mode to defend. That is the trade, and it is a trade rather than a deficit.
+//!
+//! The guard went from 2.00 to 1.00 here, and from 18.00 to 16.00 on the path shape, by becoming
+//! `a - b` instead of `a + rotl(b, 32)`. That was not a speed change looking for a justification:
+//! the old guard swaps for every pair of words with the same half difference -- classes of size
+//! `2^32` -- and the new one on exactly two points. See `fold::mix2` and the four proofs beside it.
 //!
 //! The remaining **4.9** is the table and the compare, and it is register pressure: the inlined
 //! length ladder leaves the probe spilling its accumulator, its iterator and two `xmm` registers

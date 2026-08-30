@@ -1,13 +1,14 @@
 //! Folding a key of unbounded width into a `u64` address.
 //!
 //! `Coord` for an integer is the identity. For bytes there is no such luck, so this folds them:
-//! `mix2(a, b)` is the folded 128-bit product `lo ^ hi`, plus a guard term `a + rotl(b, 32)`.
+//! `mix2(a, b)` is the folded 128-bit product `lo ^ hi`, plus a guard term `a - b`.
 //!
 //! **The guard is not optional.** A bare folded multiply returns zero whenever either operand is
 //! zero, so an attacker who cancels the seed gets one address for every tail. `wyhash` closes this
 //! with a secret seed; this crate cannot (a per-run seed denies deterministic replay), so it
 //! closes it structurally -- when the product annihilates the guard term is all that is left, and
-//! it is injective in the free operand. `hashtrinity` shipped without one: 4,096 keys built from
+//! it is injective in the free operand. The guard is `a - b` and the coefficients being **both
+//! odd** is the whole of its design; see [`mix2`]. `hashtrinity` shipped without one: 4,096 keys built from
 //! published constants gave it **one** address, and its table answered 4,095 of 4,096 lookups
 //! with another key's value.
 //!
@@ -59,9 +60,30 @@ pub const fn mix2(a: u64, b: u64) -> u64 {
                       which is what makes a widening multiply a mixing step rather than a widening one."
     )]
     let p = ((w >> 64) as u64) ^ (w as u64);
-    // Rotating `b` before adding means the guard is not symmetric in its arguments, so a swapped
-    // pair does not survive it, and it is injective in each argument with the other held fixed.
-    p ^ a.wrapping_add(b.rotate_left(32))
+    // The guard is `a - b`: **both coefficients odd**, which is the whole design.
+    //
+    // For a linear guard `alpha*a + beta*b` on `Z/2^64` each property the fold wants is a parity
+    // condition -- injective in each argument iff both are odd; symmetric only on `ker(alpha-beta)`;
+    // and the *diagonal* `t -> g(t+s1, t+s2)` non-injective iff `alpha+beta` is even. Two odds sum
+    // to an even, so per-argument injectivity **implies** the diagonal collapse, and those two are
+    // the same condition rather than opposed ones.
+    //
+    // It replaced `a + rotl(b, 32)`, which is not linear and which bought that non-linearity at a
+    // price nobody had measured. `g(x,y) == g(y,x)` iff `f(x) == f(y)` for `f(v) = v - rotl(v,32)`,
+    // and writing `x = h*2^32 + l` gives `f(x) = (h-l)*(2^32 - 1)`, whose multiplier is **odd** and
+    // therefore invertible: `f` collapses every word with the same half difference onto one value,
+    // fibers of size `2^32`. Incrementing both halves of any word produces a swap partner, so
+    // `fold_long`'s round `mix2(x_acc + a0, NU + a1)` handed a pepper-zero attacker a constructible
+    // collision. `proofs::the_shipped_guard_swaps_whenever_the_half_differences_agree` and
+    // `every_word_has_a_swap_partner_under_the_shipped_guard` prove it; `the_guard_is_not_symmetric`
+    // tested a handful of values and passed, which is why it stood.
+    //
+    // `a + 3b` swaps on exactly two points -- `y == x` and `y == x + 2^63`, proved in
+    // `the_odd_pair_guard_swaps_only_on_a_two_element_coset` -- so this is thirty-one bits of
+    // improvement, not a trade. It also fixes `SMHasher`'s `MomentChi2` derivative, the crate's last
+    // failing test, because that failure *is* the diagonal: see `examples/moment_chi2.rs`. And `3b`
+    // is one `lea` where `rotl(b, 32)` is one `rol`.
+    p ^ a.wrapping_sub(b)
 }
 
 #[inline]
@@ -493,11 +515,39 @@ mod tests {
         assert_eq!(seen.len(), N as usize, "mix2(., 0) must stay injective");
     }
 
-    /// Swapping the two words is a different key and must be a different address.
+    /// Swapping the two words is a different key and must be a different address -- **and this
+    /// test used to assert that with two hardcoded pairs.**
+    ///
+    /// It passed on the previous guard `a + rotl(b, 32)`, which swaps for *every* pair of words
+    /// with the same half difference: classes of size `2^32`, and a constructible collision in
+    /// `fold_long`. Two samples cannot see a structure that large, so this asserts the
+    /// characterisation instead -- `g(x,y) == g(y,x)` exactly on `y == x` and `y == x + 2^63`,
+    /// proved over all inputs in `proofs::the_odd_pair_guard_swaps_only_on_a_two_element_coset`.
     #[test]
-    fn the_guard_is_not_symmetric() {
+    fn the_guard_swaps_only_on_the_two_element_coset() {
         assert_ne!(mix2(1, 2), mix2(2, 1));
         assert_ne!(mix2(PHI, NU), mix2(NU, PHI));
+        // The coset that must swap, because `2 * 2^63 == 0`.
+        for x in [0u64, 1, PHI, NU, u64::MAX, 0x5EED] {
+            let y = x ^ (1 << 63);
+            assert_eq!(mix2(x, y), mix2(y, x), "the two-element coset must swap at {x:#x}");
+        }
+        // And nothing outside it, over a sweep wide enough to have caught the old guard.
+        let mut s = 0x243F_6A88_85A3_08D3u64;
+        for _ in 0..200_000 {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            let (x, y) = (s, s.rotate_left(32).wrapping_mul(NU));
+            let d = y.wrapping_sub(x);
+            if d != 0 && d != 1 << 63 {
+                assert_ne!(mix2(x, y), mix2(y, x), "unexpected swap at {x:#x},{y:#x}");
+            }
+        }
+        // The rejected guard, exhibited: same half difference, so it swaps.
+        let old = |a: u64, b: u64| a.wrapping_add(b.rotate_left(32));
+        let (u, v) = (0x0000_0001_0000_0000u64, 0x0000_0002_0000_0001u64);
+        assert_eq!(old(u, v), old(v, u), "the rejected guard's 2^32-wide swap class");
     }
 
     #[test]
