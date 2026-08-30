@@ -29,7 +29,7 @@
 //! birthday bound at `2^32` keys. What it changes is what a collision *costs* -- see
 //! [`crate::pepper`].
 
-use crate::coord::{Coord, PHI};
+use crate::coord::{Coord, PHI, PSI};
 
 /// A second odd multiplier, independent of [`PHI`]. Odd, so multiplication by it is a bijection on
 /// `Z/2^64` and no input is mapped to zero except zero.
@@ -104,7 +104,29 @@ pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
     let len = b.len();
     // The length enters through a multiply, so it changes every bit of the seed rather than the
     // low ones. Two keys of different lengths therefore start from unrelated states.
-    let seed = pepper.wrapping_add(PHI).wrapping_add((len as u64).wrapping_mul(NU));
+    // The pepper enters **multiplicatively**, and by two different odd constants, one per lane.
+    //
+    // Adding it made the key and the pepper interchangeable: with `mix2(a + seed, c + NU)` the
+    // hash is a function of `a + seed` whenever two keys share `c`, so every pair with the same
+    // sum collides. At one to three bytes `c` was always zero and *every* pair did -- SMHasher's
+    // PerlinNoise keyset found 14,741,760 collisions in 16,777,216 hashes.
+    //
+    // Two weaker repairs failed and are worth recording. Making `c` key-derived at short lengths
+    // fixed those but left it alive wherever `c` happens to be zero: a five-byte key reads `c`
+    // from bytes 1..5, so key 0 under pepper 1 still met key 1 under pepper 0. Seeding the second
+    // lane with `seed.rotate_left(32)` failed too, because a rotate is a bit permutation and so
+    // commutes with the addition it was meant to break: key 0 under pepper 257 met key 256 under
+    // pepper 0.
+    //
+    // A multiply does not commute with a translation. A collision now needs
+    // `a1 + p1*PHI == a2 + p2*PHI` *and* `c1 + p1*PSI == c2 + p2*PSI`; for equal `c` the second
+    // forces `p1 == p2` because `PSI` is odd and invertible, and then the first forces `a1 == a2`.
+    // This is exactly the rule `Salt` records for the address bijection -- an additive secret is a
+    // translation and buys nothing -- which the fold was not following.
+    let seed = pepper
+        .wrapping_mul(PHI)
+        .wrapping_add((len as u64).wrapping_mul(NU));
+    let seed2 = pepper.wrapping_mul(PSI).wrapping_add(NU);
 
     if len <= 16 {
         let (a, c) = if len >= 8 {
@@ -117,17 +139,30 @@ pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
             let a = (u64::from(b[0]) << 16)
                 | (u64::from(b[len >> 1]) << 8)
                 | u64::from(b[len - 1]);
-            (a, 0)
+            // The second operand is the key again, rotated -- **not** zero, which is what it was.
+            //
+            // With `c = 0` the whole hash is `mix2(a + seed, NU)`, a function of `a + seed` alone,
+            // so the key and the seed are additively interchangeable and any two pairs with the
+            // same sum collide. SMHasher's PerlinNoise keyset hashes one key under many seeds and
+            // found 14,741,760 collisions in 16,777,216 hashes; `examples/perlin.rs` reproduces
+            // the number exactly. It is also a broken pepper, not merely a bad distribution: one
+            // known (key, hash) pair on a short key yields `a + pepper`, hence the pepper, hence
+            // every other short-key address.
+            //
+            // Longer keys never had it because `c` is key-derived there -- at four bytes `c == a`,
+            // which is enough to tie the key into both operands. This is the same lesson `Salt`
+            // records for the address bijection, in the fold: an additive secret is a translation.
+            (a, a.rotate_left(32))
         } else {
             (0, 0)
         };
-        return mix2(a.wrapping_add(seed), c.wrapping_add(NU));
+        return mix2(a.wrapping_add(seed), c.wrapping_add(seed2));
     }
 
     // 17..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
     // tail -- the middle bytes are read twice, which is harmless, and there is no branch per length.
     if len <= 32 {
-        let x = mix2(word(&b[..8]).wrapping_add(seed), word(&b[8..16]).wrapping_add(NU));
+        let x = mix2(word(&b[..8]).wrapping_add(seed), word(&b[8..16]).wrapping_add(seed2));
         let y = mix2(
             word(&b[len - 16..len - 8]).wrapping_add(x),
             word(&b[len - 8..]).wrapping_add(PHI),
@@ -151,7 +186,7 @@ pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
     // neither reads the other's output, so the multiplier is issued twice per round rather than
     // serialised behind itself.
     let mut x = seed;
-    let mut y = seed.wrapping_add(NU);
+    let mut y = seed2;
     let mut rest = b;
     while rest.len() > 32 {
         let a0 = word(&rest[..8]);
@@ -384,6 +419,33 @@ mod tests {
             assert!(seen.insert(fold_bytes(s.as_bytes())), "collision on {s:?}");
         }
         assert!(lengths[1] && lengths[2] && lengths[3] && lengths[4]);
+    }
+
+    /// A key and the pepper must not be interchangeable.
+    ///
+    /// The defect `SMHasher`'s `PerlinNoise` keyset found: at one to three bytes the second `mix2`
+    /// operand was `0`, so the whole hash was `mix2(a + seed, NU)` -- a function of `a + seed`,
+    /// with the key and the seed additively swappable. Two pairs with the same sum collided, and a
+    /// single known short key gave up the pepper.
+    #[test]
+    fn a_short_key_and_the_pepper_are_not_interchangeable() {
+        for len in 1..=8usize {
+            let mut seen = std::collections::HashMap::new();
+            for k in 0..512u64 {
+                let key = &k.to_le_bytes()[..len];
+                for pepper in 0..512u64 {
+                    let h = fold_bytes_with(pepper, key);
+                    let id = (u64::from_le_bytes({
+                        let mut w = [0u8; 8];
+                        w[..len].copy_from_slice(key);
+                        w
+                    }), pepper);
+                    if let Some(prev) = seen.insert(h, id) {
+                        assert_eq!(prev, id, "len {len}: {prev:?} and {id:?} share an address");
+                    }
+                }
+            }
+        }
     }
 
     /// A single input bit must reach roughly half the output bits, **on every branch of the length
