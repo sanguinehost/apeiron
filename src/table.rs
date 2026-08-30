@@ -104,6 +104,22 @@ const fn home(p: u64) -> usize {
     (p as usize) & (SHARDS - 1)
 }
 
+/// The parallel build is **licensed**, and the licence is checked at compile time.
+///
+/// [`crate::merge::Face::species`] says a build may be split across threads and recombined only
+/// for a commutative merge -- `Species::Free`. That was a fact stated in a doc comment and
+/// consulted by nothing: `build_parallel` would have partitioned a directional merge just as
+/// happily, and the algebra would have forbidden something the code went on doing.
+///
+/// This table's merge is `Face::Count`, a commutative monoid, so the licence holds. Stating it as
+/// a `const` means the day someone gives `CountTable` a `Set` or a `Link` merge -- both
+/// `Ordered`, both order-dependent -- the crate stops building rather than silently returning an
+/// answer that depends on how the threads were scheduled.
+const _: () = assert!(
+    matches!(crate::merge::Face::Count.species(), crate::merge::Species::Free),
+    "build_parallel splits the stream and recombines it; only a commutative merge licenses that"
+);
+
 /// Counts per distinct address, built by partitioning and probed the same way.
 pub struct CountTable {
     /// One region per shard, each sized to the keys that actually landed in it.
