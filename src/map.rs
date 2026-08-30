@@ -809,6 +809,29 @@ impl Absorb<Vec<u8>> for &[u8] {
     }
 }
 
+// A `Locate<[u8; N]> for &str` view was written, tested and **removed**. It let a call site say
+// `map.get_at("nw_wswmg001")` against a `Map<[u8; 16], V>` without building the array by hand, and
+// it was correct -- five tests, including the one that matters, that a view longer than `N` pads to
+// the same array as its own first `N` bytes and so must be a miss rather than a truncation.
+//
+// It was also **seven times slower than the array it stands for**. The stored key is zero-padded to
+// `N`, so the view has to materialise that array before it can fold it, and the array is memory:
+// `copy_from_slice` with a runtime length is a call to `memcpy` (103.64 instructions and 87.01
+// cycles a lookup, against 50.80 and 10.84 probing the same table with the array directly), and
+// rewriting it as the fold's own overlapping fixed-size reads only moved LLVM to a byte-at-a-time
+// copy into a stack slot that the fold then read back as two `u64`s -- 75.64 instructions and
+// **79.28 cycles**, a store-to-load forwarding stall on every lookup.
+//
+// The fast version exists: fold the `&str`'s bytes directly into the two words the padded array
+// would have produced, with a masked overlapping read and no array at all. It is a second copy of
+// `fold::absorb`'s length ladder that has to stay bit-identical to it forever -- exactly the
+// "second scheme that happens to agree" that the tuple view below is written to avoid.
+//
+// And the performance would depend on something the caller cannot see: with a literal the length is
+// a constant and the pad is a register move, with a `String` it is not. A view that is fast or 7x
+// slow depending on whether the length is known at compile time is worse than no view. Hold the
+// `[u8; N]` key.
+
 impl<A: Coord + Eq, B: Coord + Eq, PA: Locate<A>, PB: Locate<B>> Locate<(A, B)> for (PA, PB) {
     #[inline(always)]
     fn coord_at(&self, pepper: u64) -> u64 {

@@ -51,6 +51,27 @@
 //! are not already addresses, that is a discard, and a discard has fibers only the key itself can
 //! separate.
 //!
+//! # Choose the key before you choose the table
+//!
+//! The largest number in this crate's measurements is not in this crate. Copying a 13-byte `String`
+//! key into a table costs **376.9 instructions** -- three times the insert it precedes, and the
+//! same for `hashbrown` -- and it is the allocator rather than the copy: 376.9 at 13 bytes, 375.6
+//! at 42, 399.4 at 200, flat across a 3x range in length. A key that fits in a fixed array does not
+//! pay it at all, and [`Coord`](coord::Coord) is implemented for `[u8; N]`.
+//!
+//! Measured over 694 Neverwinter resrefs, instructions per key (`examples/three_costs.rs`):
+//!
+//! | | `Map<String, V>` | `Map<[u8; 16], V>` | |
+//! |---|---|---|---|
+//! | copy the key in | 376.90 | **0.07** | a `malloc` against a `memcpy` |
+//! | build the table | 500.91 | **86.87** | **5.8x** |
+//! | look one key up | 97.64 | **50.80** | **1.9x** |
+//!
+//! A `ResRef` is at most sixteen bytes by the format's own definition, so `[u8; 16]` is not a
+//! compromise there -- it is the type. Nothing this crate could win against another hash table is
+//! worth a fifth of that difference, and the honest advice is to stop owning each key: use a fixed
+//! array where the key has a bound, and an interned handle where it does not.
+//!
 //! **The point of the crate is that the dial is real.** Naming three storage faces after the
 //! trichotomy while branching on nothing is a vocabulary, not an implementation. Here `Sigma` is
 //! a value, the operations take it, and the things only hyperbolic can do are unavailable
