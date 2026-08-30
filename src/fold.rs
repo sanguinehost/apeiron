@@ -101,6 +101,48 @@ pub fn fold_bytes(b: &[u8]) -> u64 {
 #[inline]
 #[must_use]
 pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
+    settle(absorb(pepper, b))
+}
+
+/// The last step, and it is not optional: a multiply then an xor-shift.
+///
+/// Multiplication in `Z/2^64` carries information **upward only**, so the top bits of a product
+/// are the ones no later multiply can bring back. `2^63` is a zero divisor there with annihilator
+/// `2Z`, which means flipping the top bit of a `mix2` operand moves the product by
+/// `2^63 * (b & 1)` -- a function of the *other* operand's low bit and not of the flipped one at
+/// all. The differences then cluster, which is what `SMHasher`'s `DiffDist` reports at bit 63:
+/// 642,947 high-32 collisions against 512 expected, and 99.7% distribution bias.
+///
+/// No further multiply repairs that. The repair has to come from the other structure -- a
+/// `GF(2)`-linear shift that moves information *down*, which is why splitmix alternates the two
+/// algebras and why [`crate::coord::spread`] ends in `rotl(hi, 32) ^ lo`. Measured, distinct
+/// high-32 differences over 200,000 keys with the top bit flipped:
+///
+/// | final step | bit 63 | |
+/// |---|---|---|
+/// | none | 167,240 | |
+/// | `h ^ (h >> 32)` | 167,240 | a `GF(2)`-linear map permutes differences, it cannot unclump them |
+/// | `h ^ rotr(h, 32)` | 199,947 | **unusable**: sends `(hi, lo)` to `(hi^lo, hi^lo)`, so the range is `2^32` |
+/// | **`h * PHI` then `x ^ (x >> 32)`** | **199,997** | bijective, one multiply |
+/// | `finish` (splitmix) | 199,995 | bijective, two multiplies |
+///
+/// A finalizer must be a bijection or it manufactures collisions of its own -- which is what the
+/// rotate does, and why the best-scoring candidate was the wrong one.
+#[expect(
+    clippy::inline_always,
+    reason = "the split into `absorb` and `settle` exists for readability; neither may become a \
+              call, and `fold_bytes_with` is on every string lookup"
+)]
+#[inline(always)]
+fn settle(h: u64) -> u64 {
+    let x = h.wrapping_mul(PHI);
+    x ^ (x >> 32)
+}
+
+/// The fold proper, before [`settle`].
+#[expect(clippy::inline_always, reason = "as `settle`")]
+#[inline(always)]
+fn absorb(pepper: u64, b: &[u8]) -> u64 {
     let len = b.len();
     // The length enters through a multiply, so it changes every bit of the seed rather than the
     // low ones. Two keys of different lengths therefore start from unrelated states.
@@ -441,11 +483,14 @@ mod tests {
     /// single known short key gave up the pepper.
     #[test]
     fn a_short_key_and_the_pepper_are_not_interchangeable() {
+        // 512 x 512 x 8 folds is a second natively and minutes under Miri, where the point is
+        // the unsafe and not the coverage. The crate's convention, as in `fold_is_deterministic`.
+        const N: u64 = if cfg!(miri) { 48 } else { 512 };
         for len in 1..=8usize {
             let mut seen = std::collections::HashMap::new();
-            for k in 0..512u64 {
+            for k in 0..N {
                 let key = &k.to_le_bytes()[..len];
-                for pepper in 0..512u64 {
+                for pepper in 0..N {
                     let h = fold_bytes_with(pepper, key);
                     let id = (u64::from_le_bytes({
                         let mut w = [0u8; 8];
@@ -472,8 +517,13 @@ mod tests {
     #[test]
     #[expect(clippy::cast_possible_truncation, reason = "a key byte is a byte of a mixed word")]
     fn every_input_bit_moves_half_the_output_at_every_length() {
-        const KEYS: u32 = 96;
-        for len in [1usize, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200] {
+        const KEYS: u32 = if cfg!(miri) { 8 } else { 96 };
+        const LENS: &[usize] = if cfg!(miri) {
+            &[1, 4, 8, 16, 33, 64]
+        } else {
+            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200]
+        };
+        for &len in LENS {
             let mut worst = (0usize, 0.5f64);
             for bit in 0..len * 8 {
                 let mut moved = 0u32;
@@ -494,8 +544,12 @@ mod tests {
                     worst = (bit, frac);
                 }
             }
+            // The band widens with the sample: 96 keys is 6144 bit-observations per input bit and
+            // 0.44..=0.56 is tight on that; 8 keys is 512 and the same band would fail on sampling
+            // noise alone. Miri runs this for the code path, not the statistic.
+            let band = if cfg!(miri) { 0.36..=0.64 } else { 0.44..=0.56 };
             assert!(
-                (0.44..=0.56).contains(&worst.1),
+                band.contains(&worst.1),
                 "len {len}: bit {} moved {:.3} of the output, averaged over {KEYS} keys",
                 worst.0,
                 worst.1
