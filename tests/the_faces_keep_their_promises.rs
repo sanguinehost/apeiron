@@ -16,7 +16,7 @@
 )]
 
 use apeiron::coord::Coord;
-use apeiron::keystore::Keystore;
+use apeiron::cell::Sigma;
 use apeiron::map::{Map, Words};
 
 /// **The `SPREAD` obligation.**
@@ -90,7 +90,7 @@ fn the_elliptic_face_hands_back_the_key_it_was_given() {
     for (i, &k) in keys.iter().enumerate() {
         m.insert(k, i as u32);
     }
-    assert_eq!(m.face(), Keystore::Being);
+    assert_eq!(m.face(), Sigma::Elliptic);
     let mut back: Vec<u64> = m.keys().collect();
     let mut want = keys.clone();
     back.sort_unstable();
@@ -126,7 +126,7 @@ fn the_parabolic_face_is_right_even_when_the_address_collides() {
         m.insert(Lossy(i), i);
     }
     assert_eq!(m.len(), LOSSY as usize, "the fibers swallowed keys");
-    assert_eq!(m.face(), Keystore::BeingOverUnbeing);
+    assert_eq!(m.face(), Sigma::Parabolic);
     for i in 0..LOSSY {
         assert_eq!(m.get(&Lossy(i)), Some(&i), "wrong value for {i}");
     }
@@ -169,11 +169,11 @@ fn each_face_hands_back_what_it_can() {
 fn a_face_costs_exactly_what_its_discriminant_says() {
     use apeiron::map::{Regen, Stored};
 
-    // Being: one word, and no room for a key.
+    // Elliptic: one word, and no room for a key.
     assert_eq!(size_of::<Regen<u64>>(), size_of::<u64>());
     assert_eq!(size_of::<Regen<(u32, u32)>>(), size_of::<u64>());
 
-    // Being over Unbeing: one word *and* the key, both carried.
+    // Parabolic: one word *and* the key, both carried.
     assert_eq!(size_of::<Stored<u64>>(), size_of::<u64>() + size_of::<u64>());
     assert_eq!(size_of::<Stored<String>>(), size_of::<u64>() + size_of::<String>());
 
@@ -210,7 +210,7 @@ fn a_commutative_merge_does_not_care_about_order() {
         }
         m
     };
-    assert_eq!(build(&pairs), build(&reversed), "counting is not order-free on Being");
+    assert_eq!(build(&pairs), build(&reversed), "counting is not order-free on the elliptic face");
 
     // Parabolic face, same stream, same answer.
     let build_s = |src: &[(u64, i64)]| {
@@ -220,7 +220,7 @@ fn a_commutative_merge_does_not_care_about_order() {
         }
         m
     };
-    assert_eq!(build_s(&pairs), build_s(&reversed), "counting is not order-free on B/U");
+    assert_eq!(build_s(&pairs), build_s(&reversed), "counting is not order-free on the parabolic face");
 
     // And the directional one is not, or the distinction means nothing.
     let build_set = |src: &[(u64, i64)]| {

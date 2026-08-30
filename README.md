@@ -163,8 +163,8 @@ so `map` is the other two faces, and which one a key gets is decided by the key:
 
 | key | its fold | face | a slot holds | a hit costs |
 |---|---|---|---|---|
-| fits in a word (`Packed`) | a bijection | elliptic, **B** | the address | one compare |
-| wider (`Coord` only) | a discard | parabolic, **B/U** | address **and** key | a compare, then the key |
+| fits in a word (`Packed`) | a bijection | elliptic, *regenerated* | the address | one compare |
+| wider (`Coord` only) | a discard | parabolic, *carried* | address **and** key | a compare, then the key |
 
 `Map<K, V>`, `Words<K, V>`, `Set<K>`, `WordSet<K>`, `Exposed<K, V>`, `ExposedSet<K>`. The std shape,
 including `entry`, `extract_if`, `get_disjoint_mut`, `try_reserve` and `Index`, plus a borrowed-key
@@ -210,9 +210,9 @@ asking for "the" collision rate asks three questions at once:
 
 | face | wants | `coord.rs` gives it |
 |---|---|---|
-| elliptic (**B**) | the address determines the key | `Packed` -- concatenation, exactly invertible, only for keys that fit in 64 bits |
-| parabolic (**B/U**) | spreading; the key is carried and compared | `Coord` -- multiply-add, judged on distribution |
-| hyperbolic (**NB**) | a discard; the key is gone | `Coord` -- same fold, and losing information is the intent |
+| elliptic (*regenerated*) | the address determines the key | `Packed` -- concatenation, exactly invertible, only for keys that fit in 64 bits |
+| parabolic (*carried*) | spreading; the key is carried and compared | `Coord` -- multiply-add, judged on distribution |
+| hyperbolic (*discarded*) | a discard; the key is gone | `Coord` -- same fold, and losing information is the intent |
 
 Two things this corrects. hashtrinity's `a.wrapping_mul(PHI) ^ b` leaves the ring for `GF(2)` and
 collides on 49% of a signed pair grid and 72% of a signed triple grid -- bad *distribution*, on a

@@ -39,9 +39,9 @@
 //!
 //! | face | keystore | the thing | in |
 //! |---|---|---|---|
-//! | elliptic | **B** -- the address is the key | [`Words`], a map that stores no key | [`map`] |
-//! | parabolic | **B/U** -- the key rides beside it | [`Map`], a map for opaque and string keys | [`map`] |
-//! | hyperbolic | **NB** -- the key is discarded | [`CountTable`], counts per address | [`table`] |
+//! | elliptic | **regenerated** -- the address is the key | [`Words`], a map that stores no key | [`map`] |
+//! | parabolic | **carried** -- the key rides beside it | [`Map`], a map for opaque and string keys | [`map`] |
+//! | hyperbolic | **discarded** -- the key is gone | [`CountTable`], counts per address | [`table`] |
 //!
 //! and one merge over all three ([`merge`]), because commutativity and associativity hold on every
 //! face with no hypothesis on the dial while the keystore varies with it. That asymmetry is the
@@ -76,7 +76,6 @@ pub mod table;
 pub use apeiron_derive::{Coord, Packed};
 
 pub use cell::{Cell, Sigma};
-pub use keystore::Keystore;
 pub use map::{Exposed, ExposedWords, Map, Stats, Words};
 pub use set::{ExposedSet, Set, WordSet};
 pub use pepper::{process_pepper, set_process_pepper};

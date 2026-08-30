@@ -329,11 +329,10 @@ mod harnesses {
 
     // -- the map's address bijection and its probe geometry --------------------------------------
 
-    use crate::keystore::Keystore;
     use crate::map::{limit, region_for, Held, Salt, Stored};
 
     /// The elliptic face reads its key back off the address, so the bijection has to be exact --
-    /// otherwise the face is not `Being`, it is a lossy fold pretending to be one and every key it
+    /// otherwise the face is not elliptic, it is a lossy fold pretending to be one and every key it
     /// hands back is a guess. The bijection is `x -> ((x*M) ^ ((x*M) >> 48)) * PSI`, so it is
     /// exact when its three steps are, and the steps are proved apart because the whole is not
     /// decidable here.
@@ -522,28 +521,35 @@ mod harnesses {
 
     // -- the trichotomy, as a law ------------------------------------------------------------------
 
-    /// **Exactly three faces, and exactly three keystores.** `Keystore::of` and `Keystore::sigma`
-    /// are mutually inverse, so the correspondence is a bijection and not a naming scheme -- a
-    /// fourth keystore would need a fourth algebra, which `classification` says does not exist.
+    /// **Three faces, three genuinely different storage policies.**
+    ///
+    /// This harness used to prove that a `Keystore` enum and [`Sigma`] were in bijection, via a
+    /// `Keystore::of` and a `Keystore::sigma` written as each other's inverse. That decided
+    /// nothing: it compared a relabelling against the thing it relabelled, and it could not fail.
+    /// The enum is gone, the face is the discriminant, and the claim worth deciding is that the
+    /// policy actually varies -- that no two faces could share a storage implementation, so a
+    /// fourth would need a fourth algebra, which `classification` says does not exist.
     #[kani::proof]
-    fn the_keystores_are_the_faces() {
-        for sigma in FACES {
-            assert_eq!(Keystore::of(sigma).sigma(), sigma);
-        }
-        for face in [Keystore::Being, Keystore::BeingOverUnbeing, Keystore::NonBeing] {
-            assert_eq!(Keystore::of(face.sigma()), face);
-        }
+    fn the_three_faces_license_three_different_policies() {
+        let policy = |s: Sigma| (s.stores_the_key(), s.key_survives());
+        let (a, b, c) = (
+            policy(Sigma::Elliptic),
+            policy(Sigma::Parabolic),
+            policy(Sigma::Hyperbolic),
+        );
+        assert!(a != b);
+        assert!(b != c);
+        assert!(a != c);
     }
 
     /// What each face does with a key follows from its discriminant and from nothing else.
     #[kani::proof]
     fn only_the_middle_face_carries_a_key() {
         for sigma in FACES {
-            let face = Keystore::of(sigma);
             // Parabolic, and only parabolic, has to carry the key beside the address.
-            assert_eq!(face.stores_the_key(), matches!(sigma, Sigma::Parabolic));
+            assert_eq!(sigma.stores_the_key(), matches!(sigma, Sigma::Parabolic));
             // Hyperbolic, and only hyperbolic, destroys it -- which is `discards_iff_disc_pos`.
-            assert_eq!(face.key_survives(), !sigma.discards());
+            assert_eq!(sigma.key_survives(), !sigma.discards());
         }
     }
 

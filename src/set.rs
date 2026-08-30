@@ -19,7 +19,7 @@
 //! reproducibly without paying for a tree serves that directly.
 
 use crate::coord::Coord;
-use crate::keystore::Keystore;
+use crate::cell::Sigma;
 use crate::map::{Absorb, Drain, Held, IntoKeys, Keys, Locate, Map, Regen, Salt, Stats, Stored};
 use std::num::NonZeroU64;
 
@@ -101,7 +101,7 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
 
     /// Which keyed face this set is on.
     #[must_use]
-    pub fn face(&self) -> Keystore {
+    pub fn face(&self) -> Sigma {
         H::FACE
     }
 

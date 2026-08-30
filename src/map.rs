@@ -1,4 +1,5 @@
-//! The two keyed faces: **B** (the address is the key) and **B/U** (the key rides beside it).
+//! The two keyed faces: **elliptic** (the address is the key) and **parabolic** (the key rides
+//! beside it).
 //!
 //! [`crate::table`] is the third face. It keeps a fold and a count and throws the key away, which
 //! is what hyperbolic licenses and nothing else does. A map cannot do that -- it has to hand the
@@ -7,8 +8,8 @@
 //!
 //! | key | its fold | face | a slot holds | a hit costs |
 //! |---|---|---|---|---|
-//! | fits in a word ([`Packed`]) | a bijection | elliptic, **B** | the address | one compare |
-//! | wider ([`Coord`] only) | a discard | parabolic, **B/U** | address **and** key | a compare, then the key |
+//! | fits in a word ([`Packed`]) | a bijection | elliptic, *regenerated* | the address | one compare |
+//! | wider ([`Coord`] only) | a discard | parabolic, *carried* | address **and** key | a compare, then the key |
 //!
 //! The second row is not a safety margin. `str -> u64` has fibers by counting; two keys in one
 //! fiber get the same address and therefore the *same probe sequence*, and the only thing that can
@@ -160,7 +161,7 @@
 
 
 use crate::coord::{finish, inverse_odd, Addr, Coord, Packed, PHI, PHI_INV};
-use crate::keystore::Keystore;
+use crate::cell::Sigma;
 use crate::table::{group_at, scan, tag_of, DESCENT_BITS, GROUP};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
@@ -449,12 +450,12 @@ impl Descent {
 
 /// How a live slot holds its key's identity.
 ///
-/// The two implementations are the two keyed faces of [`Keystore`], and they differ in exactly the
+/// The two implementations are the two keyed faces of [`Sigma`], and they differ in exactly the
 /// way the discriminant predicts: [`Regen`] keeps nothing, because the address determines the key;
 /// [`Stored`] keeps the key, because it does not.
 pub trait Held<K: Coord + Eq>: Sized {
     /// The face this is the storage of.
-    const FACE: Keystore;
+    const FACE: Sigma;
 
     /// The key as read back: a borrow where it was stored, a fresh value where it is regenerated.
     type Ref<'a>
@@ -517,7 +518,7 @@ pub trait Held<K: Coord + Eq>: Sized {
     fn with_key<R>(&self, salt: Salt, f: impl FnOnce(&K) -> R) -> R;
 }
 
-/// **B/U, the parabolic face.** The key is carried beside its address.
+/// **The parabolic face.** The key is carried beside its address.
 ///
 /// Both are kept and both are read, in that order: the address first because it is already in the
 /// slot the tag line pointed at, the key only when the address agreed. A seven-bit tag has a
@@ -529,7 +530,7 @@ pub struct Stored<K> {
 }
 
 impl<K: Coord + Eq> Held<K> for Stored<K> {
-    const FACE: Keystore = Keystore::BeingOverUnbeing;
+    const FACE: Sigma = Sigma::Parabolic;
     type Ref<'a>
         = &'a K
     where
@@ -593,7 +594,7 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
 pub struct Regen<K>(u64, PhantomData<K>);
 
 impl<K: Coord + Packed + Eq> Held<K> for Regen<K> {
-    const FACE: Keystore = Keystore::Being;
+    const FACE: Sigma = Sigma::Elliptic;
     type Ref<'a>
         = K
     where
@@ -930,7 +931,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     /// Which face this map is on -- surfaced so a caller can assert it rather than infer it.
     #[must_use]
-    pub fn face(&self) -> Keystore {
+    pub fn face(&self) -> Sigma {
         H::FACE
     }
 
@@ -2327,7 +2328,7 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Stats {
     /// Which keyed face this table is on.
-    pub face: Keystore,
+    pub face: Sigma,
     /// Live entries.
     pub live: usize,
     /// Slots holding a removed entry: they occupy probe order but hold nothing.
