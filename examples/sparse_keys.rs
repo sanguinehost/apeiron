@@ -1,4 +1,4 @@
-//! SMHasher's Sparse keyset, locally: long keys with almost no bits set.
+//! `SMHasher`'s Sparse keyset, locally: long keys with almost no bits set.
 //!
 //! 256-byte keys with up to two bits set -- 2,098,177 of them. A fold whose lanes lose their
 //! length term or their constant offset collides here, which is how the first repair of the
