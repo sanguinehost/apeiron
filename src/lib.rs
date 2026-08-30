@@ -39,13 +39,32 @@
 //!
 //! | face | keystore | the thing | in |
 //! |---|---|---|---|
-//! | elliptic | **regenerated** -- the address is the key | [`Words`], a map that stores no key | [`map`] |
-//! | parabolic | **carried** -- the key rides beside it | [`Map`], a map for opaque and string keys | [`map`] |
-//! | hyperbolic | **discarded** -- the key is gone | [`CountTable`], counts per address | [`table`] |
+//! | elliptic | **regenerated** -- the address is the key | [`Words`], and [`CountTable`] | [`map`], [`table`] |
+//! | parabolic | **carried** -- the key rides beside it | [`Map`], for opaque and string keys | [`map`] |
+//! | hyperbolic | **discarded** -- the key is gone | the lossy address itself | [`fold`], [`coord`] |
 //!
 //! and one merge over all three ([`merge`]), because commutativity and associativity hold on every
 //! face with no hypothesis on the dial while the keystore varies with it. That asymmetry is the
 //! result; the three faces are not a naming scheme laid over one implementation.
+//!
+//! **The third row used to say `CountTable`, and that was the one piece of decoration in this
+//! crate.** It made the table read three-faces-three-things, and `table.rs` disproves it *at
+//! compile time*: a `CountTable` slot holds `Addr::id`, which is `address * mul` and therefore a
+//! bijection, so [`Salt::unspread`](map::Salt::unspread) recovers the address exactly. The
+//! `const _: () = { assert!(CountTable::FACE.key_survives()) }` beside it has always said elliptic.
+//!
+//! The label survived because **"key" meant two different things in the two documents** -- the
+//! caller's original object here, the `u64` address the table is handed there. [`keystore`] fixes
+//! the frame ("given the address, what of the key survives?") and under it there is no ambiguity.
+//! `CountTable` is *elliptic storage over a hyperbolic address*: the discard already happened, in
+//! the caller's [`Coord`](coord::Coord), before the table saw anything.
+//!
+//! So the hyperbolic face is not a container. It is the address function -- a fold from a key to a
+//! word it does not determine, whose fibers only the key itself can separate, which is why the
+//! parabolic face has to carry the key and why a fold with fibers costs probe length and never
+//! correctness (`proofs::the_parabolic_face_decides_on_the_key`). Two of the three faces are
+//! keystores and the third is the map into them. That is less tidy than the row it replaces, and
+//! the tidiness was the error.
 //!
 //! [`fold`] is what makes the parabolic face necessary rather than optional: it addresses keys that
 //! are not already addresses, that is a discard, and a discard has fibers only the key itself can

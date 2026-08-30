@@ -158,8 +158,14 @@ aimed at, and **all 256** under a peppered table — against 255 for honest traf
 
 ## The map and the set
 
-`table` is the hyperbolic face -- it keeps a fold and a count and throws the key away. A map cannot,
-so `map` is the other two faces, and which one a key gets is decided by the key:
+`table` keeps a fold and a count and throws the key away, so it reads as the hyperbolic face and is
+not: a `CountTable` slot holds `Addr::id`, which is `address * mul` and so a bijection, and
+`table.rs` asserts `CountTable::FACE.key_survives()` at compile time. The discard happened earlier,
+in the caller's `Coord`, which is where the hyperbolic face actually lives -- see the table under
+*What a fold has to be* below, which has said `Coord` all along. `CountTable` is **elliptic storage
+over a hyperbolic address**.
+
+`map` is the other two keystores, and which one a key gets is decided by the key:
 
 | key | its fold | face | a slot holds | a hit costs |
 |---|---|---|---|---|
