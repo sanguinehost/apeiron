@@ -22,6 +22,25 @@
 //! The `String` gap is not the fold, which is at parity (23.1 against 24.1), and not the slot
 //! width, which `LOOKUP_ARM=apstrzst` refutes at 93.2 against 93.4. It is open.
 //!
+//! # What the remaining `u64` gap is, priced
+//!
+//! Measured by deleting the identity/placement split (`place = lo`, no `rotl`, no `xor`) and
+//! re-running the same harnesses. Instructions, and cycles where the table is cache-resident:
+//!
+//! | op | apeiron | without the split | hashbrown + foldhash |
+//! |---|---|---|---|
+//! | `get` | 36.65 instr, 8.27 cyc | 34.55, **6.97** | 33.16, 7.44 |
+//! | `insert` | 73.74 | **70.74** | 70.77 |
+//! | `entry` | 75.73 | **71.74** | 72.74 |
+//!
+//! Without it the probe beats `hashbrown` on `get` cycles and on `entry`, and ties `insert`. The
+//! split is therefore the whole remaining deficit on these three, at 2.1 to 4.0 instructions, and
+//! it is what makes aiming a collision chain cost `2^(j * gbits)` trials instead of one `unspread`
+//! call. It is a purchase, not waste.
+//!
+//! The cheaper placements were measured and rejected on distribution, in `coord::spread`'s table:
+//! `hi ^ lo` and `hi + lo` both fail `align4096`, and `(hi ^ lo) * PSI` needs a second multiply.
+//!
 //! **Rejected**, cycles per `u64` lookup, baseline 8.8:
 //!
 //! | change | cyc | |
