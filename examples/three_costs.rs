@@ -239,6 +239,76 @@ fn fresh_hb<K: Hash + Eq + Clone, V: Clone>(ks: &[K], v: V, reserve: bool) -> us
     n
 }
 
+/// The same 694 keys as `[u8; 16]`, which is what an NWN `ResRef` actually is: at most sixteen
+/// bytes, and this crate already implements `Coord` for the array. No `String`, so no `malloc`,
+/// no `free`, and no `bcmp` call -- the key lives in the slot.
+fn arrays() -> Vec<[u8; 16]> {
+    strings()
+        .iter()
+        .map(|s| {
+            let mut a = [0u8; 16];
+            let b = s.as_bytes();
+            let n = b.len().min(16);
+            a[..n].copy_from_slice(&b[..n]);
+            a
+        })
+        .collect()
+}
+
+#[inline(never)]
+fn clone_only_arr(ks: &[[u8; 16]]) -> usize {
+    let mut n = 0;
+    for _ in 0..REPS {
+        let v: Vec<[u8; 16]> = ks.to_vec();
+        n += v.len();
+    }
+    n
+}
+
+#[inline(never)]
+fn move_ap_arr(ks: &[[u8; 16]], pepper: u64) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for k in ks {
+            acc = acc.wrapping_add(fold_bytes_with(pepper, k));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn move_hb_arr(ks: &[[u8; 16]], h: Fold) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for k in ks {
+            acc = acc.wrapping_add(h.hash_one(k));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn get_ap_arr(m: &Map<[u8; 16], u64>, ks: &[[u8; 16]]) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for k in ks {
+            acc = acc.wrapping_add(m.get(k).copied().unwrap_or(0));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn get_hb_arr(m: &HbMap<[u8; 16], u64>, ks: &[[u8; 16]]) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for k in ks {
+            acc = acc.wrapping_add(m.get(k).copied().unwrap_or(0));
+        }
+    }
+    acc
+}
+
 // -- retrieving ----------------------------------------------------------------------------------
 
 #[inline(never)]
@@ -313,6 +383,28 @@ fn main() {
         "fresh_hb_str" => fresh_hb(&strings(), 1u64, true),
         "grow_ap_str" => fresh_ap(&strings(), 1u64, false),
         "grow_hb_str" => fresh_hb(&strings(), 1u64, false),
+
+        "clone_arr" => clone_only_arr(&arrays()),
+        "move_ap_arr" => usize::try_from(move_ap_arr(&arrays(), black_box(0x5EED)) & MASK).unwrap_or(0),
+        "move_hb_arr" => usize::try_from(move_hb_arr(&arrays(), Fold::default()) & MASK).unwrap_or(0),
+        "alloc_ap_arr" => alloc_ap::<[u8; 16], u64>(true),
+        "alloc_hb_arr" => alloc_hb::<[u8; 16], u64>(true),
+        "fresh_ap_arr" => fresh_ap(&arrays(), 1u64, true),
+        "fresh_hb_arr" => fresh_hb(&arrays(), 1u64, true),
+        "grow_ap_arr" => fresh_ap(&arrays(), 1u64, false),
+        "grow_hb_arr" => fresh_hb(&arrays(), 1u64, false),
+        "get_ap_arr" => {
+            let ks = arrays();
+            let mut m: Map<[u8; 16], u64> = Map::with_capacity(ks.len());
+            for k in &ks { m.insert(*k, 1); }
+            usize::try_from(get_ap_arr(&m, &ks) & MASK).unwrap_or(0)
+        }
+        "get_hb_arr" => {
+            let ks = arrays();
+            let mut m: HbMap<[u8; 16], u64> = HbMap::with_capacity_and_hasher(ks.len(), Fold::default());
+            for k in &ks { m.insert(*k, 1); }
+            usize::try_from(get_hb_arr(&m, &ks) & MASK).unwrap_or(0)
+        }
 
         // retrieving
         "get_ap_u64" => {

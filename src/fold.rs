@@ -334,6 +334,11 @@ impl Coord for Vec<u8> {
 
 impl<const N: usize> Coord for [u8; N] {
     const SPREAD: bool = true;
+    /// An inline byte key up to sixteen bytes compares in at most two register compares, and no
+    /// pointer is chased to do it, so an identity-word early reject in front of that cannot pay --
+    /// the same argument the integers make. Above sixteen the compare becomes a real `memcmp` and
+    /// the reject is worth its two instructions again.
+    const CHEAP_EQ: bool = N <= 16;
     #[inline]
     fn coord(&self) -> u64 {
         fold_bytes(self)

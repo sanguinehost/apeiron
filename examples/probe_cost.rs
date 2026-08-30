@@ -46,15 +46,24 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::hint::black_box;
 
-const N: usize = 694; // one Neverwinter area's worth: everything is L1-resident
-const REPS: usize = 200_000;
+/// `LOOKUP_N` keys, default 694 -- one Neverwinter area's worth, where everything is L1-resident.
+/// A whole module is nearer `100_000` and is not, which is where the two designs stop agreeing.
+fn n() -> usize {
+    std::env::var("LOOKUP_N").ok().and_then(|v| v.parse().ok()).unwrap_or(694)
+}
+
+/// Total lookups is held near constant across sizes so `perf stat` divides by a known number:
+/// `REPS * N ~= 138_800_000`.
+fn reps() -> usize {
+    (138_800_000 / n()).max(1)
+}
 
 type Fx = BuildHasherDefault<rustc_hash::FxHasher>;
 type Fold = foldhash::fast::RandomState;
 
 fn keys() -> Vec<u64> {
     let mut s = 0x243F_6A88_85A3_08D3u64;
-    (0..N)
+    (0..n())
         .map(|_| {
             s ^= s << 13;
             s ^= s >> 7;
@@ -69,16 +78,19 @@ fn keys() -> Vec<u64> {
 /// expensive, and so what the identity word's early reject is worth anything against.
 fn strings() -> Vec<String> {
     match std::env::var("LOOKUP_KEYS").unwrap_or_else(|_| "resref".into()).as_str() {
-        "path" => (0..N)
+        "path" => (0..n())
             .map(|i| format!("modules/neverwinter/areas/nw_wswmg{i:05}.are"))
             .collect(),
-        _ => (0..N).map(|i| format!("nw_wswmg{i:05}")).collect(),
+        _ => (0..n()).map(|i| format!("nw_wswmg{i:05}")).collect(),
     }
 }
 
+/// Built **pre-sized**. The lookup loop is identical either way -- growth happens before the clock
+/// starts -- but at `LOOKUP_N` above the default the table would otherwise pass through a dozen
+/// geometries on the way up, and a size sweep wants one geometry per point.
 #[inline(never)]
 fn ap_words(ks: &[u64]) -> usize {
-    let mut m: Words<u64, u64> = Words::new();
+    let mut m: Words<u64, u64> = Words::with_capacity(ks.len());
     for &k in ks {
         m.insert(k, k);
     }
@@ -88,7 +100,7 @@ fn ap_words(ks: &[u64]) -> usize {
 #[inline(never)]
 fn ap_words_probe(m: &Words<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
@@ -108,7 +120,7 @@ fn ap_map(ks: &[u64]) -> usize {
 #[inline(never)]
 fn ap_map_probe(m: &Map<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
@@ -131,7 +143,7 @@ fn hb_words_probe<S: std::hash::BuildHasher>(
     ks: &[u64],
 ) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
@@ -151,7 +163,7 @@ fn std_words(ks: &[u64]) -> usize {
 #[inline(never)]
 fn std_words_probe(m: &HashMap<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
@@ -181,7 +193,7 @@ fn ap_str<V: Default + Clone>(ks: &[String]) -> usize {
 #[inline(never)]
 fn ap_str_probe<V>(m: &Map<String, V>, ks: &[String]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for k in ks {
             hits += usize::from(m.contains_at(k.as_str()));
         }
@@ -204,7 +216,7 @@ fn ap_map_str(ks: &[String]) -> usize {
 #[inline(never)]
 fn ap_map_str_probe(m: &Map<String, u64>, ks: &[String]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for k in ks {
             hits += usize::from(m.contains_key(k));
         }
@@ -227,7 +239,7 @@ fn hb_str_probe<S: std::hash::BuildHasher>(
     ks: &[String],
 ) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for k in ks {
             hits += usize::from(m.contains_key(k.as_str()));
         }
@@ -240,7 +252,7 @@ fn hb_str_probe<S: std::hash::BuildHasher>(
 #[inline(never)]
 fn ap_words_get_probe(m: &Words<u64, u64>, ks: &[u64]) -> u64 {
     let mut acc = 0u64;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             acc = acc.wrapping_add(m.get(&k).copied().unwrap_or(0));
         }
@@ -250,7 +262,7 @@ fn ap_words_get_probe(m: &Words<u64, u64>, ks: &[u64]) -> u64 {
 
 #[inline(never)]
 fn ap_words_get(ks: &[u64]) -> usize {
-    let mut m: Words<u64, u64> = Words::new();
+    let mut m: Words<u64, u64> = Words::with_capacity(ks.len());
     for &k in ks {
         m.insert(k, k);
     }
@@ -263,7 +275,7 @@ fn hb_words_get_probe<S: std::hash::BuildHasher>(
     ks: &[u64],
 ) -> u64 {
     let mut acc = 0u64;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             acc = acc.wrapping_add(m.get(&k).copied().unwrap_or(0));
         }
@@ -285,7 +297,7 @@ fn hb_words_get<S: std::hash::BuildHasher + Default>(ks: &[u64]) -> usize {
 #[inline(never)]
 fn ap_miss_probe(m: &Words<u64, u64>, ks: &[u64]) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
@@ -309,7 +321,7 @@ fn hb_miss_probe<S: std::hash::BuildHasher>(
     ks: &[u64],
 ) -> usize {
     let mut hits = 0;
-    for _ in 0..REPS {
+    for _ in 0..reps() {
         for &k in ks {
             hits += usize::from(m.contains_key(&k));
         }
