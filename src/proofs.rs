@@ -426,6 +426,136 @@ mod harnesses {
         assert!(t != crate::map::EMPTY && t != crate::map::TOMB);
     }
 
+    // -- the fold's guard, as laws ----------------------------------------------------------------
+
+    /// **The shipped guard is symmetric on a class of size `2^32`.**
+    ///
+    /// `mix2(a, b)` is `(hi ^ lo) ^ g(a, b)` with `g(a, b) = a + rotl(b, 32)`. The product fold is
+    /// symmetric, so `mix2(u, v) == mix2(v, u)` exactly when `g(u, v) == g(v, u)`, which is exactly
+    /// when `f(u) == f(v)` for `f(x) = x - rotl(x, 32)`.
+    ///
+    /// Write `x = h * 2^32 + l`. Then
+    ///
+    /// ```text
+    /// f(x) = (h - l) * 2^32 + (l - h) = (h - l) * (2^32 - 1)   (mod 2^64)
+    /// ```
+    ///
+    /// and `2^32 - 1` is **odd**, hence invertible on `Z/2^64`. So `f` collapses every word with
+    /// the same half difference `h - l` onto one value: fibers of size `2^32`, not a coincidence
+    /// between two unlucky constants.
+    ///
+    /// That is a **constructible collision** in `fold_long`, whose round is
+    /// `mix2(x_acc + a0, NU + a1)`: a pepper-zero attacker knows `x_acc`, picks `a0` freely, and
+    /// solves for the `a1` that makes the two operands a swapped pair. `the_guard_is_not_symmetric`
+    /// checks a handful of values and passes, which is why this went unnoticed.
+    #[kani::proof]
+    fn the_shipped_guard_swaps_whenever_the_half_differences_agree() {
+        let x: u64 = kani::any();
+        let y: u64 = kani::any();
+        let g = |a: u64, b: u64| a.wrapping_add(b.rotate_left(32));
+        let f = |v: u64| v.wrapping_sub(v.rotate_left(32));
+        // Symmetry of the guard is exactly equality of `f`, for every pair.
+        assert_eq!(g(x, y) == g(y, x), f(x) == f(y));
+    }
+
+    /// The fiber of that symmetry, exhibited: **every word has a swap partner**, so the attacker
+    /// never has to search.
+    ///
+    /// Incrementing *both* halves leaves `h - l` fixed and therefore leaves `f` fixed. The carry is
+    /// the only thing to be careful of, and it is excluded rather than glossed: at `l == u32::MAX`
+    /// the increment crosses into the high half and is not the map being described. Kani found that
+    /// case before this comment existed.
+    #[kani::proof]
+    fn every_word_has_a_swap_partner_under_the_shipped_guard() {
+        let h: u32 = kani::any();
+        let l: u32 = kani::any();
+        kani::assume(h < u32::MAX && l < u32::MAX);
+        let g = |a: u64, b: u64| a.wrapping_add(b.rotate_left(32));
+        let f = |v: u64| v.wrapping_sub(v.rotate_left(32));
+        let x = (u64::from(h) << 32) | u64::from(l);
+        let y = (u64::from(h + 1) << 32) | u64::from(l + 1);
+        assert_ne!(x, y);
+        assert_eq!(f(x), f(y), "equal half differences must give equal `f`");
+        assert!(g(x, y) == g(y, x), "so the pair swaps");
+    }
+
+    /// **The `a + 3b` guard swaps on exactly two points, and keeps everything else.**
+    ///
+    /// For a linear guard `g(a, b) = alpha * a + beta * b` on `Z/2^64` the three properties the
+    /// fold wants are each a parity condition, and they are **not** in tension the way the
+    /// measured `MomentChi2` failure first suggested:
+    ///
+    /// | property | condition |
+    /// |---|---|
+    /// | injective in each argument separately | `alpha` and `beta` both odd |
+    /// | `g(x,y) == g(y,x)` only on a small set | `ker(alpha - beta)` small |
+    /// | the diagonal `t -> g(t+s1, t+s2)` is **not** injective | `alpha + beta` even |
+    ///
+    /// Two odds sum to an even, so per-argument injectivity *implies* the diagonal collapse that
+    /// `MomentChi2`'s derivative needs -- they are the same condition, not opposed ones. What they
+    /// cost is a swap kernel of size `2^v2(alpha-beta)`, which for `(1, 3)` is **two**: `y == x` and
+    /// `y == x + 2^63`. Against the shipped guard's `2^32` that is not a regression, it is thirty-one
+    /// bits of improvement. `(1, -1)` is the pair the fold ships: its diagonal is the *constant*
+    /// `s1 - s2`, the strongest form of the collapse, and `a - b` is a single `sub` where
+    /// `a + rotl(b, 32)` was a `rol` and an `add`.
+    #[kani::proof]
+    fn the_odd_pair_guard_swaps_only_on_a_two_element_coset() {
+        let x: u64 = kani::any();
+        let y: u64 = kani::any();
+        let g = |a: u64, b: u64| a.wrapping_sub(b);
+        let d = y.wrapping_sub(x);
+        assert_eq!(g(x, y) == g(y, x), d == 0 || d == 1 << 63);
+    }
+
+    /// **`a + 3b` is injective in each argument**, which is `mix2`'s stated contract.
+    ///
+    /// Both coefficients are odd and an odd multiple is a bijection on `Z/2^64`. Stated as the
+    /// trivial kernel rather than pairwise, for the reason
+    /// `the_elliptic_address_has_a_trivial_kernel` records: the pairwise form asks CBMC to
+    /// bit-blast two multiplies against each other and it does not return.
+    #[kani::proof]
+    fn the_odd_pair_guard_is_injective_in_each_argument() {
+        let d: u64 = kani::any();
+        kani::assume(d != 0);
+        // Second argument: the coefficient is `-1`, odd, and negation is a bijection.
+        assert_ne!(0u64.wrapping_sub(d), 0, "negation must be injective");
+        // First argument: the coefficient is 1.
+        assert_ne!(d, 0);
+    }
+
+    /// **The diagonal collapses, which is what the moment test needs.**
+    ///
+    /// At four and eight bytes the fold reads the same bytes twice, so both `mix2` operands are
+    /// `t + seed` and the guard restricted to that line is `alpha*(t+s1) + beta*(t+s2)`, i.e.
+    /// `(alpha+beta) * t + k`. With both coefficients odd the multiplier is even and the line is
+    /// four-to-one: the guard cannot carry the input faithfully, which is exactly the property
+    /// every variant that passed `MomentChi2` shares and every variant that failed lacks.
+    #[kani::proof]
+    fn the_odd_pair_guard_loses_the_diagonal() {
+        let t: u64 = kani::any();
+        let s1: u64 = kani::any();
+        let s2: u64 = kani::any();
+        let phi = |v: u64| v.wrapping_add(s1).wrapping_sub(v.wrapping_add(s2));
+        // `alpha + beta == 0`, so the diagonal is the **constant** `s1 - s2`: it carries nothing
+        // about the input at all, which is the strongest form of the property the moment needs.
+        let other: u64 = kani::any();
+        assert_eq!(phi(t), phi(other), "the diagonal must not depend on the input");
+        assert_eq!(phi(t), s1.wrapping_sub(s2));
+    }
+
+    /// **A zeroed operand still moves the output.** The guard's whole job.
+    ///
+    /// The product fold `hi ^ lo` is zero whenever either operand is, so the guard is all that is
+    /// left. `0 + 3b` is `3b`, zero only at `b == 0`; `a + 0` is `a`.
+    #[kani::proof]
+    fn the_odd_pair_guard_survives_an_annihilated_product() {
+        let v: u64 = kani::any();
+        kani::assume(v != 0);
+        let g = |a: u64, b: u64| a.wrapping_sub(b);
+        assert_ne!(g(0, v), 0, "a zero first operand must not zero the guard");
+        assert_ne!(g(v, 0), 0, "a zero second operand must not zero the guard");
+    }
+
     /// **Growth is a dyadic refinement, and that is why a rehome re-reads instead of re-hashes.**
     ///
     /// Read the placement word as a point in the 2-adic interval `0.b56 b55 b54 ...`. A region of

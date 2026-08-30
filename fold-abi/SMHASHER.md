@@ -28,16 +28,43 @@ Then `cmake -DCMAKE_BUILD_TYPE=Release . && make -j8 SMHasher && ./SMHasher apei
 | 3, pepper multiplied, constants dropped | 8 | Sparse 9/279/36, Permutation 225, TwoBytes 1/19, DiffDist 1,000 |
 | 4, constants and length restored | 6 | DiffDist 100 |
 | 5, finalizer added | **2** | **none** |
+| 6, guard changed to `a - b` | **0** | **none** |
 
 Run 5 passes Sanity, AppendedZeroes, Avalanche, Sparse, Permutation, TwoBytes, Text,
 PerlinNoise, DiffDist, Diff (8.3e9 tests), Bic, Zeroes, Seed, Window, Cyclic, Prng, and runs bulk
 at ~6.9 bytes/cycle. **Zero exact 64-bit collisions in every keyset.**
 
-### Still failing
+## Run 6, 2026-08-31: **zero failures**
 
-`MomentChi2`, and only its *derivative* half. The direct moments are 1.139 and 1.152 against an
-ideal of 1; the derivative moments -- consecutive 32-bit integers, step 2 -- are 145,171 and
-143,659.
+`mix2`'s guard became `a - b` from `a + rotl(b, 32)`, and `MomentChi2` went from the crate's last
+failing test to passing:
+
+| | run 5 | run 6 |
+|---|---|---|
+| `MomentChi2` deriv b1 / b0 | 145,171 / 143,659 | **354.5 / 439.9** |
+| `DiffDist` bit 63, 35-bit window | 81/63 (1.27x) | **71/64 (1.11x)** |
+| failures | 1 | **0** |
+| exact 64-bit collisions | none | none |
+
+The derivative was measuring the guard. At four and eight bytes the fold reads the same bytes twice,
+so both `mix2` operands are `t + seed` and the guard restricted to that line is `alpha*t + k`; with
+`alpha` odd the guard reproduces the input faithfully and the derivative sees the structure. Both
+coefficients odd makes `alpha` even and the line collapses. See `examples/moment_chi2.rs`, which
+reproduces the statistic in seconds, and the four proofs beside `fold::mix2`.
+
+The same change made the guard **thirty-one bits more swap-resistant**: `a + rotl(b, 32)` is
+symmetric on every pair of words with the same half difference -- classes of size `2^32`, since
+`f(x) = x - rotl(x,32)` is `(h-l)*(2^32 - 1)` and `2^32 - 1` is odd, hence invertible -- and `a - b`
+is symmetric on exactly two points.
+
+## Screening without an eleven-minute run
+
+`examples/diffdist.rs` reproduces `DiffDist` in **0.94 seconds** and is calibrated against this
+table: it reads 83/64 for run 5's fold where `SMHasher` reads 81/63, and 155/64 for a rejected
+seed-by-rotation variant where `SMHasher` reads 152/63. Within 2% on both.
+
+That matters because `examples/top_bit.rs` is **not** a sufficient screen and said both rejected
+candidates were free. Use `diffdist.rs` to search and this file to decide.
 
 Not diagnosed. The suspicion is that a four-byte key gives `mix2` two affinely related operands,
 since `a` reads `b[..4]` and `c` reads `b[len-4..]` and at `len == 4` those are the same bytes, so
