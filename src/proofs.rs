@@ -426,6 +426,47 @@ mod harnesses {
         assert!(t != crate::map::EMPTY && t != crate::map::TOMB);
     }
 
+    /// **Growth is a dyadic refinement, and that is why a rehome re-reads instead of re-hashes.**
+    ///
+    /// Read the placement word as a point in the 2-adic interval `0.b56 b55 b54 ...`. A region of
+    /// `2^d` groups is the dyadic partition of that interval at depth `d`, and a key's home is the
+    /// interval containing its point:
+    ///
+    /// ```text
+    /// group_d(p)     = p[57 - d .. 57)
+    /// group_{d+1}(p) = p[56 - d .. 57)  =  2 * group_d(p) + p[56 - d]
+    /// ```
+    ///
+    /// So doubling the region **splits every group in two** and each entry follows one bit it
+    /// already carries. Nothing is recomputed from the key, which is the whole reason `rehome`
+    /// costs a probe per entry and not a hash per entry -- and it is why `Map<String, V>` grows
+    /// 83.9 instructions a key against `hashbrown`'s 101.0, where the key must be re-folded.
+    ///
+    /// It is also a **locality** claim, and the opposite of `hashbrown`'s. Its index is
+    /// `hash & (n - 1)`, the low bits, so doubling sends `i` to `i` or `i + n` -- two destinations
+    /// half a table apart. Ours are `2g` and `2g + 1`, adjacent, so a `rehome` that walks the old
+    /// groups in ascending order writes the new region in ascending order too. `rehome` does walk
+    /// them that way, so the crate already collects this; the law was simply never written down,
+    /// which is why nothing downstream could depend on it.
+    ///
+    /// Stated over the *computed* window `group_at` rather than the carried one, because
+    /// `the_carried_descent_is_the_computed_one` already ties the two together.
+    #[kani::proof]
+    fn growth_splits_each_group_in_two() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        // A region of `2^gbits` groups doubling to `2^(gbits+1)`. The upper bound keeps both
+        // masks inside `usize` on every target and covers every region this crate can allocate.
+        kani::assume(gbits >= 1 && gbits <= 20);
+        let here = crate::table::group_at(p, 0, gbits, (1usize << gbits) - 1);
+        let there = crate::table::group_at(p, 0, gbits + 1, (1usize << (gbits + 1)) - 1);
+        // The one bit the entry follows: the next one down the strand.
+        let bit = (p >> (crate::table::DESCENT_BITS - gbits - 1)) & 1;
+        assert_eq!(there, 2 * here + bit as usize, "growth is not a refinement of the partition");
+        // And a refinement is exactly a two-to-one map back: both halves return to `here`.
+        assert_eq!(there / 2, here, "a split group does not return to the group it split from");
+    }
+
     /// The descent must stay inside the region at every step, for every address and every size.
     /// Leaving it is the one thing `map::line`'s unchecked tag load cannot survive.
     #[kani::proof]
