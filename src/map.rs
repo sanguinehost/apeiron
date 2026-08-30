@@ -2571,16 +2571,15 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 impl<K, V, H> Drop for Map<K, V, H> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<(H, V)>() {
-            for (i, &t) in self.tags.iter().enumerate() {
-                if t & LIVE != 0 {
-                    // SAFETY: the tag says live, and this runs once, at the end.
-                    unsafe { self.slots[i].assume_init_drop() };
-                }
-            }
+            let slots = &mut self.slots;
+            for_each_live(&self.tags, |i| {
+                // SAFETY: the tag carries the live bit, so the slot is initialised. This runs once,
+                // at the end, so nothing observes the map afterwards.
+                unsafe { slots[i].assume_init_drop() };
+            });
         }
     }
 }
-
 /// Visit every live slot index, sixteen tags at a time.
 ///
 /// The same scan the probe uses, factored out because `clone` and the rest walked the tag array
