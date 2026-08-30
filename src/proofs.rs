@@ -71,6 +71,9 @@ mod harnesses {
         assert_ne!(a ^ (a >> 30), b ^ (b >> 30));
         assert_ne!(a ^ (a >> 27), b ^ (b >> 27));
         assert_ne!(a ^ (a >> 31), b ^ (b >> 31));
+        // `fold::settle`'s, which is the other half of its bijection: a `PHI` multiply, covered by
+        // `multiplying_by_an_odd_constant_is_injective`, then this.
+        assert_ne!(a ^ (a >> 32), b ^ (b >> 32));
     }
 
     /// Multiplication by an odd constant permutes `Z/2^64`, for both of `finish`'s multipliers

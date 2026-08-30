@@ -397,6 +397,41 @@ mod tests {
     /// The defect the guard exists to prevent, stated as a test rather than as a comment.
     ///
     /// Without the guard a folded multiply returns zero whenever either operand is zero, so an
+    /// [`settle`] is a bijection, shown by exhibiting its inverse rather than by sampling for
+    /// collisions.
+    ///
+    /// This is the gate the candidate table needed and did not have. `h ^ rotr(h, 32)` scored
+    /// **best of the cheap finalizers on differential spread** -- 199,947 distinct high-32
+    /// differences against the shipped step's 199,997 -- and is unusable, because it sends
+    /// `(hi, lo)` to `(hi ^ lo, hi ^ lo)` and so has a range of `2^32`. A difference measurement
+    /// cannot see a collapsed range; it was caught by hand. A left inverse can see it, because a
+    /// non-injective map has none.
+    ///
+    /// `settle` is `x = h * PHI` then `x ^ (x >> 32)`. The second step is an involution -- shifting
+    /// right by half the width leaves the top half untouched, so applying it twice cancels -- and
+    /// the first inverts by `PHI_INV`. Both halves are also machine-checked, in
+    /// `proofs::a_xor_shift_step_is_injective` and
+    /// `proofs::multiplying_by_an_odd_constant_is_injective`.
+    #[test]
+    fn the_finalizer_is_a_bijection_and_the_rejected_one_is_not() {
+        fn unsettle(y: u64) -> u64 {
+            (y ^ (y >> 32)).wrapping_mul(crate::coord::PHI_INV)
+        }
+        let mut s = 0x243F_6A88_85A3_08D3u64;
+        for _ in 0..if cfg!(miri) { 500 } else { 500_000 } {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            for h in [s, !s, s << 32, s >> 32, 0, u64::MAX] {
+                assert_eq!(unsettle(settle(h)), h, "settle lost {h:#x}");
+            }
+        }
+        // And the candidate that measured best: two words whose halves differ but whose xor does
+        // not, so the rotate maps them together. One witness is a disproof.
+        let rot = |h: u64| h ^ h.rotate_right(32);
+        assert_eq!(rot(0x0000_0001_0000_0000), rot(0x0000_0000_0000_0001));
+    }
+
     /// attacker who fixes the first eight bytes to cancel the seed gets one address for every
     /// possible tail.
     #[test]
