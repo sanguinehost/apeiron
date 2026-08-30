@@ -50,6 +50,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "apeiron-fold-abi"
+version = "0.0.0"
+dependencies = [
+ "apeiron",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

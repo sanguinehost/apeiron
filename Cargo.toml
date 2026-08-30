@@ -32,7 +32,7 @@ foldhash = "0.1"
 rustc-hash = "2"
 
 [workspace]
-members = ["derive"]
+members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
 # project, not a member of this one.
 exclude = ["fuzz"]

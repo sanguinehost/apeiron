@@ -1,0 +1,14 @@
+[package]
+name = "apeiron-fold-abi"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# A staticlib so SMHasher can link the fold directly. Not part of apeiron's public surface: this
+# exists to submit `fold::fold_bytes_with` to a statistical battery it has never faced.
+[lib]
+name = "apeiron_fold_abi"
+crate-type = ["staticlib"]
+
+[dependencies]
+apeiron = { path = ".." }
