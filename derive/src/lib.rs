@@ -270,10 +270,30 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
         acc
     };
 
+    // `Coord::CHEAP_EQ` says an identity-word early reject cannot pay in front of this key's `==`.
+    // Conjunction over the fields, for the same reason as `SPREAD` and with a weaker obligation:
+    // this const is a performance hint only -- `Stored::holds` decides on the key either way, so a
+    // wrong value here costs instructions and never correctness. A derived newtype over `u64`
+    // should get `u64`'s answer, and without this it silently kept the reject and the two
+    // instructions and the cycle it costs there.
+    //
+    // Zero fields is `false`, the safe default: a unit struct compares in nothing, so the hint is
+    // moot and there is no reason to claim anything.
+    let cheap_eq = if bounds.is_empty() {
+        quote! { false }
+    } else {
+        let mut acc = quote! { true };
+        for t in &bounds {
+            acc = quote! { #acc && <#t as ::apeiron::coord::Coord>::CHEAP_EQ };
+        }
+        acc
+    };
+
     Ok(quote! {
         #[automatically_derived]
         impl #impl_generics ::apeiron::coord::Coord for #name #ty_generics #where_clause {
             const SPREAD: bool = #spread;
+            const CHEAP_EQ: bool = #cheap_eq;
             #[inline]
             fn coord(&self) -> u64 {
                 <Self as ::apeiron::coord::Coord>::coord_with(self, 0)

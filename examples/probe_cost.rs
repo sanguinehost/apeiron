@@ -64,8 +64,16 @@ fn keys() -> Vec<u64> {
         .collect()
 }
 
+/// `LOOKUP_KEYS=resref|path` -- 13 bytes, or ~42 with a thirty-character **shared prefix**, which
+/// is what a Lyrium `VPath` is. The prefix is the point: it is what makes a failed key compare
+/// expensive, and so what the identity word's early reject is worth anything against.
 fn strings() -> Vec<String> {
-    (0..N).map(|i| format!("nw_wswmg{i:05}")).collect()
+    match std::env::var("LOOKUP_KEYS").unwrap_or_else(|_| "resref".into()).as_str() {
+        "path" => (0..N)
+            .map(|i| format!("modules/neverwinter/areas/nw_wswmg{i:05}.are"))
+            .collect(),
+        _ => (0..N).map(|i| format!("nw_wswmg{i:05}")).collect(),
+    }
 }
 
 #[inline(never)]

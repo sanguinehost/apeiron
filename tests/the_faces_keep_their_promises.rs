@@ -283,3 +283,25 @@ fn both_keyed_faces_reproduce_the_key_they_were_given() {
     let names: Vec<String> = (0..256).map(|i| format!("nw_wswmg{i:05}")).collect();
     the_key_survives_exactly_as_the_face_claims::<String, apeiron::map::Stored<String>>(&names);
 }
+
+// `Coord::CHEAP_EQ` is a hint and not an obligation -- `Stored::holds` decides on the key whatever
+// the identity words say, so a wrong value costs instructions and never correctness. There is
+// still one thing worth pinning: which side of the line each shipped key type is on, because the
+// measurement that sets it goes opposite ways for the two shapes. A word key pays two instructions
+// and a cycle for an early reject that can never fire usefully; a byte key pays two instructions
+// and *buys* a cycle, because the reject short-circuits ahead of the pointer and length loads and
+// the `bcmp` call rather than behind them.
+const _: () = assert!(<u64 as Coord>::CHEAP_EQ);
+const _: () = assert!(<u32 as Coord>::CHEAP_EQ);
+const _: () = assert!(<i128 as Coord>::CHEAP_EQ);
+const _: () = assert!(<char as Coord>::CHEAP_EQ);
+const _: () = assert!(<(u32, u32) as Coord>::CHEAP_EQ);
+const _: () = assert!(!<str as Coord>::CHEAP_EQ);
+const _: () = assert!(!<String as Coord>::CHEAP_EQ);
+const _: () = assert!(!<[u8] as Coord>::CHEAP_EQ);
+const _: () = assert!(!<Vec<u8> as Coord>::CHEAP_EQ);
+// A composite is cheap exactly when every component is.
+const _: () = assert!(!<(u32, String) as Coord>::CHEAP_EQ);
+// And a reference answers for what it points at.
+const _: () = assert!(<&u64 as Coord>::CHEAP_EQ);
+const _: () = assert!(!<&str as Coord>::CHEAP_EQ);

@@ -70,6 +70,36 @@ pub trait Coord {
     /// bijection whatever the key type, because it reads the key back off it.
     const SPREAD: bool = false;
 
+    /// Whether comparing this key is as cheap as comparing a word.
+    ///
+    /// **False by default, and the default is the safe one**: a type that claims this wrongly
+    /// loses speed and never correctness, because the key compare is the decision either way --
+    /// see `proofs::the_parabolic_face_decides_on_the_key`, which says `Stored::holds` is true
+    /// exactly when the keys are equal, whatever the identity words say.
+    ///
+    /// What it controls is one early reject. `Stored` keeps an identity word beside the key, and
+    /// comparing it first skips a `memcmp` on the roughly one tag collision in twenty that a
+    /// seven-bit tag lets through. For a `String` that is worth paying for; for a `u64` it is a
+    /// second compare of the same information. Measured, `Map<K, V>::contains_key`:
+    ///
+    /// | key | with the early reject | without |
+    /// |---|---|---|
+    /// | `u64` | 34.82 instr, 7.28 cyc | **32.82, 6.14** |
+    /// | `String`, 13-byte resref | 94.58, **20.61** | **92.84**, 20.65 |
+    /// | `String`, 42-byte shared-prefix path | 131.65, **33.73** | **129.73**, 34.18 |
+    ///
+    /// The two shapes disagree, and they disagree in the way the split predicts: for a word key
+    /// the reject costs two instructions and a cycle and cannot pay, and for a byte key it costs
+    /// two instructions and *buys* a cycle, because it short-circuits ahead of the pointer and
+    /// length loads and the `bcmp` call rather than behind them. `hashbrown` with `foldhash` is
+    /// 33.15 on the `u64` row, so this const is also the difference between losing that row and
+    /// winning it.
+    ///
+    /// It is not the hash-flooding defence and must not be mistaken for one. An attacker who can
+    /// aim at the tag can already aim at the whole address; what stops that is the pepper, and
+    /// `Map::with_pepper` is where it lives.
+    const CHEAP_EQ: bool = false;
+
     /// The address, displaced by a process-wide constant.
     ///
     /// Defaults to ignoring the pepper, which is correct for every key that *is* its own address:
@@ -86,6 +116,7 @@ pub trait Coord {
 macro_rules! int_coord {
     ($($t:ty),*) => {$(
         impl Coord for $t {
+            const CHEAP_EQ: bool = true;
             #[inline]
             fn coord(&self) -> u64 {
                 // `allow` and not `expect`: this macro expands for ten types and the lints fire
@@ -486,6 +517,7 @@ impl i21 {
 }
 
 impl Coord for i21 {
+    const CHEAP_EQ: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         self.bits()
@@ -495,6 +527,8 @@ impl Coord for i21 {
 /// The lossy folds, for the faces that do not need a bijection. Generic over any `Coord`, and
 /// deliberately *not* [`Packed`]: a fold of two words into one cannot round-trip.
 impl<A: Coord, B: Coord> Coord for (A, B) {
+    /// A composite is cheap to compare exactly when every component is.
+    const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ;
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(self.0.coord(), self.1.coord()))
@@ -506,6 +540,7 @@ impl<A: Coord, B: Coord> Coord for (A, B) {
 }
 
 impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
+    const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ && C::CHEAP_EQ;
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(mix(self.0.coord(), self.1.coord()), self.2.coord()))
@@ -520,6 +555,7 @@ impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
 }
 
 impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
+    const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ && C::CHEAP_EQ && D::CHEAP_EQ;
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(

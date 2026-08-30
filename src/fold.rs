@@ -346,6 +346,7 @@ impl<const N: usize> Coord for [u8; N] {
 
 impl<T: Coord + ?Sized> Coord for &T {
     const SPREAD: bool = T::SPREAD;
+    const CHEAP_EQ: bool = T::CHEAP_EQ;
     #[inline]
     fn coord(&self) -> u64 {
         (**self).coord()
@@ -357,6 +358,8 @@ impl<T: Coord + ?Sized> Coord for &T {
 }
 
 impl Coord for char {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         u64::from(*self as u32)
@@ -364,6 +367,8 @@ impl Coord for char {
 }
 
 impl Coord for bool {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
     #[inline]
     fn coord(&self) -> u64 {
         u64::from(*self)
@@ -372,6 +377,8 @@ impl Coord for bool {
 
 /// Wider than a word, so it folds rather than packs.
 impl Coord for u128 {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
     #[inline]
     #[expect(
         clippy::cast_possible_truncation,
@@ -384,6 +391,8 @@ impl Coord for u128 {
 }
 
 impl Coord for i128 {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
     #[inline]
     #[expect(
         clippy::cast_sign_loss,
@@ -397,6 +406,7 @@ impl Coord for i128 {
 }
 
 impl<T: Coord> Coord for Option<T> {
+    const CHEAP_EQ: bool = T::CHEAP_EQ;
     #[inline]
     fn coord(&self) -> u64 {
         self.coord_with(0)
