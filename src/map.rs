@@ -1384,14 +1384,13 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     /// Drop every entry, keeping the allocation.
     pub fn clear(&mut self) {
-        for i in 0..self.tags.len() {
-            let live = self.tags[i] & LIVE != 0;
-            self.tags[i] = EMPTY;
-            if live {
-                // SAFETY: the slot was live and its tag now says it is not.
-                unsafe { self.slots[i].assume_init_drop() };
-            }
-        }
+        let slots = &mut self.slots;
+        for_each_live(&self.tags, |i| {
+            // SAFETY: the tag carries the live bit, so the slot is initialised. Every tag is
+            // blanked immediately below, so nothing can observe a dropped slot as live.
+            unsafe { slots[i].assume_init_drop() };
+        });
+        self.tags.fill(EMPTY);
         self.live = 0;
         self.used = 0;
     }
@@ -2655,6 +2654,33 @@ impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
             salt: self.salt,
             _k: PhantomData,
         }
+    }
+
+    /// Overwrite `self` with `source`, reusing this map's allocation when the two are the same
+    /// size.
+    ///
+    /// The default `clone_from` is `*self = source.clone()`: a fresh pair of arrays allocated and
+    /// the old ones freed, every call. `hashbrown` specialises this and benchmarks it separately
+    /// (`clone_from_small`, `clone_from_large`); not having it left a whole operation slower for
+    /// no reason.
+    fn clone_from(&mut self, source: &Self) {
+        if self.slots.len() != source.slots.len() {
+            *self = source.clone();
+            return;
+        }
+        self.clear();
+        let slots = &mut self.slots;
+        for_each_live(&source.tags, |i| {
+            // SAFETY: `for_each_live` yields live lanes of `source`, so that entry is initialised.
+            // `self` was just cleared, so the destination slot holds nothing to drop.
+            let (h, v) = unsafe { source.slots.get_unchecked(i).assume_init_ref() };
+            slots[i] = MaybeUninit::new((h.clone(), v.clone()));
+        });
+        self.tags.copy_from_slice(&source.tags);
+        self.live = source.live;
+        self.used = source.used;
+        self.geom = source.geom;
+        self.salt = source.salt;
     }
 }
 
