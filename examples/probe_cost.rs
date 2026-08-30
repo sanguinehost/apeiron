@@ -227,10 +227,108 @@ fn hb_str_probe<S: std::hash::BuildHasher>(
     hits
 }
 
+/// `get`, not `contains_key`: the value fetch is a separate question and this crate has been
+/// behind on it. `get_vs_contains.rs` records what has already been ruled out.
+#[inline(never)]
+fn ap_words_get_probe(m: &Words<u64, u64>, ks: &[u64]) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for &k in ks {
+            acc = acc.wrapping_add(m.get(&k).copied().unwrap_or(0));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn ap_words_get(ks: &[u64]) -> usize {
+    let mut m: Words<u64, u64> = Words::new();
+    for &k in ks {
+        m.insert(k, k);
+    }
+    usize::try_from(ap_words_get_probe(&m, ks) & 0xFFFF_FFFF).unwrap_or(0)
+}
+
+#[inline(never)]
+fn hb_words_get_probe<S: std::hash::BuildHasher>(
+    m: &hashbrown::HashMap<u64, u64, S>,
+    ks: &[u64],
+) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for &k in ks {
+            acc = acc.wrapping_add(m.get(&k).copied().unwrap_or(0));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn hb_words_get<S: std::hash::BuildHasher + Default>(ks: &[u64]) -> usize {
+    let mut m: hashbrown::HashMap<u64, u64, S> = hashbrown::HashMap::default();
+    for &k in ks {
+        m.insert(k, k);
+    }
+    usize::try_from(hb_words_get_probe(&m, ks) & 0xFFFF_FFFF).unwrap_or(0)
+}
+
+/// A **miss** loop: every key is absent. The probe stops at the first group holding an `EMPTY`
+/// tag, so this measures the vacancy scan and not the compare.
+#[inline(never)]
+fn ap_miss_probe(m: &Words<u64, u64>, ks: &[u64]) -> usize {
+    let mut hits = 0;
+    for _ in 0..REPS {
+        for &k in ks {
+            hits += usize::from(m.contains_key(&k));
+        }
+    }
+    hits
+}
+
+#[inline(never)]
+fn ap_miss(ks: &[u64]) -> usize {
+    let mut m: Words<u64, u64> = Words::new();
+    for &k in ks {
+        m.insert(k, k);
+    }
+    let absent: Vec<u64> = ks.iter().map(|k| k | 1 << 40).collect();
+    ap_miss_probe(&m, &absent)
+}
+
+#[inline(never)]
+fn hb_miss_probe<S: std::hash::BuildHasher>(
+    m: &hashbrown::HashMap<u64, u64, S>,
+    ks: &[u64],
+) -> usize {
+    let mut hits = 0;
+    for _ in 0..REPS {
+        for &k in ks {
+            hits += usize::from(m.contains_key(&k));
+        }
+    }
+    hits
+}
+
+#[inline(never)]
+fn hb_miss<S: std::hash::BuildHasher + Default>(ks: &[u64]) -> usize {
+    let mut m: hashbrown::HashMap<u64, u64, S> = hashbrown::HashMap::default();
+    for &k in ks {
+        m.insert(k, k);
+    }
+    let absent: Vec<u64> = ks.iter().map(|k| k | 1 << 40).collect();
+    hb_miss_probe(&m, &absent)
+}
+
 fn main() {
     let arm = std::env::var("LOOKUP_ARM").unwrap_or_else(|_| "apeiron".into());
     let hits = match arm.as_str() {
         "map" => ap_map(&keys()),
+        "apget" => ap_words_get(&keys()),
+        "apmiss" => ap_miss(&keys()),
+        "foldmiss" => hb_miss::<Fold>(&keys()),
+        "fxmiss" => hb_miss::<Fx>(&keys()),
+        "foldget" => hb_words_get::<Fold>(&keys()),
+        "fxget" => hb_words_get::<Fx>(&keys()),
         "fold" => hb_words::<Fold>(&keys()),
         "fx" => hb_words::<Fx>(&keys()),
         "std" => std_words(&keys()),
