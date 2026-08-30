@@ -41,6 +41,8 @@ fn main() {
     let n: usize = 1 << bits;
     let ks: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)).collect();
     let probe: Vec<u64> = ks.iter().rev().copied().collect();
+    // Absent keys: the same shape, disjoint from the built set.
+    let missing: Vec<u64> = ks.iter().map(|k| k ^ 0x8000_0000_0000_0001).collect();
     let arm = std::env::var("ARM").unwrap_or_else(|_| "ap_get".into());
     let mut acc = 0u64;
     match arm.as_str() {
@@ -50,6 +52,10 @@ fn main() {
             for _ in 0..REPS { for k in &probe { acc += u64::from(m.contains_key(k)); } } }
         "fx_get" => { let m: hashbrown::HashMap<u64,u64,Fx> = ks.iter().map(|&k|(k,k)).collect();
             for _ in 0..REPS { for k in &probe { acc = acc.wrapping_add(m.get(k).copied().unwrap_or(0)); } } }
+        "ap_miss" => { let m: Words<u64,u64> = ks.iter().map(|&k|(k,k)).collect();
+            for _ in 0..REPS { for k in &missing { acc = acc.wrapping_add(m.get(k).copied().unwrap_or(0)); } } }
+        "fold_miss" => { let m: hashbrown::HashMap<u64,u64,foldhash::fast::RandomState> = ks.iter().map(|&k|(k,k)).collect();
+            for _ in 0..REPS { for k in &missing { acc = acc.wrapping_add(m.get(k).copied().unwrap_or(0)); } } }
         "ap_has" => { let m: Words<u64,u64> = ks.iter().map(|&k|(k,k)).collect();
             for _ in 0..REPS { for k in &probe { acc += u64::from(m.contains_key(k)); } } }
         _ => { let m: Words<u64,u64> = ks.iter().map(|&k|(k,k)).collect();
