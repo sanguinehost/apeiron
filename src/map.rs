@@ -1523,14 +1523,22 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             slots: std::mem::replace(&mut self.slots, Box::new([])),
             taken: 0,
         };
-        for i in 0..old.tags.len() {
-            old.taken = i + 1;
-            if old.tags[i] & LIVE == 0 {
-                continue;
-            }
+        // A group at a time, like every other walk of the tag array. `taken` still moves per
+        // entry and the indices still ascend, so the salvage guard's contract is unchanged: on an
+        // unwind it drops from `taken` onward, and the slots skipped here were never live.
+        let mut group = 0;
+        while group + GROUP <= old.tags.len() {
+            // SAFETY: bounded by the loop condition.
+            let line: &[u8; GROUP] =
+                unsafe { &*old.tags.as_ptr().add(group).cast::<[u8; GROUP]>() };
+            let mut live = scan::occupied(line);
+            while live != 0 {
+                let i = group + live.trailing_zeros() as usize;
+                live &= live - 1;
+                old.taken = i + 1;
             // SAFETY: the tag says live, and `taken` now covers this index, so the salvage guard
             // will not drop it again if anything below unwinds.
-            let entry = unsafe { old.slots[i].assume_init_read() };
+            let entry = unsafe { old.slots.get_unchecked_mut(i).assume_init_read() };
             // The slot stored only the identity word; the descent runs on the placement word.
             // Recover it -- one multiply back to the coordinate, one widening multiply forward --
             // rather than re-folding the key, so growth stays a probe per entry and not a hash per
@@ -1552,6 +1560,8 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             };
             tags[at] = tag_of(p);
             fresh[at] = MaybeUninit::new(entry);
+            }
+            group += GROUP;
         }
         self.tags = tags;
         self.slots = fresh;
