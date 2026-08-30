@@ -1088,6 +1088,35 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     // -- probing -------------------------------------------------------------------------------
 
+    /// The table has slots to probe. **Checked before the address is computed, not after.**
+    ///
+    /// `find` guards this too, and has to -- it is reachable from `site` and from the rebuild. But
+    /// a guard *after* the address lands in the middle of the loop body, where LLVM cannot unswitch
+    /// it out, and it is then a compare and a branch on every lookup. `hashbrown` puts its
+    /// `items == 0` check at the top of `contains_key` and gets it hoisted out of the caller's loop
+    /// for free; this is the same check in the same place. Measured on 13-byte resrefs: 94.70
+    /// instructions and 20.86 cycles a lookup with the guard after the fold, **92.71 and 19.87**
+    /// with it before.
+    ///
+    /// # Only the borrowed surface gets it
+    ///
+    /// The same guard on `get`/`contains_key`/`remove_entry`, where the address is `H::address` --
+    /// one multiply -- is a **loss**, and a large one. Measured, instructions per lookup:
+    ///
+    /// | | without | with |
+    /// |---|---|---|
+    /// | `Words<u64, u64>::contains_key` | **31.82** | 33.79 |
+    /// | `Map<u64, u64>::contains_key` | **34.82** | 37.82 |
+    /// | `Map<String, u64>::contains_key` | **94.76** | 115.71 |
+    ///
+    /// A branch is only worth hoisting past work worth skipping. In front of a fold it buys the two
+    /// instructions above; in front of a multiply it is two instructions that buy nothing and cost
+    /// the scheduler a block boundary it was using.
+    #[inline(always)]
+    fn probeable(&self) -> bool {
+        self.slots.len() >= MIN_SLOTS
+    }
+
     /// The slot `is` accepts, if any.
     ///
     /// Stops at the first group containing a genuinely empty slot: placement is first-fit in probe
@@ -2323,6 +2352,9 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     #[must_use]
     #[inline]
     pub fn get_key_value_at<Q: Locate<K>>(&self, q: Q) -> Option<(&K, &V)> {
+        if !self.probeable() {
+            return None;
+        }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         self.find_ref(a.place, |h| h.id == a.id && q.same(&h.k)).map(|s| (&s.0.k, &s.1))
     }
@@ -2331,6 +2363,9 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     #[must_use]
     #[inline]
     pub fn get_at<Q: Locate<K>>(&self, q: Q) -> Option<&V> {
+        if !self.probeable() {
+            return None;
+        }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: `find` returns only live slots, and a live slot's index is a group base plus a
@@ -2343,6 +2378,9 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// The value a view names, mutably.
     #[inline]
     pub fn get_mut_at<Q: Locate<K>>(&mut self, q: Q) -> Option<&mut V> {
+        if !self.probeable() {
+            return None;
+        }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         // SAFETY: as `get_at`.
@@ -2353,6 +2391,9 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
     /// Whether a view's key is present.
     #[inline]
     pub fn contains_at<Q: Locate<K>>(&self, q: Q) -> bool {
+        if !self.probeable() {
+            return false;
+        }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         self.find(a.place, |h| h.id == a.id && q.same(&h.k)).is_some()
     }
@@ -2397,6 +2438,9 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
 
     /// Remove through a view, returning the key as well.
     pub fn remove_entry_at<Q: Locate<K>>(&mut self, q: Q) -> Option<(K, V)> {
+        if !self.probeable() {
+            return None;
+        }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
         let i = self.find(a.place, |h| h.id == a.id && q.same(&h.k))?;
         Some(self.evict(i))
