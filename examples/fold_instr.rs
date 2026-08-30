@@ -1,12 +1,38 @@
 //! Instructions per fold, which a loaded machine cannot distort the way it distorts cycles.
 //!
-//! `FOLD_ARM=apeiron|foldhash cargo run --release --example fold_instr`
+//! `FOLD_ARM=apeiron|foldhash FOLD_CORPUS=resref|short|path|long cargo run --release --example fold_instr`
+//!
+//! One `#[inline(never)]` loop per arm, for the reason `probe_cost.rs` documents: with both in one
+//! `main` the inliner's budget is shared and a change to either moves both.
 use apeiron::fold::fold_bytes;
 use std::hash::BuildHasher;
 use std::hint::black_box;
 
 const N: usize = 1000;
 const REPS: usize = 20_000;
+
+#[inline(never)]
+fn ap(ks: &[String]) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for s in ks {
+            acc = acc.wrapping_add(fold_bytes(s.as_bytes()));
+        }
+    }
+    acc
+}
+
+#[inline(never)]
+fn fh(ks: &[String]) -> u64 {
+    let h = foldhash::fast::RandomState::default();
+    let mut acc = 0u64;
+    for _ in 0..REPS {
+        for s in ks {
+            acc = acc.wrapping_add(h.hash_one(s.as_str()));
+        }
+    }
+    acc
+}
 
 fn main() {
     let kind = std::env::var("FOLD_CORPUS").unwrap_or_else(|_| "resref".into());
@@ -19,20 +45,6 @@ fn main() {
         })
         .collect();
     let arm = std::env::var("FOLD_ARM").unwrap_or_else(|_| "apeiron".into());
-    let mut acc = 0u64;
-    if arm == "apeiron" {
-        for _ in 0..REPS {
-            for s in &ks {
-                acc = acc.wrapping_add(fold_bytes(s.as_bytes()));
-            }
-        }
-    } else {
-        let h = foldhash::fast::RandomState::default();
-        for _ in 0..REPS {
-            for s in &ks {
-                acc = acc.wrapping_add(h.hash_one(s.as_str()));
-            }
-        }
-    }
+    let acc = if arm == "apeiron" { ap(&ks) } else { fh(&ks) };
     println!("{arm}/{kind}: {}", black_box(acc));
 }

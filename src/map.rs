@@ -687,7 +687,7 @@ pub trait Absorb<K: Coord + Eq>: Locate<K> {
 }
 
 impl<K: Coord + Eq> Locate<K> for &K {
-    #[inline]
+    #[inline(always)]
     fn coord_at(&self, pepper: u64) -> u64 {
         (**self).coord_with(pepper)
     }
@@ -713,10 +713,20 @@ impl<K: Coord + Eq + Clone> Absorb<K> for &K {
 /// compile: it overlaps the tuple impl below, because a tuple of `Copy` views is itself `Copy` and
 /// could be its own key. So it is a list, and the list is the primitives that are plausibly one
 /// component of a composite key.
+/// Every `coord_at` here is `#[inline(always)]`, not `#[inline]`.
+///
+/// They are one-line forwards to `Coord::coord_with`, so an outlined one is pure loss -- a call, a
+/// frame, and the loop-invariant part of the fold's seed recomputed per key because it can no
+/// longer be hoisted. LLVM outlined the `&str` one anyway: it was **23% of the `String` lookup
+/// profile** as its own symbol, and the plain `#[inline]` on the *callee* did not reach it, because
+/// the refusal is at this boundary and not at the fold's. Making this one attribute
+/// `#[inline(always)]` took a 13-byte resref lookup from 114.75 instructions to 107.73. The rest
+/// are the same shape and carry it for the same reason, so the next key type does not have to
+/// rediscover it.
 macro_rules! locate_by_value {
     ($($t:ty),*) => {$(
         impl Locate<$t> for $t {
-            #[inline]
+            #[inline(always)]
             fn coord_at(&self, pepper: u64) -> u64 {
                 Coord::coord_with(self, pepper)
             }
@@ -736,7 +746,7 @@ macro_rules! locate_by_value {
 locate_by_value!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, char, bool);
 
 impl Locate<String> for &str {
-    #[inline]
+    #[inline(always)]
     fn coord_at(&self, pepper: u64) -> u64 {
         <str as Coord>::coord_with(self, pepper)
     }
@@ -753,7 +763,7 @@ impl Absorb<String> for &str {
 }
 
 impl Locate<Vec<u8>> for &[u8] {
-    #[inline]
+    #[inline(always)]
     fn coord_at(&self, pepper: u64) -> u64 {
         <[u8] as Coord>::coord_with(self, pepper)
     }
@@ -770,7 +780,7 @@ impl Absorb<Vec<u8>> for &[u8] {
 }
 
 impl<A: Coord + Eq, B: Coord + Eq, PA: Locate<A>, PB: Locate<B>> Locate<(A, B)> for (PA, PB) {
-    #[inline]
+    #[inline(always)]
     fn coord_at(&self, pepper: u64) -> u64 {
         // Literally `<(A, B) as Coord>::coord_with`, with each component's address supplied by that
         // component's own view -- not a second scheme that happens to agree.
