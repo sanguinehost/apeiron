@@ -571,7 +571,14 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
     }
     #[inline]
     fn holds(&self, id: u64, k: &K) -> bool {
-        self.id == id && self.k == *k
+        // The key compare is the decision; the identity word is one early reject in front of it,
+        // worth its two instructions only when the compare it skips is a `memcmp`. See
+        // `Coord::CHEAP_EQ`, which carries the measurement both ways.
+        if K::CHEAP_EQ {
+            self.k == *k
+        } else {
+            self.id == id && self.k == *k
+        }
     }
     #[inline]
     fn same_slot(&self, other: &Self) -> bool {

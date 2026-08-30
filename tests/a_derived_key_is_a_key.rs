@@ -307,3 +307,40 @@ fn a_derived_type_that_claims_spread_consumes_the_pepper() {
     obliged("BlockId", &BlockId(7));
     obliged("ObjectId", &ObjectId { area: 1, index: 2, kind: 3 });
 }
+
+/// **The derive propagates `Coord::CHEAP_EQ`.**
+///
+/// The identity word beside a stored key is an early reject in front of the key compare, and it
+/// only pays when the compare it skips is a `memcmp`. Measured, `Map<K, V>::contains_key`: a `u64`
+/// key costs 34.82 instructions and 7.28 cycles with the reject and 32.82 and 6.14 without, while a
+/// 42-byte shared-prefix `String` costs 131.65 and **33.73** with it against 129.73 and 34.18
+/// without. So the answer is the key type's, and a derived newtype should inherit it rather than
+/// take the conservative default and pay a cycle it does not owe.
+///
+/// Unlike `SPREAD` this is a hint and not an obligation: `Stored::holds` decides on the key
+/// whatever the identity words say -- `proofs::the_parabolic_face_decides_on_the_key` -- so a wrong
+/// value here costs instructions and never correctness.
+#[test]
+fn a_derived_newtype_inherits_whether_its_key_is_cheap_to_compare() {
+    assert_eq!(
+        <VPath as Coord>::CHEAP_EQ,
+        <String as Coord>::CHEAP_EQ,
+        "VPath must agree with String"
+    );
+    assert_eq!(
+        <BlockId as Coord>::CHEAP_EQ,
+        <u32 as Coord>::CHEAP_EQ,
+        "BlockId must agree with u32"
+    );
+}
+
+// The same values as compile-time assertions, for the same reason.
+const _: () = assert!(<BlockId as Coord>::CHEAP_EQ, "a u32 newtype compares in one instruction");
+const _: () = assert!(!<VPath as Coord>::CHEAP_EQ, "a String newtype does not");
+// Conjunction over the fields: all-integer composites are cheap, and one byte field is enough to
+// make the whole thing not -- `Wide`'s trailing `String` is what decides it.
+const _: () = assert!(<ObjectId as Coord>::CHEAP_EQ);
+const _: () = assert!(!<Wide as Coord>::CHEAP_EQ);
+const _: () = assert!(!<Slot as Coord>::CHEAP_EQ);
+// Zero fields claims nothing: there is no compare for the hint to sit in front of.
+const _: () = assert!(!<Unit as Coord>::CHEAP_EQ);
