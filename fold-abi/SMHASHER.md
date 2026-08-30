@@ -29,6 +29,7 @@ Then `cmake -DCMAKE_BUILD_TYPE=Release . && make -j8 SMHasher && ./SMHasher apei
 | 4, constants and length restored | 6 | DiffDist 100 |
 | 5, finalizer added | **2** | **none** |
 | 6, guard changed to `a - b` | **0** | **none** |
+| 7, finalizer routed by length | **0** | **none** |
 
 Run 5 passes Sanity, AppendedZeroes, Avalanche, Sparse, Permutation, TwoBytes, Text,
 PerlinNoise, DiffDist, Diff (8.3e9 tests), Bic, Zeroes, Seed, Window, Cyclic, Prng, and runs bulk
@@ -56,6 +57,26 @@ The same change made the guard **thirty-one bits more swap-resistant**: `a + rot
 symmetric on every pair of words with the same half difference -- classes of size `2^32`, since
 `f(x) = x - rotl(x,32)` is `(h-l)*(2^32 - 1)` and `2^32 - 1` is odd, hence invertible -- and `a - b`
 is symmetric on exactly two points.
+
+## Run 7, 2026-08-31: the finalizer only where it is needed
+
+`settle` is not repairing the fold, it is repairing the **dependence between the two `mix2`
+operands**. Below sixteen bytes the reads `b[..8]` and `b[len-8..]` overlap or coincide; from
+sixteen to thirty-two the last `mix2` still takes raw key words, so its guard is affine in the key;
+at thirty-three and above, and in `fold_long`, the last mix is `mix2(x, y + NU)` -- affine only in
+already-folded state, and the finalizer is dead weight.
+
+Routing it there costs nothing and buys four instructions on every key of 33 bytes or more:
+**42-byte paths fold in 57.07 instructions against `foldhash`'s 73.07**, and the whole map lookup
+in **121.79 against hashbrown + foldhash's 130.32**.
+
+Routing at *sixteen* instead passed `examples/diffdist.rs` at 17, 24 and 32 bytes and then failed
+`Avalanche` at twenty bytes with a **13.62%** worst bias. `examples/avalanche_bias.rs` exists
+because of that, runs at `SMHasher`'s own 300,000 reps so the numbers compare directly, and reads
+0.59-0.85% at every length on the shipped fold against `SMHasher`'s 0.618-0.911%.
+
+**Two screens, then this file.** `diffdist.rs` alone is not sufficient and neither is
+`avalanche_bias.rs`; each caught something the other missed.
 
 ## Screening without an eleven-minute run
 
