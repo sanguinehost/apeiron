@@ -276,6 +276,22 @@ fn move_ap_arr(ks: &[[u8; 16]], pepper: u64) -> u64 {
     acc
 }
 
+/// Eight-byte keys: our slot is `{id, [u8; 8], V}` = 24 bytes against `hashbrown`'s 16, the same
+/// 8-byte difference as at sixteen. If the store gap is the identity word rather than the key
+/// width, it is the same at both.
+fn arrays8() -> Vec<[u8; 8]> {
+    strings()
+        .iter()
+        .map(|s| {
+            let mut a = [0u8; 8];
+            let b = s.as_bytes();
+            let n = b.len().min(8);
+            a[..n].copy_from_slice(&b[..n]);
+            a
+        })
+        .collect()
+}
+
 #[inline(never)]
 fn move_hb_arr(ks: &[[u8; 16]], h: Fold) -> u64 {
     let mut acc = 0u64;
@@ -386,6 +402,10 @@ fn main() {
 
         "clone_arr" => clone_only_arr(&arrays()),
         "move_ap_arr" => usize::try_from(move_ap_arr(&arrays(), black_box(0x5EED)) & MASK).unwrap_or(0),
+        "fresh_ap_arr8" => fresh_ap(&arrays8(), 1u64, true),
+        "fresh_hb_arr8" => fresh_hb(&arrays8(), 1u64, true),
+        "fresh_ap_arrz" => fresh_ap(&arrays(), (), true),
+        "fresh_hb_arrz" => fresh_hb(&arrays(), (), true),
         "move_hb_arr" => usize::try_from(move_hb_arr(&arrays(), Fold::default()) & MASK).unwrap_or(0),
         "alloc_ap_arr" => alloc_ap::<[u8; 16], u64>(true),
         "alloc_hb_arr" => alloc_hb::<[u8; 16], u64>(true),

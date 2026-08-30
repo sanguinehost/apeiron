@@ -1492,7 +1492,27 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     ///
     /// Takes the key by value and clones nothing: the probe borrows it, and the borrow is over
     /// before either arm needs to own it.
-    #[inline]
+    ///
+    /// # `inline(always)` and not `inline`
+    ///
+    /// LLVM outlined it. On a `Map<[u8; 16], u64>` build it was **94.85% of the profile as its own
+    /// symbol**, while `hashbrown`'s insert inlined into the caller entirely -- and the growth path
+    /// is not the reason, `grow_for` has been `#[cold] #[inline(never)]` for as long as it has
+    /// existed. It is the monomorphised probe and `place` together, and a plain `#[inline]` does
+    /// not carry them.
+    ///
+    /// Measured, instructions per key, 694 keys, table pre-sized:
+    ///
+    /// | build | `#[inline]` | `#[inline(always)]` |
+    /// |---|---|---|
+    /// | `Map<[u8; 16], u64>` | 101.93 | **86.87** |
+    /// | `Map<[u8; 16], u64>`, growing | 171.38 | **156.95** |
+    /// | `Map<String, u64>` | 500.91 | **492.94** |
+    /// | `Map<u64, u64>` | 67.05 | **66.11** |
+    ///
+    /// Cycles agree on every row. The cost is 592 bytes on a binary with three `Map` instantiations
+    /// and nothing on the lookup, whose instruction counts are byte-identical either way.
+    #[inline(always)]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         self.reserve(1);
         let a = H::address(self.salt, &k);
