@@ -227,3 +227,21 @@ fn elements_are_dropped_exactly_once() {
     }
     assert_eq!(MADE.load(Ordering::Relaxed), GONE.load(Ordering::Relaxed));
 }
+
+/// `get_at` hands back the stored element; the batch readers agree with `contains`.
+#[test]
+fn the_borrowed_and_batch_readers_agree_with_contains() {
+    let names: Vec<String> = (0..300).map(|i| format!("nw_wswmg{i:05}")).collect();
+    let s: Set<String> = names.iter().take(200).cloned().collect();
+
+    assert_eq!(s.get_at(names[7].as_str()), Some(&names[7]));
+    assert_eq!(s.get_at("absent"), None);
+
+    let mut seen = Vec::new();
+    s.contains_each(&names, |k, present| seen.push((k.clone(), present)));
+    assert_eq!(seen.len(), names.len());
+    for (k, present) in &seen {
+        assert_eq!(*present, s.contains(k), "contains_each disagreed on {k}");
+    }
+    assert_eq!(s.count_present(&names), 200);
+}
