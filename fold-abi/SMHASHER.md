@@ -19,6 +19,51 @@ Three edits to SMHasher:
 
 Then `cmake -DCMAKE_BUILD_TYPE=Release . && make -j8 SMHasher && ./SMHasher apeiron`.
 
+## Runs, 2026-08-30
+
+| run | fails | exact 64-bit collisions |
+|---|---|---|
+| 1, as found | 8 | PerlinNoise 14,741,760 and 493,636; DiffDist 3,570 |
+| 2, `c` key-derived at 1-3 bytes | 7 | PerlinNoise 493,636; DiffDist 3,570 |
+| 3, pepper multiplied, constants dropped | 8 | Sparse 9/279/36, Permutation 225, TwoBytes 1/19, DiffDist 1,000 |
+| 4, constants and length restored | **6** | **DiffDist 100** |
+
+Passing throughout: sanity, appended zeroes, Diff (8.3e9 tests, zero collisions), Prng, Bic,
+Zeroes, Seed, Window, Cyclic, bulk at 6.9 bytes/cycle. Now also passing: Sparse, Permutation,
+PerlinNoise.
+
+### What run 1 found, and what it cost to fix
+
+The pepper entered additively into one operand: `mix2(a + seed, c + NU)`. The hash is then a
+function of `a + seed` whenever two keys share `c`, so key and pepper are interchangeable. At one
+to three bytes `c` was always zero, so every pair collided. `examples/perlin.rs` reproduces the
+count exactly and now reads zero; `examples/sparse_keys.rs` covers the keyset run 3 broke.
+
+Fixed by giving each lane its own odd multiplier of the pepper, plus a constant and a length term.
+Dropping any of those pieces reintroduces collisions somewhere else -- see the run table.
+
+### Still failing, run 4
+
+`Avalanche`, `DiffDist`, `Text`, `TwoBytes`, `MomentChi2` x2. Only `DiffDist` has exact
+collisions, 100, and they are concentrated at the **top input bit**:
+
+| flipped bit | high-32 collisions vs 512 | distribution bias |
+|---|---|---|
+| 62 | 2,617 | 70.6% |
+| 63 | 642,947 | 99.7% |
+
+That is the shape of a multiply carrying entropy upward: flipping the top bit of an operand moves
+the product only in its high half, so the induced *difference* is nearly a function of the other
+operand rather than of the flipped one, and the differences cluster.
+
+The obvious repair is a finalizer on the fold's output. Note that `map` currently has none for
+string keys: `already_mixed` returns the fold's result as the address unchanged, because
+`Coord::SPREAD` says it is mixed. That skips a multiply on every string lookup, which is exactly
+what would fix this, so the fix and the optimisation are in tension and the trade needs measuring.
+
+Not attempted yet.
+
+## First run, 2026-08-30
 ## First run, 2026-08-30
 
 Passes: sanity, appended zeroes, Diff (8.3e9 tests, 0 collisions), Prng, Bic, Zeroes, Seed,
