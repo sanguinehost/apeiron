@@ -123,10 +123,22 @@ pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
     // forces `p1 == p2` because `PSI` is odd and invertible, and then the first forces `a1 == a2`.
     // This is exactly the rule `Salt` records for the address bijection -- an additive secret is a
     // translation and buys nothing -- which the fold was not following.
+    // Both lanes keep a constant offset and a length term; only the *pepper* changed, from
+    // additive to multiplicative.
+    //
+    // Two cheaper shapes were tried and rejected. Dropping `PHI` from one lane and the length from
+    // the other traded PerlinNoise's collisions for new ones in Sparse, Permutation and TwoBytes.
+    // Deriving the second lane as `seed * PSI` -- one multiply instead of two -- fails
+    // `every_input_bit_moves_half_the_output_at_every_length`, which averages over 512 keys and so
+    // is measuring a real correlation between the lanes rather than a lucky draw.
     let seed = pepper
         .wrapping_mul(PHI)
+        .wrapping_add(PHI)
         .wrapping_add((len as u64).wrapping_mul(NU));
-    let seed2 = pepper.wrapping_mul(PSI).wrapping_add(NU);
+    let seed2 = pepper
+        .wrapping_mul(PSI)
+        .wrapping_add(PSI)
+        .wrapping_add((len as u64).wrapping_mul(PHI));
 
     if len <= 16 {
         let (a, c) = if len >= 8 {
@@ -448,43 +460,43 @@ mod tests {
         }
     }
 
-    /// A single input bit must reach roughly half the output bits, **on every branch of the length
-    /// ladder**.
+    /// Each input bit must move about half the output bits, **averaged over many keys**.
     ///
-    /// It used to check one 27-byte key, which exercised one branch. The ladder now has four --
-    /// short, 8..=16, 17..=32 and the 32-byte round -- and the round was rewritten to absorb
-    /// thirty-two bytes rather than sixteen, which moved where every long key is folded. A single
-    /// length is not a test of a ladder.
+    /// One base key per length is one Bernoulli sample per bit: the fraction has a standard
+    /// deviation of `sqrt(0.25 / 64) = 0.0625`, so over a few hundred bit positions the worst will
+    /// stray past 0.75 by luck and the test passes or fails on which key it happened to pick. That
+    /// is what it used to do.
+    ///
+    /// Averaging over `KEYS` base keys cuts the deviation by `sqrt(KEYS)` and lets the band be
+    /// tight enough to mean something: a real bias shows, a lucky draw does not.
     #[test]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the truncation is the point: the key bytes are a repeating pattern derived from \
-                  the index, and wrapping is what makes it repeat"
-    )]
-    fn one_input_bit_moves_about_half_the_output_at_every_length() {
-        // One length either side of each boundary, plus a key long enough to take several rounds.
-        // Every boundary of the ladder is still visited under Miri; the two long lengths, which
-        // are the ones that cost (231 bytes is 1,848 bit-flips, each a full fold), are not.
-        let lengths: &[usize] = if cfg!(miri) {
-            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 40]
-        } else {
-            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200, 231]
-        };
-        for &len in lengths {
-            let base: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(7)).collect();
-            let h = fold_bytes(&base);
+    #[expect(clippy::cast_possible_truncation, reason = "a key byte is a byte of a mixed word")]
+    fn every_input_bit_moves_half_the_output_at_every_length() {
+        const KEYS: u32 = 96;
+        for len in [1usize, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200] {
             let mut worst = (0usize, 0.5f64);
             for bit in 0..len * 8 {
-                let mut flipped = base.clone();
-                flipped[bit / 8] ^= 1 << (bit % 8);
-                let frac = f64::from((fold_bytes(&flipped) ^ h).count_ones()) / 64.0;
+                let mut moved = 0u32;
+                for k in 0..KEYS {
+                    let base: Vec<u8> = (0..len)
+                        .map(|i| {
+                            let x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                                ^ u64::from(k).wrapping_mul(0xD1B5_4A32_D192_ED03);
+                            (x >> 24) as u8
+                        })
+                        .collect();
+                    let mut flipped = base.clone();
+                    flipped[bit / 8] ^= 1 << (bit % 8);
+                    moved += (fold_bytes(&flipped) ^ fold_bytes(&base)).count_ones();
+                }
+                let frac = f64::from(moved) / f64::from(KEYS * 64);
                 if (frac - 0.5).abs() > (worst.1 - 0.5f64).abs() {
                     worst = (bit, frac);
                 }
             }
             assert!(
-                (0.25..=0.75).contains(&worst.1),
-                "len {len}: bit {} moved {:.3} of the output",
+                (0.44..=0.56).contains(&worst.1),
+                "len {len}: bit {} moved {:.3} of the output, averaged over {KEYS} keys",
                 worst.0,
                 worst.1
             );
