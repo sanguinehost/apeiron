@@ -407,12 +407,23 @@ mod harnesses {
 
     /// A tag must never be mistaken for an empty slot or a tombstone, or the probe stops at a live
     /// entry -- or reads one that is not there.
+    ///
+    /// **This harness was stale for four commits and nothing said so.** The sentinel flip inverted
+    /// the polarity -- `EMPTY` went from `0` to `0xFF`, `TOMB` from `1` to `0xFE`, and a live tag
+    /// from top-bit-set to top-bit-clear -- and this file is `#[cfg(kani)]`, so it does not compile
+    /// under `cargo build`, `cargo test` or `cargo clippy`. Three green gates and a full `miri` run
+    /// said nothing; only `cargo kani` did, and it had not been run since. The lesson is the one
+    /// `table::scan`'s rename already taught in this file: a proof behind a `cfg` is only as
+    /// current as the last time its tool ran.
+    ///
+    /// The constants are named rather than written out, so the next flip breaks the build here
+    /// instead of passing a wrong assertion.
     #[kani::proof]
     fn a_live_tag_is_never_empty_and_never_a_tombstone() {
         let p: u64 = kani::any();
         let t = crate::table::tag_of(p);
-        assert!(t & 0x80 != 0);
-        assert!(t != 0 && t != 1);
+        assert!(t & crate::map::FREE == 0, "a live tag has the free bit clear");
+        assert!(t != crate::map::EMPTY && t != crate::map::TOMB);
     }
 
     /// The descent must stay inside the region at every step, for every address and every size.

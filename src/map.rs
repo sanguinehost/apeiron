@@ -167,13 +167,13 @@ use std::mem::MaybeUninit;
 /// zeroed against **105.8 ms** filled. See [`crate::table::tag_of`] for the polarity itself, and
 /// [`crate::table::EMPTY`], which is the same constant a second time because `Region` allocates
 /// its own tags.
-const EMPTY: u8 = 0xFF;
+pub(crate) const EMPTY: u8 = 0xFF;
 /// A slot whose entry was removed. Distinct from [`EMPTY`] because a probe that stopped here would
 /// lose every key placed beyond it while it was live, and distinct from a live tag because both
 /// sentinels set the top bit and `tag_of` never does.
-const TOMB: u8 = 0xFE;
+pub(crate) const TOMB: u8 = 0xFE;
 /// `EMPTY` and `TOMB` have this bit; a live slot's tag does not. One `movemask` separates them.
-const FREE: u8 = 0x80;
+pub(crate) const FREE: u8 = 0x80;
 
 /// Fill limit, as a fraction. Seven eighths, where `hashbrown` sits, so a memory comparison
 /// against it compares layouts rather than load factors.
