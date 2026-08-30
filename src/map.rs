@@ -10,31 +10,54 @@
 //! of `place` from bit 57 down (the window descent), so extending a collision chain by a step costs the
 //! attacker another `gbits`.
 //!
-//! **Cost**, instructions per lookup, 694 keys, L1-resident (`examples/probe_cost.rs`):
+//! **Cost**, instructions per lookup, 694 keys, L1-resident, one `#[inline(never)]` loop per arm
+//! with the build in its own frame (`examples/probe_cost.rs`, whose doc says why both of those
+//! matter and what they were worth):
 //!
-//! | | `u64` | `String` |
-//! |---|---|---|
-//! | apeiron | **32.8** | 109.7 |
-//! | hashbrown + foldhash | 35.3 | **84.2** |
-//! | hashbrown + fxhash | 34.2 | 92.3 |
-//! | std | 128.3 | -- |
+//! | | `u64` | 13-byte resref | 42-byte path |
+//! |---|---|---|---|
+//! | apeiron `Words` | **31.8** | -- | -- |
+//! | apeiron `Map` | **32.8** | 92.5 | 128.6 |
+//! | hashbrown + foldhash | 33.1 | **79.6** | **127.4** |
+//! | hashbrown + fxhash | 32.2 | 94.9 | 120.8 |
+//! | std | 122.2 | -- | -- |
 //!
-//! The `String` column previously read 93.4 here and said the gap was "not the fold, which is at
-//! parity". Both halves were stale, and the second was pointing work away from the real cost.
-//! Re-measured, 13-byte keys, `examples/fold_instr.rs`:
+//! The word column is ours on both faces. The `String` column is not, and the 42-byte shape --
+//! the one a Lyrium `VPath` actually is -- is 1.2 instructions behind rather than 22.
+//!
+//! # Where the `String` gap is
+//!
+//! At 13 bytes it is 12.9 instructions. **8.0 of that is the fold**, measured on its own in
+//! `examples/fold_instr.rs`:
 //!
 //! | corpus | bytes | apeiron | foldhash | |
 //! |---|---|---|---|---|
 //! | short | 2 | 44.1 | 34.1 | +10.0 |
 //! | **resref** | **13** | **30.1** | **22.1** | **+8.0** |
-//! | path | 42 | 75.1 | 72.1 | +3.0 |
-//! | long | 231 | 206.3 | 178.3 | +27.9 |
+//! | path | 42 | **71.1** | 73.1 | -2.0 |
+//! | long | 231 | 228.3 | 179.6 | +48.7 |
 //!
-//! The lookup gap is 25.5 instructions and the fold is **8.0 of it**, so the fold is roughly a
-//! third and not nothing. About 2.3 of that eight is `fold::settle`, bought deliberately to close
-//! `SMHasher`'s `DiffDist` failure at bit 63. The remaining ~17.5 is the table and the compare, and
-//! that part is still open -- the slot width is ruled out, `LOOKUP_ARM=apstrzst` refutes it at
-//! 93.2 against 93.4 on the older baseline.
+//! Six of the eight are two named steps, priced by stubbing each out and re-measuring:
+//!
+//! | | resref | path |
+//! |---|---|---|
+//! | `fold::settle`, the finalizer | **4.00** | 4.00 |
+//! | `fold::mix2`'s zero guard | **2.00** | 18.00 |
+//!
+//! Both are bought deliberately. `settle` closes `SMHasher`'s `DiffDist` failure at bit 63, where
+//! `2^63` is a zero divisor and no further multiply repairs it. The guard is what stops `a` or `b`
+//! equal to zero annihilating the product -- the defect `hashtrinity` shipped -- and at pepper zero
+//! the seed is a known constant, so that operand is reachable by choice rather than by luck.
+//! `foldhash` needs neither because it is seeded from process randomness and has no deterministic
+//! mode to defend. That is the trade, and it is a trade rather than a deficit.
+//!
+//! The remaining **4.9** is the table and the compare, and it is register pressure: the inlined
+//! length ladder leaves the probe spilling its accumulator, its iterator and two `xmm` registers
+//! per lookup. Ruled out by measurement: slot width (`LOOKUP_ARM=apstrzst` brings the stride to a
+//! power of two and reads 92.9 against 92.5, which is the wrong sign as well as no size), the
+//! out-of-line threshold (64 beats both 32 and 16 on both key shapes), and sinking the fold's
+//! seeds into each length branch (bit-identical output, 92.5 either way -- LLVM was already
+//! doing it).
 //!
 //! # What the remaining `u64` gap is, instruction by instruction
 //!
@@ -44,7 +67,7 @@
 //!
 //! | | hashbrown + foldhash | apeiron |
 //! |---|---|---|
-//! | guard | `cmpq $0,len` / `je` | `cmpq $16,len` / `jb` |
+//! | guard | `cmpq $0,len` / `je` | `cmpq $16,len` / `jb` (hoisted out of the caller's loop on the borrowed surface -- see `probeable`) |
 //! | mix | `xor` seed, `mulq`, `xor` hi into lo | `mulq`, `rol $32`, `xor` hi into lo |
 //! | tag | `mov`, `shr $57` | `mov`, `shr $57` |
 //! | group | `mov` mask, `and` | `mov` gshift, **`mov` to `cl`**, `shr %cl`, `mov` mask, `and` |
