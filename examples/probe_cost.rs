@@ -104,7 +104,44 @@
 //!
 //! That recovers about 62% of the gap while keeping the entropy source the crate proved it needs.
 //!
-//! It is **not implemented**, and the reason is scope rather than doubt. `line()` reads
+//! # Implemented, gated, and reverted
+//!
+//! It was built. Two Kani harnesses were written *before* the unsafe code, and both prove:
+//! `a_clamped_unaligned_window_stays_inside_the_region` (clamping the offset to `slots - GROUP`
+//! keeps `line`'s sixteen-byte read in bounds, so `tags.len() == slots` stays true and no
+//! iterator, `retain`, `Drain` or `stats` walk has to learn about a mirrored tail) and
+//! `the_unaligned_window_is_the_aligned_one_plus_an_offset` (the unaligned window reads the
+//! *same* top bits, plus four offset bits below them -- the obligation `Geom::first`'s doc
+//! exists to enforce).
+//!
+//! **That second proof caught an error in the benchmark above.** The fast arm shifted by the same
+//! amount and dropped the `* GROUP`, which reads a window four bits *lower* rather than the same
+//! window unaligned -- exactly the least-mixed bits the flatness gate rejected. Corrected, the
+//! standalone win was still real: 19.04 -> 15.64 cycles at n=400,000.
+//!
+//! Two things killed it anyway.
+//!
+//! **The flatness gate.** `i21hi` at n=1,500,000 -- a world varying along one axis, a real Lyrium
+//! key shape and not a synthetic corner -- gives a longest probe of **23 against the bound of
+//! 16**, with the mean untouched at 1.011. Unaligned windows overlap, so a full group spills into
+//! a neighbour that is already partly full and the tail clusters in a way the aligned form cannot.
+//! `hashbrown` answers this with its triangular stride; a simulation agrees that the stride owns
+//! the tail. This crate cannot take that trade: the window descent is what makes aiming cost
+//! `2^(j * gbits)` per step, and a stride that consumes no address bits gives that up.
+//!
+//! **And in the real crate the win did not survive contact.** The standalone harness has no
+//! `Descent`, no tombstone bookkeeping and no `Salt`, so the clamp's `cmp`/`cmov` and the second
+//! `Geom` field were free there and are not here: **+1.8 instructions**, and 15.98 cycles at
+//! n=300,000 against the 15.84 it was meant to beat.
+//!
+//! The proofs are kept. They cost nothing, they are true of the geometry either way, and they are
+//! what a second attempt would have had to write first.
+//!
+//! What is left of the diagnosis: the aligned group **is** the cause of the band, and the fix for
+//! it needs a stride this crate will not adopt. That is a design boundary rather than an open
+//! question.
+//!
+//! The remaining sketch, kept for the record: `line()` reads
 //! `base..base + GROUP` with no wraparound, so an unaligned base near the end of the region reads
 //! past the array; `hashbrown` pays for this by duplicating its first fifteen control bytes at the
 //! end. Group alignment is also assumed by `Descent`, by `rehome`, and by the `stats` walk. That is
