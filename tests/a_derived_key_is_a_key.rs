@@ -223,7 +223,7 @@ fn derived_keys_work_on_both_faces() {
     assert_eq!(ids.len(), N as usize);
     assert_eq!(ids.get(&BlockId(N - 1)), Some(&"block"));
     assert_eq!(ids.get(&BlockId(N)), None);
-    assert_eq!(ids.face(), apeiron::Keystore::Being);
+    assert_eq!(ids.face(), apeiron::Sigma::Elliptic);
     // The key really does come back off the address alone.
     assert!(ids.keys().any(|k| k == BlockId(123)));
 
@@ -235,7 +235,7 @@ fn derived_keys_work_on_both_faces() {
     }
     let last = PATHS - 1;
     assert_eq!(paths.get(&VPath(format!("data/{last}.mdl"))), Some(&last));
-    assert_eq!(paths.face(), apeiron::Keystore::BeingOverUnbeing);
+    assert_eq!(paths.face(), apeiron::Sigma::Parabolic);
 
     // Structs and enums, through the entry API.
     const OBJS: u32 = if cfg!(miri) { 10 } else { 40 };

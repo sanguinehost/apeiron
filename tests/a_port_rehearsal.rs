@@ -84,7 +84,7 @@ fn the_ir_handles_run_on_the_elliptic_face_storing_no_key() {
         preds.insert(BlockId(b), vec![BlockId(b.saturating_sub(1))]);
     }
     assert_eq!(preds.len(), 5_000 / SCALE);
-    assert_eq!(preds.face(), apeiron::Keystore::Being);
+    assert_eq!(preds.face(), apeiron::Sigma::Elliptic);
     assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32 - 1)).map(Vec::len), Some(1));
     assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32)), None);
 

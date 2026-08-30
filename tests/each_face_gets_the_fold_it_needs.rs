@@ -5,9 +5,9 @@
 //!
 //! - **Elliptic (B).** The address determines the key, so the fold must be a bijection. Nothing
 //!   is measured here -- it either round-trips or it does not.
-//! - **Parabolic (B/U).** The key is carried beside the address, so a collision costs a comparison
+//! - **Parabolic (the key is carried).** The key is carried beside the address, so a collision costs a comparison
 //!   and never an error. Distribution matters, injectivity does not.
-//! - **Hyperbolic (NB).** The address is a discard. Injectivity is not merely unnecessary, it is
+//! - **Hyperbolic (the key is discarded).** The address is a discard. Injectivity is not merely unnecessary, it is
 //!   unavailable: two words do not fit in one.
 
 use apeiron::coord::{i21, mix, Coord, Packed, PHI};

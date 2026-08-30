@@ -38,9 +38,9 @@
 //!
 //! | face | wants | so the fold is |
 //! |---|---|---|
-//! | elliptic (**B**) | the address *determines* the key -- nothing is degenerate | a bijection: [`pack`], and it refuses keys too wide to fit |
-//! | parabolic (**B/U**) | the address need not determine the key, which is carried beside it | any spreading fold; misses are caught by comparing the stored key |
-//! | hyperbolic (**NB**) | the address is a discard, and the key is gone | a scrambler, judged on *distribution*, never on injectivity |
+//! | elliptic (*regenerated*) | the address *determines* the key -- nothing is degenerate | a bijection: [`pack`], and it refuses keys too wide to fit |
+//! | parabolic (*carried*) | the address need not determine the key, which is carried beside it | any spreading fold; misses are caught by comparing the stored key |
+//! | hyperbolic (*discarded*) | the address is a discard, and the key is gone | a scrambler, judged on *distribution*, never on injectivity |
 //!
 //! So injectivity is a requirement on one face, a non-requirement on the second, and impossible
 //! on the third. A single fold cannot be right for all three, and measuring "the" collision rate

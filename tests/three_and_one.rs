@@ -14,49 +14,50 @@
 //!   second merge to be: a merge cannot be licensed on one face and refused on another.
 
 use apeiron::cell::{fold, Cell, Sigma};
-use apeiron::keystore::{after_storing, key_cell, Keystore};
+use apeiron::keystore::{after_storing, key_cell};
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
-/// Three faces, three keystores, and the map between them is a bijection.
+/// Three discriminants license three **different** storage policies.
 ///
-/// If a fourth storage face were wanted it would need a fourth discriminant, and the
-/// classification theorem says there is not one.
+/// This test used to prove that a `Keystore` enum and `Sigma` were in bijection, which proved
+/// nothing at all: it compared a relabelling against the thing it relabelled, and it passed
+/// because `of` and `sigma` were written as each other's inverse. The enum is gone and the face
+/// is the discriminant.
+///
+/// What is worth asserting is that the policy really varies with the dial -- that no two faces
+/// could share a storage implementation. A fourth policy would need a fourth discriminant, and
+/// `classification` says there is not one.
 #[test]
-fn there_are_exactly_three_storage_faces_because_there_are_three_discriminants() {
-    let stores: Vec<Keystore> = FACES.iter().copied().map(Keystore::of).collect();
-    assert_eq!(stores.len(), 3);
-
-    // Injective: no two faces give the same keystore.
-    for (i, a) in stores.iter().enumerate() {
-        for b in &stores[i + 1..] {
-            assert_ne!(a, b, "two discriminants collapsed to one storage face");
+fn the_three_faces_license_three_different_storage_policies() {
+    let policy = |s: Sigma| (s.stores_the_key(), s.key_survives());
+    let all: Vec<(bool, bool)> = FACES.iter().copied().map(policy).collect();
+    assert_eq!(all.len(), 3);
+    for (i, a) in all.iter().enumerate() {
+        for b in &all[i + 1..] {
+            assert_ne!(a, b, "two discriminants licensed the same storage policy");
         }
-    }
-    // And it round-trips, so the keystore carries the discriminant and nothing is invented.
-    for sigma in FACES {
-        assert_eq!(Keystore::of(sigma).sigma(), sigma);
     }
 }
 
 /// Each keystore does exactly what its face licenses, and nothing it does not.
 #[test]
 fn what_survives_a_store_is_what_the_face_permits() {
-    // Being: the address determines the key, so nothing needs storing and nothing is lost.
-    assert!(!Keystore::Being.stores_the_key());
-    assert!(Keystore::Being.key_survives());
+    // Elliptic: the address determines the key, so nothing needs storing and nothing is lost.
+    assert!(!Sigma::Elliptic.stores_the_key());
+    assert!(Sigma::Elliptic.key_survives());
 
-    // B/U: the middle face carries the key, because it can neither regenerate nor discard it.
-    assert!(Keystore::BeingOverUnbeing.stores_the_key());
-    assert!(Keystore::BeingOverUnbeing.key_survives());
+    // Parabolic: the middle face carries the key, because it can neither regenerate nor discard it.
+    assert!(Sigma::Parabolic.stores_the_key());
+    assert!(Sigma::Parabolic.key_survives());
 
-    // NB: the key does not survive. This is available only where a discard is.
-    assert!(!Keystore::NonBeing.key_survives());
-    assert!(Keystore::NonBeing.sigma().discards());
+    // Hyperbolic: the key does not survive. This is available only where a discard is.
+    assert!(!Sigma::Hyperbolic.key_survives());
+    assert!(Sigma::Hyperbolic.discards());
 
-    for face in [Keystore::Being, Keystore::BeingOverUnbeing] {
+    for face in [Sigma::Elliptic, Sigma::Parabolic] {
         assert!(
-            !face.sigma().discards(),
+            !face.discards(),
             "{face:?} sits on a face with no discard, so it cannot lose the key"
         );
     }
@@ -69,22 +70,22 @@ fn only_the_non_being_face_destroys_information() {
         .flat_map(|addr| (-4..5).map(move |res| key_cell(addr, res)))
         .collect();
 
-    for face in [Keystore::Being, Keystore::BeingOverUnbeing] {
+    for face in [Sigma::Elliptic, Sigma::Parabolic] {
         for &k in &keys {
             assert_eq!(after_storing(face, k), k, "{face:?} altered a key");
         }
     }
 
-    // NonBeing collapses: distinct keys become the same stored cell, which is precisely what
+    // The hyperbolic face collapses: distinct keys become the same stored cell, which is precisely what
     // makes it lossy and what a 2^-64 false positive rate is a bound on.
     let stored: Vec<Cell<i64>> = keys
         .iter()
-        .map(|&k| after_storing(Keystore::NonBeing, k))
+        .map(|&k| after_storing(Sigma::Hyperbolic, k))
         .collect();
     let distinct: std::collections::HashSet<_> = stored.iter().map(|c| (c.a, c.b)).collect();
     assert!(
         distinct.len() < keys.len(),
-        "NonBeing must collapse distinct keys; {} keys gave {} cells",
+        "the hyperbolic face must collapse distinct keys; {} keys gave {} cells",
         keys.len(),
         distinct.len()
     );
@@ -138,8 +139,12 @@ fn the_merge_does_not_vary_with_the_dial() {
 /// is not.
 #[test]
 fn three_keystores_vary_with_the_dial_and_the_one_merge_does_not() {
-    let keystores: std::collections::HashSet<Keystore> =
-        FACES.iter().copied().map(Keystore::of).collect();
+    // The storage policy, as the pair of predicates the face licenses. Three faces, three
+    // policies -- not three names for one policy.
+    let keystores: std::collections::HashSet<(bool, bool)> = FACES
+        .iter()
+        .map(|&s| (s.stores_the_key(), s.key_survives()))
+        .collect();
     assert_eq!(keystores.len(), 3, "the keystore varies with the dial");
 
     let order_free: std::collections::HashSet<bool> = FACES

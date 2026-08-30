@@ -157,7 +157,7 @@ fn the_word_face_stores_nothing_but_addresses() {
     }
     assert!(!s.insert(N / 2));
     assert_eq!(s.len(), N as usize);
-    assert_eq!(s.face(), apeiron::Keystore::Being);
+    assert_eq!(s.face(), apeiron::Sigma::Elliptic);
     assert!(s.contains(&(N - 1)) && !s.contains(&N));
 
     // The elements come back off the addresses alone.
