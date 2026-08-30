@@ -11,6 +11,19 @@
 //!   real `drain` defect here for several measurements.
 //! - **`clone_from` measured apart from `clone`**, because reusing an allocation is a different
 //!   operation from making one.
+//!
+//! # Corroborate every result with a counter
+//!
+//! This file's first run reported `hashbrown` at 18.6 us on `highbits` against 31.7 on `random`,
+//! a 1.7x swing by distribution, with apeiron flat. `perf` on the same three key sets puts
+//! `hashbrown` at 12.83 / 12.94 / 12.71 cycles a lookup -- flat -- and apeiron at 15.06 / 14.98 /
+//! 15.09 with *fewer* L1 misses than `hashbrown` (1.10 against 1.12 per lookup). The swing is not
+//! in the work done, and it is unexplained.
+//!
+//! One benchmark bug was found and fixed on the way (a group opened once per distribution rather
+//! than once), which moved the numbers and did not remove the swing. Until it is explained, a
+//! wall-clock result here is a hypothesis and the counter is the finding. `examples/write_path.rs`
+//! and `examples/get_vs_contains.rs` are the counter harnesses.
 
 use apeiron::map::{Map, Words};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
@@ -51,16 +64,23 @@ fn keys(which: &str, n: usize) -> Vec<u64> {
 }
 
 /// One operation, three implementations, three distributions.
+/// One operation, three implementations, three distributions.
+///
+/// The group is opened **once** and every distribution goes inside it. Opening a group of the same
+/// name once per distribution -- which is what this did first -- produced numbers that disagreed
+/// with `perf` by 3x, reporting 1.46 ns for a lookup whose measured cost is 12.9 cycles. Any
+/// benchmark result here that a counter does not corroborate is a benchmark bug until shown
+/// otherwise.
 macro_rules! across {
     ($c:expr, $name:literal, $ks:ident, $ap:expr, $st:expr, $hb:expr) => {
+        let mut g = $c.benchmark_group($name);
         for dist in ["serial", "highbits", "random"] {
             let $ks = keys(dist, SIZE);
-            let mut g = $c.benchmark_group(concat!($name, "/"));
             g.bench_function(format!("{dist}/apeiron"), |b| b.iter(|| $ap));
             g.bench_function(format!("{dist}/std"), |b| b.iter(|| $st));
             g.bench_function(format!("{dist}/hb+foldhash"), |b| b.iter(|| $hb));
-            g.finish();
         }
+        g.finish();
     };
 }
 
@@ -85,17 +105,23 @@ fn entry(c: &mut Criterion) {
 }
 
 fn lookup(c: &mut Criterion) {
+    let mut g = c.benchmark_group("lookup_hit");
     for dist in ["serial", "highbits", "random"] {
         let ks = keys(dist, SIZE);
         let ap: Words<u64, usize> = ks.iter().map(|&k| (k, 1)).collect();
         let st: HashMap<u64, usize> = ks.iter().map(|&k| (k, 1)).collect();
         let hb: HbMap<u64, usize> = ks.iter().map(|&k| (k, 1)).collect();
-        let mut g = c.benchmark_group("lookup_hit/");
-        g.bench_function(format!("{dist}/apeiron"), |b| b.iter(|| ks.iter().filter_map(|k| ap.get(k)).count()));
-        g.bench_function(format!("{dist}/std"), |b| b.iter(|| ks.iter().filter_map(|k| st.get(k)).count()));
-        g.bench_function(format!("{dist}/hb+foldhash"), |b| b.iter(|| ks.iter().filter_map(|k| hb.get(k)).count()));
-        g.finish();
+        g.bench_function(format!("{dist}/apeiron"), |b| {
+            b.iter(|| ks.iter().filter_map(|k| ap.get(k)).sum::<usize>());
+        });
+        g.bench_function(format!("{dist}/std"), |b| {
+            b.iter(|| ks.iter().filter_map(|k| st.get(k)).sum::<usize>());
+        });
+        g.bench_function(format!("{dist}/hb+foldhash"), |b| {
+            b.iter(|| ks.iter().filter_map(|k| hb.get(k)).sum::<usize>());
+        });
     }
+    g.finish();
 }
 
 fn clone_ops(c: &mut Criterion) {
