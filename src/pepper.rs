@@ -1,57 +1,28 @@
 //! The process-wide address constant.
 //!
-//! [`crate::map::Salt`] explains what a pepper does and why it has to enter the address
-//! *multiplicatively*. This module answers the other half: how it gets set without every call site
-//! having to remember.
+//! [`set_process_pepper`] once at startup; every `Map` and `CountTable` made afterwards picks it
+//! up. [`process_pepper`] reads and commits it, [`peek_process_pepper`] reads without committing.
+//! Setting it after any table has been built is an error, not a warning: those tables keep the old
+//! constant and the process ends up with two address functions.
 //!
-//! # Why a floor is needed at all
+//! **Why a floor.** `Map::with_pepper` is useless if nobody calls it, and the maps that need one
+//! are the ones nobody thinks about -- a resource index keyed by names out of an archive header.
 //!
-//! `Map::with_pepper` has existed since the salt did, and it is useless if nobody calls it. The
-//! maps that need one are exactly the maps nobody thinks about -- a resource index keyed by names
-//! out of an archive header, a field table keyed by labels read verbatim from a file someone
-//! downloaded. Those are written once, early, by whoever was parsing the format, and they do not
-//! look like security code.
-//!
-//! The reason a pepper is needed has changed once, and the current one is the weaker-sounding
-//! argument that actually matters. It used to be that `map`'s address was a public bijection, so
-//! aiming a key set was **one** `unspread` call and a 200,000-key aimed build ran about 1000x its
-//! honest time. The identity/placement split (`coord::Addr`) killed that: the placement word is a
-//! fold of both halves of a widening multiply, and there is no inverse to solve with.
-//!
-//! What survives is offline search, and it survives completely. Without a pepper the placement is
-//! a **public, deterministic function of the key** -- every unpeppered process in the world
-//! computes the same one. So an attacker searches once, on their own machine, on their own
-//! schedule, and ships the resulting key set at every such process forever. `examples/hashdos.rs`
-//! measures that search at 63,839 trials per key for sixteen bits of agreement; that is a real
-//! cost, but it is a cost paid *once by the attacker*, not once per victim, and it does not
-//! appear in any victim's profile.
-//!
-//! A pepper is what makes the search un-amortisable. An attacker who cannot evaluate this
-//! process's placement word cannot tell which candidates to keep, so the search has to be redone
-//! per target and cannot be done in advance at all.
-//!
-//! So the default is a floor rather than a footgun: one call at startup peppers every map the
-//! process will ever make.
+//! **Why it is still needed** now that `place` is non-invertible. Without a pepper the placement
+//! is a public deterministic function, so an attacker searches once, offline, and reuses the key
+//! set against every such process forever. `examples/hashdos.rs` puts that search at 63,839 trials
+//! per key for sixteen bits -- a real cost, paid once by the attacker, never by a victim. A pepper
+//! makes it un-amortisable: they cannot tell which candidates to keep.
 //!
 //! ```
 //! // once, in main, before anything builds a table
 //! let pepper: u64 = 0x5EED_1234_ABCD_9876; // from config, or the OS at first run
 //! apeiron::pepper::set_process_pepper(pepper);
-//! println!("address salt: {pepper:#018x}"); // or `tracing::info!` -- but write it down
+//! println!("address salt: {pepper:#018x}"); // write it down
 //! ```
 //!
-//! **Log it.** A pepper is a constant, not a per-run seed, and that is the whole reason this crate
-//! can have one at all: a recorded pepper replays a recorded session exactly. A pepper nobody wrote
-//! down is a random seed with extra steps.
-//!
-//! # Why setting it late is an error and not a warning
-//!
-//! Two maps in one process must address a key the same way, or a value moved from one to the other
-//! is lost and a key looked up in the wrong one is silently absent. If the pepper changed after the
-//! first map was built, half the process disagrees with the other half about where every key lives.
-//! That is not a degraded mode, it is a corrupted one, and it would show up as an intermittent
-//! missing resource a long way from the cause. So [`set_process_pepper`] panics rather than let it
-//! happen, and [`try_set_process_pepper`] is there for a caller that wants to decide.
+//! **Log it.** A pepper is a constant, not a per-run seed, which is what lets a recorded session
+//! replay exactly. One nobody wrote down is a random seed with extra steps.
 
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 

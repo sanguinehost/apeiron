@@ -1,67 +1,33 @@
-//! Addressing a key that is not already an address.
+//! Folding a key of unbounded width into a `u64` address.
 //!
-//! `Coord` for an integer is the identity: the key *is* its address. For a string, a byte slice
-//! or anything else of unbounded width there is no such luck, and the address has to be folded
-//! out of the bytes. That fold is a **discard** -- arbitrarily many byte strings, `2^64`
-//! addresses -- so by [`crate::keystore`] it is a hyperbolic operation, and the table it feeds
-//! must be one that carries the key beside the address, because the discard destroyed it.
+//! `Coord` for an integer is the identity. For bytes there is no such luck, so this folds them:
+//! `mix2(a, b)` is the folded 128-bit product `lo ^ hi`, plus a guard term `a + rotl(b, 32)`.
 //!
-//! That is the whole reason the parabolic face exists, and it is worth stating in the direction
-//! that matters: the key is not stored because storing keys is what maps do. It is stored because
-//! the address is a projection, the projection has fibers, and **nothing else can tell two keys
-//! in the same fiber apart**.
+//! **The guard is not optional.** A bare folded multiply returns zero whenever either operand is
+//! zero, so an attacker who cancels the seed gets one address for every tail. `wyhash` closes this
+//! with a secret seed; this crate cannot (a per-run seed denies deterministic replay), so it
+//! closes it structurally -- when the product annihilates the guard term is all that is left, and
+//! it is injective in the free operand. `hashtrinity` shipped without one: 4,096 keys built from
+//! published constants gave it **one** address, and its table answered 4,095 of 4,096 lookups
+//! with another key's value.
 //!
-//! # The one place XOR is used, and why it is not the earlier mistake
+//! Inputs enter `mix2` with `wrapping_add`, never XOR -- see [`crate::coord`] for why.
 //!
-//! [`crate::coord`] measures a fold that crossed from `Z/2^64` into `GF(2)^64` -- `a * PHI ^ b` --
-//! and collides half its keys, because XOR is linear and self-inverse and cannot see a carry. So
-//! the rule in this crate is that accumulation stays in the ring.
+//! **Length ladder:** <= 16 bytes, one `mix2`; 17..=32, two overlapping halves; above that,
+//! 32-byte rounds of two `mix2`s, one per lane. Sixteen bytes per `mix2` is the input-rate
+//! ceiling.
 //!
-//! [`mix2`] uses XOR twice, and neither use is that crossing:
+//! **Cost**, instructions per hash (`examples/fold_instr.rs`):
 //!
-//! - **Folding a 128-bit product to 64 bits.** `hi(a*b)` and `lo(a*b)` are not linear functions of
-//!   `a` and `b` over `GF(2)` -- `lo` is the ring product truncated and `hi` is the carry-out of
-//!   it -- so combining them is not a linear recombine of the *inputs*, which is what cancelled.
-//!   Addition would serve equally; XOR is one cycle cheaper and does not propagate a carry into
-//!   bits the multiply already decided.
-//! - **The annihilation guard.** A bare folded multiply has a fatal fiber: an attacker who drives
-//!   either operand to zero gets address zero for *every* value of the other, which is a family of
-//!   colliding keys as large as they like. `wyhash` and its descendants close this with a secret
-//!   seed. This crate cannot -- a per-run seed denies deterministic replay -- so it closes it
-//!   structurally instead, by adding a term of the inputs back over the product. When the product
-//!   annihilates, that term is all that is left, and it is injective in the free operand.
+//! | corpus | apeiron | foldhash |
+//! |---|---|---|
+//! | resref, 13 B | **23.1** | 24.1 |
+//! | path, 42 B | **68.1** | 74.1 |
+//! | long, 231 B | 199.3 | **180.3** |
 //!
-//!   This is not a hypothetical defect, and the worked example is worth keeping now that the crate
-//!   it was measured against is no longer a dependency. `hashtrinity` took a 16-byte key to
-//!   `folded_mul(a ^ seed, c ^ PHI_HI)` -- first eight bytes, last eight, `seed = PHI ^ (16 *
-//!   PHI_HI)` -- with no guard term. Setting the first eight bytes to `seed` zeroes one operand,
-//!   which leaves the last eight free: `2^64` keys on **one** address, derived from published
-//!   constants in a line each rather than searched for. Built as 4,096 such keys, its table kept
-//!   **1** of them and answered **4,095** of 4,096 lookups with another key's value -- its `get`
-//!   compares the coordinate and never the key, so a fiber is not a slow path for it but a wrong
-//!   answer. The same 4,096 keys get 4,096 distinct addresses here, and the peppered build costs
-//!   the same as the unpeppered one, because there was no fiber for a pepper to move. That is the
-//!   guard being measured rather than the secret.
-//!
-//! Inputs are combined into `mix2` with `wrapping_add`, never XOR. The ring rule holds where it
-//! was measured to matter.
-//!
-//! # What a seedless fold can and cannot promise
-//!
-//! It cannot promise collision resistance. The constants are public, the function is public, and
-//! `2^64` addresses meet a birthday bound at `2^32` keys; an adversary who can search offline can
-//! find pairs, and may be able to find them algebraically faster than that.
-//!
-//! What it changes is what a collision *costs*. In [`crate::table`] two equal addresses are one
-//! key by definition, so the window descent's bound -- a chain of `j` steps costs `j * gbits` bits
-//! of control -- is the whole story. In a keyed map two equal addresses are two keys, they receive
-//! the identical probe sequence, and the descent cannot separate them: a fiber of size `m` costs
-//! `O(m^2)` to insert. **This is the parabolic face's exposure and it is not structural.** It is
-//! the same exposure `hashbrown` has with a fixed hasher, and the answer is the same one:
-//! [`crate::pepper`], a process-wide constant supplied by the caller, which moves the fibers somewhere
-//! the attacker cannot precompute. It is a *constant*, not a per-table random seed, so a recorded
-//! pepper replays a run exactly -- determinism and unpredictability are not in conflict here,
-//! because only reproducibility across runs of *the same recorded session* was ever required.
+//! It cannot promise collision resistance: the constants are public and `2^64` addresses meet a
+//! birthday bound at `2^32` keys. What it changes is what a collision *costs* -- see
+//! [`crate::pepper`].
 
 use crate::coord::{Coord, PHI};
 

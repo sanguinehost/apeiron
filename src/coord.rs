@@ -152,36 +152,26 @@ pub struct Addr {
     pub id: u64,
 }
 
-/// The map's address function: one widening multiply, split into an identity and a placement word.
+/// The map's address: one widening multiply, split into an identity word and a placement word.
 ///
-/// [`finish`] is splitmix64's finalizer -- two multiplies and three xor-shifts on a serial chain,
-/// about fourteen cycles before the first tag byte can be compared. [`crate::table`] pays that
-/// happily because its build is memory-bound. [`crate::map`] cannot: a lookup that hits in L1 *is*
-/// the latency chain, because the group index addresses the tag-line load and nothing starts until
-/// the address is finished.
+/// Takes a coordinate, returns [`Addr`]. `id = x * PHI` is the low half -- a bijection, so
+/// `unspread(spread(x).id) == x`, which is how the elliptic face reads its key back.
+/// `place = rotl(hi, 32) ^ lo` folds both halves -- a discard, with no inverse.
 ///
-/// **This is one multiply.** `x * PHI` is a 128-bit product; its low half `lo` is the identity
-/// (a bijection, PHI odd), and its high half `hi` carries the entropy a single truncated multiply
-/// throws away. `rotl(hi, 32) ^ lo` folds that discarded high half back down into a placement word
-/// that varies across the whole width. The two words leave the one `mulx` together, so the
-/// descent gets a well-spread index and the compare gets an exact key for the price of a single
-/// multiply's latency.
-///
-/// Measured on a dependent chain (`examples/addr_latency.rs`), which is how a probe consumes the
-/// address:
+/// Not [`finish`], which is two multiplies and three xor-shifts on a serial chain: ~14 cycles
+/// before the first tag byte can be compared. A table build is memory-bound and pays that
+/// happily; an L1-resident lookup *is* the latency chain.
 ///
 /// | address | ns/link | ~cycles |
 /// |---|---|---|
 /// | two serial multiplies (the old `spread`) | 1.69 | 9.6 |
-/// | `mulx` + `rotl` + `xor` (this) | 1.31 | 7.5 |
+/// | `mulx` + `rotl` + `xor` (this) | **1.31** | **7.5** |
 ///
-/// The placement was chosen by simulating first-fit against the real descent on seven
-/// distributions at two sizes, deduped, with BLAKE2 as an ideal-hash control -- the same method
-/// [`crate::map`] records. The winning fold's worst honest cell is mean probe 1.075, longest 8,
-/// 1.083 compares, against the old word's 1.031 / 7 / 1.052: a measured drop in placement quality,
-/// bought with a measured drop in latency, and still far inside `tests/the_probe_stays_flat.rs`.
-///
-/// The folds that lost, worst cell each (mean probe / longest / compares):
+/// A multiply carries entropy upward and never downward, so the top of the product varies
+/// whatever the key set -- in the widening form that guaranteed-varying half is `hi`. Rotating it
+/// down and xoring against `lo` puts that variation where the descent and the tag read. Rotate
+/// and xor are `GF(2)`-linear and cannot break a coset alone; the nonlinearity is carry
+/// propagation in `hi`, which is why the wide product needs no second multiply.
 ///
 /// | fold | worst mean | worst max | worst compares | fails |
 /// |---|---|---|---|---|
@@ -191,80 +181,9 @@ pub struct Addr {
 /// | `(hi ^ lo) * PSI` | 1.028 | 7 | 1.057 | none, but two multiplies again |
 /// | **`rotl(hi, 32) ^ lo`** (this) | **1.075** | **8** | **1.083** | **none** |
 ///
-/// # What separating the words gives up
-///
-/// The old word was a **bijection**, and the whole crate leaned on that: the placement was
-/// invertible, so an attacker aimed a collision chain with one [`unspread`] call, and the answer
-/// was a secret (`map::Salt`'s pepper) rather than the descent. The placement word here is *not*
-/// invertible -- it is a fold with fibers -- so closed-form aiming at the descent no longer has a
-/// target it can solve for. That is a strengthening, not a design goal, and it is measured and
-/// discussed where the attack lives: see `map::Salt`, `examples/the_fiber.rs`, and
-/// `tests/the_pepper_is_the_defence.rs`. The pepper is still the defence, because an attacker who
-/// knows the multiplier can still *search*; what is gone is the one-call closed form.
-///
-/// The shape of the fold is forced the same way it always was. A multiply by an odd constant
-/// carries entropy upward and never downward, so **the top of the product varies** whatever the
-/// key set -- and in the widening product that guaranteed-varying top *is* `hi`. Rotating it down
-/// and xoring it against `lo` is what puts that variation where the descent and the tag read.
-///
-/// The rotate and the xor cannot do more than that, and it is worth being exact about why. Both
-/// are linear over `GF(2)`, so this fold on its own maps an affine subspace to an affine subspace:
-/// a structured key set -- an interval, a stride, a packed coordinate -- would stay a coset, and
-/// some slice of the word would stay a rank-deficient image of it. The nonlinearity has to come
-/// from the multiply, and it does: carry propagation is precisely the part of an integer multiply
-/// that is *not* `GF(2)`-linear in its input, and `hi` is the half that carries have reached.
-/// That is the difference between this and the design it replaced. A *narrow* fold sees only
-/// `lo`, whose low bits no carry has crossed, so it needed a second multiply to get a usable
-/// placement; the wide product already contains the nonlinear half, so it does not. The table
-/// above prices that at 1.075 against 1.028 -- a hair worse on paper, for one multiply instead of
-/// two, on a word that is no longer invertible.
-///
-/// # How this was got wrong twice, and what the placement simulation says
-///
-/// This was one multiply and `h ^ (h >> 32)`, with the tag read off the *bottom* of the word.
-/// `hashbrown`'s `highbits` distribution (`i.swap_bytes()`, all entropy in the top of the word)
-/// broke it: the product's low 48 bits never vary, so five thousand keys shared **one** tag and
-/// every group scan compared all sixteen lanes. The first fix moved the tag to the top seven bits
-/// (right, kept -- see [`crate::table::tag_of`]) and dropped the fold entirely (wrong): with
-/// nothing below bit 48 varying, every descent window past the first was constant, and every
-/// group overflow collapsed into group zero. A slice-scoring experiment blessed that mistake
-/// because it scored (first window, tag) independence and never played out the placement.
-///
-/// So the placement is what is simulated: first-fit along the real descent, mean/max groups
-/// per hit and address compares per hit, on the key distributions at n = 5,000 / 200,000 /
-/// 1,500,000, against BLAKE2 as the ideal-hash control. Two rounds are recorded. The first chose
-/// the single-word bijection `mul + fold48 + mul` over the earlier mistakes; the second, when the
-/// lookup latency was read off the machine (`examples/addr_latency.rs`), split that word in two
-/// and chose the placement fold. Worst cell of each candidate, across both rounds:
-///
-/// | candidate | worst mean probe | worst max | worst compares |
-/// |---|---|---|---|
-/// | multiply only (the mistake) | did not finish | 4,072+ | 17.5 |
-/// | mul + fold32, low tag (the original) | 1.000 | 1 | **6.61** |
-/// | mul + fold32, top tag | did not finish | 4,941+ | 18.3 |
-/// | mul + fold32 + fold16, top tag | **1.951** | 14 | 4.96 |
-/// | fold32 then mul, top tag | **2.507** | 334 | 1.39 |
-/// | mul + fold48 + mul (the single word) | 1.030 | 7 | 1.051 |
-/// | `mulx: rotl(hi, 32) ^ lo` (this, split) | 1.075 | 8 | 1.083 |
-/// | splitmix `finish` | 1.029 | 7 | 1.051 |
-/// | BLAKE2 (ideal control) | 1.029 | 8 | 1.051 |
-///
-/// A staged probe was tried in the first round -- first window taken from the first product so the
-/// tag-line load issues five cycles earlier, tag kept on the second -- and the machine agreed with
-/// the simulation from both sides: 8.8 to 8.0 cycles on the L1-resident hit loop, and
-/// `tests/the_probe_stays_flat.rs` failing at mean probe 1.95 on `highbits` at five thousand keys.
-/// A window read off the first product is a rank-deficient image of exactly the structured sets
-/// above, whatever the tag does. The split here is *not* that experiment: the descent reads the
-/// **placement fold**, which mixes the discarded high half back in, not a raw product slice.
-///
-/// Every cheaper candidate has a distribution that breaks it -- and not an exotic one:
-/// [`Packed for (i21, i21, i21)`](Packed) puts the first coordinate in bits 42..63, so a world
-/// whose objects vary mostly along one axis produces exactly the `highbits`/`i21hi` key set out
-/// of this crate's own packing. The placement fold matches the control closely on that shape and
-/// on several structured distributions beats it, and it does so off a single multiply's latency.
-///
-/// Returns an [`Addr`]: `id` is the bijection the elliptic face reads its key back off (PHI odd,
-/// so `unspread(spread(x).id) == x`), `place` is the fold the descent uses.
+/// `place` is deliberately not invertible. The old single word was, so aiming a collision chain
+/// was one `unspread` call; now keys agreeing on `j` windows must be found at `2^(j * gbits)`
+/// trials each.
 #[inline]
 #[must_use]
 #[expect(
