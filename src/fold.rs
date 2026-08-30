@@ -123,7 +123,7 @@ pub fn fold_bytes(b: &[u8]) -> u64 {
 #[inline]
 #[must_use]
 pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
-    settle(absorb(pepper, b))
+    absorb(pepper, b)
 }
 
 /// The last step, and it is not optional: a multiply then an xor-shift.
@@ -204,7 +204,21 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
         .wrapping_add(PSI)
         .wrapping_add((len as u64).wrapping_mul(PHI));
 
-    if len <= 16 {
+    // **Below sixteen bytes only.** `settle` is not repairing the fold, it is repairing the
+    // *dependence between the two `mix2` operands*: this branch reads `b[..8]` and `b[len-8..]`,
+    // which coincide at eight bytes and overlap below sixteen, so one `mix2` of two correlated
+    // words is not enough. At sixteen and above the two reads are disjoint words and it is.
+    //
+    // Measured with `examples/diffdist.rs`, worst window ratio with `settle` removed:
+    //
+    // | len | 8 | 13 | **15** | **16** | 17 | 24 | 32 | 48 | 64 |
+    // |---|---|---|---|---|---|---|---|---|---|
+    // | ratio | 8919 | 1311 | **5.84** | **1.22** | 1.25 | 1.27 | 1.22 | 1.31 | 1.27 |
+    //
+    // The cliff is exactly where the reads stop overlapping, so this branch ends at `< 16`. But
+    // DiffDist is not the only thing the finalizer answers to: the `16..=32` branch below keeps it
+    // as well, on `Avalanche`'s evidence, and only `33` and up are free of it. See there.
+    if len < 16 {
         let (a, c) = if len >= 8 {
             (word(&b[..8]), word(&b[len - 8..]))
         } else if len >= 4 {
@@ -232,18 +246,26 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
         } else {
             (0, 0)
         };
-        return mix2(a.wrapping_add(seed), c.wrapping_add(seed2));
+        return settle(mix2(a.wrapping_add(seed), c.wrapping_add(seed2)));
     }
 
-    // 17..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
+    // 16..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
     // tail -- the middle bytes are read twice, which is harmless, and there is no branch per length.
     if len <= 32 {
         let x = mix2(word(&b[..8]).wrapping_add(seed), word(&b[8..16]).wrapping_add(seed2));
-        let y = mix2(
+        // Settled too, and `SMHasher` is why. This branch's **last** `mix2` takes raw key words as
+        // operands, so its guard `(w2 + x) - (w3 + PHI)` is affine in bytes of the key itself. At
+        // thirty-three and above, and in `fold_long`, the last mix is `mix2(x, y + NU)` -- affine
+        // only in state that is already folded -- and needs no finalizer.
+        //
+        // Routing on sixteen instead of thirty-two passed `examples/diffdist.rs` at 17, 24 and 32
+        // bytes (1.25x, 1.27x, 1.22x) and then failed `SMHasher`'s `Avalanche` at twenty bytes with
+        // a **13.62%** worst bias against the shipped fold's 0.699%. `examples/avalanche_bias.rs`
+        // exists because of that, and reads 13.9 / 16.0 / 15.9% at 20 / 24 / 32 bytes unsettled.
+        return settle(mix2(
             word(&b[len - 16..len - 8]).wrapping_add(x),
             word(&b[len - 8..]).wrapping_add(PHI),
-        );
-        return y;
+        ));
     }
 
     // 33..=64 is exactly one round of the loop below plus its overlapping tail, so it is written

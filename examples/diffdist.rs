@@ -10,6 +10,10 @@
 //! `n*(n-1)/2 / 2^bits`.
 //!
 //! `DIFF_BITS=56-63` (default) picks the bits to test; `DIFF_BITS=0-63` does all of them.
+//! `DIFF_LEN=8` (default, and what `SMHasher` uses) picks the key length. Length matters to this
+//! measurement more than anything else: at eight bytes and below the fold reads the same bytes
+//! twice, so both `mix2` operands come from one word, and at nine and above they are two
+//! independent words.
 //!
 //! Calibration, against the runs in `fold-abi/SMHASHER.md`: the shipped fold reads **81/63 at bit
 //! 63 in the 35-bit window** and passes; a variant seeding by rotation read 152/63 and failed. A
@@ -39,10 +43,13 @@ fn collisions(diffs: &[u64], bits: u32, high: bool) -> usize {
 }
 
 fn main() {
+    let klen: usize =
+        std::env::var("DIFF_LEN").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
     let spec = std::env::var("DIFF_BITS").unwrap_or_else(|_| "56-63".into());
     let (lo, hi) = spec.split_once('-').unwrap_or(("0", "63"));
     let (lo, hi): (u32, u32) = (lo.parse().unwrap(), hi.parse().unwrap());
 
+    println!("  key length {klen} bytes");
     println!("  bit   window            actual / expected   ratio");
     let mut worst = (0.0f64, String::new());
     for bit in lo..=hi {
@@ -50,14 +57,21 @@ fn main() {
         let mut s = 0x2545_F491_4F6C_DD1Du64;
         let mut diffs: Vec<u64> = Vec::with_capacity(N);
         for _ in 0..N {
-            s ^= s << 13;
-            s ^= s >> 7;
-            s ^= s << 17;
-            let k = s.to_le_bytes();
-            let h1 = fold_bytes_with(0, &k);
+            // Every byte of the key is random, as `SMHasher` draws them. Correlated tail bytes
+            // would be measuring the harness, not the fold.
+            let mut k = [0u8; 256];
+            for chunk in k[..klen].chunks_mut(8) {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                let w = s.to_le_bytes();
+                let n = chunk.len();
+                chunk.copy_from_slice(&w[..n]);
+            }
+            let h1 = fold_bytes_with(0, &k[..klen]);
             let mut k2 = k;
             k2[(bit / 8) as usize] ^= 1 << (bit % 8);
-            let h2 = fold_bytes_with(0, &k2);
+            let h2 = fold_bytes_with(0, &k2[..klen]);
             diffs.push(h1 ^ h2);
         }
         for high in [false, true] {
