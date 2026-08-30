@@ -32,6 +32,19 @@ fn ap(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), 1);
     }
+    ap_probe(&m, ks)
+}
+
+/// The lookup loop alone. **The build has to be in its own frame**, and that is worth more than
+/// the inliner split above: sharing one with `insert` costs the lookup six callee-saved registers
+/// and a 264-byte stack frame, and the register allocator answers by *rematerialising* the fold's
+/// seed rather than keeping it live. Split, LLVM hoists `pepper * PHI + PHI` out of the loop by
+/// itself. Measured, 13-byte resrefs: 107.73 instructions shared, **94.70** split, against
+/// `hashbrown`'s 84.41 and 80.25 -- our number moved three times as far as theirs, so the shared
+/// frame was not a fair harness either. A real caller writes `map.get(k)` from a function that is
+/// not also building the map.
+#[inline(never)]
+fn ap_probe(m: &Map<String, u64>, ks: &[String]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
@@ -49,6 +62,11 @@ fn zst(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), ());
     }
+    zst_probe(&m, ks)
+}
+
+#[inline(never)]
+fn zst_probe(m: &Map<String, ()>, ks: &[String]) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
@@ -64,6 +82,14 @@ fn hb<S: std::hash::BuildHasher + Default>(ks: &[String]) -> usize {
     for k in ks {
         m.insert(k.clone(), 1);
     }
+    hb_probe(&m, ks)
+}
+
+#[inline(never)]
+fn hb_probe<S: std::hash::BuildHasher>(
+    m: &hashbrown::HashMap<String, u64, S>,
+    ks: &[String],
+) -> usize {
     let mut hits = 0;
     for _ in 0..REPS {
         for k in ks {
