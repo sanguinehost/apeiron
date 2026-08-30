@@ -38,6 +38,22 @@ pub extern "C" fn hb_ins(m: &mut HbMap<u64, u64, RandomState>, k: u64) {
     m.insert(k, k);
 }
 
+// Not `extern "C"`: `&str` is not FFI-safe and the ABI is irrelevant here -- all that is wanted is
+// a symbol `objdump` can find. `#[used]` keeps it from being stripped.
+#[must_use]
+#[export_name = "ap_str_get"]
+#[inline(never)]
+pub fn ap_str_get(m: &Map<String, u64>, k: &str) -> u64 {
+    m.get_at(k).copied().unwrap_or(0)
+}
+
+#[must_use]
+#[export_name = "hb_str_get"]
+#[inline(never)]
+pub fn hb_str_get(m: &HbMap<String, u64, RandomState>, k: &str) -> u64 {
+    m.get(k).copied().unwrap_or(0)
+}
+
 fn main() {
     let mut a: Map<u64, u64> = Map::with_capacity(4096);
     let mut h: HbMap<u64, u64, RandomState> =
@@ -46,9 +62,14 @@ fn main() {
         a.insert(i * 7, i);
         h.insert(i * 7, i);
     }
+    let mut sm: Map<String, u64> = Map::new();
+    let mut hm: HbMap<String, u64, RandomState> = HbMap::default();
+    for i in 0..1000u64 { let k = format!("nw_wswmg{i:05}"); sm.insert(k.clone(), i); hm.insert(k, i); }
     let mut s = 0u64;
     for i in 0..1000u64 {
         s = s.wrapping_add(ap_get(&a, i * 7)).wrapping_add(hb_get(&h, i * 7));
+        let k = format!("nw_wswmg{i:05}");
+        s = s.wrapping_add(ap_str_get(&sm, &k)).wrapping_add(hb_str_get(&hm, &k));
         ap_ins(&mut a, i * 13);
         hb_ins(&mut h, i * 13);
     }

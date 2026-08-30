@@ -179,12 +179,28 @@ pub struct Addr {
 /// Both checked over two million pairs, half of them with a live carry. That carry term is the
 /// whole nonlinearity of the address, and it is why the wide product needs no second multiply.
 ///
-/// It also says which face each half is on, without analogy. `lo` is a quotient ring, so it is a
-/// bijection and the elliptic face reads its key back off it. `hi` is a cocycle value, not a ring
-/// element -- there is no modulus in which it is canonical -- so nothing invertible can be built
-/// from it and the hyperbolic face is the only one it can serve. The pair has exactly one
-/// canonical projection and no canonical complement, which is the parabolic shape: **`Addr` is a
-/// `sigma = 0` pair carrying an elliptic `id` and a hyperbolic `place`.**
+/// It also says which face each half is on, and the faces are the *upstream* ones -- the Lean
+/// development in `sanguine-apeiron/proof/Apeiron/Trichotomy`, not a reading invented here.
+///
+/// - `place` **discards**: it is not injective, by construction, and there is deliberately no
+///   inverse. `Projection.discards_iff_disc_pos` is `Discards sigma <-> 0 < sigma` -- a projection
+///   that kills one non-zero point while keeping another exists on the **hyperbolic** face and
+///   nowhere else. So naming `place` hyperbolic is forced by what it does.
+/// - `id` discards nothing: `lo` is multiplication by a unit, a bijection, and the elliptic face
+///   reads its key back off it. Below zero there are no zero divisors at all
+///   (`Basic.noZeroDivisors_iff_disc_neg`), so every projection is the identity or the constant
+///   zero and nothing can be thrown away. That is the face on which an address *determines* a key.
+///
+/// **`Addr` is not a point of the algebra at any one `sigma`, and an earlier version of this doc
+/// said it was a `sigma = 0` pair. That is refuted upstream**: `NullBasis.upper_eq_lower_of_disc_zero`
+/// is `upper 0 z = lower 0 z` -- at zero the two channels *agree*, so the parabolic face has no
+/// second channel to be independent. `id` and `place` are not the same read; one is injective and
+/// the other cannot be. So the pair cannot sit at `sigma = 0`.
+///
+/// What it is: **two reads at two different faces, taken off one multiply.** The widening product
+/// is what makes that cheap, and the three-face table at the top of this module is what says why a
+/// table wants both at once -- the parabolic face carries the key beside the address precisely
+/// because one word cannot be a bijection and a discard together.
 ///
 /// The `^` is a step out of `Z/2^64` and into `GF(2)^64`, the crossing this module opens by
 /// warning about. It is safe *here* and was not safe there for a stateable reason: hashtrinity
