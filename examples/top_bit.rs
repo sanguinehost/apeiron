@@ -9,6 +9,15 @@
 //! it. The repair has to come from the other structure -- a `GF(2)`-linear shift/xor, which is
 //! what `coord::finish` and `coord::spread` are.
 //!
+//! # This is a **proxy**, and it is not sufficient
+//!
+//! It samples bits 32, 62 and 63 over 200,000 keys and counts distinct high-32 differences.
+//! `SMHasher`'s `DiffDist` collides low 24-36 bit *windows* over a far larger keyset, and the two
+//! disagree. A fold variant that seeded by rotation instead of a length multiply read **199,996
+//! here against the shipped fold's 199,997** -- indistinguishable -- and failed `DiffDist` at bit
+//! 63 with 152 collisions in the 35-bit window against 63 expected (2.38x), where the shipped fold
+//! sits at 81/63 (1.27x). A green result here is not evidence; only `fold-abi/SMHASHER.md` is.
+//!
 //! Run: `cargo run --release --example top_bit`
 
 use apeiron::coord::finish;
