@@ -26,11 +26,28 @@ Then `cmake -DCMAKE_BUILD_TYPE=Release . && make -j8 SMHasher && ./SMHasher apei
 | 1, as found | 8 | PerlinNoise 14,741,760 and 493,636; DiffDist 3,570 |
 | 2, `c` key-derived at 1-3 bytes | 7 | PerlinNoise 493,636; DiffDist 3,570 |
 | 3, pepper multiplied, constants dropped | 8 | Sparse 9/279/36, Permutation 225, TwoBytes 1/19, DiffDist 1,000 |
-| 4, constants and length restored | **6** | **DiffDist 100** |
+| 4, constants and length restored | 6 | DiffDist 100 |
+| 5, finalizer added | **2** | **none** |
 
-Passing throughout: sanity, appended zeroes, Diff (8.3e9 tests, zero collisions), Prng, Bic,
-Zeroes, Seed, Window, Cyclic, bulk at 6.9 bytes/cycle. Now also passing: Sparse, Permutation,
-PerlinNoise.
+Run 5 passes Sanity, AppendedZeroes, Avalanche, Sparse, Permutation, TwoBytes, Text,
+PerlinNoise, DiffDist, Diff (8.3e9 tests), Bic, Zeroes, Seed, Window, Cyclic, Prng, and runs bulk
+at ~6.9 bytes/cycle. **Zero exact 64-bit collisions in every keyset.**
+
+### Still failing
+
+`MomentChi2`, and only its *derivative* half. The direct moments are 1.139 and 1.152 against an
+ideal of 1; the derivative moments -- consecutive 32-bit integers, step 2 -- are 145,171 and
+143,659.
+
+Not diagnosed. The suspicion is that a four-byte key gives `mix2` two affinely related operands,
+since `a` reads `b[..4]` and `c` reads `b[len-4..]` and at `len == 4` those are the same bytes, so
+the fold is quadratic in the key and consecutive differences are linear in it. **That is a
+hypothesis and it is not confirmed**: a local check of the difference popcount over 200,000
+consecutive keys comes out at mean 32.005 and variance 16.86 against an ideal 32 and 16, which is
+too coarse to see what a moment test over 2^32 keys sees.
+
+Worth noting for severity: apeiron does not address integers through the byte fold. `Coord` for an
+integer is the identity and `map` sends it through `spread`. This keyset is four-byte *strings*.
 
 ### What run 1 found, and what it cost to fix
 
