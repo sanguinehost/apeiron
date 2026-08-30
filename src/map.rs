@@ -915,9 +915,20 @@ pub struct Map<K, V, H = Stored<K>> {
     salt: Salt,
     /// Live entries.
     live: usize,
-    /// Live entries plus tombstones -- what the fill limit is measured against, because a tombstone
-    /// occupies probe order even though it holds nothing.
-    used: usize,
+    /// Occupied slots the region can still take before it must grow: `limit(slots) - used`, where
+    /// `used` is live entries plus tombstones (a tombstone occupies probe order even though it
+    /// holds nothing).
+    ///
+    /// Stored this way round because of what `reserve` costs otherwise. `used + additional <=
+    /// limit(slots.len())` has to **recompute the limit on every insert** -- load `slots`, load
+    /// `used`, `shr $3`, `and $-8`, `sub`, `add`, `cmp`, `ja`: nine instructions to decide not to
+    /// grow, against `hashbrown`'s `cmp growth_left, 0` and a branch. Carrying the difference makes
+    /// it `cmp additional, room`, and the subtraction that maintains it happens only on the vacant
+    /// path, where a tag and a slot are being written anyway.
+    ///
+    /// Nothing is lost: `used` is only ever read to derive [`Self::tombstones`] and to make that
+    /// comparison, and `limit(slots) - room - live` recovers it exactly, on a path that is cold.
+    room: usize,
     _k: PhantomData<K>,
 }
 
@@ -959,7 +970,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             tags: Box::new([]),
             slots: Box::new([]),
             live: 0,
-            used: 0,
+            room: 0,
             geom: Geom::default(),
             salt,
             _k: PhantomData,
@@ -1079,7 +1090,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         Stats {
             face: H::FACE,
             live: self.live,
-            tombstones: self.used - self.live,
+            tombstones: self.tombstones(),
             slots: self.slots.len(),
             peppered: self.salt.pepper() != 0,
             longest_probe: longest,
@@ -1136,7 +1147,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Slots holding a removed entry. Nonzero means the next growth may be a rebuild in place.
     #[must_use]
     pub const fn tombstones(&self) -> usize {
-        self.used - self.live
+        limit(self.slots.len()) - self.room - self.live
     }
 
     // -- probing -------------------------------------------------------------------------------
@@ -1587,7 +1598,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         // for an index the probe already proved.
         unsafe {
             if *self.tags.get_unchecked(i) == EMPTY {
-                self.used += 1;
+                self.room -= 1;
             }
             self.live += 1;
             *self.slots.get_unchecked_mut(i) = MaybeUninit::new((H::hold(a.id, k), v));
@@ -1634,7 +1645,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         });
         self.tags.fill(EMPTY);
         self.live = 0;
-        self.used = 0;
+        self.room = limit(self.tags.len());
     }
 
     /// Keep the entries `keep` returns true for.
@@ -1674,7 +1685,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// never-taken branch instead of a call.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
-        if self.used + additional <= limit(self.slots.len()) {
+        if additional <= self.room {
             return;
         }
         self.grow_for(additional);
@@ -1768,7 +1779,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         self.tags = tags;
         self.slots = fresh;
         self.geom = geometry;
-        self.used = self.live;
+        self.room = limit(self.slots.len()) - self.live;
     }
 
     /// The smallest region that holds `n` entries.
@@ -1784,7 +1795,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// handed an archive header claiming four billion resources would rather refuse the file than
     /// take the process down, and `reserve` gives it no way to.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), AllocFailed> {
-        if self.used + additional <= limit(self.slots.len()) {
+        if additional <= self.room {
             return Ok(());
         }
         let want = self.live + additional;
@@ -2165,7 +2176,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Drain<'_, K, V, H> {
             unsafe {
                 *self.map.tags.as_mut_ptr().add(self.base).cast::<[u8; GROUP]>() = [EMPTY; GROUP];
             }
-            self.map.used -= filled.count_ones() as usize;
+            self.map.room += filled.count_ones() as usize;
             self.map.live -= live.count_ones() as usize;
             self.mask = live;
             if live != 0 {
@@ -2938,7 +2949,7 @@ impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
             tags: self.tags.clone(),
             slots,
             live: self.live,
-            used: self.used,
+            room: self.room,
             geom: self.geom,
             salt: self.salt,
             _k: PhantomData,
@@ -2967,7 +2978,7 @@ impl<K: Coord + Eq, V: Clone, H: Held<K> + Clone> Clone for Map<K, V, H> {
         });
         self.tags.copy_from_slice(&source.tags);
         self.live = source.live;
-        self.used = source.used;
+        self.room = source.room;
         self.geom = source.geom;
         self.salt = source.salt;
     }
@@ -3227,7 +3238,13 @@ mod tests {
         let tombs = m.tags.iter().filter(|t| **t == TOMB).count();
         let empty = m.tags.iter().filter(|t| **t == EMPTY).count();
         assert_eq!(live, m.live);
-        assert_eq!(live + tombs, m.used);
+        // `room` carries `limit(slots) - used`, so this is the same assertion the other way round.
+        assert_eq!(
+            live + tombs,
+            limit(m.slots.len()) - m.room,
+            "room must account for every occupied slot"
+        );
+        assert_eq!(tombs, m.tombstones());
         assert_eq!(live + tombs + empty, m.tags.len());
         assert_eq!(m.tags.len(), m.slots.len());
         // Every live slot's stored identity word is the one the map would compute for its key, and
