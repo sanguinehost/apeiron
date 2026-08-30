@@ -594,9 +594,10 @@ fn group_of(p: u64, j: u32, gbits: u32, gmask: usize) -> usize {
 #[inline]
 #[must_use]
 pub const fn tag_of(p: u64) -> u8 {
-    // Seven bits by construction: `p >> 57` leaves at most 7, and `0x80` sets the live bit, so
-    // nothing is truncated that was not already zero. No suppression: clippy sees the range.
-    0x80 | (p >> 57) as u8
+    // Seven bits by construction: `p >> 57` leaves at most 7, so the top bit is clear and nothing
+    // is truncated that was not already zero. That clear bit is what marks the slot live: the free
+    // sentinels both set it. No suppression: clippy sees the range.
+    (p >> 57) as u8
 }
 
 /// Sixteen lanes at a time, two ways.
@@ -664,12 +665,13 @@ pub mod scan {
         u16::from(gather(eq_swar(lo, tag))) | (u16::from(gather(eq_swar(hi, tag))) << 8)
     }
 
-    /// Lanes of `line` with the top bit set, one bit per lane. `tag_of` always sets that bit and
-    /// an empty slot's tag is zero, so this is exactly "not empty" -- and it is one instruction
-    /// rather than a compare against zero.
+    /// Lanes of `line` with the top bit set, one bit per lane. The free sentinels set that bit and
+    /// `tag_of` never does, so this is exactly "free" -- and it is one instruction rather than a
+    /// compare. `occupied` is its complement, which is why the polarity runs this way round: the
+    /// probe asks for free lanes on the write path and for occupied lanes only when rebuilding.
     #[inline]
     #[must_use]
-    pub fn occupied_swar(line: &[u8; 16]) -> u16 {
+    pub fn free_swar(line: &[u8; 16]) -> u16 {
         const HI: u64 = 0x8080_8080_8080_8080;
         let (lo, hi) = halves(line);
         u16::from(gather(lo & HI)) | (u16::from(gather(hi & HI)) << 8)
@@ -703,7 +705,7 @@ pub mod scan {
         }
     }
 
-    /// Lanes of `line` that are live, one bit per lane. SSE2.
+    /// Lanes of `line` that are free, one bit per lane. SSE2.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     #[must_use]
@@ -714,7 +716,7 @@ pub mod scan {
         reason = "as `match_tag_simd`: a sign-typed `i32` holding a 16-bit mask, read through the \
                   unaligned load"
     )]
-    pub fn occupied_simd(line: &[u8; 16]) -> u16 {
+    pub fn free_simd(line: &[u8; 16]) -> u16 {
         use std::arch::x86_64::{__m128i, _mm_loadu_si128, _mm_movemask_epi8};
         // SAFETY: as `match_tag_simd`.
         unsafe { _mm_movemask_epi8(_mm_loadu_si128(line.as_ptr().cast::<__m128i>())) as u16 }
@@ -737,15 +739,23 @@ pub mod scan {
     #[inline]
     #[must_use]
     /// Lanes of `line` that are live, whichever of the two this target compiled to.
-    pub fn occupied(line: &[u8; 16]) -> u16 {
+    pub fn free(line: &[u8; 16]) -> u16 {
         #[cfg(target_arch = "x86_64")]
         {
-            occupied_simd(line)
+            free_simd(line)
         }
         #[cfg(not(target_arch = "x86_64"))]
         {
-            occupied_swar(line)
+            free_swar(line)
         }
+    }
+
+    /// The complement of [`free`]: lanes holding a live entry. One `not` more than `free`, and
+    /// that is deliberate -- only `rebuild` asks this, and every probe asks the other one.
+    #[inline]
+    #[must_use]
+    pub fn occupied(line: &[u8; 16]) -> u16 {
+        !free(line)
     }
 }
 
@@ -788,7 +798,7 @@ fn locate(region: &Region, ad: crate::coord::Addr) -> (usize, bool) {
             hits &= hits - 1;
         }
         // Only now look for an empty lane: the hit path above never reads this.
-        let empties = !scan::occupied(line);
+        let empties = scan::free(line);
         if empties != 0 {
             return (base + empties.trailing_zeros() as usize, false);
         }
@@ -796,9 +806,17 @@ fn locate(region: &Region, ad: crate::coord::Addr) -> (usize, bool) {
     }
 }
 
+/// An unused slot. All ones, so its top bit is set and [`scan::free`] finds it in one `movemask`.
+///
+/// The polarity is `crate::map`'s and the reason is there: a live tag has the top bit **clear**,
+/// so `tag_of` needs no `or` and the write path needs no `not`. `Region` allocates its own tags
+/// and so needs its own copy of the constant -- getting this one wrong does not fail to compile,
+/// it makes `locate` spin forever looking for a free lane in a region that reads as full.
+const EMPTY: u8 = 0xFF;
+
 /// Unreachable: `tags.len()` is `slots.len()` and `base` is a group start, so the slice is always
 /// sixteen bytes. Present so `locate` has no panicking branch on the hot path.
-const EMPTY_LINE: [u8; 16] = [0; 16];
+const EMPTY_LINE: [u8; 16] = [EMPTY; 16];
 
 /// A shard's storage: a tag line beside the slots, so a group scan touches one cache line.
 #[derive(Clone)]
@@ -806,16 +824,17 @@ pub(crate) struct Region {
     /// One tag byte per slot, so a group is sixteen contiguous bytes and one vector load.
     tags: Vec<u8>,
     /// The **avalanched** address and its count. An empty slot is `(0, 0)` and is told apart by
-    /// its tag, never by a sentinel value -- so zero is an ordinary key, and the whole region can
-    /// be allocated already zeroed instead of written over. That sentinel cost 1.81 ms of
-    /// `memset` on the main thread at a million keys.
+    /// its tag, never by a sentinel value -- so zero is an ordinary key, and this vector can be
+    /// allocated already zeroed instead of written over. That sentinel cost 1.81 ms of `memset` on
+    /// the main thread at a million keys. It is sixteen bytes a slot against the tag array's one,
+    /// which is why the saving lives here and why [`EMPTY`] can afford not to be zero.
     slots: Vec<(u64, i64)>,
 }
 
 impl Region {
     fn new(slots: usize) -> Self {
         Self {
-            tags: vec![0u8; slots],
+            tags: vec![EMPTY; slots],
             slots: vec![(0, 0); slots],
         }
     }

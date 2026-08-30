@@ -113,11 +113,16 @@ mod harnesses {
         assert_eq!(got, want);
     }
 
-    /// And the occupancy scan is the top bit, which is what tells an empty slot from a full one.
+    /// And the vacancy scan is the top bit, which is what tells a free slot from a full one.
+    ///
+    /// The top bit marks **free**, not occupied: both sentinels set it and `tag_of` never does, so
+    /// the write path -- which asks for free lanes -- gets its answer straight out of the
+    /// `movemask` with no `not`, and `tag_of` needs no `or` to put the bit back. `scan::occupied`
+    /// is the complement and only `rebuild` calls it.
     #[kani::proof]
-    fn the_swar_occupancy_scan_is_the_top_bit() {
+    fn the_swar_vacancy_scan_is_the_top_bit() {
         let line: [u8; 16] = kani::any();
-        let got = crate::table::scan::occupied_swar(&line);
+        let got = crate::table::scan::free_swar(&line);
         let mut want = 0u16;
         let mut i = 0usize;
         while i < 16 {
@@ -127,6 +132,8 @@ mod harnesses {
             i += 1;
         }
         assert_eq!(got, want);
+        // And the two are exact complements, which is the property `rebuild` leans on.
+        assert_eq!(crate::table::scan::occupied(&line), !got);
     }
 
     /// A bucket index is in range for its table.

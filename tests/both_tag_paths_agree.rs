@@ -29,9 +29,12 @@ fn reference_match(line: &[u8; 16], tag: u8) -> u16 {
     m
 }
 
-/// A slot is occupied exactly when its tag has the top bit set; `tag_of` always sets it and an
+/// A slot is FREE exactly when its tag has the top bit set; the sentinels set it and `tag_of`
+/// never does, so this is the reference for `scan::free`. See the note on the polarity in
+/// `apeiron::table::tag_of`.
+/// A slot is occupied exactly when its tag has the top bit clear; `tag_of` always clears it and an
 /// empty slot's tag is zero, so this is "not empty".
-fn reference_occupied(line: &[u8; 16]) -> u16 {
+fn reference_free(line: &[u8; 16]) -> u16 {
     let mut m = 0u16;
     for (i, &b) in line.iter().enumerate() {
         if b & 0x80 != 0 {
@@ -48,16 +51,16 @@ fn lines() -> Vec<[u8; 16]> {
     // One occupied lane at each position, the rest empty: the placement case.
     for i in 0..16 {
         let mut l = [0u8; 16];
-        l[i] = 0x80 | (i as u8 * 7 % 128);
+        l[i] = (i as u8 * 7) % 128;
         out.push(l);
     }
     // Every lane occupied but one: the "group is full except here" case.
     for i in 0..16 {
-        let mut l = [0x80u8; 16];
+        let mut l = [0u8; 16];
         l[i] = 0;
         out.push(l);
     }
-    // Pseudorandom fill over the real alphabet: zero, or 0x80 | seven bits.
+    // Pseudorandom fill over the real alphabet: 0xFF, or seven bits with the top clear.
     let mut r = 0x243F_6A88_85A3_08D3u64;
     let mut next = || {
         r ^= r << 13;
@@ -75,7 +78,7 @@ fn lines() -> Vec<[u8; 16]> {
         let mut l = [0u8; 16];
         for b in &mut l {
             let v = next();
-            *b = if v & 3 == 0 { 0 } else { 0x80 | (v >> 8) as u8 & 0x7F };
+            *b = if v & 3 == 0 { 0xFF } else { (v >> 8) as u8 & 0x7F };
         }
         out.push(l);
     }
@@ -88,7 +91,7 @@ fn the_swar_scan_is_the_scalar_definition() {
         for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
             assert_eq!(scan::match_tag_swar(&l, tag), reference_match(&l, tag), "line {l:?} tag {tag}");
         }
-        assert_eq!(scan::occupied_swar(&l), reference_occupied(&l), "line {l:?}");
+        assert_eq!(scan::free_swar(&l), reference_free(&l), "line {l:?}");
     }
 }
 
@@ -103,7 +106,7 @@ fn the_simd_scan_is_the_swar_scan() {
                 "line {l:?} tag {tag}"
             );
         }
-        assert_eq!(scan::occupied_simd(&l), scan::occupied_swar(&l), "line {l:?}");
+        assert_eq!(scan::free_simd(&l), scan::free_swar(&l), "line {l:?}");
     }
 }
 
@@ -114,6 +117,6 @@ fn the_chosen_scan_is_the_scalar_definition() {
         for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
             assert_eq!(scan::match_tag(&l, tag), reference_match(&l, tag));
         }
-        assert_eq!(scan::occupied(&l), reference_occupied(&l));
+        assert_eq!(scan::free(&l), reference_free(&l));
     }
 }
