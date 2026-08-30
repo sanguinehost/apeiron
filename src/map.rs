@@ -14,13 +14,27 @@
 //!
 //! | | `u64` | `String` |
 //! |---|---|---|
-//! | apeiron | **34.8** | 93.4 |
-//! | hashbrown + foldhash | 35.3 | **83.9** |
+//! | apeiron | **32.8** | 109.7 |
+//! | hashbrown + foldhash | 35.3 | **84.2** |
 //! | hashbrown + fxhash | 34.2 | 92.3 |
-//! | std | 128.2 | -- |
+//! | std | 128.3 | -- |
 //!
-//! The `String` gap is not the fold, which is at parity (23.1 against 24.1), and not the slot
-//! width, which `LOOKUP_ARM=apstrzst` refutes at 93.2 against 93.4. It is open.
+//! The `String` column previously read 93.4 here and said the gap was "not the fold, which is at
+//! parity". Both halves were stale, and the second was pointing work away from the real cost.
+//! Re-measured, 13-byte keys, `examples/fold_instr.rs`:
+//!
+//! | corpus | bytes | apeiron | foldhash | |
+//! |---|---|---|---|---|
+//! | short | 2 | 44.1 | 34.1 | +10.0 |
+//! | **resref** | **13** | **30.1** | **22.1** | **+8.0** |
+//! | path | 42 | 75.1 | 72.1 | +3.0 |
+//! | long | 231 | 206.3 | 178.3 | +27.9 |
+//!
+//! The lookup gap is 25.5 instructions and the fold is **8.0 of it**, so the fold is roughly a
+//! third and not nothing. About 2.3 of that eight is `fold::settle`, bought deliberately to close
+//! `SMHasher`'s `DiffDist` failure at bit 63. The remaining ~17.5 is the table and the compare, and
+//! that part is still open -- the slot width is ruled out, `LOOKUP_ARM=apstrzst` refutes it at
+//! 93.2 against 93.4 on the older baseline.
 //!
 //! # What the remaining `u64` gap is, instruction by instruction
 //!
@@ -32,19 +46,25 @@
 //! |---|---|---|
 //! | guard | `cmpq $0,len` / `je` | `cmpq $16,len` / `jb` |
 //! | mix | `xor` seed, `mulq`, `xor` hi into lo | `mulq`, `rol $32`, `xor` hi into lo |
-//! | tag | `mov`, `shr $57` | `mov`, `shr $57`, **`or $0x80`** |
+//! | tag | `mov`, `shr $57` | `mov`, `shr $57` |
 //! | group | `mov` mask, `and` | `mov` gshift, **`mov` to `cl`**, `shr %cl`, `mov` mask, `and` |
-//! | total | 12 | 15 |
+//! | total | 12 | 13 |
 //!
 //! So the split's *mixing* is free: our `rol` + `xor` is two instructions and foldhash's seed
-//! `xor` + fold `xor` is two. The three that differ are none of them the algebra:
+//! `xor` + fold `xor` is two. Of the three that once differed, two are gone and neither was the
+//! algebra:
 //!
-//! - **`or $0x80`** -- our tag carries the live bit and hashbrown's does not, because its empty
-//!   sentinel is `0xFF` and ours is `0`. Ours makes the allocation a `calloc`. Priced: filling a
-//!   2^20-byte tag array with `0xFF` instead of `0` costs 150 cycles of 65,000, or 0.2%, so
-//!   flipping the sentinel would trade 0.2% of a rebuild for one instruction per probe. Not taken
-//!   yet -- it is a crate-wide invariant, and `or` is one uop off the critical path, which runs
-//!   through the group index and not the tag.
+//! - **`or $0x80`**, our tag's live bit -- **removed** by flipping the empty sentinel from `0` to
+//!   `0xFF`, so a live tag now has the top bit clear and `tag_of` puts nothing back. It took
+//!   **two** instructions off the read path, not one, and the second is the interesting one: `or
+//!   $0x80,%r9b` writes eight bits and leaves the rest of the register undefined, so LLVM had to
+//!   `movzbl` before broadcasting the tag. `shr $57` alone already leaves a value below 128 in a
+//!   full register, so the broadcast reads it directly. The write path separately loses the `not`
+//!   behind `free = !occupied(line)`, since the vacancy scan is now the raw `movemask`. The
+//!   sentinel was zero so a fresh region could be a
+//!   lazy `calloc`; `examples/growcost.rs` measures that argument and refutes it -- 2^22 with
+//!   growth, five rounds, 113.7 ms against **105.8 ms**. The fill is real and it is smaller than
+//!   what the other polarity cost per insert.
 //! - **`mov` to `cl`** -- a variable shift needs its amount in `cl` on the `x86_64` baseline.
 //!   Under `-C target-cpu=native` it is `shrx` and the `mov` is gone. ISA, not design.
 //! - **one extra `mov`** -- `place` stays live across the whole probe because every descent step
@@ -115,15 +135,22 @@ use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::mem::MaybeUninit;
 
-/// An unused slot. Zero, so a fresh region is a `calloc` the kernel may hand over lazily rather
-/// than a pass of writes.
-const EMPTY: u8 = 0;
+/// An unused slot. All ones, so its top bit is set and [`FREE`] finds it in one `movemask`.
+///
+/// It was zero, so that a fresh region could be a `calloc` the kernel hands over lazily rather
+/// than a pass of writes. That is true of the allocation and false of the total: the polarity buys
+/// an `or` off `tag_of` and a `not` off the write path's vacancy scan, and `examples/growcost.rs`
+/// prices the whole build *including* the fill at 2^22 with growth, five rounds each -- 113.7 ms
+/// zeroed against **105.8 ms** filled. See [`crate::table::tag_of`] for the polarity itself, and
+/// [`crate::table::EMPTY`], which is the same constant a second time because `Region` allocates
+/// its own tags.
+const EMPTY: u8 = 0xFF;
 /// A slot whose entry was removed. Distinct from [`EMPTY`] because a probe that stopped here would
-/// lose every key placed beyond it while it was live, and distinct from a live tag because
-/// `tag_of` always sets the top bit and this does not.
-const TOMB: u8 = 1;
-/// A live slot's tag has this bit; `EMPTY` and `TOMB` do not. One `movemask` separates them.
-const LIVE: u8 = 0x80;
+/// lose every key placed beyond it while it was live, and distinct from a live tag because both
+/// sentinels set the top bit and `tag_of` never does.
+const TOMB: u8 = 0xFE;
+/// `EMPTY` and `TOMB` have this bit; a live slot's tag does not. One `movemask` separates them.
+const FREE: u8 = 0x80;
 
 /// Fill limit, as a fraction. Seven eighths, where `hashbrown` sits, so a memory comparison
 /// against it compares layouts rather than load factors.
@@ -807,11 +834,11 @@ fn already_mixed<K: Coord + Eq + ?Sized>(salt: Salt, c: u64) -> Addr {
 /// path -- but it is thin-pointer surgery through every slice access, and the field order below
 /// already claimed the cheap part of the win; measured as worth revisiting, not taken yet.
 pub struct Map<K, V, H = Stored<K>> {
-    /// One byte per slot: [`EMPTY`], [`TOMB`], or a live slot's seven-bit tag with [`LIVE`] set.
+    /// One byte per slot: [`EMPTY`], [`TOMB`], or a live slot's seven-bit tag, which has [`FREE`] clear.
     /// Sixteen of these are one vector compare, which is what makes a group scan one instruction
     /// rather than sixteen loads.
     tags: Box<[u8]>,
-    /// The entries. **`slots[i]` is initialised exactly when `tags[i] & LIVE != 0`.** That is the
+    /// The entries. **`slots[i]` is initialised exactly when `tags[i] & FREE == 0`.** That is the
     /// whole safety invariant of this module; every `unsafe` below cites it and nothing else.
     slots: Box<[MaybeUninit<(H, V)>]>,
     /// The region's probe geometry, recomputed only when the region is.
@@ -976,7 +1003,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let mut total = 0u64;
         let mut compared = 0u64;
         for (i, &t) in self.tags.iter().enumerate() {
-            if t & LIVE == 0 {
+            if t & FREE != 0 {
                 continue;
             }
             // SAFETY: the tag says live.
@@ -1093,7 +1120,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let mut hits = scan::match_tag(line, tag);
         while hits != 0 {
             let lane = base + hits.trailing_zeros() as usize;
-            // SAFETY: a matched tag has `LIVE` set (`tag_of` sets it; `EMPTY` and `TOMB` do not),
+            // SAFETY: a matched tag has `FREE` clear (`tag_of` never sets it; `EMPTY` and `TOMB` do),
             // so by the slot invariant this entry is initialised, and `lane` is inside the line,
             // which is inside the region.
             let (h, _) = unsafe { self.slots.get_unchecked(lane).assume_init_ref() };
@@ -1116,7 +1143,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let mut hits = scan::match_tag(line, tag);
         while hits != 0 {
             let lane = base + hits.trailing_zeros() as usize;
-            // SAFETY: as `scan_group` -- a matched tag has `LIVE` set, so the slot is initialised,
+            // SAFETY: as `scan_group` -- a matched tag has `FREE` clear, so the slot is initialised,
             // and `lane` is inside the line, which is inside the region.
             let slot = unsafe { self.slots.get_unchecked(lane).assume_init_ref() };
             if is(&slot.0) {
@@ -1218,7 +1245,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         }
         if *vacant == NONE {
             // Empty or tombstoned: both are free, and the earliest in probe order wins.
-            let free = !scan::occupied(line);
+            let free = scan::free(line);
             if free != 0 {
                 *vacant = base + free.trailing_zeros() as usize;
             }
@@ -1501,7 +1528,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Keep the entries `keep` returns true for.
     pub fn retain(&mut self, mut keep: impl FnMut(H::Ref<'_>, &mut V) -> bool) {
         for i in 0..self.tags.len() {
-            if self.tags[i] & LIVE == 0 {
+            if self.tags[i] & FREE != 0 {
                 continue;
             }
             // SAFETY: the tag says live.
@@ -1615,7 +1642,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
                 let line: &[u8; GROUP] = tags[base..base + GROUP]
                     .try_into()
                     .unwrap_or(&[EMPTY; GROUP]);
-                let free = !scan::occupied(line);
+                let free = scan::free(line);
                 if free != 0 {
                     break base + free.trailing_zeros() as usize;
                 }
@@ -1754,7 +1781,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// a *second* table -- the thing set algebra is made of.
     pub fn all_keys(&self, mut f: impl FnMut(&K) -> bool) -> bool {
         for (i, &t) in self.tags.iter().enumerate() {
-            if t & LIVE == 0 {
+            if t & FREE != 0 {
                 continue;
             }
             // SAFETY: the tag says live.
@@ -1830,7 +1857,7 @@ pub struct Iter<'a, K: Coord + Eq, V, H: Held<K>> {
 impl<K: Coord + Eq, V, H: Held<K>> Iter<'_, K, V, H> {
     /// A walk that reads sixteen tags at a time instead of one.
     ///
-    /// The obvious loop tests `tags[i] & LIVE` per slot. At the table's 7/8 fill that is a
+    /// The obvious loop tests `tags[i] & FREE` per slot. At the table's 7/8 fill that is a
     /// predictable branch, but it is still one bounds-checked load and one test per slot, and the
     /// tombstones and empties are walked over one at a time. The scan the *probe* already uses
     /// answers the same question for a whole group in one instruction:
@@ -2070,7 +2097,7 @@ where
         while self.i < self.map.tags.len() {
             let i = self.i;
             self.i += 1;
-            if self.map.tags[i] & LIVE == 0 {
+            if self.map.tags[i] & FREE != 0 {
                 continue;
             }
             let salt = self.map.salt;
@@ -2108,7 +2135,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Iterator for IntoIter<K, V, H> {
         while self.i < self.tags.len() {
             let i = self.i;
             self.i += 1;
-            if self.tags[i] & LIVE == 0 {
+            if self.tags[i] & FREE != 0 {
                 continue;
             }
             self.tags[i] = EMPTY;
@@ -2132,7 +2159,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Drop for IntoIter<K, V, H> {
             return;
         }
         for i in self.i..self.tags.len() {
-            if self.tags[i] & LIVE != 0 {
+            if self.tags[i] & FREE == 0 {
                 // SAFETY: past the cursor, so `next` has not taken it.
                 unsafe { self.slots[i].assume_init_drop() };
             }
@@ -2193,7 +2220,7 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> Iterator for IterMut<'a, K, V, H> {
             unsafe {
                 let m = &mut *self.map;
                 let salt = m.salt;
-                if m.tags[i] & LIVE == 0 {
+                if m.tags[i] & FREE != 0 {
                     continue;
                 }
                 self.left -= 1;
@@ -2270,7 +2297,7 @@ impl<H, V> Drop for Salvage<H, V> {
             return;
         }
         for i in self.taken..self.tags.len() {
-            if self.tags[i] & LIVE != 0 {
+            if self.tags[i] & FREE == 0 {
                 // SAFETY: the tag says live and this index is past `taken`, so nothing has moved
                 // it out. Each index is visited once.
                 unsafe { self.slots[i].assume_init_drop() };
@@ -2894,7 +2921,7 @@ impl<K: Coord + Eq, V: PartialEq, H: Held<K>> PartialEq for Map<K, V, H> {
             return false;
         }
         for (i, &t) in self.tags.iter().enumerate() {
-            if t & LIVE == 0 {
+            if t & FREE != 0 {
                 continue;
             }
             // SAFETY: the tag says live.
@@ -3069,7 +3096,7 @@ mod tests {
         for i in (0..400u32).step_by(3) {
             m.remove(&format!("k{i}"));
         }
-        let live = m.tags.iter().filter(|t| **t & LIVE != 0).count();
+        let live = m.tags.iter().filter(|t| **t & FREE == 0).count();
         let tombs = m.tags.iter().filter(|t| **t == TOMB).count();
         let empty = m.tags.iter().filter(|t| **t == EMPTY).count();
         assert_eq!(live, m.live);
@@ -3079,7 +3106,7 @@ mod tests {
         // Every live slot's stored identity word is the one the map would compute for its key, and
         // its tag is the one the placement word carries.
         for (i, &t) in m.tags.iter().enumerate() {
-            if t & LIVE == 0 {
+            if t & FREE != 0 {
                 continue;
             }
             let (h, _) = unsafe { m.slots[i].assume_init_ref() };
