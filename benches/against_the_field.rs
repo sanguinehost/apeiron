@@ -140,13 +140,13 @@ fn clone_ops(c: &mut Criterion) {
         // The allocation already exists; only the contents are replaced.
         let mut g = c.benchmark_group("clone_from/");
         g.bench_function(format!("{dist}/apeiron"), |b| {
-            b.iter_batched_ref(|| ap.clone(), |d| { d.clone_from(&ap); observe(); }, BatchSize::SmallInput)
+            b.iter_batched_ref(|| ap.clone(), |d| { d.clone_from(&ap); observe(); }, BatchSize::SmallInput);
         });
         g.bench_function(format!("{dist}/std"), |b| {
-            b.iter_batched_ref(|| st.clone(), |d| { d.clone_from(&st); observe(); }, BatchSize::SmallInput)
+            b.iter_batched_ref(|| st.clone(), |d| { d.clone_from(&st); observe(); }, BatchSize::SmallInput);
         });
         g.bench_function(format!("{dist}/hb+foldhash"), |b| {
-            b.iter_batched_ref(|| hb.clone(), |d| { d.clone_from(&hb); observe(); }, BatchSize::SmallInput)
+            b.iter_batched_ref(|| hb.clone(), |d| { d.clone_from(&hb); observe(); }, BatchSize::SmallInput);
         });
         g.finish();
     }
