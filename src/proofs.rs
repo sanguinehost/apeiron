@@ -556,6 +556,64 @@ mod harnesses {
         assert_ne!(g(v, 0), 0, "a zero second operand must not zero the guard");
     }
 
+    // -- the unaligned first group ----------------------------------------------------------------
+
+    /// **An unaligned first window reads sixteen bytes that exist.**
+    ///
+    /// `Geom::first` returns a byte offset into `tags` and `Map::line` reads `base..base + GROUP`
+    /// with no wraparound. Today the offset is a multiple of `GROUP` and at most `gmask`, so the
+    /// last window starts exactly `GROUP` bytes from the end and the read is in bounds by
+    /// construction.
+    ///
+    /// Letting the window start at *any* slot is worth about 3.4 cycles of the 150k-400k gap
+    /// (`examples/probe_cost.rs`), and it breaks that argument: an offset of `slots - 1` would read
+    /// fifteen bytes past the array. Two designs fix it -- `hashbrown` duplicates its first fifteen
+    /// control bytes after the end, or the offset is **clamped** to `slots - GROUP`. Clamping keeps
+    /// `tags.len() == slots`, so no iterator, `retain`, `Drain` or `stats` walk has to learn about
+    /// a tail; this proves the clamp is what it claims.
+    #[kani::proof]
+    fn a_clamped_unaligned_window_stays_inside_the_region() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 16);
+        let slots = (1usize << gbits) * crate::table::GROUP;
+        let smask = slots - 1;
+        let slast = slots - crate::table::GROUP;
+        let raw = (p >> (crate::table::DESCENT_BITS - 4 - gbits)) as usize & smask;
+        let base = if raw < slast { raw } else { slast };
+        assert!(base + crate::table::GROUP <= slots, "the window must fit");
+        // Clamping only ever moves a window backwards, so it never skips the slot it was aiming at.
+        assert!(base <= raw);
+        assert!(raw < base + crate::table::GROUP || base == slast);
+    }
+
+    /// **The unaligned window reads the aligned window's bits, plus offset bits below them.**
+    ///
+    /// This is the obligation `Geom::first`'s doc exists to enforce, and it is easy to fail by
+    /// accident -- the first benchmark of this change shifted by the same amount and dropped the
+    /// `* GROUP`, which reads a window **four bits lower** rather than the same window unaligned.
+    /// A product's low bits are its least mixed, which is why the low-bit window failed the
+    /// flatness gate; the fix has to keep the top bits and add offset *below* them.
+    ///
+    /// Stated as: the aligned group index is the unaligned slot index divided by `GROUP`.
+    #[kani::proof]
+    fn the_unaligned_window_is_the_aligned_one_plus_an_offset() {
+        let p: u64 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 16);
+        let groups = 1usize << gbits;
+        let slots = groups * crate::table::GROUP;
+        // The unaligned form: four bits further down, masked to a slot.
+        let unaligned = (p >> (crate::table::DESCENT_BITS - 4 - gbits)) as usize & (slots - 1);
+        // The aligned form, as it is today.
+        let aligned = (p >> (crate::table::DESCENT_BITS - gbits)) as usize & (groups - 1);
+        assert_eq!(
+            unaligned / crate::table::GROUP,
+            aligned,
+            "the unaligned window must sit inside the group the aligned one names"
+        );
+    }
+
     /// **Growth is a dyadic refinement, and that is why a rehome re-reads instead of re-hashes.**
     ///
     /// Read the placement word as a point in the 2-adic interval `0.b56 b55 b54 ...`. A region of
