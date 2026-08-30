@@ -610,7 +610,17 @@ impl<K: Coord + Eq> Held<K> for Stored<K> {
     #[inline]
     fn placement(&self, salt: Salt) -> u64 {
         if K::SPREAD {
+            // The two words are the same on this face; there is nothing to recover.
             self.id
+        } else if K::CHEAP_EQ {
+            // **This face has the key, so it can re-address instead of running the bijection
+            // backwards and forwards.** `placement_of` is `spread(unspread(id))` -- two multiplies
+            // -- where `Self::address` is one widening multiply and a fold. It is the right trade
+            // exactly when the key is cheap to turn back into a coordinate, which is what
+            // `CHEAP_EQ` already names: a word key re-addresses in one multiply, a byte key would
+            // have to re-fold and `placement_of` wins. `Regen` cannot take this branch at all --
+            // it stores no key, and that is the eight bytes the elliptic face exists to save.
+            Self::address(salt, &self.k).place
         } else {
             salt.placement_of(self.id)
         }
@@ -3219,6 +3229,29 @@ mod tests {
     /// The slot invariant, checked directly: a tag says live exactly when a slot holds an entry.
     /// Every `unsafe` in this module cites it, so it is worth a test that does not go through the
     /// public surface to look.
+    /// **The two ways to recover a placement word agree.**
+    ///
+    /// `Stored::placement` re-addresses from the stored key when `K::CHEAP_EQ`, instead of running
+    /// `spread(unspread(id))`. That is sound only because the two are the same word, and `rehome`
+    /// places every live entry by it -- get it wrong and growth scatters entries where `find` will
+    /// not look, which a lookup test on a table that never grew would not catch.
+    #[test]
+    fn re_addressing_a_stored_key_gives_the_word_the_bijection_would() {
+        for pepper in [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX] {
+            let salt = Salt::new(pepper);
+            for k in [0u64, 1, 2, 7, 0xFFFF_FFFF, 0x8000_0000_0000_0000, u64::MAX] {
+                let a = <Stored<u64> as Held<u64>>::address(salt, &k);
+                let held = <Stored<u64> as Held<u64>>::hold(a.id, k);
+                assert_eq!(
+                    held.placement(salt),
+                    salt.placement_of(a.id),
+                    "re-addressed and round-tripped placement disagree at key {k} pepper {pepper}"
+                );
+                assert_eq!(held.placement(salt), a.place, "neither is the word it was placed by");
+            }
+        }
+    }
+
     #[test]
     #[expect(
         clippy::naive_bytecount,
