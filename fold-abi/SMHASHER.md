@@ -153,3 +153,23 @@ is **not confirmed**: the obvious consequence would be a weak tag, and the tag i
 at every length from 8 to 64 bytes and every bit position. So the cause is elsewhere.
 
 None of the crate's own tests catch any of this, which is the point of running the battery.
+
+## Run 8 — the sixteen-byte boundary moved
+
+`if len < 16` became `if len <= 16`. At exactly sixteen the `17..=32` branch had been folding
+`b[len-16..len-8]` and `b[len-8..]`, which at that length are *the same two words* it had already
+folded, so it spent three multiplies where one `mix2` covers the key. Sixteen is the length
+`ResRef` pads to.
+
+```
+./SMHasher apeiron > apeiron6.log 2>&1
+```
+
+**0 failures**, 571.7 s. Verification value `0x58A7D790` — it changes, because the fold changes at
+one length.
+
+Screened first, both at the changed length and its neighbours: `examples/diffdist.rs` worst window
+`2.27x` at 15, **`1.23x` at 16**, `1.34x` at 17, and `examples/avalanche_bias.rs` **0.78%** at
+sixteen against its 1% threshold, inside the 0.59–0.85% band every other length occupies. Both
+screens passed the two candidates SMHasher went on to reject earlier, so neither is sufficient
+alone; this run is the gate.
