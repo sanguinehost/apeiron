@@ -375,6 +375,36 @@ impl Geom {
     /// setup in front of every probe; caching it is the difference between five instructions before
     /// the tag load and two.
     ///
+    /// # The floor on this path, and why a constant shift does not reach it
+    ///
+    /// The chain from the key to the tag load is `mul(4) -> rol(1) -> xor(1) -> shr(1) -> and(1)`,
+    /// eight cycles, against `hashbrown`'s `xor(1) -> mul(4) -> xor(1) -> and(1)`, seven. Measured
+    /// isolated, 8.9 cycles against 8.2. **The one cycle is the `rol`**, and the `rol` is what
+    /// makes `place` non-invertible. There is nothing else left on the path.
+    ///
+    /// Anchoring the window's *bottom* at a constant instead of its top was built and measured, and
+    /// it is the only thing that moved the rest. `gshift` leaves the hot loop entirely, so the
+    /// address seed stops being spilled -- `mov -0x10(%rsp),%rax` before the multiply becomes
+    /// `mov %r8,%rax` -- and the index becomes `shr $0x21` plus `and %ebx` where it was a `mov` to
+    /// `cl`, a three-uop `shr %cl` and an `and` from the stack. It wins the instruction count:
+    /// `get` 33.49 to **32.55** against `hashbrown`'s 33.12, `get miss` 31.91 to 31.26 with cycles
+    /// at parity, `insert reserved` 57.4 to 50.4, `extend` 57.4 to 51.4. Every test passes,
+    /// including all four of `the_probe_stays_flat`, because `[37, 57)` is inside the region the
+    /// address proofs establish is well mixed.
+    ///
+    /// **It is still not landed, and `growth_splits_each_group_in_two` is why.** With the window's
+    /// top anchored, doubling appends a bit at the *bottom* of the index and a group splits into
+    /// `2g` and `2g + 1`, which are adjacent, so `rehome` walking the old region in ascending order
+    /// writes the new one in ascending order. Anchoring the bottom moves the new bit to the *top*:
+    /// `g` splits into `g` and `g + 2^gbits`, half a table apart, which is `hashbrown`'s locality
+    /// and the thing that proof was written to say this crate does not have. The cost shows up
+    /// where it should, on the growth-heavy row: `insert+drop` at a million keys goes from 84.7
+    /// cycles to **92.7**.
+    ///
+    /// So it trades a cycle loss on `get hit` that it does not fix for a cycle loss on
+    /// `insert+drop` that it causes. The Kani harness caught it; the flatness gate did not, and
+    /// could not, because the partition is fine and only its *order* changed.
+    ///
     /// # Why it is not one mask, like `hashbrown`'s
     ///
     /// `hashbrown` reaches its first group with a single `and` -- `hash & bucket_mask` -- while
