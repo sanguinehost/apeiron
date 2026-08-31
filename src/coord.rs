@@ -325,6 +325,24 @@ pub struct Addr {
 /// | `(hi ^ lo) * PSI` | 1.028 | 7 | 1.057 | none, but two multiplies again |
 /// | **`rotl(hi, 32) ^ lo`** (this) | **1.075** | **8** | **1.083** | **none** |
 ///
+/// **The rotate is bought by that table and not by non-invertibility, which is what it is easy to
+/// say instead.** `hi ^ lo` is no more invertible than this: given a target, either one leaves you
+/// iterating on a guess of `hi` through a multiply, and neither iteration contracts. What the
+/// rotate does is route `hi`'s **low** bits into the top window, and that matters because for the
+/// keys that fail without it -- page-aligned ones, `i * 4096` -- `hi` is about `i * PHI / 2^52` and
+/// so occupies only its bottom thirty bits. Without the rotate the window sees `lo` alone.
+///
+/// Re-measured against the gate rather than taken from the table: `hi ^ lo` gives `align4096` a
+/// mean probe of **1.547** against the 1.5 bound, which is the number this table records, to three
+/// decimals. `align4096` was **not in `tests/the_probe_stays_flat.rs`** until it was put there, so
+/// the gate could not have caught the fold it rejects.
+///
+/// A single window of the 128-bit product, `(w >> 32) as u64`, was tried as a one-instruction
+/// replacement for the rotate and the xor together. It fails worse and in a way worth recording:
+/// `serial` reaches 36.37 mean compares, because the tag then reads the product's bits 89 to 96,
+/// which are `hi`'s bits 25 to 32 and are zero for every key below about 5.4e7. The tag dies before
+/// the window does.
+///
 /// `place` is deliberately not invertible. The old single word was, so aiming a collision chain
 /// was one `unspread` call; now keys agreeing on `j` windows must be found at `2^(j * gbits)`
 /// trials each.

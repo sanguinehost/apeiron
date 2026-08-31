@@ -60,6 +60,10 @@ fn u64_distributions() -> Vec<Distribution> {
         // The same shape out of this crate's own coordinate packing: bits 42..63.
         ("i21hi", |i| (i & 0x1F_FFFF) << 42),
         ("align8", |i| i * 8),
+        // Page-aligned pointers, the shape a map keyed on allocations sees. `coord::spread`'s doc
+        // records this as the cell that separates `rotl(hi, 32) ^ lo` from `hi ^ lo` and `hi + lo`,
+        // and it was not in this gate, so the gate could not have caught the fold it rejects.
+        ("align4096", |i| i * 4096),
         ("pairlike", |i| ((i % 80) << 32) | (i / 80)),
         ("random", |i| {
             // splitmix-free scramble so the control shares no structure with the address function
