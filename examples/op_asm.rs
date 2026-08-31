@@ -73,6 +73,24 @@ fn hb_get_fm(m: &HbMap<u64, u64>, ks: &[u64]) -> u64 {
 }
 
 #[inline(never)]
+fn ap_miss(m: &Words<u64, u64>, ks: &[u64]) -> u64 {
+    let mut s = 0u64;
+    for &k in ks {
+        s = s.wrapping_add(u64::from(m.get(&k).is_some()));
+    }
+    s
+}
+
+#[inline(never)]
+fn hb_miss(m: &HbMap<u64, u64>, ks: &[u64]) -> u64 {
+    let mut s = 0u64;
+    for &k in ks {
+        s = s.wrapping_add(u64::from(m.get(&k).is_some()));
+    }
+    s
+}
+
+#[inline(never)]
 fn ap_iter(m: &Words<u64, u64>) -> u64 {
     m.values().fold(0u64, |a, v| a.wrapping_add(*v))
 }
@@ -207,6 +225,10 @@ fn main() {
         "getfm" => arms(&c,
             || (), |()| ap_get_fm(&built_a, &ks),
             || (), |()| hb_get_fm(&built_f, &ks)),
+        "miss" => {
+            let miss: Vec<u64> = ks.iter().map(|k| !k ^ 0x5555_5555_5555_5555).collect();
+            arms(&c, || (), |()| ap_miss(&built_a, &miss), || (), |()| hb_miss(&built_f, &miss));
+        }
         "stats" => {
             let s = built_a.stats();
             println!("  live {} slots {} mean_probe {:.4} mean_compares {:.4} longest {}",
