@@ -2,6 +2,21 @@
 //!
 //! A lookup is a fold plus a probe plus a compare. If apeiron's String lookup is behind, this says
 //! whether the fold is the reason or whether the table is.
+//!
+//! # This is not a length sweep, and must not be read as one
+//!
+//! The four corpora are named for their *shape* -- `short`, `resref`, `path`, `long` -- and land
+//! at roughly 2, 13, 45 and 231 bytes. `fold::absorb` routes on length at **0, 4, 8, 16, 32 and
+//! 64**, and these four samples hit none of those. That blind spot hid a 2.17x gap at exactly
+//! sixteen bytes -- the length `ResRef` pads to, and the key shape this crate's only consumer
+//! indexes 113,489 resources by -- while the corpus *named* `resref` measured thirteen.
+//!
+//! It also **dilutes**: these are heap `String`s hashed in a tight loop, so the per-call ratio
+//! here reads well below what the fold actually costs. It reported 1.20x at the resref corpus
+//! where `examples/length_sweep.rs` counts 1.70x in instructions.
+//!
+//! Use this file for the question it answers -- fold versus table, on realistic key shapes -- and
+//! `length_sweep.rs` for how the fold behaves across its branches.
 #![expect(
     clippy::cast_precision_loss,
     reason = "this is a measurement harness, not library code, and each lint below is listed because this \

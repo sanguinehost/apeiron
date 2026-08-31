@@ -204,10 +204,31 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
         .wrapping_add(PSI)
         .wrapping_add((len as u64).wrapping_mul(PHI));
 
-    // **Below sixteen bytes only.** `settle` is not repairing the fold, it is repairing the
+    // **Sixteen bytes and below.** `settle` is not repairing the fold, it is repairing the
     // *dependence between the two `mix2` operands*: this branch reads `b[..8]` and `b[len-8..]`,
     // which coincide at eight bytes and overlap below sixteen, so one `mix2` of two correlated
-    // words is not enough. At sixteen and above the two reads are disjoint words and it is.
+    // words is not enough.
+    //
+    // **Sixteen is the boundary and belongs on this side of it.** There the two reads are
+    // `b[..8]` and `b[8..16]` -- disjoint, and together the whole key -- which is the best case
+    // this branch has. The `16..=32` branch handled it before and did strictly more work for it:
+    // at exactly sixteen its second `mix2` re-reads `b[len-16..len-8]` and `b[len-8..]`, which are
+    // *the same two words again*, so it paid three multiplies to fold two words that one `mix2`
+    // already covers.
+    //
+    // Measured at sixteen bytes -- the shape Lyrium keys its resource index on, since a `ResRef`
+    // is a padded `[u8; 16]` -- calling the fold through one `#[inline(never)]` frame per arm,
+    // with foldhash in the same binary and the same frame shape, instructions per call:
+    //
+    // | len | 13 | **16** | 17 | 20 | 32 |
+    // |---|---|---|---|---|---|
+    // | before | 43.09 | **52.10** | 52.10 | 52.11 | 52.14 |
+    // | after | 43.09 | **43.10** | 52.10 | 52.11 | 52.14 |
+    // | foldhash | 21.09 | 21.10 | 51.10 | 51.11 | 54.14 |
+    //
+    // 9.39 cycles to 7.68. Sixteen was this fold's worst point against foldhash at any length
+    // (2.52x) and is now 2.05x, level with thirteen. Nothing else moved: the branch below still
+    // owns 17..=32, where we are within 2% of foldhash, and 33 and up, where we are ahead.
     //
     // Measured with `examples/diffdist.rs`, worst window ratio with `settle` removed:
     //
@@ -215,10 +236,20 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
     // |---|---|---|---|---|---|---|---|---|---|
     // | ratio | 8919 | 1311 | **5.84** | **1.22** | 1.25 | 1.27 | 1.22 | 1.31 | 1.27 |
     //
-    // The cliff is exactly where the reads stop overlapping, so this branch ends at `< 16`. But
-    // DiffDist is not the only thing the finalizer answers to: the `16..=32` branch below keeps it
-    // as well, on `Avalanche`'s evidence, and only `33` and up are free of it. See there.
-    if len < 16 {
+    // The cliff is exactly where the reads stop overlapping, at sixteen. That is an argument about
+    // **`settle`**, not about which branch owns sixteen, and the two are independent: sixteen is
+    // handled here because one `mix2` covers its two disjoint words, and it is settled here
+    // because every branch through `32` is. Read the `1.22` at sixteen as "the cliff has ended by
+    // here", not as "sixteen does not need the finalizer it gets".
+    //
+    // DiffDist is also not the only thing the finalizer answers to: the `17..=32` branch below
+    // keeps it as well, on `Avalanche`'s evidence, and only `33` and up are free of it. See there.
+    //
+    // Re-screened after the boundary moved, at the changed length and its neighbours: DiffDist
+    // worst window `2.27x` at 15, **`1.23x` at 16**, `1.34x` at 17 -- sixteen is the best of the
+    // three -- and `examples/avalanche_bias.rs` reads **0.78%** at sixteen against a 1% threshold,
+    // inside the 0.59-0.85% band every other length sits in.
+    if len <= 16 {
         let (a, c) = if len >= 8 {
             (word(&b[..8]), word(&b[len - 8..]))
         } else if len >= 4 {
@@ -249,8 +280,11 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
         return settle(mix2(a.wrapping_add(seed), c.wrapping_add(seed2)));
     }
 
-    // 16..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
+    // 17..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
     // tail -- the middle bytes are read twice, which is harmless, and there is no branch per length.
+    // At exactly sixteen the overlap is total rather than partial, which is why sixteen is handled
+    // above instead: the two halves would be the same two words, and folding them twice buys
+    // nothing that the branch above does not already get from one `mix2`.
     if len <= 32 {
         let x = mix2(word(&b[..8]).wrapping_add(seed), word(&b[8..16]).wrapping_add(seed2));
         // Settled too, and `SMHasher` is why. This branch's **last** `mix2` takes raw key words as
