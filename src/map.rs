@@ -345,7 +345,19 @@ struct Geom {
 
 impl Geom {
     fn of(groups: usize) -> Self {
-        let gbits = groups.trailing_zeros();
+        // `trailing_zeros()` is **64** for an empty region, and 64 is not a shift amount. Zero is
+        // the value the rest of this file already means by "one group, nothing to choose":
+        // `group_of` returns 0 for it, `Descent::next` takes the fallback either way, and
+        // `p.wrapping_shl(64)` and `p.wrapping_shl(0)` are both `p`. So the empty region folds onto
+        // the sentinel that already exists and nothing downstream can tell the two apart -- while
+        // `gbits < 64` becomes a fact the shift sites can hand to LLVM.
+        //
+        // What that fact is worth: `wrapping_shl` has to honour the `% 64` it promises, so
+        // `Descent::after_first` emitted `and $0x3f` on `gbits` and LLVM hoisted the result into a
+        // **stack slot held for the whole probe loop** -- cold descent state occupying a hot-path
+        // register. `Geom::first` had already been given the same fact about `gshift`;
+        // `after_first` had not. `a_geometry_never_asks_for_a_shift_of_sixty_four` pins it.
+        let gbits = if groups == 0 { 0 } else { groups.trailing_zeros() };
         Self {
             gbits,
             gshift: (DESCENT_BITS - 4).saturating_sub(gbits),
@@ -425,6 +437,10 @@ impl Descent {
     /// Starts *after* the first group, which the caller took straight-line from [`Geom::first`].
     #[inline]
     fn after_first(p: u64, g: Geom) -> Self {
+        // SAFETY: `Geom::of` is the only constructor and it never stores 64 -- see the comment
+        // there. Without this, `wrapping_shl`'s `% 64` becomes an `and $0x3f` that LLVM hoists into
+        // a stack slot live across the whole probe.
+        unsafe { std::hint::assert_unchecked(g.gbits < 64) };
         Self {
             p,
             // Shifting the tag's bits off the top is not needed and would be wrong: `gshift` is

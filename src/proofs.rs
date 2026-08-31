@@ -831,4 +831,25 @@ mod harnesses {
         assert_eq!(crate::table::group_at(p, full + lap as u32, gbits, gmask), target);
     }
 
+
+    /// `Geom` never stores a shift amount of 64.
+    ///
+    /// `groups.trailing_zeros()` is 64 for an empty region, and `Descent::after_first` hands
+    /// `gbits < 64` to LLVM so `wrapping_shl`'s `% 64` stops emitting an `and $0x3f` that gets
+    /// hoisted into a stack slot live across the whole probe. That `assert_unchecked` is only
+    /// sound because `Geom::of` maps the empty region onto `gbits = 0` instead, which every
+    /// consumer already treats as "one group, nothing to choose".
+    #[kani::proof]
+    fn a_geometry_never_asks_for_a_shift_of_sixty_four() {
+        let groups: usize = kani::any();
+        let gbits: u32 = if groups == 0 { 0 } else { groups.trailing_zeros() };
+        assert!(gbits < 64, "a shift amount must be a shift amount");
+        // And the empty region lands on the sentinel rather than on a distinguishable value:
+        // `wrapping_shl(0)` and `wrapping_shl(64)` are both the identity, which is what makes
+        // folding the two cases together unobservable.
+        let p: u64 = kani::any();
+        if groups == 0 {
+            assert_eq!(p.wrapping_shl(gbits), p.wrapping_shl(64));
+        }
+    }
 }
