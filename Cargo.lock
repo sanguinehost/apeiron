@@ -37,6 +37,7 @@ dependencies = [
  "criterion",
  "foldhash",
  "hashbrown",
+ "libc",
  "rustc-hash",
 ]
 

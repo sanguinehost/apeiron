@@ -473,7 +473,12 @@ impl<K: Coord + Eq, H: Held<K>> FromIterator<K> for Set<K, H> {
 }
 
 impl<K: Coord + Eq, H: Held<K>> Extend<K> for Set<K, H> {
+    /// Reserves from the iterator's lower bound, then inserts. See `Map`'s impl for the cost of
+    /// not doing so.
     fn extend<T: IntoIterator<Item = K>>(&mut self, it: T) {
+        let it = it.into_iter();
+        let hint = it.size_hint().0;
+        self.reserve(if self.is_empty() { hint } else { hint / 2 });
         for k in it {
             self.insert(k);
         }
