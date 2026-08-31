@@ -1379,6 +1379,24 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             Err(false) => {}
         }
 
+        // **The descent is not where the time goes, and `Map::stats` says so.** Mean probe depth
+        // on a `Words<u64, u64>` built from a random corpus: 1.0008 at 16,384 entries, 1.0283 at
+        // 100,000, **1.0005 at 1,000,000**, longest 3. Fewer than one lookup in a thousand leaves
+        // the first group at a million keys. Any hypothesis that prices this crate's remaining
+        // gaps on the probe order has to get past that number first, and the next paragraph is one
+        // that did not.
+        //
+        // **Prefetching the next group here does not pay, and it was the obvious thing to try.**
+        // `Descent::next` reads bits of the placement word and nothing else, so the address of the
+        // group after this one is known before this one is looked at: the load can be started
+        // against the scan rather than after it, which is the one thing a fresh window per step
+        // can buy back against a stride that stays in the page. Measured as the minimum of two
+        // full sweeps either side, `_mm_prefetch` on the group ahead is a **net loss**: `entry`
+        // -5.7% at 100k and -6.7% at 1M, `extend` -3% to -4%, `remove all` -4% to -9%, and three
+        // instructions added to every insert whether the descent is entered or not. Running the
+        // descent a step ahead to have an address to prefetch is what costs them, and the win it
+        // was meant to buy did not appear at any size.
+        //
         // Deliberately **not** outlined, where `find_onward` is. On a lookup the descent is cold:
         // at a 7/8 fill an occupied group holds the key it was probed for, so almost nothing
         // reaches it. On an insert the descent is hunting a *vacancy*, and a table at 7/8 leaves

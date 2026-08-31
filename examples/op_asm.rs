@@ -207,6 +207,11 @@ fn main() {
         "getfm" => arms(&c,
             || (), |()| ap_get_fm(&built_a, &ks),
             || (), |()| hb_get_fm(&built_f, &ks)),
+        "stats" => {
+            let s = built_a.stats();
+            println!("  live {} slots {} mean_probe {:.4} mean_compares {:.4} longest {}",
+                s.live, s.slots, s.mean_probe, s.mean_compares, s.longest_probe);
+        }
         "clone" => arms(&c,
             || (), |()| ap_clone(&built_a),
             || (), |()| hb_clone(&built_f)),
