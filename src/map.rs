@@ -1232,13 +1232,47 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         // a 7/8 fill an occupied group holds the key it was probed for.
         let base = self.geom.first(p);
         match self.scan_group(base, p, tag, &is) {
-            Step::Found(i) => return Some(i),
-            Step::Absent => return None,
-            Step::Onward => {}
+            Step::Found(i) => Some(i),
+            Step::Absent => None,
+            Step::Onward => self.find_onward(p, tag, &is),
         }
+    }
+
+    /// The probe past the first group, out of line so its state cannot reach the caller's loop.
+    ///
+    /// Peeling the first group out of the loop was already here, for the reason above it. What
+    /// peeling does not stop is **loop-invariant code motion in the caller**: `Descent::after_first`
+    /// reads `gbits`, and `Descent::next` reads `mask()`, and both are invariant across a lookup
+    /// loop, so LLVM hoists the loads into that loop's preheader and holds the values live across
+    /// every iteration. Neither is on the first-group path. Behind a `#[cold] #[inline(never)]`
+    /// call there is nothing for the caller to hoist.
+    ///
+    /// # It pays here and on neither of the other two probes, and the reason is the traffic
+    ///
+    /// The three probes were each tried both ways. Measured on `examples/op_asm.rs` at 20,000 keys
+    /// and `examples/whole_surface.rs` across six sizes:
+    ///
+    /// | probe | callers | outlined | inline |
+    /// |---|---|---|---|
+    /// | `find` | `remove`, `get_mut` | **73.3 instr, 13.9 cyc** | 77.2, 15.4 |
+    /// | `find_ref` | `get` | 37.6, 9.7 | **33.5, 8.7** |
+    /// | `site` | `insert`, `entry` | `entry` at 1M **0.58x**, 79.0 instr | **0.84x, 68.0** |
+    ///
+    /// `#[cold]` is a claim about traffic and it is true for exactly one of the three. A lookup at
+    /// a 7/8 fill finds its key in the first group almost always, so `find`'s descent is cold and
+    /// moving it out is free. An *insert* is hunting a vacancy rather than a key, and a table at
+    /// 7/8 leaves the first group often, so the same annotation on `site` is a false statement
+    /// about where the time goes and costs eleven instructions for it. `find_ref` is the
+    /// interesting one: its descent is as cold as `find`'s, and outlining still loses, because
+    /// `get` is the pure-read path with registers to spare and it pays the call setup without
+    /// buying relief it needed. `probe_cost.rs` recorded "+5.4 instructions, cycles unmoved" for
+    /// this once already; that measurement was right and this is what it was measuring.
+    #[cold]
+    #[inline(never)]
+    fn find_onward(&self, p: u64, tag: u8, is: &impl Fn(&H) -> bool) -> Option<usize> {
         let mut d = Descent::after_first(p, self.geom);
         loop {
-            match self.scan_group(d.next(), p, tag, &is) {
+            match self.scan_group(d.next(), p, tag, is) {
                 Step::Found(i) => return Some(i),
                 Step::Absent => return None,
                 Step::Onward => {}
@@ -1345,6 +1379,12 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
             Err(false) => {}
         }
 
+        // Deliberately **not** outlined, where `find_onward` is. On a lookup the descent is cold:
+        // at a 7/8 fill an occupied group holds the key it was probed for, so almost nothing
+        // reaches it. On an insert the descent is hunting a *vacancy*, and a table at 7/8 leaves
+        // the first group often, so `#[cold]` would be a false claim about the traffic. Measured,
+        // it is: outlining this took `entry` at a million keys from 0.84x to **0.58x** and its
+        // instructions from 68.0 to 79.0, and `insert reserved` from 57.4 to 66.4.
         let mut d = Descent::after_first(p, self.geom);
         loop {
             base = d.next();
