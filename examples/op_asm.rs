@@ -208,10 +208,44 @@ fn arms<A, B>(
 
 fn main() {
     let op = std::env::args().nth(1).unwrap_or_else(|| "remove".into());
+    // `AP_ARM=apeiron|hb` runs one arm and nothing else, so an external `perf stat` on the whole
+    // process measures that arm. The in-process counter reads instructions and cycles; a cache or
+    // TLB event needs `perf`, and `perf` counts a process.
+    if let Ok(arm) = std::env::var("AP_ARM") {
+        let ks = keys();
+        let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
+        let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
+        let reps = (20_000_000 / *N).max(1);
+        let mut acc = 0u64;
+        for _ in 0..reps {
+            acc = acc.wrapping_add(if arm == "apeiron" {
+                match op.as_str() {
+                    "iter" => ap_iter(&built_a),
+                    "miss" => ap_miss(&built_a, &ks),
+                    _ => ap_get(&built_a, &ks),
+                }
+            } else {
+                match op.as_str() {
+                    "iter" => hb_iter(&built_f),
+                    "miss" => hb_miss(&built_f, &ks),
+                    _ => hb_get(&built_f, &ks),
+                }
+            });
+        }
+        println!("{arm} {op}: {} over {} reps of {}", black_box(acc), reps, *N);
+        return;
+    }
     let Some(c) = Counter::open() else {
         println!("counters unavailable");
         return;
     };
+    // `AP_PAD` leaks a block before anything is built, shifting every later allocation. If a row's
+    // cost moves with it, the cost is where the allocator put the arrays and not what the code
+    // does.
+    if let Ok(pad) = std::env::var("AP_PAD") {
+        let n: usize = pad.parse().unwrap_or(0);
+        std::mem::forget(vec![0u8; n]);
+    }
     let ks = keys();
     let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
