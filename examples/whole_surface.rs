@@ -1,21 +1,65 @@
-//! Every operation, against `std` and against `hashbrown` + `foldhash`.
+//! Every operation against `hashbrown` + `foldhash` and `std`, with the counter beside the clock.
 //!
 //! A table is not one function. Claiming it replaces `std::collections::HashMap` means claiming it
-//! on insert, lookup, miss, removal, entry, iteration, clone, drain, retain and rebuild -- on word
-//! keys and on string keys, small and large. This runs all of them and prints a `LOSS` marker on
-//! any row where apeiron is more than 2% behind, so a regression anywhere is visible.
+//! on insert, lookup, miss, entry, removal, iteration, clone, drain, retain and extend -- on word
+//! keys and on string keys, at every size from sixteen entries to a million, and on the key
+//! distributions that break addresses rather than only the one that flatters them. This runs all
+//! of that and prints `LOSS` on any row more than 2% behind `hashbrown`.
 //!
-//! Estimator is the **minimum** of many rounds with the arms alternated inside each round: a busy
-//! machine can only make a round slower, so the minimum is the closest a contended machine gets to
-//! the uncontended cost.
+//! Run: `taskset -c 2 cargo run --release --example whole_surface [u64|str] [serial|highbits|random]`
 //!
-//! Run: `cargo run --release --example whole_surface [u64|str]`
+//! # Three things the previous version of this file could not tell you
+//!
+//! It reported ns/op alone, from `Instant` around a loop, and it was wrong in three ways that a
+//! reader had no way to see:
+//!
+//! **It never checked the answers.** `best(r, || ks.iter().filter_map(|k| m.get(k)).sum())` scores
+//! a map that returns `None` for every key as the fastest arm on the board. Every timed closure
+//! here returns a checksum and `row` panics unless all three implementations agree, so an arm that
+//! answers wrongly or gets deleted fails the run instead of winning it.
+//!
+//! **It had no counter.** `benches/against_the_field.rs` has a standing note that its wall clock
+//! disagreed with `perf` by 3x and that the disagreement is unexplained; the honest response is to
+//! read both from the same loop. `examples/support/counter.rs` opens `cpu_core` instructions and
+//! cycles in-process, so every row below carries its own instruction count. Nanoseconds that move
+//! without instructions or cycles moving are a harness artifact, and that is now visible per row
+//! rather than requiring a second harness and a fork.
+//!
+//! **It sampled one key distribution.** Keys came from a single xorshift. `highbits` -- `0..n`
+//! under `swap_bytes` -- is the distribution that has broken this crate's address twice, and it
+//! was not here. It is a command-line argument now, and `serial` with it.
+//!
+//! # What is timed, exactly
+//!
+//! Timing and counting are separate passes over the same closure, because the `ioctl` that arms a
+//! counter costs more than a thousand-key lookup loop. The clock pass takes the **minimum** of
+//! many rounds: a busy machine can only make a round slower. The counter pass takes the minimum of
+//! three, since retired instructions are near-deterministic and the spread is the page faults.
+//!
+//! `clone` and `insert fresh` include the drop of what they built, and are labelled for it. A
+//! pre-built victim per round is how `remove`, `drain` and `retain` avoid the same problem, and at
+//! a million keys the victims are the memory ceiling on the round count.
+
 #![expect(
     clippy::cast_precision_loss,
-    reason = "a measurement harness: counts become floats to report nanoseconds per operation"
+    reason = "a measurement harness: counts become floats to report per-operation rates"
+)]
+#![expect(
+    clippy::many_single_char_names,
+    reason = "`a`/`s`/`f` are the three arms, `n` the size, `c` the counter, `d` the divisor: \
+              every one of them is a column heading in the table this file prints"
+)]
+#![expect(
+    clippy::unnecessary_get_then_check,
+    reason = "the `get miss` rows measure `get` on an absent key on purpose; `contains_key` is a \
+              different function in all three implementations and would measure a different path"
 )]
 
+#[path = "support/counter.rs"]
+mod counter;
+
 use apeiron::map::{Map, Words};
+use counter::Counter;
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::Instant;
@@ -23,177 +67,367 @@ use std::time::Instant;
 type Fold = foldhash::fast::RandomState;
 type HbMap<K, V> = hashbrown::HashMap<K, V, Fold>;
 
+/// One arm of one row: what it cost and what it answered.
+#[derive(Clone, Copy)]
+struct Arm {
+    ns: f64,
+    instructions: f64,
+    cycles: f64,
+    checksum: u64,
+}
+
+impl Arm {
+    fn new() -> Self {
+        Self { ns: f64::INFINITY, instructions: f64::INFINITY, cycles: f64::INFINITY, checksum: 0 }
+    }
+}
+
 /// `#[inline(never)]` is the whole measurement, not a detail.
 ///
-/// `best` is generic, so each closure gets its own instantiation -- but inlined, all twenty-four of
-/// them land in one `str_surface` frame, and the lookup loops then inherit the callee-saved
-/// registers and the stack frame of an `insert` that inlines a grow path and an allocation. The
-/// register allocator pays for that by rematerialising the fold's seed on every key. Isolated,
-/// `examples/probe_cost.rs` measures the same 13-byte resref lookup at 92.5 instructions where the
-/// shared frame reads 107.7, and `hashbrown`'s arm moves a third as far -- so the shared frame is
-/// not even a fair harness, let alone an accurate one. One frame per timed loop is the fix, and it
-/// is also the shape a caller writes: `map.get(k)` is called from a function that is not also
-/// building the map.
+/// `run` is generic, so each closure gets its own instantiation -- but inlined, all of them land
+/// in one frame, and the lookup loops then inherit the callee-saved registers and the stack frame
+/// of an `insert` that inlines a grow path and an allocation. The register allocator pays for that
+/// by rematerialising the fold's seed on every key. Isolated, `examples/probe_cost.rs` measures the
+/// same 13-byte resref lookup at 92.5 instructions where the shared frame reads 107.7, and
+/// `hashbrown`'s arm moves a third as far -- so the shared frame is not even a fair harness, let
+/// alone an accurate one.
 #[inline(never)]
-fn best(rounds: usize, mut f: impl FnMut() -> u64) -> f64 {
-    let mut b = f64::INFINITY;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        black_box(f());
-        b = b.min(t.elapsed().as_secs_f64());
+fn run(reps: usize, f: &mut impl FnMut() -> u64) -> u64 {
+    let mut acc = 0u64;
+    for _ in 0..reps {
+        acc = acc.wrapping_add(black_box(f()));
     }
-    b
+    acc
 }
 
-/// Time an operation that consumes its input, with the inputs built **before** the clock starts.
+/// Times one arm for one round and folds the result into its running minimum.
+fn tick(arm: &mut Arm, reps: usize, f: &mut impl FnMut() -> u64) {
+    let t = Instant::now();
+    arm.checksum = black_box(run(reps, f));
+    arm.ns = arm.ns.min(t.elapsed().as_secs_f64() * 1e9 / reps as f64);
+}
+
+/// Counts one arm for one round and folds the result into its running minimum.
+fn count(c: Option<&Counter>, arm: &mut Arm, reps: usize, f: &mut impl FnMut() -> u64) {
+    if let Some(c) = c {
+        let (_, k) = c.count(|| black_box(run(reps, f)));
+        arm.instructions = arm.instructions.min(k.instructions as f64 / reps as f64);
+        arm.cycles = arm.cycles.min(k.cycles as f64 / reps as f64);
+    }
+}
+
+/// Times and counts three repeatable arms with the arms **alternated inside each round**, then
+/// prints the row.
+///
+/// Measuring one arm to completion and then the next is the mistake this crate has already paid
+/// for once: the machine's frequency, its cache state and its neighbours all drift across the
+/// seconds a full arm takes, and the drift lands entirely on whichever arm ran during it. The
+/// first version of this rewrite did exactly that, and at a million keys it reported apeiron
+/// slower in nanoseconds and *faster* in cycles on the same row -- a contradiction that only the
+/// counter made visible. Alternating inside the round bounds the drift to one round.
+///
+/// # Panics
+///
+/// If any two arms disagree on their checksum. A disagreement means the row is measuring different
+/// work in different arms, which is the one failure a timing harness cannot report as a number.
+#[expect(clippy::too_many_arguments, reason = "three arms plus the row's own labels and budget; a struct per arm would move the same eight values behind a name that adds nothing")]
+fn row(
+    op: &str,
+    n: usize,
+    per: f64,
+    c: Option<&Counter>,
+    (rounds, reps): (usize, usize),
+    mut fa: impl FnMut() -> u64,
+    mut fs: impl FnMut() -> u64,
+    mut ff: impl FnMut() -> u64,
+) {
+    let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
+    for _ in 0..rounds {
+        tick(&mut a, reps, &mut fa);
+        tick(&mut s, reps, &mut fs);
+        tick(&mut f, reps, &mut ff);
+    }
+    for _ in 0..3 {
+        count(c, &mut a, reps, &mut fa);
+        count(c, &mut s, reps, &mut fs);
+        count(c, &mut f, reps, &mut ff);
+    }
+    emit(op, n, per, a, s, f);
+}
+
+/// The same, for arms that consume a victim built before the clock starts.
 ///
 /// `clone().drain()` measures a clone and a drain together, and at these sizes the clone is most
-/// of it. Pre-building one victim per round is the only way to see the drain by itself.
-#[inline(never)]
-fn best_consuming<T>(rounds: usize, make: impl Fn() -> T, mut f: impl FnMut(T) -> u64) -> f64 {
-    let victims: Vec<T> = (0..rounds).map(|_| make()).collect();
-    let mut b = f64::INFINITY;
-    for v in victims {
+/// of it. One fresh victim per round is the only way to see the drain by itself.
+///
+/// # Panics
+///
+/// As `row`.
+#[expect(clippy::too_many_arguments, reason = "three arms, each a maker and a consumer, plus the row's own labels; splitting them into a struct per arm moves the same nine values behind a name that adds nothing")]
+fn row_consuming<A, S, F>(
+    op: &str,
+    n: usize,
+    per: f64,
+    c: Option<&Counter>,
+    rounds: usize,
+    ma: impl Fn() -> A,
+    mut fa: impl FnMut(A) -> u64,
+    ms: impl Fn() -> S,
+    mut fs: impl FnMut(S) -> u64,
+    mf: impl Fn() -> F,
+    mut ff: impl FnMut(F) -> u64,
+) {
+    let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
+    for _ in 0..rounds {
+        let (va, vs, vf) = (ma(), ms(), mf());
         let t = Instant::now();
-        black_box(f(v));
-        b = b.min(t.elapsed().as_secs_f64());
+        a.checksum = black_box(fa(va));
+        a.ns = a.ns.min(t.elapsed().as_secs_f64() * 1e9);
+        let t = Instant::now();
+        s.checksum = black_box(fs(vs));
+        s.ns = s.ns.min(t.elapsed().as_secs_f64() * 1e9);
+        let t = Instant::now();
+        f.checksum = black_box(ff(vf));
+        f.ns = f.ns.min(t.elapsed().as_secs_f64() * 1e9);
     }
-    b
+    if let Some(c) = c {
+        for _ in 0..3 {
+            let (va, vs, vf) = (ma(), ms(), mf());
+            let (_, k) = c.count(|| black_box(fa(va)));
+            a.instructions = a.instructions.min(k.instructions as f64);
+            a.cycles = a.cycles.min(k.cycles as f64);
+            let (_, k) = c.count(|| black_box(fs(vs)));
+            s.instructions = s.instructions.min(k.instructions as f64);
+            s.cycles = s.cycles.min(k.cycles as f64);
+            let (_, k) = c.count(|| black_box(ff(vf)));
+            f.instructions = f.instructions.min(k.instructions as f64);
+            f.cycles = f.cycles.min(k.cycles as f64);
+        }
+    }
+    emit(op, n, per, a, s, f);
 }
 
-fn row(op: &str, n: usize, a: f64, s: f64, f: f64, per: f64) {
-    let (a, s, f) = (a * 1e9 / per, s * 1e9 / per, f * 1e9 / per);
-    let worst = s.min(f);
-    let mark = if a > worst * 1.02 { "  LOSS" } else { "" };
-    println!("  {op:<16} {n:>8} {a:>9.2} {s:>9.2} {f:>9.2}   {:>5.2}x{mark}", worst / a);
+/// Checks the three arms answered the same thing, then prints the row.
+///
+/// # Panics
+///
+/// If any two arms disagree.
+fn emit(op: &str, n: usize, per: f64, a: Arm, s: Arm, f: Arm) {
+    assert!(
+        a.checksum == s.checksum && a.checksum == f.checksum,
+        "{op} n={n}: arms disagree -- apeiron {}, std {}, hb {}. \
+         The row is not measuring the same work in each arm.",
+        a.checksum,
+        s.checksum,
+        f.checksum
+    );
+    let worst = s.ns.min(f.ns);
+    let mut mark = if a.ns > worst * 1.02 { "  LOSS".to_string() } else { String::new() };
+    // The clock and the counter must agree about who won. They are measuring the same loop, so a
+    // row where apeiron is ahead in nanoseconds and behind in cycles -- or the reverse -- is not a
+    // finding about the map, it is a finding about this harness. Measuring one arm to completion
+    // before the next produced exactly that at a million keys, and nothing in the output said so.
+    let (dn, dc) = (a.ns - f.ns, a.cycles - f.cycles);
+    if dn.abs() > f.ns * 0.03 && dc.abs() > f.cycles * 0.03 && (dn < 0.0) != (dc < 0.0) {
+        mark.push_str("  ?ns-vs-cycles");
+    }
+    println!(
+        "  {op:<16} {n:>8} {:>8.2} {:>8.2} {:>8.2} {:>6.2}x | {:>7.1} {:>7.1} | {:>7.2} {:>7.2}{mark}",
+        a.ns / per,
+        s.ns / per,
+        f.ns / per,
+        worst / a.ns,
+        a.instructions / per,
+        f.instructions / per,
+        a.cycles / per,
+        f.cycles / per,
+    );
 }
 
 fn head(what: &str) {
-    println!("\n{what}   (ns/op; last column = apeiron vs best rival, >1 is a win)");
-    println!("  {:<16} {:>8} {:>9} {:>9} {:>9}", "op", "n", "apeiron", "std", "hb+fold");
+    println!("\n{what}");
+    println!("  ns/op, then instructions/op and cycles/op for apeiron and hb+fold.");
+    println!("  ratio is apeiron against the better rival's ns; >1 is a win.");
+    println!(
+        "  {:<16} {:>8} {:>8} {:>8} {:>8} {:>7} | {:>7} {:>7} | {:>7} {:>7}",
+        "op", "n", "apeiron", "std", "hb+fold", "ratio", "ap ins", "hb ins", "ap cyc", "hb cyc"
+    );
 }
 
-fn words(n: usize) -> Vec<u64> {
-    let mut s = 0x243F_6A88_85A3_08D3u64;
-    (0..n).map(|_| { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s }).collect()
+/// The three key distributions `hashbrown`'s own benchmarks use.
+///
+/// `highbits` is `0..n` under `swap_bytes`, so every key differs only in bits a table reads last.
+/// It is the distribution that has broken this crate's address twice and the one a single xorshift
+/// corpus never produces.
+fn words(dist: &str, n: usize) -> Vec<u64> {
+    match dist {
+        "serial" => (0..n as u64).collect(),
+        "highbits" => (0..n as u64).map(u64::swap_bytes).collect(),
+        _ => {
+            let mut s = 0x243F_6A88_85A3_08D3u64;
+            (0..n)
+                .map(|_| {
+                    s ^= s << 13;
+                    s ^= s >> 7;
+                    s ^= s << 17;
+                    s
+                })
+                .collect()
+        }
+    }
 }
 
-fn strings(n: usize) -> Vec<String> {
-    (0..n).map(|i| format!("nw_wswmg{i:07}")).collect()
+/// String keys shaped like the real corpus: a resref is a name in a fixed-width field.
+fn strings(dist: &str, n: usize) -> Vec<String> {
+    words(dist, n).iter().map(|w| format!("nw_wswmg{w:016x}")).collect()
 }
 
 fn main() {
     let which = std::env::args().nth(1).unwrap_or_else(|| "u64".into());
-    let sizes: Vec<usize> = vec![1_000, 100_000, 1_000_000];
-    if which == "u64" { u64_surface(&sizes); } else { str_surface(&sizes); }
+    let dist = std::env::args().nth(2).unwrap_or_else(|| "random".into());
+    let c = Counter::open();
+    if c.is_none() {
+        println!("note: hardware counters unavailable; instruction columns will read inf");
+    }
+    let sizes = [16usize, 256, 1_000, 16_384, 100_000, 1_000_000];
+    if which == "u64" {
+        u64_surface(c.as_ref(), &dist, &sizes);
+    } else {
+        str_surface(c.as_ref(), &dist, &sizes);
+    }
 }
 
-fn u64_surface(sizes: &[usize]) {
-    head("integer keys");
+/// Rounds and reps for a size: enough repetitions that a timed region outlasts the clock's own
+/// cost, and enough rounds that the minimum has seen an uncontended one.
+fn budget(n: usize) -> (usize, usize) {
+    let reps = (200_000 / n).max(1);
+    let rounds = if n > 200_000 { 12 } else { 30 };
+    (rounds, reps)
+}
+
+fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
+    head(&format!("integer keys, {dist} distribution"));
     for &n in sizes {
-        let ks = words(n);
-        let miss: Vec<u64> = words(n).iter().map(|k| k ^ 0xFFFF_FFFF_0000_0000).collect();
+        let ks = words(dist, n);
+        // Misses, and checked to be misses: a "miss" that is really a hit measures the hit path.
+        let miss: Vec<u64> = ks.iter().map(|k| !k ^ 0x5555_5555_5555_5555).collect();
+        let seen: std::collections::HashSet<u64> = ks.iter().copied().collect();
+        assert!(miss.iter().all(|m| !seen.contains(m)), "the miss keys are not all misses");
         let d = n as f64;
-        let r = if n > 200_000 { 5 } else { 30 };
+        let b = budget(n);
 
         let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
         let built_s: HashMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
         let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
 
-        row("insert fresh", n,
-            best(r, || { let mut m: Words<u64,u64> = Words::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 }),
-            best(r, || { let mut m: HashMap<u64,u64> = HashMap::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 }),
-            best(r, || { let mut m: HbMap<u64,u64> = HbMap::default(); for &k in &ks { m.insert(k,k); } m.len() as u64 }), d);
+        row("insert+drop", n, d, c, b,
+            || { let mut m: Words<u64,u64> = Words::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 },
+            || { let mut m: HashMap<u64,u64> = HashMap::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 },
+            || { let mut m: HbMap<u64,u64> = HbMap::default(); for &k in &ks { m.insert(k,k); } m.len() as u64 });
 
-        row("insert reserved", n,
-            best(r, || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 }),
-            best(r, || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 }),
-            best(r, || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { m.insert(k,k); } m.len() as u64 }), d);
+        row("insert reserved", n, d, c, b,
+            || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 },
+            || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 },
+            || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { m.insert(k,k); } m.len() as u64 });
 
-        row("get hit", n,
-            best(r, || ks.iter().filter_map(|k| built_a.get(k)).sum()),
-            best(r, || ks.iter().filter_map(|k| built_s.get(k)).sum()),
-            best(r, || ks.iter().filter_map(|k| built_f.get(k)).sum()), d);
+        row("extend", n, d, c, b,
+            || { let mut m: Words<u64,u64> = Words::new(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 },
+            || { let mut m: HashMap<u64,u64> = HashMap::new(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 },
+            || { let mut m: HbMap<u64,u64> = HbMap::default(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 });
 
-        row("get miss", n,
-            best(r, || miss.iter().filter_map(|k| built_a.get(k)).sum()),
-            best(r, || miss.iter().filter_map(|k| built_s.get(k)).sum()),
-            best(r, || miss.iter().filter_map(|k| built_f.get(k)).sum()), d);
+        row("get hit", n, d, c, b,
+            || ks.iter().filter_map(|k| built_a.get(k)).sum(),
+            || ks.iter().filter_map(|k| built_s.get(k)).sum(),
+            || ks.iter().filter_map(|k| built_f.get(k)).sum());
 
-        row("entry", n,
-            best(r, || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() as u64 }),
-            best(r, || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() as u64 }),
-            best(r, || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() as u64 }), d);
+        // `get(..).is_some()` and not `contains_key`: this row exists to measure the `get` path on
+        // a key that is not there, and `contains_key` is a different function in all three
+        // implementations -- apeiron's skips the value load, which is exactly what must not be
+        // skipped here. `contains` has its own row on the string surface.
+        row("get miss", n, d, c, b,
+            || miss.iter().map(|k| u64::from(built_a.get(k).is_some())).sum(),
+            || miss.iter().map(|k| u64::from(built_s.get(k).is_some())).sum(),
+            || miss.iter().map(|k| u64::from(built_f.get(k).is_some())).sum());
 
-        row("remove all", n,
-            best_consuming(r, || built_a.clone(), |mut m| { for &k in &ks { m.remove(&k); } m.len() as u64 }),
-            best_consuming(r, || built_s.clone(), |mut m| { for &k in &ks { m.remove(&k); } m.len() as u64 }),
-            best_consuming(r, || built_f.clone(), |mut m| { for &k in &ks { m.remove(&k); } m.len() as u64 }), d);
+        row("entry", n, d, c, b,
+            || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
+            || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
+            || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) });
 
-        row("iterate", n,
-            best(r, || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v))),
-            best(r, || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v))),
-            best(r, || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v))), d);
+        row_consuming("remove all", n, d, c, b.0,
+            || built_a.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s },
+            || built_s.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s },
+            || built_f.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s });
 
-        row("clone", n,
-            best(r, || built_a.clone().len() as u64),
-            best(r, || built_s.clone().len() as u64),
-            best(r, || built_f.clone().len() as u64), d);
+        row("iterate", n, d, c, b,
+            || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v)),
+            || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
+            || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
+
+        row("clone+drop", n, d, c, b,
+            || built_a.clone().len() as u64,
+            || built_s.clone().len() as u64,
+            || built_f.clone().len() as u64);
 
         // The keys are summed, not counted: draining a type with no `Drop` and discarding the
         // pairs is dead code, and LLVM removes it -- which reads as an impossibly fast `drain`.
-        // The keys are summed, not counted: draining a type with no `Drop` and discarding the
-        // pairs is dead code, and LLVM removes it -- which reads as an impossibly fast `drain`.
-        row("drain", n,
-            best_consuming(r, || built_a.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k))),
-            best_consuming(r, || built_s.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k))),
-            best_consuming(r, || built_f.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k))), d);
+        row_consuming("drain", n, d, c, b.0,
+            || built_a.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)),
+            || built_s.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)),
+            || built_f.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)));
 
-        row("retain half", n,
-            best_consuming(r, || built_a.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.len() as u64 }),
-            best_consuming(r, || built_s.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.len() as u64 }),
-            best_consuming(r, || built_f.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.len() as u64 }), d);
+        row_consuming("retain half", n, d, c, b.0,
+            || built_a.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
+            || built_s.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
+            || built_f.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) });
     }
 }
 
-fn str_surface(sizes: &[usize]) {
-    head("string keys (resrefs)");
+fn str_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
+    head(&format!("string keys, {dist} distribution"));
     for &n in sizes {
-        let ks = strings(n);
+        let ks = strings(dist, n);
+        let miss: Vec<String> = ks.iter().map(|k| format!("zz_{k}")).collect();
         let d = n as f64;
-        let r = if n > 200_000 { 5 } else { 20 };
+        let b = budget(n);
         let built_a: Map<String, u64> = ks.iter().map(|k| (k.clone(), 1)).collect();
         let built_s: HashMap<String, u64> = ks.iter().map(|k| (k.clone(), 1)).collect();
         let built_f: HbMap<String, u64> = ks.iter().map(|k| (k.clone(), 1)).collect();
 
-        row("insert fresh", n,
-            best(r, || { let mut m: Map<String,u64> = Map::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 }),
-            best(r, || { let mut m: HashMap<String,u64> = HashMap::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 }),
-            best(r, || { let mut m: HbMap<String,u64> = HbMap::default(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 }), d);
+        row("insert+drop", n, d, c, b,
+            || { let mut m: Map<String,u64> = Map::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 },
+            || { let mut m: HashMap<String,u64> = HashMap::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 },
+            || { let mut m: HbMap<String,u64> = HbMap::default(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 });
 
-        row("get hit", n,
-            best(r, || ks.iter().filter_map(|k| built_a.get_at(k.as_str())).sum()),
-            best(r, || ks.iter().filter_map(|k| built_s.get(k.as_str())).sum()),
-            best(r, || ks.iter().filter_map(|k| built_f.get(k.as_str())).sum()), d);
+        row("get hit", n, d, c, b,
+            || ks.iter().filter_map(|k| built_a.get_at(k.as_str())).sum(),
+            || ks.iter().filter_map(|k| built_s.get(k.as_str())).sum(),
+            || ks.iter().filter_map(|k| built_f.get(k.as_str())).sum());
 
-        row("contains", n,
-            best(r, || ks.iter().map(|k| u64::from(built_a.contains_at(k.as_str()))).sum()),
-            best(r, || ks.iter().map(|k| u64::from(built_s.contains_key(k.as_str()))).sum()),
-            best(r, || ks.iter().map(|k| u64::from(built_f.contains_key(k.as_str()))).sum()), d);
+        // As the integer surface: the `get` path, deliberately not `contains_key`.
+        row("get miss", n, d, c, b,
+            || miss.iter().map(|k| u64::from(built_a.get_at(k.as_str()).is_some())).sum(),
+            || miss.iter().map(|k| u64::from(built_s.get(k.as_str()).is_some())).sum(),
+            || miss.iter().map(|k| u64::from(built_f.get(k.as_str()).is_some())).sum());
 
-        row("iterate", n,
-            best(r, || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v))),
-            best(r, || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v))),
-            best(r, || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v))), d);
+        row("contains", n, d, c, b,
+            || ks.iter().map(|k| u64::from(built_a.contains_at(k.as_str()))).sum(),
+            || ks.iter().map(|k| u64::from(built_s.contains_key(k.as_str()))).sum(),
+            || ks.iter().map(|k| u64::from(built_f.contains_key(k.as_str()))).sum());
 
-        row("clone", n,
-            best(r, || built_a.clone().len() as u64),
-            best(r, || built_s.clone().len() as u64),
-            best(r, || built_f.clone().len() as u64), d);
+        row("iterate", n, d, c, b,
+            || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v)),
+            || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
+            || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
 
-        row("remove all", n,
-            best(r, || { let mut m = built_a.clone(); for k in &ks { m.remove_at(k.as_str()); } m.len() as u64 }),
-            best(r, || { let mut m = built_s.clone(); for k in &ks { m.remove(k.as_str()); } m.len() as u64 }),
-            best(r, || { let mut m = built_f.clone(); for k in &ks { m.remove(k.as_str()); } m.len() as u64 }), d);
+        row("clone+drop", n, d, c, b,
+            || built_a.clone().len() as u64,
+            || built_s.clone().len() as u64,
+            || built_f.clone().len() as u64);
+
+        row_consuming("remove all", n, d, c, b.0,
+            || built_a.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove_at(k.as_str()).unwrap_or(0)); } s },
+            || built_s.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0)); } s },
+            || built_f.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0)); } s });
     }
 }

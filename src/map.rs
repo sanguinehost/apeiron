@@ -3058,7 +3058,21 @@ impl<K: Coord + Eq, V, H: Held<K>> FromIterator<(K, V)> for Map<K, V, H> {
 }
 
 impl<K: Coord + Eq, V, H: Held<K>> Extend<(K, V)> for Map<K, V, H> {
+    /// Reserves from the iterator's lower bound, then inserts.
+    ///
+    /// Without the reserve this grows geometrically from whatever capacity it had, and the cost of
+    /// that is not small: measured on `examples/whole_surface.rs` at a million pairs into an empty
+    /// map, **150.5 instructions a pair against `hashbrown`'s 84.4**, for the same work `insert
+    /// reserved` does in 56.4. Every doubling rehomes everything already placed, and a bare
+    /// `for` loop pays for all of them. `from_iter` has always reserved; this did not.
+    ///
+    /// Half the hint when the map is not empty, because an extend into a populated map is the
+    /// shape that overlaps -- reserving the full hint there buys capacity for pairs that turn out
+    /// to be updates. `hashbrown` splits it the same way and for the same reason.
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, it: T) {
+        let it = it.into_iter();
+        let hint = it.size_hint().0;
+        self.reserve(if self.live == 0 { hint } else { hint / 2 });
         for (k, v) in it {
             self.insert(k, v);
         }
@@ -3132,7 +3146,11 @@ impl<K: Coord + Eq, V, H: Held<K>, const N: usize> From<[(K, V); N]> for Map<K, 
 impl<'a, K: Coord + Eq + Copy + 'a, V: Copy + 'a, H: Held<K>> Extend<(&'a K, &'a V)>
     for Map<K, V, H>
 {
+    /// Reserves from the iterator's lower bound, then inserts. See the owning impl above.
     fn extend<T: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, it: T) {
+        let it = it.into_iter();
+        let hint = it.size_hint().0;
+        self.reserve(if self.live == 0 { hint } else { hint / 2 });
         for (k, v) in it {
             self.insert(*k, *v);
         }
