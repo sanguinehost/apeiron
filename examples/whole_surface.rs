@@ -393,10 +393,20 @@ fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
             || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
             || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
 
+        // `black_box(&m)` and not `built.clone().len()`: `len()` of a clone is known without
+        // cloning and a `u64` has no `Drop`, so the expression is elidable in principle and a row
+        // must not depend on it surviving. The checksum gate cannot cover this one -- `len()` is
+        // the same number whether the clone happened or not -- so the instruction column is the
+        // only thing that can say.
+        //
+        // It is also what says the std column here is *not* an elided arm even though it reads
+        // ~0 instructions an entry: std's clone is two `memcpy` calls and no per-element loop,
+        // which is `hashbrown`'s `T: Copy` specialisation under `feature(specialization)`. See
+        // `examples/op_asm.rs`, where the disassembly is.
         row("clone+drop", n, d, c, b,
-            || built_a.clone().len() as u64,
-            || built_s.clone().len() as u64,
-            || built_f.clone().len() as u64);
+            || { let m = built_a.clone(); black_box(&m); m.len() as u64 },
+            || { let m = built_s.clone(); black_box(&m); m.len() as u64 },
+            || { let m = built_f.clone(); black_box(&m); m.len() as u64 });
 
         // The keys are summed, not counted: draining a type with no `Drop` and discarding the
         // pairs is dead code, and LLVM removes it -- which reads as an impossibly fast `drain`.
@@ -449,10 +459,11 @@ fn str_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
             || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
             || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
 
+        // As the integer surface: the clone is forced to exist, and std's column is a memcpy.
         row("clone+drop", n, d, c, b,
-            || built_a.clone().len() as u64,
-            || built_s.clone().len() as u64,
-            || built_f.clone().len() as u64);
+            || { let m = built_a.clone(); black_box(&m); m.len() as u64 },
+            || { let m = built_s.clone(); black_box(&m); m.len() as u64 },
+            || { let m = built_f.clone(); black_box(&m); m.len() as u64 });
 
         row_consuming("remove all", n, d, c, b.0,
             || built_a.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove_at(k.as_str()).unwrap_or(0)); } s },

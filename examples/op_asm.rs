@@ -19,7 +19,11 @@ use std::hint::black_box;
 type Fold = foldhash::fast::RandomState;
 type HbMap<K, V> = hashbrown::HashMap<K, V, Fold>;
 
-const N: usize = 20_000;
+/// Override with `AP_N`. The surface harness disagrees with this file about `clone` at 100,000
+/// and agrees at 20,000, so the size has to be a knob rather than a constant.
+static N: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    std::env::var("AP_N").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000)
+});
 
 #[inline(never)]
 fn ap_remove(m: &mut Words<u64, u64>, ks: &[u64]) -> u64 {
@@ -78,9 +82,51 @@ fn hb_iter(m: &HbMap<u64, u64>) -> u64 {
     m.values().fold(0u64, |a, v| a.wrapping_add(*v))
 }
 
+/// `black_box(&c)` and not `m.clone().len()`: `len()` of a clone is known without cloning and a
+/// `u64` has no `Drop`, so the expression is elidable in principle. It is not in fact elided here
+/// -- see below -- but a benchmark should not depend on that.
+///
+/// # What the counter found, and what it was not
+///
+/// `std::collections::HashMap<u64, u64>::clone` reads **0.00 instructions an entry** against
+/// `hashbrown` 0.15's 14.66 and this crate's 9.91. That is not a deleted arm, which is what it
+/// looks like and what it was first taken for. `objdump` on
+/// `hashbrown::raw::RawTable<(u64, u64)>::clone` inside `std` shows two `call *%r14` to
+/// `memcpy@GLIBC_2.14` and no per-element loop at all: one memcpy for the control bytes, one for
+/// the buckets. glibc's memcpy retires a handful of instructions for 1.8 MB, so ~0 instructions an
+/// entry is the truth rather than an artifact.
+///
+/// That is `hashbrown`'s `T: Copy` clone specialisation, which needs `feature(specialization)`.
+/// `std` vendors `hashbrown` and builds it with the `nightly` feature; **no crate on stable can
+/// have it**, `hashbrown` as published on crates.io included -- which is why the crates.io build
+/// takes 14.66 instructions an entry for the same operation on the same type. It is the reason the
+/// `clone+drop` row loses to `std` and beats `hashbrown` at once, and it is not a defect in this
+/// crate's clone.
+///
+#[inline(never)]
+fn ap_clone(m: &Words<u64, u64>) -> u64 {
+    let c = m.clone();
+    black_box(&c);
+    c.len() as u64
+}
+
+#[inline(never)]
+fn hb_clone(m: &HbMap<u64, u64>) -> u64 {
+    let c = m.clone();
+    black_box(&c);
+    c.len() as u64
+}
+
+#[inline(never)]
+fn std_clone(m: &std::collections::HashMap<u64, u64>) -> u64 {
+    let c = m.clone();
+    black_box(&c);
+    c.len() as u64
+}
+
 fn keys() -> Vec<u64> {
     let mut s = 0x243F_6A88_85A3_08D3u64;
-    (0..N)
+    (0..*N)
         .map(|_| {
             s ^= s << 13;
             s ^= s >> 7;
@@ -120,21 +166,21 @@ fn arms<A, B>(
         if r % 2 == 0 {
             let (v, k) = c.count(|| fa(va));
             black_box(v);
-            ai = ai.min(k.instructions as f64 / N as f64);
-            ay = ay.min(k.cycles as f64 / N as f64);
+            ai = ai.min(k.instructions as f64 / *N as f64);
+            ay = ay.min(k.cycles as f64 / *N as f64);
             let (v, k) = c.count(|| fb(vb));
             black_box(v);
-            bi = bi.min(k.instructions as f64 / N as f64);
-            by = by.min(k.cycles as f64 / N as f64);
+            bi = bi.min(k.instructions as f64 / *N as f64);
+            by = by.min(k.cycles as f64 / *N as f64);
         } else {
             let (v, k) = c.count(|| fb(vb));
             black_box(v);
-            bi = bi.min(k.instructions as f64 / N as f64);
-            by = by.min(k.cycles as f64 / N as f64);
+            bi = bi.min(k.instructions as f64 / *N as f64);
+            by = by.min(k.cycles as f64 / *N as f64);
             let (v, k) = c.count(|| fa(va));
             black_box(v);
-            ai = ai.min(k.instructions as f64 / N as f64);
-            ay = ay.min(k.cycles as f64 / N as f64);
+            ai = ai.min(k.instructions as f64 / *N as f64);
+            ay = ay.min(k.cycles as f64 / *N as f64);
         }
     }
     println!("  apeiron      {ai:>7.2} instructions  {ay:>7.2} cycles");
@@ -151,7 +197,9 @@ fn main() {
     let ks = keys();
     let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
-    println!("{op}, n={N}");
+    let built_s: std::collections::HashMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
+    println!("  capacity: apeiron {} hb {} std {}", built_a.capacity(), built_f.capacity(), built_s.capacity());
+    println!("{op}, n={}", *N);
     match op.as_str() {
         "remove" => arms(&c,
             || built_a.clone(), |mut m| ap_remove(&mut m, &ks),
@@ -159,6 +207,12 @@ fn main() {
         "getfm" => arms(&c,
             || (), |()| ap_get_fm(&built_a, &ks),
             || (), |()| hb_get_fm(&built_f, &ks)),
+        "clone" => arms(&c,
+            || (), |()| ap_clone(&built_a),
+            || (), |()| hb_clone(&built_f)),
+        "clonestd" => arms(&c,
+            || (), |()| std_clone(&built_s),
+            || (), |()| hb_clone(&built_f)),
         "iter" => arms(&c,
             || (), |()| ap_iter(&built_a),
             || (), |()| hb_iter(&built_f)),
