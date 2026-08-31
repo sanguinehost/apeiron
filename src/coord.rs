@@ -210,23 +210,81 @@ pub struct Addr {
 /// Both checked over two million pairs, half of them with a live carry. That carry term is the
 /// whole nonlinearity of the address, and it is why the wide product needs no second multiply.
 ///
-/// It also says which face each half is on, and the faces are the *upstream* ones -- the Lean
-/// development in `sanguine-apeiron/proof/Apeiron/Trichotomy`, not a reading invented here.
+/// It also says which face each half is on -- and here the doc used to reach upstream for a
+/// licence the upstream theorems do not give it over this ring. What follows replaces that.
 ///
-/// - `place` **discards**: it is not injective, by construction, and there is deliberately no
-///   inverse. `Projection.discards_iff_disc_pos` is `Discards sigma <-> 0 < sigma` -- a projection
-///   that kills one non-zero point while keeping another exists on the **hyperbolic** face and
-///   nowhere else. So naming `place` hyperbolic is forced by what it does.
-/// - `id` discards nothing: `lo` is multiplication by a unit, a bijection, and the elliptic face
-///   reads its key back off it. Below zero there are no zero divisors at all
-///   (`Basic.noZeroDivisors_iff_disc_neg`), so every projection is the identity or the constant
-///   zero and nothing can be thrown away. That is the face on which an address *determines* a key.
+/// # The trichotomy is a theorem over the reals, and it does not survive the base change
+///
+/// The Lean development in `sanguine-apeiron/proof/Apeiron/Trichotomy` characterises the three
+/// faces by three properties, each of which holds at exactly one sign of `sigma`. This crate's
+/// arithmetic is `Z/2^64`. **All three characterising properties are constant in `sigma` there**,
+/// so none of them can single a face out, and `proofs.rs` says so at full width or over `Z/2^8`
+/// where the argument is uniform in the width:
+///
+/// | upstream, over `R` | over `Z/2^64` | harness |
+/// |---|---|---|
+/// | a nontrivial idempotent exists iff `0 < sigma` | **none exists, at any dial** | `the_word_ring_has_no_nontrivial_idempotent_at_any_dial` |
+/// | no zero divisors iff `sigma < 0` | **a nilpotent at every dial** (`2^32`) | `the_word_ring_has_a_nilpotent_at_every_dial` |
+/// | a discarding projection exists iff `0 < sigma` | **none exists, at any dial** | `no_word_projection_both_kills_and_keeps_at_any_dial` |
+///
+/// The first one fails for a reason worth stating, because it is not that the equivalence flips.
+/// Both proofs reach `b * (2a - 1) = 0`. Over `R` that is split by having no zero divisors, and
+/// the `a = 1/2` branch is where every nontrivial idempotent comes from. Over `Z/2^64` it is split
+/// by `2a - 1` being **odd, hence a unit** -- a different argument reaching a *stronger*
+/// conclusion, `b = 0` outright, with the dial never consulted. And `1/2` is not there to be
+/// reached: `the_half_the_real_idempotents_need_is_not_in_the_word_ring`. [`crate::scalar::Halve`]
+/// already refuses to be implemented for a word; these say the objects it would have built are
+/// absent and not merely unconstructible.
+///
+/// **So the face names on `place` and `id` are an analogy with the real case, not a transfer.**
+/// Saying otherwise was the thing this crate exists not to do. What is actually true about the two
+/// halves is true, is proved directly, and needs none of the above:
+///
+/// - `id` is a bijection because `PHI` is **odd**, hence a unit -- `multiplying_by_an_odd_constant_is_injective`
+///   and `the_elliptic_address_has_a_trivial_kernel`. That is the whole reason the elliptic face
+///   can read its key back, and it is a fact about units in `Z/2^64` rather than about `sigma`.
+/// - `place` has no closed-form inverse, which is what the security argument needs: matching `j`
+///   windows of it costs `2^(j * gbits)` trials. That is a statement about the *windows*
+///   (`the_group_index_cannot_separate_keys`) and not about whether the whole word is injective.
+///   This doc used to say `place` "is not injective, by construction". **That is false over every
+///   key a caller will ever use.** `place_separates_keys_below_two_to_the_thirty_two` verifies in
+///   32s that `place` separates *every* pair of keys below `2^32` -- four billion of them, with no
+///   collision. A search first found none over 2^26 dense and 2^26 scattered keys, which settles
+///   nothing on its own (a uniformly random 64-bit function has about 0.0001 expected collisions
+///   at that sample size); the model checker settles it. Whether `place` is injective on the full
+///   64-bit domain is open and does not matter here: what the security argument needs is that it
+///   has no closed-form inverse, and injectivity would not give an attacker one.
+///
+/// # What does transfer, and it is now a theorem upstream rather than an argument here
+///
+/// `sanguine-apeiron/proof/Apeiron/Trichotomy/AnyRing.lean` carries the construction over an
+/// **arbitrary commutative ring**, so `Z/2^64` is an instance of it rather than an analogy for it.
+/// Two results cross:
+///
+/// - `AnyRing.ringNormForm_mul`: `N(zw) = N(z) N(w)`. An identity between two polynomials with
+///   whole-number coefficients holds in every commutative ring or in none.
+/// - `AnyRing.exists_inverse_iff_isUnit_ringNormForm`: a point can be divided by exactly when its
+///   norm form can. Over `R` that reads as lying off the cone, because the divisors of `R` are the
+///   non-zero reals. Over `Z/2^64` the same theorem reads as **the norm form being odd**. The
+///   statement does not change; what counts as a divisor does.
+///
+/// And the idempotent result crosses with its shape changed, which is the useful part:
+/// `AnyRing.ringIdempotent_trivial` says a point unchanged by squaring is one of the two every
+/// ring has, given that `2a - 1` can be divided by and that one of `a`, `a - 1` can. Over `R`
+/// the first is supplied by having no zero divisors and the `a = 1/2` branch is what escapes it;
+/// over `Z/2^n` both hypotheses hold at *every* element, because the divisors there are the odd
+/// elements and `2a - 1` is always odd. So the conclusion is unconditional here and the dial is
+/// never consulted, which is the same fact `the_word_ring_has_no_nontrivial_idempotent_at_any_dial`
+/// checks at machine width.
+///
+/// Those four Lean theorems depend on `[propext, Quot.sound]` and not on `Classical.choice`.
 ///
 /// **`Addr` is not a point of the algebra at any one `sigma`, and an earlier version of this doc
 /// said it was a `sigma = 0` pair. That is refuted upstream**: `NullBasis.upper_eq_lower_of_disc_zero`
 /// is `upper 0 z = lower 0 z` -- at zero the two channels *agree*, so the parabolic face has no
 /// second channel to be independent. `id` and `place` are not the same read; one is injective and
-/// the other cannot be. So the pair cannot sit at `sigma = 0`.
+/// the other has no closed-form inverse. So the pair cannot sit at `sigma = 0` -- and by the table above it
+/// does not sit at the other two either, over this ring.
 ///
 /// What it is: **two reads at two different faces, taken off one multiply.** The widening product
 /// is what makes that cheap, and the three-face table at the top of this module is what says why a

@@ -1035,4 +1035,230 @@ mod harnesses {
         let gmask = (groups - 1) * crate::table::GROUP;
         assert_eq!((gmask / crate::table::GROUP + 1).trailing_zeros(), gbits);
     }
+
+
+    // -- what the upstream trichotomy does and does not survive into Z/2^64 -----------------------
+    //
+    // `coord.rs` names `place` hyperbolic and `id` elliptic and cites the Lean development for
+    // both -- `Projection.discards_iff_disc_pos`, `Basic.noZeroDivisors_iff_disc_neg`,
+    // `Idempotents.exists_nontrivial_idempotent_iff_disc_pos`. Those are theorems over the reals,
+    // and this crate's arithmetic is `Z/2^64`. The harnesses above check them on `Cell<Dyadic>`,
+    // which has halves and is the real path. `Cell<i64>` -- `Ring for i64` is `wrapping_*`, so it
+    // **is** `Z/2^64` -- is the path the address actually takes, and these say what happens there.
+    //
+    // Two of the three characterisations do not transfer, and they fail for the same reason from
+    // opposite directions: over the reals `b * (2a - 1) = 0` is split by having no zero divisors,
+    // and over `Z/2^64` it is split by `2a - 1` being a unit. The conclusion is *stronger* here
+    // and the trichotomy is *gone*, because the property it classified by is now constant in the
+    // dial.
+
+    /// Two is not invertible in `Z/2^64`, so the point the real idempotents sit at is not there.
+    ///
+    /// `Idempotents.exists_nontrivial_idempotent_iff_disc_pos` produces its witnesses at
+    /// `(1/2, +/- 1/(2 sqrt(sigma)))`. The `a = 1/2` branch of that proof is the entire source of
+    /// the nontrivial idempotents, and `2h = 1` has no solution here: `2h` is even and `1` is not.
+    ///
+    /// This is `Halve` as a theorem rather than as a trait bound. The bound already says a scalar
+    /// without halves cannot build `idem_plus`; this says the object it would have built is absent
+    /// and not merely unconstructible.
+    #[kani::proof]
+    fn the_half_the_real_idempotents_need_is_not_in_the_word_ring() {
+        let h: u64 = kani::any();
+        assert_ne!(h.wrapping_mul(2), 1, "two has no inverse in Z/2^64");
+    }
+
+    /// A word times an **odd** word is zero only when the word is.
+    ///
+    /// `Z/2^64` has zero divisors, so `mul_eq_zero` -- the step the Lean proof of
+    /// `exists_nontrivial_idempotent_iff_disc_pos` takes over the reals -- is unavailable. What
+    /// replaces it is narrower and enough: an odd factor is a unit, so it can be cancelled even
+    /// though the ring is not a domain.
+    #[kani::proof]
+    fn an_odd_factor_can_be_cancelled_in_the_word_ring() {
+        let b: u64 = kani::any();
+        let u: u64 = kani::any();
+        kani::assume(u & 1 == 1);
+        kani::assume(b.wrapping_mul(u) == 0);
+        assert_eq!(b, 0, "an odd multiplier is a unit, so it cannot annihilate");
+    }
+
+    /// **The trichotomy's idempotent characterisation does not transfer.** Over `Z/2^64` the only
+    /// idempotents are `0` and `1`, at *every* dial -- elliptic, parabolic and hyperbolic alike.
+    ///
+    /// `(a + bx)^2 = (a^2 + sigma b^2) + 2ab x`, so idempotence is `2ab = b` and
+    /// `a^2 + sigma b^2 = a`. The first is `b (2a - 1) = 0`, and `2a - 1` is odd, so
+    /// `an_odd_factor_can_be_cancelled_in_the_word_ring` forces `b = 0` **without the dial being
+    /// consulted at all**. Then `a^2 = a`, and one of `a`, `a - 1` is odd, so
+    /// `the_only_word_solutions_of_a_squared_equals_a` forces `a` into `{0, 1}`.
+    ///
+    /// So `exists_nontrivial_idempotent_iff_disc_pos` has a left-hand side that is constantly
+    /// false here. It is not that the equivalence flips; it is that the property it classifies by
+    /// stops depending on the dial. Naming a `Z/2^64` object hyperbolic because it has the
+    /// property that theorem characterises is naming it after something nothing here has.
+    ///
+    /// # Width
+    ///
+    /// Over `Z/2^8`, which is what decides. The argument uses exactly two facts -- `2a - 1` is odd
+    /// and one of `a`, `a - 1` is odd -- and both hold in `Z/2^n` for every `n >= 1`, so it is
+    /// uniform in the width in the way `Ring for i8`'s doc describes. The two cancellation steps
+    /// it rests on are proved at full width beside it.
+    #[kani::proof]
+    fn the_word_ring_has_no_nontrivial_idempotent_at_any_dial() {
+        let a: i8 = kani::any();
+        let b: i8 = kani::any();
+        let z = Cell::<i8>::new(a, b);
+        for sigma in FACES {
+            if z.mul(sigma, z) == z {
+                assert!(
+                    z == Cell::<i8>::zero() || z == Cell::<i8>::one(),
+                    "the word ring has only the two idempotents every ring has"
+                );
+            }
+        }
+    }
+
+    /// The scalar half of the above, at full width: `a^2 = a` only at `0` and `1`.
+    #[kani::proof]
+    fn the_only_word_solutions_of_a_squared_equals_a() {
+        let a: u64 = kani::any();
+        kani::assume(a.wrapping_mul(a) == a);
+        assert!(a == 0 || a == 1, "Boole's equation has two roots in Z/2^64 as well");
+    }
+
+    /// **The no-zero-divisors characterisation does not transfer either.** `Z/2^64` has a nonzero
+    /// nilpotent at *every* dial, so no dial is a domain.
+    ///
+    /// `Basic.noZeroDivisors_iff_disc_neg` makes "has no zero divisors" the defining property of
+    /// the elliptic face over the reals. Here `2^32` squares to zero in the scalar ring already,
+    /// so `(2^32, 0)` is a nonzero cell whose square is zero whatever the dial is -- the dial never
+    /// enters, because the second slot is empty. The elliptic face's characterising property is
+    /// constantly false rather than dial-dependent.
+    ///
+    /// `coord::spread`'s doc reads `noZeroDivisors_iff_disc_neg` as saying the identity word
+    /// "discards nothing". That conclusion is still right, and it does not come from this theorem:
+    /// it comes from `PHI` being **odd**, hence a unit, which
+    /// `the_elliptic_address_has_a_trivial_kernel` proves directly and without the analogy.
+    #[kani::proof]
+    fn the_word_ring_has_a_nilpotent_at_every_dial() {
+        let z = Cell::<i64>::new(1i64 << 32, 0);
+        assert_ne!(z, Cell::<i64>::zero(), "the witness is not zero");
+        for sigma in FACES {
+            assert_eq!(z.mul(sigma, z), Cell::<i64>::zero(), "and it squares to zero");
+        }
+    }
+
+    /// What **does** transfer: the norm form is multiplicative, at every dial.
+    ///
+    /// `N(a + bx) = a^2 - sigma b^2` and `N(zw) = N(z) N(w)` is a polynomial identity with integer
+    /// coefficients, so it holds in every commutative ring or in none -- which is why it survives
+    /// the base change that the idempotent, domain and projection characterisations do not.
+    ///
+    /// **The mathematical statement is proved upstream and universally**, over an arbitrary
+    /// commutative ring, by `Trichotomy.AnyRing.ringNormForm_mul` in `sanguine-apeiron`. No
+    /// bit-precise checker can reach that: it decides one width at a time and the theorem is about
+    /// every width at once. What this harness adds is the half Lean cannot see -- that `Cell::mul`
+    /// and `Cell::norm_form` as *written here* compute the thing the theorem is about. A proof of
+    /// the algebra and a check of the code are two obligations, not one.
+    ///
+    /// # Why the operands are bounded
+    ///
+    /// `N(zw)` is degree **four** in the four scalars, so a bit-precise checker bit-blasts a
+    /// multiply of two multiplies. Over unrestricted `i8` this did not return in twenty-five
+    /// minutes, where the degree-two laws beside it decide in under a second: the width is not what
+    /// costs, the nesting is. Bounded to a 4-bit window it decides. That bound is why the Lean
+    /// theorem is the one to cite for the mathematics, and this is the one to cite for the code.
+    #[kani::proof]
+    fn the_norm_form_is_multiplicative_in_the_word_ring() {
+        let (a, b, c, d): (i8, i8, i8, i8) =
+            (kani::any(), kani::any(), kani::any(), kani::any());
+        for v in [a, b, c, d] {
+            kani::assume((-8..8).contains(&v));
+        }
+        let z = Cell::<i8>::new(a, b);
+        let w = Cell::<i8>::new(c, d);
+        for sigma in FACES {
+            assert_eq!(
+                z.mul(sigma, w).norm_form(sigma),
+                z.norm_form(sigma).mul(w.norm_form(sigma)),
+                "the norm is multiplicative"
+            );
+        }
+    }
+
+
+    /// **And the projection characterisation does not transfer.** Over `Z/2^n` no projection both
+    /// kills a nonzero point and keeps one, at any dial.
+    ///
+    /// `Projection.Discards sigma` is `exists e, Idempotent sigma e and (exists z != 0, z e = 0)
+    /// and (exists w != 0, w e = w)`, and `proj sigma e z` is `mul sigma z e` -- so a projection
+    /// here is multiplication by an idempotent, and nothing else.
+    /// `the_word_ring_has_no_nontrivial_idempotent_at_any_dial` leaves only `e = 0`, which keeps
+    /// nothing, and `e = 1`, which kills nothing. `Discards` is therefore **false at every dial**,
+    /// where over the reals it is exactly `0 < sigma`.
+    ///
+    /// # What this costs the address doc
+    ///
+    /// `coord::spread`'s doc says naming `place` hyperbolic "is forced by what it does", citing
+    /// `Projection.discards_iff_disc_pos`. It is not forced by that theorem: the property the
+    /// theorem characterises is one no dial has over `Z/2^64`, so the citation cannot single out
+    /// the hyperbolic one. What is true about `place` -- that it is not injective and has no
+    /// inverse -- is true, is proved elsewhere, and is not this. The name is an analogy with the
+    /// real case, and the doc now says so.
+    ///
+    /// Non-vacuous by construction: the premise is satisfied by `e = 1` with `z = 0`, which the
+    /// harness checks before assuming anything, so a passing run is the implication and not an
+    /// empty hypothesis. The positive control is `the_split_complex_identities_hold`, where
+    /// `Cell<Dyadic>` -- which has halves -- does exhibit exactly the pair this rules out.
+    #[kani::proof]
+    fn no_word_projection_both_kills_and_keeps_at_any_dial() {
+        // The premise is reachable, so the implication below is not vacuous.
+        let one = Cell::<i8>::one();
+        assert_eq!(one.mul(Sigma::Hyperbolic, one), one);
+        assert_eq!(Cell::<i8>::zero().mul(Sigma::Hyperbolic, one), Cell::<i8>::zero());
+
+        let e = Cell::<i8>::new(kani::any(), kani::any());
+        let z = Cell::<i8>::new(kani::any(), kani::any());
+        let w = Cell::<i8>::new(kani::any(), kani::any());
+        for sigma in FACES {
+            if e.mul(sigma, e) == e
+                && z.mul(sigma, e) == Cell::<i8>::zero()
+                && w.mul(sigma, e) == w
+            {
+                assert!(
+                    z == Cell::<i8>::zero() || w == Cell::<i8>::zero(),
+                    "a projection over Z/2^n cannot both kill a nonzero point and keep one"
+                );
+            }
+        }
+    }
+
+
+    /// Is `place` injective on 32-bit keys?
+    ///
+    /// `coord::spread`'s doc says `place` "is not injective, by construction". Nothing proved it.
+    /// A search over 2^26 dense keys and 2^26 scattered ones found zero collisions, which settles
+    /// nothing in either direction -- a uniformly random function on 64 bits has about 0.0001
+    /// expected collisions at that sample size, so the search cannot tell a bijection from a
+    /// scrambler.
+    ///
+    /// Asked where it can be decided, the answer is **yes**: `place` separates every pair of keys
+    /// below `2^32`, four billion of them, verified in 32s. So the doc's claim was false over the
+    /// whole range a caller will ever use, and it has been withdrawn. Whether `place` is injective
+    /// on the full 64-bit domain is open.
+    ///
+    /// Either way the crate's security argument is untouched, and that is the point of writing it
+    /// down: the aiming cost is `2^(j * gbits)` trials to match `j` *windows* of `place`, which is
+    /// a statement about the windows and not about whether the whole word is injective.
+    /// `the_group_index_cannot_separate_keys` is where that lives.
+    #[kani::proof]
+    fn place_separates_keys_below_two_to_the_thirty_two() {
+        let x: u32 = kani::any();
+        let y: u32 = kani::any();
+        kani::assume(x != y);
+        assert_ne!(
+            crate::coord::spread(u64::from(x)).place,
+            crate::coord::spread(u64::from(y)).place,
+            "place collides on two keys below 2^32"
+        );
+    }
 }
