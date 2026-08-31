@@ -435,6 +435,36 @@ struct Descent {
 
 impl Descent {
     /// Starts *after* the first group, which the caller took straight-line from [`Geom::first`].
+    ///
+    /// # Four ways to stop `gbits` holding a hot register, and what each costs
+    ///
+    /// `gbits` is read here and nowhere on the first-group path, and the descent is entered on
+    /// fewer than one lookup in a thousand (`Map::stats`, 1.0005 mean probe at a million keys).
+    /// It is still loop-invariant across a caller's lookup loop, so LLVM hoists the load into that
+    /// loop's preheader and holds it live across every iteration. The register that costs is one
+    /// the hot path wanted: `objdump` on `examples/op_asm.rs` shows `gshift`, which every lookup
+    /// needs, spilled to `-0x18(%rsp)` while `gbits` sits in `%r10d`.
+    ///
+    /// Instructions per operation, which are exact where cycles here carry about 7% run-to-run
+    /// spread (`hashbrown`'s arm, unchanged code, read 9.81, 9.55 and 9.10 cycles on three runs):
+    ///
+    /// | attempt | `get` | `get` under `filter_map` | `get miss` | `remove` |
+    /// |---|---|---|---|---|
+    /// | as written | **33.49** | 36.47 | **31.91** | 73.28 |
+    /// | derive `gbits` from `gmask` (`shr`, `inc`, `tzcnt`) | 33.49 | 37.47 | | |
+    /// | derive `gbits` from `gshift` (one `sub`) | 33.49 | 36.47 | 31.91 | |
+    /// | outline this constructor | 34.60 | **32.56** | 33.99 | 73.35 |
+    /// | outline the whole descent loop | 37.60 | 37.61 | | **73.28** |
+    ///
+    /// Both derivations are hoisted the same way the load was: LLVM lifts `mov $0x35,%r10d` and
+    /// `sub %r8d,%r10d` into the preheader and keeps the result live, so the live count is
+    /// unchanged and the arithmetic is added. Outlining is the only thing that works, because a
+    /// call has nothing to hoist, and it costs about one instruction per lookup on `get` and two
+    /// on `get miss` for the few percent of probes that do enter the descent. It buys four on the
+    /// adapter shape and it is not worth them.
+    ///
+    /// `find_onward` is where outlining did pay, and the reason it pays there and not here is on
+    /// that function.
     #[inline]
     fn after_first(p: u64, g: Geom) -> Self {
         // SAFETY: `Geom::of` is the only constructor and it never stores 64 -- see the comment
