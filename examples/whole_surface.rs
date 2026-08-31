@@ -59,6 +59,7 @@
 mod counter;
 
 use apeiron::map::{Map, Words};
+use std::sync::OnceLock;
 use counter::Counter;
 use std::collections::HashMap;
 use std::hint::black_box;
@@ -66,6 +67,42 @@ use std::time::Instant;
 
 type Fold = foldhash::fast::RandomState;
 type HbMap<K, V> = hashbrown::HashMap<K, V, Fold>;
+
+/// Which arm to time, from `AP_ONLY`. `None` times all three, rotating.
+///
+/// # Why this exists, and what it changes
+///
+/// Rotating three arms inside a round is the only way to bound the machine's drift to one round.
+/// It also keeps **three maps live and touched in turn**, so each one is evicted by the other two
+/// between its own turns, and every arm is measured cold. That is a real scenario and it is not
+/// the only one: a program with one map does not have two others sweeping the cache between its
+/// lookups.
+///
+/// The two answers differ by more than the thing being measured. `iterate` at 16,384 entries,
+/// cycles per element:
+///
+/// | | apeiron | hb+fold |
+/// |---|---|---|
+/// | one map touched | **2.57** | 3.00 |
+/// | three maps rotating | 4.03 | 3.19 |
+///
+/// `hashbrown` loses 6% going from one to three; apeiron loses 57%, because it reads a tag array
+/// and a slot array from two allocations where `hashbrown` reads control bytes and buckets from
+/// one, and two cold streams cost more than one. Sign-flipping, not scaling: isolated, that row is
+/// a 17% **win**.
+///
+/// With `AP_ONLY` set, the checksum pass still runs every arm, so the correctness gate is intact,
+/// and only the named arm is executed during the timed and counted rounds. Nothing else touches
+/// the cache between its rounds.
+fn only() -> Option<&'static str> {
+    static V: OnceLock<Option<String>> = OnceLock::new();
+    V.get_or_init(|| std::env::var("AP_ONLY").ok()).as_deref()
+}
+
+/// Whether this arm is the one being timed.
+fn timed(arm: &str) -> bool {
+    only().is_none_or(|o| o == arm)
+}
 
 /// One arm of one row: what it cost and what it answered.
 #[derive(Clone, Copy)]
@@ -103,7 +140,7 @@ fn run(reps: usize, f: &mut impl FnMut() -> u64) -> u64 {
 /// Times one arm for one round and folds the result into its running minimum.
 fn tick(arm: &mut Arm, reps: usize, f: &mut impl FnMut() -> u64) {
     let t = Instant::now();
-    arm.checksum = black_box(run(reps, f));
+    black_box(run(reps, f));
     arm.ns = arm.ns.min(t.elapsed().as_secs_f64() * 1e9 / reps as f64);
 }
 
@@ -142,22 +179,29 @@ fn row(
     mut ff: impl FnMut() -> u64,
 ) {
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
+    // The checksum pass runs every arm whatever `AP_ONLY` says, so the gate below still compares
+    // three answers even when only one is timed.
+    a.checksum = run(reps, &mut fa);
+    s.checksum = run(reps, &mut fs);
+    f.checksum = run(reps, &mut ff);
     // The order rotates every round. Alternating the arms bounds the machine's drift to one round,
     // but running the same arm first in every round hands that arm every cold start -- measured on
     // `examples/op_asm.rs`, a `u64` hit read 0.83x with apeiron always first and 0.96x with it
     // always second, and neither of those is the number.
     for r in 0..rounds * 3 {
         match r % 3 {
-            0 => tick(&mut a, reps, &mut fa),
-            1 => tick(&mut s, reps, &mut fs),
-            _ => tick(&mut f, reps, &mut ff),
+            0 if timed("apeiron") => tick(&mut a, reps, &mut fa),
+            1 if timed("std") => tick(&mut s, reps, &mut fs),
+            2 if timed("hb") => tick(&mut f, reps, &mut ff),
+            _ => {}
         }
     }
     for r in 0..9 {
         match r % 3 {
-            0 => count(c, &mut a, reps, &mut fa),
-            1 => count(c, &mut s, reps, &mut fs),
-            _ => count(c, &mut f, reps, &mut ff),
+            0 if timed("apeiron") => count(c, &mut a, reps, &mut fa),
+            1 if timed("std") => count(c, &mut s, reps, &mut fs),
+            2 if timed("hb") => count(c, &mut f, reps, &mut ff),
+            _ => {}
         }
     }
     emit(op, n, per, a, s, f);
@@ -186,50 +230,55 @@ fn row_consuming<A, S, F>(
     mut ff: impl FnMut(F) -> u64,
 ) {
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
+    a.checksum = fa(ma());
+    s.checksum = fs(ms());
+    f.checksum = ff(mf());
     // The order rotates, as in `row` and for the same reason.
     for r in 0..rounds * 3 {
         match r % 3 {
-            0 => {
+            0 if timed("apeiron") => {
                 let v = ma();
                 let t = Instant::now();
                 a.checksum = black_box(fa(v));
                 a.ns = a.ns.min(t.elapsed().as_secs_f64() * 1e9);
             }
-            1 => {
+            1 if timed("std") => {
                 let v = ms();
                 let t = Instant::now();
                 s.checksum = black_box(fs(v));
                 s.ns = s.ns.min(t.elapsed().as_secs_f64() * 1e9);
             }
-            _ => {
+            2 if timed("hb") => {
                 let v = mf();
                 let t = Instant::now();
                 f.checksum = black_box(ff(v));
                 f.ns = f.ns.min(t.elapsed().as_secs_f64() * 1e9);
             }
+            _ => {}
         }
     }
     if let Some(c) = c {
         for r in 0..9 {
             match r % 3 {
-                0 => {
+                0 if timed("apeiron") => {
                     let v = ma();
                     let (_, k) = c.count(|| black_box(fa(v)));
                     a.instructions = a.instructions.min(k.instructions as f64);
                     a.cycles = a.cycles.min(k.cycles as f64);
                 }
-                1 => {
+                1 if timed("std") => {
                     let v = ms();
                     let (_, k) = c.count(|| black_box(fs(v)));
                     s.instructions = s.instructions.min(k.instructions as f64);
                     s.cycles = s.cycles.min(k.cycles as f64);
                 }
-                _ => {
+                2 if timed("hb") => {
                     let v = mf();
                     let (_, k) = c.count(|| black_box(ff(v)));
                     f.instructions = f.instructions.min(k.instructions as f64);
                     f.cycles = f.cycles.min(k.cycles as f64);
                 }
+                _ => {}
             }
         }
     }
@@ -250,6 +299,20 @@ fn emit(op: &str, n: usize, per: f64, a: Arm, s: Arm, f: Arm) {
         s.checksum,
         f.checksum
     );
+    if let Some(o) = only() {
+        let arm = match o {
+            "apeiron" => a,
+            "std" => s,
+            _ => f,
+        };
+        println!(
+            "SOLO {o} {op:<16} {n:>8} {:>9.3} {:>9.2} {:>9.3}",
+            arm.ns / per,
+            arm.instructions / per,
+            arm.cycles / per
+        );
+        return;
+    }
     let worst = s.ns.min(f.ns);
     let mut mark = if a.ns > worst * 1.02 { "  LOSS".to_string() } else { String::new() };
     // The clock and the counter must agree about who won. They are measuring the same loop, so a
