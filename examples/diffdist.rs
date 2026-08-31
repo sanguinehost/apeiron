@@ -42,6 +42,11 @@ fn collisions(diffs: &[u64], bits: u32, high: bool) -> usize {
     c
 }
 
+#[expect(
+    clippy::many_single_char_names,
+    reason = "`s`, `k`, `w`, `b`, `n` are the key stream, the key, the finalized word, its bytes \
+              and a chunk length -- the conventional names for each, in a twenty-line loop"
+)]
 fn main() {
     let klen: usize =
         std::env::var("DIFF_LEN").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
@@ -49,7 +54,39 @@ fn main() {
     let (lo, hi) = spec.split_once('-').unwrap_or(("0", "63"));
     let (lo, hi): (u32, u32) = (lo.parse().unwrap(), hi.parse().unwrap());
 
-    println!("  key length {klen} bytes");
+    // A key of `klen` bytes has `8 * klen` bits, and flipping one it does not have is a no-op:
+    // the "flipped" key equals the original, every difference is zero, and they all collide. That
+    // reports as a catastrophic ratio -- 32768x, 2097151/64 -- for a fold with nothing wrong with
+    // it. The shipped fold reads exactly that at `DIFF_LEN` 4, 5 and 7, which is how this guard
+    // came to be written: a screen that manufactures a failure is worse than one that is silent,
+    // because the next person spends the afternoon chasing it.
+    // # This screen is not trustworthy below eight bytes
+    //
+    // It collides *differences* `h(k) ^ h(k ^ bit)`, and for a short key the reachable difference
+    // set is structured rather than uniform: at six bytes the reads are `b[0..4]` and `b[2..6]`,
+    // so a flip lands in one read or in both, and there are only a few shapes of difference to
+    // collide. This reports 4.09x, 6.95x and 5.81x at five, six and seven bytes for a fold that
+    // `examples/lowbits_probe.rs` measures at **1.00x -- exactly foldhash's** -- by counting real
+    // collisions in the low bits of real hashes, and that `SMHasher`'s own short-key keysets
+    // (TwoBytes, Cyclic, Sparse) put no higher than 1.24x.
+    //
+    // Two harness bugs were fixed here before that conclusion was reached, and neither was the
+    // cause: flipping bits a short key does not have (guarded below), and truncating a raw
+    // xorshift orbit for keys under eight bytes rather than finalizing it first. Read this screen
+    // at eight bytes and up, where it was calibrated against `SMHasher` to within 2%.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`klen` comes from `DIFF_LEN` and indexes a 256-byte buffer, so it is far below \
+                  `u32::MAX`; the multiply saturates besides"
+    )]
+    let key_bits = (klen as u32).saturating_mul(8);
+    if lo >= key_bits {
+        println!("  key length {klen} bytes = {key_bits} bits; no bit in {lo}-{hi} exists. Nothing to test.");
+        return;
+    }
+    let hi = hi.min(key_bits.saturating_sub(1));
+
+    println!("  key length {klen} bytes ({key_bits} bits); testing bits {lo}-{hi}");
     println!("  bit   window            actual / expected   ratio");
     let mut worst = (0.0f64, String::new());
     for bit in lo..=hi {
@@ -64,9 +101,20 @@ fn main() {
                 s ^= s << 13;
                 s ^= s >> 7;
                 s ^= s << 17;
-                let w = s.to_le_bytes();
+                // **Finalize before truncating.** A raw xorshift state is a good 64-bit stream and
+                // a bad short one: consecutive states satisfy `s' = f(s)`, so taking the low five
+                // bytes of each yields keys on a structured orbit rather than independent draws.
+                // That is a property of the harness, and this screen reported it as the fold's --
+                // 6.66x at six bytes, where `SMHasher`'s own short-key keysets (TwoBytes, Cyclic,
+                // Sparse) see nothing above 1.24x. Splitmix's finalizer decorrelates the low bytes
+                // so a truncation is as good as the whole word.
+                let mut w = s;
+                w = (w ^ (w >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                w = (w ^ (w >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                w ^= w >> 31;
+                let b = w.to_le_bytes();
                 let n = chunk.len();
-                chunk.copy_from_slice(&w[..n]);
+                chunk.copy_from_slice(&b[..n]);
             }
             let h1 = fold_bytes_with(0, &k[..klen]);
             let mut k2 = k;
