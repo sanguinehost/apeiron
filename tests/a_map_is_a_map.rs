@@ -482,3 +482,52 @@ fn a_panicking_merge_does_not_leak_or_double_drop() {
         GONE.load(Ordering::Relaxed)
     );
 }
+
+/// `extend` reserving from the iterator's size hint places exactly what an insert loop places.
+///
+/// The reserve is a speed change and must not be anything else. This is a **test and not a
+/// proof**: it checks the shapes below rather than every input, because a Kani harness over a
+/// whole `Map` build does not decide. What is proved is the piece the reserve rests on --
+/// `growth_splits_each_group_in_two`, that a grow is a dyadic refinement of the region it grows
+/// from, so no key changes the group it belongs to.
+#[test]
+#[expect(
+    clippy::many_single_char_names,
+    reason = "`a`/`b` are the two ways of building the same map and `c`/`d` the two ways of \
+              extending a populated one; the names are the comparison"
+)]
+fn extending_with_a_reserve_places_what_an_insert_loop_places() {
+    for &len in &[0usize, 1, 7, 16, 17, 255, 1000, 4096] {
+        for &spread in &[1u64, 0x0001_0000_0000_0000, 0x9E37_79B9_7F4A_7C15] {
+            let ks: Vec<u64> = (0..len as u64).map(|i| i.wrapping_mul(spread)).collect();
+
+            // Into an empty map: the hint is the whole length.
+            let mut a: Words<u64, u64> = Words::new();
+            a.extend(ks.iter().map(|&k| (k, k)));
+            let mut b: Words<u64, u64> = Words::new();
+            for &k in &ks {
+                b.insert(k, k);
+            }
+            assert_eq!(a, b, "extend into empty, len {len}, spread {spread:#x}");
+            assert_eq!(a.len(), b.len());
+
+            // Into a populated map, where the hint is halved and the overlap is real.
+            let seed: Vec<u64> = ks.iter().take(len / 2).copied().collect();
+            let mut c: Words<u64, u64> = seed.iter().map(|&k| (k, 0)).collect();
+            c.extend(ks.iter().map(|&k| (k, k)));
+            let mut d: Words<u64, u64> = seed.iter().map(|&k| (k, 0)).collect();
+            for &k in &ks {
+                d.insert(k, k);
+            }
+            assert_eq!(c, d, "extend into populated, len {len}, spread {spread:#x}");
+
+            // And against `std`, which is the oracle the rest of this file uses.
+            let mut s: HashMap<u64, u64> = HashMap::new();
+            s.extend(ks.iter().map(|&k| (k, k)));
+            assert_eq!(a.len(), s.len());
+            for &k in &ks {
+                assert_eq!(a.get(&k), s.get(&k), "key {k:#x}");
+            }
+        }
+    }
+}

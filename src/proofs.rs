@@ -852,4 +852,187 @@ mod harnesses {
             assert_eq!(p.wrapping_shl(gbits), p.wrapping_shl(64));
         }
     }
+
+
+    // -- why the group window is taken from the top of the placement word ------------------------
+    //
+    // `Geom::first`'s doc argues that a low window fails because "a multiply carries entropy
+    // upward and never downward". That was prose with a measurement attached. These five decide
+    // it as arithmetic.
+
+    /// A key below `2^32` never reaches the top quarter of the widening product.
+    ///
+    /// `x < 2^32` and `PHI < 2^64` give `x * PHI < 2^96`, so bits 96..128 are zero -- which is to
+    /// say the top half of `hi` is zero for every such key. Everything below rests on this.
+    #[kani::proof]
+    fn a_small_key_never_reaches_the_top_of_the_product() {
+        let x: u32 = kani::any();
+        let w = u128::from(x) * u128::from(crate::coord::PHI);
+        assert_eq!(w >> 96, 0, "a key below 2^32 cannot fill 128 bits");
+    }
+
+    /// The low half of `place` **is** the low half of the identity word, for every key below
+    /// `2^32`.
+    ///
+    /// `place = rotl(hi, 32) ^ lo`, and `rotl(hi, 32)`'s low half is `hi`'s *top* half, which
+    /// `a_small_key_never_reaches_the_top_of_the_product` shows is zero. So the xor contributes
+    /// nothing there and `place`'s low 32 bits are `lo`'s low 32 bits exactly.
+    ///
+    /// This is the collapse `Geom::first` rejects a low window over, stated without reference to
+    /// any measurement: a low window on the placement word is a window on the identity word.
+    #[kani::proof]
+    fn the_low_half_of_place_is_the_low_half_of_the_identity_word() {
+        let x: u32 = kani::any();
+        let a = crate::coord::spread(u64::from(x));
+        assert_eq!(a.place as u32, a.id as u32, "the low window sees only the identity word");
+    }
+
+    /// A difference confined **above** bit `k` is still above bit `k` after the fold.
+    ///
+    /// `id = x * PHI` in `Z/2^64`. If two keys differ only above bit `k` their difference is
+    /// `d << k`, and `(d << k) * PHI` is divisible by `2^k` because `d * PHI` is an integer -- so
+    /// the two identity words agree on their low `k` bits. Multiplication carries information from
+    /// bit `i` to bits at or above `i`, and to no bit below `i`.
+    ///
+    /// This is "a multiply carries entropy upward and never downward" as a theorem rather than as
+    /// a slogan, and with `the_low_half_of_place_is_the_low_half_of_the_identity_word` it says a
+    /// low group window separates keys only by bits on which they already differ.
+    ///
+    /// # Why this shape and not the two-key one
+    ///
+    /// The direct statement -- two symbolic keys assumed equal below `k`, their identity words
+    /// asserted equal below `k` -- puts **two** symbolic 64-bit multiplies in front of CBMC and
+    /// does not decide in ten minutes. The difference form has one, and says the same thing given
+    /// that `id` is additive, which `the_identity_word_is_additive` is.
+    #[kani::proof]
+    fn a_difference_above_a_bit_stays_above_it() {
+        let d: u64 = kani::any();
+        let k: u32 = kani::any();
+        kani::assume(k >= 1 && k <= 63);
+        let m = (1u64 << k) - 1;
+        assert_eq!(
+            d.wrapping_shl(k).wrapping_mul(crate::coord::PHI) & m,
+            0,
+            "a difference above bit k cannot reach a bit below it"
+        );
+    }
+
+    /// Two keys agreeing on their low `k` bits have identity words agreeing on their low `k` bits.
+    ///
+    /// The two-key form of `a_difference_above_a_bit_stays_above_it`, stated where the low-window
+    /// argument actually lives: keys below `2^32`, which are the ones whose product does not fill
+    /// 128 bits. Two symbolic 64-bit multiplies do not decide; two with 32 known-zero bits in each
+    /// operand do.
+    #[kani::proof]
+    fn two_keys_agreeing_low_down_have_identity_words_agreeing_low_down() {
+        let x: u32 = kani::any();
+        let y: u32 = kani::any();
+        let k: u32 = kani::any();
+        kani::assume(k >= 1 && k <= 31);
+        let m = (1u64 << k) - 1;
+        kani::assume(u64::from(x) & m == u64::from(y) & m);
+        assert_eq!(
+            crate::coord::spread(u64::from(x)).id & m,
+            crate::coord::spread(u64::from(y)).id & m,
+            "the identity word's low bits cannot see a key bit above them"
+        );
+    }
+
+    /// A low group window separates two keys only if their low bits already differ.
+    ///
+    /// `Geom::first` is `(p >> gshift) & gmask` with `gmask = (groups - 1) * GROUP`, so the mask
+    /// keeps bits 4..gbits+4 of the shifted word and the result is already a byte offset. The
+    /// low-window form of the same expression is `(p << 4) & gmask`, which keeps bits 0..gbits of
+    /// `p` scaled by `GROUP`.
+    ///
+    /// Two keys below `2^32` agreeing on their low `gbits` bits then land in the same group for
+    /// every region size -- so an attacker who fixes `gbits` key bits fixes the group at no cost,
+    /// and the descent never begins.
+    ///
+    /// # This harness failed first, and the design was not what was wrong
+    ///
+    /// Written as `(p >> 4) & gmask` against an assumption on the low `gbits + 4` bits, it is
+    /// **false**, and Kani said so in 0.1s: that expression reads bits 8..gbits+8, four above what
+    /// the assumption pins. The off-by-four was mine. It is the reason to write the window as the
+    /// shift the code actually performs rather than as a paraphrase of it.
+    #[kani::proof]
+    fn a_low_group_window_cannot_separate_keys_that_agree_low_down() {
+        let x: u32 = kani::any();
+        let y: u32 = kani::any();
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 1 && gbits <= 20);
+        let m = (1u64 << gbits) - 1;
+        kani::assume(u64::from(x) & m == u64::from(y) & m);
+        let gmask = ((1usize << gbits) - 1) * crate::table::GROUP;
+        let low = |k: u32| (crate::coord::spread(u64::from(k)).place << 4) as usize & gmask;
+        assert_eq!(low(x), low(y), "a low window is decided by bits the keys already share");
+    }
+
+    /// The **top** window is not a function of those bits.
+    ///
+    /// A witness, which is what an existence claim needs: two keys agreeing on their whole low
+    /// half and landing on different tags. `tag_of` reads bits 57..64 of `place`, which are
+    /// `lo`'s bits 57..64 xored with `hi`'s bits 25..32 -- both of which move when a key bit above
+    /// the window moves. So the asymmetry between the two ends of `place` is real and not an
+    /// artifact of the corpus the flatness gate happened to run on.
+    #[kani::proof]
+    fn the_top_window_does_see_bits_a_low_window_cannot() {
+        let x: u64 = 1;
+        let y: u64 = 1 | (1u64 << 32);
+        assert_eq!(x & 0xFFFF_FFFF, y & 0xFFFF_FFFF, "the witnesses agree on their low half");
+        assert_ne!(
+            crate::table::tag_of(crate::coord::spread(x).place),
+            crate::table::tag_of(crate::coord::spread(y).place),
+            "the top window must move when a high key bit moves"
+        );
+    }
+
+    /// A left rotation by 32 sends bit `(i + 32) mod 64` to bit `i`.
+    ///
+    /// `coord::spread`'s doc states `place_i == lo_i ^ hi_((i - 32) mod 64)` and attaches
+    /// "verified bit for bit over two million keys". The multiply is not what that claim is about:
+    /// `place` is `rotl(hi, 32) ^ lo` **by definition**, and xor is bitwise, so the whole content
+    /// is where the rotation puts each bit. Stated without the multiply it decides instantly;
+    /// stated with one it did not decide in twenty minutes, which is the crate's rule for
+    /// restating rather than grinding.
+    ///
+    /// This is what lets the tag sit directly above the descent: disjoint slices of `place` are
+    /// disjoint sets of `GF(2)` functionals of the 128 product bits, so neither reads the other's
+    /// evidence.
+    ///
+    /// The other half -- that `spread` computes `rotl(hi, 32) ^ lo` from the two halves of the
+    /// widening product -- is `spread`'s body, and a harness asserting it re-types the source. It
+    /// was written, did not decide (CBMC will not fold two symbolic 128-bit multiplies), and was
+    /// dropped rather than ground on, because what it would have bought is reading four lines.
+    #[kani::proof]
+    fn a_rotation_by_thirty_two_lands_each_bit_where_the_address_doc_says() {
+        let hi: u64 = kani::any();
+        let lo: u64 = kani::any();
+        let i: u32 = kani::any();
+        kani::assume(i < 64);
+        let place = hi.rotate_left(32) ^ lo;
+        assert_eq!(
+            (place >> i) & 1,
+            ((lo >> i) & 1) ^ ((hi >> ((i + 32) % 64)) & 1),
+            "bit i of place is bit i of lo xored with bit (i - 32) of hi"
+        );
+    }
+
+    /// `gbits` is recoverable from `gmask`, so storing both is storing one thing twice.
+    ///
+    /// `gmask` is `(groups - 1) * GROUP` for a power-of-two `groups`, so `mask() + 1` is `groups`
+    /// and its `trailing_zeros` is `gbits`. The empty region has `gmask == 0`, giving 0, which is
+    /// the sentinel `Geom::of` folds it onto.
+    ///
+    /// Removing the field was **tried and reverted**: LLVM hoists the recomputation into the same
+    /// loop preheader the load was in, so the hot path keeps the live value and gains the
+    /// arithmetic. The redundancy is real; removing it is not free. The theorem stands either way.
+    #[kani::proof]
+    fn gbits_is_recoverable_from_the_group_mask() {
+        let gbits: u32 = kani::any();
+        kani::assume(gbits <= 32);
+        let groups = 1usize << gbits;
+        let gmask = (groups - 1) * crate::table::GROUP;
+        assert_eq!((gmask / crate::table::GROUP + 1).trailing_zeros(), gbits);
+    }
 }
