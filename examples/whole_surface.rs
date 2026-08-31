@@ -142,15 +142,23 @@ fn row(
     mut ff: impl FnMut() -> u64,
 ) {
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
-    for _ in 0..rounds {
-        tick(&mut a, reps, &mut fa);
-        tick(&mut s, reps, &mut fs);
-        tick(&mut f, reps, &mut ff);
+    // The order rotates every round. Alternating the arms bounds the machine's drift to one round,
+    // but running the same arm first in every round hands that arm every cold start -- measured on
+    // `examples/op_asm.rs`, a `u64` hit read 0.83x with apeiron always first and 0.96x with it
+    // always second, and neither of those is the number.
+    for r in 0..rounds * 3 {
+        match r % 3 {
+            0 => tick(&mut a, reps, &mut fa),
+            1 => tick(&mut s, reps, &mut fs),
+            _ => tick(&mut f, reps, &mut ff),
+        }
     }
-    for _ in 0..3 {
-        count(c, &mut a, reps, &mut fa);
-        count(c, &mut s, reps, &mut fs);
-        count(c, &mut f, reps, &mut ff);
+    for r in 0..9 {
+        match r % 3 {
+            0 => count(c, &mut a, reps, &mut fa),
+            1 => count(c, &mut s, reps, &mut fs),
+            _ => count(c, &mut f, reps, &mut ff),
+        }
     }
     emit(op, n, per, a, s, f);
 }
@@ -178,30 +186,51 @@ fn row_consuming<A, S, F>(
     mut ff: impl FnMut(F) -> u64,
 ) {
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
-    for _ in 0..rounds {
-        let (va, vs, vf) = (ma(), ms(), mf());
-        let t = Instant::now();
-        a.checksum = black_box(fa(va));
-        a.ns = a.ns.min(t.elapsed().as_secs_f64() * 1e9);
-        let t = Instant::now();
-        s.checksum = black_box(fs(vs));
-        s.ns = s.ns.min(t.elapsed().as_secs_f64() * 1e9);
-        let t = Instant::now();
-        f.checksum = black_box(ff(vf));
-        f.ns = f.ns.min(t.elapsed().as_secs_f64() * 1e9);
+    // The order rotates, as in `row` and for the same reason.
+    for r in 0..rounds * 3 {
+        match r % 3 {
+            0 => {
+                let v = ma();
+                let t = Instant::now();
+                a.checksum = black_box(fa(v));
+                a.ns = a.ns.min(t.elapsed().as_secs_f64() * 1e9);
+            }
+            1 => {
+                let v = ms();
+                let t = Instant::now();
+                s.checksum = black_box(fs(v));
+                s.ns = s.ns.min(t.elapsed().as_secs_f64() * 1e9);
+            }
+            _ => {
+                let v = mf();
+                let t = Instant::now();
+                f.checksum = black_box(ff(v));
+                f.ns = f.ns.min(t.elapsed().as_secs_f64() * 1e9);
+            }
+        }
     }
     if let Some(c) = c {
-        for _ in 0..3 {
-            let (va, vs, vf) = (ma(), ms(), mf());
-            let (_, k) = c.count(|| black_box(fa(va)));
-            a.instructions = a.instructions.min(k.instructions as f64);
-            a.cycles = a.cycles.min(k.cycles as f64);
-            let (_, k) = c.count(|| black_box(fs(vs)));
-            s.instructions = s.instructions.min(k.instructions as f64);
-            s.cycles = s.cycles.min(k.cycles as f64);
-            let (_, k) = c.count(|| black_box(ff(vf)));
-            f.instructions = f.instructions.min(k.instructions as f64);
-            f.cycles = f.cycles.min(k.cycles as f64);
+        for r in 0..9 {
+            match r % 3 {
+                0 => {
+                    let v = ma();
+                    let (_, k) = c.count(|| black_box(fa(v)));
+                    a.instructions = a.instructions.min(k.instructions as f64);
+                    a.cycles = a.cycles.min(k.cycles as f64);
+                }
+                1 => {
+                    let v = ms();
+                    let (_, k) = c.count(|| black_box(fs(v)));
+                    s.instructions = s.instructions.min(k.instructions as f64);
+                    s.cycles = s.cycles.min(k.cycles as f64);
+                }
+                _ => {
+                    let v = mf();
+                    let (_, k) = c.count(|| black_box(ff(v)));
+                    f.instructions = f.instructions.min(k.instructions as f64);
+                    f.cycles = f.cycles.min(k.cycles as f64);
+                }
+            }
         }
     }
     emit(op, n, per, a, s, f);
@@ -301,7 +330,7 @@ fn main() {
 /// cost, and enough rounds that the minimum has seen an uncontended one.
 fn budget(n: usize) -> (usize, usize) {
     let reps = (200_000 / n).max(1);
-    let rounds = if n > 200_000 { 12 } else { 30 };
+    let rounds = if n > 200_000 { 6 } else { 20 };
     (rounds, reps)
 }
 

@@ -57,6 +57,27 @@ fn hb_get(m: &HbMap<u64, u64>, ks: &[u64]) -> u64 {
     s
 }
 
+/// The shape `examples/whole_surface.rs` uses for its `get hit` row.
+#[inline(never)]
+fn ap_get_fm(m: &Words<u64, u64>, ks: &[u64]) -> u64 {
+    ks.iter().filter_map(|k| m.get(k)).sum()
+}
+
+#[inline(never)]
+fn hb_get_fm(m: &HbMap<u64, u64>, ks: &[u64]) -> u64 {
+    ks.iter().filter_map(|k| m.get(k)).sum()
+}
+
+#[inline(never)]
+fn ap_iter(m: &Words<u64, u64>) -> u64 {
+    m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+}
+
+#[inline(never)]
+fn hb_iter(m: &HbMap<u64, u64>) -> u64 {
+    m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+}
+
 fn keys() -> Vec<u64> {
     let mut s = 0x243F_6A88_85A3_08D3u64;
     (0..N)
@@ -69,24 +90,56 @@ fn keys() -> Vec<u64> {
         .collect()
 }
 
-/// Counts a consumer over a victim built **outside** the counted region.
+/// Counts two arms over victims built **outside** the counted region, alternating them.
 ///
-/// The first version of this file wrote `c.count(|| ap_remove(&mut built.clone(), &ks))`, which
-/// put a twenty-thousand-entry clone and its allocation inside the count. It priced `hashbrown`'s
-/// remove at 76.2 instructions where `examples/whole_surface.rs` reads 55.0 for the same
-/// operation, and the 21 instructions of daylight between two of this crate's own harnesses is
-/// what said one of them was wrong.
-#[expect(clippy::many_single_char_names, reason = "`i` and `y` are the instruction and cycle minima, `k` the counts, `v` the value under test")]
-fn report<T>(c: &Counter, name: &str, make: impl Fn() -> T, mut f: impl FnMut(T) -> u64) {
-    let (mut i, mut y) = (f64::INFINITY, f64::INFINITY);
-    for _ in 0..5 {
-        let v = make();
-        let (v, k) = c.count(|| f(v));
-        black_box(v);
-        i = i.min(k.instructions as f64 / N as f64);
-        y = y.min(k.cycles as f64 / N as f64);
+/// Two mistakes this file made, both caught by disagreeing with `examples/whole_surface.rs`
+/// rather than by inspection:
+///
+/// The first version wrote `c.count(|| ap_remove(&mut built.clone(), &ks))`, which put a
+/// twenty-thousand-entry clone and its allocation inside the count. It priced `hashbrown`'s remove
+/// at 76.2 instructions where the surface harness reads 55.0.
+///
+/// The second ran every round of one arm before the first round of the other, so the machine's
+/// frequency and cache state drifted across an arm rather than across a round. That is the same
+/// defect the surface harness had, and it showed there as a row reporting apeiron slower in
+/// nanoseconds and faster in cycles at once.
+fn arms<A, B>(
+    c: &Counter,
+    ma: impl Fn() -> A,
+    mut fa: impl FnMut(A) -> u64,
+    mb: impl Fn() -> B,
+    mut fb: impl FnMut(B) -> u64,
+) {
+    let (mut ai, mut ay, mut bi, mut by) = (f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    for r in 0..8 {
+        // The order swaps every round. Alternating the arms bounds the machine's drift to one
+        // round, but running the same arm first in every round hands that arm every cold start:
+        // measured on `get`, apeiron-always-first read 0.83x where apeiron-always-second read
+        // 0.96x, and neither of those is the number. Swapping makes the position average out.
+        let (va, vb) = (ma(), mb());
+        if r % 2 == 0 {
+            let (v, k) = c.count(|| fa(va));
+            black_box(v);
+            ai = ai.min(k.instructions as f64 / N as f64);
+            ay = ay.min(k.cycles as f64 / N as f64);
+            let (v, k) = c.count(|| fb(vb));
+            black_box(v);
+            bi = bi.min(k.instructions as f64 / N as f64);
+            by = by.min(k.cycles as f64 / N as f64);
+        } else {
+            let (v, k) = c.count(|| fb(vb));
+            black_box(v);
+            bi = bi.min(k.instructions as f64 / N as f64);
+            by = by.min(k.cycles as f64 / N as f64);
+            let (v, k) = c.count(|| fa(va));
+            black_box(v);
+            ai = ai.min(k.instructions as f64 / N as f64);
+            ay = ay.min(k.cycles as f64 / N as f64);
+        }
     }
-    println!("  {name:<12} {i:>7.2} instructions  {y:>7.2} cycles");
+    println!("  apeiron      {ai:>7.2} instructions  {ay:>7.2} cycles");
+    println!("  hb+fold      {bi:>7.2} instructions  {by:>7.2} cycles");
+    println!("  ratio        {:>7.2}x              {:>7.2}x   (>1 is a win)", bi / ai, by / ay);
 }
 
 fn main() {
@@ -99,11 +152,18 @@ fn main() {
     let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     println!("{op}, n={N}");
-    if op == "remove" {
-        report(&c, "apeiron", || built_a.clone(), |mut m| ap_remove(&mut m, &ks));
-        report(&c, "hb+fold", || built_f.clone(), |mut m| hb_remove(&mut m, &ks));
-    } else {
-        report(&c, "apeiron", || (), |()| ap_get(&built_a, &ks));
-        report(&c, "hb+fold", || (), |()| hb_get(&built_f, &ks));
+    match op.as_str() {
+        "remove" => arms(&c,
+            || built_a.clone(), |mut m| ap_remove(&mut m, &ks),
+            || built_f.clone(), |mut m| hb_remove(&mut m, &ks)),
+        "getfm" => arms(&c,
+            || (), |()| ap_get_fm(&built_a, &ks),
+            || (), |()| hb_get_fm(&built_f, &ks)),
+        "iter" => arms(&c,
+            || (), |()| ap_iter(&built_a),
+            || (), |()| hb_iter(&built_f)),
+        _ => arms(&c,
+            || (), |()| ap_get(&built_a, &ks),
+            || (), |()| hb_get(&built_f, &ks)),
     }
 }
