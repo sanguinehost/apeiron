@@ -29,6 +29,30 @@
 //! under `swap_bytes` -- is the distribution that has broken this crate's address twice, and it
 //! was not here. It is a command-line argument now, and `serial` with it.
 //!
+//! # Two regimes, two numbers, and never a minimum across the mixture
+//!
+//! A map that is swept in a tight loop and a map that is touched once in a while are different
+//! workloads, and this harness used to report one number for both: the **minimum of twenty rounds
+//! run back to back**, which on a bimodal distribution reports whichever mode that run sampled.
+//!
+//! At 16,384 entries `iterate` costs 2.97 cycles an element with the map resident and 5.03 with it
+//! evicted, a 1.69x spread. That is the largest of any size, because 16,384 is where the region is
+//! big enough to fall out of cache between rounds and small enough that a resident sweep is very
+//! fast: at a thousand entries the spread is 1.11x and at a million there is nothing resident to
+//! lose. Every `iterate`, `clone+drop` and `drain` figure this crate recorded at that size was a
+//! coin flip between two real numbers, and the swing that made no verdict trustworthy was the
+//! estimator choosing.
+//!
+//! So both are measured and both are printed. **warm** runs the rounds back to back. **cold**
+//! writes one byte to every line of a 64 MB buffer -- larger than this machine's 36 MB L3 -- and
+//! then times a *single* pass, because the second pass would be warm. A row can lose one and win
+//! the other, and several do: `get hit` at 100,000 entries is 0.80x warm and **1.38x cold**.
+//!
+//! Below 4,096 entries the cold column is blank. One sweep of a region that fits in L1 is a
+//! handful of misses and a few tens of nanoseconds, which is the clock's own resolution. The
+//! consuming rows are blank too: `remove`, `drain` and `retain` are handed a freshly built victim
+//! every round, so they have only ever had one regime.
+//!
 //! # What is timed, exactly
 //!
 //! Timing and counting are separate passes over the same closure, because the `ioctl` that arms a
@@ -115,10 +139,45 @@ fn timed(arm: &str) -> bool {
     only().is_none_or(|o| o == arm)
 }
 
+/// A buffer bigger than this machine's last-level cache, written between cold rounds.
+///
+/// 64 MB against the 14900K's 36 MB L3. Allocated once and reused, because allocating it per round
+/// would measure the allocator.
+fn scrubber() -> &'static mut [u8] {
+    static BUF: OnceLock<usize> = OnceLock::new();
+    let p = *BUF.get_or_init(|| {
+        let v: Vec<u8> = vec![1; 64 << 20];
+        Box::into_raw(v.into_boxed_slice()).cast::<u8>() as usize
+    });
+    // SAFETY: leaked once and never freed, and the harness is single-threaded.
+    unsafe { std::slice::from_raw_parts_mut(p as *mut u8, 64 << 20) }
+}
+
+/// Evict whatever the last round left resident.
+///
+/// One write per 64-byte line, which is a store to every line of a buffer larger than L3.
+#[inline(never)]
+fn scrub() {
+    let b = scrubber();
+    let mut i = 0;
+    while i < b.len() {
+        b[i] = b[i].wrapping_add(1);
+        i += 64;
+    }
+    black_box(b.as_ptr());
+}
+
+/// Below this the cold column is not measurable: one sweep of a region that fits in L1 is a
+/// handful of misses and a few tens of nanoseconds, which is the timer's own resolution.
+const COLD_FLOOR: usize = 4096;
+
 /// One arm of one row: what it cost and what it answered.
 #[derive(Clone, Copy)]
 struct Arm {
-    ns: f64,
+    /// Cost with the map already resident: rounds run back to back, nothing between them.
+    warm: f64,
+    /// Cost with the map evicted first: `scrub` between every round.
+    cold: f64,
     instructions: f64,
     cycles: f64,
     checksum: u64,
@@ -126,7 +185,13 @@ struct Arm {
 
 impl Arm {
     fn new() -> Self {
-        Self { ns: f64::INFINITY, instructions: f64::INFINITY, cycles: f64::INFINITY, checksum: 0 }
+        Self {
+            warm: f64::INFINITY,
+            cold: f64::INFINITY,
+            instructions: f64::INFINITY,
+            cycles: f64::INFINITY,
+            checksum: 0,
+        }
     }
 }
 
@@ -152,7 +217,17 @@ fn run(reps: usize, f: &mut impl FnMut() -> u64) -> u64 {
 fn tick(arm: &mut Arm, reps: usize, f: &mut impl FnMut() -> u64) {
     let t = Instant::now();
     black_box(run(reps, f));
-    arm.ns = arm.ns.min(t.elapsed().as_secs_f64() * 1e9 / reps as f64);
+    arm.warm = arm.warm.min(t.elapsed().as_secs_f64() * 1e9 / reps as f64);
+}
+
+/// One cold round: evict, then time a **single** pass.
+///
+/// One pass, because the second would be warm. `scrub` is outside the clock.
+fn tick_cold(arm: &mut Arm, f: &mut impl FnMut() -> u64) {
+    scrub();
+    let t = Instant::now();
+    black_box(f());
+    arm.cold = arm.cold.min(t.elapsed().as_secs_f64() * 1e9);
 }
 
 /// Counts one arm for one round and folds the result into its running minimum.
@@ -210,6 +285,17 @@ fn row(
             _ => {}
         }
     }
+    // The cold pass. Fewer rounds, because each one pays for a 64 MB scrub.
+    if n >= COLD_FLOOR {
+        for r in 0..(rounds.min(8) * 3) {
+            match r % 3 {
+                0 if timed("apeiron") => tick_cold(&mut a, &mut fa),
+                1 if timed("std") => tick_cold(&mut s, &mut fs),
+                2 if timed("hb") => tick_cold(&mut f, &mut ff),
+                _ => {}
+            }
+        }
+    }
     for r in 0..9 {
         match r % 3 {
             0 if timed("apeiron") => count(c, &mut a, reps, &mut fa),
@@ -257,19 +343,19 @@ fn row_consuming<A, S, F>(
                 let v = ma();
                 let t = Instant::now();
                 a.checksum = black_box(fa(v));
-                a.ns = a.ns.min(t.elapsed().as_secs_f64() * 1e9);
+                a.warm = a.warm.min(t.elapsed().as_secs_f64() * 1e9);
             }
             1 if timed("std") => {
                 let v = ms();
                 let t = Instant::now();
                 s.checksum = black_box(fs(v));
-                s.ns = s.ns.min(t.elapsed().as_secs_f64() * 1e9);
+                s.warm = s.warm.min(t.elapsed().as_secs_f64() * 1e9);
             }
             2 if timed("hb") => {
                 let v = mf();
                 let t = Instant::now();
                 f.checksum = black_box(ff(v));
-                f.ns = f.ns.min(t.elapsed().as_secs_f64() * 1e9);
+                f.warm = f.warm.min(t.elapsed().as_secs_f64() * 1e9);
             }
             _ => {}
         }
@@ -323,43 +409,60 @@ fn emit(op: &str, n: usize, per: f64, a: Arm, s: Arm, f: Arm) {
             _ => f,
         };
         println!(
-            "SOLO {o} {op:<16} {n:>8} {:>9.3} {:>9.2} {:>9.3}",
-            arm.ns / per,
+            "SOLO {o} {op:<16} {n:>8} {:>9.3} {:>9.3} {:>9.2} {:>9.3}",
+            arm.warm / per,
+            arm.cold / per,
             arm.instructions / per,
             arm.cycles / per
         );
         return;
     }
-    let worst = s.ns.min(f.ns);
-    let mut mark = if a.ns > worst * 1.02 { "  LOSS".to_string() } else { String::new() };
+
+    // **Two regimes, two numbers, and never a minimum across the mixture.** The estimator used to
+    // take the minimum of twenty rounds run back to back, which on a bimodal distribution reports
+    // whichever mode that run happened to sample. At 16,384 entries `iterate` costs 2.97 cycles an
+    // element with the map resident and 5.03 with it evicted, a 1.69x spread -- the largest of any
+    // size, because that is where the region is big enough to fall out of cache between rounds and
+    // small enough that a resident sweep is very fast. At a thousand entries the spread is 1.11x
+    // and at a million there is nothing resident to lose. One number could not describe both, and
+    // the swing everything at that size showed was the estimator choosing.
+    let warm = s.warm.min(f.warm) / a.warm;
+    let cold = s.cold.min(f.cold) / a.cold;
+    let mut mark = String::new();
+    if warm < 0.98 {
+        mark.push_str("  LOSS/warm");
+    }
+    if cold.is_finite() && cold < 0.98 {
+        mark.push_str("  LOSS/cold");
+    }
     // The clock and the counter must agree about who won. They are measuring the same loop, so a
     // row where apeiron is ahead in nanoseconds and behind in cycles -- or the reverse -- is not a
-    // finding about the map, it is a finding about this harness. Measuring one arm to completion
-    // before the next produced exactly that at a million keys, and nothing in the output said so.
-    let (dn, dc) = (a.ns - f.ns, a.cycles - f.cycles);
-    if dn.abs() > f.ns * 0.03 && dc.abs() > f.cycles * 0.03 && (dn < 0.0) != (dc < 0.0) {
+    // finding about the map, it is a finding about this harness.
+    let (dn, dc) = (a.warm - f.warm, a.cycles - f.cycles);
+    if dn.abs() > f.warm * 0.03 && dc.abs() > f.cycles * 0.03 && (dn < 0.0) != (dc < 0.0) {
         mark.push_str("  ?ns-vs-cycles");
     }
+    let cold_cell = if cold.is_finite() {
+        format!("{:>8.2}{:>8.2}{cold:>6.2}x", a.cold / per, f.cold.min(s.cold) / per)
+    } else {
+        format!("{:>8}{:>8}{:>7}", "-", "-", "-")
+    };
     println!(
-        "  {op:<16} {n:>8} {:>8.2} {:>8.2} {:>8.2} {:>6.2}x | {:>7.1} {:>7.1} | {:>7.2} {:>7.2}{mark}",
-        a.ns / per,
-        s.ns / per,
-        f.ns / per,
-        worst / a.ns,
+        "  {op:<16} {n:>8} {:>8.2} {:>8.2}{warm:>6.2}x | {cold_cell} | {:>7.1} {:>7.1}{mark}",
+        a.warm / per,
+        f.warm.min(s.warm) / per,
         a.instructions / per,
         f.instructions / per,
-        a.cycles / per,
-        f.cycles / per,
     );
 }
 
 fn head(what: &str) {
     println!("\n{what}");
-    println!("  ns/op, then instructions/op and cycles/op for apeiron and hb+fold.");
-    println!("  ratio is apeiron against the better rival's ns; >1 is a win.");
+    println!("  warm: the map is resident, rounds run back to back. cold: evicted before each round.");
+    println!("  a rival column is the better of std and hb+fold. ratios are theirs over ours; >1 is a win.");
     println!(
-        "  {:<16} {:>8} {:>8} {:>8} {:>8} {:>7} | {:>7} {:>7} | {:>7} {:>7}",
-        "op", "n", "apeiron", "std", "hb+fold", "ratio", "ap ins", "hb ins", "ap cyc", "hb cyc"
+        "  {:<16} {:>8} {:>8} {:>8} {:>6} | {:>8} {:>8} {:>6} | {:>7} {:>7}",
+        "op", "n", "ap warm", "rival", "x", "ap cold", "rival", "x", "ap ins", "hb ins"
     );
 }
 
