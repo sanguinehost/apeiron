@@ -99,6 +99,17 @@ fn only() -> Option<&'static str> {
     V.get_or_init(|| std::env::var("AP_ONLY").ok()).as_deref()
 }
 
+/// Only run the row named by `AP_ROW`, if it is set.
+///
+/// Rows share a process, so by the time a late row runs, the earlier ones have allocated and freed
+/// maps thousands of times and swept every one of them. This says whether that matters.
+fn row_wanted(op: &str) -> bool {
+    static V: OnceLock<Option<String>> = OnceLock::new();
+    V.get_or_init(|| std::env::var("AP_ROW").ok())
+        .as_deref()
+        .is_none_or(|w| w == op)
+}
+
 /// Whether this arm is the one being timed.
 fn timed(arm: &str) -> bool {
     only().is_none_or(|o| o == arm)
@@ -178,6 +189,9 @@ fn row(
     mut fs: impl FnMut() -> u64,
     mut ff: impl FnMut() -> u64,
 ) {
+    if !row_wanted(op) {
+        return;
+    }
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
     // The checksum pass runs every arm whatever `AP_ONLY` says, so the gate below still compares
     // three answers even when only one is timed.
@@ -229,6 +243,9 @@ fn row_consuming<A, S, F>(
     mf: impl Fn() -> F,
     mut ff: impl FnMut(F) -> u64,
 ) {
+    if !row_wanted(op) {
+        return;
+    }
     let (mut a, mut s, mut f) = (Arm::new(), Arm::new(), Arm::new());
     a.checksum = fa(ma());
     s.checksum = fs(ms());
