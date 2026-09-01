@@ -1261,4 +1261,50 @@ mod harnesses {
             "place collides on two keys below 2^32"
         );
     }
+
+
+    // -- narrowing the 16,384 anomaly -------------------------------------------------------------
+    //
+    // `iterate` and `clone+drop` at 16,384 entries read 0.49x to 0.62x against `hashbrown` and swing
+    // that far run to run, while the same map measured in isolation reads a 17% win. Until that is
+    // explained no verdict from the surface harness is worth anything, so the explanations get
+    // closed one at a time. These are the structural ones, which decide here rather than on a clock.
+
+    /// The region a load is given is the smallest power of two that can hold it at the fill limit.
+    ///
+    /// Both arrays are scanned end to end by `iterate`, `clone` and `drain`, so their cost is per
+    /// **slot** and not per entry. If this crate sized a region differently from `hashbrown` at some
+    /// load, those rows would be comparing a longer scan against a shorter one and the ratio would
+    /// mean nothing.
+    ///
+    /// It does not: measured, `capacity()` is 1792, 28672, 114688 and 1835008 for apeiron,
+    /// `hashbrown` and `std` alike at 1,000, 16,384, 100,000 and 1,000,000 entries. This pins the
+    /// rule that produces those numbers so the agreement cannot drift, and it settles that the
+    /// 16,384 anomaly is not a difference in how much there is to scan.
+    #[kani::proof]
+    fn a_region_is_the_smallest_power_of_two_that_holds_its_load() {
+        let n: usize = kani::any();
+        // Up to a load that needs 2^20 slots. Beyond it the doubling is the same statement again.
+        kani::assume(n <= (1 << 19));
+        let slots = crate::map::region_for(n);
+        assert!(slots.is_power_of_two(), "a region is a power of two");
+        assert!(slots >= crate::map::MIN_SLOTS, "a region is never smaller than one group");
+        assert!(crate::map::limit(slots) >= n, "the region must hold the load at the fill limit");
+        assert!(
+            slots == crate::map::MIN_SLOTS || crate::map::limit(slots / 2) < n,
+            "and it must be the smallest such region"
+        );
+    }
+
+    /// The fill limit is seven eighths, exactly, at every region size.
+    ///
+    /// `limit` is `slots / FILL_DEN * FILL_NUM`, an integer division before the multiply, so it is
+    /// not obviously `7 * slots / 8`. On a power of two it is: the division is exact.
+    #[kani::proof]
+    fn the_fill_limit_is_seven_eighths_of_a_power_of_two() {
+        let gbits: u32 = kani::any();
+        kani::assume(gbits >= 4 && gbits <= 40);
+        let slots = 1usize << gbits;
+        assert_eq!(crate::map::limit(slots) * 8, slots * 7, "the fill limit is exactly 7/8");
+    }
 }

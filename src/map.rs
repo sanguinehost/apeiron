@@ -189,7 +189,7 @@ const FILL_NUM: usize = 7;
 const FILL_DEN: usize = 8;
 
 /// The smallest non-empty table: one group, one tag line, one vector compare.
-const MIN_SLOTS: usize = GROUP;
+pub(crate) const MIN_SLOTS: usize = GROUP;
 
 /// How many entries a region of `slots` slots holds before it must grow.
 ///

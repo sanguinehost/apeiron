@@ -250,7 +250,10 @@ fn main() {
     let built_a: Words<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     let built_s: std::collections::HashMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
-    println!("  capacity: apeiron {} hb {} std {}", built_a.capacity(), built_f.capacity(), built_s.capacity());
+    println!(
+        "  n={} capacity: apeiron {} hb {} std {}",
+        *N, built_a.capacity(), built_f.capacity(), built_s.capacity()
+    );
     println!("{op}, n={}", *N);
     match op.as_str() {
         "remove" => arms(&c,
