@@ -1,0 +1,31 @@
+import WordRefinement
+set_option linter.apeiron.notation false
+set_option linter.apeiron.citation false
+
+open apeiron_word
+
+#print axioms sigma_value_eq
+#print axioms denote_from_i64
+#print axioms word_mul_denote
+#print axioms word_norm_denote
+#print axioms word_norm_mul
+#print axioms word_mul_conj
+#print axioms word_exchange_impulse_denote
+#print axioms word_elastic_exchange_denote
+#print axioms word_elastic_exchange_carrier
+#print axioms word_elastic_exchange_body
+#print axioms word_elastic_exchange_totalMomentum
+#print axioms word_elastic_exchange_normFormLedger
+#print axioms word_exchange_impulse_antisymm
+#print axioms word_accept_derived_impulse_spec
+#print axioms word_accept_derived_impulse_rejects
+#print axioms word_accept_derived_impulse_rejects_of_ne
+#print axioms word_accept_derived_impulse_accepts
+#print axioms word_accept_derived_impulse_accepts_derived
+#print axioms word_accept_derived_impulse_denote
+#print axioms word_accept_derived_impulse_denote_canonical
+#print axioms Apeiron.Physics.ringCarrierMomentumAfter_eq
+#print axioms Apeiron.Physics.ringBodyMomentumAfter_eq
+#print axioms Apeiron.Physics.ringExchangeImpulse_antisymm
+#print axioms Apeiron.Physics.ringTotalMomentum_conserved
+#print axioms Apeiron.Physics.ringNormFormLedger_conserved

@@ -12,7 +12,9 @@ what a face can do:
 | `> 0` | hyperbolic | 2 | null cone | **yes** |
 
 Every row is a theorem in `../sanguine-apeiron/proof/Apeiron/Trichotomy/`, cited by name at each
-definition, and every row is a test in `tests/the_dial_is_real.rs`.
+definition, and the laws that transfer to the word ring are tests in `tests/the_dial_is_real.rs`.
+The table is stated over the real ring; the `i64` bullet below is the boundary of what survives
+`Z/2^64`.
 
 ## Why this crate exists
 
@@ -30,12 +32,20 @@ rather than merely undocumented.
 `Cell<R>` is generic over the ring its slots live in, because which ring you pick decides what the
 cell can hold:
 
-- **`i64`** -- the fast lattice. Everything structural holds: commutativity, associativity, the
-  unit, multiplicativity of the norm, the channel count, componentwise multiplication in the null
-  basis, order-free folding above zero, zero divisors at and above zero.
-- **`Dyadic`** -- an exact `m / 2^e`, two integers, the same shape a float has without the
-  rounding. This is where the nontrivial idempotents `(1 +/- j)/2` live, so
-  `exists_nontrivial_idempotent_iff_disc_pos` holds here rather than being written off.
+- **`i64`** -- the fast lattice. Its operations are `Z/2^64`, and what holds there is the
+  *structural* half: commutativity, associativity, the unit, multiplicativity of the norm,
+  componentwise multiplication in the null basis, order-free folding. The **classification does
+  not transfer**: `Z/2^64` has only the two idempotents `0`/`1`; it has a nonzero nilpotent at
+  *every* dial, so it is a zero divisor on the elliptic face the real ring calls a field; and it
+  has no `Discards` projection at any dial. Naming a word object by the real trichotomy's
+  character is an analogy, not a theorem. `tests/the_dial_is_real.rs` tests the part that does
+  hold and `src/proofs.rs` proves the part that does not, the same boundary the corpus states at
+  `Trichotomy/AnyRing.lean:13-46`.
+- **`Dyadic`** -- `m / 2^e`, two integers, the same shape a float has without the rounding while the
+  result fits the fixed mantissa and scale. This is where the nontrivial idempotents `(1 +/- j)/2`
+  live, so `exists_nontrivial_idempotent_iff_disc_pos` holds here rather than being written off. It
+  is not a total ring: `checked_*` returns `None` on overflow and the `Ring` operations panic rather
+  than silently dropping bits.
 
 The halves were never an obstruction in the algebra, only in the container. In the null basis the
 idempotents are the unit vectors `(1, 0)` and `(0, 1)` -- the fraction is an artefact of the

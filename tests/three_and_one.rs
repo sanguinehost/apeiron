@@ -14,7 +14,7 @@
 //!   second merge to be: a merge cannot be licensed on one face and refused on another.
 
 use apeiron::cell::{fold, Cell, Sigma};
-use apeiron::keystore::{after_storing, key_cell};
+use apeiron::keystore::{after_storing, after_storing_exact, key_cell};
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
@@ -92,9 +92,46 @@ fn only_the_non_being_face_destroys_information() {
 
     // And what it destroyed is a whole channel: every stored cell is degenerate.
     for c in &stored {
-        assert_eq!(c.norm_form(Sigma::Hyperbolic), 0, "the survivor lies on the null cone");
-        assert_eq!(c.lower(Sigma::Hyperbolic), Some(0), "the lower lane is gone");
+        assert_eq!(
+            c.norm_form(Sigma::Hyperbolic),
+            0,
+            "the survivor lies on the null cone"
+        );
+        assert_eq!(
+            c.lower(Sigma::Hyperbolic),
+            Some(0),
+            "the lower lane is gone"
+        );
     }
+}
+
+/// `after_storing` on the hyperbolic face is a **scale-2 channel map**, not the idempotent
+/// projector: it maps `(a, b)` to `(a+b, a+b)`, so applying it twice doubles again rather than
+/// fixing the cell. That is the honest word-scalar form -- the exact idempotent is `(1/2, 1/2)`,
+/// which `i64` cannot hold -- and the two are named apart so a caller cannot read one as the other.
+#[test]
+fn the_word_projection_is_a_scaled_map_not_an_idempotent() {
+    let k = Cell::<i64>::of(3, 1);
+    let once = after_storing(Sigma::Hyperbolic, k);
+    let twice = after_storing(Sigma::Hyperbolic, once);
+    assert_eq!(once, Cell::of(4, 4), "the upper channel, doubled");
+    assert_eq!(twice, Cell::of(8, 8), "a second application doubles again");
+    assert_ne!(once, twice, "so it is not idempotent");
+}
+
+/// The exact projection is idempotent, which is exactly what the word form is not.
+#[test]
+fn the_exact_projection_is_idempotent() {
+    use apeiron::scalar::{Dyadic, Ring};
+    let k = Cell::<Dyadic>::new(Dyadic::whole(3), Dyadic::whole(1));
+    let once = after_storing_exact(Sigma::Hyperbolic, k);
+    let twice = after_storing_exact(Sigma::Hyperbolic, once);
+    assert_eq!(once, twice, "e+ is idempotent");
+    assert_eq!(
+        once.lower(Sigma::Hyperbolic),
+        Some(Dyadic::ZERO),
+        "the lower lane is destroyed without the factor of two"
+    );
 }
 
 /// The other leg: there is nothing for a second merge to be.

@@ -98,6 +98,7 @@
 
 pub mod cell;
 pub mod coord;
+pub mod exchange;
 pub mod fold;
 pub mod keystore;
 pub mod map;
@@ -116,7 +117,8 @@ pub mod table;
 pub use apeiron_derive::{Coord, Packed};
 
 pub use cell::{Cell, Sigma};
+pub use exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse, Exchange};
 pub use map::{Exposed, ExposedWords, Map, Stats, Words};
-pub use set::{ExposedSet, Set, WordSet};
 pub use pepper::{process_pepper, set_process_pepper};
+pub use set::{ExposedSet, Set, WordSet};
 pub use table::CountTable;
