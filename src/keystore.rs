@@ -33,7 +33,7 @@
 //! are properties of `Sigma`, and there is nothing left to relabel.
 
 use crate::cell::{Cell, Sigma};
-use crate::scalar::Ring;
+use crate::scalar::{Halve, Ring};
 
 impl Sigma {
     /// Whether a key must be stored alongside its address.
@@ -65,20 +65,35 @@ pub fn key_cell<R: Ring>(address: R, residue: R) -> Cell<R> {
     Cell::new(address, residue)
 }
 
-/// What is left of a key after storing it on this face.
+/// What is left of a key after storing it on this face, over any ring.
 ///
 /// - Elliptic: the whole cell, because nothing was thrown away.
 /// - Parabolic: the whole cell, because both slots are carried.
-/// - Hyperbolic: the cell projected onto the upper channel, its lower lane destroyed.
+/// - Hyperbolic: the upper channel, scaled by two, with the lower lane destroyed.
 ///
-/// The third case is the only one that loses anything, and it is the only one whose face has a
-/// discard. The `2e+` form `(1, 1)` is used rather than the exact idempotent so this works over
-/// `i64` as well as over an exact scalar; it scales the survivor by two and kills the other lane,
-/// which is the same projection up to that factor.
+/// **This is a scale-2 channel map, not the idempotent projector.** It maps `(a, b)` to
+/// `(a+b, a+b)`, which is `2 * e+ * key`; applying it a second time doubles again rather than
+/// fixing the cell, so it is a **one-shot** operation and a caller must not read it as a
+/// projection. It uses the `2e+` form `(1, 1)` because the exact idempotent `e+ = (1/2, 1/2)`
+/// needs a half and `i64` has none. Where the scalar does have halves, [`after_storing_exact`]
+/// is the genuine idempotent; the two are named apart so one cannot be mistaken for the other.
 #[must_use]
 pub fn after_storing<R: Ring>(face: Sigma, key: Cell<R>) -> Cell<R> {
     match face {
         Sigma::Elliptic | Sigma::Parabolic => key,
         Sigma::Hyperbolic => key.mul(Sigma::Hyperbolic, Cell::of(1, 1)),
+    }
+}
+
+/// [`after_storing`] over a scalar with halves: the genuine idempotent projection `e+ = (1/2, 1/2)`.
+///
+/// Unlike [`after_storing`], this **is** idempotent -- `e+ * e+ = e+` -- and it destroys the lower
+/// channel without the factor of two, so applying it more than once is safe. Over `Dyadic` it is
+/// the honest read; over `i64` it does not exist, which is the point.
+#[must_use]
+pub fn after_storing_exact<R: Halve>(face: Sigma, key: Cell<R>) -> Cell<R> {
+    match face {
+        Sigma::Elliptic | Sigma::Parabolic => key,
+        Sigma::Hyperbolic => key.mul(Sigma::Hyperbolic, Cell::<R>::idem_plus()),
     }
 }

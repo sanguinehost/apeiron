@@ -4,6 +4,16 @@
 //! [`Words<K, V>`] stores only the address and regenerates the key from it (elliptic;
 //! `K: Packed`). Both are open-addressed, 7/8 fill, sixteen-slot groups with a one-byte tag each.
 //!
+//! # Verification scope
+//!
+//! The optimized storage here is **tested, not verified**. It is checked against
+//! `std::collections::HashMap` over randomized operation programs (`tests/a_map_is_a_map.rs`,
+//! `tests/a_set_is_a_set.rs`), under Miri where the `unsafe` is reachable, and by the bit-precise
+//! Kani harnesses in `src/proofs.rs` for its address arithmetic. No Aeneas refinement yet relates
+//! this storage to a safe reference implementation, so proximity to the proved algebra (`Cell<i64>`
+//! in `proof/`) is not a proof about the map, its SIMD tag scan or its threads. Treat the container
+//! as a well-tested implementation with named invariants, not a verified one.
+//!
 //! **Probe.** One widening multiply gives `Addr { id, place }`. `place` picks the first group and
 //! the seven-bit tag; a group is one vector compare of sixteen tags; candidates are settled by
 //! comparing `id`, then the key on the parabolic face. Misses walk successive `gbits`-wide windows
@@ -155,13 +165,12 @@
               the equations it implements, not easier"
 )]
 
-
-use crate::coord::{finish, inverse_odd, Addr, Coord, Packed, PHI, PHI_INV};
 use crate::cell::Sigma;
+use crate::coord::{finish, inverse_odd, Addr, Coord, Packed, PHI, PHI_INV};
 use crate::table::{group_at, scan, tag_of, DESCENT_BITS, GROUP};
 use std::marker::PhantomData;
-use std::num::NonZeroU64;
 use std::mem::MaybeUninit;
+use std::num::NonZeroU64;
 
 /// An unused slot. All ones, so its top bit is set and [`FREE`] finds it in one `movemask`.
 ///
@@ -269,7 +278,10 @@ impl Salt {
         let w = (x as u128).wrapping_mul(self.mul as u128);
         let lo = w as u64;
         let hi = (w >> 64) as u64;
-        Addr { place: hi.rotate_left(32) ^ lo, id: lo }
+        Addr {
+            place: hi.rotate_left(32) ^ lo,
+            id: lo,
+        }
     }
 
     /// The identity word undone: `id * inv`, one multiply, where `inv` is the peppered multiplier's
@@ -357,7 +369,11 @@ impl Geom {
         // **stack slot held for the whole probe loop** -- cold descent state occupying a hot-path
         // register. `Geom::first` had already been given the same fact about `gshift`;
         // `after_first` had not. `a_geometry_never_asks_for_a_shift_of_sixty_four` pins it.
-        let gbits = if groups == 0 { 0 } else { groups.trailing_zeros() };
+        let gbits = if groups == 0 {
+            0
+        } else {
+            groups.trailing_zeros()
+        };
         Self {
             gbits,
             gshift: (DESCENT_BITS - 4).saturating_sub(gbits),
@@ -553,10 +569,16 @@ impl Descent {
 /// `tests/the_faces_keep_their_promises.rs`.
 const _: () = {
     assert!(<Stored<u64> as Held<u64>>::FACE.stores_the_key());
-    assert!(size_of::<Stored<u64>>() > size_of::<u64>(), "a carried key needs room for one");
+    assert!(
+        size_of::<Stored<u64>>() > size_of::<u64>(),
+        "a carried key needs room for one"
+    );
 
     assert!(!<Regen<u64> as Held<u64>>::FACE.stores_the_key());
-    assert!(size_of::<Regen<u64>>() == size_of::<u64>(), "a regenerated key stores nothing");
+    assert!(
+        size_of::<Regen<u64>>() == size_of::<u64>(),
+        "a regenerated key stores nothing"
+    );
 
     // Neither keyed face may claim the discard: both reproduce the key, one from the address and
     // one from the slot. The hyperbolic face has no `Held` impl at all.
@@ -1421,7 +1443,10 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         // standing between this and that was every caller happening to call `reserve(1)` first.
         // One predictable branch on a path that already allocates is the right price for turning
         // undefined behaviour into a panic.
-        assert!(self.slots.len() >= MIN_SLOTS, "probing an unallocated table");
+        assert!(
+            self.slots.len() >= MIN_SLOTS,
+            "probing an unallocated table"
+        );
         // `usize::MAX` as "no vacancy seen", not `Option<usize>`: the option is sixteen bytes, so
         // it lived on the stack and cost a store, a test and a reload per group of every insert.
         // No slot index can reach it -- the region's byte size has to fit in an allocation.
@@ -1508,7 +1533,10 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
 
     #[inline(always)]
     fn line(&self, base: usize) -> &[u8; GROUP] {
-        debug_assert!(base + GROUP <= self.tags.len(), "group {base} is outside the region");
+        debug_assert!(
+            base + GROUP <= self.tags.len(),
+            "group {base} is outside the region"
+        );
         // SAFETY: `Descent` yields a group start below `tags.len() / GROUP`, so the sixteen bytes
         // from there are inside the array. `tags.len() == slots.len()` and both are a multiple of
         // `GROUP` -- `rebuild` is the only thing that sizes them and it allocates in groups.
@@ -1621,12 +1649,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// let m: Map<u64, i64> = (0u64..10).map(|i| (i, i as i64)).collect();
     /// assert_eq!(m.encircle(0i64, |v| *v, |a, b| a + b), 45);
     /// ```
-    pub fn encircle<M>(
-        &self,
-        id: M,
-        residual: impl Fn(&V) -> M,
-        combine: impl Fn(M, M) -> M,
-    ) -> M {
+    pub fn encircle<M>(&self, id: M, residual: impl Fn(&V) -> M, combine: impl Fn(M, M) -> M) -> M {
         let mut acc = id;
         for v in self.values() {
             acc = combine(acc, residual(v));
@@ -1844,7 +1867,7 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     #[cold]
     #[inline(never)]
     fn grow_for(&mut self, additional: usize) {
-        let want = self.live + additional;
+        let want = self.live.saturating_add(additional);
         self.rebuild(Self::region_for(want).max(self.slots.len()));
     }
 
@@ -1873,7 +1896,10 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         let slots = tags.len();
         debug_assert!(slots >= MIN_SLOTS && slots.is_power_of_two());
         debug_assert_eq!(slots, fresh.len());
-        debug_assert!(limit(slots) >= self.live, "rehoming into a region that cannot hold it");
+        debug_assert!(
+            limit(slots) >= self.live,
+            "rehoming into a region that cannot hold it"
+        );
         let geometry = Geom::of(slots / GROUP);
         let (gbits, gmask) = (geometry.gbits, geometry.mask());
 
@@ -1898,30 +1924,30 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
                 let i = group + live.trailing_zeros() as usize;
                 live &= live - 1;
                 old.taken = i + 1;
-            // SAFETY: the tag says live, and `taken` now covers this index, so the salvage guard
-            // will not drop it again if anything below unwinds.
-            let entry = unsafe { old.slots.get_unchecked_mut(i).assume_init_read() };
-            // The slot stored only the identity word; the descent runs on the placement word.
-            // Recover it -- one multiply back to the coordinate, one widening multiply forward --
-            // rather than re-folding the key, so growth stays a probe per entry and not a hash per
-            // entry even though the placement is no longer sitting in the slot.
-            let p = entry.0.placement(self.salt);
-            let mut j = 0u32;
-            let at = loop {
-                let base = group_at(p, j, gbits, gmask) * GROUP;
-                // A fresh region holds only empty slots, so this is plain first-fit with no
-                // tombstone bookkeeping.
-                let line: &[u8; GROUP] = tags[base..base + GROUP]
-                    .try_into()
-                    .unwrap_or(&[EMPTY; GROUP]);
-                let free = scan::free(line);
-                if free != 0 {
-                    break base + free.trailing_zeros() as usize;
-                }
-                j += 1;
-            };
-            tags[at] = tag_of(p);
-            fresh[at] = MaybeUninit::new(entry);
+                // SAFETY: the tag says live, and `taken` now covers this index, so the salvage guard
+                // will not drop it again if anything below unwinds.
+                let entry = unsafe { old.slots.get_unchecked_mut(i).assume_init_read() };
+                // The slot stored only the identity word; the descent runs on the placement word.
+                // Recover it -- one multiply back to the coordinate, one widening multiply forward --
+                // rather than re-folding the key, so growth stays a probe per entry and not a hash per
+                // entry even though the placement is no longer sitting in the slot.
+                let p = entry.0.placement(self.salt);
+                let mut j = 0u32;
+                let at = loop {
+                    let base = group_at(p, j, gbits, gmask) * GROUP;
+                    // A fresh region holds only empty slots, so this is plain first-fit with no
+                    // tombstone bookkeeping.
+                    let line: &[u8; GROUP] = tags[base..base + GROUP]
+                        .try_into()
+                        .unwrap_or(&[EMPTY; GROUP]);
+                    let free = scan::free(line);
+                    if free != 0 {
+                        break base + free.trailing_zeros() as usize;
+                    }
+                    j += 1;
+                };
+                tags[at] = tag_of(p);
+                fresh[at] = MaybeUninit::new(entry);
             }
             group += GROUP;
         }
@@ -1947,15 +1973,23 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         if additional <= self.room {
             return Ok(());
         }
-        let want = self.live + additional;
-        let slots = Self::region_for(want).max(self.slots.len());
+        let Some(want) = self.live.checked_add(additional) else {
+            return Err(AllocFailed { slots: usize::MAX });
+        };
+        let Some(region) = region_for_checked(want) else {
+            return Err(AllocFailed { slots: usize::MAX });
+        };
+        let slots = region.max(self.slots.len());
 
         let mut tags: Vec<u8> = Vec::new();
-        tags.try_reserve_exact(slots).map_err(|_| AllocFailed { slots })?;
+        tags.try_reserve_exact(slots)
+            .map_err(|_| AllocFailed { slots })?;
         tags.resize(slots, EMPTY);
 
         let mut fresh: Vec<MaybeUninit<(H, V)>> = Vec::new();
-        fresh.try_reserve_exact(slots).map_err(|_| AllocFailed { slots })?;
+        fresh
+            .try_reserve_exact(slots)
+            .map_err(|_| AllocFailed { slots })?;
         // SAFETY: the capacity was just reserved, and `MaybeUninit<T>` needs no initialisation --
         // that is the whole reason a slot array can be `calloc`-cheap.
         unsafe { fresh.set_len(slots) };
@@ -1988,13 +2022,25 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Lyrium's 14 `BTreeSet`s were reaching for when they paid for an ordering they never queried.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, H> {
-        Iter { map: self, base: 0, mask: 0, ahead: 0, left: self.live }
+        Iter {
+            map: self,
+            base: 0,
+            mask: 0,
+            ahead: 0,
+            left: self.live,
+        }
     }
 
     /// Every entry, with the value mutable.
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V, H> {
         let (n, left) = (self.tags.len(), self.live);
-        IterMut { map: std::ptr::from_mut(self), i: 0, n, left, _m: PhantomData }
+        IterMut {
+            map: std::ptr::from_mut(self),
+            i: 0,
+            n,
+            left,
+            _m: PhantomData,
+        }
     }
 
     /// The keys, in slot order.
@@ -2006,7 +2052,13 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// The values, in slot order.
     #[must_use]
     pub fn values(&self) -> Values<'_, K, V, H> {
-        Values { map: self, base: 0, mask: 0, ahead: 0, left: self.live }
+        Values {
+            map: self,
+            base: 0,
+            mask: 0,
+            ahead: 0,
+            left: self.live,
+        }
     }
 
     /// The values, in slot order, mutably.
@@ -2021,7 +2073,12 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
     /// Dropping it early still empties the map, which is what makes it a drain rather than an
     /// iterator that happens to remove things.
     pub fn drain(&mut self) -> Drain<'_, K, V, H> {
-        Drain { map: self, base: 0, mask: 0, ahead: 0 }
+        Drain {
+            map: self,
+            base: 0,
+            mask: 0,
+            ahead: 0,
+        }
     }
 
     /// The keys, consuming the map.
@@ -2044,7 +2101,11 @@ impl<K: Coord + Eq, V, H: Held<K>> Map<K, V, H> {
         &mut self,
         pred: F,
     ) -> ExtractIf<'_, K, V, H, F> {
-        ExtractIf { map: self, i: 0, pred }
+        ExtractIf {
+            map: self,
+            i: 0,
+            pred,
+        }
     }
 
     /// Whether `f` holds for every key. Stops at the first that fails.
@@ -2323,7 +2384,12 @@ impl<K: Coord + Eq, V, H: Held<K>> Drain<'_, K, V, H> {
             //
             // SAFETY: `self.base + GROUP <= tags.len()`, checked by the loop condition above.
             unsafe {
-                *self.map.tags.as_mut_ptr().add(self.base).cast::<[u8; GROUP]>() = [EMPTY; GROUP];
+                *self
+                    .map
+                    .tags
+                    .as_mut_ptr()
+                    .add(self.base)
+                    .cast::<[u8; GROUP]>() = [EMPTY; GROUP];
             }
             self.map.room += filled.count_ones() as usize;
             self.map.live -= live.count_ones() as usize;
@@ -2519,13 +2585,32 @@ impl<K: Coord + Eq, V, H: Held<K>> std::iter::FusedIterator for IterMut<'_, K, V
 /// first caller that makes the region *smaller*. Growing into a region that is too small is caught
 /// by the next insert; shrinking into one is not, so the rule now has to be right in a direction it
 /// was never exercised in.
+///
+/// Saturates at the largest representable region rather than overflowing `usize`: a request larger
+/// than that cannot be met, so `try_reserve` refuses it (via `region_for_checked`) and `reserve`
+/// fails at the allocation instead of panicking in the arithmetic.
 #[must_use]
 pub fn region_for(n: usize) -> usize {
     let mut slots = MIN_SLOTS;
     while limit(slots) < n {
-        slots *= 2;
+        // Saturate rather than overflow. A request too large to represent cannot be satisfied
+        // anyway: `try_reserve` refuses it and `reserve` fails at the allocation.
+        match slots.checked_mul(2) {
+            Some(next) => slots = next,
+            None => break,
+        }
     }
     slots
+}
+
+/// [`region_for`] but `None` when the region would overflow `usize`, so a fallible caller can
+/// refuse the request instead of saturating.
+fn region_for_checked(n: usize) -> Option<usize> {
+    let mut slots = MIN_SLOTS;
+    while limit(slots) < n {
+        slots = slots.checked_mul(2)?;
+    }
+    Some(slots)
 }
 
 /// A region could not be allocated.
@@ -2589,7 +2674,8 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
             return None;
         }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
-        self.find_ref(a.place, |h| h.id == a.id && q.same(&h.k)).map(|s| (&s.0.k, &s.1))
+        self.find_ref(a.place, |h| h.id == a.id && q.same(&h.k))
+            .map(|s| (&s.0.k, &s.1))
     }
 
     /// Read through a borrowed view: `map.get_at("resref")` on a `Map<String, V>`.
@@ -2628,7 +2714,8 @@ impl<K: Coord + Eq, V> Map<K, V, Stored<K>> {
             return false;
         }
         let a = already_mixed::<K>(self.salt, q.coord_at(self.salt.pepper()));
-        self.find(a.place, |h| h.id == a.id && q.same(&h.k)).is_some()
+        self.find(a.place, |h| h.id == a.id && q.same(&h.k))
+            .is_some()
     }
 
     /// Insert through a view, taking ownership of the key only on a miss.
@@ -2869,7 +2956,14 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> OccupiedEntry<'a, K, V, H> {
     #[inline]
     pub fn key(&self) -> H::Ref<'_> {
         // SAFETY: an occupied entry names a live slot.
-        unsafe { self.map.slots.get_unchecked(self.at).assume_init_ref().0.key(self.map.salt) }
+        unsafe {
+            self.map
+                .slots
+                .get_unchecked(self.at)
+                .assume_init_ref()
+                .0
+                .key(self.map.salt)
+        }
     }
     #[must_use]
     /// The value.
@@ -2882,14 +2976,28 @@ impl<'a, K: Coord + Eq, V, H: Held<K>> OccupiedEntry<'a, K, V, H> {
     #[inline]
     pub fn get_mut(&mut self) -> &mut V {
         // SAFETY: as above.
-        unsafe { &mut self.map.slots.get_unchecked_mut(self.at).assume_init_mut().1 }
+        unsafe {
+            &mut self
+                .map
+                .slots
+                .get_unchecked_mut(self.at)
+                .assume_init_mut()
+                .1
+        }
     }
     #[must_use]
     /// The value, borrowed for as long as the map is.
     #[inline]
     pub fn into_mut(self) -> &'a mut V {
         // SAFETY: as above.
-        unsafe { &mut self.map.slots.get_unchecked_mut(self.at).assume_init_mut().1 }
+        unsafe {
+            &mut self
+                .map
+                .slots
+                .get_unchecked_mut(self.at)
+                .assume_init_mut()
+                .1
+        }
     }
     /// Replace the value, returning the old one.
     #[inline]
@@ -3404,7 +3512,11 @@ mod tests {
                     salt.placement_of(a.id),
                     "re-addressed and round-tripped placement disagree at key {k} pepper {pepper}"
                 );
-                assert_eq!(held.placement(salt), a.place, "neither is the word it was placed by");
+                assert_eq!(
+                    held.placement(salt),
+                    a.place,
+                    "neither is the word it was placed by"
+                );
             }
         }
     }
@@ -3489,13 +3601,29 @@ mod tests {
         for pepper in [0u64, 1, 0xDEAD_BEEF, 20_260_829, u64::MAX] {
             let s = Salt::new(pepper);
             for &x in &inputs {
-                assert_eq!(s.unspread(s.spread(x).id), x, "pepper {pepper:#x}, x {x:#x}");
-                assert_eq!(s.spread(s.unspread(x)).id, x, "pepper {pepper:#x}, h {x:#x}");
+                assert_eq!(
+                    s.unspread(s.spread(x).id),
+                    x,
+                    "pepper {pepper:#x}, x {x:#x}"
+                );
+                assert_eq!(
+                    s.spread(s.unspread(x)).id,
+                    x,
+                    "pepper {pepper:#x}, h {x:#x}"
+                );
             }
         }
         for &x in &inputs {
-            assert_eq!(crate::coord::unspread(crate::coord::spread(x).id), x, "x {x:#x}");
-            assert_eq!(crate::coord::spread(crate::coord::unspread(x)).id, x, "h {x:#x}");
+            assert_eq!(
+                crate::coord::unspread(crate::coord::spread(x).id),
+                x,
+                "x {x:#x}"
+            );
+            assert_eq!(
+                crate::coord::spread(crate::coord::unspread(x)).id,
+                x,
+                "h {x:#x}"
+            );
         }
     }
 

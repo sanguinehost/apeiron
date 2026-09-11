@@ -20,6 +20,11 @@
 //! | counter | [`count`] | `Monoid::identity` | yes |
 //! | graph | [`link`] | `[]` | **no** -- append is not commutative |
 //!
+//! The counter row is order-free only because [`Monoid`] promises associativity. Floating-point
+//! addition does not, so `f32`/`f64` are [`OrderedMonoid`] and count through
+//! [`approx_count`]/[`approx_count_into`], which fixes the stream order and is [`Species::Ordered`],
+//! not [`Species::Free`]. The property belongs to the value type, not the face.
+//!
 //! The four are not derived from the trichotomy and this module does not claim they are. Two are
 //! commutative and two are directional, and [`Species`] records which, because a table built with
 //! a directional merge cannot be built in parallel and recombined -- that is a real precondition
@@ -110,6 +115,17 @@ pub fn count<V: Monoid>(new: V, old: V) -> V {
     new.combine(old)
 }
 
+/// [`count`] for an ordered, approximate accumulator.
+///
+/// The order is the caller's, so the result is only reproducible if the stream is. This is the
+/// honest form of a float sum: it is not [`Monoid`] because the arithmetic is not associative, and
+/// calling it `count` would hide that a split-and-recombine build is unsound here.
+#[inline]
+#[must_use]
+pub fn approx_count<V: OrderedMonoid>(new: V, old: V) -> V {
+    new.combine(old)
+}
+
 /// Graph: newest first.
 #[inline]
 #[must_use]
@@ -146,6 +162,14 @@ pub fn set_into<V>(slot: &mut V, new: V) {
 pub fn count_into<V: Monoid>(slot: &mut V, new: V) {
     let old = core::mem::replace(slot, V::identity());
     *slot = count(new, old);
+}
+
+/// [`approx_count`], applied in place, with the same identity-swap failure atomicity as
+/// [`count_into`].
+#[inline]
+pub fn approx_count_into<V: OrderedMonoid>(slot: &mut V, new: V) {
+    let old = core::mem::replace(slot, V::identity());
+    *slot = approx_count(new, old);
 }
 
 /// [`link`], applied in place: `new` is spliced onto the front, newest first, without rebuilding
@@ -189,28 +213,35 @@ macro_rules! wide_sum_monoid {
 }
 wide_sum_monoid!(u128, i128);
 
-impl Monoid for f32 {
+/// An ordered, approximate accumulator: commutative, but **not** associative, which is why it is
+/// not [`Monoid`] and cannot license a split-and-recombine build. Floating-point addition is the
+/// motivating case -- `(1e20 + -1e20) + 1 = 1` but `1e20 + (-1e20 + 1) = 0` -- so a count over it
+/// must fix the order, as [`approx_count_into`] does when a table keeps a key's occurrences in
+/// stream order.
+pub trait OrderedMonoid {
+    /// What an absent key reads as.
+    fn identity() -> Self;
+    /// Combine two values for one key, in the order given. Commutative but not associative.
+    #[must_use]
+    fn combine(self, other: Self) -> Self;
+}
+
+impl OrderedMonoid for f32 {
     #[inline]
     fn identity() -> Self {
         0.0
     }
-    /// As [`f64`]'s: not associative in the reals' sense, so a parallel build over it is
-    /// deterministic only because the partition is.
     #[inline]
     fn combine(self, other: Self) -> Self {
         self + other
     }
 }
 
-impl Monoid for f64 {
+impl OrderedMonoid for f64 {
     #[inline]
     fn identity() -> Self {
         0.0
     }
-    /// Not associative in the reals' sense -- floating-point addition is not -- so a parallel build
-    /// over this monoid is deterministic only if the partition is. It is: `crate::table` partitions
-    /// by key, and a key's occurrences stay in stream order, so the sum for a key is summed in the
-    /// same order however many threads run.
     #[inline]
     fn combine(self, other: Self) -> Self {
         self + other
@@ -265,7 +296,8 @@ mod tests {
         }
         for n in 0..6usize {
             for o in 0..6usize {
-                let (new, old): (Vec<usize>, Vec<usize>) = ((0..n).collect(), (100..100 + o).collect());
+                let (new, old): (Vec<usize>, Vec<usize>) =
+                    ((0..n).collect(), (100..100 + o).collect());
                 let mut slot = old.clone();
                 link_into(&mut slot, new.clone());
                 assert_eq!(slot, link(new, old), "link at {n}/{o}");
@@ -280,5 +312,39 @@ mod tests {
         assert_eq!(count(3i64, 5), count(5i64, 3));
         assert_ne!(set(1, 2), set(2, 1));
         assert_ne!(link(vec![1], vec![2]), link(vec![2], vec![1]));
+    }
+
+    /// The law [`Monoid`] promises and `count` relies on: `combine` is associative, which is what
+    /// makes reordering a split build invisible. Checked on the exact implementing types.
+    #[test]
+    fn monoid_combine_is_associative() {
+        fn agrees<V: Monoid + Copy + PartialEq + core::fmt::Debug>(a: V, b: V, c: V) {
+            assert_eq!(
+                a.combine(b).combine(c),
+                a.combine(b.combine(c)),
+                "combine is not associative"
+            );
+        }
+        agrees(1u64, 2, 3);
+        agrees(-1i64, 2, 3);
+        agrees(true, false, true);
+    }
+
+    /// The counterexample that keeps the floats out of [`Monoid`]: floating addition is commutative
+    /// but not associative, so it is an [`OrderedMonoid`] and only an ordered reduction over it is
+    /// sound.
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "the test is about the exact floating-point results, not approximate equality"
+    )]
+    fn ordered_combine_is_commutative_but_not_associative() {
+        let (a, b, c) = (1e20f64, -1e20f64, 1.0f64);
+        assert_eq!(a.combine(b), b.combine(a), "combine is commutative");
+        assert_ne!(
+            a.combine(b).combine(c),
+            a.combine(b.combine(c)),
+            "floating-point combine must not be advertised as associative"
+        );
     }
 }

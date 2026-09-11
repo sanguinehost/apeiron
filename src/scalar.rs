@@ -5,10 +5,13 @@
 //! live in it. That is not a reason to weaken the claim -- it is a reason to have a scalar that
 //! holds them.
 //!
-//! [`Dyadic`] is that scalar: a mantissa and a power-of-two scale, `m / 2^e`, exact under
-//! addition, subtraction and multiplication, with halving free. The same shape a float has, minus
-//! the rounding -- a float is a sign, an exponent and a mantissa, and the only reason it is
-//! inexact is that it truncates the mantissa to a fixed width.
+//! [`Dyadic`] is that scalar: a mantissa and a power-of-two scale, `m / 2^e`. The same shape a
+//! float has, minus the rounding -- a float is a sign, an exponent and a mantissa, and its
+//! inexactness is that it truncates the mantissa to a fixed width. `Dyadic` is exact in that
+//! sense, but it is **not** a total ring either: the mantissa is a fixed `i128` and the scale a
+//! `u32`, so alignment, multiplication and scale growth can exceed the representation. The
+//! `checked_*` methods return `None` there, and the [`Ring`]/[`Halve`] implementations panic
+//! rather than dropping bits silently.
 //!
 //! The split is expressed in the bounds rather than in a comment. [`Ring`] is what the algebra
 //! needs; [`Halve`] is the extra thing the idempotents need. `i64` implements the first and not
@@ -18,7 +21,11 @@
 use std::fmt::Debug;
 
 /// A commutative ring: what the two-slot algebra is built over.
-pub trait Ring: Copy + PartialEq + Debug {
+///
+/// It deliberately does **not** require `Debug`: the algebra is arithmetic, and a formatting
+/// supertrait would drag `core::fmt` into the extracted Lean model through
+/// `Aeneas.Std.core.fmt.Formatter` for no arithmetic reason. Types that want `Debug` derive it.
+pub trait Ring: Copy + PartialEq {
     /// The additive identity.
     const ZERO: Self;
     /// The multiplicative identity.
@@ -100,15 +107,38 @@ impl Ring for i64 {
     }
 }
 
-/// An exact dyadic rational, `m / 2^e`.
+/// A dyadic rational, `m / 2^e`, kept normalised.
 ///
-/// Closed under `+`, `-` and `*`, and halving costs one increment of the scale. Kept normalised --
-/// trailing zero bits stripped from the mantissa -- so equality is structural and `1/2` has one
+/// Exact for `+`, `-` and `*` **when the result fits**: the mantissa is an `i128` and the scale a
+/// `u32`. It is not a total ring. Aligning two values at very different scales, multiplying two
+/// large mantissas, or growing the scale can exceed the representation, and the `checked_*` methods
+/// return `None` for those cases instead of dropping bits. The [`Ring`] and [`Halve`]
+/// implementations are correspondingly partial: they panic on an unrepresentable result rather than
+/// returning a silently wrong one. That boundary is the correction to the previous `aligned`, which
+/// shifted the smaller mantissa up by a plain `<<` and discarded the overflow without saying so.
+///
+/// Trailing zero bits are stripped from the mantissa, so equality is structural and `1/2` has one
 /// representation rather than an infinite family.
 #[derive(Debug, Clone, Copy)]
 pub struct Dyadic {
     mantissa: i128,
     scale: u32,
+}
+
+/// Shift `value` left by `bits`, or `None` if any bit would be lost or the shift is out of range.
+///
+/// `i128`'s `<<` discards the shifted-out high bits silently, which is exactly how an aligned sum
+/// can drop a term and still compare equal to a wrong answer. `value == 0` is representable at
+/// every scale, so it is allowed even for an out-of-range `bits`.
+fn checked_shl_exact(value: i128, bits: u32) -> Option<i128> {
+    if value == 0 {
+        return Some(0);
+    }
+    if bits >= i128::BITS {
+        return None;
+    }
+    let shifted = value << bits;
+    (shifted >> bits == value).then_some(shifted)
 }
 
 impl Dyadic {
@@ -142,14 +172,41 @@ impl Dyadic {
         }
     }
 
-    /// Both values at a common scale, for adding.
-    fn aligned(self, other: Self) -> (i128, i128, u32) {
+    /// Both values at a common scale, for adding, or `None` if raising either to that scale would
+    /// lose bits.
+    fn checked_aligned(self, other: Self) -> Option<(i128, i128, u32)> {
         let scale = self.scale.max(other.scale);
-        (
-            self.mantissa << (scale - self.scale),
-            other.mantissa << (scale - other.scale),
-            scale,
-        )
+        let a = checked_shl_exact(self.mantissa, scale - self.scale)?;
+        let b = checked_shl_exact(other.mantissa, scale - other.scale)?;
+        Some((a, b, scale))
+    }
+
+    /// `self + other`, or `None` if the aligned sum is not representable.
+    #[must_use]
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        let (a, b, scale) = self.checked_aligned(other)?;
+        Some(Self::new(a.checked_add(b)?, scale))
+    }
+
+    /// `self - other`, or `None` if the aligned difference is not representable.
+    #[must_use]
+    pub fn checked_sub(self, other: Self) -> Option<Self> {
+        let (a, b, scale) = self.checked_aligned(other)?;
+        Some(Self::new(a.checked_sub(b)?, scale))
+    }
+
+    /// `self * other`, or `None` if the product mantissa or the combined scale overflows.
+    #[must_use]
+    pub fn checked_mul(self, other: Self) -> Option<Self> {
+        let mantissa = self.mantissa.checked_mul(other.mantissa)?;
+        let scale = self.scale.checked_add(other.scale)?;
+        Some(Self::new(mantissa, scale))
+    }
+
+    /// `self / 2`, or `None` if the scale would overflow.
+    #[must_use]
+    pub fn checked_halve(self) -> Option<Self> {
+        Some(Self::new(self.mantissa, self.scale.checked_add(1)?))
     }
 
     /// The exact numerator and its power-of-two denominator.
@@ -185,18 +242,31 @@ impl Ring for Dyadic {
         scale: 0,
     };
 
+    /// # Panics
+    ///
+    /// Panics if the aligned sum is not representable. Use [`Dyadic::checked_add`] to handle that
+    /// case; the [`Ring`] trait cannot express it.
     fn add(self, other: Self) -> Self {
-        let (a, b, scale) = self.aligned(other);
-        Self::new(a + b, scale)
+        self.checked_add(other)
+            .expect("dyadic addition overflow: the aligned sum is not representable")
     }
 
+    /// # Panics
+    ///
+    /// Panics if the aligned difference is not representable. Use [`Dyadic::checked_sub`] to handle
+    /// that case.
     fn sub(self, other: Self) -> Self {
-        let (a, b, scale) = self.aligned(other);
-        Self::new(a - b, scale)
+        self.checked_sub(other)
+            .expect("dyadic subtraction overflow: the aligned difference is not representable")
     }
 
+    /// # Panics
+    ///
+    /// Panics if the product mantissa or the combined scale overflows. Use [`Dyadic::checked_mul`]
+    /// to handle that case.
     fn mul(self, other: Self) -> Self {
-        Self::new(self.mantissa * other.mantissa, self.scale + other.scale)
+        self.checked_mul(other)
+            .expect("dyadic multiplication overflow: mantissa or scale exceeds its representation")
     }
 
     fn from_i64(v: i64) -> Self {
@@ -205,8 +275,12 @@ impl Ring for Dyadic {
 }
 
 impl Halve for Dyadic {
+    /// # Panics
+    ///
+    /// Panics if the scale would overflow. Use [`Dyadic::checked_halve`] to handle that case.
     fn halve(self) -> Self {
-        Self::new(self.mantissa, self.scale + 1)
+        self.checked_halve()
+            .expect("dyadic halving overflow: scale exceeds u32")
     }
 }
 
@@ -243,5 +317,49 @@ mod tests {
             back = back.add(back);
         }
         assert_eq!(back, Dyadic::ONE, "80 halvings and 80 doublings round-trip");
+    }
+
+    /// The alignment bug: `2` at scale 0, raised to scale 127, needs 129 bits of mantissa. Before
+    /// the fix it was shifted with a plain `<<`, the overflow was discarded, and the sum collapsed
+    /// onto the first addend. It is now reported instead.
+    #[test]
+    fn checked_arithmetic_reports_every_overflow() {
+        assert_eq!(Dyadic::new(1, 127).checked_add(Dyadic::whole(2)), None);
+        assert_eq!(Dyadic::whole(3).checked_sub(Dyadic::new(1, 127)), None);
+        assert_eq!(
+            Dyadic::new(i128::MAX, 0).checked_mul(Dyadic::whole(2)),
+            None
+        );
+        assert_eq!(
+            Dyadic::new(1, u32::MAX).checked_mul(Dyadic::new(1, 1)),
+            None
+        );
+        assert_eq!(Dyadic::new(1, u32::MAX).checked_halve(), None);
+    }
+
+    /// The same cases still work where the result is representable.
+    #[test]
+    fn checked_arithmetic_is_exact_where_it_is_representable() {
+        assert_eq!(
+            Dyadic::ONE.checked_add(Dyadic::whole(2)),
+            Some(Dyadic::whole(3))
+        );
+        assert_eq!(
+            Dyadic::whole(3).checked_sub(Dyadic::ONE),
+            Some(Dyadic::whole(2))
+        );
+        assert_eq!(
+            Dyadic::new(1, 1).checked_mul(Dyadic::new(1, 1)),
+            Some(Dyadic::new(1, 2))
+        );
+        assert_eq!(Dyadic::new(1, 1).checked_halve(), Some(Dyadic::new(1, 2)));
+    }
+
+    /// The infallible [`Ring`] surface is partial and says so by panicking rather than returning a
+    /// value with the overflow already gone.
+    #[test]
+    #[should_panic(expected = "dyadic addition overflow")]
+    fn the_infallible_api_refuses_to_drop_bits() {
+        let _ = Dyadic::new(1, 127).add(Dyadic::whole(2));
     }
 }

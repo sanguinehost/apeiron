@@ -155,10 +155,13 @@ fn diverges(ops: &[Op]) -> Option<usize> {
                 let mut ks = vec![a, b, c];
                 ks.sort_unstable();
                 ks.dedup();
-                let want: Vec<Option<u32>> =
-                    ks.iter().map(|k| theirs.get(k).copied()).collect();
+                let want: Vec<Option<u32>> = ks.iter().map(|k| theirs.get(k).copied()).collect();
                 let got: Vec<Option<u32>> = match ks.len() {
-                    1 => ours.get_disjoint_mut([&ks[0]]).iter().map(|v| v.as_deref().copied()).collect(),
+                    1 => ours
+                        .get_disjoint_mut([&ks[0]])
+                        .iter()
+                        .map(|v| v.as_deref().copied())
+                        .collect(),
                     2 => ours
                         .get_disjoint_mut([&ks[0], &ks[1]])
                         .iter()
@@ -207,7 +210,10 @@ fn a_thousand_random_programs_agree_with_std() {
         // A narrow key space so collisions, reuse and tombstone reuse all actually happen.
         let ops = program(seed, 400 / SCALE.max(1), 64);
         if let Some(at) = diverges(&ops) {
-            panic!("seed {seed} diverged at op {at}\nshortest: {:?}", shrink(&ops));
+            panic!(
+                "seed {seed} diverged at op {at}\nshortest: {:?}",
+                shrink(&ops)
+            );
         }
     }
 }
@@ -218,7 +224,10 @@ fn programs_that_force_growth_agree_with_std() {
     for seed in 5000..(5000 + (40 / SCALE).max(2) as u64) {
         let ops = program(seed, 4000 / SCALE, 2000);
         if let Some(at) = diverges(&ops) {
-            panic!("seed {seed} diverged at op {at}\nshortest: {:?}", shrink(&ops));
+            panic!(
+                "seed {seed} diverged at op {at}\nshortest: {:?}",
+                shrink(&ops)
+            );
         }
     }
 }
@@ -233,16 +242,28 @@ fn the_elliptic_face_agrees_with_std_too() {
         for (i, op) in ops.iter().enumerate() {
             match *op {
                 Op::Insert(k, v) => {
-                    assert_eq!(ours.insert(u64::from(k), v), theirs.insert(u64::from(k), v), "seed {seed} op {i}");
+                    assert_eq!(
+                        ours.insert(u64::from(k), v),
+                        theirs.insert(u64::from(k), v),
+                        "seed {seed} op {i}"
+                    );
                 }
                 Op::Merge(k, v) => {
                     ours.insert_with(u64::from(k), v, |slot, n| *slot = n.wrapping_add(*slot));
                     let e = theirs.entry(u64::from(k)).or_insert(0);
                     *e = v.wrapping_add(*e);
                 }
-                Op::Get(k) => assert_eq!(ours.get(&u64::from(k)), theirs.get(&u64::from(k)), "seed {seed} op {i}"),
+                Op::Get(k) => assert_eq!(
+                    ours.get(&u64::from(k)),
+                    theirs.get(&u64::from(k)),
+                    "seed {seed} op {i}"
+                ),
                 Op::Remove(k) => {
-                    assert_eq!(ours.remove(&u64::from(k)), theirs.remove(&u64::from(k)), "seed {seed} op {i}");
+                    assert_eq!(
+                        ours.remove(&u64::from(k)),
+                        theirs.remove(&u64::from(k)),
+                        "seed {seed} op {i}"
+                    );
                 }
                 Op::Retain(m) => {
                     let m = u64::from(m.max(1));
@@ -263,7 +284,10 @@ fn the_elliptic_face_agrees_with_std_too() {
                 Op::Shrink | Op::ExtractIf(_) | Op::DrainSome(_) | Op::Disjoint(..) => {}
             }
             assert_eq!(ours.len(), theirs.len(), "seed {seed} op {i}");
-            assert!(theirs.iter().all(|(k, v)| ours.get(k) == Some(v)), "seed {seed} op {i}");
+            assert!(
+                theirs.iter().all(|(k, v)| ours.get(k) == Some(v)),
+                "seed {seed} op {i}"
+            );
         }
     }
 }
@@ -293,7 +317,9 @@ fn string_keys_agree_with_std_through_the_borrowed_surface() {
         }
         assert_eq!(ours.len(), theirs.len(), "at {i} on {k:?}");
     }
-    assert!(theirs.iter().all(|(k, v)| ours.get_at(k.as_str()) == Some(v)));
+    assert!(theirs
+        .iter()
+        .all(|(k, v)| ours.get_at(k.as_str()) == Some(v)));
     assert!(ours.iter().all(|(k, v)| theirs.get(k) == Some(v)));
 }
 
@@ -530,4 +556,57 @@ fn extending_with_a_reserve_places_what_an_insert_loop_places() {
             }
         }
     }
+}
+
+/// An impossible capacity request is a **failure outcome**, not an arithmetic panic.
+///
+/// A parser handed an archive header claiming `usize::MAX` resources asks the map for room; the
+/// answer is `AllocFailed`, the map is untouched, and the process is still running. The overflow
+/// was reachable through `live + additional` and through `region_for`'s doubling.
+#[test]
+fn an_impossible_reserve_reports_instead_of_panicking() {
+    let mut m: Map<u32, u32> = Map::new();
+    m.insert(1, 1);
+
+    // `live + additional` overflows `usize`: reported, with the impossible count.
+    let err = m.try_reserve(usize::MAX).unwrap_err();
+    assert_eq!(err.slots, usize::MAX);
+
+    // A huge but representable request fails at the allocation, not in the arithmetic.
+    assert!(m.try_reserve(usize::MAX / 2).is_err());
+
+    // And the map is exactly as it was: the failure is a refusal, not a partial growth.
+    assert_eq!(m.get(&1), Some(&1));
+    assert_eq!(m.len(), 1);
+}
+
+/// Replay must not observe the table by **iterating** it: placement is open-addressed, so the
+/// iteration order of a fixed key set depends on the insertion order (the two raw builds below
+/// disagree for this corpus). A canonical observation sorts by key, which is independent of
+/// placement, insertion order, worker count and pepper. This pins the sorted sequence as the
+/// reproducible one -- the map offers deterministic iteration for a *fixed* stream, not an
+/// insertion-order-free one.
+#[test]
+fn a_canonical_observation_does_not_depend_on_placement() {
+    let keys: Vec<u64> = (0..2_000u64)
+        .map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15))
+        .collect();
+    let build = |src: &[u64]| {
+        let mut m: Map<u64, u64> = Map::new();
+        for &k in src {
+            m.insert(k, k);
+        }
+        m.keys().copied().collect::<Vec<_>>()
+    };
+    let mut forward = build(&keys);
+    let mut reversed = keys.clone();
+    reversed.reverse();
+    let mut backward = build(&reversed);
+
+    forward.sort_unstable();
+    backward.sort_unstable();
+    assert_eq!(
+        forward, backward,
+        "a canonical (sorted) observation must not depend on placement"
+    );
 }
