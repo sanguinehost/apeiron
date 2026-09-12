@@ -1,4 +1,5 @@
 import WordRefinement
+import SafeTableRefinement
 import Lean
 
 set_option linter.apeiron.notation false
@@ -131,3 +132,7 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Physics.scalarCarrierStep_total_mass
 #audit Apeiron.Physics.diffusiveUpdate_eq_scalarCarrierStep
 #audit Apeiron.Physics.exactHalfFlux_diffusiveFlux
+
+-- The extracted safe table search: the first total loop.spec_decr_nat refinement
+#audit apeiron_word.safe_table.find_from_loop_spec
+#audit apeiron_word.safe_table.find_from_spec

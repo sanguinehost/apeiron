@@ -153,3 +153,19 @@ relating the generated `Array (Option (K × V)) N` state to a denotation over th
 loop-invariant proof, not an extraction blocker; the first four attempts failed because no total
 generated search existed, and one does now. The optimized `Map` stays tested until those theorems
 exist.
+
+### W3 first slice (2026-09-12)
+
+`proof/corpus/SafeTableRefinement.lean` proves the generated search semantics with
+`Aeneas.Std.loop.spec_decr_nat` at measure `4 - index` and invariant `NoMatchIn key l start index`:
+
+- `find_from_loop_spec`: a returned `some j` is the first key match in `[start, 4)`, and `none` means
+  no match there. `find_from_spec` lifts it to the `@[reducible]` `find_from`.
+- The body is discharged through `Array.index_usize_spec` and a local `@[step]` `I64` equality lemma.
+- Cone `{propext, Classical.choice, Quot.sound}`; `#audit`ed in `proof/corpus/AxiomAudit.lean`.
+- Control: a throwaway copy with the generated `done (some index)` changed to `done none` fails the
+  same proof. The real `proof/regen.sh --check` and the 3277-job bridge build stay green.
+
+Still open: the `Apeiron.Table` denotation (`Apeiron.Table.get`/`insertWith`/`replace`) and the
+`get`, `try_insert` and `remove` links, plus the `empty_from` search used by insertion. The next
+bounded task is the `List`-index denotation and those three callers.

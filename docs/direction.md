@@ -321,8 +321,12 @@ recursion (attempt 4) still extracted to a `partial_fixpoint` and added an unmod
 `Slice.split_first` axiom. The fixed-array `while` search (attempt 5) is translated by Charon to a
 total `loop` combinator marked `#[rust_loop]` with no `partial_fixpoint`, so the supplied
 `Aeneas.Std.loop.spec_decr_nat` measure principle applies. The five attempts are recorded in
-`docs/plan/storage-refinement.md`. The remaining obligation is the `loop.spec_decr_nat` invariant
-over the generated `Array` state plus the `Apeiron.Table` link; that is now proof work, not an
+`docs/plan/storage-refinement.md`. The first slice now closes: `proof/corpus/SafeTableRefinement.lean`
+proves `find_from_loop_spec` with measure `4 - index` and the invariant `NoMatchIn key l start index`,
+so the generated search returns the first key match in `[start, 4)`, and `find_from_spec` lifts it to
+`find_from`; both audit inside `{propext, Classical.choice, Quot.sound}`, and a throwaway generated
+mutation (`done (some index)` to `done none`) fails the same proof. The remaining obligation is the
+`Apeiron.Table` denotation and the `get`/`try_insert`/`remove` links; that is proof work, not an
 extraction blocker. The optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope
 note is unchanged.
 
