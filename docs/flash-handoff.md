@@ -44,6 +44,15 @@ the order of work, acceptance gates and where to stop, not a completed migration
   **Not covered**: the general `Vec` line (tested only, not a refinement target), any word-ring
   energy claim, rustc/LLVM or GPU codegen, and live game integration/scheduling (tested, not
   refined).
+- **Stage 6 - done**: the bridge resolves the canonical corpus from
+  `git@gitlab.tas.twn.network:lucas/sanguine.git` at the full commit
+  `d9aefc93522e2109bc96158526de6dbd52477276`, package subdirectory `proof`, rather than from a
+  mutable sibling worktree. `lake update apeiron` and `lake build` exit 0; the build completes 3276
+  jobs and the manifest assertion confirms Git type, input revision, resolved revision and
+  subdirectory. A nonexistent-revision control exits 128 at Git checkout. This establishes source
+  identity for credentialed builds, not private-host availability or offline vendoring. Lifecycle:
+  `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
+  `docs/plan/corpus-release-pin.md`.
 
 ## First Session
 

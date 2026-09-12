@@ -234,9 +234,10 @@ The corpus pins Lean `4.31.0` and Mathlib `v4.31.0` at `d9aefc93`, the same back
 Aeneas extraction uses. The bridge is rebuilt against that revision; `proof/corpus/lakefile.lean`
 requires the same `mathlib @ v4.31.0`, so the bridge and the corpus resolve one revision.
 
-The sibling `require «apeiron» from "../../../sanguine-apeiron/proof"` is a development path, not a
-release pin. The corpus worktree is clean and pushed at
-`d9aefc93522e2109bc96158526de6dbd52477276` (`d9aefc93`). That commit adds
+`proof/corpus/lakefile.lean` requires the corpus by Git at
+`d9aefc93522e2109bc96158526de6dbd52477276` with subdirectory `proof`; the generated manifest
+records the same full input and resolved revisions. The bridge no longer reads the sibling corpus
+worktree. The pinned commit adds
 `Apeiron.Physics.diffusiveUpdate_half_three_anyRing` (the any-ring three-cell half step, no energy
 claim), the real exact quarter-energy identity `dirichletEnergy_halfStep_three` and its strict form
 `dirichletEnergy_halfStep_three_lt`, and the audit registration for both. The scalar-kernel links
@@ -255,8 +256,14 @@ earlier in `33bc96f6`. The bridge's generic authorities at `d9aefc93` are:
 import it (it imports the `AnyRing` closure and the scalar-step links), so that row is provenance
 for the energy scope, not a bridge authority.
 
-Release immutability still waits on a pinned archive or a vendored corpus; the sibling path is not
-reproducible on a fresh checkout.
+The pin was checked with `lake update apeiron` followed by `lake build` in `proof/corpus`: both exit
+0 and the build completes 3276 jobs. A throwaway package with the same Git source and subdirectory
+but revision `0000000000000000000000000000000000000000` reaches checkout and exits 128, so an
+unresolvable corpus identity cannot fall back to local source. The first control run timed out while
+cloning at 120 seconds; the completed run used the same mutation and a 600-second limit.
+
+This is reproducible for a checkout with credentials for the configured private Git service. It is
+not an availability guarantee or an offline vendored release.
 
 ## Recorded digests
 

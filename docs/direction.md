@@ -50,7 +50,9 @@ independently maintained definitions of the same law are not.
 Each release must bind Rust source, corpus revision, Charon/Aeneas revision,
 Lean/Mathlib pins, extraction options, supported targets and proof artifacts.
 Changing the code or its numerical domain invalidates the corresponding evidence.
-Local sibling paths are convenient for development, not a reproducible release pin.
+The bridge now resolves corpus commit `d9aefc93522e2109bc96158526de6dbd52477276` through Git with
+the package subdirectory `proof`; it no longer reads the local sibling worktree. This identifies
+source for credentialed builds but does not supply offline vendoring or private-host availability.
 
 ### Freshness Check
 
@@ -302,6 +304,13 @@ surrounding Rust production integration, float mapping and live scheduling remai
 refined. Evidence for both is in `docs/autonomous-run-log.md`. Closing evidence pointers are in
 `docs/flash-handoff.md` (Stage 5); revisions corpus `d9aefc93`, Apeiron evidence `d7121ac`, Penglai
 `f970862`.
+
+**Release source identity complete.** `proof/corpus/lakefile.lean` selects the full corpus commit
+and `proof/corpus/lake-manifest.json` records that commit as both input and resolved revision with
+subdirectory `proof`. `lake update apeiron` and the 3276-job bridge build exit 0. A throwaway
+nonexistent-revision mutation exits 128 during Git checkout. The lifecycle and detailed evidence
+are in `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
+`docs/plan/corpus-release-pin.md` and `proof/README.md`.
 
 ### Correctness Work Before Physics Reuse
 
