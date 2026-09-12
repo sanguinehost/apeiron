@@ -16,7 +16,6 @@
               individually rather than suppressed wholesale, so a pedantic lint this file does not yet \
               trigger still surfaces"
 )]
-
 #![cfg(feature = "derive")]
 
 use apeiron::coord::{Coord, Packed};
@@ -84,18 +83,32 @@ fn equal_keys_have_equal_addresses() {
     let peppers = [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX];
     for p in peppers {
         for i in 0..if cfg!(miri) { 25 } else { 200u32 } {
-            let a = ObjectId { area: i, index: i * 3, kind: (i % 7) as u8 };
+            let a = ObjectId {
+                area: i,
+                index: i * 3,
+                kind: (i % 7) as u8,
+            };
             let b = a.clone();
             assert_eq!(a.coord_with(p), b.coord_with(p));
 
-            let a = Slot::Named { area: format!("area{i}"), n: i as u16 };
+            let a = Slot::Named {
+                area: format!("area{i}"),
+                n: i as u16,
+            };
             assert_eq!(a.coord_with(p), a.clone().coord_with(p));
 
             // The skipped field must not reach the address, or `Eq` and `coord` disagree.
             let x = Cached { id: i, memo: 0 };
-            let y = Cached { id: i, memo: u64::MAX };
+            let y = Cached {
+                id: i,
+                memo: u64::MAX,
+            };
             assert_eq!(x, y);
-            assert_eq!(x.coord_with(p), y.coord_with(p), "a skipped field leaked into the address");
+            assert_eq!(
+                x.coord_with(p),
+                y.coord_with(p),
+                "a skipped field leaked into the address"
+            );
         }
     }
 }
@@ -106,9 +119,17 @@ fn equal_keys_have_equal_addresses() {
 fn a_derived_struct_is_the_tuple_it_is_made_of() {
     for p in [0u64, 0x5EED] {
         for i in 0..if cfg!(miri) { 40 } else { 300u32 } {
-            let s = ObjectId { area: i, index: i.wrapping_mul(7), kind: (i % 251) as u8 };
+            let s = ObjectId {
+                area: i,
+                index: i.wrapping_mul(7),
+                kind: (i % 251) as u8,
+            };
             let t = (s.area, s.index, s.kind);
-            assert_eq!(s.coord_with(p), t.coord_with(p), "3-field struct vs 3-tuple");
+            assert_eq!(
+                s.coord_with(p),
+                t.coord_with(p),
+                "3-field struct vs 3-tuple"
+            );
         }
     }
 }
@@ -121,7 +142,12 @@ fn a_newtype_is_its_field() {
         assert_eq!(BlockId(i).coord(), i.coord());
         assert_eq!(BlockId(i).coord_with(99), i.coord_with(99));
     }
-    for s in ["", "a", "resref_0001", "a rather longer path/into/the/tree.mdl"] {
+    for s in [
+        "",
+        "a",
+        "resref_0001",
+        "a rather longer path/into/the/tree.mdl",
+    ] {
         assert_eq!(VPath(s.into()).coord(), s.to_string().coord());
     }
 }
@@ -156,7 +182,14 @@ fn distinct_keys_get_distinct_addresses() {
         for i in 0..GRID {
             for k in 0..6u8 {
                 assert!(
-                    seen.insert(ObjectId { area: a, index: i, kind: k }.coord()),
+                    seen.insert(
+                        ObjectId {
+                            area: a,
+                            index: i,
+                            kind: k
+                        }
+                        .coord()
+                    ),
                     "collision at ({a}, {i}, {k})"
                 );
             }
@@ -178,7 +211,13 @@ fn enum_variants_do_not_share_addresses() {
     for i in 0..if cfg!(miri) { 50 } else { 500u32 } {
         assert!(seen.insert(Slot::Indexed(i).coord()), "Indexed({i})");
         assert!(
-            seen.insert(Slot::Named { area: format!("a{i}"), n: i as u16 }.coord()),
+            seen.insert(
+                Slot::Named {
+                    area: format!("a{i}"),
+                    n: i as u16
+                }
+                .coord()
+            ),
             "Named({i})"
         );
     }
@@ -191,16 +230,38 @@ fn enum_variants_do_not_share_addresses() {
 /// `Vec<u8>: Coord`, which a blanket `T: Coord` neither implies nor is implied by.
 #[test]
 fn a_generic_key_bounds_its_fields() {
-    let a = Boxed { inner: 7u32, tag: 1 };
-    let b = Boxed { inner: 7u32, tag: 2 };
+    let a = Boxed {
+        inner: 7u32,
+        tag: 1,
+    };
+    let b = Boxed {
+        inner: 7u32,
+        tag: 2,
+    };
     assert_ne!(a.coord(), b.coord());
 
-    let c = Boxed { inner: "res".to_string(), tag: 1 };
-    let d = Boxed { inner: "res".to_string(), tag: 1 };
+    let c = Boxed {
+        inner: "res".to_string(),
+        tag: 1,
+    };
+    let d = Boxed {
+        inner: "res".to_string(),
+        tag: 1,
+    };
     assert_eq!(c.coord(), d.coord());
 
-    let e = Boxed { inner: vec![1u8, 2, 3], tag: 9 };
-    assert_ne!(e.coord(), Boxed { inner: vec![1u8, 2, 4], tag: 9 }.coord());
+    let e = Boxed {
+        inner: vec![1u8, 2, 3],
+        tag: 9,
+    };
+    assert_ne!(
+        e.coord(),
+        Boxed {
+            inner: vec![1u8, 2, 4],
+            tag: 9
+        }
+        .coord()
+    );
 }
 
 #[test]
@@ -242,17 +303,43 @@ fn derived_keys_work_on_both_faces() {
     let mut objs: Map<ObjectId, u32> = Map::new();
     for a in 0..OBJS {
         for i in 0..OBJS {
-            *objs.entry(ObjectId { area: a, index: i, kind: 3 }).or_insert(0) += 1;
+            *objs
+                .entry(ObjectId {
+                    area: a,
+                    index: i,
+                    kind: 3,
+                })
+                .or_insert(0) += 1;
         }
     }
     assert_eq!(objs.len(), (OBJS * OBJS) as usize);
-    assert_eq!(objs.get(&ObjectId { area: 7, index: 9, kind: 3 }), Some(&1));
-    assert_eq!(objs.get(&ObjectId { area: 7, index: 9, kind: 4 }), None);
+    assert_eq!(
+        objs.get(&ObjectId {
+            area: 7,
+            index: 9,
+            kind: 3
+        }),
+        Some(&1)
+    );
+    assert_eq!(
+        objs.get(&ObjectId {
+            area: 7,
+            index: 9,
+            kind: 4
+        }),
+        None
+    );
 
     let mut slots: Map<Slot, u32> = Map::new();
     slots.insert(Slot::Empty, 0);
     slots.insert(Slot::Indexed(7), 1);
-    slots.insert(Slot::Named { area: "a".into(), n: 2 }, 2);
+    slots.insert(
+        Slot::Named {
+            area: "a".into(),
+            n: 2,
+        },
+        2,
+    );
     assert_eq!(slots.len(), 3);
     assert_eq!(slots.get(&Slot::Indexed(7)), Some(&1));
     assert_eq!(slots.get(&Slot::Indexed(8)), None);
@@ -268,8 +355,16 @@ fn derived_keys_work_on_both_faces() {
 #[test]
 fn a_derived_newtype_inherits_whether_its_fold_is_already_mixed() {
     // The runtime half: the derived const must agree with the field it came from.
-    assert_eq!(<VPath as Coord>::SPREAD, <String as Coord>::SPREAD, "VPath must agree with String");
-    assert_eq!(<BlockId as Coord>::SPREAD, <u32 as Coord>::SPREAD, "BlockId must agree with u32");
+    assert_eq!(
+        <VPath as Coord>::SPREAD,
+        <String as Coord>::SPREAD,
+        "VPath must agree with String"
+    );
+    assert_eq!(
+        <BlockId as Coord>::SPREAD,
+        <u32 as Coord>::SPREAD,
+        "BlockId must agree with u32"
+    );
 }
 
 // And the values themselves, as **compile-time** assertions, because they are constants and a
@@ -278,8 +373,14 @@ fn a_derived_newtype_inherits_whether_its_fold_is_already_mixed() {
 //
 // A newtype over a byte fold is already mixed and must say so; over an integer it is not, and the
 // spread is the only thing mixing it *and* the only thing carrying its pepper.
-const _: () = assert!(<VPath as Coord>::SPREAD, "a String newtype should skip the second mix");
-const _: () = assert!(!<BlockId as Coord>::SPREAD, "a u32 newtype must keep the spread");
+const _: () = assert!(
+    <VPath as Coord>::SPREAD,
+    "a String newtype should skip the second mix"
+);
+const _: () = assert!(
+    !<BlockId as Coord>::SPREAD,
+    "a u32 newtype must keep the spread"
+);
 // Composites take the conjunction, so all-integer structs and enums keep it, and a mixed one is
 // conservative rather than clever.
 const _: () = assert!(!<ObjectId as Coord>::SPREAD);
@@ -301,11 +402,22 @@ fn a_derived_type_that_claims_spread_consumes_the_pepper() {
         for p in [0u64, 1, 0x5EED_1234_ABCD_9876, u64::MAX] {
             seen.insert(k.coord_with(p));
         }
-        assert_eq!(seen.len(), 4, "{label} claims SPREAD but ignores the pepper");
+        assert_eq!(
+            seen.len(),
+            4,
+            "{label} claims SPREAD but ignores the pepper"
+        );
     }
     obliged("VPath", &VPath("data/meshes/c_human.mdl".into()));
     obliged("BlockId", &BlockId(7));
-    obliged("ObjectId", &ObjectId { area: 1, index: 2, kind: 3 });
+    obliged(
+        "ObjectId",
+        &ObjectId {
+            area: 1,
+            index: 2,
+            kind: 3,
+        },
+    );
 }
 
 /// **The derive propagates `Coord::CHEAP_EQ`.**
@@ -335,7 +447,10 @@ fn a_derived_newtype_inherits_whether_its_key_is_cheap_to_compare() {
 }
 
 // The same values as compile-time assertions, for the same reason.
-const _: () = assert!(<BlockId as Coord>::CHEAP_EQ, "a u32 newtype compares in one instruction");
+const _: () = assert!(
+    <BlockId as Coord>::CHEAP_EQ,
+    "a u32 newtype compares in one instruction"
+);
 const _: () = assert!(!<VPath as Coord>::CHEAP_EQ, "a String newtype does not");
 // Conjunction over the fields: all-integer composites are cheap, and one byte field is enough to
 // make the whole thing not -- `Wide`'s trailing `String` is what decides it.

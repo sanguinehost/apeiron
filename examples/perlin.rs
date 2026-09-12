@@ -5,7 +5,10 @@
 //! interchangeable. 14,741,760 collisions of 16,777,216, which this reproduces exactly.
 //!
 //! Run: `cargo run --release --example perlin`
-#![expect(clippy::cast_possible_truncation, reason = "counts are bounded by the loop")]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "counts are bounded by the loop"
+)]
 
 use apeiron::fold::fold_bytes_with;
 use std::collections::HashSet;
@@ -20,6 +23,10 @@ fn main() {
                 n += 1;
             }
         }
-        println!("  inputLen={input_len:<3} {n} hashes -> {} distinct  ({} collisions)", all.len(), n as usize - all.len());
+        println!(
+            "  inputLen={input_len:<3} {n} hashes -> {} distinct  ({} collisions)",
+            all.len(),
+            n as usize - all.len()
+        );
     }
 }

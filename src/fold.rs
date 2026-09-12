@@ -257,9 +257,7 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
         } else if len > 0 {
             // Three reads cover 1, 2 and 3 bytes without a branch per length: first, middle and
             // last, which are distinct positions for every length in range.
-            let a = (u64::from(b[0]) << 16)
-                | (u64::from(b[len >> 1]) << 8)
-                | u64::from(b[len - 1]);
+            let a = (u64::from(b[0]) << 16) | (u64::from(b[len >> 1]) << 8) | u64::from(b[len - 1]);
             // The second operand is the key again, rotated -- **not** zero, which is what it was.
             //
             // With `c = 0` the whole hash is `mix2(a + seed, NU)`, a function of `a + seed` alone,
@@ -286,7 +284,10 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
     // above instead: the two halves would be the same two words, and folding them twice buys
     // nothing that the branch above does not already get from one `mix2`.
     if len <= 32 {
-        let x = mix2(word(&b[..8]).wrapping_add(seed), word(&b[8..16]).wrapping_add(seed2));
+        let x = mix2(
+            word(&b[..8]).wrapping_add(seed),
+            word(&b[8..16]).wrapping_add(seed2),
+        );
         // Settled too, and `SMHasher` is why. This branch's **last** `mix2` takes raw key words as
         // operands, so its guard `(w2 + x) - (w3 + PHI)` is affine in bytes of the key itself. At
         // thirty-three and above, and in `fold_long`, the last mix is `mix2(x, y + NU)` -- affine
@@ -310,11 +311,23 @@ fn absorb(pepper: u64, b: &[u8]) -> u64 {
     // and a ~42-byte `VPath` -- and splitting at 32 put the path shape on the wrong side: measured,
     // resref lookups gained 10.0 instructions and path lookups lost 12.0.
     if len <= 64 {
-        let x = mix2(seed.wrapping_add(word(&b[..8])), NU.wrapping_add(word(&b[8..16])));
-        let y = mix2(seed2.wrapping_add(word(&b[16..24])), PHI.wrapping_add(word(&b[24..32])));
+        let x = mix2(
+            seed.wrapping_add(word(&b[..8])),
+            NU.wrapping_add(word(&b[8..16])),
+        );
+        let y = mix2(
+            seed2.wrapping_add(word(&b[16..24])),
+            PHI.wrapping_add(word(&b[24..32])),
+        );
         let tail = &b[len - 32..];
-        let x = mix2(x.wrapping_add(word(&tail[..8])), NU.wrapping_add(word(&tail[8..16])));
-        let y = mix2(y.wrapping_add(word(&tail[16..24])), PHI.wrapping_add(word(&tail[24..])));
+        let x = mix2(
+            x.wrapping_add(word(&tail[..8])),
+            NU.wrapping_add(word(&tail[8..16])),
+        );
+        let y = mix2(
+            y.wrapping_add(word(&tail[16..24])),
+            PHI.wrapping_add(word(&tail[24..])),
+        );
         return mix2(x, y.wrapping_add(NU));
     }
     fold_long(seed, seed2, b)
@@ -357,8 +370,14 @@ fn fold_long(seed: u64, seed2: u64, b: &[u8]) -> u64 {
     // slice exists; the overlap covers those bytes twice rather than once, which is harmless and is
     // what a padded tail would otherwise cost.
     let tail = &b[len - 32..];
-    let x = mix2(x.wrapping_add(word(&tail[..8])), NU.wrapping_add(word(&tail[8..16])));
-    let y = mix2(y.wrapping_add(word(&tail[16..24])), PHI.wrapping_add(word(&tail[24..])));
+    let x = mix2(
+        x.wrapping_add(word(&tail[..8])),
+        NU.wrapping_add(word(&tail[8..16])),
+    );
+    let y = mix2(
+        y.wrapping_add(word(&tail[16..24])),
+        PHI.wrapping_add(word(&tail[24..])),
+    );
     mix2(x, y.wrapping_add(NU))
 }
 
@@ -469,7 +488,10 @@ impl Coord for u128 {
                       the high one -- so nothing is dropped; the cast is how each half is named."
     )]
     fn coord(&self) -> u64 {
-        mix2((*self as u64).wrapping_add(PHI), ((*self >> 64) as u64).wrapping_add(NU))
+        mix2(
+            (*self as u64).wrapping_add(PHI),
+            ((*self >> 64) as u64).wrapping_add(NU),
+        )
     }
 }
 
@@ -586,7 +608,11 @@ mod tests {
         // The coset that must swap, because `2 * 2^63 == 0`.
         for x in [0u64, 1, PHI, NU, u64::MAX, 0x5EED] {
             let y = x ^ (1 << 63);
-            assert_eq!(mix2(x, y), mix2(y, x), "the two-element coset must swap at {x:#x}");
+            assert_eq!(
+                mix2(x, y),
+                mix2(y, x),
+                "the two-element coset must swap at {x:#x}"
+            );
         }
         // And nothing outside it, over a sweep wide enough to have caught the old guard.
         let mut s = 0x243F_6A88_85A3_08D3u64;
@@ -603,7 +629,11 @@ mod tests {
         // The rejected guard, exhibited: same half difference, so it swaps.
         let old = |a: u64, b: u64| a.wrapping_add(b.rotate_left(32));
         let (u, v) = (0x0000_0001_0000_0000u64, 0x0000_0002_0000_0001u64);
-        assert_eq!(old(u, v), old(v, u), "the rejected guard's 2^32-wide swap class");
+        assert_eq!(
+            old(u, v),
+            old(v, u),
+            "the rejected guard's 2^32-wide swap class"
+        );
     }
 
     #[test]
@@ -616,7 +646,13 @@ mod tests {
 
     #[test]
     fn a_pepper_moves_every_address() {
-        let keys = ["", "a", "abcd", "abcdefgh", "the quick brown fox jumps over the lazy dog"];
+        let keys = [
+            "",
+            "a",
+            "abcd",
+            "abcdefgh",
+            "the quick brown fox jumps over the lazy dog",
+        ];
         for k in keys {
             assert_ne!(
                 fold_bytes_with(0, k.as_bytes()),
@@ -670,11 +706,14 @@ mod tests {
                 let key = &k.to_le_bytes()[..len];
                 for pepper in 0..N {
                     let h = fold_bytes_with(pepper, key);
-                    let id = (u64::from_le_bytes({
-                        let mut w = [0u8; 8];
-                        w[..len].copy_from_slice(key);
-                        w
-                    }), pepper);
+                    let id = (
+                        u64::from_le_bytes({
+                            let mut w = [0u8; 8];
+                            w[..len].copy_from_slice(key);
+                            w
+                        }),
+                        pepper,
+                    );
                     if let Some(prev) = seen.insert(h, id) {
                         assert_eq!(prev, id, "len {len}: {prev:?} and {id:?} share an address");
                     }
@@ -693,7 +732,10 @@ mod tests {
     /// Averaging over `KEYS` base keys cuts the deviation by `sqrt(KEYS)` and lets the band be
     /// tight enough to mean something: a real bias shows, a lucky draw does not.
     #[test]
-    #[expect(clippy::cast_possible_truncation, reason = "a key byte is a byte of a mixed word")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a key byte is a byte of a mixed word"
+    )]
     fn every_input_bit_moves_half_the_output_at_every_length() {
         const KEYS: u32 = if cfg!(miri) { 8 } else { 96 };
         const LENS: &[usize] = if cfg!(miri) {
@@ -745,7 +787,11 @@ mod tests {
     )]
     fn no_two_keys_collide_across_the_length_ladder() {
         let mut seen = std::collections::HashMap::new();
-        let (max_len, variants) = if cfg!(miri) { (40usize, 8u8) } else { (140usize, 64u8) };
+        let (max_len, variants) = if cfg!(miri) {
+            (40usize, 8u8)
+        } else {
+            (140usize, 64u8)
+        };
         for len in 0..=max_len {
             for variant in 0..variants {
                 let mut k: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(17)).collect();
@@ -758,7 +804,10 @@ mod tests {
                 }
                 let a = fold_bytes(&k);
                 if let Some(prev) = seen.insert(a, k.clone()) {
-                    assert_eq!(prev, k, "two distinct keys share an address: {prev:?} and {k:?}");
+                    assert_eq!(
+                        prev, k,
+                        "two distinct keys share an address: {prev:?} and {k:?}"
+                    );
                 }
             }
         }

@@ -60,7 +60,11 @@ fn row(label: &str, n: usize, cols: &[f64]) {
     let best = cols.iter().copied().fold(f64::INFINITY, f64::min);
     print!("  {label:<10} {n:>8}");
     for &c in cols {
-        let mark = if (c - best).abs() < f64::EPSILON { '*' } else { ' ' };
+        let mark = if (c - best).abs() < f64::EPSILON {
+            '*'
+        } else {
+            ' '
+        };
         print!(" {c:>9.2}{mark}");
     }
     println!();
@@ -87,10 +91,20 @@ fn int_keys(n: usize) -> Vec<u64> {
 /// be the workload.
 fn resrefs(n: usize) -> Vec<String> {
     let stems = [
-        "nw_wswmg", "nw_it_msmlmisc", "x2_it_drowcloth", "plc_barrel", "c_dragred",
-        "nw_maarcl", "x0_maceflail", "tr_area", "pnl_chr_gen", "gui_icon",
+        "nw_wswmg",
+        "nw_it_msmlmisc",
+        "x2_it_drowcloth",
+        "plc_barrel",
+        "c_dragred",
+        "nw_maarcl",
+        "x0_maceflail",
+        "tr_area",
+        "pnl_chr_gen",
+        "gui_icon",
     ];
-    (0..n).map(|i| format!("{}{:03}", stems[i % stems.len()], i)).collect()
+    (0..n)
+        .map(|i| format!("{}{:03}", stems[i % stems.len()], i))
+        .collect()
 }
 
 fn ints(sizes: &[usize]) {
@@ -115,25 +129,26 @@ fn ints(sizes: &[usize]) {
             black_box(ks.iter().filter_map(|k| m.get(k)).count());
         });
         let hf = time(reps, || {
-            let mut m: HbMap<u64, u64, Fold> = HbMap::with_capacity_and_hasher(ks.len(), Fold::default());
+            let mut m: HbMap<u64, u64, Fold> =
+                HbMap::with_capacity_and_hasher(ks.len(), Fold::default());
             for &k in &ks {
                 m.insert(k, k);
             }
             black_box(ks.iter().filter_map(|k| m.get(k)).count());
         });
         let hx = time(reps, || {
-            let mut m: HbMap<u64, u64, Fx> = HbMap::with_capacity_and_hasher(ks.len(), Fx::default());
+            let mut m: HbMap<u64, u64, Fx> =
+                HbMap::with_capacity_and_hasher(ks.len(), Fx::default());
             for &k in &ks {
                 m.insert(k, k);
             }
             black_box(ks.iter().filter_map(|k| m.get(k)).count());
         });
-        row("build+get", n, &[
-            ap / n as f64,
-            st / n as f64,
-            hf / n as f64,
-            hx / n as f64,
-        ]);
+        row(
+            "build+get",
+            n,
+            &[ap / n as f64, st / n as f64, hf / n as f64, hx / n as f64],
+        );
     }
 }
 
@@ -154,12 +169,24 @@ fn lookups(sizes: &[usize]) {
             hf.insert(k, k);
             hx.insert(k, k);
         }
-        row("get", n, &[
-            time(reps, || { black_box(ks.iter().filter_map(|k| ap.get(k)).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| st.get(k)).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| hf.get(k)).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| hx.get(k)).count()); }) / n as f64,
-        ]);
+        row(
+            "get",
+            n,
+            &[
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| ap.get(k)).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| st.get(k)).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| hf.get(k)).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| hx.get(k)).count());
+                }) / n as f64,
+            ],
+        );
     }
 }
 
@@ -184,7 +211,8 @@ fn strings(sizes: &[usize]) {
             black_box(ks.iter().filter_map(|k| m.get(k.as_str())).count());
         });
         let hf = time(reps, || {
-            let mut m: HbMap<String, u32, Fold> = HbMap::with_capacity_and_hasher(n, Fold::default());
+            let mut m: HbMap<String, u32, Fold> =
+                HbMap::with_capacity_and_hasher(n, Fold::default());
             for (i, k) in ks.iter().enumerate() {
                 m.insert(k.clone(), i as u32);
             }
@@ -197,7 +225,11 @@ fn strings(sizes: &[usize]) {
             }
             black_box(ks.iter().filter_map(|k| m.get(k.as_str())).count());
         });
-        row("build+get", n, &[ap / n as f64, st / n as f64, hf / n as f64, hx / n as f64]);
+        row(
+            "build+get",
+            n,
+            &[ap / n as f64, st / n as f64, hf / n as f64, hx / n as f64],
+        );
     }
 }
 
@@ -216,12 +248,24 @@ fn string_lookups(sizes: &[usize]) {
             hf.insert(k.clone(), i as u32);
             hx.insert(k.clone(), i as u32);
         }
-        row("get", n, &[
-            time(reps, || { black_box(ks.iter().filter_map(|k| ap.get_at(k.as_str())).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| st.get(k.as_str())).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| hf.get(k.as_str())).count()); }) / n as f64,
-            time(reps, || { black_box(ks.iter().filter_map(|k| hx.get(k.as_str())).count()); }) / n as f64,
-        ]);
+        row(
+            "get",
+            n,
+            &[
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| ap.get_at(k.as_str())).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| st.get(k.as_str())).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| hf.get(k.as_str())).count());
+                }) / n as f64,
+                time(reps, || {
+                    black_box(ks.iter().filter_map(|k| hx.get(k.as_str())).count());
+                }) / n as f64,
+            ],
+        );
     }
 }
 

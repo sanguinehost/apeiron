@@ -78,7 +78,11 @@ fn lines() -> Vec<[u8; 16]> {
         let mut l = [0u8; 16];
         for b in &mut l {
             let v = next();
-            *b = if v & 3 == 0 { 0xFF } else { (v >> 8) as u8 & 0x7F };
+            *b = if v & 3 == 0 {
+                0xFF
+            } else {
+                (v >> 8) as u8 & 0x7F
+            };
         }
         out.push(l);
     }
@@ -89,7 +93,11 @@ fn lines() -> Vec<[u8; 16]> {
 fn the_swar_scan_is_the_scalar_definition() {
     for l in lines() {
         for tag in (0u8..=255).step_by(if cfg!(miri) { 17 } else { 1 }) {
-            assert_eq!(scan::match_tag_swar(&l, tag), reference_match(&l, tag), "line {l:?} tag {tag}");
+            assert_eq!(
+                scan::match_tag_swar(&l, tag),
+                reference_match(&l, tag),
+                "line {l:?} tag {tag}"
+            );
         }
         assert_eq!(scan::free_swar(&l), reference_free(&l), "line {l:?}");
     }

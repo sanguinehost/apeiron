@@ -69,18 +69,36 @@ fn pack(k: (i32, i32, i32)) -> u64 {
 }
 
 fn main() {
-    let threads: usize = std::env::var("THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or(16);
-    let rounds: usize = std::env::var("ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(15);
+    let threads: usize = std::env::var("THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
+    let rounds: usize = std::env::var("ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15);
     // `ARM=serial` / `ARM=par` runs one arm alone, so the other's allocation pattern cannot
     // disturb it. Interleaved in one process the parallel arm's per-thread regions churn the
     // free list under the serial arm, and the two designs disagree about the crossover because
     // of it -- which is the whole reason this switch exists.
     let arm = std::env::var("ARM").unwrap_or_else(|_| "both".into());
     println!("build and probe, {threads} threads, best of {rounds} interleaved rounds\n");
-    println!("  {:>9} {:>11} {:>11} {:>9}  verdict", "n", "serial ms", "par ms", "speedup");
+    println!(
+        "  {:>9} {:>11} {:>11} {:>9}  verdict",
+        "n", "serial ms", "par ms", "speedup"
+    );
 
-    for n in [25_000usize, 50_000, 100_000, 150_000, 200_000, 300_000, 400_000, 600_000, 1_000_000]
-    {
+    for n in [
+        25_000usize,
+        50_000,
+        100_000,
+        150_000,
+        200_000,
+        300_000,
+        400_000,
+        600_000,
+        1_000_000,
+    ] {
         let keys = scene(n);
         let mut occupied = keys.clone();
         occupied.sort_unstable();
@@ -109,7 +127,13 @@ fn main() {
             "par" => println!("  {n:>9} {best_p:>11.3}"),
             _ => {
                 let sp = best_s / best_p;
-                let v = if sp > 1.05 { "parallel" } else if sp < 0.95 { "SERIAL" } else { "tie" };
+                let v = if sp > 1.05 {
+                    "parallel"
+                } else if sp < 0.95 {
+                    "SERIAL"
+                } else {
+                    "tie"
+                };
                 println!("  {n:>9} {best_s:>11.3} {best_p:>11.3} {sp:>8.2}x  {v}");
             }
         }

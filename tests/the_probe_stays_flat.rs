@@ -86,15 +86,22 @@ fn every_distribution_probes_flat_at_every_size() {
     // Miri cannot walk a million and a half keys. The smallest size still exercises the descent
     // and the flatness bounds; the two large ones are what make the *distribution* argument, and
     // they run natively, which is where that argument is made.
-    let sizes: &[usize] =
-        if cfg!(miri) { &[2_000] } else { &[5_000, 200_000, 1_500_000] };
+    let sizes: &[usize] = if cfg!(miri) {
+        &[2_000]
+    } else {
+        &[5_000, 200_000, 1_500_000]
+    };
     for &n in sizes {
         for (name, f) in u64_distributions() {
             let mut m: Words<u64, u64> = Words::new();
             for i in 0..n as u64 {
                 m.insert(f(i), i);
             }
-            assert_eq!(m.len(), n, "{name}: generator is not injective; dedup before measuring");
+            assert_eq!(
+                m.len(),
+                n,
+                "{name}: generator is not injective; dedup before measuring"
+            );
             check(&format!("{name} n={n}"), &m.stats());
         }
     }

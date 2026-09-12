@@ -26,23 +26,46 @@ const PAIR: i32 = if cfg!(miri) { 16 } else { 64 };
 const WIDE: i32 = if cfg!(miri) { 32 } else { 512 };
 const TRIPLE: i32 = if cfg!(miri) { 6 } else { 16 };
 
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn a_signed_pair_grid_is_spread_without_collision() {
-    let keys: Vec<(i32, i32)> =
-        (-PAIR..PAIR).flat_map(|x| (-PAIR..PAIR).map(move |y| (x, y))).collect();
-    assert_eq!(distinct(&keys), keys.len(), "signed {}x{} grid collides", PAIR * 2, PAIR * 2);
+    let keys: Vec<(i32, i32)> = (-PAIR..PAIR)
+        .flat_map(|x| (-PAIR..PAIR).map(move |y| (x, y)))
+        .collect();
+    assert_eq!(
+        distinct(&keys),
+        keys.len(),
+        "signed {}x{} grid collides",
+        PAIR * 2,
+        PAIR * 2
+    );
 }
 
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn a_wide_signed_pair_grid_is_spread_without_collision() {
-    let keys: Vec<(i32, i32)> =
-        (-WIDE..WIDE).flat_map(|x| (-WIDE..WIDE).map(move |y| (x, y))).collect();
-    assert_eq!(distinct(&keys), keys.len(), "signed {}x{} grid collides", WIDE * 2, WIDE * 2);
+    let keys: Vec<(i32, i32)> = (-WIDE..WIDE)
+        .flat_map(|x| (-WIDE..WIDE).map(move |y| (x, y)))
+        .collect();
+    assert_eq!(
+        distinct(&keys),
+        keys.len(),
+        "signed {}x{} grid collides",
+        WIDE * 2,
+        WIDE * 2
+    );
 }
 
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn a_signed_triple_grid_is_spread_without_collision() {
     let keys: Vec<(i32, i32, i32)> = (-TRIPLE..TRIPLE)
@@ -50,12 +73,20 @@ fn a_signed_triple_grid_is_spread_without_collision() {
             (-TRIPLE..TRIPLE).flat_map(move |y| (-TRIPLE..TRIPLE).map(move |z| (x, y, z)))
         })
         .collect();
-    assert_eq!(distinct(&keys), keys.len(), "signed {}^3 grid collides", TRIPLE * 2);
+    assert_eq!(
+        distinct(&keys),
+        keys.len(),
+        "signed {}^3 grid collides",
+        TRIPLE * 2
+    );
 }
 
 /// The non-negative case, which the old fold also passed. Kept so a change that fixes the signed
 /// case by breaking the unsigned one is caught.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn an_unsigned_grid_is_still_spread_without_collision() {
     let n = if cfg!(miri) { 32u32 } else { 128 };
@@ -65,7 +96,10 @@ fn an_unsigned_grid_is_still_spread_without_collision() {
 
 /// Mixed widths and signs, which is what a real key looks like: a cell coordinate and a
 /// generation, say.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn mixed_width_keys_do_not_collide() {
     let keys: Vec<(i16, u32, i64)> = (-8i16..8)

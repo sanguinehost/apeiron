@@ -41,7 +41,10 @@ fn foldhash_arm(ks: &[Vec<u8>], reps: usize, st: foldhash::fast::FixedState) -> 
 }
 
 fn main() {
-    let len: usize = std::env::var("LEN").ok().and_then(|v| v.parse().ok()).unwrap_or(16);
+    let len: usize = std::env::var("LEN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
     let mut s = 0x243F_6A88_85A3_08D3u64;
     let ks: Vec<Vec<u8>> = (0..256)
         .map(|_| {

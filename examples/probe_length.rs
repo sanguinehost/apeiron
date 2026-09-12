@@ -36,7 +36,20 @@ fn main() {
     for &k in &ks {
         h.insert(k, k);
     }
-    println!("apeiron:   live {} slots {} load {:.3}", s.live, s.slots, s.live as f64 / s.slots as f64);
-    println!("           mean_probe {:.4}  mean_compares {:.4}  longest {}", s.mean_probe, s.mean_compares, s.longest_probe);
-    println!("hashbrown: live {} slots {} load {:.3}", h.len(), h.capacity(), h.len() as f64 / h.capacity() as f64);
+    println!(
+        "apeiron:   live {} slots {} load {:.3}",
+        s.live,
+        s.slots,
+        s.live as f64 / s.slots as f64
+    );
+    println!(
+        "           mean_probe {:.4}  mean_compares {:.4}  longest {}",
+        s.mean_probe, s.mean_compares, s.longest_probe
+    );
+    println!(
+        "hashbrown: live {} slots {} load {:.3}",
+        h.len(),
+        h.capacity(),
+        h.len() as f64 / h.capacity() as f64
+    );
 }

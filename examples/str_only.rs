@@ -18,7 +18,10 @@ const REPS: usize = 200_000;
 /// Lyrium `VPath` is. The two sit either side of the fold's 32-byte round, so they take different
 /// paths through it and a change to one is not a change to the other.
 fn keys() -> Vec<String> {
-    match std::env::var("STR_KEYS").unwrap_or_else(|_| "resref".into()).as_str() {
+    match std::env::var("STR_KEYS")
+        .unwrap_or_else(|_| "resref".into())
+        .as_str()
+    {
         "path" => (0..N)
             .map(|i| format!("modules/neverwinter/areas/nw_wswmg{i:05}.are"))
             .collect(),

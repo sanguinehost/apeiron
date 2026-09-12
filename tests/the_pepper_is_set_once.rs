@@ -25,7 +25,10 @@ use std::sync::Barrier;
 
 #[test]
 fn exactly_one_setter_wins_a_race_and_everyone_reads_the_winner() {
-    assert!(!pepper_is_committed(), "something touched the pepper before this test");
+    assert!(
+        !pepper_is_committed(),
+        "something touched the pepper before this test"
+    );
     assert_eq!(peek_process_pepper(), 0);
 
     const THREADS: usize = 32;
@@ -53,7 +56,10 @@ fn exactly_one_setter_wins_a_race_and_everyone_reads_the_winner() {
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().expect("thread")).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("thread"))
+            .collect()
     });
 
     assert_eq!(

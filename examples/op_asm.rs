@@ -7,7 +7,10 @@
 //!
 //! Run: `taskset -c 2 cargo run --release --example op_asm remove`
 
-#![expect(clippy::cast_precision_loss, reason = "a harness printing per-operation rates")]
+#![expect(
+    clippy::cast_precision_loss,
+    reason = "a harness printing per-operation rates"
+)]
 
 #[path = "support/counter.rs"]
 mod counter;
@@ -22,7 +25,10 @@ type HbMap<K, V> = hashbrown::HashMap<K, V, Fold>;
 /// Override with `AP_N`. The surface harness disagrees with this file about `clone` at 100,000
 /// and agrees at 20,000, so the size has to be a knob rather than a constant.
 static N: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
-    std::env::var("AP_N").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000)
+    std::env::var("AP_N")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20_000)
 });
 
 #[inline(never)]
@@ -174,7 +180,8 @@ fn arms<A, B>(
     mb: impl Fn() -> B,
     mut fb: impl FnMut(B) -> u64,
 ) {
-    let (mut ai, mut ay, mut bi, mut by) = (f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let (mut ai, mut ay, mut bi, mut by) =
+        (f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::INFINITY);
     for r in 0..8 {
         // The order swaps every round. Alternating the arms bounds the machine's drift to one
         // round, but running the same arm first in every round hands that arm every cold start:
@@ -203,9 +210,17 @@ fn arms<A, B>(
     }
     println!("  apeiron      {ai:>7.2} instructions  {ay:>7.2} cycles");
     println!("  hb+fold      {bi:>7.2} instructions  {by:>7.2} cycles");
-    println!("  ratio        {:>7.2}x              {:>7.2}x   (>1 is a win)", bi / ai, by / ay);
+    println!(
+        "  ratio        {:>7.2}x              {:>7.2}x   (>1 is a win)",
+        bi / ai,
+        by / ay
+    );
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one measurement harness prints the whole operation surface; the shared setup is the function"
+)]
 fn main() {
     let op = std::env::args().nth(1).unwrap_or_else(|| "remove".into());
     // `AP_ARM=apeiron|hb` runs one arm and nothing else, so an external `perf stat` on the whole
@@ -232,7 +247,12 @@ fn main() {
                 }
             });
         }
-        println!("{arm} {op}: {} over {} reps of {}", black_box(acc), reps, *N);
+        println!(
+            "{arm} {op}: {} over {} reps of {}",
+            black_box(acc),
+            reps,
+            *N
+        );
         return;
     }
     let Some(c) = Counter::open() else {
@@ -252,36 +272,71 @@ fn main() {
     let built_s: std::collections::HashMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
     println!(
         "  n={} capacity: apeiron {} hb {} std {}",
-        *N, built_a.capacity(), built_f.capacity(), built_s.capacity()
+        *N,
+        built_a.capacity(),
+        built_f.capacity(),
+        built_s.capacity()
     );
     println!("{op}, n={}", *N);
     match op.as_str() {
-        "remove" => arms(&c,
-            || built_a.clone(), |mut m| ap_remove(&mut m, &ks),
-            || built_f.clone(), |mut m| hb_remove(&mut m, &ks)),
-        "getfm" => arms(&c,
-            || (), |()| ap_get_fm(&built_a, &ks),
-            || (), |()| hb_get_fm(&built_f, &ks)),
+        "remove" => arms(
+            &c,
+            || built_a.clone(),
+            |mut m| ap_remove(&mut m, &ks),
+            || built_f.clone(),
+            |mut m| hb_remove(&mut m, &ks),
+        ),
+        "getfm" => arms(
+            &c,
+            || (),
+            |()| ap_get_fm(&built_a, &ks),
+            || (),
+            |()| hb_get_fm(&built_f, &ks),
+        ),
         "miss" => {
             let miss: Vec<u64> = ks.iter().map(|k| !k ^ 0x5555_5555_5555_5555).collect();
-            arms(&c, || (), |()| ap_miss(&built_a, &miss), || (), |()| hb_miss(&built_f, &miss));
+            arms(
+                &c,
+                || (),
+                |()| ap_miss(&built_a, &miss),
+                || (),
+                |()| hb_miss(&built_f, &miss),
+            );
         }
         "stats" => {
             let s = built_a.stats();
-            println!("  live {} slots {} mean_probe {:.4} mean_compares {:.4} longest {}",
-                s.live, s.slots, s.mean_probe, s.mean_compares, s.longest_probe);
+            println!(
+                "  live {} slots {} mean_probe {:.4} mean_compares {:.4} longest {}",
+                s.live, s.slots, s.mean_probe, s.mean_compares, s.longest_probe
+            );
         }
-        "clone" => arms(&c,
-            || (), |()| ap_clone(&built_a),
-            || (), |()| hb_clone(&built_f)),
-        "clonestd" => arms(&c,
-            || (), |()| std_clone(&built_s),
-            || (), |()| hb_clone(&built_f)),
-        "iter" => arms(&c,
-            || (), |()| ap_iter(&built_a),
-            || (), |()| hb_iter(&built_f)),
-        _ => arms(&c,
-            || (), |()| ap_get(&built_a, &ks),
-            || (), |()| hb_get(&built_f, &ks)),
+        "clone" => arms(
+            &c,
+            || (),
+            |()| ap_clone(&built_a),
+            || (),
+            |()| hb_clone(&built_f),
+        ),
+        "clonestd" => arms(
+            &c,
+            || (),
+            |()| std_clone(&built_s),
+            || (),
+            |()| hb_clone(&built_f),
+        ),
+        "iter" => arms(
+            &c,
+            || (),
+            |()| ap_iter(&built_a),
+            || (),
+            |()| hb_iter(&built_f),
+        ),
+        _ => arms(
+            &c,
+            || (),
+            |()| ap_get(&built_a, &ks),
+            || (),
+            |()| hb_get(&built_f, &ks),
+        ),
     }
 }

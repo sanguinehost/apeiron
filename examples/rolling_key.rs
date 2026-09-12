@@ -35,7 +35,8 @@ const B: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// `token_countlm`'s key, transcribed: `Σ ctx[j]·B^(o-1-j)`.
 fn roll(ctx: &[u32]) -> u64 {
-    ctx.iter().fold(0u64, |h, &t| h.wrapping_mul(B).wrapping_add(u64::from(t)))
+    ctx.iter()
+        .fold(0u64, |h, &t| h.wrapping_mul(B).wrapping_add(u64::from(t)))
 }
 
 fn rng(seed: u64) -> impl FnMut() -> u64 {
@@ -57,7 +58,9 @@ fn floor(n: usize, bits: u32) -> f64 {
 fn main() {
     let vocab: u32 = 8192; // the harness's BPE size
     let n: usize = 8_000_000; // distinct contexts, ~ a 40 MB corpus at order 6
-    println!("vocab {vocab}, {n} distinct contexts, key = polynomial rolling hash mod 2^64 (B = PHI)");
+    println!(
+        "vocab {vocab}, {n} distinct contexts, key = polynomial rolling hash mod 2^64 (B = PHI)"
+    );
     println!(
         "{:<10} {:>12} {:>12} {:>16} {:>16}",
         "order", "distribution", "distinct ctx", "collisions", "birthday floor"

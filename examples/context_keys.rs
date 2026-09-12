@@ -40,7 +40,9 @@ use apeiron::coord::{bucket, finish, mix, pack, PHI};
 use std::collections::HashSet;
 
 fn xor_fold(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0u64, |a, &b| a.wrapping_mul(PHI) ^ u64::from(b))
+    bytes
+        .iter()
+        .fold(0u64, |a, &b| a.wrapping_mul(PHI) ^ u64::from(b))
 }
 fn mix_fold(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0u64, |a, &b| mix(a, u64::from(b)))
@@ -60,7 +62,11 @@ fn collisions(addrs: &[u64]) -> f64 {
 }
 fn bucketed(addrs: &[u64], bits: u32) -> f64 {
     let n = addrs.len();
-    let d = addrs.iter().map(|&a| bucket(a, bits)).collect::<HashSet<_>>().len();
+    let d = addrs
+        .iter()
+        .map(|&a| bucket(a, bits))
+        .collect::<HashSet<_>>()
+        .len();
     100.0 * (n - d) as f64 / n as f64
 }
 fn floor(n: usize, bits: u32) -> f64 {
@@ -70,9 +76,9 @@ fn floor(n: usize, bits: u32) -> f64 {
 }
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap_or_else(|| {
-        "/home/socol/Workspace/bdh/input.txt".to_string()
-    });
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/home/socol/Workspace/bdh/input.txt".to_string());
     let data = std::fs::read(&path).expect("corpus");
     let data = &data[..data.len().min(2_000_000)];
 
@@ -112,10 +118,14 @@ fn main() {
         let bits = (usize::BITS - n.leading_zeros()).min(30); // table sized to the key count
         let xs: Vec<u64> = ctxs.iter().map(|c| xor_fold(c)).collect();
         let ms: Vec<u64> = ctxs.iter().map(|c| mix_fold(c)).collect();
-        let coded: Vec<Vec<u8>> =
-            ctxs.iter().map(|c| c.iter().map(|&b| code[b as usize]).collect()).collect();
-        let ps: Option<Vec<u64>> =
-            coded.iter().map(|c| pack_fold(c, width)).collect::<Option<Vec<_>>>();
+        let coded: Vec<Vec<u8>> = ctxs
+            .iter()
+            .map(|c| c.iter().map(|&b| code[b as usize]).collect())
+            .collect();
+        let ps: Option<Vec<u64>> = coded
+            .iter()
+            .map(|c| pack_fold(c, width))
+            .collect::<Option<Vec<_>>>();
 
         let pack_cell = match &ps {
             Some(p) => {
@@ -134,11 +144,19 @@ fn main() {
         );
         // mix+finish IS bucket(); the raw-top column is the one without the avalanche
         let raw_top = {
-            let d = ms.iter().map(|&a| a >> (64 - bits)).collect::<HashSet<_>>().len();
+            let d = ms
+                .iter()
+                .map(|&a| a >> (64 - bits))
+                .collect::<HashSet<_>>()
+                .len();
             100.0 * (n - d) as f64 / n as f64
         };
         let raw_xor = {
-            let d = xs.iter().map(|&a| a >> (64 - bits)).collect::<HashSet<_>>().len();
+            let d = xs
+                .iter()
+                .map(|&a| a >> (64 - bits))
+                .collect::<HashSet<_>>()
+                .len();
             100.0 * (n - d) as f64 / n as f64
         };
         println!(

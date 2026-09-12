@@ -83,10 +83,10 @@
 mod counter;
 
 use apeiron::map::{Map, Words};
-use std::sync::OnceLock;
 use counter::Counter;
 use std::collections::HashMap;
 use std::hint::black_box;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 type Fold = foldhash::fast::RandomState;
@@ -253,7 +253,10 @@ fn count(c: Option<&Counter>, arm: &mut Arm, reps: usize, f: &mut impl FnMut() -
 ///
 /// If any two arms disagree on their checksum. A disagreement means the row is measuring different
 /// work in different arms, which is the one failure a timing harness cannot report as a number.
-#[expect(clippy::too_many_arguments, reason = "three arms plus the row's own labels and budget; a struct per arm would move the same eight values behind a name that adds nothing")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "three arms plus the row's own labels and budget; a struct per arm would move the same eight values behind a name that adds nothing"
+)]
 fn row(
     op: &str,
     n: usize,
@@ -315,7 +318,10 @@ fn row(
 /// # Panics
 ///
 /// As `row`.
-#[expect(clippy::too_many_arguments, reason = "three arms, each a maker and a consumer, plus the row's own labels; splitting them into a struct per arm moves the same nine values behind a name that adds nothing")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "three arms, each a maker and a consumer, plus the row's own labels; splitting them into a struct per arm moves the same nine values behind a name that adds nothing"
+)]
 fn row_consuming<A, S, F>(
     op: &str,
     n: usize,
@@ -443,7 +449,11 @@ fn emit(op: &str, n: usize, per: f64, a: Arm, s: Arm, f: Arm) {
         mark.push_str("  ?ns-vs-cycles");
     }
     let cold_cell = if cold.is_finite() {
-        format!("{:>8.2}{:>8.2}{cold:>6.2}x", a.cold / per, f.cold.min(s.cold) / per)
+        format!(
+            "{:>8.2}{:>8.2}{cold:>6.2}x",
+            a.cold / per,
+            f.cold.min(s.cold) / per
+        )
     } else {
         format!("{:>8}{:>8}{:>7}", "-", "-", "-")
     };
@@ -458,7 +468,9 @@ fn emit(op: &str, n: usize, per: f64, a: Arm, s: Arm, f: Arm) {
 
 fn head(what: &str) {
     println!("\n{what}");
-    println!("  warm: the map is resident, rounds run back to back. cold: evicted before each round.");
+    println!(
+        "  warm: the map is resident, rounds run back to back. cold: evicted before each round."
+    );
     println!("  a rival column is the better of std and hb+fold. ratios are theirs over ours; >1 is a win.");
     println!(
         "  {:<16} {:>8} {:>8} {:>8} {:>6} | {:>8} {:>8} {:>6} | {:>7} {:>7}",
@@ -491,7 +503,10 @@ fn words(dist: &str, n: usize) -> Vec<u64> {
 
 /// String keys shaped like the real corpus: a resref is a name in a fixed-width field.
 fn strings(dist: &str, n: usize) -> Vec<String> {
-    words(dist, n).iter().map(|w| format!("nw_wswmg{w:016x}")).collect()
+    words(dist, n)
+        .iter()
+        .map(|w| format!("nw_wswmg{w:016x}"))
+        .collect()
 }
 
 fn main() {
@@ -517,6 +532,10 @@ fn budget(n: usize) -> (usize, usize) {
     (rounds, reps)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one measurement harness prints the whole integer-key surface; the shared map setup is the function"
+)]
 fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
     head(&format!("integer keys, {dist} distribution"));
     for &n in sizes {
@@ -524,7 +543,10 @@ fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
         // Misses, and checked to be misses: a "miss" that is really a hit measures the hit path.
         let miss: Vec<u64> = ks.iter().map(|k| !k ^ 0x5555_5555_5555_5555).collect();
         let seen: std::collections::HashSet<u64> = ks.iter().copied().collect();
-        assert!(miss.iter().all(|m| !seen.contains(m)), "the miss keys are not all misses");
+        assert!(
+            miss.iter().all(|m| !seen.contains(m)),
+            "the miss keys are not all misses"
+        );
         let d = n as f64;
         let b = budget(n);
 
@@ -532,49 +554,196 @@ fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
         let built_s: HashMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
         let built_f: HbMap<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
 
-        row("insert+drop", n, d, c, b,
-            || { let mut m: Words<u64,u64> = Words::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 },
-            || { let mut m: HashMap<u64,u64> = HashMap::new(); for &k in &ks { m.insert(k,k); } m.len() as u64 },
-            || { let mut m: HbMap<u64,u64> = HbMap::default(); for &k in &ks { m.insert(k,k); } m.len() as u64 });
+        row(
+            "insert+drop",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let mut m: Words<u64, u64> = Words::new();
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HashMap<u64, u64> = HashMap::new();
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HbMap<u64, u64> = HbMap::default();
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+        );
 
-        row("insert reserved", n, d, c, b,
-            || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 },
-            || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { m.insert(k,k); } m.len() as u64 },
-            || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { m.insert(k,k); } m.len() as u64 });
+        row(
+            "insert reserved",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let mut m: Words<u64, u64> = Words::with_capacity(n);
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HashMap<u64, u64> = HashMap::with_capacity(n);
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HbMap<u64, u64> = HbMap::with_capacity_and_hasher(n, Fold::default());
+                for &k in &ks {
+                    m.insert(k, k);
+                }
+                m.len() as u64
+            },
+        );
 
-        row("extend", n, d, c, b,
-            || { let mut m: Words<u64,u64> = Words::new(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 },
-            || { let mut m: HashMap<u64,u64> = HashMap::new(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 },
-            || { let mut m: HbMap<u64,u64> = HbMap::default(); m.extend(ks.iter().map(|&k| (k,k))); m.len() as u64 });
+        row(
+            "extend",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let mut m: Words<u64, u64> = Words::new();
+                m.extend(ks.iter().map(|&k| (k, k)));
+                m.len() as u64
+            },
+            || {
+                let mut m: HashMap<u64, u64> = HashMap::new();
+                m.extend(ks.iter().map(|&k| (k, k)));
+                m.len() as u64
+            },
+            || {
+                let mut m: HbMap<u64, u64> = HbMap::default();
+                m.extend(ks.iter().map(|&k| (k, k)));
+                m.len() as u64
+            },
+        );
 
-        row("get hit", n, d, c, b,
+        row(
+            "get hit",
+            n,
+            d,
+            c,
+            b,
             || ks.iter().filter_map(|k| built_a.get(k)).sum(),
             || ks.iter().filter_map(|k| built_s.get(k)).sum(),
-            || ks.iter().filter_map(|k| built_f.get(k)).sum());
+            || ks.iter().filter_map(|k| built_f.get(k)).sum(),
+        );
 
         // `get(..).is_some()` and not `contains_key`: this row exists to measure the `get` path on
         // a key that is not there, and `contains_key` is a different function in all three
         // implementations -- apeiron's skips the value load, which is exactly what must not be
         // skipped here. `contains` has its own row on the string surface.
-        row("get miss", n, d, c, b,
-            || miss.iter().map(|k| u64::from(built_a.get(k).is_some())).sum(),
-            || miss.iter().map(|k| u64::from(built_s.get(k).is_some())).sum(),
-            || miss.iter().map(|k| u64::from(built_f.get(k).is_some())).sum());
+        row(
+            "get miss",
+            n,
+            d,
+            c,
+            b,
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_a.get(k).is_some()))
+                    .sum()
+            },
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_s.get(k).is_some()))
+                    .sum()
+            },
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_f.get(k).is_some()))
+                    .sum()
+            },
+        );
 
-        row("entry", n, d, c, b,
-            || { let mut m: Words<u64,u64> = Words::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
-            || { let mut m: HashMap<u64,u64> = HashMap::with_capacity(n); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
-            || { let mut m: HbMap<u64,u64> = HbMap::with_capacity_and_hasher(n, Fold::default()); for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.values().fold(0u64,|a,v| a.wrapping_add(*v)) });
+        row(
+            "entry",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let mut m: Words<u64, u64> = Words::with_capacity(n);
+                for &k in &ks {
+                    *m.entry(k).or_insert(0) += 1;
+                }
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+            || {
+                let mut m: HashMap<u64, u64> = HashMap::with_capacity(n);
+                for &k in &ks {
+                    *m.entry(k).or_insert(0) += 1;
+                }
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+            || {
+                let mut m: HbMap<u64, u64> = HbMap::with_capacity_and_hasher(n, Fold::default());
+                for &k in &ks {
+                    *m.entry(k).or_insert(0) += 1;
+                }
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+        );
 
-        row_consuming("remove all", n, d, c, b.0,
-            || built_a.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s },
-            || built_s.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s },
-            || built_f.clone(), |mut m| { let mut s=0u64; for &k in &ks { s = s.wrapping_add(m.remove(&k).unwrap_or(0)); } s });
+        row_consuming(
+            "remove all",
+            n,
+            d,
+            c,
+            b.0,
+            || built_a.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for &k in &ks {
+                    s = s.wrapping_add(m.remove(&k).unwrap_or(0));
+                }
+                s
+            },
+            || built_s.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for &k in &ks {
+                    s = s.wrapping_add(m.remove(&k).unwrap_or(0));
+                }
+                s
+            },
+            || built_f.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for &k in &ks {
+                    s = s.wrapping_add(m.remove(&k).unwrap_or(0));
+                }
+                s
+            },
+        );
 
-        row("iterate", n, d, c, b,
-            || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v)),
-            || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
-            || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
+        row(
+            "iterate",
+            n,
+            d,
+            c,
+            b,
+            || built_a.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+            || built_s.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+            || built_f.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+        );
 
         // `black_box(&m)` and not `built.clone().len()`: `len()` of a clone is known without
         // cloning and a `u64` has no `Drop`, so the expression is elidable in principle and a row
@@ -586,25 +755,74 @@ fn u64_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
         // ~0 instructions an entry: std's clone is two `memcpy` calls and no per-element loop,
         // which is `hashbrown`'s `T: Copy` specialisation under `feature(specialization)`. See
         // `examples/op_asm.rs`, where the disassembly is.
-        row("clone+drop", n, d, c, b,
-            || { let m = built_a.clone(); black_box(&m); m.len() as u64 },
-            || { let m = built_s.clone(); black_box(&m); m.len() as u64 },
-            || { let m = built_f.clone(); black_box(&m); m.len() as u64 });
+        row(
+            "clone+drop",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let m = built_a.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+            || {
+                let m = built_s.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+            || {
+                let m = built_f.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+        );
 
         // The keys are summed, not counted: draining a type with no `Drop` and discarding the
         // pairs is dead code, and LLVM removes it -- which reads as an impossibly fast `drain`.
-        row_consuming("drain", n, d, c, b.0,
-            || built_a.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)),
-            || built_s.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)),
-            || built_f.clone(), |mut m| m.drain().fold(0u64, |a,(k,_)| a.wrapping_add(k)));
+        row_consuming(
+            "drain",
+            n,
+            d,
+            c,
+            b.0,
+            || built_a.clone(),
+            |mut m| m.drain().fold(0u64, |a, (k, _)| a.wrapping_add(k)),
+            || built_s.clone(),
+            |mut m| m.drain().fold(0u64, |a, (k, _)| a.wrapping_add(k)),
+            || built_f.clone(),
+            |mut m| m.drain().fold(0u64, |a, (k, _)| a.wrapping_add(k)),
+        );
 
-        row_consuming("retain half", n, d, c, b.0,
-            || built_a.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
-            || built_s.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) },
-            || built_f.clone(), |mut m| { m.retain(|k,_| k % 2 == 0); m.values().fold(0u64,|a,v| a.wrapping_add(*v)) });
+        row_consuming(
+            "retain half",
+            n,
+            d,
+            c,
+            b.0,
+            || built_a.clone(),
+            |mut m| {
+                m.retain(|k, _| k % 2 == 0);
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+            || built_s.clone(),
+            |mut m| {
+                m.retain(|k, _| k % 2 == 0);
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+            || built_f.clone(),
+            |mut m| {
+                m.retain(|k, _| k % 2 == 0);
+                m.values().fold(0u64, |a, v| a.wrapping_add(*v))
+            },
+        );
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one measurement harness prints the whole string-key surface; the shared map setup is the function"
+)]
 fn str_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
     head(&format!("string keys, {dist} distribution"));
     for &n in sizes {
@@ -616,41 +834,158 @@ fn str_surface(c: Option<&Counter>, dist: &str, sizes: &[usize]) {
         let built_s: HashMap<String, u64> = ks.iter().map(|k| (k.clone(), 1)).collect();
         let built_f: HbMap<String, u64> = ks.iter().map(|k| (k.clone(), 1)).collect();
 
-        row("insert+drop", n, d, c, b,
-            || { let mut m: Map<String,u64> = Map::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 },
-            || { let mut m: HashMap<String,u64> = HashMap::new(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 },
-            || { let mut m: HbMap<String,u64> = HbMap::default(); for k in &ks { m.insert(k.clone(),1); } m.len() as u64 });
+        row(
+            "insert+drop",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let mut m: Map<String, u64> = Map::new();
+                for k in &ks {
+                    m.insert(k.clone(), 1);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HashMap<String, u64> = HashMap::new();
+                for k in &ks {
+                    m.insert(k.clone(), 1);
+                }
+                m.len() as u64
+            },
+            || {
+                let mut m: HbMap<String, u64> = HbMap::default();
+                for k in &ks {
+                    m.insert(k.clone(), 1);
+                }
+                m.len() as u64
+            },
+        );
 
-        row("get hit", n, d, c, b,
+        row(
+            "get hit",
+            n,
+            d,
+            c,
+            b,
             || ks.iter().filter_map(|k| built_a.get_at(k.as_str())).sum(),
             || ks.iter().filter_map(|k| built_s.get(k.as_str())).sum(),
-            || ks.iter().filter_map(|k| built_f.get(k.as_str())).sum());
+            || ks.iter().filter_map(|k| built_f.get(k.as_str())).sum(),
+        );
 
         // As the integer surface: the `get` path, deliberately not `contains_key`.
-        row("get miss", n, d, c, b,
-            || miss.iter().map(|k| u64::from(built_a.get_at(k.as_str()).is_some())).sum(),
-            || miss.iter().map(|k| u64::from(built_s.get(k.as_str()).is_some())).sum(),
-            || miss.iter().map(|k| u64::from(built_f.get(k.as_str()).is_some())).sum());
+        row(
+            "get miss",
+            n,
+            d,
+            c,
+            b,
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_a.get_at(k.as_str()).is_some()))
+                    .sum()
+            },
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_s.get(k.as_str()).is_some()))
+                    .sum()
+            },
+            || {
+                miss.iter()
+                    .map(|k| u64::from(built_f.get(k.as_str()).is_some()))
+                    .sum()
+            },
+        );
 
-        row("contains", n, d, c, b,
-            || ks.iter().map(|k| u64::from(built_a.contains_at(k.as_str()))).sum(),
-            || ks.iter().map(|k| u64::from(built_s.contains_key(k.as_str()))).sum(),
-            || ks.iter().map(|k| u64::from(built_f.contains_key(k.as_str()))).sum());
+        row(
+            "contains",
+            n,
+            d,
+            c,
+            b,
+            || {
+                ks.iter()
+                    .map(|k| u64::from(built_a.contains_at(k.as_str())))
+                    .sum()
+            },
+            || {
+                ks.iter()
+                    .map(|k| u64::from(built_s.contains_key(k.as_str())))
+                    .sum()
+            },
+            || {
+                ks.iter()
+                    .map(|k| u64::from(built_f.contains_key(k.as_str())))
+                    .sum()
+            },
+        );
 
-        row("iterate", n, d, c, b,
-            || built_a.values().fold(0u64, |a,v| a.wrapping_add(*v)),
-            || built_s.values().fold(0u64, |a,v| a.wrapping_add(*v)),
-            || built_f.values().fold(0u64, |a,v| a.wrapping_add(*v)));
+        row(
+            "iterate",
+            n,
+            d,
+            c,
+            b,
+            || built_a.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+            || built_s.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+            || built_f.values().fold(0u64, |a, v| a.wrapping_add(*v)),
+        );
 
         // As the integer surface: the clone is forced to exist, and std's column is a memcpy.
-        row("clone+drop", n, d, c, b,
-            || { let m = built_a.clone(); black_box(&m); m.len() as u64 },
-            || { let m = built_s.clone(); black_box(&m); m.len() as u64 },
-            || { let m = built_f.clone(); black_box(&m); m.len() as u64 });
+        row(
+            "clone+drop",
+            n,
+            d,
+            c,
+            b,
+            || {
+                let m = built_a.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+            || {
+                let m = built_s.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+            || {
+                let m = built_f.clone();
+                black_box(&m);
+                m.len() as u64
+            },
+        );
 
-        row_consuming("remove all", n, d, c, b.0,
-            || built_a.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove_at(k.as_str()).unwrap_or(0)); } s },
-            || built_s.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0)); } s },
-            || built_f.clone(), |mut m| { let mut s=0u64; for k in &ks { s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0)); } s });
+        row_consuming(
+            "remove all",
+            n,
+            d,
+            c,
+            b.0,
+            || built_a.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for k in &ks {
+                    s = s.wrapping_add(m.remove_at(k.as_str()).unwrap_or(0));
+                }
+                s
+            },
+            || built_s.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for k in &ks {
+                    s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0));
+                }
+                s
+            },
+            || built_f.clone(),
+            |mut m| {
+                let mut s = 0u64;
+                for k in &ks {
+                    s = s.wrapping_add(m.remove(k.as_str()).unwrap_or(0));
+                }
+                s
+            },
+        );
     }
 }

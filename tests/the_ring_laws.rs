@@ -30,7 +30,10 @@ use std::time::Instant;
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn distributivity_holds_across_the_whole_ring() {
     let t = Instant::now();
@@ -43,35 +46,62 @@ fn distributivity_holds_across_the_whole_ring() {
             }
         }
     }
-    println!("distributivity: {n} triples, {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
-
+    println!(
+        "distributivity: {n} triples, {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
 }
 
 /// The six-variable laws, over a window rather than the whole ring: `2^48` tuples is too many to
 /// walk, and these identities are degree two in each variable, so a window of nine values exercises
 /// every coefficient. Complete over what it covers, and not a claim beyond it.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_cell_laws_hold_across_a_window() {
     let t = Instant::now();
     let (mut n, r) = (0u64, -4i8..=4);
-    for a in r.clone() { for b in r.clone() { for c in r.clone() {
-    for d in r.clone() { for e in r.clone() { for f in r.clone() {
-        let (z, v, u) = (Cell::<i8>::new(a, b), Cell::<i8>::new(c, d), Cell::<i8>::new(e, f));
-        for sigma in FACES {
-            assert_eq!(z.mul(sigma, v), v.mul(sigma, z));
-            assert_eq!(z.mul(sigma, v).mul(sigma, u), z.mul(sigma, v.mul(sigma, u)));
-            assert_eq!(
-                z.mul(sigma, v).norm_form(sigma),
-                z.norm_form(sigma).mul(v.norm_form(sigma))
-            );
+    for a in r.clone() {
+        for b in r.clone() {
+            for c in r.clone() {
+                for d in r.clone() {
+                    for e in r.clone() {
+                        for f in r.clone() {
+                            let (z, v, u) = (
+                                Cell::<i8>::new(a, b),
+                                Cell::<i8>::new(c, d),
+                                Cell::<i8>::new(e, f),
+                            );
+                            for sigma in FACES {
+                                assert_eq!(z.mul(sigma, v), v.mul(sigma, z));
+                                assert_eq!(
+                                    z.mul(sigma, v).mul(sigma, u),
+                                    z.mul(sigma, v.mul(sigma, u))
+                                );
+                                assert_eq!(
+                                    z.mul(sigma, v).norm_form(sigma),
+                                    z.norm_form(sigma).mul(v.norm_form(sigma))
+                                );
+                            }
+                            let s = Sigma::Hyperbolic;
+                            let zv = z.mul(s, v);
+                            assert_eq!(
+                                zv.upper(s).unwrap(),
+                                z.upper(s).unwrap().mul(v.upper(s).unwrap())
+                            );
+                            assert_eq!(
+                                zv.lower(s).unwrap(),
+                                z.lower(s).unwrap().mul(v.lower(s).unwrap())
+                            );
+                            n += 1;
+                        }
+                    }
+                }
+            }
         }
-        let s = Sigma::Hyperbolic;
-        let zv = z.mul(s, v);
-        assert_eq!(zv.upper(s).unwrap(), z.upper(s).unwrap().mul(v.upper(s).unwrap()));
-        assert_eq!(zv.lower(s).unwrap(), z.lower(s).unwrap().mul(v.lower(s).unwrap()));
-        n += 1;
-    }}}}}}
+    }
     println!(
         "mul_comm, mul_assoc, normForm_mul, upper_mul, lower_mul on 3 faces: {n} six-tuples, {:.0} ms",
         t.elapsed().as_secs_f64() * 1000.0

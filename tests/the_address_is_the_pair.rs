@@ -42,7 +42,10 @@ fn the_low_half_is_additive() {
     for _ in 0..reps(200_000, 200) {
         let x = xorshift(&mut s);
         let y = x.rotate_left(17);
-        assert_eq!(parts(x.wrapping_add(y)).0, parts(x).0.wrapping_add(parts(y).0));
+        assert_eq!(
+            parts(x.wrapping_add(y)).0,
+            parts(x).0.wrapping_add(parts(y).0)
+        );
     }
 }
 
@@ -61,7 +64,10 @@ fn the_high_half_is_additive_up_to_the_carry() {
         carried += u32::try_from(carry).unwrap();
         assert_eq!(parts(x + y).1, hx.wrapping_add(hy).wrapping_add(carry));
     }
-    assert!(carried > u32::try_from(reps(200_000, 200)).unwrap() / 4, "only {carried} carries: the identity was not exercised");
+    assert!(
+        carried > u32::try_from(reps(200_000, 200)).unwrap() / 4,
+        "only {carried} carries: the identity was not exercised"
+    );
 }
 
 /// `place_i == lo_i ^ hi_((i - 32) mod 64)`: sixty-four independent `GF(2)` functionals of the
@@ -97,7 +103,18 @@ fn the_low_window_degenerates_and_the_tag_does_not() {
             collapsed += u32::from(p & 0xFFFF_FFFF == lo & 0xFFFF_FFFF);
         }
     }
-    assert!(n > u32::try_from(reps(200_000, 4_000)).unwrap() / 2, "not enough short products to say anything: {n}");
-    assert_eq!(collapsed, n, "the low window did not collapse; the rejection needs re-deriving");
-    assert_eq!(tags.len(), 128, "the tag slice lost values: {} of 128", tags.len());
+    assert!(
+        n > u32::try_from(reps(200_000, 4_000)).unwrap() / 2,
+        "not enough short products to say anything: {n}"
+    );
+    assert_eq!(
+        collapsed, n,
+        "the low window did not collapse; the rejection needs re-deriving"
+    );
+    assert_eq!(
+        tags.len(),
+        128,
+        "the tag slice lost values: {} of 128",
+        tags.len()
+    );
 }

@@ -24,7 +24,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Ts;
 use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, Fields, Index, parse_macro_input};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Index};
 
 /// Derive [`Coord`](../apeiron/coord/trait.Coord.html): the key's 64-bit address.
 ///
@@ -212,10 +212,7 @@ fn coord_body(input: &DeriveInput) -> syn::Result<Ts> {
             if arms.is_empty() {
                 // An uninhabited enum has no values, so `coord` can never be called -- but the impl
                 // still has to typecheck.
-                (
-                    quote! { match *self {} },
-                    Vec::new(),
-                )
+                (quote! { match *self {} }, Vec::new())
             } else {
                 (quote! { match self { #(#arms),* } }, types)
             }

@@ -358,7 +358,10 @@ pub const fn spread(x: u64) -> Addr {
     let w = (x as u128).wrapping_mul(PHI as u128);
     let lo = w as u64;
     let hi = (w >> 64) as u64;
-    Addr { place: hi.rotate_left(32) ^ lo, id: lo }
+    Addr {
+        place: hi.rotate_left(32) ^ lo,
+        id: lo,
+    }
 }
 
 /// The identity word undone: `id * PHI_INV`, one multiply. The elliptic face regenerates its key
@@ -373,7 +376,6 @@ pub const fn spread(x: u64) -> Addr {
 pub const fn unspread(id: u64) -> u64 {
     id.wrapping_mul(PHI_INV)
 }
-
 
 /// `PHI * PHI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
 pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
@@ -407,7 +409,6 @@ pub const fn inverse_odd(a: u64) -> u64 {
     }
     x
 }
-
 
 /// Which bucket an address falls in, for a table of `2^bits` buckets.
 ///
@@ -512,7 +513,11 @@ impl Packed for (i32, i32) {
     fn packed(&self) -> u64 {
         // `cast_unsigned` rather than `as u32`: the sign bit is being carried as data, and saying
         // so in the type system is better than silencing a lint that is right to ask.
-        pack(u64::from(self.0.cast_unsigned()), u64::from(self.1.cast_unsigned()), 32)
+        pack(
+            u64::from(self.0.cast_unsigned()),
+            u64::from(self.1.cast_unsigned()),
+            32,
+        )
     }
     #[inline]
     #[expect(
@@ -642,7 +647,10 @@ impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
     #[inline]
     fn coord_with(&self, p: u64) -> u64 {
         finish(mix(
-            mix(mix(self.0.coord_with(p), self.1.coord_with(p)), self.2.coord_with(p)),
+            mix(
+                mix(self.0.coord_with(p), self.1.coord_with(p)),
+                self.2.coord_with(p),
+            ),
             self.3.coord_with(p),
         ))
     }

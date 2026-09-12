@@ -21,9 +21,18 @@ use apeiron::table::CountTable;
 
 fn keys() -> Vec<(i32, i32, i32)> {
     let mut r = 0x243F_6A88_85A3_08D3u64;
-    let mut next = || { r ^= r << 13; r ^= r >> 7; r ^= r << 17; r };
+    let mut next = || {
+        r ^= r << 13;
+        r ^= r >> 7;
+        r ^= r << 17;
+        r
+    };
     (0..2000)
-        .map(|_| { let v = next(); let c = |s: u32| ((v >> s) as i32 % 60) - 30; (c(0), c(20), c(40)) })
+        .map(|_| {
+            let v = next();
+            let c = |s: u32| ((v >> s) as i32 % 60) - 30;
+            (c(0), c(20), c(40))
+        })
         .collect()
 }
 
@@ -39,7 +48,14 @@ fn main() {
     let ks = keys();
     let addrs: Vec<u64> = ks
         .iter()
-        .map(|k| (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed())
+        .map(|k| {
+            (
+                i21::new(k.0).unwrap(),
+                i21::new(k.1).unwrap(),
+                i21::new(k.2).unwrap(),
+            )
+                .packed()
+        })
         .collect();
 
     let apeiron = {
@@ -48,11 +64,15 @@ fn main() {
     };
 
     let mut m: HashMap<(i32, i32, i32), i64, foldhash::fast::RandomState> = HashMap::default();
-    for k in &ks { *m.entry(*k).or_insert(0) += 1; }
+    for k in &ks {
+        *m.entry(*k).or_insert(0) += 1;
+    }
     let foldhash_order = order_hash(m.iter().map(|(k, v)| (k.0 as u64) ^ ((*v as u64) << 32)));
 
     let mut s: HashMap<(i32, i32, i32), i64> = HashMap::new();
-    for k in &ks { *s.entry(*k).or_insert(0) += 1; }
+    for k in &ks {
+        *s.entry(*k).or_insert(0) += 1;
+    }
     let std_order = order_hash(s.iter().map(|(k, v)| (k.0 as u64) ^ ((*v as u64) << 32)));
 
     println!("apeiron {apeiron:#018x}  foldhash {foldhash_order:#018x}  std {std_order:#018x}");

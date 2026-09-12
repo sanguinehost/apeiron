@@ -107,7 +107,8 @@ pub fn process_pepper() -> u64 {
             // can only happen during startup.
             SETTING => std::hint::spin_loop(),
             READY => {
-                let _ = STATE.compare_exchange(READY, COMMITTED, Ordering::AcqRel, Ordering::Acquire);
+                let _ =
+                    STATE.compare_exchange(READY, COMMITTED, Ordering::AcqRel, Ordering::Acquire);
                 return PEPPER.load(Ordering::Acquire);
             }
             _ => return PEPPER.load(Ordering::Acquire),

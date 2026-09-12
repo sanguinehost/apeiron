@@ -36,12 +36,17 @@ fn best(rounds: usize, mut f: impl FnMut() -> u64) -> f64 {
 }
 
 fn main() {
-    let rounds: usize = std::env::var("ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(9);
+    let rounds: usize = std::env::var("ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(9);
     println!("ns per key, best of {rounds}; * = best\n");
 
     for bits in [12u32, 16, 20, 22] {
         let n = 1usize << bits;
-        let ks: Vec<u64> = (0..n as u64).map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)).collect();
+        let ks: Vec<u64> = (0..n as u64)
+            .map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            .collect();
         let probe: Vec<u64> = ks.iter().rev().copied().collect();
 
         let ap: Map<u64, u64> = ks.iter().map(|&k| (k, k)).collect();
@@ -52,8 +57,12 @@ fn main() {
 
         // -- bulk lookup, summed: get_all's job, written the way each library makes you write it.
         let d = n as f64;
-        let a = best(rounds, || ap.get_reduce(&probe, 0u64, |v| *v, u64::wrapping_add));
-        let w = best(rounds, || aw.get_reduce(&probe, 0u64, |v| *v, u64::wrapping_add));
+        let a = best(rounds, || {
+            ap.get_reduce(&probe, 0u64, |v| *v, u64::wrapping_add)
+        });
+        let w = best(rounds, || {
+            aw.get_reduce(&probe, 0u64, |v| *v, u64::wrapping_add)
+        });
         let s = best(rounds, || probe.iter().filter_map(|k| st.get(k)).sum());
         let f = best(rounds, || probe.iter().filter_map(|k| hf.get(k)).sum());
         let x = best(rounds, || probe.iter().filter_map(|k| hx.get(k)).sum());
@@ -74,7 +83,11 @@ fn row(what: &str, n: usize, secs: &[f64], per: f64) {
     let best = ns.iter().copied().fold(f64::INFINITY, f64::min);
     print!("  {what:<13} {n:>9}");
     for v in &ns {
-        let mark = if (v - best).abs() < f64::EPSILON { '*' } else { ' ' };
+        let mark = if (v - best).abs() < f64::EPSILON {
+            '*'
+        } else {
+            ' '
+        };
         print!(" {v:>9.2}{mark}");
     }
     println!("   (Map, Words, std, hb+fold, hb+fx)");

@@ -52,11 +52,21 @@ fn honest(n: usize) -> Vec<u64> {
     (0..n as u64).map(|i| i.wrapping_mul(0x9E37_79B9)).collect()
 }
 
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test walks the whole floor/ceiling/report surface; splitting it would duplicate the shared setup"
+)]
 fn the_floor_the_ceiling_and_the_report() {
     // -- before anything reads it -------------------------------------------------------------
-    assert!(!pepper_is_committed(), "something read the pepper before this test");
+    assert!(
+        !pepper_is_committed(),
+        "something read the pepper before this test"
+    );
     assert_eq!(peek_process_pepper(), 0, "the default must be no pepper");
 
     // -- what a chain costs the attacker, and what it buys them ---------------------------------
@@ -85,14 +95,20 @@ fn the_floor_the_ceiling_and_the_report() {
         }
         m.stats()
     };
-    assert!(!good.looks_aimed(), "honest keys tripped the alarm: {good:?}");
+    assert!(
+        !good.looks_aimed(),
+        "honest keys tripped the alarm: {good:?}"
+    );
 
     let mut damage = vec![good.mean_probe];
     for windows in 1..=3u32 {
         let Some(ks) = aimed_by_search(n, windows * gbits) else {
             // The search ran out of budget, which is the point: this is the depth an attacker
             // cannot reach, and it must be reached before the damage becomes interesting.
-            assert!(windows >= 3, "gave up at only {windows} windows -- the descent is too cheap");
+            assert!(
+                windows >= 3,
+                "gave up at only {windows} windows -- the descent is too cheap"
+            );
             break;
         };
         let mut m: Words<u64, u64> = Words::with_pepper(0);
@@ -130,7 +146,11 @@ fn the_floor_the_ceiling_and_the_report() {
     // A map that says nothing about peppering now gets one anyway. That is the whole point: the
     // maps that need it are the ones written by someone thinking about parsing, not addressing.
     let plain: Map<String, u32> = Map::new();
-    assert_eq!(plain.pepper(), PEPPER, "Map::new did not take the process pepper");
+    assert_eq!(
+        plain.pepper(),
+        PEPPER,
+        "Map::new did not take the process pepper"
+    );
     assert!(pepper_is_committed(), "reading it must commit it");
 
     // And the pepper defends against the search too -- more completely than it defended against
@@ -155,7 +175,10 @@ fn the_floor_the_ceiling_and_the_report() {
         "  one aimed window: unpeppered mean probe {:.2}, peppered {:.2}, honest {:.2}",
         bare.mean_probe, floored.mean_probe, floored_honest.mean_probe
     );
-    assert!(bare.mean_probe > 1.5, "the attack did not reproduce ({bare:?})");
+    assert!(
+        bare.mean_probe > 1.5,
+        "the attack did not reproduce ({bare:?})"
+    );
     assert!(
         floored.mean_probe < bare.mean_probe * 0.75,
         "the process pepper did not defend it: peppered {floored:?} vs bare {bare:?}"
@@ -167,9 +190,16 @@ fn the_floor_the_ceiling_and_the_report() {
     // table was built, half the process would disagree with the other half about every key, and it
     // would surface as an intermittent missing entry a long way from the cause.
     let late = try_set_process_pepper(0xDEAD_BEEF);
-    assert!(late.is_err(), "the pepper was allowed to change under a live table");
+    assert!(
+        late.is_err(),
+        "the pepper was allowed to change under a live table"
+    );
     assert_eq!(late.unwrap_err().current, PEPPER);
-    assert_eq!(peek_process_pepper(), PEPPER, "a refused set must change nothing");
+    assert_eq!(
+        peek_process_pepper(),
+        PEPPER,
+        "a refused set must change nothing"
+    );
     assert_eq!(process_pepper(), PEPPER);
 
     // -- the ceiling ---------------------------------------------------------------------------
@@ -185,5 +215,8 @@ fn the_floor_the_ceiling_and_the_report() {
 
     assert!(NonZeroU64::new(0).is_none(), "zero is not a pepper");
     let from_process: Option<Exposed<String, u32>> = Exposed::from_process_pepper();
-    assert!(from_process.is_some(), "the process set one, so this must succeed");
+    assert!(
+        from_process.is_some(),
+        "the process set one, so this must succeed"
+    );
 }
