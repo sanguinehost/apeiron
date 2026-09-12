@@ -58,7 +58,10 @@ cd proof/corpus && lake build
 | a successful extracted step denotes `scalarCarrierStep`; the half-flux satisfies `exactHalfFlux` | proved | `word_conservative_density_step_denote`, `word_diffusive_flux_half_denote` |
 | the partial kernels really refuse boundary inputs | proved | `word_diffusive_flux_half_odd_refusal`, `word_conservative_density_step_overflow_refusal` |
 | the finite conservative total is conserved over the extracted step | proved | `word_conservative_total_mass` |
-| nominal and boundary Rust behavior on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_exchange_is_a_swap.rs` |
+| a successful extracted three-cell line step denotes `scalarCarrierStep` per cell with exact-half interior faces | proved | `word_diffusive_line3_step_denote` |
+| a successful line step changes the denoted total only by the sources; zero source conserves it | proved | `word_diffusive_line3_step_total_mass`, `word_diffusive_line3_step_total_mass_zero_source` |
+| odd or unrepresentable line inputs refuse the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal` |
+| nominal and boundary Rust behavior on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_diffusive_line3_step_is_exact.rs`, `tests/the_exchange_is_a_swap.rs` |
 | extraction freshness from the committed sources | tested (tool gate) | `proof/regen.sh --check` |
 
 ## Non-goals
@@ -84,4 +87,6 @@ release pin; release immutability still needs a pinned archive or a vendored cor
 
 - Pinned archive or vendored corpus for a reproducible release, owner: corpus owner.
 - Stage 5's production integration and float projection remain tested, not refined; the fixed-line
-  carrier realization proof and the live mapping obligations are separate work.
+  carrier realization proof is closed by W7, while the live mapping obligations are separate work.
+- No energy statement transfers to the word ring; the corpus exact quarter-energy identity is over
+  `ℝ` and the any-ring line theorem claims none.

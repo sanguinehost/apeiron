@@ -14,16 +14,22 @@ the order of work, acceptance gates and where to stop, not a completed migration
 - **Stage 3 — done**: bounded dyadic arithmetic, ordered-vs-associative reduction,
   scaled-vs-idempotent projection, identity/region contracts and container scope. 143 tests at the
   time; the workspace now reports 164. Evidence in `docs/direction.md`.
-- **Stage 4 — done**: corpus pinned at `16112030` (Lean `4.31.0`, Mathlib `v4.31.0`); the carrier
-  point readout, the scalar carrier step and the exchange are refined to the ring-generic corpus;
-  the corpus-connected carrier lab exercises the production path. Bridge `lake build` exit 0
-  (3276 jobs). Evidence: `proof/README.md`, `docs/plan/carrier-refinement.md`.
+- **Stage 4 — done**: corpus pinned at `d9aefc93` (Lean `4.31.0`, Mathlib `v4.31.0`; the pin landed
+  at `16112030` and advanced with the Stage 5 corpus commit); the carrier point readout, the scalar
+  carrier step and the exchange are refined to the ring-generic corpus; the corpus-connected
+  carrier lab exercises the production path. Bridge `lake build` exit 0 (3276 jobs). Evidence:
+  `proof/README.md`, `docs/plan/carrier-refinement.md`.
 - **Stage 5 — current**: constructive material experiment. The corpus conservation and energy
   results (`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`,
-  `CarrierAuthority.lean`, `CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved; the
-  Rust production integration, float mapping and live scheduling remain **tested, not refined**.
-  Keep that tested/proved split explicit until the fixed-line carrier realization/refinement proof
-  lands. Evidence: `docs/autonomous-run-log.md`, `docs/direction.md`.
+  `CarrierAuthority.lean`, `CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved, and
+  the fixed-line carrier realization/refinement proof has landed: the closed three-cell
+  `diffusive_line3_step` is extracted and refined to `scalarCarrierStep`/`exactHalfFlux` with the
+  finite total mass (`proof/README.md`). Corpus `d9aefc93` adds the any-ring line analogue
+  `diffusiveUpdate_half_three_anyRing` and the real exact quarter-energy identity
+  `dirichletEnergy_halfStep_three` with its strict form `dirichletEnergy_halfStep_three_lt`; the
+  `1/4` factor needs the order of `ℝ`, so no energy claim transfers to the word ring. The
+  surrounding Rust production integration, float mapping and live scheduling remain **tested, not
+  refined**. Evidence: `docs/autonomous-run-log.md`, `docs/direction.md`.
 
 ## First Session
 

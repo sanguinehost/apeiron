@@ -63,6 +63,15 @@ pub fn word_diffusive_flux_half(left: i64, right: i64) -> Option<i64> {
     carrier::diffusive_flux_half(left, right)
 }
 
+/// `carrier::diffusive_line3_step`, the exact three-cell synchronous update, at the concrete
+/// `i64` scalar. This calls the real `src/carrier.rs` body; it does not restate the composition.
+pub fn word_diffusive_line3_step(
+    old: carrier::DensityLine3,
+    source: carrier::DensityLine3,
+) -> Option<carrier::DensityLine3> {
+    carrier::diffusive_line3_step(old, source)
+}
+
 /// The derived impulse `p - q`, rooted at the concrete `i64` scalar.
 pub fn word_exchange_impulse(p: cell::Cell<i64>, q: cell::Cell<i64>) -> cell::Cell<i64> {
     exchange::exchange_impulse(p, q)

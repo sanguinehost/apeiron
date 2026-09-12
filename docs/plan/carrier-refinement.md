@@ -3,8 +3,8 @@
 - **Owner:** Lucas 'Paperboy' Rose-Winters (operator: `deepseek-flash`)
 - **Intent:** `docs/intent/carrier-refinement.md`
 - **Spec:** `docs/spec/carrier-refinement.md`
-- **Source revision:** `5ffd2521a128e749568ec4b29b3c93ab55c916f4`; working tree clean
-- **Status:** approved; all waves complete
+- **Source revision:** `e5c86391b784261050cd75e8997a7cb69ebddfda`; working tree carries W7
+- **Status:** approved; all waves complete, W7 added for the fixed three-cell line
 
 ## Goal and completion condition
 
@@ -38,6 +38,7 @@ only after the previous gate is green.
 | W4 | Exchange and checked-acceptance refinement | `src/exchange.rs`, `proof/extract/lib.rs`, `proof/corpus/WordRefinement.lean` | Flash | `cd proof/corpus && lake build` | impulse `sub → add` and generated branch inversion turn the exchange/acceptance theorems red |
 | W5 | Scalar step, half-flux and finite conservation | `src/carrier.rs`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean` | Flash | `cd proof/corpus && lake build` | generated `checked_sub → checked_add` and the face-orientation swap turn the step theorems red |
 | W6 | Corpus pin and carrier lab | `proof/corpus/lakefile.lean`, corpus `Carrier*.lean`, `tests/the_carrier_*.rs` | Flash | corpus `lake build`; `cargo test --workspace --all-features --locked` | swapping the two face arguments in `sum_scalarCarrierStep_eq` breaks the telescoping proof |
+| W7 | Fixed three-cell diffusive line | `src/carrier.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `tests/the_diffusive_line3_step_is_exact.rs` | Flash | `proof/regen.sh --check`; `cd proof/corpus && lake build`; `cargo test --workspace --all-features --locked` | swapping the generated left cell's shared face breaks `word_diffusive_line3_step_eq_some_iff`; the odd-difference and unrepresentable fixtures refuse |
 
 ## Task blocks
 
@@ -114,11 +115,11 @@ cd proof/corpus && lake build
 ```
 
 - **Negative control:** change the generated `carrier.diffusive_flux_half` result from `checked_sub` to `checked_add` in a throwaway `ApeironWord.lean`; `word_diffusive_flux_half_success` fails. Swap the two face arguments in `Apeiron.Physics.sum_scalarCarrierStep_eq` in a throwaway `CarrierScalarKernelAnyRing.lean`; the telescoping proof and `scalarCarrierStep_total_mass` fail. Restore each and the build passes.
-- **Evidence to record:** `word_conservative_density_step_denote`, `_eq_some_iff`, `_success`; `word_diffusive_flux_half_denote`, `_success`, `_odd_refusal`, `_unrepresentable_refusal`; `word_conservative_density_step_overflow_refusal`; `word_conservative_total_mass`, `_closed`; `CarrierScalarKernelAnyRing.lean` sha256 `a89424a4…`.
+- **Evidence to record:** `word_conservative_density_step_denote`, `_eq_some_iff`, `_success`; `word_diffusive_flux_half_denote`, `_success`, `_odd_refusal`, `_unrepresentable_refusal`; `word_conservative_density_step_overflow_refusal`; `word_conservative_total_mass`, `_closed`; `CarrierScalarKernelAnyRing.lean` sha256 `a89424a4…` at the `16112030` pin, `45454667…` at `d9aefc93`.
 
 ### W6 · Corpus pin and carrier lab
 
-- **Scope:** pin the corpus at `16112030` with Lean `4.31.0` and Mathlib `v4.31.0`; connect the extracted readout to the canonical carrier definitions and exercise the production path in a carrier lab.
+- **Scope:** pin the corpus with Lean `4.31.0` and Mathlib `v4.31.0` (landed at `16112030`, advanced to `d9aefc93` by W7); connect the extracted readout to the canonical carrier definitions and exercise the production path in a carrier lab.
 - **Files:** `proof/corpus/lakefile.lean`, corpus `CarrierAnyRing.lean`/`CarrierBodyWorkAnyRing.lean`/`CarrierScalarKernelAnyRing.lean`, `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`
 - **Depends on:** W3, W5
 - **Grade:** proved (bridge); tested (lab)
@@ -134,6 +135,24 @@ cargo test --workspace --all-features --locked
 - **Evidence to record:** corpus `16112030781eeec022139cdae07407131acc0915`, committed and
   pushed; module digests in the table below; bridge build exit 0.
 
+### W7 · Fixed three-cell diffusive line
+
+- **Scope:** add the closed three-cell `nu = 1/2` production kernel `diffusive_line3_step` and its `DensityLine3` carrier; extract it as `word_diffusive_line3_step`; prove the success characterization, the per-component `scalarCarrierStep` refinement, the two `exactHalfFlux` face witnesses, the source-only total-mass equation, its zero-source corollary and the odd-difference refusal; test the exact values, refusal and transactionality.
+- **Files:** `src/carrier.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `tests/the_diffusive_line3_step_is_exact.rs`
+- **Lane:** one task in its own wave; the generated file is shared, so the production, extraction, refinement and test edits land together rather than in parallel lanes.
+- **Depends on:** W5, W6
+- **Grade:** proved (bridge); tested (Rust)
+- **Gate:**
+
+```sh
+proof/regen.sh --check
+cd proof/corpus && lake build
+cargo test --workspace --all-features --locked
+```
+
+- **Negative control:** swapping the generated left cell's shared face from `face_left` to `face_right` in a throwaway `ApeironWord.lean` breaks `word_diffusive_line3_step_eq_some_iff` and its consumers; restoring the generated file passes. The odd-difference and unrepresentable fixtures and the transactional-refusal test fail if the kernel rounds or returns a partial line.
+- **Evidence to record:** `word_diffusive_line3_step_eq_some_iff`, `_denote_of`, `_denote`, `_total_mass`, `_total_mass_zero_source`, `_odd_refusal`; corpus `d9aefc93522e2109bc96158526de6dbd52477276`; `src/carrier.rs` `4fcdbeba…`; `ApeironWord.lean` `95542402…`; bridge build 3276 jobs.
+
 ## Recorded digests
 
 Extracted working sources (`proof/regen.sh` prints these):
@@ -143,25 +162,26 @@ Extracted working sources (`proof/regen.sh` prints these):
 | `src/scalar.rs` | `9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e` |
 | `src/cell.rs` | `8cfc787aa0c6fcec6b039398f54fd7388f7dec8f047b98f8379e7165c0069404` |
 | `src/exchange.rs` | `f488773c798c649ff59d39f7b24c4c17b6ff350fa9f7a3b4ccc81cfc479b7621` |
-| `src/carrier.rs` | `9fde786e5de4aad18703bac8df4285cd83f2a10646743b26480c90cffa0e0ac8` |
+| `src/carrier.rs` | `4fcdbeba5c2d25d10e0a22f2f328e214d0e9884bd9f886a25abd4b6741a8a8e8` |
 
-Canonical corpus modules at `16112030`:
+Canonical corpus modules at `d9aefc93`:
 
 | module | sha256 |
 |---|---|
 | `Apeiron/Physics/CarrierAnyRing.lean` | `bee50d1df59be11d7a41536e4c56ff284235cb32c16265e55ba0cfd4e7df2b79` |
 | `Apeiron/Physics/CarrierBodyWorkAnyRing.lean` | `ea3155611c61b7e4edcc26461ccbb9d238b0e8c24c74d921d39d3e1e8c3b34ac` |
-| `Apeiron/Physics/CarrierScalarKernelAnyRing.lean` | `a89424a47fda5d23f97faa809cba99a9231b1fbd831ebc2751efc615ea1c32e9` |
+| `Apeiron/Physics/CarrierScalarKernelAnyRing.lean` | `4545466793c6fcc367e5d8367784c9cd9f0f0cbb8bdbc952e6aaac00d2853b29` |
+| `Apeiron/Physics/CarrierDissipation.lean` | `8d027a7c673af7f3bb0f7b3d56ad8b63ff94485caaa52e71d07fa152b816177d` |
 | `Apeiron/Trichotomy/AnyRing.lean` | `51cf1ceecd283771a4a5ae52be39150cc3d3e2ff3419906822a10a121eafffca` |
 
-Generated `proof/ApeironWord.lean` is `80c60c0d8e859efbc2c7ca24037b2c040c4ca7776501c70ef01d97e6b5a72497` at the digests above.
+Generated `proof/ApeironWord.lean` is `955424020949ca6509ab0c7e71b444d750aa8fadd98ec4c6cfe30ceb978f0bac` at the digests above.
 
 ## Barrier checklist
 
 - [x] Every task gate exits 0, with its negative control run and restored. `proof/regen.sh --check` reported `extraction is fresh` (exit 0); `cd proof/corpus && lake build` exited 0.
 - [x] No task touched a file owned by another task; the refinement files were one lane.
-- [x] `cargo test --workspace --all-features --locked` exit 0 (164 tests); `cargo clippy … -D warnings` exit 0; `cargo fmt --all -- --check` exit 0.
-- [x] `proof/regen.sh --check` fresh (1708 jobs); `proof/corpus` `lake build` passed (3276 jobs on the operator run).
+- [x] `cargo test --workspace --all-features --locked` exit 0 (173 including 9 doc-tests; the nine `tests/the_diffusive_line3_step_is_exact.rs` cases are W7); `cargo clippy … -D warnings` exit 0; `cargo fmt --all -- --check` exit 0; `cargo kani` exit 0 (60 harnesses).
+- [x] `proof/regen.sh --check` fresh (1708 jobs); `proof/corpus` `lake build` passed (3276 jobs on the operator run), rebuilt at corpus `d9aefc93`.
 - [x] Source and tool digests recorded above.
 - [x] Claims registered at their grade; the corpus declarations are cited as links, not called verified by proximity.
 - [x] Trust boundary stated in the intent and spec.

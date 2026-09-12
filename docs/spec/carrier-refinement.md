@@ -13,9 +13,9 @@ carrier step. Every operation below is on the production path the library builds
 
 | Item | Value |
 |---|---|
-| Operations | `Cell::<i64>::mul`, `Cell::<i64>::norm_form`; `carrier::{point_density, point_flux, conservative_density_step, diffusive_flux_half}`; `exchange::{exchange_impulse, elastic_exchange, accept_derived_impulse}` |
-| Domain | every `Cell<i64>` (`a`, `b` any bit pattern), every `Sigma` (`Elliptic`/`Parabolic`/`Hyperbolic`), every `i64` sample |
-| Totality | `mul`, `norm_form`, `point_density`, `point_flux`, `exchange_impulse`, `elastic_exchange` total for a lawful `Ring`; `conservative_density_step`, `diffusive_flux_half`, `accept_derived_impulse` return `Option` |
+| Operations | `Cell::<i64>::mul`, `Cell::<i64>::norm_form`; `carrier::{point_density, point_flux, conservative_density_step, diffusive_flux_half, diffusive_line3_step}`; `exchange::{exchange_impulse, elastic_exchange, accept_derived_impulse}` |
+| Domain | every `Cell<i64>` (`a`, `b` any bit pattern), every `Sigma` (`Elliptic`/`Parabolic`/`Hyperbolic`), every `i64` sample, every `DensityLine3` triple |
+| Totality | `mul`, `norm_form`, `point_density`, `point_flux`, `exchange_impulse`, `elastic_exchange` total for a lawful `Ring`; `conservative_density_step`, `diffusive_flux_half`, `diffusive_line3_step`, `accept_derived_impulse` return `Option` |
 | Preconditions | none on the total kernels; the partial kernels refuse rather than precondition |
 | Postcondition | the extracted body equals its canonical corpus declaration under `denote : I64 → ZMod (2^64)` |
 
@@ -31,21 +31,23 @@ wrapping execution is extracted here.
 | Production Rust | `Cell::<R>::mul`, `norm_form` | `src/cell.rs` |
 | Production Rust | `Ring for i64` | `src/scalar.rs` |
 | Production Rust | `carrier::{point_density, point_flux}` | `src/carrier.rs` |
-| Production Rust | `carrier::{conservative_density_step, diffusive_flux_half}` | `src/carrier.rs` |
+| Production Rust | `carrier::{conservative_density_step, diffusive_flux_half, diffusive_line3_step}`, `carrier::DensityLine3` | `src/carrier.rs` |
 | Production Rust | `exchange::{exchange_impulse, elastic_exchange, accept_derived_impulse}` | `src/exchange.rs` |
-| Extraction wrapper | `word_mul`, `word_norm`, `word_point_density`, `word_point_flux`, `word_conservative_density_step`, `word_diffusive_flux_half`, `word_exchange_impulse`, `word_elastic_exchange`, `word_accept_derived_impulse` | `proof/extract/lib.rs` |
+| Extraction wrapper | `word_mul`, `word_norm`, `word_point_density`, `word_point_flux`, `word_conservative_density_step`, `word_diffusive_flux_half`, `word_diffusive_line3_step`, `word_exchange_impulse`, `word_elastic_exchange`, `word_accept_derived_impulse` | `proof/extract/lib.rs` |
 | Extracted body | generated `cell`/`carrier`/`exchange` definitions | `proof/ApeironWord.lean` (generated) |
 | Denotation | `denote : I64 → ZMod (2^64)` reading the bit pattern; `denoteSigma := denote ∘ sigmaI64` | `proof/Denotation.lean`, `proof/corpus/WordRefinement.lean` |
 | Canonical algebra | `Apeiron.Trichotomy.AnyRing.ringMul`, `ringNormForm`, `ringNormForm_mul`, `ringMul_conj` | corpus `Apeiron/Trichotomy/AnyRing.lean` |
 | Canonical readout | `Apeiron.Physics.pointDensity`, `pointFlux`, `pointDensity_eq`, `pointFlux_eq` | corpus `Apeiron/Physics/CarrierAnyRing.lean` |
 | Canonical exchange | `Apeiron.Physics.ringExchangeImpulse`, `ringCarrierMomentumAfter`, `ringBodyMomentumAfter`, `ringNormFormLedger` | corpus `Apeiron/Physics/CarrierBodyWorkAnyRing.lean` |
 | Canonical scalar step | `Apeiron.Physics.scalarCarrierStep`, `exactHalfFlux` | corpus `Apeiron/Physics/CarrierScalarKernelAnyRing.lean` |
+| Canonical three-cell line | `Apeiron.Physics.diffusiveUpdate_half_three_anyRing` | corpus `Apeiron/Physics/CarrierScalarKernelAnyRing.lean` |
+| Real energy (scope only) | `Apeiron.Physics.dirichletEnergy_halfStep_three`, `dirichletEnergy_halfStep_three_lt` | corpus `Apeiron/Physics/CarrierDissipation.lean` |
 | Refinement theorems | `word_*_denote`, `word_*` transfers | `proof/corpus/WordRefinement.lean` |
 
 Each wrapper fixes a concrete type and calls the real body. The generated
 `cell`, `carrier` and `exchange` definitions are the production bodies, not
-restatements. The corpus pin is `16112030781eeec022139cdae07407131acc0915`
-(`16112030`), committed and pushed, requiring Lean `4.31.0` and Mathlib `v4.31.0`.
+restatements. The corpus pin is `d9aefc93522e2109bc96158526de6dbd52477276`
+(`d9aefc93`), committed and pushed, requiring Lean `4.31.0` and Mathlib `v4.31.0`.
 
 ## Contracts
 
@@ -66,7 +68,11 @@ restatements. The corpus pin is `16112030781eeec022139cdae07407131acc0915`
 | conservative step | a successful step denotes `scalarCarrierStep`; success iff all three checked intermediates are `some` | proved | `word_conservative_density_step_denote`, `word_conservative_density_step_eq_some_iff` |
 | half flux | a successful half-flux satisfies `exactHalfFlux` (`2 * f = left - right`) | proved | `word_diffusive_flux_half_denote`, `word_diffusive_flux_half_success` |
 | finite total | the denoted `ZMod (2^64)` sum over `n` successful cells is conserved | proved | `word_conservative_total_mass`, `word_conservative_total_mass_closed` |
-| nominal Rust behavior | readout, step and exchange on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_exchange_is_a_swap.rs` |
+| three-cell line | a successful extracted line step has exact-half interior faces and each component is `scalarCarrierStep` at the shared face and closed end | proved | `word_diffusive_line3_step_denote` |
+| three-cell total | a successful line step changes the denoted total only by the denoted sources; zero source conserves it | proved | `word_diffusive_line3_step_total_mass`, `word_diffusive_line3_step_total_mass_zero_source` |
+| three-cell refusal | an odd or unrepresentable interior difference refuses the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal` |
+| line energy | no energy statement transfers to the word ring; the corpus quarter-energy identity is over `ℝ` | anchor (scope) | `dirichletEnergy_halfStep_three`, `dirichletEnergy_halfStep_three_lt` |
+| nominal Rust behavior | readout, step, line and exchange on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_diffusive_line3_step_is_exact.rs`, `tests/the_exchange_is_a_swap.rs` |
 
 ## Failure semantics
 
@@ -77,6 +83,8 @@ restatements. The corpus pin is `16112030781eeec022139cdae07407131acc0915`
 | `after + source` unrepresentable | `ok none` | final `checked_add` |
 | `right - left` unrepresentable | `ok none` | `checked_sub` in `diffusive_flux_half` |
 | face difference odd | `ok none` | `checked_rem(2) != 0`; refused, not rounded |
+| line interior difference odd | whole line `ok none` | first refusing `diffusive_flux_half` in `diffusive_line3_step`; no partial line |
+| line cell intermediate unrepresentable | whole line `ok none` | first refusing `conservative_density_step` in `diffusive_line3_step` |
 | claim ≠ derived impulse | `ok none` | `accept_derived_impulse` equality branch |
 | `Dyadic` result unrepresentable | panic | `Dyadic` is not a total finite ring; not extracted |
 
@@ -103,5 +111,7 @@ path is a development path, not a reproducible release pin.
 ## Open questions
 
 - Pinned archive or vendored corpus for release immutability; owner: corpus owner.
-- Stage 5 production integration, the fixed-line carrier realization proof and the live
-  float-projection mapping remain open and are not covered by this epic.
+- Stage 5's production integration of the fixed three-cell line and the live float-projection
+  mapping remain open. The fixed-line realization/refinement proof itself is closed by W7 of this
+  epic (`word_diffusive_line3_step_*`); the corpus any-ring line theorem and the real quarter-energy
+  identity are links and scope, not transferred word claims.

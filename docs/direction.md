@@ -167,8 +167,8 @@ does not build on Lean 4.31.0 (`Cache/IO.lean:506`, `Lake.Glob.ofString?`), but 
 **source** compiles cleanly against Mathlib `v4.31.0` (the bridge requires it last so its
 transitive versions win). The coordinated change is a corpus Mathlib/toolchain bump, not a source
 rewrite. *(Historical at the time of this Stage 2 entry: the bridge read the local corpus worktree
-`c7339cce` via a sibling path and `6213271f` was the intended pin. The pin has since landed at
-`16112030`; see Stage 4 below.)*
+`c7339cce` via a sibling path and `6213271f` was the intended pin. The pin landed at `16112030`
+and has since advanced to `d9aefc93`; see Stage 4 below.)*
 
 **Stage 3 slice 1 executed (2026-09-11).** The bounded-dyadic contract is now honest.
 `src/scalar.rs` gained `Dyadic::checked_add/checked_sub/checked_mul/checked_halve`, which report
@@ -254,7 +254,8 @@ so the Aeneas extraction carries no `core::fmt` instance. Regenerated (`src/scal
 historical record).** The bump landed in corpus commits `1d7c4aa6` (Lean `4.31.0`, Mathlib
 `v4.31.0`) and `33bc96f6` (the `CarrierScalarKernelAnyRing` links). The corpus revision
 `16112030781eeec022139cdae07407131acc0915` is committed and pushed; the bridge requires the same
-Mathlib `v4.31.0` last, so one revision resolves. The `Flow.lean` source break named below was
+Mathlib `v4.31.0` last, so one revision resolves. The pin has since advanced to `d9aefc93` (see
+Stage 4 complete). The `Flow.lean` source break named below was
 migrated before the pin landed. The proposal text is historical:
 
 > **Historical proposal (corpus-owner sign-off required).** `../sanguine-apeiron` is
@@ -278,7 +279,8 @@ migrated before the pin landed. The proposal text is historical:
 > `Trichotomy/Flow.lean:310` fails to elaborate, so the bump also needs a migration of the analysis
 > files, not just the toolchain line.
 
-**Stage 4 complete.** The corpus pin, the extraction and the bridge are done: `16112030` supplies
+**Stage 4 complete.** The corpus pin, the extraction and the bridge are done. The pin advanced from
+`16112030` to `d9aefc93` (Lean `4.31.0`, Mathlib `v4.31.0`), which supplies
 `Apeiron.Physics.CarrierAnyRing`, `CarrierBodyWorkAnyRing` and `CarrierScalarKernelAnyRing`, and
 `proof/corpus/WordRefinement.lean` refines the extracted `i64` point readout, scalar carrier step,
 half-flux, exchange and checked acceptance to them. `proof/regen.sh --check` is fresh (1708 jobs)
@@ -287,10 +289,16 @@ and `cd proof/corpus && lake build` exits 0 (3276 jobs) with every `#audit` insi
 `docs/intent/carrier-refinement.md`, `docs/spec/carrier-refinement.md` and
 `docs/plan/carrier-refinement.md`. **Stage 5 is current.** Its corpus conservation/energy results
 (`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`, `CarrierAuthority.lean`,
-`CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved; its Rust production
-integration, float mapping and live scheduling are tested, not refined, and that split stays
-explicit until the fixed-line carrier realization/refinement proof lands. Evidence for both is in
-`docs/autonomous-run-log.md`.
+`CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved. The fixed-line carrier
+realization/refinement proof has landed: the closed three-cell `diffusive_line3_step` is extracted
+from the real `src/carrier.rs` and refined to `scalarCarrierStep` and `exactHalfFlux`, with the
+denoted total changing only by the denoted sources (zero-source conservation corollary); see
+`proof/README.md`. Corpus `d9aefc93` adds the whole-line any-ring analogue
+`diffusiveUpdate_half_three_anyRing` and the real exact quarter-energy identity
+`dirichletEnergy_halfStep_three` with its strict form `dirichletEnergy_halfStep_three_lt`; the
+factor `1/4` needs the order of `ℝ`, so the ring theorem and the word bridge claim no energy. The
+surrounding Rust production integration, float mapping and live scheduling remain tested, not
+refined. Evidence for both is in `docs/autonomous-run-log.md`.
 
 ### Correctness Work Before Physics Reuse
 

@@ -450,3 +450,35 @@ while the Apeiron bridge already provides Mathlib v4.31.0 and now builds the ful
 bump is therefore deferred as a release/bookkeeping step; 4.31.0 validity is established through
 the bridge harness. The corpus's native 4.30.0-rc2 `.lake` is intentionally left unbuilt to avoid
 clobbering the 4.31.0 artifacts (shared cache).
+
+## Fixed-line carrier realization
+
+- Production kernel: `src/carrier.rs` gained `DensityLine3` and `diffusive_line3_step`, the closed
+  three-cell synchronous diffusive step at `nu = 1/2`. It derives the two interior faces once each
+  through `diffusive_flux_half`, fixes the endpoint faces at zero, and calls
+  `conservative_density_step` per cell. Every local is bound before `Some`, so refusal is
+  transactional by value; no loop, allocation, float or rounding.
+- Extraction: `word_diffusive_line3_step` added to `proof/extract/lib.rs` and the Charon
+  `--start-from` set; `proof/regen.sh --check` is fresh (`src/carrier.rs` `4fcdbeba…`,
+  `ApeironWord.lean` `95542402…`).
+- Lean: `WordRefinement.lean` proves the success characterization, the component relation to
+  `scalarCarrierStep`, the two `exactHalfFlux` face witnesses, the total-mass equation (reusing
+  `word_conservative_total_mass`), its zero-source corollary and the odd-difference refusal; all
+  `#audit` clean in `{propext, Classical.choice, Quot.sound}`.
+- Rust: nine tests in `tests/the_diffusive_line3_step_is_exact.rs` cover success, exact source
+  accounting, zero-source conservation, odd and unrepresentable refusal, transactional refusal,
+  the orientation control and multi-step partiality.
+- Mutation control: swapping the generated left cell's shared face in a throwaway copy of
+  `ApeironWord.lean` turns `WordRefinement` red; restoring it passes. The working tree is not
+  modified for the control.
+- Gates: `cargo test --workspace --all-features --locked` exit 0 (173 including 9 doc-tests);
+  clippy `-D warnings` exit 0; `cargo fmt --all -- --check` exit 0; `cargo kani` exit 0 (60
+  harnesses); `proof/regen.sh --check` exit 0; `cd proof/corpus && lake build` exit 0 (3276 jobs)
+  with the closed axiom cone.
+- Corpus: the pin advanced from `16112030` to `d9aefc93`
+  (`d9aefc93522e2109bc96158526de6dbd52477276`), which adds
+  `Apeiron.Physics.diffusiveUpdate_half_three_anyRing` (the any-ring three-cell half step) and the
+  real exact quarter-energy identity `dirichletEnergy_halfStep_three` with its strict form
+  `dirichletEnergy_halfStep_three_lt`. The bridge was rebuilt against it with every `#audit` in
+  `{propext, Classical.choice, Quot.sound}`. The `1/4` factor needs the order of `ℝ`, so the ring
+  theorem and the word refinement claim no energy, nonnegativity or ordering.

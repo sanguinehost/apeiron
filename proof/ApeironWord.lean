@@ -99,7 +99,7 @@ def cell.Cell.new
   ok { a, b }
 
 /-- [apeiron_word::carrier::point_density]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 40:0-44:1
+    Source: 'proof/extract/../../src/carrier.rs', lines 45:0-49:1
     Visibility: public -/
 def carrier.point_density
   {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
@@ -112,7 +112,7 @@ def carrier.point_density
   cell.Cell.norm_form scalarRingInst c1 sigma
 
 /-- [apeiron_word::carrier::point_flux]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 52:0-60:1
+    Source: 'proof/extract/../../src/carrier.rs', lines 57:0-65:1
     Visibility: public -/
 def carrier.point_flux
   {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
@@ -124,7 +124,7 @@ def carrier.point_flux
   scalarRingInst.mul t t1
 
 /-- [apeiron_word::carrier::conservative_density_step]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 79:0-96:1
+    Source: 'proof/extract/../../src/carrier.rs', lines 84:0-101:1
     Visibility: public -/
 def carrier.conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -141,7 +141,7 @@ def carrier.conservative_density_step
     | some after_net => ok (I64.checked_add after_net source)
 
 /-- [apeiron_word::carrier::diffusive_flux_half]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 114:0-134:1
+    Source: 'proof/extract/../../src/carrier.rs', lines 119:0-139:1
     Visibility: public -/
 def carrier.diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
@@ -160,6 +160,47 @@ def carrier.diffusive_flux_half
         match o2 with
         | none => ok none
         | some half => ok (I64.checked_sub 0#i64 half)
+
+/-- [apeiron_word::carrier::DensityLine3]
+    Source: 'proof/extract/../../src/carrier.rs', lines 146:0-153:1
+    Visibility: public -/
+structure carrier.DensityLine3 where
+  left : Std.I64
+  center : Std.I64
+  right : Std.I64
+
+/-- [apeiron_word::carrier::diffusive_line3_step]:
+    Source: 'proof/extract/../../src/carrier.rs', lines 175:0-204:1
+    Visibility: public -/
+def carrier.diffusive_line3_step
+  (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
+  Result (Option carrier.DensityLine3)
+  := do
+  let o ← carrier.diffusive_flux_half old.left old.center
+  match o with
+  | none => ok none
+  | some face_left =>
+    let o1 ← carrier.diffusive_flux_half old.center old.right
+    match o1 with
+    | none => ok none
+    | some face_right =>
+      let o2 ←
+        carrier.conservative_density_step old.left 0#i64 face_left source.left
+      match o2 with
+      | none => ok none
+      | some left =>
+        let o3 ←
+          carrier.conservative_density_step old.center face_left face_right
+            source.center
+        match o3 with
+        | none => ok none
+        | some center =>
+          let o4 ←
+            carrier.conservative_density_step old.right face_right 0#i64
+              source.right
+          match o4 with
+          | none => ok none
+          | some right => ok (some { left, center, right })
 
 /-- [apeiron_word::cell::{impl core::cmp::PartialEq<apeiron_word::cell::Cell<R>> for apeiron_word::cell::Cell<R>}::eq]:
     Source: 'proof/extract/../../src/cell.rs', lines 78:29-78:38
@@ -336,8 +377,17 @@ def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
+/-- [apeiron_word::word_diffusive_line3_step]:
+    Source: 'proof/extract/lib.rs', lines 68:0-73:1
+    Visibility: public -/
+def word_diffusive_line3_step
+  (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
+  Result (Option carrier.DensityLine3)
+  := do
+  carrier.diffusive_line3_step old source
+
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'proof/extract/lib.rs', lines 67:0-69:1
+    Source: 'proof/extract/lib.rs', lines 76:0-78:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -346,7 +396,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'proof/extract/lib.rs', lines 72:0-74:1
+    Source: 'proof/extract/lib.rs', lines 81:0-83:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -355,7 +405,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'proof/extract/lib.rs', lines 81:0-87:1
+    Source: 'proof/extract/lib.rs', lines 90:0-96:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
