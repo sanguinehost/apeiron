@@ -1,0 +1,29 @@
+{
+  "status": "published_github_short_form_2026-09-11_gitlab_pending",
+  "approved_to_publish": false,
+  "github_issue": "https://github.com/Ptyktos/fold/issues/15",
+  "host": "gitlab.tas.twn.network",
+  "project_id": 211,
+  "project": "twn/RnD/fold",
+  "title": "RFC: Core architecture, evidence standards, and Fold sunset",
+  "body": "RFC.md",
+  "reviewer": "ctown",
+  "reviewer_identity": "Clay Townsend, verified GitLab project owner; not GitHub username yokoszn",
+  "attachments_after_approval": [
+    "diagrams/current.svg",
+    "diagrams/proposed.svg",
+    "../../call-census/README.md",
+    "../../call-census/data/reviewed-calls.tsv",
+    "../../call-census/data/census-audit.json",
+    "../../call-census/primitive-findings.md",
+    "ownership.md"
+  ],
+  "publication_gate": [
+    "Obtain explicit Lucas approval of the draft before any remote mutation or notification.",
+    "Upload approved attachments and replace local diagram links with GitLab upload links.",
+    "Include uploaded evidence links; resolve internal evidence links or bundle evidence with relative paths intact.",
+    "Keep native Mermaid diagrams in the issue body; SVG downloads accompany them.",
+    "Create the issue on project 211 and request review from @ctown only after approval.",
+    "Return the issue URL. Publication does not itself record joint architecture acceptance."
+  ]
+}

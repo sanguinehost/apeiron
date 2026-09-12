@@ -1,0 +1,13 @@
+flowchart TB
+  r3["<b>R3 - Indirect userspace</b><br/>Clients / UIs / automation"]:::r3
+  r2["<b>R2 - Applications and infrastructure</b><br/>Fold apps / NetFold / identity | Bedrock services / ModelFold experiments | Penglai"]:::r2
+  r1["<b>R1 - Library responsibilities</b><br/>Bedrock I/O + SangDB | ModelFold kernels | Hashtrinity / Transcode utilities"]:::r1
+  r0["<b>R0 - Mathematical and computational foundations</b><br/>Apeiron Rust + canonical Lean | Hashtrinity table / Sanguine gen1"]:::r0
+  r3 --> r2
+  r2 --> r1
+  r1 --> r0
+  classDef r3 fill:#F5F6F8,stroke:#667085,color:#172B3A
+  classDef r2 fill:#EDF2F6,stroke:#48637B,color:#172B3A
+  classDef r1 fill:#ECF4EE,stroke:#3D7052,color:#172B3A
+  classDef r0 fill:#E8F0FA,stroke:#2A5A8D,color:#172B3A
+  %% Layer direction only: R2 may also use R0 directly.

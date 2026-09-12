@@ -1,0 +1,8 @@
+class	sites	basis	disposition
+method_ambiguous	102	target-name collision with a non-target glob in scope: receiver `Engine` 101 (bedrock `serve::Engine`, impl at src/serve/probe.rs:348 and src/serve/walker.rs:87; target `Engine` is the base64 trait at hashtrinity/src/base64.rs:106), `mut Response` 1	not a target call; excluded from attributed
+method_trait_heuristic	31	imported target trait name, receiver type unknown: FoldExt 13, AsTerm 8, Engine 7 (base64 encode/decode), Coord 3	labelled heuristic only; excluded from attributed
+method_dynamic_dispatch	37	trait object or generic bound	dispatch not resolvable syntactically
+candidate_const_receiver	2	ZBASE32.encode/decode src/transport/signed_dns.rs:100,108; hashtrinity::base32::ZBASE32 imported at signed_dns.rs:40	manually confirmed target call; not attributed
+candidate_noncompiled_copy	19	CoordMap in src/native_lib/proxy.rs 9, http_types.rs 7, router.rs 3; live merged file src/native_lib.rs:42 imports CoordMap	dead source copies; cannot be added to live misses
+candidate_unknown_receiver	11382	method_candidate with no receiver type recorded (of 11428 candidates total)	unresolved; no attribution basis
+macro_generated	13818	unqualified macro invocations not expanded	generated calls invisible to this census

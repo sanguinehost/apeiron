@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1119" viewBox="0 0 1240 1119" role="img" aria-labelledby="title description">
+<title id="title">Today: mixed ring boundaries</title>
+<desc id="description">Responsibilities mapped to rings. Repeated package names show mixed responsibilities. Four aligned bands, R3 through R0. R2 may call R0 directly.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6" fill="none" stroke="#81909C" stroke-width="1.4"/></marker></defs>
+<rect width="1240" height="1119" fill="#FFFFFF"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#172B3A">
+<text x="40" y="44" font-size="27" font-weight="700" fill="#172B3A" text-anchor="start">Today: mixed ring boundaries</text>
+<text x="40" y="74" font-size="15" font-weight="400" fill="#526576" text-anchor="start">Responsibilities mapped to rings. Repeated package names show mixed responsibilities.</text>
+<text x="40" y="99" font-size="11" font-weight="700" fill="#657786" text-anchor="start">READ TOP TO BOTTOM  /  ONE BAND PER RING  /  NO SERIAL ORDER BETWEEN PEERS</text>
+<rect x="40" y="123" width="1160" height="166" rx="8" fill="#F5F6F8"/>
+<rect x="40" y="123" width="7" height="166" rx="3" fill="#667085"/>
+<text x="95" y="202" font-size="34" font-weight="700" fill="#667085" text-anchor="middle">R3</text>
+<text x="95" y="223" font-size="11" font-weight="700" fill="#667085" text-anchor="middle">RING</text>
+<text x="160" y="153" font-size="20" font-weight="700" fill="#172B3A" text-anchor="start">Indirect userspace</text>
+<text x="160" y="181" font-size="13.5" font-weight="400" fill="#526576" text-anchor="start">Clients that use product interfaces, not core libraries directly.</text>
+<rect x="160" y="199" width="1040" height="74" rx="5" fill="#FFFFFF" stroke="#CCD7DF"/>
+<text x="174" y="229" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Clients / UIs / automation</text>
+<text x="174" y="256" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Product APIs and application interfaces</text>
+<path d="M680,292 V307" fill="none" stroke="#81909C" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="314" width="1160" height="185" rx="8" fill="#EDF2F6"/>
+<rect x="40" y="314" width="7" height="185" rx="3" fill="#48637B"/>
+<text x="95" y="402.5" font-size="34" font-weight="700" fill="#48637B" text-anchor="middle">R2</text>
+<text x="95" y="423.5" font-size="11" font-weight="700" fill="#48637B" text-anchor="middle">RING</text>
+<text x="160" y="344" font-size="20" font-weight="700" fill="#172B3A" text-anchor="start">Applications and infrastructure</text>
+<text x="160" y="372" font-size="13.5" font-weight="400" fill="#526576" text-anchor="start">Direct core consumers; some application code is still inside library packages.</text>
+<rect x="160" y="390" width="337.333" height="93" rx="5" fill="#FFFFFF" stroke="#CCD7DF"/>
+<text x="174" y="420" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Fold applications</text>
+<text x="174" y="447" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">OpsFold / WebFold / AppFold</text>
+<text x="174" y="466" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">NetFold / identity provider</text>
+<rect x="511.333" y="390" width="337.333" height="93" rx="5" fill="#FFF8E9" stroke="#BB9855"/>
+<text x="525.333" y="420" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Bundled application code</text>
+<text x="525.333" y="447" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Bedrock serving / UI</text>
+<text x="525.333" y="466" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">ModelFold experiments</text>
+<rect x="862.667" y="390" width="337.333" height="93" rx="5" fill="#FFFFFF" stroke="#CCD7DF"/>
+<text x="876.667" y="420" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Penglai</text>
+<text x="876.667" y="447" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Rust game</text>
+<text x="876.667" y="466" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Uses Apeiron directly</text>
+<path d="M680,502 V517" fill="none" stroke="#81909C" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="524" width="1160" height="185" rx="8" fill="#ECF4EE"/>
+<rect x="40" y="524" width="7" height="185" rx="3" fill="#3D7052"/>
+<text x="95" y="612.5" font-size="34" font-weight="700" fill="#3D7052" text-anchor="middle">R1</text>
+<text x="95" y="633.5" font-size="11" font-weight="700" fill="#3D7052" text-anchor="middle">RING</text>
+<text x="160" y="554" font-size="20" font-weight="700" fill="#172B3A" text-anchor="start">Library responsibilities</text>
+<text x="160" y="582" font-size="13.5" font-weight="400" fill="#526576" text-anchor="start">Useful libraries exist, but their package boundaries include applications and utilities.</text>
+<rect x="160" y="600" width="337.333" height="93" rx="5" fill="#FFF8E9" stroke="#BB9855"/>
+<text x="174" y="630" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Bedrock</text>
+<text x="174" y="657" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">I/O + embedded SangDB</text>
+<text x="174" y="676" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Same package as serving / UI</text>
+<rect x="511.333" y="600" width="337.333" height="93" rx="5" fill="#FFF8E9" stroke="#BB9855"/>
+<text x="525.333" y="630" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">ModelFold</text>
+<text x="525.333" y="657" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Numerical / GPU kernels</text>
+<text x="525.333" y="676" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Same package as experiments</text>
+<rect x="862.667" y="600" width="337.333" height="93" rx="5" fill="#FFF8E9" stroke="#BB9855"/>
+<text x="876.667" y="630" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Shared utilities</text>
+<text x="876.667" y="657" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Hashtrinity / Transcode</text>
+<text x="876.667" y="676" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Codecs / runtime / API helpers</text>
+<path d="M680,712 V727" fill="none" stroke="#81909C" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="734" width="1160" height="185" rx="8" fill="#E8F0FA"/>
+<rect x="40" y="734" width="7" height="185" rx="3" fill="#2A5A8D"/>
+<text x="95" y="822.5" font-size="34" font-weight="700" fill="#2A5A8D" text-anchor="middle">R0</text>
+<text x="95" y="843.5" font-size="11" font-weight="700" fill="#2A5A8D" text-anchor="middle">RING</text>
+<text x="160" y="764" font-size="20" font-weight="700" fill="#172B3A" text-anchor="start">Mathematical and computational foundations</text>
+<text x="160" y="792" font-size="13.5" font-weight="400" fill="#526576" text-anchor="start">The canonical foundation and the legacy implementation still coexist.</text>
+<rect x="160" y="810" width="513" height="93" rx="5" fill="#FFFFFF" stroke="#CCD7DF"/>
+<text x="174" y="840" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Apeiron / Sanguine-apeiron</text>
+<text x="174" y="867" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Rust primitives + canonical Lean</text>
+<text x="174" y="886" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Separate source locations</text>
+<rect x="687" y="810" width="513" height="93" rx="5" fill="#FFF8E9" stroke="#BB9855"/>
+<text x="701" y="840" font-size="17" font-weight="700" fill="#172B3A" text-anchor="start">Legacy foundation</text>
+<text x="701" y="867" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Hashtrinity table + Sanguine gen1</text>
+<text x="701" y="886" font-size="14" font-weight="400" fill="#465C6D" text-anchor="start">Citations are not Rust refinements</text>
+<text x="160" y="925" font-size="14" font-weight="700" fill="#405B70" text-anchor="start">Layer arrows are a reading guide, not mandatory routes. Penglai calls R0 directly.</text>
+<rect x="40" y="951" width="1160" height="107" rx="7" fill="#F4F1F8"/>
+<text x="160" y="975" font-size="17" font-weight="700" fill="#68517D" text-anchor="start">Separate Song track</text>
+<text x="160" y="1001" font-size="15" font-weight="400" fill="#526576" text-anchor="start">Song shares the canonical mathematics and uses its pinned gen1 compiler.</text>
+<text x="160" y="1024" font-size="15" font-weight="400" fill="#526576" text-anchor="start">Whispering Tides currently uses gen1 Song interfaces.</text>
+<text x="40" y="1082" font-size="12" font-weight="400" fill="#657786" text-anchor="start">OS, third-party libraries and GPU drivers are external boundaries, not extra framework rings.</text>
+</g>
+</svg>

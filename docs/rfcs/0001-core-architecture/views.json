@@ -1,0 +1,89 @@
+{
+  "current": {
+    "title": "Today: mixed ring boundaries",
+    "subtitle": "Responsibilities mapped to rings. Repeated package names show mixed responsibilities.",
+    "rings": [
+      {
+        "id": "r3", "name": "Indirect userspace", "description": "Clients that use product interfaces, not core libraries directly.",
+        "cards": [
+          {"title": "Clients / UIs / automation", "lines": ["Product APIs and application interfaces"], "summary": "Clients / UIs / automation", "refs": ["clients"]}
+        ]
+      },
+      {
+        "id": "r2", "name": "Applications and infrastructure", "description": "Direct core consumers; some application code is still inside library packages.",
+        "cards": [
+          {"title": "Fold applications", "lines": ["OpsFold / WebFold / AppFold", "NetFold / identity provider"], "summary": "Fold apps / NetFold / identity", "refs": ["apps", "netfold", "provider"]},
+          {"title": "Bundled application code", "lines": ["Bedrock serving / UI", "ModelFold experiments"], "summary": "Bedrock services / ModelFold experiments", "refs": ["bedrock", "models"], "status": "mixed"},
+          {"title": "Penglai", "lines": ["Rust game", "Uses Apeiron directly"], "summary": "Penglai", "refs": ["penglai"]}
+        ]
+      },
+      {
+        "id": "r1", "name": "Library responsibilities", "description": "Useful libraries exist, but their package boundaries include applications and utilities.",
+        "cards": [
+          {"title": "Bedrock", "lines": ["I/O + embedded SangDB", "Same package as serving / UI"], "summary": "Bedrock I/O + SangDB", "refs": ["bedrock"], "status": "mixed"},
+          {"title": "ModelFold", "lines": ["Numerical / GPU kernels", "Same package as experiments"], "summary": "ModelFold kernels", "refs": ["models"], "status": "mixed"},
+          {"title": "Shared utilities", "lines": ["Hashtrinity / Transcode", "Codecs / runtime / API helpers"], "summary": "Hashtrinity / Transcode utilities", "refs": ["hash", "transcode"], "status": "mixed"}
+        ]
+      },
+      {
+        "id": "r0", "name": "Mathematical and computational foundations", "description": "The canonical foundation and the legacy implementation still coexist.",
+        "cards": [
+          {"title": "Apeiron / Sanguine-apeiron", "lines": ["Rust primitives + canonical Lean", "Separate source locations"], "summary": "Apeiron Rust + canonical Lean", "refs": ["rust", "math"]},
+          {"title": "Legacy foundation", "lines": ["Hashtrinity table + Sanguine gen1", "Citations are not Rust refinements"], "summary": "Hashtrinity table / Sanguine gen1", "refs": ["hash", "old"], "status": "mixed"}
+        ]
+      }
+    ],
+    "direct_note": "Layer arrows are a reading guide, not mandatory routes. Penglai calls R0 directly.",
+    "separate": {
+      "title": "Separate Song track",
+      "lines": ["Song shares the canonical mathematics and uses its pinned gen1 compiler.", "Whispering Tides currently uses gen1 Song interfaces."],
+      "refs": ["song", "songref", "tides"]
+    },
+    "external_note": "OS, third-party libraries and GPU drivers are external boundaries, not extra framework rings.",
+    "outside_refs": ["host"]
+  },
+  "proposed": {
+    "title": "Tomorrow: one foundation, peer libraries",
+    "subtitle": "Each band has one responsibility. Peers share a ring; they are not a dependency chain.",
+    "rings": [
+      {
+        "id": "r3", "name": "Indirect userspace", "description": "Uses R2 product APIs. A direct core consumer belongs in R2 instead.",
+        "cards": [
+          {"title": "Clients / UIs / automation", "lines": ["Product APIs and application interfaces"], "summary": "Clients / UIs / automation", "refs": ["clients"]}
+        ]
+      },
+      {
+        "id": "r2", "name": "Applications and infrastructure", "description": "May use R1 libraries or call R0 primitives directly.",
+        "cards": [
+          {"title": "Independent products", "lines": ["OpsFold / WebFold / hosting", "Network / identity tooling"], "summary": "Products / infrastructure", "refs": ["products"]},
+          {"title": "Services", "lines": ["Database / model servers", "Application policy stays here"], "summary": "Database / model services", "refs": ["servers"]},
+          {"title": "Penglai", "lines": ["Rust acceptance game", "Direct core consumer"], "summary": "Penglai", "refs": ["penglai"]}
+        ]
+      },
+      {
+        "id": "r1", "name": "Peer core libraries", "description": "Each uses R0 where needed. Bedrock is for effects, not a gateway to the other peers.",
+        "cards": [
+          {"title": "Bedrock", "lines": ["I/O / tasks", "Resource lifetimes"], "summary": "Bedrock", "refs": ["bedrock"]},
+          {"title": "SangDB", "lines": ["Records / indexes", "Updates / persistence"], "summary": "SangDB", "refs": ["db"]},
+          {"title": "Model kernels", "lines": ["Numeric / GPU", "New work after G3"], "summary": "Models (after G3)", "refs": ["models"], "status": "deferred"},
+          {"title": "Encoding", "lines": ["Independent package", "Candidate for admission"], "summary": "Encoding (candidate)", "refs": ["encoding"], "status": "candidate"}
+        ],
+        "note_refs": ["adapters"]
+      },
+      {
+        "id": "r0", "name": "One mathematical and computational foundation", "description": "One Apeiron repository. No dependency on R1 or applications.",
+        "cards": [
+          {"title": "Apeiron + Sanguine", "lines": ["Canonical Lean specifications + Rust primitives", "R[x]/(x^2 - sigma)"], "summary": "Apeiron + Sanguine: canonical mathematics + Rust primitives", "refs": ["rust", "math"]}
+        ]
+      }
+    ],
+    "direct_note": "R2 may call R0 directly. I/O adapters stay with their library; peer dependencies remain explicit.",
+    "separate": {
+      "title": "Separate Song track",
+      "lines": ["Song shares R0 mathematics; it remains its own OS / language / prover stack.", "Whispering Tides uses Song. It is not another Rust core library."],
+      "refs": ["song", "tides"]
+    },
+    "external_note": "Rings describe dependencies. Support commitments and proof status are specified separately in the RFC.",
+    "outside_refs": ["host"]
+  }
+}

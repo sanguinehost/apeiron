@@ -1,0 +1,22 @@
+repo	host	revision	purpose	files_parsed	records_total	calls_total	attributed_calls	unattributed_candidates	ambiguous	heuristic	dynamic	target_imports	target_reexports	distinct_callees	distinct_callers	distinct_symbols	note
+Ptyktos/agentvfs	GitHub	6a61577ec344369b9aebf6dd1982fcf57b121473	agent virtual filesystem	6	0	0	0	0	0	0	0	0	0	0	0	0	no direct target dependency or attributed call found
+Ptyktos/aim	GitHub	e33d866f1565d85e8ae30e10481619ae0c1c9c72	Agent Identity Management	18	0	0	0	0	0	0	0	0	0	0	0	0	no direct target dependency or attributed call found
+Ptyktos/autofold-standalone	GitHub	9f83cdc06eaee5fd1885228ab1d646f36e31f10b	distill expensive agent/LLM routing/classification into a small model	22	265	265	21	243	0	1	0	9	0	11	14	11	direct: Table + codec::syntax; vendors a divergent hashtrinity copy
+Ptyktos/corpusforge	GitHub	f8fcaa5b142b1c2bf5a41b837e579ab68cafc85b	corpus-governance CLI	1	0	0	0	0	0	0	0	0	0	0	0	0	no direct target dependency or attributed call found
+Ptyktos/lexigraph	GitHub	cff565dffe6f2de9462460f37102d844bd1d05d1	self-hosted code-understanding service	7	0	0	0	0	0	0	0	0	0	0	0	0	no direct target dependency or attributed call found
+Ptyktos/pii-svc	GitHub	49f780ea3b8b8ec1bd5c863030656228fe9f748c	sovereign PII detection and redaction	25	0	0	0	0	0	0	0	0	0	0	0	0	local copy of the primitive (no hashtrinity dep)
+Ptyktos/pvefold	GitHub	9ae54103b4d3678ccb8f6224743cd8c56e35d1fa	Proxmox VE replacement workspace	49	428	428	95	311	0	21	1	50	0	14	49	14	direct: Table + codec::syntax
+Ptyktos/syndesi	GitHub	43fd837f437afbe54194ab78ecbb3e06c0275a3a	textfold TUI coding agent	176	6486	6486	839	5617	0	18	12	95	0	43	346	43	direct: Table + codec::syntax + hashtrinity::crypto
+Tasmanian-Cloud/Galvanize	GitHub	eb6b6eb9b6a4c79d34e78b09507699445e045d68	IaC umbrella (playbook/tofu/vault/CI)	70	339	339	95	244	0	0	0	41	0	13	43	13	direct: codec::syntax + Table
+Tasmanian-Cloud/bedrock	GitHub	b043bbc8edee24bdff4dff8081fa5737b748824f	runtime foundation crate (HTTP/router/proxy)	100	1605	1605	198	1402	0	5	0	79	4	44	126	44	direct: Table + codec::syntax + old hashtrinity_crypto
+Tasmanian-Cloud/flexprice-collector	GitHub	9cd8cb80fd8c0941b6e85d63b2ba81003bde379b	FlexPrice event collector/batcher	1	12	12	3	9	0	0	0	3	0	3	2	3	Error-only core + old hashtrinity_crypto
+Tasmanian-Cloud/flexprice-sdk	GitHub	0f44f74e996f844543f2cda34a0f7679109c1b8f	async FlexPrice billing API SDK	16	73	73	26	47	0	0	0	20	3	16	16	16	direct: Table + codec::syntax + Error
+Tasmanian-Cloud/flexprice-sidecar	GitHub	3be58427646f10aac25f13319797f37e2365c158	private FlexPrice runtime sidecar	1	7	7	0	7	0	0	0	0	0	0	0	0	transitive only via bedrock; no direct target use found
+Tasmanian-Cloud/hosting-runtime	GitHub	d8c8d5db763eabfb2dce4ded35dc4eb647627162	TasCloud internal hosting services	145	0	0	0	0	0	0	0	0	0	0	0	0	declares hashtrinity workspace dep; no member attributed call
+Tasmanian-Cloud/saga	GitHub	e4fe92208ef0bdb12d8ac8b037ad8897de897646	hosting orchestration runner	48	111	111	32	79	0	0	0	19	0	8	26	8	direct: codec::syntax only
+Tasmanian-Cloud/sauthy	GitHub	b0ad9eebf8915c03fa34ce3602da620410992326	SSO/IAM (OIDC/OAuth2/PAM)	319	17	17	0	15	2	0	0	0	0	0	0	0	transitive only via transcode; no direct target use found
+gitlab/sanguine-datastores	GitLab	ac7e43fa8a8060dfdb25e59ad5ccd06344ffb131	data-plane kernel docs	6	3	3	0	2	1	0	0	0	0	0	0	0	doc cite only; no Cargo.toml / no direct use found
+gitlab/sdirstat	GitLab	6dec1ebac7acd18c3eebc2bb93331e23825ab7ce	disk-usage analyzer / filesystem indexer	4	0	0	0	0	0	0	0	0	0	0	0	0	local copy of the primitive (no hashtrinity dep)
+gitlab/vocalize-rs	GitLab	3b137d5f106787c59ab00d298d232a34cb723d4e	local real-time pure-Rust speech-to-text	37	0	0	0	0	0	0	0	0	0	0	0	0	transitive only via transcode; no direct target use found
+sanguinehost/webtrainer	GitHub	30da6b9879a259074ea84daea5d1f960cd8fb02e	psyche decentralized training network	337	18	18	2	16	0	0	0	0	0	1	2	1	old hashtrinity_crypto only (cfg-gated non-solana)
+sanguinehost/webtrainer-core	GitHub	f634c50504a8e74ad555b71883adbd6d56638a55	order-free integer-grid gradient exchange	1	0	0	0	0	0	0	0	0	0	0	0	0	no direct target dependency or attributed call found

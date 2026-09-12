@@ -1,0 +1,8 @@
+schema_version	tool_version	id	crate	file	line	callee	kind	status	note
+2	0.2.0	manual:transcode:src/aac.rs:1049	transcode	src/aac.rs	1049	Table::get	method	missed_target_call	receiver is MutexGuard<hashtrinity::Table<usize,&Twiddles>>; tool leaves it an unattributed candidate; not added to totals
+2	0.2.0	manual:transcode:src/aac.rs:1085	transcode	src/aac.rs	1085	Table::put	method	missed_target_call	receiver is MutexGuard<hashtrinity::Table<usize,&Twiddles>>; not added to totals
+2	0.2.0	manual:opsfold:src/bizops.rs:5198	opsfold	src/bizops.rs	5198	Table::get_at	method	missed_target_call	receiver is Ref<Table<String,String>>; not added to totals
+2	0.2.0	manual:opsfold:src/bizops.rs:5200	opsfold	src/bizops.rs	5200	Table::insert_at	method	missed_target_call	receiver is RefMut<Table<String,String>>; not added to totals
+2	0.2.0	manual:spbench:src/report.rs:40	spbench	src/report.rs	40	Table::new	associated_fn	missed_target_call	local alias `SignalTable = Table<String,i64>` path call; not added to totals
+2	0.2.0	manual:opsfold:src/bizops.rs:5196	opsfold	src/bizops.rs	5196	Rc::clone	method	false_positive	tool attributes Table::clone; receiver is Rc<RefCell<Table>>, so this is Rc::clone; retained in raw ledger and flagged in reviewed-calls.tsv
+2	0.2.0	manual:opsfold:src/bizops.rs:5197	opsfold	src/bizops.rs	5197	Rc::clone	method	false_positive	tool attributes Table::clone; receiver is Rc<RefCell<Table>>, so this is Rc::clone; retained in raw ledger and flagged in reviewed-calls.tsv

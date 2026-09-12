@@ -1,0 +1,27 @@
+file	line	container	gate	note
+src/auto/synth.rs	17	HashSet	production	no exemption; dedup/set
+src/auto/synth.rs	90	HashSet	production	
+src/auto/synth.rs	109	HashSet	production	
+src/auto/synth.rs	121	HashSet	production	
+src/auto/synth.rs	140	HashMap	production	
+src/auto/synth.rs	167	HashSet	production	
+src/audio/whisper.rs	363	HashMap	production	char->label table
+src/audio/whisper.rs	399	HashMap	production	
+src/audio/whisper.rs	400	HashMap	production	
+src/audio/whisper.rs	409	HashMap	production	
+src/auto/dual.rs	177	HashMap	production	word_map
+src/auto/dual.rs	207	HashMap	production	
+src/auto/dual.rs	209	HashMap	production	
+src/auto/dual.rs	344	HashMap	production	
+src/auto/mod.rs	270	BTreeSet	production	ordered dedup
+src/auto/trace.rs	265	BTreeSet	production	distinct-output count
+src/auto/trace.rs	333	BTreeSet	production	distinct-output count
+src/bin/gift_eval.rs	294	HashSet	production	resume set
+src/arch.rs	9233	HashMap	production (LOOP-EXEMPT)	SparseDist::adds measured 1.24x faster
+src/arch.rs	9510	HashMap	production (LOOP-EXEMPT)	
+src/arch.rs	9519	HashMap	production (LOOP-EXEMPT)	
+src/arch.rs	10112	HashMap	production (LOOP-EXEMPT)	cache param
+src/arch.rs	10142	HashMap	production (LOOP-EXEMPT)	measured 1.15x faster
+src/arch.rs	10531	HashMap	production (LOOP-EXEMPT)	
+src/text.rs	46	BinaryHeap	production (LOOP-EXEMPT)	BPE merge priority queue, ordered not keyed
+src/text.rs	241	BinaryHeap	production (LOOP-EXEMPT)	

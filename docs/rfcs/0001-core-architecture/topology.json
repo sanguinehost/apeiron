@@ -1,0 +1,102 @@
+{
+  "current": {
+    "title": "Today: two stronger proof links beside a bundled legacy stack",
+    "subtitle": "Observed aggregate topology. Solid = code/build dependency; dashed = labelled evidence/design relation.",
+    "groups": [
+      {"id": "fold", "label": "Fold source residency (not one build closure)", "color": "#F5EEE5"},
+      {"id": "verified", "label": "Current Apeiron / Penglai line", "color": "#EAF3F8"},
+      {"id": "songarc", "label": "Separate Song / Slang line", "color": "#EDF4EC"}
+    ],
+    "nodes": [
+      {"id": "clients", "label": "Clients / UIs / automation\nproduct-interface consumers", "kind": "application"},
+      {"id": "old", "label": "Sanguine gen1\nlegacy specifications and terminology", "kind": "legacy"},
+      {"id": "apps", "label": "Selected apps\nOpsFold / WebFold / AppFold", "group": "fold", "kind": "application"},
+      {"id": "provider", "label": "Absorbed identity provider\nRauthy / Kleis integrations", "group": "fold", "kind": "application"},
+      {"id": "bedrock", "label": "Bedrock bundle\nI/O + SangDB + serving + UI / policy", "group": "fold", "kind": "bundle"},
+      {"id": "models", "label": "ModelFold\nmodels + numeric / GPU kernels", "group": "fold", "kind": "bundle"},
+      {"id": "transcode", "label": "Transcode\nmedia / document codecs", "group": "fold", "kind": "bundle"},
+      {"id": "netfold", "label": "NetFold\nnetwork configuration / model IR", "group": "fold", "kind": "application"},
+      {"id": "hash", "label": "Hashtrinity bundle\ntable + codec + API substitutes\nparallel / runtime + crypto", "group": "fold", "kind": "bundle"},
+      {"id": "penglai", "label": "Penglai\nRust / Bevy / Avian game", "group": "verified", "kind": "application"},
+      {"id": "rust", "label": "Apeiron Rust\nselected kernels refined\noptimized containers tested", "group": "verified", "kind": "foundation"},
+      {"id": "math", "label": "Sanguine-apeiron\ncanonical Lean corpus\ntrichotomy / AnyRing", "group": "verified", "kind": "specification"},
+      {"id": "song", "label": "Song gen2\nlanguage / compiler / prover / OS", "group": "songarc", "kind": "independent"},
+      {"id": "songref", "label": "Song gen1 / song-ref\npinned bootstrap compiler\nlegacy kernel interfaces", "group": "songarc", "kind": "legacy"},
+      {"id": "tides", "label": "Whispering Tides\nSlang game / gen1 interfaces", "group": "songarc", "kind": "application"},
+      {"id": "host", "label": "External execution boundary\nstd / Tokio / Linux / GPU drivers", "kind": "external"}
+    ],
+    "edges": [
+      {"from": "clients", "to": "apps", "label": "product APIs", "kind": "relation"},
+      {"from": "apps", "to": "bedrock", "label": "platform APIs"},
+      {"from": "apps", "to": "hash", "label": "selected direct utilities"},
+      {"from": "apps", "to": "netfold", "label": "OpsFold network model"},
+      {"from": "netfold", "to": "hash", "label": "tables / schema encoding"},
+      {"from": "bedrock", "to": "models", "label": "serve feature"},
+      {"from": "bedrock", "to": "hash", "label": "state / codec / execution"},
+      {"from": "models", "to": "hash", "label": "counts / indexes / utilities"},
+      {"from": "models", "to": "transcode", "label": "media input"},
+      {"from": "transcode", "to": "hash", "label": "cache / document utilities"},
+      {"from": "provider", "to": "hash", "label": "codec / validation / OpenAPI"},
+      {"from": "old", "to": "hash", "label": "citations, not Rust refinement", "kind": "relation"},
+      {"from": "old", "to": "models", "label": "claimed mathematical warrants", "kind": "relation"},
+      {"from": "bedrock", "to": "host", "label": "host I/O"},
+      {"from": "models", "to": "host", "label": "CPU / Vulkan execution"},
+      {"from": "penglai", "to": "rust", "label": "crate dependency"},
+      {"from": "rust", "to": "math", "label": "Aeneas: selected kernels", "kind": "relation"},
+      {"from": "penglai", "to": "math", "label": "selected adapter refinements", "kind": "relation"},
+      {"from": "song", "to": "math", "label": "specs / parity; execution gap", "kind": "relation"},
+      {"from": "song", "to": "songref", "label": "bootstrap build"},
+      {"from": "tides", "to": "songref", "label": "legacy kernel interfaces"},
+      {"from": "penglai", "to": "tides", "label": "design / scientific source", "kind": "relation"}
+    ]
+  },
+  "proposed": {
+    "title": "Tomorrow: peer core libraries, explicit adapters, independent products",
+    "subtitle": "Target policy. Solid = permitted code dependency, not mandatory import; dashed = protocol/spec relation.",
+    "groups": [
+      {"id": "r3", "label": "R3 - indirect consumers", "color": "#F3F4F6"},
+      {"id": "r2", "label": "R2 - independent direct-core consumers", "color": "#F0F4F7"},
+      {"id": "r1", "label": "R1 - target peer packages; S1 only after admission", "color": "#EAF3EE"},
+      {"id": "r0", "label": "R0 - one Apeiron repository / target S0", "color": "#E7EFF8"},
+      {"id": "songarc", "label": "Separately maintained Song / Slang project", "color": "#F0ECF7"}
+    ],
+    "nodes": [
+      {"id": "clients", "label": "Clients / UIs / automation\nindirect consumers", "group": "r3", "kind": "application"},
+      {"id": "products", "label": "Independent products\nOpsFold / WebFold / hosting / identity", "group": "r2", "kind": "application"},
+      {"id": "servers", "label": "Database / model services\ncompose libraries; own policy", "group": "r2", "kind": "application"},
+      {"id": "penglai", "label": "Penglai\nRust acceptance application", "group": "r2", "kind": "application"},
+      {"id": "adapters", "label": "Optional storage / model I/O adapters\neffects only; separable packages", "group": "r1", "kind": "adapter"},
+      {"id": "bedrock", "label": "Bedrock\nI/O / tasks / resource lifetime", "group": "r1", "kind": "library"},
+      {"id": "db", "label": "SangDB core\nrecords / indexes / updates", "group": "r1", "kind": "library"},
+      {"id": "models", "label": "Model kernels\nnumeric / DP4A / Vulkan\nnew work waits for G3", "group": "r1", "kind": "deferred"},
+      {"id": "encoding", "label": "Encoding candidate\nindependent package in SangDB repo\nno database-crate dependency", "group": "r1", "kind": "candidate"},
+      {"id": "rust", "label": "Apeiron Rust primitives\nexplicit representations / contracts\nrequired Aeneas + Kani gates", "group": "r0", "kind": "foundation"},
+      {"id": "math", "label": "Canonical Lean specifications\ntrichotomy / AnyRing\nseparate math-only Lake package", "group": "r0", "kind": "specification"},
+      {"id": "song", "label": "Song\nlanguage / prover / compiler / OS\nindependent execution obligations", "group": "songarc", "kind": "independent"},
+      {"id": "tides", "label": "Whispering Tides\nSong acceptance application", "group": "songarc", "kind": "application"},
+      {"id": "host", "label": "Explicit external boundary\nOS / libraries / GPU drivers", "kind": "external"}
+    ],
+    "edges": [
+      {"from": "clients", "to": "products", "label": "protocol / application interface", "kind": "relation"},
+      {"from": "clients", "to": "servers", "label": "service API", "kind": "relation"},
+      {"from": "products", "to": "adapters", "label": "selected admitted packages"},
+      {"from": "products", "to": "db", "label": "direct; no Bedrock required"},
+      {"from": "products", "to": "bedrock", "label": "I/O when needed"},
+      {"from": "servers", "to": "models", "label": "direct kernels after G3 + admission"},
+      {"from": "servers", "to": "adapters", "label": "compose; no policy in core"},
+      {"from": "adapters", "to": "bedrock", "label": "effects"},
+      {"from": "adapters", "to": "db", "label": "storage operations"},
+      {"from": "adapters", "to": "models", "label": "model operations after G3 + admission"},
+      {"from": "adapters", "to": "encoding", "label": "formats after admission"},
+      {"from": "bedrock", "to": "rust", "label": "required primitive operations"},
+      {"from": "db", "to": "rust", "label": "direct primitive dependency"},
+      {"from": "models", "to": "rust", "label": "direct primitive dependency"},
+      {"from": "encoding", "to": "rust", "label": "where required; no dummy import"},
+      {"from": "penglai", "to": "rust", "label": "direct core consumer"},
+      {"from": "rust", "to": "math", "label": "required implementation refinements", "kind": "relation"},
+      {"from": "bedrock", "to": "host", "label": "named platform backends"},
+      {"from": "tides", "to": "song", "label": "versioned Slang interfaces"},
+      {"from": "song", "to": "math", "label": "math-only contracts / conformance", "kind": "relation"}
+    ]
+  }
+}

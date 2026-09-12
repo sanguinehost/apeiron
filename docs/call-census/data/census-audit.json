@@ -1,0 +1,704 @@
+{
+  "schema_version": 1,
+  "scope": "13 current Fold subtrees and 21 selected hosted repository snapshots; not all portfolio repos",
+  "limits": "Source syntax, not a compiler call graph. Macros and cfg are not expanded/evaluated. No runtime counts. Residual attributions remain unproved after known false positives are marked.",
+  "cohorts": {
+    "models": {
+      "runs": 1,
+      "files": 409,
+      "attributed": 1009,
+      "recorded": 8962,
+      "unattributed": 7953
+    },
+    "bedrock": {
+      "runs": 1,
+      "files": 429,
+      "attributed": 1580,
+      "recorded": 13178,
+      "unattributed": 11598
+    },
+    "other": {
+      "runs": 11,
+      "files": 586,
+      "attributed": 4059,
+      "recorded": 15307,
+      "unattributed": 11248
+    },
+    "hosted": {
+      "runs": 21,
+      "files": 1389,
+      "attributed": 1311,
+      "recorded": 9364,
+      "unattributed": 8053
+    }
+  },
+  "raw_attributed_sites": 7959,
+  "known_false_positives": 2,
+  "remaining_attributed_sites": 7957,
+  "inventory_kind_after_known_exclusions": {
+    "associated_fn": 1956,
+    "constructor": 839,
+    "free_fn": 2265,
+    "method": 2890,
+    "unclassified": 7
+  },
+  "api_family_after_known_exclusions": {
+    "api_substitutes": 523,
+    "collections_and_addressing": 3412,
+    "crypto_housed": 243,
+    "encoding_and_terms": 3221,
+    "encoding_helpers": 10,
+    "encoding_in_crypto": 49,
+    "execution_and_io": 118,
+    "other": 378,
+    "security_integration": 3
+  },
+  "runs": [
+    {
+      "cohort": "models",
+      "run": "models",
+      "root": "/tmp/opencode/fold-call-census-20260911/modelfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 409,
+      "attributed": 1009,
+      "unattributed_records": 7953,
+      "summary_sha256": "a2063903b363e00ed7c7a150b5c54d279a2eb2a32c937dd9e7fc05e2d79945e4"
+    },
+    {
+      "cohort": "bedrock",
+      "run": "bedrock",
+      "root": "/tmp/opencode/fold-call-census-20260911/bedrock",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 429,
+      "attributed": 1580,
+      "unattributed_records": 11598,
+      "summary_sha256": "9183324b15e33645c588dc42120996a0b79666a226a72bb113c2a56344920e89"
+    },
+    {
+      "cohort": "other",
+      "run": "appfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/appfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 31,
+      "attributed": 75,
+      "unattributed_records": 96,
+      "summary_sha256": "b79c4749ada64365d87a7e14c9c01ec70f879fb6883f5eab55978a83c32ecff0"
+    },
+    {
+      "cohort": "other",
+      "run": "investfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/investfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 17,
+      "attributed": 61,
+      "unattributed_records": 361,
+      "summary_sha256": "34517d52669219bab2a1a7df779dbc6d7befdba6f592b5c14a9150f016dec132"
+    },
+    {
+      "cohort": "other",
+      "run": "kleis",
+      "root": "/tmp/opencode/fold-call-census-20260911/kleis",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 291,
+      "attributed": 2886,
+      "unattributed_records": 2916,
+      "summary_sha256": "54ed002bfcfb06657df7fce462dd3bba520e0b4a75e0873baa30a5ea3fae0ec0"
+    },
+    {
+      "cohort": "other",
+      "run": "memoryfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/memoryfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 2,
+      "attributed": 12,
+      "unattributed_records": 98,
+      "summary_sha256": "2d96b1d89193676cf44d9792d7c98398dbf0b8e5100aadb1b61a60f577d5bcf3"
+    },
+    {
+      "cohort": "other",
+      "run": "netfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/netfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 69,
+      "attributed": 78,
+      "unattributed_records": 424,
+      "summary_sha256": "53d346dad875387c5cfb4b07d7e1065b7f0a35279f974f1146b1bf3bc3c43497"
+    },
+    {
+      "cohort": "other",
+      "run": "opsfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/opsfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 63,
+      "attributed": 706,
+      "unattributed_records": 5081,
+      "summary_sha256": "5a5ceceddfc7dfc5860b4d9ec8da26f505785024a80351fd30fefaacc8a4e55e"
+    },
+    {
+      "cohort": "other",
+      "run": "personafold",
+      "root": "/tmp/opencode/fold-call-census-20260911/personafold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 2,
+      "attributed": 6,
+      "unattributed_records": 17,
+      "summary_sha256": "1ac1b640b54679bce337217a6f9676a655ff2865f6c3e49a83e6d3351232ebf7"
+    },
+    {
+      "cohort": "other",
+      "run": "sangsec",
+      "root": "/tmp/opencode/fold-call-census-20260911/sangsec",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 13,
+      "attributed": 50,
+      "unattributed_records": 802,
+      "summary_sha256": "b3ebcacfe31ce402a066e2dbbc84c8d447cf0765c0f571ddebaf9ac6f7940505"
+    },
+    {
+      "cohort": "other",
+      "run": "spbench",
+      "root": "/tmp/opencode/fold-call-census-20260911/spbench",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 10,
+      "attributed": 30,
+      "unattributed_records": 102,
+      "summary_sha256": "fbf040979a87547818756eecbb6eb0b0f4b27322fdddff364dd2edcffe8b4fef"
+    },
+    {
+      "cohort": "other",
+      "run": "transcode",
+      "root": "/tmp/opencode/fold-call-census-20260911/transcode",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 53,
+      "attributed": 24,
+      "unattributed_records": 377,
+      "summary_sha256": "f2a8dcdfe360c9dcb3d8c9e430229b77b596750e445e3522a747d73fb9d26c97"
+    },
+    {
+      "cohort": "other",
+      "run": "webfold",
+      "root": "/tmp/opencode/fold-call-census-20260911/webfold",
+      "revision": {
+        "git_head": "4cc14471ae24f3f204fb0b0e91736ef75c909358",
+        "git_branch": "main",
+        "git_describe": "4cc14471",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 35,
+      "attributed": 131,
+      "unattributed_records": 974,
+      "summary_sha256": "47723db3711de9c54f01abd5c1edec3c1676f53240cedc30b343c1e3903e260c"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-agentvfs",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/agentvfs",
+      "revision": {
+        "git_head": "6a61577ec344369b9aebf6dd1982fcf57b121473",
+        "git_branch": "main",
+        "git_describe": "6a61577",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 6,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "aaa15e21dbd05a50b2e7675a03ecee4ff2a14ac1d0223f2c2e2d1b47aa9e35d0"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-aim",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/aim",
+      "revision": {
+        "git_head": "e33d866f1565d85e8ae30e10481619ae0c1c9c72",
+        "git_branch": "main",
+        "git_describe": "e33d866",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 18,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "d8d54def1eb526b027bbeede1acf252cb0e5764cd02451dc0b0f087474d70c6f"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-autofold-standalone",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/autofold-standalone",
+      "revision": {
+        "git_head": "9f83cdc06eaee5fd1885228ab1d646f36e31f10b",
+        "git_branch": "main",
+        "git_describe": "9f83cdc",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 22,
+      "attributed": 21,
+      "unattributed_records": 244,
+      "summary_sha256": "813f2adea0938d4e7051ff586a7f77894ee7c09cee581af403cf1b24be0e2378"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-corpusforge",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/corpusforge",
+      "revision": {
+        "git_head": "f8fcaa5b142b1c2bf5a41b837e579ab68cafc85b",
+        "git_branch": "main",
+        "git_describe": "f8fcaa5",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 1,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "be168de54172023637471c616dbdccff0c021c4f0027bcf027e9697f53cde3ee"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-lexigraph",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/lexigraph",
+      "revision": {
+        "git_head": "cff565dffe6f2de9462460f37102d844bd1d05d1",
+        "git_branch": "main",
+        "git_describe": "cff565d",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 7,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "82cb0f59582dc7ab388aa7443de74471a934e2206d2d6849198c0c0f7e0baaa9"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-pii-svc",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/pii-svc",
+      "revision": {
+        "git_head": "49f780ea3b8b8ec1bd5c863030656228fe9f748c",
+        "git_branch": "main",
+        "git_describe": "49f780e",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 25,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "4031b07c5dead6f11436943a69ac1046a1df460cff25c96dd1d440459ea870c7"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-pvefold",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/pvefold",
+      "revision": {
+        "git_head": "9ae54103b4d3678ccb8f6224743cd8c56e35d1fa",
+        "git_branch": "master",
+        "git_describe": "9ae5410",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 49,
+      "attributed": 95,
+      "unattributed_records": 333,
+      "summary_sha256": "994d86dba253778c95fbf8aadbe528fe118d94d2eaad2b450b31a90ed6791661"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Ptyktos-syndesi",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Ptyktos/syndesi",
+      "revision": {
+        "git_head": "43fd837f437afbe54194ab78ecbb3e06c0275a3a",
+        "git_branch": "main",
+        "git_describe": "43fd837",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 176,
+      "attributed": 839,
+      "unattributed_records": 5647,
+      "summary_sha256": "006136869dc29fd58ffe57cdb43ac3353786fe12e689bb423fb44791b805d196"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-Galvanize",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/Galvanize",
+      "revision": {
+        "git_head": "eb6b6eb9b6a4c79d34e78b09507699445e045d68",
+        "git_branch": "main",
+        "git_describe": "eb6b6eb",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 70,
+      "attributed": 95,
+      "unattributed_records": 244,
+      "summary_sha256": "64b043a8cffe05b2cfe30eddda668633659e3c4a24edc092bfb5a8331a777679"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-bedrock",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/bedrock",
+      "revision": {
+        "git_head": "b043bbc8edee24bdff4dff8081fa5737b748824f",
+        "git_branch": "main",
+        "git_describe": "b043bbc",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 100,
+      "attributed": 198,
+      "unattributed_records": 1407,
+      "summary_sha256": "a3beaffe4daa9d98a7bcedd8447a41f42ac37a381269cfbd8db98f0fa02fe849"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-flexprice-collector",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/flexprice-collector",
+      "revision": {
+        "git_head": "9cd8cb80fd8c0941b6e85d63b2ba81003bde379b",
+        "git_branch": "master",
+        "git_describe": "9cd8cb8",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 1,
+      "attributed": 3,
+      "unattributed_records": 9,
+      "summary_sha256": "aa8aa2132936697c09a255ddba4e97a46fcd96af45ca48bfd4fca288e10b8a00"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-flexprice-sdk",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/flexprice-sdk",
+      "revision": {
+        "git_head": "0f44f74e996f844543f2cda34a0f7679109c1b8f",
+        "git_branch": "master",
+        "git_describe": "0f44f74",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 16,
+      "attributed": 26,
+      "unattributed_records": 47,
+      "summary_sha256": "33da75183467d5cceb41de6ea66f940cecd4dbe18a397bf473f0a4f828170ff6"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-flexprice-sidecar",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/flexprice-sidecar",
+      "revision": {
+        "git_head": "3be58427646f10aac25f13319797f37e2365c158",
+        "git_branch": "master",
+        "git_describe": "3be5842",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 1,
+      "attributed": 0,
+      "unattributed_records": 7,
+      "summary_sha256": "9685abb3a6239f51df2d5d66eafb0a145a604a5b86c07b7dc14b0667a2a33977"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-hosting-runtime",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/hosting-runtime",
+      "revision": {
+        "git_head": "d8c8d5db763eabfb2dce4ded35dc4eb647627162",
+        "git_branch": "main",
+        "git_describe": "d8c8d5d",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 145,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "18aec4cc8150cedbaff8ae8b53db7ef91ade0010b77d48db3579f8c546c9f846"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-saga",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/saga",
+      "revision": {
+        "git_head": "e4fe92208ef0bdb12d8ac8b037ad8897de897646",
+        "git_branch": "main",
+        "git_describe": "e4fe922",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 48,
+      "attributed": 32,
+      "unattributed_records": 79,
+      "summary_sha256": "f0a5848b1ca08ebc9c31e1d653977053e7f59fd6c7db2e8a3d0f495a649d687e"
+    },
+    {
+      "cohort": "hosted",
+      "run": "Tasmanian-Cloud-sauthy",
+      "root": "/tmp/opencode/hosted-consumers-20260911/Tasmanian-Cloud/sauthy",
+      "revision": {
+        "git_head": "b0ad9eebf8915c03fa34ce3602da620410992326",
+        "git_branch": "sanguine-fork",
+        "git_describe": "b0ad9ee",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 319,
+      "attributed": 0,
+      "unattributed_records": 17,
+      "summary_sha256": "4168d135e3793c9921e4ef2e3c03546b4250534bdc33bcf6b66d9a126cc29ef9"
+    },
+    {
+      "cohort": "hosted",
+      "run": "gitlab-sanguine-datastores",
+      "root": "/tmp/opencode/hosted-consumers-20260911/gitlab/sanguine-datastores",
+      "revision": {
+        "git_head": "ac7e43fa8a8060dfdb25e59ad5ccd06344ffb131",
+        "git_branch": "master",
+        "git_describe": "ac7e43f",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 6,
+      "attributed": 0,
+      "unattributed_records": 3,
+      "summary_sha256": "462398c98dadd8753f29c7e2d06417e5cb58f2dbbfaba6502df79eafc8de0e56"
+    },
+    {
+      "cohort": "hosted",
+      "run": "gitlab-sdirstat",
+      "root": "/tmp/opencode/hosted-consumers-20260911/gitlab/sdirstat",
+      "revision": {
+        "git_head": "6dec1ebac7acd18c3eebc2bb93331e23825ab7ce",
+        "git_branch": "main",
+        "git_describe": "6dec1eb",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 4,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "39fc41ccaf6d4bb33211b099c1028a978965e8bc25e3becfc1153ea5dbfa4b05"
+    },
+    {
+      "cohort": "hosted",
+      "run": "gitlab-vocalize-rs",
+      "root": "/tmp/opencode/hosted-consumers-20260911/gitlab/vocalize-rs",
+      "revision": {
+        "git_head": "3b137d5f106787c59ab00d298d232a34cb723d4e",
+        "git_branch": "main",
+        "git_describe": "3b137d5",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 37,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "77d4acf62296638efa69318abb38e6b5916ef492d4da5eac2b7aadc1bbea94e2"
+    },
+    {
+      "cohort": "hosted",
+      "run": "sanguinehost-webtrainer",
+      "root": "/tmp/opencode/hosted-consumers-20260911/sanguinehost/webtrainer",
+      "revision": {
+        "git_head": "30da6b9879a259074ea84daea5d1f960cd8fb02e",
+        "git_branch": "main",
+        "git_describe": "30da6b9",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 337,
+      "attributed": 2,
+      "unattributed_records": 16,
+      "summary_sha256": "d48e2545140f7ac3d4f1fe3942e9c448f6a9e91d18d052e7bab1e11f92a1445b"
+    },
+    {
+      "cohort": "hosted",
+      "run": "sanguinehost-webtrainer-core",
+      "root": "/tmp/opencode/hosted-consumers-20260911/sanguinehost/webtrainer-core",
+      "revision": {
+        "git_head": "f634c50504a8e74ad555b71883adbd6d56638a55",
+        "git_branch": "main",
+        "git_describe": "f634c50",
+        "git_status_porcelain_lines": 0,
+        "working_tree_note": "hashes and line numbers are of the working tree that was walked, which may include uncommitted edits; HEAD is recorded for reference only"
+      },
+      "tool_version": "0.2.0",
+      "tool_source_sha256": "7de0f968c93b7367c6fc8b98f36ebaa2f627f60d6b2b4870ad7b7a6c12413fa9",
+      "tool_binary_sha256": "5600cfc46cacd0ed871b10960a97cc8bd5dfb36f13f0d30760f8f7ab320824a1",
+      "files": 1,
+      "attributed": 0,
+      "unattributed_records": 0,
+      "summary_sha256": "b24e5efa015235baf608860d5f0132ca161c3f187e98e091e017f6202a23cc5c"
+    }
+  ]
+}
