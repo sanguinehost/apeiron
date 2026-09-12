@@ -976,4 +976,270 @@ theorem word_conservative_total_mass_closed
   rw [word_conservative_total_mass density face source result n hok, hLeft, hRight, hSource]
   ring
 
+/-!
+## The extracted three-cell diffusive line refines the canonical scalar step
+
+`word_diffusive_line3_step` is the extracted `i64` specialisation of the real
+`carrier::diffusive_line3_step`: a closed three-cell line with `nu = 1/2`. The two interior faces
+are read once each from `word_diffusive_flux_half`, the two ends are closed at zero, and the three
+cells are updated by `word_conservative_density_step`. On `ZMod (2 ^ 64)` each updated component is
+the canonical `scalarCarrierStep` at the denoted faces, each interior face is an `exactHalfFlux`
+witness, and a successful step changes the denoted total only by the denoted sources. The finite
+total is the existing `word_conservative_total_mass`, not a second telescoping proof.
+
+The step is partial: an odd interior difference or an unrepresentable intermediate returns `ok
+none`. The generated `match` chain binds every local before it constructs the result, so a late
+refusal leaves no partially updated line.
+-/
+
+/-- Three values as a `ℕ`-indexed array: positions `0`, `1`, `2`, zero elsewhere. -/
+def line3 (a b c : I64) : ℕ → I64
+  | 0 => a
+  | 1 => b
+  | 2 => c
+  | _ => 0#i64
+
+/-- The four faces of a three-cell line: the closed left end, the two interior faces and the
+closed right end. Position `3` is the right boundary that cell `2` reads as its outgoing face. -/
+def lineFaces (faceLeft faceRight : I64) : ℕ → I64
+  | 0 => 0#i64
+  | 1 => faceLeft
+  | 2 => faceRight
+  | _ => 0#i64
+
+/-- The denoted total of the three entries of a line. -/
+@[simp] theorem sum_line3 (a b c : I64) :
+    (∑ i ∈ Finset.range 3, denote (line3 a b c i)) = denote a + denote b + denote c := by
+  simp [line3, Finset.sum_range_succ]
+
+/-- The extracted half-flux either succeeds with a word or refuses; its generated body only ever
+returns `ok`, so this is the case split the success characterization needs. -/
+theorem word_diffusive_flux_half_cases (left right : I64) :
+    (∃ f, carrier.diffusive_flux_half left right = ok (some f)) ∨
+      carrier.diffusive_flux_half left right = ok none := by
+  simp only [carrier.diffusive_flux_half, lift, bind_tc_ok]
+  cases hsub : I64.checked_sub right left with
+  | none => exact Or.inr rfl
+  | some difference =>
+    simp only [hsub]
+    cases hrem : I64.checked_rem difference 2#i64 with
+    | none => exact Or.inr rfl
+    | some remainder =>
+      simp only [hrem]
+      by_cases hcond : remainder != 0#i64
+      · simp only [hcond]
+        exact Or.inr rfl
+      · simp only [hcond]
+        cases hdiv : I64.checked_div difference 2#i64 with
+        | none => exact Or.inr rfl
+        | some half =>
+          simp only [hdiv]
+          cases hsub0 : I64.checked_sub 0#i64 half with
+          | none => exact Or.inr rfl
+          | some f => exact Or.inl ⟨f, rfl⟩
+
+/-- The extracted conservative step either succeeds with a word or refuses; its generated body only
+ever returns `ok`. -/
+theorem word_conservative_density_step_cases (density incoming outgoing source : I64) :
+    (∃ r, carrier.conservative_density_step density incoming outgoing source = ok (some r)) ∨
+      carrier.conservative_density_step density incoming outgoing source = ok none := by
+  simp only [carrier.conservative_density_step, lift, bind_tc_ok]
+  cases hnet : I64.checked_sub outgoing incoming with
+  | none => exact Or.inr rfl
+  | some net =>
+    simp only [hnet]
+    cases hafter : I64.checked_sub density net with
+    | none => exact Or.inr rfl
+    | some after =>
+      simp only [hafter]
+      cases hadd : I64.checked_add after source with
+      | none => exact Or.inr rfl
+      | some r => exact Or.inl ⟨r, rfl⟩
+
+/-- The exact success characterization of the extracted three-cell step: it returns `some next`
+exactly when both interior faces exist, all three checked cell updates succeed, and `next` is their
+componentwise result. This is the generated `match` chain read back; the step is partial. -/
+theorem word_diffusive_line3_step_eq_some_iff
+    (old source next : carrier.DensityLine3) :
+    word_diffusive_line3_step old source = ok (some next) ↔
+      ∃ faceLeft faceRight left center right,
+        next = { left := left, center := center, right := right } ∧
+        carrier.diffusive_flux_half old.left old.center = ok (some faceLeft) ∧
+        carrier.diffusive_flux_half old.center old.right = ok (some faceRight) ∧
+        carrier.conservative_density_step old.left 0#i64 faceLeft source.left
+          = ok (some left) ∧
+        carrier.conservative_density_step old.center faceLeft faceRight source.center
+          = ok (some center) ∧
+        carrier.conservative_density_step old.right faceRight 0#i64 source.right
+          = ok (some right) := by
+  constructor
+  · intro h
+    have hL' : carrier.diffusive_flux_half old.left old.center ≠ ok none := by
+      intro hL
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok, hL] at h'
+      simp at h'
+    obtain ⟨faceLeft, hL⟩ :=
+      (word_diffusive_flux_half_cases old.left old.center).resolve_right hL'
+    have hR' : carrier.diffusive_flux_half old.center old.right ≠ ok none := by
+      intro hR
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+        hL, hR] at h'
+      simp at h'
+    obtain ⟨faceRight, hR⟩ :=
+      (word_diffusive_flux_half_cases old.center old.right).resolve_right hR'
+    have hl' : carrier.conservative_density_step old.left 0#i64 faceLeft source.left ≠ ok none := by
+      intro hl
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+        hL, hR, hl] at h'
+      simp at h'
+    obtain ⟨left, hl⟩ :=
+      (word_conservative_density_step_cases old.left 0#i64 faceLeft source.left).resolve_right hl'
+    have hc' : carrier.conservative_density_step old.center faceLeft faceRight source.center
+        ≠ ok none := by
+      intro hc
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+        hL, hR, hl, hc] at h'
+      simp at h'
+    obtain ⟨center, hc⟩ :=
+      (word_conservative_density_step_cases old.center faceLeft faceRight source.center).resolve_right
+        hc'
+    have hr' : carrier.conservative_density_step old.right faceRight 0#i64 source.right
+        ≠ ok none := by
+      intro hr
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+        hL, hR, hl, hc, hr] at h'
+      simp at h'
+    obtain ⟨right, hr⟩ :=
+      (word_conservative_density_step_cases old.right faceRight 0#i64 source.right).resolve_right hr'
+    have hnext : next = { left := left, center := center, right := right } := by
+      have h' := h
+      simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+        hL, hR, hl, hc, hr] at h'
+      simpa only [Result.ok.injEq, Option.some.injEq] using h'.symm
+    exact ⟨faceLeft, faceRight, left, center, right, hnext, hL, hR, hl, hc, hr⟩
+  · rintro ⟨faceLeft, faceRight, left, center, right, rfl, hL, hR, hl, hc, hr⟩
+    simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, bind_tc_ok,
+      hL, hR, hl, hc, hr]
+
+/-- Under the generated success preconditions, the extracted three-cell step succeeds, its two
+interior faces are exact-half witnesses, and each updated component is the canonical
+`scalarCarrierStep` at the shared face and closed end. The proof carries each cell across with the
+existing per-cell refinement and flux witness; it does not restate the arithmetic. -/
+theorem word_diffusive_line3_step_denote_of
+    (old source : carrier.DensityLine3) (faceLeft faceRight left center right : I64)
+    (hL : carrier.diffusive_flux_half old.left old.center = ok (some faceLeft))
+    (hR : carrier.diffusive_flux_half old.center old.right = ok (some faceRight))
+    (hl : carrier.conservative_density_step old.left 0#i64 faceLeft source.left
+      = ok (some left))
+    (hc : carrier.conservative_density_step old.center faceLeft faceRight source.center
+      = ok (some center))
+    (hr : carrier.conservative_density_step old.right faceRight 0#i64 source.right
+      = ok (some right)) :
+    word_diffusive_line3_step old source = ok (some { left, center, right }) ∧
+      Apeiron.Physics.exactHalfFlux (denote faceLeft) (denote old.left) (denote old.center) ∧
+      Apeiron.Physics.exactHalfFlux (denote faceRight) (denote old.center) (denote old.right) ∧
+      denote left = Apeiron.Physics.scalarCarrierStep
+        (denote old.left) (denote faceLeft) (denote (0#i64)) (denote source.left) ∧
+      denote center = Apeiron.Physics.scalarCarrierStep
+        (denote old.center) (denote faceRight) (denote faceLeft) (denote source.center) ∧
+      denote right = Apeiron.Physics.scalarCarrierStep
+        (denote old.right) (denote (0#i64)) (denote faceRight) (denote source.right) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [word_diffusive_line3_step_eq_some_iff]
+    exact ⟨faceLeft, faceRight, left, center, right, rfl, hL, hR, hl, hc, hr⟩
+  · simpa only [word_diffusive_flux_half] using
+      word_diffusive_flux_half_denote old.left old.center faceLeft hL
+  · simpa only [word_diffusive_flux_half] using
+      word_diffusive_flux_half_denote old.center old.right faceRight hR
+  · simpa only [word_conservative_density_step] using
+      word_conservative_density_step_denote old.left 0#i64 faceLeft source.left left hl
+  · simpa only [word_conservative_density_step] using
+      word_conservative_density_step_denote old.center faceLeft faceRight source.center center hc
+  · simpa only [word_conservative_density_step] using
+      word_conservative_density_step_denote old.right faceRight 0#i64 source.right right hr
+
+/-- The extracted three-cell step refines the canonical scalar update whenever it succeeds: there
+are two interior exact-half faces and the three components are the canonical `scalarCarrierStep`
+at the shared faces and closed ends. -/
+theorem word_diffusive_line3_step_denote
+    (old source : carrier.DensityLine3) (next : carrier.DensityLine3)
+    (h : word_diffusive_line3_step old source = ok (some next)) :
+    ∃ faceLeft faceRight : I64,
+      Apeiron.Physics.exactHalfFlux (denote faceLeft) (denote old.left) (denote old.center) ∧
+      Apeiron.Physics.exactHalfFlux (denote faceRight) (denote old.center) (denote old.right) ∧
+      denote next.left = Apeiron.Physics.scalarCarrierStep
+        (denote old.left) (denote faceLeft) (denote (0#i64)) (denote source.left) ∧
+      denote next.center = Apeiron.Physics.scalarCarrierStep
+        (denote old.center) (denote faceRight) (denote faceLeft) (denote source.center) ∧
+      denote next.right = Apeiron.Physics.scalarCarrierStep
+        (denote old.right) (denote (0#i64)) (denote faceRight) (denote source.right) := by
+  obtain ⟨faceLeft, faceRight, left, center, right, hnext, hL, hR, hl, hc, hr⟩ :=
+    (word_diffusive_line3_step_eq_some_iff old source next).mp h
+  subst hnext
+  obtain ⟨_, hfl, hfr, hl', hc', hr'⟩ :=
+    word_diffusive_line3_step_denote_of old source faceLeft faceRight left center right
+      hL hR hl hc hr
+  exact ⟨faceLeft, faceRight, hfl, hfr, hl', hc', hr'⟩
+
+/-- A successful extracted three-cell step changes the denoted total only by the denoted sources.
+The proof composes the per-cell refinement with the existing finite shared-face telescoping
+`word_conservative_total_mass`; it does not restate the polynomial identity. -/
+theorem word_diffusive_line3_step_total_mass
+    (old source next : carrier.DensityLine3)
+    (h : word_diffusive_line3_step old source = ok (some next)) :
+    (∑ i ∈ Finset.range 3, denote (line3 next.left next.center next.right i))
+      = (∑ i ∈ Finset.range 3, denote (line3 old.left old.center old.right i))
+        + ∑ i ∈ Finset.range 3, denote (line3 source.left source.center source.right i) := by
+  obtain ⟨faceLeft, faceRight, left, center, right, hnext, hL, hR, hl, hc, hr⟩ :=
+    (word_diffusive_line3_step_eq_some_iff old source next).mp h
+  have hok : ∀ i, i < 3 →
+      word_conservative_density_step
+        (line3 old.left old.center old.right i)
+        (lineFaces faceLeft faceRight i)
+        (lineFaces faceLeft faceRight (i + 1))
+        (line3 source.left source.center source.right i)
+        = ok (some (line3 left center right i)) := by
+    intro i hi
+    have hi' : i = 0 ∨ i = 1 ∨ i = 2 := by omega
+    rcases hi' with rfl | rfl | rfl <;>
+      simp [line3, lineFaces, word_conservative_density_step, hl, hc, hr]
+  have hmass := word_conservative_total_mass
+    (line3 old.left old.center old.right)
+    (lineFaces faceLeft faceRight)
+    (line3 source.left source.center source.right)
+    (line3 left center right) 3 hok
+  subst hnext
+  rw [sum_line3, sum_line3, sum_line3] at hmass
+  simp only [sum_line3]
+  simpa [lineFaces] using hmass
+
+/-- A successful extracted three-cell step with zero source conserves the denoted total. -/
+theorem word_diffusive_line3_step_total_mass_zero_source
+    (old next : carrier.DensityLine3)
+    (h : word_diffusive_line3_step old
+          { left := 0#i64, center := 0#i64, right := 0#i64 } = ok (some next)) :
+    (∑ i ∈ Finset.range 3, denote (line3 next.left next.center next.right i))
+      = ∑ i ∈ Finset.range 3, denote (line3 old.left old.center old.right i) := by
+  rw [word_diffusive_line3_step_total_mass old
+    { left := 0#i64, center := 0#i64, right := 0#i64 } next h]
+  simp
+
+/-- The odd interior difference `1 - 0` has no exact half, so the whole three-cell update is
+refused rather than rounded. -/
+theorem word_diffusive_line3_step_odd_refusal :
+    word_diffusive_line3_step
+        { left := 0#i64, center := 1#i64, right := 0#i64 }
+        { left := 0#i64, center := 0#i64, right := 0#i64 } = ok none := by
+  have h1 : I64.checked_sub 1#i64 0#i64 = some 1#i64 := by decide
+  have h2 : I64.checked_rem 1#i64 2#i64 = some 1#i64 := by decide
+  have h3 : (1#i64 != 0#i64) = true := by decide
+  simp only [word_diffusive_line3_step, carrier.diffusive_line3_step,
+    carrier.diffusive_flux_half, lift, bind_tc_ok, h1, h2, h3]
+  simp
+
 end apeiron_word

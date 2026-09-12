@@ -62,6 +62,7 @@ run_extract() {
         --start-from crate::word_point_flux \
         --start-from crate::word_conservative_density_step \
         --start-from crate::word_diffusive_flux_half \
+        --start-from crate::word_diffusive_line3_step \
         --start-from crate::word_exchange_impulse \
         --start-from crate::word_elastic_exchange \
         --start-from crate::word_accept_derived_impulse \

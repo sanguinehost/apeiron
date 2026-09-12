@@ -97,6 +97,17 @@ elab "#audit " id:ident : command => do
 #audit word_conservative_total_mass
 #audit word_conservative_total_mass_closed
 
+-- The extracted three-cell diffusive line
+#audit sum_line3
+#audit word_diffusive_flux_half_cases
+#audit word_conservative_density_step_cases
+#audit word_diffusive_line3_step_eq_some_iff
+#audit word_diffusive_line3_step_denote_of
+#audit word_diffusive_line3_step_denote
+#audit word_diffusive_line3_step_total_mass
+#audit word_diffusive_line3_step_total_mass_zero_source
+#audit word_diffusive_line3_step_odd_refusal
+
 -- The ring-generic exchange specification
 #audit Apeiron.Physics.ringCarrierMomentumAfter_eq
 #audit Apeiron.Physics.ringBodyMomentumAfter_eq
