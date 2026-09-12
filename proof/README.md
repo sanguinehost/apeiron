@@ -236,8 +236,12 @@ an existing key succeeds at capacity. The Aeneas computation itself returns `ok`
 capacity-four state operations.
 
 The first extraction attempt found unsupported iterator closures and returns from desugared `for`
-loops. The production reference now uses bounded recursive index searches with the same public
-tests. Generic `SafeTable::new` is not an extraction root because Charon cannot resolve the generic
+loops, and a bounded recursive index search extracted to a Lean `partial_fixpoint` with no supplied
+induction principle. The production reference now uses `while index < N` searches whose bodies
+return the found index; Charon translates each to a total `loop` combinator (`@[rust_loop]`), so the
+supplied `Aeneas.Std.loop.spec_decr_nat` measure principle applies. The remaining canonical-`Table`
+refinement is a loop-invariant proof over the `Array (Option (K × V)) N` abstraction and is not yet
+written. Generic `SafeTable::new` is not an extraction root because Charon cannot resolve the generic
 `Option<(K, V)>: Copy` obligation introduced by the inline array repeat; bridge witnesses construct
 the generated capacity-four state directly. The lookup wrapper uses an explicit match because
 `Option::copied` would otherwise enter as an external axiom.
@@ -296,9 +300,9 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/cell.rs` | `8cfc787aa0c6fcec6b039398f54fd7388f7dec8f047b98f8379e7165c0069404` |
 | `src/exchange.rs` | `f488773c798c649ff59d39f7b24c4c17b6ff350fa9f7a3b4ccc81cfc479b7621` |
 | `src/carrier.rs` | `4fcdbeba5c2d25d10e0a22f2f328e214d0e9884bd9f886a25abd4b6741a8a8e8` |
-| `src/safe_table.rs` | `240e84abe2a0fa387a559b9878fe4a924bba72b14b56937b1faf724711f9d93e` |
+| `src/safe_table.rs` | `a33babe0a266e8d442ca68b5a1c53bc4cf02502faf9b0bcbfd6ede7defd2dc43` |
 
-The generated `ApeironWord.lean` is `955424020949ca6509ab0c7e71b444d750aa8fadd98ec4c6cfe30ceb978f0bac`
+The generated `ApeironWord.lean` is `b83150e53850c3ff6c286fcaf06032d444538b8ade3c1640b879119837592a61`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. These are the digests
 of the working tree the evidence was taken from, committed with the bridge.
 

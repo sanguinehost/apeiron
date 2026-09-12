@@ -69,25 +69,26 @@ impl<K, V, const N: usize> Default for SafeTable<K, V, N> {
 }
 
 impl<K: Eq, V, const N: usize> SafeTable<K, V, N> {
-    fn find_from(&self, key: &K, index: usize) -> Option<usize> {
-        if index == N {
-            return None;
+    fn find_from(&self, key: &K, start: usize) -> Option<usize> {
+        let mut index = start;
+        while index < N {
+            match &self.slots[index] {
+                Some((stored, _)) if stored == key => return Some(index),
+                _ => index += 1,
+            }
         }
-        match &self.slots[index] {
-            Some((stored, _)) if stored == key => Some(index),
-            _ => self.find_from(key, index + 1),
-        }
+        None
     }
 
-    fn empty_from(&self, index: usize) -> Option<usize> {
-        if index == N {
-            return None;
+    fn empty_from(&self, start: usize) -> Option<usize> {
+        let mut index = start;
+        while index < N {
+            if self.slots[index].is_none() {
+                return Some(index);
+            }
+            index += 1;
         }
-        if self.slots[index].is_none() {
-            Some(index)
-        } else {
-            self.empty_from(index + 1)
-        }
+        None
     }
 
     /// Value stored at `key`.

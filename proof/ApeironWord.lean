@@ -283,54 +283,96 @@ structure safe_table.SafeTable (K : Type) (V : Type) (N : Std.Usize) where
   slots : Array (Option (K × V)) N
   len : Std.Usize
 
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 72:4-80:5 -/
-def safe_table.SafeTable.find_from
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]: loop body 0:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 74:8-81:5 -/
+@[rust_loop_body]
+def safe_table.SafeTable.find_from_loop.body
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
   (self : safe_table.SafeTable K V N) (key : K) (index : Std.Usize) :
-  Result (Option Std.Usize)
+  Result (ControlFlow Std.Usize (Option Std.Usize))
   := do
-  if index = N
-  then ok none
-  else
+  if index < N
+  then
     let o ← Array.index_usize self.slots index
     match o with
-    | none =>
-      let i ← index + 1#usize
-      safe_table.SafeTable.find_from corecmpEqInst self key i
+    | none => let index1 ← index + 1#usize
+              ok (cont index1)
     | some p =>
       let (stored, _) := p
       let b ←
         core.cmp.impls.PartialEqShared.eq corecmpEqInst.partialEqInst stored
           key
       if b
-      then ok (some index)
-      else
-        let i ← index + 1#usize
-        safe_table.SafeTable.find_from corecmpEqInst self key i
-partial_fixpoint
+      then ok (done (some index))
+      else let index1 ← index + 1#usize
+           ok (cont index1)
+  else ok (done none)
 
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 82:4-91:5 -/
-def safe_table.SafeTable.empty_from
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]: loop 0:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 74:8-81:5 -/
+@[rust_loop]
+def safe_table.SafeTable.find_from_loop
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (index : Std.Usize) :
+  (self : safe_table.SafeTable K V N) (key : K) (index : Std.Usize) :
   Result (Option Std.Usize)
   := do
-  if index = N
-  then ok none
-  else
+  loop
+    (fun index1 => safe_table.SafeTable.find_from_loop.body corecmpEqInst self
+      key index1)
+    index
+
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 72:4-81:5 -/
+@[reducible]
+def safe_table.SafeTable.find_from
+  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
+  (self : safe_table.SafeTable K V N) (key : K) (start : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  safe_table.SafeTable.find_from_loop corecmpEqInst self key start
+
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]: loop body 0:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 85:8-92:5 -/
+@[rust_loop_body]
+def safe_table.SafeTable.empty_from_loop.body
+  {K : Type} {V : Type} {N : Std.Usize} (self : safe_table.SafeTable K V N)
+  (index : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
+  := do
+  if index < N
+  then
     let o ← Array.index_usize self.slots index
     let b := core.option.Option.is_none o
     if b
-    then ok (some index)
-    else
-      let i ← index + 1#usize
-      safe_table.SafeTable.empty_from corecmpEqInst self i
-partial_fixpoint
+    then ok (done (some index))
+    else let index1 ← index + 1#usize
+         ok (cont index1)
+  else ok (done none)
+
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]: loop 0:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 85:8-92:5 -/
+@[rust_loop]
+def safe_table.SafeTable.empty_from_loop
+  {K : Type} {V : Type} {N : Std.Usize} (self : safe_table.SafeTable K V N)
+  (index : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun index1 => safe_table.SafeTable.empty_from_loop.body self index1)
+    index
+
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 83:4-92:5 -/
+@[reducible]
+def safe_table.SafeTable.empty_from
+  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
+  (self : safe_table.SafeTable K V N) (start : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  safe_table.SafeTable.empty_from_loop self start
 
 /-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::get]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 95:4-103:5
+    Source: 'proof/extract/../../src/safe_table.rs', lines 96:4-104:5
     Visibility: public -/
 def safe_table.SafeTable.get
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
@@ -348,7 +390,7 @@ def safe_table.SafeTable.get
                 ok (some value)
 
 /-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::try_insert]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 119:4-134:5
+    Source: 'proof/extract/../../src/safe_table.rs', lines 120:4-135:5
     Visibility: public -/
 def safe_table.SafeTable.try_insert
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
@@ -382,7 +424,7 @@ def safe_table.SafeTable.try_insert
       ok (core.result.Result.Ok (some t1), { self with slots := a })
 
 /-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::remove]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 137:4-148:5
+    Source: 'proof/extract/../../src/safe_table.rs', lines 138:4-149:5
     Visibility: public -/
 def safe_table.SafeTable.remove
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)

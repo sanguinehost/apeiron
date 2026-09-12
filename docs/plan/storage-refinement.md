@@ -131,3 +131,25 @@ well-founded recursive function (for example recursion on a slice/list tail rath
 index, with the index carried as an accumulator), so the extracted body has equation lemmas and
 `fun_induction` support. If that fails, state the refinement through `Apeiron.WP`/`loop.spec_decr_nat`
 with the array denotation above. Until then the optimized `Map` stays tested.
+
+### W3 unblock attempt (2026-09-12)
+
+Two further materially distinct shapes were tried.
+
+| Attempt | Change | Result |
+|---|---|---|
+| 4 | Recursion on a slice tail via `split_first` | The generated body is still a `partial_fixpoint`, and `core.slice.Slice.split_first` enters as an unmodeled external `axiom`. Rejected. |
+| 5 | Fixed-array `while index < N` search with an early `return` | Charon translates each search to a total `loop` combinator marked `@[rust_loop]`; no `partial_fixpoint`, no external axiom. The supplied `Aeneas.Std.loop.spec_decr_nat` measure principle now applies. |
+
+`src/safe_table.rs::find_from` and `empty_from` are now the `while` loops of attempt 5. The
+extraction is regenerated: `word_safe_table4_get/insert/remove` call the loop-based generated
+bodies, `proof/regen.sh --check` exits 0, and the throwaway source mutation (`stored == key` to
+`stored != key`) makes `--check` exit 1. `cargo test --locked --test safe_table` passes 4/4 and
+`cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` exits 0.
+
+The remaining obligation is the canonical refinement itself: a `loop.spec_decr_nat` invariant
+relating the generated `Array (Option (K × V)) N` state to a denotation over that array, then
+`Apeiron.Table.get`/`insertWith`/`replace` lemmas for `get`, `try_insert` and `remove`. That is a
+loop-invariant proof, not an extraction blocker; the first four attempts failed because no total
+generated search existed, and one does now. The optimized `Map` stays tested until those theorems
+exist.
