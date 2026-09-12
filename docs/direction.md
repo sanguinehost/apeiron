@@ -312,6 +312,17 @@ nonexistent-revision mutation exits 128 during Git checkout. The lifecycle and d
 are in `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
 `docs/plan/corpus-release-pin.md` and `proof/README.md`.
 
+**Storage refinement blocked at the canonical link.** `src/safe_table.rs` is a safe fixed-capacity
+reference with an explicit full refusal; `tests/safe_table.rs` runs a 10,000-transition comparison
+against the production `Map`, and `proof/extract/lib.rs` extracts the real
+`word_safe_table4_get/insert/remove` bodies without an axiom, `sorry` or `admit`. The canonical
+`Apeiron.Table` refinement is blocked before its first theorem: the extracted search is a Lean
+`partial_fixpoint`, `fun_induction` reports no functional induction theorem, and `step` only accepts
+`WP` specs. Three materially distinct attempts are recorded in
+`docs/plan/storage-refinement.md`. The next bounded task is a slice-tail or well-founded recursive
+Rust search (or a `WP.dspec` formulation). The optimized `Map` stays tested until that link exists;
+`src/map.rs`'s scope note is unchanged.
+
 ### Correctness Work Before Physics Reuse
 
 1. **Separate modular words from physical magnitudes.** Wrapped `i64` is not

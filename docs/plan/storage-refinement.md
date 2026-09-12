@@ -104,3 +104,30 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
   safe construct; do not rewrite formulas in wrappers.
 - Stop optimized-map promotion if the relation remains sampled; retain tested status and name the
   exact universal obligation.
+
+## W3 blocker record
+
+`W1` and `W2` are closed: the safe fixed-capacity reference passes its focused tests and the
+10,000-step production comparison, and `word_safe_table4_get/insert/remove` are extracted from the
+real `src/safe_table.rs` with a fresh, axiom-free generated file. `W3` is blocked before the first
+refinement theorem.
+
+Three materially distinct attempts were made at the refinement:
+
+| Attempt | Change | Result |
+|---|---|---|
+| 1 | Iterator/`for`-loop reference | Charon refused outer-loop breaks and iterator closures. |
+| 2 | Bounded recursive `find_from`/`empty_from` reference | Extracts, but the generated body is a `partial_fixpoint`; direct `simp`/`rw` cannot unfold the recursion and the scalar `Result` binds are not `[simp]`. |
+| 3 | Aeneas `fun_induction` / `step` on the generated body | `fun_induction` reports no functional induction theorem; `step` accepts only `WP` specs, not pure `Eq` goals. |
+
+The precise unresolved goal: a total Lean function for the safe search, or a canonical refinement
+stated as a `WP.dspec` Hoare triple. The extracted search is a `partial_fixpoint`; the only supplied
+reasoning principle is the auto-generated `.fixpoint_induct`, which targets `WP.dspec` goals and
+requires admissibility over a `Result` CCPO. A pure structural characterization additionally needs a
+denotation from the Aeneas array state to `Apeiron.Table.HMap`.
+
+Next bounded task, unblocked now: give the Rust search a form Aeneas translates to a structurally or
+well-founded recursive function (for example recursion on a slice/list tail rather than a numeric
+index, with the index carried as an accumulator), so the extracted body has equation lemmas and
+`fun_induction` support. If that fails, state the refinement through `Apeiron.WP`/`loop.spec_decr_nat`
+with the array denotation above. Until then the optimized `Map` stays tested.
