@@ -39,8 +39,8 @@ cell can hold:
   *every* dial, so it is a zero divisor on the elliptic face the real ring calls a field; and it
   has no `Discards` projection at any dial. Naming a word object by the real trichotomy's
   character is an analogy, not a theorem. `tests/the_dial_is_real.rs` tests the part that does
-  hold and `src/proofs.rs` proves the part that does not, the same boundary the corpus states at
-  `Trichotomy/AnyRing.lean:13-46`.
+  hold and `src/proofs.rs` boundedly checks the part that does not, the same boundary the corpus
+  states at `Trichotomy/AnyRing.lean:13-46`.
 - **`Dyadic`** -- `m / 2^e`, two integers, the same shape a float has without the rounding while the
   result fits the fixed mantissa and scale. This is where the nontrivial idempotents `(1 +/- j)/2`
   live, so `exists_nontrivial_idempotent_iff_disc_pos` holds here rather than being written off. It

@@ -158,15 +158,17 @@ All are total `ok` equalities, no `sorry`, no reduced domain, `lake build` 2609 
 audit is now the standard `propext`/`Classical.choice`/`Quot.sound` cone alone: `Ring` no longer
 requires `Debug` (`src/scalar.rs`), so `Aeneas.Std.core.fmt.Formatter` and the generated debug
 instance are gone from the extraction. A negative control that changes the dial's
-hyperbolic value from `1` to `2` and re-extracts breaks every theorem (`rfl`/`ring` fail at
-`WordRefinement.lean:39,44,55,92`); restoring the source (`cell.rs` back to `8cfc787a…`) passes.
+hyperbolic value from `1` to `2` and re-extracts breaks every theorem (`sigma_value_eq` and the
+four multiplication/norm theorems; the `rfl`/`ring` cases fail); restoring the source (`cell.rs`
+back to `8cfc787a…`) passes.
 
 The corpus/backend incompatibility is now characterised: the corpus's pinned 4.30.0-rc2 Mathlib
 does not build on Lean 4.31.0 (`Cache/IO.lean:506`, `Lake.Glob.ofString?`), but the corpus
 **source** compiles cleanly against Mathlib `v4.31.0` (the bridge requires it last so its
 transitive versions win). The coordinated change is a corpus Mathlib/toolchain bump, not a source
-rewrite. The bridge reads the local corpus worktree `c7339cce` via a sibling path; `6213271f`
-remains the intended pin.
+rewrite. *(Historical at the time of this Stage 2 entry: the bridge read the local corpus worktree
+`c7339cce` via a sibling path and `6213271f` was the intended pin. The pin has since landed at
+`16112030`; see Stage 4 below.)*
 
 **Stage 3 slice 1 executed (2026-09-11).** The bounded-dyadic contract is now honest.
 `src/scalar.rs` gained `Dyadic::checked_add/checked_sub/checked_mul/checked_halve`, which report
@@ -248,28 +250,47 @@ so the Aeneas extraction carries no `core::fmt` instance. Regenerated (`src/scal
 `propext`/`Classical.choice`/`Quot.sound`, and the positive/negative mutation control still holds.
 `cargo check --workspace --all-features --locked --all-targets` passes.
 
-**Corpus Mathlib pin bump — proposal (corpus-owner sign-off required).** `../sanguine-apeiron` is
-clean at `c7339cce`. Its `proof/lean-toolchain` is `leanprover/lean4:v4.30.0-rc2` and
-`proof/lake-manifest.json` pins Mathlib `89d44072ff8960893f469c67f75280db4fe4023a` (inputRev
-`master`, with `aesop`/`Qq`/`Cli` at `v4.30.0-rc2`). That manifest does not build on the 4.31.0
-Aeneas backend (`Cache/IO.lean:506`, `Lake.Glob.ofString?` absent). Source compatibility is already
-verified: `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0` last and the `AnyRing` closure
-plus the bridge build with zero errors. The coordinated change is therefore bookkeeping, not a
-source rewrite:
+**Corpus Mathlib pin bump — resolved at `16112030` (the proposal below is retained as the
+historical record).** The bump landed in corpus commits `1d7c4aa6` (Lean `4.31.0`, Mathlib
+`v4.31.0`) and `33bc96f6` (the `CarrierScalarKernelAnyRing` links). The corpus revision
+`16112030781eeec022139cdae07407131acc0915` is committed and pushed; the bridge requires the same
+Mathlib `v4.31.0` last, so one revision resolves. The `Flow.lean` source break named below was
+migrated before the pin landed. The proposal text is historical:
 
-1. `proof/lean-toolchain` -> `leanprover/lean4:v4.31.0`.
-2. On a network-enabled machine: `cd proof && lake update`, to regenerate `lake-manifest.json`
-   (Mathlib `v4.31.0`, tag commit `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`, and the matching
-   `aesop`/`Qq`/`Cli`/`batteries`/`proofwidgets` revisions).
-3. `lake build` and reverify the bridge against the new pin.
+> **Historical proposal (corpus-owner sign-off required).** `../sanguine-apeiron` is
+> clean at `c7339cce`. Its `proof/lean-toolchain` is `leanprover/lean4:v4.30.0-rc2` and
+> `proof/lake-manifest.json` pins Mathlib `89d44072ff8960893f469c67f75280db4fe4023a` (inputRev
+> `master`, with `aesop`/`Qq`/`Cli` at `v4.30.0-rc2`). That manifest does not build on the 4.31.0
+> Aeneas backend (`Cache/IO.lean:506`, `Lake.Glob.ofString?` absent). Source compatibility is already
+> verified: `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0` last and the `AnyRing` closure
+> plus the bridge build with zero errors. The coordinated change is therefore bookkeeping, not a
+> source rewrite:
 
-This is a corpus-repo commit eventually consumed by Song; it is **not** applied to either corpus
-worktree from this Apeiron workstream, and Song's resolver still points at `../sanguine/proof`.
-A first 4.31.0 build of the corpus source found at least one **source** break beyond the manifest:
-`Trichotomy/Flow.lean:310` fails to elaborate, so the bump also needs a migration of the analysis
-files, not just the toolchain line.
+> 1. `proof/lean-toolchain` -> `leanprover/lean4:v4.31.0`.
+> 2. On a network-enabled machine: `cd proof && lake update`, to regenerate `lake-manifest.json`
+>    (Mathlib `v4.31.0`, tag commit `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`, and the matching
+>    `aesop`/`Qq`/`Cli`/`batteries`/`proofwidgets` revisions).
+> 3. `lake build` and reverify the bridge against the new pin.
+>
+> This is a corpus-repo commit eventually consumed by Song; it is **not** applied to either corpus
+> worktree from this Apeiron workstream, and Song's resolver still points at `../sanguine/proof`.
+> A first 4.31.0 build of the corpus source found at least one **source** break beyond the manifest:
+> `Trichotomy/Flow.lean:310` fails to elaborate, so the bump also needs a migration of the analysis
+> files, not just the toolchain line.
 
-Remaining work is outside Stage 3: the corpus Mathlib pin bump, then Stages 4–6. **Stage 4 is next.**
+**Stage 4 complete.** The corpus pin, the extraction and the bridge are done: `16112030` supplies
+`Apeiron.Physics.CarrierAnyRing`, `CarrierBodyWorkAnyRing` and `CarrierScalarKernelAnyRing`, and
+`proof/corpus/WordRefinement.lean` refines the extracted `i64` point readout, scalar carrier step,
+half-flux, exchange and checked acceptance to them. `proof/regen.sh --check` is fresh (1708 jobs)
+and `cd proof/corpus && lake build` exits 0 (3276 jobs) with every `#audit` inside
+`{propext, Classical.choice, Quot.sound}`. The lifecycle artifacts are
+`docs/intent/carrier-refinement.md`, `docs/spec/carrier-refinement.md` and
+`docs/plan/carrier-refinement.md`. **Stage 5 is current.** Its corpus conservation/energy results
+(`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`, `CarrierAuthority.lean`,
+`CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved; its Rust production
+integration, float mapping and live scheduling are tested, not refined, and that split stays
+explicit until the fixed-line carrier realization/refinement proof lands. Evidence for both is in
+`docs/autonomous-run-log.md`.
 
 ### Correctness Work Before Physics Reuse
 
@@ -317,6 +338,10 @@ translation and execution arguments in addition to source-level refinement.
 
 ## Stage 4 Plan: Corpus-Connected Carrier
 
+*(Historical plan and slice record. Stage 4 is complete; the current lifecycle artifacts are
+`docs/intent/carrier-refinement.md`, `docs/spec/carrier-refinement.md` and
+`docs/plan/carrier-refinement.md`, and the current status is in the Stage 4 complete entry above.)*
+
 **First deliverable (slice 1) — link the extracted kernels to canonical definitions.**
 Penglai's `density_exact`/`phase_flux_exact`/`reverse_phase_flux_exact` prove exact integer values
 but import no corpus: `PhysicsProofs.lean` states `v.val = r.val * r.val`, not equality with a
@@ -354,11 +379,13 @@ trichotomy.** Added to canonical `sanguine-apeiron`:
   `density_flow`/`fluxFirst_flow` via `Trichotomy.normForm_flow`; it is on the analysis part of
   the corpus and is not imported by the 4.31.0 bridge.
 
-**New compatibility finding.** The Aeneas backend's 4.31.0 cannot build the whole corpus:
-`Apeiron/Trichotomy/Flow.lean:310` fails to elaborate (`Prod.snd ∘ flow` vs
+**New compatibility finding (historical; migrated before the `16112030` pin).** The Aeneas
+backend's 4.31.0 could not then build the whole corpus:
+`Apeiron/Trichotomy/Flow.lean:310` failed to elaborate (`Prod.snd ∘ flow` vs
 `fun u => (flow σ u).2` with a `NormedField.toNormedSpace.toModule` / `Semiring.toModule`
-instance mismatch), so the corpus pin bump needs **source** fixes, not just a manifest update.
-The trichotomy root used by `Carrier.lean` avoids this; the flow companion does not.
+instance mismatch), so the corpus pin bump needed **source** fixes, not just a manifest update.
+The trichotomy root used by `Carrier.lean` avoided this; the flow companion did not. The
+migration landed in the corpus before `16112030`.
 
 ## Fold And Hashtrinity
 

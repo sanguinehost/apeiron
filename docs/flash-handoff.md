@@ -6,14 +6,24 @@ the order of work, acceptance gates and where to stop, not a completed migration
 
 ## Stage Status
 
-- **Stage 0 — done** (2026-09-11): source/evidence inventory and tool pins recorded.
+- **Stage 0 — done**: source/evidence inventory and tool pins recorded.
 - **Stage 1 — done**: `proof/` (`apeironWordProof`), reproducible extraction, 1708 jobs.
 - **Stage 2 — done**: `proof/corpus/` (`apeironWordBridge`), full-width refinement linked to
-  `AnyRing`, 2609 jobs, mutation control.
-- **Stage 3 — done** (2026-09-11): bounded dyadic arithmetic, ordered-vs-associative reduction,
-  scaled-vs-idempotent projection, identity/region contracts and container scope. 143 tests.
-  Evidence in `docs/direction.md`.
-- **Stage 4 — next.**
+  `AnyRing`, mutation control. (The historical run reported 2609 jobs; the current bridge reports
+  3276 jobs.)
+- **Stage 3 — done**: bounded dyadic arithmetic, ordered-vs-associative reduction,
+  scaled-vs-idempotent projection, identity/region contracts and container scope. 143 tests at the
+  time; the workspace now reports 164. Evidence in `docs/direction.md`.
+- **Stage 4 — done**: corpus pinned at `16112030` (Lean `4.31.0`, Mathlib `v4.31.0`); the carrier
+  point readout, the scalar carrier step and the exchange are refined to the ring-generic corpus;
+  the corpus-connected carrier lab exercises the production path. Bridge `lake build` exit 0
+  (3276 jobs). Evidence: `proof/README.md`, `docs/plan/carrier-refinement.md`.
+- **Stage 5 — current**: constructive material experiment. The corpus conservation and energy
+  results (`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`,
+  `CarrierAuthority.lean`, `CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved; the
+  Rust production integration, float mapping and live scheduling remain **tested, not refined**.
+  Keep that tested/proved split explicit until the fixed-line carrier realization/refinement proof
+  lands. Evidence: `docs/autonomous-run-log.md`, `docs/direction.md`.
 
 ## First Session
 
