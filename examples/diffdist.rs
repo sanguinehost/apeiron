@@ -30,7 +30,11 @@ const N: usize = 1 << 21;
 
 fn collisions(diffs: &[u64], bits: u32, high: bool) -> usize {
     let shift = if high { 64 - bits } else { 0 };
-    let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+    let mask = if bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
     let mut v: Vec<u64> = diffs.iter().map(|d| (d >> shift) & mask).collect();
     v.sort_unstable();
     let mut c = 0;
@@ -48,8 +52,10 @@ fn collisions(diffs: &[u64], bits: u32, high: bool) -> usize {
               and a chunk length -- the conventional names for each, in a twenty-line loop"
 )]
 fn main() {
-    let klen: usize =
-        std::env::var("DIFF_LEN").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+    let klen: usize = std::env::var("DIFF_LEN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
     let spec = std::env::var("DIFF_BITS").unwrap_or_else(|_| "56-63".into());
     let (lo, hi) = spec.split_once('-').unwrap_or(("0", "63"));
     let (lo, hi): (u32, u32) = (lo.parse().unwrap(), hi.parse().unwrap());
@@ -125,8 +131,9 @@ fn main() {
         for high in [false, true] {
             for bits in [32u32, 35] {
                 let c = collisions(&diffs, bits, high);
-                let expected =
-                    (N as f64) * ((N - 1) as f64) / 2.0 / 2f64.powi(i32::try_from(bits).unwrap_or(64));
+                let expected = (N as f64) * ((N - 1) as f64)
+                    / 2.0
+                    / 2f64.powi(i32::try_from(bits).unwrap_or(64));
                 let ratio = c as f64 / expected;
                 let label = format!("{} {bits}-bit", if high { "high" } else { "low " });
                 if ratio > worst.0 {

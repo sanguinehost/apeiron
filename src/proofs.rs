@@ -170,8 +170,14 @@ mod harnesses {
             assert_eq!(slots, 0);
         } else {
             assert!(slots >= 2 * load, "a region holds at least twice its load");
-            assert!(slots.is_power_of_two(), "the group index is a mask, so this must be exact");
-            assert!(slots >= 32, "at least two groups, so the descent has somewhere to go");
+            assert!(
+                slots.is_power_of_two(),
+                "the group index is a mask, so this must be exact"
+            );
+            assert!(
+                slots >= 32,
+                "at least two groups, so the descent has somewhere to go"
+            );
         }
     }
 
@@ -265,7 +271,11 @@ mod harnesses {
         assert_eq!(a.add(Dyadic::ZERO), a, "zero is the additive identity");
         assert_eq!(a.mul(Dyadic::ONE), a, "one is the multiplicative identity");
         assert_eq!(a.mul(Dyadic::ZERO), Dyadic::ZERO, "zero absorbs");
-        assert_eq!(a.sub(a), Dyadic::ZERO, "subtraction is the inverse of addition");
+        assert_eq!(
+            a.sub(a),
+            Dyadic::ZERO,
+            "subtraction is the inverse of addition"
+        );
         assert_eq!(a.add(b).sub(b), a);
     }
 
@@ -276,7 +286,6 @@ mod harnesses {
         let h = a.halve();
         assert_eq!(h.add(h), a, "a half doubles back exactly");
     }
-
 
     // The identities that make this split-complex rather than merely two-dimensional. Each names
     // the theorem in `sanguine/proof/Apeiron/Trichotomy/` it mirrors.
@@ -325,7 +334,6 @@ mod harnesses {
         }
     }
 
-
     /// `NullBasis.normForm_eq_upper_mul_lower`: the form factors into the channels, so it vanishes
     /// exactly when a lane dies. That is what makes "degenerate" mean "a channel is gone".
     #[kani::proof]
@@ -335,7 +343,6 @@ mod harnesses {
         let z = Cell::<Dyadic>::of(i64::from(w[0]), i64::from(w[1]));
         assert_eq!(z.norm_form(s), z.upper(s).unwrap().mul(z.lower(s).unwrap()));
     }
-
 
     // -- the map's address bijection and its probe geometry --------------------------------------
 
@@ -369,9 +376,15 @@ mod harnesses {
     #[kani::proof]
     fn the_default_multiplier_has_the_inverse_it_claims() {
         assert_eq!(crate::coord::PHI.wrapping_mul(crate::coord::PHI_INV), 1);
-        assert_eq!(crate::coord::inverse_odd(crate::coord::PHI), crate::coord::PHI_INV);
+        assert_eq!(
+            crate::coord::inverse_odd(crate::coord::PHI),
+            crate::coord::PHI_INV
+        );
         assert_eq!(crate::coord::PSI.wrapping_mul(crate::coord::PSI_INV), 1);
-        assert_eq!(crate::coord::inverse_odd(crate::coord::PSI), crate::coord::PSI_INV);
+        assert_eq!(
+            crate::coord::inverse_odd(crate::coord::PSI),
+            crate::coord::PSI_INV
+        );
     }
 
     /// The fill limit is the probe's termination precondition: a region with no empty slot is one
@@ -422,7 +435,10 @@ mod harnesses {
     fn a_live_tag_is_never_empty_and_never_a_tombstone() {
         let p: u64 = kani::any();
         let t = crate::table::tag_of(p);
-        assert!(t & crate::map::FREE == 0, "a live tag has the free bit clear");
+        assert!(
+            t & crate::map::FREE == 0,
+            "a live tag has the free bit clear"
+        );
         assert!(t != crate::map::EMPTY && t != crate::map::TOMB);
     }
 
@@ -539,7 +555,11 @@ mod harnesses {
         // `alpha + beta == 0`, so the diagonal is the **constant** `s1 - s2`: it carries nothing
         // about the input at all, which is the strongest form of the property the moment needs.
         let other: u64 = kani::any();
-        assert_eq!(phi(t), phi(other), "the diagonal must not depend on the input");
+        assert_eq!(
+            phi(t),
+            phi(other),
+            "the diagonal must not depend on the input"
+        );
         assert_eq!(phi(t), s1.wrapping_sub(s2));
     }
 
@@ -650,9 +670,17 @@ mod harnesses {
         let there = crate::table::group_at(p, 0, gbits + 1, (1usize << (gbits + 1)) - 1);
         // The one bit the entry follows: the next one down the strand.
         let bit = (p >> (crate::table::DESCENT_BITS - gbits - 1)) & 1;
-        assert_eq!(there, 2 * here + bit as usize, "growth is not a refinement of the partition");
+        assert_eq!(
+            there,
+            2 * here + bit as usize,
+            "growth is not a refinement of the partition"
+        );
         // And a refinement is exactly a two-to-one map back: both halves return to `here`.
-        assert_eq!(there / 2, here, "a split group does not return to the group it split from");
+        assert_eq!(
+            there / 2,
+            here,
+            "a split group does not return to the group it split from"
+        );
     }
 
     /// The descent must stay inside the region at every step, for every address and every size.
@@ -667,7 +695,6 @@ mod harnesses {
         let groups = 1usize << gbits;
         assert!(crate::table::group_at(p, j, gbits, groups - 1) < groups);
     }
-
 
     // -- the two keyed faces, as laws rather than as prose ----------------------------------------
 
@@ -690,8 +717,16 @@ mod harnesses {
         let d: u64 = kani::any();
         kani::assume(d != 0);
         let s = Salt::new(0);
-        assert_ne!(s.spread(d).id, 0, "a nonzero key maps to the same word as zero");
-        assert_eq!(s.spread(0).id, 0, "the map is not linear, so the kernel argument does not apply");
+        assert_ne!(
+            s.spread(d).id,
+            0,
+            "a nonzero key maps to the same word as zero"
+        );
+        assert_eq!(
+            s.spread(0).id,
+            0,
+            "the map is not linear, so the kernel argument does not apply"
+        );
     }
 
     /// The same under an arbitrary pepper. Peppering changes the multiplier, and if it could
@@ -828,9 +863,11 @@ mod harnesses {
         let start = crate::table::group_at(p, full, gbits, gmask);
         let lap = (target + groups - start) & gmask;
         assert!(lap < groups);
-        assert_eq!(crate::table::group_at(p, full + lap as u32, gbits, gmask), target);
+        assert_eq!(
+            crate::table::group_at(p, full + lap as u32, gbits, gmask),
+            target
+        );
     }
-
 
     /// `Geom` never stores a shift amount of 64.
     ///
@@ -842,7 +879,11 @@ mod harnesses {
     #[kani::proof]
     fn a_geometry_never_asks_for_a_shift_of_sixty_four() {
         let groups: usize = kani::any();
-        let gbits: u32 = if groups == 0 { 0 } else { groups.trailing_zeros() };
+        let gbits: u32 = if groups == 0 {
+            0
+        } else {
+            groups.trailing_zeros()
+        };
         assert!(gbits < 64, "a shift amount must be a shift amount");
         // And the empty region lands on the sentinel rather than on a distinguishable value:
         // `wrapping_shl(0)` and `wrapping_shl(64)` are both the identity, which is what makes
@@ -852,7 +893,6 @@ mod harnesses {
             assert_eq!(p.wrapping_shl(gbits), p.wrapping_shl(64));
         }
     }
-
 
     // -- why the group window is taken from the top of the placement word ------------------------
     //
@@ -884,7 +924,10 @@ mod harnesses {
     fn the_low_half_of_place_is_the_low_half_of_the_identity_word() {
         let x: u32 = kani::any();
         let a = crate::coord::spread(u64::from(x));
-        assert_eq!(a.place as u32, a.id as u32, "the low window sees only the identity word");
+        assert_eq!(
+            a.place as u32, a.id as u32,
+            "the low window sees only the identity word"
+        );
     }
 
     /// A difference confined **above** bit `k` is still above bit `k` after the fold.
@@ -965,7 +1008,11 @@ mod harnesses {
         kani::assume(u64::from(x) & m == u64::from(y) & m);
         let gmask = ((1usize << gbits) - 1) * crate::table::GROUP;
         let low = |k: u32| (crate::coord::spread(u64::from(k)).place << 4) as usize & gmask;
-        assert_eq!(low(x), low(y), "a low window is decided by bits the keys already share");
+        assert_eq!(
+            low(x),
+            low(y),
+            "a low window is decided by bits the keys already share"
+        );
     }
 
     /// The **top** window is not a function of those bits.
@@ -979,7 +1026,11 @@ mod harnesses {
     fn the_top_window_does_see_bits_a_low_window_cannot() {
         let x: u64 = 1;
         let y: u64 = 1 | (1u64 << 32);
-        assert_eq!(x & 0xFFFF_FFFF, y & 0xFFFF_FFFF, "the witnesses agree on their low half");
+        assert_eq!(
+            x & 0xFFFF_FFFF,
+            y & 0xFFFF_FFFF,
+            "the witnesses agree on their low half"
+        );
         assert_ne!(
             crate::table::tag_of(crate::coord::spread(x).place),
             crate::table::tag_of(crate::coord::spread(y).place),
@@ -1035,7 +1086,6 @@ mod harnesses {
         let gmask = (groups - 1) * crate::table::GROUP;
         assert_eq!((gmask / crate::table::GROUP + 1).trailing_zeros(), gbits);
     }
-
 
     // -- what the upstream trichotomy does and does not survive into Z/2^64 -----------------------
     //
@@ -1122,7 +1172,10 @@ mod harnesses {
     fn the_only_word_solutions_of_a_squared_equals_a() {
         let a: u64 = kani::any();
         kani::assume(a.wrapping_mul(a) == a);
-        assert!(a == 0 || a == 1, "Boole's equation has two roots in Z/2^64 as well");
+        assert!(
+            a == 0 || a == 1,
+            "Boole's equation has two roots in Z/2^64 as well"
+        );
     }
 
     /// **The no-zero-divisors characterisation does not transfer either.** `Z/2^64` has a nonzero
@@ -1143,7 +1196,11 @@ mod harnesses {
         let z = Cell::<i64>::new(1i64 << 32, 0);
         assert_ne!(z, Cell::<i64>::zero(), "the witness is not zero");
         for sigma in FACES {
-            assert_eq!(z.mul(sigma, z), Cell::<i64>::zero(), "and it squares to zero");
+            assert_eq!(
+                z.mul(sigma, z),
+                Cell::<i64>::zero(),
+                "and it squares to zero"
+            );
         }
     }
 
@@ -1169,8 +1226,7 @@ mod harnesses {
     /// theorem is the one to cite for the mathematics, and this is the one to cite for the code.
     #[kani::proof]
     fn the_norm_form_is_multiplicative_in_the_word_ring() {
-        let (a, b, c, d): (i8, i8, i8, i8) =
-            (kani::any(), kani::any(), kani::any(), kani::any());
+        let (a, b, c, d): (i8, i8, i8, i8) = (kani::any(), kani::any(), kani::any(), kani::any());
         for v in [a, b, c, d] {
             kani::assume((-8..8).contains(&v));
         }
@@ -1184,7 +1240,6 @@ mod harnesses {
             );
         }
     }
-
 
     /// **And the projection characterisation does not transfer.** Over `Z/2^n` no projection both
     /// kills a nonzero point and keeps one, at any dial.
@@ -1214,15 +1269,16 @@ mod harnesses {
         // The premise is reachable, so the implication below is not vacuous.
         let one = Cell::<i8>::one();
         assert_eq!(one.mul(Sigma::Hyperbolic, one), one);
-        assert_eq!(Cell::<i8>::zero().mul(Sigma::Hyperbolic, one), Cell::<i8>::zero());
+        assert_eq!(
+            Cell::<i8>::zero().mul(Sigma::Hyperbolic, one),
+            Cell::<i8>::zero()
+        );
 
         let e = Cell::<i8>::new(kani::any(), kani::any());
         let z = Cell::<i8>::new(kani::any(), kani::any());
         let w = Cell::<i8>::new(kani::any(), kani::any());
         for sigma in FACES {
-            if e.mul(sigma, e) == e
-                && z.mul(sigma, e) == Cell::<i8>::zero()
-                && w.mul(sigma, e) == w
+            if e.mul(sigma, e) == e && z.mul(sigma, e) == Cell::<i8>::zero() && w.mul(sigma, e) == w
             {
                 assert!(
                     z == Cell::<i8>::zero() || w == Cell::<i8>::zero(),
@@ -1231,7 +1287,6 @@ mod harnesses {
             }
         }
     }
-
 
     /// Is `place` injective on 32-bit keys?
     ///
@@ -1262,7 +1317,6 @@ mod harnesses {
         );
     }
 
-
     // -- narrowing the 16,384 anomaly -------------------------------------------------------------
     //
     // `iterate` and `clone+drop` at 16,384 entries read 0.49x to 0.62x against `hashbrown` and swing
@@ -1288,8 +1342,14 @@ mod harnesses {
         kani::assume(n <= (1 << 19));
         let slots = crate::map::region_for(n);
         assert!(slots.is_power_of_two(), "a region is a power of two");
-        assert!(slots >= crate::map::MIN_SLOTS, "a region is never smaller than one group");
-        assert!(crate::map::limit(slots) >= n, "the region must hold the load at the fill limit");
+        assert!(
+            slots >= crate::map::MIN_SLOTS,
+            "a region is never smaller than one group"
+        );
+        assert!(
+            crate::map::limit(slots) >= n,
+            "the region must hold the load at the fill limit"
+        );
         assert!(
             slots == crate::map::MIN_SLOTS || crate::map::limit(slots / 2) < n,
             "and it must be the smallest such region"
@@ -1305,6 +1365,10 @@ mod harnesses {
         let gbits: u32 = kani::any();
         kani::assume(gbits >= 4 && gbits <= 40);
         let slots = 1usize << gbits;
-        assert_eq!(crate::map::limit(slots) * 8, slots * 7, "the fill limit is exactly 7/8");
+        assert_eq!(
+            crate::map::limit(slots) * 8,
+            slots * 7,
+            "the fill limit is exactly 7/8"
+        );
     }
 }

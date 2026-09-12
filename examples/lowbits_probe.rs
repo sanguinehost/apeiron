@@ -45,7 +45,9 @@ fn main() {
             }
             // Collision pairs within each bucket.
             let cc = |v: &Vec<u32>| -> f64 {
-                v.iter().map(|&c| f64::from(c) * (f64::from(c) - 1.0) / 2.0).sum()
+                v.iter()
+                    .map(|&c| f64::from(c) * (f64::from(c) - 1.0) / 2.0)
+                    .sum()
             };
             let nf = n as f64;
             let exp = nf * (nf - 1.0) / 2.0 / f64::from(1u32 << lowbits);

@@ -26,12 +26,20 @@ use std::hint::black_box;
 use std::time::Instant;
 
 fn main() {
-    let rounds: usize = std::env::var("ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(9);
-    println!("  {:>10} {:>9} {:>11} {:>11} {:>9}", "entries", "MiB", "loop ns", "get_each ns", "ratio");
+    let rounds: usize = std::env::var("ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(9);
+    println!(
+        "  {:>10} {:>9} {:>11} {:>11} {:>9}",
+        "entries", "MiB", "loop ns", "get_each ns", "ratio"
+    );
 
     for bits in [10u32, 14, 16, 18, 20, 22, 23] {
         let n = 1usize << bits;
-        let m: Map<u64, u64> = (0..n as u64).map(|i| (i.wrapping_mul(0x9E37_79B9_7F4A_7C15), i)).collect();
+        let m: Map<u64, u64> = (0..n as u64)
+            .map(|i| (i.wrapping_mul(0x9E37_79B9_7F4A_7C15), i))
+            .collect();
         // Probe in an order unrelated to insertion, so the walk is not accidentally sequential.
         let keys: Vec<u64> = (0..n as u64)
             .map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15))
@@ -53,7 +61,6 @@ fn main() {
             m.get_each(&keys, |_, v| acc += v.copied().unwrap_or(0));
             black_box(acc);
             best_each = best_each.min(t.elapsed().as_secs_f64() * 1e9 / n as f64);
-
         }
         // 40 bytes a slot at the 7/8 fill the table keeps.
         let mib = (m.slots() * 40) as f64 / (1024.0 * 1024.0);

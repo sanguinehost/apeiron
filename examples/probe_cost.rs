@@ -161,7 +161,10 @@ use std::hint::black_box;
 /// `LOOKUP_N` keys, default 694 -- one Neverwinter area's worth, where everything is L1-resident.
 /// A whole module is nearer `100_000` and is not, which is where the two designs stop agreeing.
 fn n() -> usize {
-    std::env::var("LOOKUP_N").ok().and_then(|v| v.parse().ok()).unwrap_or(694)
+    std::env::var("LOOKUP_N")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(694)
 }
 
 /// Total lookups is held near constant across sizes so `perf stat` divides by a known number:
@@ -189,7 +192,10 @@ fn keys() -> Vec<u64> {
 /// is what a Lyrium `VPath` is. The prefix is the point: it is what makes a failed key compare
 /// expensive, and so what the identity word's early reject is worth anything against.
 fn strings() -> Vec<String> {
-    match std::env::var("LOOKUP_KEYS").unwrap_or_else(|_| "resref".into()).as_str() {
+    match std::env::var("LOOKUP_KEYS")
+        .unwrap_or_else(|_| "resref".into())
+        .as_str()
+    {
         "path" => (0..n())
             .map(|i| format!("modules/neverwinter/areas/nw_wswmg{i:05}.are"))
             .collect(),

@@ -47,7 +47,11 @@ fn random_programs_agree_with_std() {
             let k = r.below(64) as u32;
             match r.below(100) {
                 0..=39 => assert_eq!(ours.insert(k), theirs.insert(k), "insert at {seed}/{step}"),
-                40..=59 => assert_eq!(ours.remove(&k), theirs.remove(&k), "remove at {seed}/{step}"),
+                40..=59 => assert_eq!(
+                    ours.remove(&k),
+                    theirs.remove(&k),
+                    "remove at {seed}/{step}"
+                ),
                 60..=79 => assert_eq!(ours.contains(&k), theirs.contains(&k), "contains"),
                 80..=87 => {
                     assert_eq!(ours.take(&k), theirs.take(&k), "take at {seed}/{step}");
@@ -102,7 +106,10 @@ fn the_algebra_agrees_with_std() {
         let sa: HashSet<u32> = (0..an).collect();
         let sb: HashSet<u32> = (0..bn).map(|i| i * stride).collect();
 
-        assert_eq!(sorted(&a.union(&b)), sorted_std(&sa.union(&sb).copied().collect()));
+        assert_eq!(
+            sorted(&a.union(&b)),
+            sorted_std(&sa.union(&sb).copied().collect())
+        );
         assert_eq!(
             sorted(&a.intersection(&b)),
             sorted_std(&sa.intersection(&sb).copied().collect())
@@ -115,7 +122,11 @@ fn the_algebra_agrees_with_std() {
             sorted(&a.symmetric_difference(&b)),
             sorted_std(&sa.symmetric_difference(&sb).copied().collect())
         );
-        assert_eq!(a.is_subset(&b), sa.is_subset(&sb), "is_subset {an}/{bn}/{stride}");
+        assert_eq!(
+            a.is_subset(&b),
+            sa.is_subset(&sb),
+            "is_subset {an}/{bn}/{stride}"
+        );
         assert_eq!(a.is_superset(&b), sa.is_superset(&sb));
         assert_eq!(a.is_disjoint(&b), sa.is_disjoint(&sb));
 
@@ -135,7 +146,11 @@ fn string_elements_work_borrowed() {
     let mut theirs: HashSet<String> = HashSet::new();
     for i in 0..if cfg!(miri) { 120 } else { 3000u32 } {
         let k = format!("nw_wswmg{:03}", i % 900);
-        assert_eq!(ours.insert_at(k.as_str()), theirs.insert(k.clone()), "at {i}");
+        assert_eq!(
+            ours.insert_at(k.as_str()),
+            theirs.insert(k.clone()),
+            "at {i}"
+        );
         assert_eq!(ours.contains_at(k.as_str()), theirs.contains(k.as_str()));
     }
     for i in 0..900u32 {
@@ -175,7 +190,13 @@ fn the_word_face_stores_nothing_but_addresses() {
 /// actually paying for.
 #[test]
 fn iteration_order_is_reproducible() {
-    let build = || (0..500u32).map(|i| i * 7).collect::<WordSet<u32>>().into_iter().collect::<Vec<_>>();
+    let build = || {
+        (0..500u32)
+            .map(|i| i * 7)
+            .collect::<WordSet<u32>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
     assert_eq!(build(), build());
     assert_eq!(build().len(), 500);
 }

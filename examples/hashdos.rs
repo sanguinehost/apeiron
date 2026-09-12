@@ -185,7 +185,9 @@ fn main() {
         spread_over(secret, &aimed_public)
     );
 
-    println!("\n  Exponential cost, linear damage -- which is what `table::group_of` always claimed");
+    println!(
+        "\n  Exponential cost, linear damage -- which is what `table::group_of` always claimed"
+    );
     println!("  and could not deliver while the address was one invertible word. It is not a");
     println!("  substitute for a pepper: `CountTable::with_pepper` makes the filter itself");
     println!("  impossible, because an attacker who cannot evaluate the table's placement word");

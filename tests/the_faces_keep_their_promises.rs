@@ -15,8 +15,8 @@
               a pedantic lint this file does not yet trigger still surfaces"
 )]
 
-use apeiron::coord::Coord;
 use apeiron::cell::Sigma;
+use apeiron::coord::Coord;
 use apeiron::map::{Map, Words};
 
 /// **The `SPREAD` obligation.**
@@ -135,7 +135,10 @@ fn the_parabolic_face_is_right_even_when_the_address_collides() {
     // It is right, and it is *slow*, which is the honest cost of a bad fold on this face: the
     // report says so rather than hiding it.
     let s = m.stats();
-    assert!(s.looks_aimed(), "a 16-address fold should be visible in the report: {s:?}");
+    assert!(
+        s.looks_aimed(),
+        "a 16-address fold should be visible in the report: {s:?}"
+    );
     for i in (0..LOSSY).step_by(7) {
         assert_eq!(m.remove(&Lossy(i)), Some(i));
     }
@@ -174,8 +177,14 @@ fn a_face_costs_exactly_what_its_discriminant_says() {
     assert_eq!(size_of::<Regen<(u32, u32)>>(), size_of::<u64>());
 
     // Parabolic: one word *and* the key, both carried.
-    assert_eq!(size_of::<Stored<u64>>(), size_of::<u64>() + size_of::<u64>());
-    assert_eq!(size_of::<Stored<String>>(), size_of::<u64>() + size_of::<String>());
+    assert_eq!(
+        size_of::<Stored<u64>>(),
+        size_of::<u64>() + size_of::<u64>()
+    );
+    assert_eq!(
+        size_of::<Stored<String>>(),
+        size_of::<u64>() + size_of::<String>()
+    );
 
     // Which is the whole saving, stated as the difference: a `u64` key on the elliptic face costs
     // eight bytes a slot less than the same key on the parabolic one, forever.
@@ -198,7 +207,9 @@ fn a_face_costs_exactly_what_its_discriminant_says() {
 fn a_commutative_merge_does_not_care_about_order() {
     use apeiron::merge::{count_into, set_into};
 
-    let pairs: Vec<(u64, i64)> = (0..if cfg!(miri) { 500 } else { 2_000u64 }).map(|i| (i % 250, i as i64)).collect();
+    let pairs: Vec<(u64, i64)> = (0..if cfg!(miri) { 500 } else { 2_000u64 })
+        .map(|i| (i % 250, i as i64))
+        .collect();
     let mut reversed = pairs.clone();
     reversed.reverse();
 
@@ -210,7 +221,11 @@ fn a_commutative_merge_does_not_care_about_order() {
         }
         m
     };
-    assert_eq!(build(&pairs), build(&reversed), "counting is not order-free on the elliptic face");
+    assert_eq!(
+        build(&pairs),
+        build(&reversed),
+        "counting is not order-free on the elliptic face"
+    );
 
     // Parabolic face, same stream, same answer.
     let build_s = |src: &[(u64, i64)]| {
@@ -220,7 +235,11 @@ fn a_commutative_merge_does_not_care_about_order() {
         }
         m
     };
-    assert_eq!(build_s(&pairs), build_s(&reversed), "counting is not order-free on the parabolic face");
+    assert_eq!(
+        build_s(&pairs),
+        build_s(&reversed),
+        "counting is not order-free on the parabolic face"
+    );
 
     // And the directional one is not, or the distinction means nothing.
     let build_set = |src: &[(u64, i64)]| {
@@ -274,7 +293,9 @@ where
 
 #[test]
 fn both_keyed_faces_reproduce_the_key_they_were_given() {
-    let words: Vec<u64> = (0..512u64).map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)).collect();
+    let words: Vec<u64> = (0..512u64)
+        .map(|i| i.wrapping_mul(0x9E37_79B9_7F4A_7C15))
+        .collect();
     // Elliptic: nothing is stored, so this is the address bijection run backwards.
     the_key_survives_exactly_as_the_face_claims::<u64, apeiron::map::Regen<u64>>(&words);
     // Parabolic: the key is carried, so this is that it is carried faithfully.

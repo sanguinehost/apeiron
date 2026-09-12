@@ -24,9 +24,7 @@ fn xor2(a: i64, b: i64) -> u64 {
     (a as u64).wrapping_mul(PHI) ^ (b as u64)
 }
 fn xor3(a: i64, b: i64, c: i64) -> u64 {
-    ((a as u64).wrapping_mul(PHI) ^ (b as u64))
-        .wrapping_mul(PHI)
-        ^ (c as u64)
+    ((a as u64).wrapping_mul(PHI) ^ (b as u64)).wrapping_mul(PHI) ^ (c as u64)
 }
 
 /// Collisions among full 64-bit addresses.
@@ -37,7 +35,13 @@ fn full(addrs: &[u64]) -> usize {
 /// Collisions after a table keeps `bits` of the address. `high` takes the top bits, which is what
 /// multiplicative hashing requires; `low` masks, which is what `% 2^n` does.
 fn bucketed(addrs: &[u64], bits: u32, avalanche: bool) -> usize {
-    let f = |a: u64| if avalanche { bucket(a, bits) } else { a >> (64 - bits) };
+    let f = |a: u64| {
+        if avalanche {
+            bucket(a, bits)
+        } else {
+            a >> (64 - bits)
+        }
+    };
     addrs.len() - addrs.iter().map(|&a| f(a)).collect::<HashSet<_>>().len()
 }
 
@@ -45,7 +49,10 @@ fn bucketed(addrs: &[u64], bits: u32, avalanche: bool) -> usize {
 fn floor(n: usize, bits: u32) -> String {
     let m = 2f64.powi(bits as i32);
     let expected_distinct = m * (1.0 - (-(n as f64) / m).exp());
-    format!("{:>6.2}%", 100.0 * (n as f64 - expected_distinct) / n as f64)
+    format!(
+        "{:>6.2}%",
+        100.0 * (n as f64 - expected_distinct) / n as f64
+    )
 }
 
 fn pct(n: usize, of: usize) -> String {
@@ -64,13 +71,33 @@ fn row(name: &str, addrs: &[u64], bits: u32) {
     );
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one measurement harness prints the whole collision surface; the shared grids are the function"
+)]
 fn main() {
     // ── the grids hashtrinity was measured on ────────────────────────────────
-    for (label, lo, hi, bits) in [("signed 128x128", -64i64, 64i64, 14u32), ("signed 1024x1024", -512, 512, 20)] {
+    for (label, lo, hi, bits) in [
+        ("signed 128x128", -64i64, 64i64, 14u32),
+        ("signed 1024x1024", -512, 512, 20),
+    ] {
         println!("\n{label}");
-        let keys: Vec<(i64, i64)> = (lo..hi).flat_map(|x| (lo..hi).map(move |y| (x, y))).collect();
-        row("hashtrinity xor", &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(), bits);
-        row("apeiron discard", &keys.iter().map(|&(a, b)| (a, b).coord()).collect::<Vec<_>>(), bits);
+        let keys: Vec<(i64, i64)> = (lo..hi)
+            .flat_map(|x| (lo..hi).map(move |y| (x, y)))
+            .collect();
+        row(
+            "hashtrinity xor",
+            &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(),
+            bits,
+        );
+        row(
+            "apeiron discard",
+            &keys
+                .iter()
+                .map(|&(a, b)| (a, b).coord())
+                .collect::<Vec<_>>(),
+            bits,
+        );
         let packed: Vec<u64> = keys
             .iter()
             .map(|&(a, b)| (a as i32, b as i32).packed())
@@ -82,8 +109,22 @@ fn main() {
     let keys: Vec<(i64, i64, i64)> = (-16..16)
         .flat_map(|x| (-16..16).flat_map(move |y| (-16..16).map(move |z| (x, y, z))))
         .collect();
-    row("hashtrinity xor", &keys.iter().map(|&(a, b, c)| xor3(a, b, c)).collect::<Vec<_>>(), 15);
-    row("apeiron discard", &keys.iter().map(|&(a, b, c)| (a, b, c).coord()).collect::<Vec<_>>(), 15);
+    row(
+        "hashtrinity xor",
+        &keys
+            .iter()
+            .map(|&(a, b, c)| xor3(a, b, c))
+            .collect::<Vec<_>>(),
+        15,
+    );
+    row(
+        "apeiron discard",
+        &keys
+            .iter()
+            .map(|&(a, b, c)| (a, b, c).coord())
+            .collect::<Vec<_>>(),
+        15,
+    );
     let packed: Vec<u64> = keys
         .iter()
         .map(|&(a, b, c)| {
@@ -119,11 +160,25 @@ fn main() {
     }
     keys.sort_unstable();
     keys.dedup();
-    row("hashtrinity xor", &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(), 16);
-    row("apeiron discard", &keys.iter().map(|&(a, b)| (a, b).coord()).collect::<Vec<_>>(), 16);
+    row(
+        "hashtrinity xor",
+        &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(),
+        16,
+    );
+    row(
+        "apeiron discard",
+        &keys
+            .iter()
+            .map(|&(a, b)| (a, b).coord())
+            .collect::<Vec<_>>(),
+        16,
+    );
     row(
         "apeiron packed (B)",
-        &keys.iter().map(|&(a, b)| (a as i32, b as i32).packed()).collect::<Vec<_>>(),
+        &keys
+            .iter()
+            .map(|&(a, b)| (a as i32, b as i32).packed())
+            .collect::<Vec<_>>(),
         16,
     );
 
@@ -144,11 +199,25 @@ fn main() {
         .iter()
         .flat_map(|&f| (0..512).map(move |k| (f + k, -k)))
         .collect();
-    row("hashtrinity xor", &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(), 14);
-    row("apeiron discard", &keys.iter().map(|&(a, b)| (a, b).coord()).collect::<Vec<_>>(), 14);
+    row(
+        "hashtrinity xor",
+        &keys.iter().map(|&(a, b)| xor2(a, b)).collect::<Vec<_>>(),
+        14,
+    );
+    row(
+        "apeiron discard",
+        &keys
+            .iter()
+            .map(|&(a, b)| (a, b).coord())
+            .collect::<Vec<_>>(),
+        14,
+    );
     row(
         "apeiron packed (B)",
-        &keys.iter().map(|&(a, b)| (a as i32, b as i32).packed()).collect::<Vec<_>>(),
+        &keys
+            .iter()
+            .map(|&(a, b)| (a as i32, b as i32).packed())
+            .collect::<Vec<_>>(),
         14,
     );
 }

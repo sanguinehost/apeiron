@@ -58,7 +58,12 @@ fn keys(which: &str, n: usize) -> Vec<u64> {
         "highbits" => (0..n as u64).map(u64::swap_bytes).collect(),
         _ => {
             let mut s = 0u64;
-            (0..n).map(|_| { s = s.wrapping_add(1).wrapping_mul(3_787_392_781); s }).collect()
+            (0..n)
+                .map(|_| {
+                    s = s.wrapping_add(1).wrapping_mul(3_787_392_781);
+                    s
+                })
+                .collect()
         }
     }
 }
@@ -85,23 +90,64 @@ macro_rules! across {
 }
 
 fn insert(c: &mut Criterion) {
-    across!(c, "insert", ks,
-        { let mut m: Words<u64, Dropper> = Words::with_capacity(SIZE);
-          for (i, &k) in ks.iter().enumerate() { m.insert(k, Dropper(i)); } observe(); m.len() },
-        { let mut m: HashMap<u64, Dropper> = HashMap::with_capacity(SIZE);
-          for (i, &k) in ks.iter().enumerate() { m.insert(k, Dropper(i)); } observe(); m.len() },
-        { let mut m: HbMap<u64, Dropper> = HbMap::with_capacity_and_hasher(SIZE, Fold::default());
-          for (i, &k) in ks.iter().enumerate() { m.insert(k, Dropper(i)); } observe(); m.len() });
+    across!(
+        c,
+        "insert",
+        ks,
+        {
+            let mut m: Words<u64, Dropper> = Words::with_capacity(SIZE);
+            for (i, &k) in ks.iter().enumerate() {
+                m.insert(k, Dropper(i));
+            }
+            observe();
+            m.len()
+        },
+        {
+            let mut m: HashMap<u64, Dropper> = HashMap::with_capacity(SIZE);
+            for (i, &k) in ks.iter().enumerate() {
+                m.insert(k, Dropper(i));
+            }
+            observe();
+            m.len()
+        },
+        {
+            let mut m: HbMap<u64, Dropper> = HbMap::with_capacity_and_hasher(SIZE, Fold::default());
+            for (i, &k) in ks.iter().enumerate() {
+                m.insert(k, Dropper(i));
+            }
+            observe();
+            m.len()
+        }
+    );
 }
 
 fn entry(c: &mut Criterion) {
-    across!(c, "entry", ks,
-        { let mut m: Words<u64, usize> = Words::with_capacity(SIZE);
-          for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() },
-        { let mut m: HashMap<u64, usize> = HashMap::with_capacity(SIZE);
-          for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() },
-        { let mut m: HbMap<u64, usize> = HbMap::with_capacity_and_hasher(SIZE, Fold::default());
-          for &k in &ks { *m.entry(k).or_insert(0) += 1; } m.len() });
+    across!(
+        c,
+        "entry",
+        ks,
+        {
+            let mut m: Words<u64, usize> = Words::with_capacity(SIZE);
+            for &k in &ks {
+                *m.entry(k).or_insert(0) += 1;
+            }
+            m.len()
+        },
+        {
+            let mut m: HashMap<u64, usize> = HashMap::with_capacity(SIZE);
+            for &k in &ks {
+                *m.entry(k).or_insert(0) += 1;
+            }
+            m.len()
+        },
+        {
+            let mut m: HbMap<u64, usize> = HbMap::with_capacity_and_hasher(SIZE, Fold::default());
+            for &k in &ks {
+                *m.entry(k).or_insert(0) += 1;
+            }
+            m.len()
+        }
+    );
 }
 
 fn lookup(c: &mut Criterion) {
@@ -127,26 +173,77 @@ fn lookup(c: &mut Criterion) {
 fn clone_ops(c: &mut Criterion) {
     for dist in ["serial", "highbits", "random"] {
         let ks = keys(dist, SIZE);
-        let ap: Words<u64, Dropper> = ks.iter().enumerate().map(|(i, &k)| (k, Dropper(i))).collect();
-        let st: HashMap<u64, Dropper> = ks.iter().enumerate().map(|(i, &k)| (k, Dropper(i))).collect();
-        let hb: HbMap<u64, Dropper> = ks.iter().enumerate().map(|(i, &k)| (k, Dropper(i))).collect();
+        let ap: Words<u64, Dropper> = ks
+            .iter()
+            .enumerate()
+            .map(|(i, &k)| (k, Dropper(i)))
+            .collect();
+        let st: HashMap<u64, Dropper> = ks
+            .iter()
+            .enumerate()
+            .map(|(i, &k)| (k, Dropper(i)))
+            .collect();
+        let hb: HbMap<u64, Dropper> = ks
+            .iter()
+            .enumerate()
+            .map(|(i, &k)| (k, Dropper(i)))
+            .collect();
 
         let mut g = c.benchmark_group("clone/");
-        g.bench_function(format!("{dist}/apeiron"), |b| b.iter(|| { let m = ap.clone(); observe(); m.len() }));
-        g.bench_function(format!("{dist}/std"), |b| b.iter(|| { let m = st.clone(); observe(); m.len() }));
-        g.bench_function(format!("{dist}/hb+foldhash"), |b| b.iter(|| { let m = hb.clone(); observe(); m.len() }));
+        g.bench_function(format!("{dist}/apeiron"), |b| {
+            b.iter(|| {
+                let m = ap.clone();
+                observe();
+                m.len()
+            });
+        });
+        g.bench_function(format!("{dist}/std"), |b| {
+            b.iter(|| {
+                let m = st.clone();
+                observe();
+                m.len()
+            });
+        });
+        g.bench_function(format!("{dist}/hb+foldhash"), |b| {
+            b.iter(|| {
+                let m = hb.clone();
+                observe();
+                m.len()
+            });
+        });
         g.finish();
 
         // The allocation already exists; only the contents are replaced.
         let mut g = c.benchmark_group("clone_from/");
         g.bench_function(format!("{dist}/apeiron"), |b| {
-            b.iter_batched_ref(|| ap.clone(), |d| { d.clone_from(&ap); observe(); }, BatchSize::SmallInput);
+            b.iter_batched_ref(
+                || ap.clone(),
+                |d| {
+                    d.clone_from(&ap);
+                    observe();
+                },
+                BatchSize::SmallInput,
+            );
         });
         g.bench_function(format!("{dist}/std"), |b| {
-            b.iter_batched_ref(|| st.clone(), |d| { d.clone_from(&st); observe(); }, BatchSize::SmallInput);
+            b.iter_batched_ref(
+                || st.clone(),
+                |d| {
+                    d.clone_from(&st);
+                    observe();
+                },
+                BatchSize::SmallInput,
+            );
         });
         g.bench_function(format!("{dist}/hb+foldhash"), |b| {
-            b.iter_batched_ref(|| hb.clone(), |d| { d.clone_from(&hb); observe(); }, BatchSize::SmallInput);
+            b.iter_batched_ref(
+                || hb.clone(),
+                |d| {
+                    d.clone_from(&hb);
+                    observe();
+                },
+                BatchSize::SmallInput,
+            );
         });
         g.finish();
     }
@@ -158,9 +255,15 @@ fn strings(c: &mut Criterion) {
     let st: HashMap<String, usize> = ks.iter().map(|k| (k.clone(), 1)).collect();
     let hb: HbMap<String, usize> = ks.iter().map(|k| (k.clone(), 1)).collect();
     let mut g = c.benchmark_group("string_lookup/");
-    g.bench_function("apeiron", |b| b.iter(|| ks.iter().filter_map(|k| ap.get_at(k.as_str())).count()));
-    g.bench_function("std", |b| b.iter(|| ks.iter().filter_map(|k| st.get(k.as_str())).count()));
-    g.bench_function("hb+foldhash", |b| b.iter(|| ks.iter().filter_map(|k| hb.get(k.as_str())).count()));
+    g.bench_function("apeiron", |b| {
+        b.iter(|| ks.iter().filter_map(|k| ap.get_at(k.as_str())).count());
+    });
+    g.bench_function("std", |b| {
+        b.iter(|| ks.iter().filter_map(|k| st.get(k.as_str())).count());
+    });
+    g.bench_function("hb+foldhash", |b| {
+        b.iter(|| ks.iter().filter_map(|k| hb.get(k.as_str())).count());
+    });
     g.finish();
 }
 

@@ -18,8 +18,8 @@
 //! fingerprinted in a test rather than because anything queries a range. A set that iterates
 //! reproducibly without paying for a tree serves that directly.
 
-use crate::coord::Coord;
 use crate::cell::Sigma;
+use crate::coord::Coord;
 use crate::map::{Absorb, Drain, Held, IntoKeys, Keys, Locate, Map, Regen, Salt, Stats, Stored};
 use std::num::NonZeroU64;
 
@@ -264,7 +264,11 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
         K: Clone,
     {
         // Walk the smaller: `contains` costs the same either way, so the loop length is the cost.
-        let (small, big) = if self.len() <= other.len() { (self, other) } else { (other, self) };
+        let (small, big) = if self.len() <= other.len() {
+            (self, other)
+        } else {
+            (other, self)
+        };
         let mut out = Self::with_salt(self.0.salt());
         small.0.for_each_key(|k| {
             if big.contains(k) {
@@ -307,7 +311,11 @@ impl<K: Coord + Eq, H: Held<K>> Set<K, H> {
     /// Whether the two share nothing.
     #[must_use]
     pub fn is_disjoint(&self, other: &Self) -> bool {
-        let (small, big) = if self.len() <= other.len() { (self, other) } else { (other, self) };
+        let (small, big) = if self.len() <= other.len() {
+            (self, other)
+        } else {
+            (other, self)
+        };
         small.0.all_keys(|k| !big.contains(k))
     }
 
@@ -513,4 +521,3 @@ where
         f.debug_set().entries(self.iter()).finish()
     }
 }
-

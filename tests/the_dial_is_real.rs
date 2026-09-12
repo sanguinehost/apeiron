@@ -19,7 +19,10 @@ fn sample<R: Ring>() -> Vec<Cell<R>> {
 
 /// `mul_comm`, `mul_assoc`, `one_mul` -- on every face, which is why folding is well defined
 /// before the dial is even chosen.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn multiplication_is_commutative_associative_and_unital_on_every_face() {
     for sigma in FACES {
@@ -41,7 +44,10 @@ fn multiplication_is_commutative_associative_and_unital_on_every_face() {
 
 /// `normForm_mul`: the form is multiplicative on every face. This is what makes "degenerate" a
 /// property closed under multiplication -- once a lane is dead it stays dead.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_norm_is_multiplicative_on_every_face() {
     for sigma in FACES {
@@ -61,7 +67,10 @@ fn the_norm_is_multiplicative_on_every_face() {
 ///
 /// The count is not a label: the accessors that return the channels are `None` off the face that
 /// has them, so code cannot read a lane that does not exist.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_channel_count_is_the_sign_of_the_discriminant() {
     assert_eq!(Sigma::Elliptic.channels(), 0);
@@ -84,7 +93,10 @@ fn the_channel_count_is_the_sign_of_the_discriminant() {
 ///
 /// This is the property that makes two lanes accumulate without coordinating, and it is the one
 /// real engineering consequence of the whole trichotomy.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_two_channels_multiply_independently() {
     let sigma = Sigma::Hyperbolic;
@@ -107,7 +119,10 @@ fn the_two_channels_multiply_independently() {
 
 /// `normForm_eq_upper_mul_lower`: the form factors into the two channels, so it vanishes exactly
 /// when a lane does. Degeneracy is "a channel died", stated precisely.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_norm_factors_into_the_channels() {
     let sigma = Sigma::Hyperbolic;
@@ -126,7 +141,10 @@ fn the_norm_factors_into_the_channels() {
 /// Every lossy thing a table does is a discard -- collapsing a key to a fold, culling by interest,
 /// demoting detail. Each is therefore a hyperbolic operation, and the crate says so where it can
 /// be checked rather than in a comment.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn only_the_hyperbolic_face_can_discard() {
     assert!(!Sigma::Elliptic.discards());
@@ -137,11 +155,19 @@ fn only_the_hyperbolic_face_can_discard() {
     // other. `2e = (1, 1)` is the doubled idempotent, scaled to stay in the integers.
     let sigma = Sigma::Hyperbolic;
     let e = Cell::<i64>::of(1, 1);
-    assert_eq!(e.lower(sigma), Some(0), "the projector kills the lower lane");
+    assert_eq!(
+        e.lower(sigma),
+        Some(0),
+        "the projector kills the lower lane"
+    );
     for z in sample::<i64>() {
         let projected = z.mul(sigma, e);
         assert_eq!(projected.lower(sigma), Some(0), "the lane stays dead");
-        assert_eq!(projected.norm_form(sigma), 0, "and the result is degenerate");
+        assert_eq!(
+            projected.norm_form(sigma),
+            0,
+            "and the result is degenerate"
+        );
     }
 }
 
@@ -153,7 +179,10 @@ fn only_the_hyperbolic_face_can_discard() {
 ///
 /// This is the load-bearing half of "one merge, three keystores": the merge does not vary with
 /// the dial because commutativity does not.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn folding_is_order_free_on_every_face() {
     for sigma in FACES {
@@ -184,7 +213,10 @@ fn folding_is_order_free_on_every_face() {
 /// idempotents are `(1 +/- j)/2` and need one bit of fraction, so over `i64` they are absent from
 /// every face -- which is a fact about the container, not about the algebra. The theorem itself
 /// holds and is tested over `Dyadic` in `idempotents_over_a_ring_with_halves.rs`.
-#[cfg_attr(miri, ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure algebra on `Cell`: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn idempotents_and_zero_divisors_over_the_integers() {
     // Over Z, no face has a nontrivial idempotent -- the halves are not there to be had. This is
@@ -192,7 +224,9 @@ fn idempotents_and_zero_divisors_over_the_integers() {
     for sigma in FACES {
         let nontrivial: Vec<Cell<i64>> = sample::<i64>()
             .into_iter()
-            .filter(|z| z.mul(sigma, *z) == *z && *z != Cell::<i64>::zero() && *z != Cell::<i64>::one())
+            .filter(|z| {
+                z.mul(sigma, *z) == *z && *z != Cell::<i64>::zero() && *z != Cell::<i64>::one()
+            })
             .collect();
         assert!(
             nontrivial.is_empty(),
@@ -212,7 +246,11 @@ fn idempotents_and_zero_divisors_over_the_integers() {
     // Parabolic: the nilpotent line. (0, b) squares to zero for every b.
     for b in 1..4 {
         let n = Cell::<i64>::of(0, b);
-        assert_eq!(n.mul(Sigma::Parabolic, n), Cell::<i64>::zero(), "nilpotent {n:?}");
+        assert_eq!(
+            n.mul(Sigma::Parabolic, n),
+            Cell::<i64>::zero(),
+            "nilpotent {n:?}"
+        );
         assert_ne!(n, Cell::<i64>::zero());
     }
 

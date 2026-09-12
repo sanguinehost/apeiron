@@ -14,7 +14,10 @@ use apeiron::coord::{i21, mix, Coord, Packed, PHI};
 use std::collections::HashSet;
 
 /// The bijection round-trips, over the whole of a representative slice.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn a_packed_key_round_trips_exactly() {
     for x in [i32::MIN, -70_000, -1, 0, 1, 70_000, i32::MAX] {
@@ -30,10 +33,15 @@ fn a_packed_key_round_trips_exactly() {
 }
 
 /// And it is injective on a grid where the arithmetic fold is not.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn packing_separates_every_key_in_a_signed_grid() {
-    let keys: Vec<(i32, i32)> = (-64..64).flat_map(|x| (-64..64).map(move |y| (x, y))).collect();
+    let keys: Vec<(i32, i32)> = (-64..64)
+        .flat_map(|x| (-64..64).map(move |y| (x, y)))
+        .collect();
     let addresses: HashSet<u64> = keys.iter().map(Packed::packed).collect();
     assert_eq!(addresses.len(), keys.len());
 }
@@ -41,7 +49,10 @@ fn packing_separates_every_key_in_a_signed_grid() {
 /// The 21-bit coordinate refuses what will not fit, rather than truncating it.
 ///
 /// This is the bijection's precondition made unrepresentable instead of documented.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn a_narrow_coordinate_refuses_an_out_of_range_value() {
     assert!(i21::new(0).is_some());
@@ -70,7 +81,10 @@ fn a_narrow_coordinate_refuses_an_out_of_range_value() {
 /// the golden ratio, so its continued-fraction convergents are Fibonacci numbers, and 2971215073
 /// is one: that is where a multiplier stops spreading. Asserting this rather than hoping it is
 /// absent is the difference between a discard and a broken bijection.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_arithmetic_fold_is_not_a_bijection_and_here_is_the_collision() {
     let a = mix(2_971_215_073, 50_920_843);
@@ -92,10 +106,15 @@ fn the_arithmetic_fold_is_not_a_bijection_and_here_is_the_collision() {
 ///
 /// Measured as distinct addresses over a grid far larger than the table that would hold it, which
 /// is the regime a lossy fold is actually used in.
-#[cfg_attr(miri, ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret")]
+#[cfg_attr(
+    miri,
+    ignore = "pure arithmetic: no unsafe for Miri to check, and too slow to interpret"
+)]
 #[test]
 fn the_discard_spreads_evenly_on_the_grids_that_use_it() {
-    let keys: Vec<(i32, i32)> = (-512..512).flat_map(|x| (-512..512).map(move |y| (x, y))).collect();
+    let keys: Vec<(i32, i32)> = (-512..512)
+        .flat_map(|x| (-512..512).map(move |y| (x, y)))
+        .collect();
     let distinct: HashSet<u64> = keys.iter().map(Coord::coord).collect();
     // Not a proof of injectivity -- there is none to have -- but the rate a discard must hit.
     let collisions = keys.len() - distinct.len();

@@ -18,8 +18,14 @@ use std::hint::black_box;
 use std::time::Instant;
 
 fn main() {
-    let bits: u32 = std::env::var("BITS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
-    let reps: usize = std::env::var("REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+    let bits: u32 = std::env::var("BITS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    let reps: usize = std::env::var("REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
     let n = 1usize << bits;
     let mut s = 0x243F_6A88_85A3_08D3u64;
     let ks: Vec<u64> = (0..n)

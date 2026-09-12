@@ -82,11 +82,16 @@ fn words() -> Vec<u64> {
 /// size class boundary and one `memcpy` regime, which is how the key-copy cost gets attributed to
 /// the allocator or to the copy.
 fn strings() -> Vec<String> {
-    match std::env::var("THREE_KEYS").unwrap_or_else(|_| "resref".into()).as_str() {
+    match std::env::var("THREE_KEYS")
+        .unwrap_or_else(|_| "resref".into())
+        .as_str()
+    {
         "path" => (0..N)
             .map(|i| format!("modules/neverwinter/areas/nw_wswmg{i:05}.are"))
             .collect(),
-        "long" => (0..N).map(|i| format!("{i:05}{}", "x".repeat(195))).collect(),
+        "long" => (0..N)
+            .map(|i| format!("{i:05}{}", "x".repeat(195)))
+            .collect(),
         _ => (0..N).map(|i| format!("nw_wswmg{i:05}")).collect(),
     }
 }
@@ -150,7 +155,11 @@ fn move_hb_str(ks: &[String], h: Fold) -> u64 {
 fn alloc_ap<K: Coord + Eq, V>(reserve: bool) -> usize {
     let mut n = 0;
     for _ in 0..REPS {
-        let m: Map<K, V> = if reserve { Map::with_capacity(N) } else { Map::new() };
+        let m: Map<K, V> = if reserve {
+            Map::with_capacity(N)
+        } else {
+            Map::new()
+        };
         n += m.capacity();
     }
     n
@@ -199,7 +208,11 @@ fn clone_only_u64(ks: &[u64]) -> usize {
 fn fresh_ap_words(ks: &[u64], reserve: bool) -> usize {
     let mut n = 0;
     for _ in 0..REPS {
-        let mut m: Words<u64, u64> = if reserve { Words::with_capacity(N) } else { Words::new() };
+        let mut m: Words<u64, u64> = if reserve {
+            Words::with_capacity(N)
+        } else {
+            Words::new()
+        };
         for &k in ks {
             m.insert(k, k);
         }
@@ -213,7 +226,11 @@ fn fresh_ap_words(ks: &[u64], reserve: bool) -> usize {
 fn fresh_ap<K: Coord + Eq + Clone, V: Clone>(ks: &[K], v: V, reserve: bool) -> usize {
     let mut n = 0;
     for _ in 0..REPS {
-        let mut m: Map<K, V> = if reserve { Map::with_capacity(N) } else { Map::new() };
+        let mut m: Map<K, V> = if reserve {
+            Map::with_capacity(N)
+        } else {
+            Map::new()
+        };
         for k in ks {
             m.insert(k.clone(), v.clone());
         }
@@ -375,10 +392,18 @@ fn main() {
     let arm = std::env::var("THREE_ARM").unwrap_or_else(|_| "list".into());
     let out: usize = match arm.as_str() {
         // moving
-        "move_ap_u64" => usize::try_from(move_ap_u64(&words(), Salt::new(0x5EED)) & MASK).unwrap_or(0),
-        "move_hb_u64" => usize::try_from(move_hb_u64(&words(), Fold::default()) & MASK).unwrap_or(0),
-        "move_ap_str" => usize::try_from(move_ap_str(&strings(), black_box(0x5EED)) & MASK).unwrap_or(0),
-        "move_hb_str" => usize::try_from(move_hb_str(&strings(), Fold::default()) & MASK).unwrap_or(0),
+        "move_ap_u64" => {
+            usize::try_from(move_ap_u64(&words(), Salt::new(0x5EED)) & MASK).unwrap_or(0)
+        }
+        "move_hb_u64" => {
+            usize::try_from(move_hb_u64(&words(), Fold::default()) & MASK).unwrap_or(0)
+        }
+        "move_ap_str" => {
+            usize::try_from(move_ap_str(&strings(), black_box(0x5EED)) & MASK).unwrap_or(0)
+        }
+        "move_hb_str" => {
+            usize::try_from(move_hb_str(&strings(), Fold::default()) & MASK).unwrap_or(0)
+        }
 
         // storing, word keys
         "alloc_ap_u64" => alloc_ap::<u64, u64>(true),
@@ -401,12 +426,16 @@ fn main() {
         "grow_hb_str" => fresh_hb(&strings(), 1u64, false),
 
         "clone_arr" => clone_only_arr(&arrays()),
-        "move_ap_arr" => usize::try_from(move_ap_arr(&arrays(), black_box(0x5EED)) & MASK).unwrap_or(0),
+        "move_ap_arr" => {
+            usize::try_from(move_ap_arr(&arrays(), black_box(0x5EED)) & MASK).unwrap_or(0)
+        }
         "fresh_ap_arr8" => fresh_ap(&arrays8(), 1u64, true),
         "fresh_hb_arr8" => fresh_hb(&arrays8(), 1u64, true),
         "fresh_ap_arrz" => fresh_ap(&arrays(), (), true),
         "fresh_hb_arrz" => fresh_hb(&arrays(), (), true),
-        "move_hb_arr" => usize::try_from(move_hb_arr(&arrays(), Fold::default()) & MASK).unwrap_or(0),
+        "move_hb_arr" => {
+            usize::try_from(move_hb_arr(&arrays(), Fold::default()) & MASK).unwrap_or(0)
+        }
         "alloc_ap_arr" => alloc_ap::<[u8; 16], u64>(true),
         "alloc_hb_arr" => alloc_hb::<[u8; 16], u64>(true),
         "fresh_ap_arr" => fresh_ap(&arrays(), 1u64, true),
@@ -416,13 +445,18 @@ fn main() {
         "get_ap_arr" => {
             let ks = arrays();
             let mut m: Map<[u8; 16], u64> = Map::with_capacity(ks.len());
-            for k in &ks { m.insert(*k, 1); }
+            for k in &ks {
+                m.insert(*k, 1);
+            }
             usize::try_from(get_ap_arr(&m, &ks) & MASK).unwrap_or(0)
         }
         "get_hb_arr" => {
             let ks = arrays();
-            let mut m: HbMap<[u8; 16], u64> = HbMap::with_capacity_and_hasher(ks.len(), Fold::default());
-            for k in &ks { m.insert(*k, 1); }
+            let mut m: HbMap<[u8; 16], u64> =
+                HbMap::with_capacity_and_hasher(ks.len(), Fold::default());
+            for k in &ks {
+                m.insert(*k, 1);
+            }
             usize::try_from(get_hb_arr(&m, &ks) & MASK).unwrap_or(0)
         }
 

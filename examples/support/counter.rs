@@ -108,7 +108,10 @@ impl Counter {
             .ok()
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(4);
-        Some(Self { instructions: open(pmu, 0x00c0)?, cycles: open(pmu, 0x003c)? })
+        Some(Self {
+            instructions: open(pmu, 0x00c0)?,
+            cycles: open(pmu, 0x003c)?,
+        })
     }
 
     fn ioctl(&self, request: u64) {
@@ -126,7 +129,11 @@ impl Counter {
                 8,
             )
         };
-        if n == 8 { u64::from_ne_bytes(buf) } else { 0 }
+        if n == 8 {
+            u64::from_ne_bytes(buf)
+        } else {
+            0
+        }
     }
 
     /// Counts one closure. Returns its value and what it cost.

@@ -5,8 +5,8 @@
 //! ranges between the two labels are the whole address-to-slot path each design pays.
 
 use apeiron::Map;
-use hashbrown::HashMap as HbMap;
 use foldhash::fast::RandomState;
+use hashbrown::HashMap as HbMap;
 
 #[no_mangle]
 #[inline(never)]
@@ -64,12 +64,20 @@ fn main() {
     }
     let mut sm: Map<String, u64> = Map::new();
     let mut hm: HbMap<String, u64, RandomState> = HbMap::default();
-    for i in 0..1000u64 { let k = format!("nw_wswmg{i:05}"); sm.insert(k.clone(), i); hm.insert(k, i); }
+    for i in 0..1000u64 {
+        let k = format!("nw_wswmg{i:05}");
+        sm.insert(k.clone(), i);
+        hm.insert(k, i);
+    }
     let mut s = 0u64;
     for i in 0..1000u64 {
-        s = s.wrapping_add(ap_get(&a, i * 7)).wrapping_add(hb_get(&h, i * 7));
+        s = s
+            .wrapping_add(ap_get(&a, i * 7))
+            .wrapping_add(hb_get(&h, i * 7));
         let k = format!("nw_wswmg{i:05}");
-        s = s.wrapping_add(ap_str_get(&sm, &k)).wrapping_add(hb_str_get(&hm, &k));
+        s = s
+            .wrapping_add(ap_str_get(&sm, &k))
+            .wrapping_add(hb_str_get(&hm, &k));
         ap_ins(&mut a, i * 13);
         hb_ins(&mut h, i * 13);
     }

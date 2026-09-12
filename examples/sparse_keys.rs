@@ -28,6 +28,10 @@ fn main() {
             }
             key[i / 8] ^= 1 << (i % 8);
         }
-        println!("  len {len:>3}: {n} keys -> {} distinct ({} collisions)", seen.len(), n - seen.len());
+        println!(
+            "  len {len:>3}: {n} keys -> {} distinct ({} collisions)",
+            seen.len(),
+            n - seen.len()
+        );
     }
 }

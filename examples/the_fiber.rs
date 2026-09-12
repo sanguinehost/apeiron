@@ -89,20 +89,35 @@ fn aimed() {
     };
 
     println!("\n  {n} keys, gbits {gbits} -- what a chain costs and what it buys");
-    println!("  {:<22} {:>14} {:>10} {:>12} {:>9}", "windows matched", "trials/key", "search s", "mean probe", "longest");
+    println!(
+        "  {:<22} {:>14} {:>10} {:>12} {:>9}",
+        "windows matched", "trials/key", "search s", "mean probe", "longest"
+    );
     let h = probe(&honest, 0);
-    println!("  {:<22} {:>14} {:>10} {:>12.2} {:>9}", "honest", "-", "-", h.mean_probe, h.longest_probe);
+    println!(
+        "  {:<22} {:>14} {:>10} {:>12.2} {:>9}",
+        "honest", "-", "-", h.mean_probe, h.longest_probe
+    );
     for w in 1..=3u32 {
         let t = Instant::now();
         match aim(w * gbits, 4_000_000_000) {
             Some((ks, tried)) => {
                 let s = probe(&ks, 0);
-                println!("  {:<22} {:>14} {:>10.2} {:>12.2} {:>9}",
-                         format!("{w} ({} bits)", w * gbits), tried / n as u64,
-                         t.elapsed().as_secs_f64(), s.mean_probe, s.longest_probe);
+                println!(
+                    "  {:<22} {:>14} {:>10.2} {:>12.2} {:>9}",
+                    format!("{w} ({} bits)", w * gbits),
+                    tried / n as u64,
+                    t.elapsed().as_secs_f64(),
+                    s.mean_probe,
+                    s.longest_probe
+                );
             }
-            None => println!("  {:<22} {:>14} {:>10}   unaffordable",
-                             format!("{w} ({} bits)", w * gbits), "> 2,000,000", "gave up"),
+            None => println!(
+                "  {:<22} {:>14} {:>10}   unaffordable",
+                format!("{w} ({} bits)", w * gbits),
+                "> 2,000,000",
+                "gave up"
+            ),
         }
     }
 
@@ -111,14 +126,20 @@ fn aimed() {
     let (one, _) = aim(gbits, 4_000_000_000).expect("one window is always affordable");
     let bare = probe(&one, 0);
     let salted = probe(&one, 0x5EED_1234_ABCD_9876);
-    println!("\n  one aimed window: unpeppered mean probe {:.2}, peppered {:.2}, honest {:.2}",
-             bare.mean_probe, salted.mean_probe, h.mean_probe);
+    println!(
+        "\n  one aimed window: unpeppered mean probe {:.2}, peppered {:.2}, honest {:.2}",
+        bare.mean_probe, salted.mean_probe, h.mean_probe
+    );
     let _ = (HbMap::<u64, u64, BuildHasherDefault<rustc_hash::FxHasher>>::default(),);
 
     println!("\n  Matching one window is free and buys a doubled probe. Matching a second costs");
     println!("  2^gbits times as many trials for one more step of chain, and a third is out of");
-    println!("  reach -- the cost is exponential in the chain and the damage is linear. That is the");
-    println!("  bound `table::group_of` always claimed; it only became true once the placement word");
+    println!(
+        "  reach -- the cost is exponential in the chain and the damage is linear. That is the"
+    );
+    println!(
+        "  bound `table::group_of` always claimed; it only became true once the placement word"
+    );
     println!("  stopped being invertible. The peppered row is flat because an attacker who cannot");
     println!("  evaluate the table's placement function cannot filter candidates at all.");
 }

@@ -24,12 +24,11 @@
               Listed individually rather than suppressed wholesale, so a pedantic lint this file does not \
               yet trigger still surfaces"
 )]
-
 #![cfg(feature = "derive")]
 
+use apeiron::coord::Coord as _;
 use apeiron::map::Exposed;
 use apeiron::set::{Set, WordSet};
-use apeiron::coord::Coord as _;
 use apeiron::{Coord, Map, Packed, Words};
 use std::num::NonZeroU64;
 
@@ -85,7 +84,12 @@ fn the_ir_handles_run_on_the_elliptic_face_storing_no_key() {
     }
     assert_eq!(preds.len(), 5_000 / SCALE);
     assert_eq!(preds.face(), apeiron::Sigma::Elliptic);
-    assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32 - 1)).map(Vec::len), Some(1));
+    assert_eq!(
+        preds
+            .get(&BlockId((5_000 / SCALE) as u32 - 1))
+            .map(Vec::len),
+        Some(1)
+    );
     assert_eq!(preds.get(&BlockId((5_000 / SCALE) as u32)), None);
 
     // The key really does come back off the address -- nothing else is stored.
@@ -124,7 +128,10 @@ fn the_vfs_composite_index_probes_without_allocating() {
     assert_eq!(index.get_at(("nw_missing", 2_002u16)), None);
 
     // And the owned surface sees the same table.
-    assert_eq!(index.get(&("nw_wswmg00042".to_string(), 2_002)), Some(&(42, 672)));
+    assert_eq!(
+        index.get(&("nw_wswmg00042".to_string(), 2_002)),
+        Some(&(42, 672))
+    );
     assert_eq!(index.len(), 20_000 / SCALE);
 }
 
@@ -141,14 +148,20 @@ fn the_talk_table_holds_a_hundred_thousand_strings() {
         tlk.insert(5_000_000 + i * 3, format!("dlc line {i}"));
     }
     assert_eq!(tlk.len(), 2 * half as usize);
-    assert_eq!(tlk.get(&(half - 1)).map(String::as_str), Some(format!("line {}", half - 1).as_str()));
+    assert_eq!(
+        tlk.get(&(half - 1)).map(String::as_str),
+        Some(format!("line {}", half - 1).as_str())
+    );
     assert_eq!(tlk.get(&5_000_003).map(String::as_str), Some("dlc line 1"));
     assert_eq!(tlk.get(&5_000_001), None);
 
     // The probe stays short across a sparse, structured key set -- which is the thing a bad address
     // function would ruin here and nowhere else.
     let s = tlk.stats();
-    assert!(s.longest_probe < 32, "sparse StrRefs degraded the probe: {s:?}");
+    assert!(
+        s.longest_probe < 32,
+        "sparse StrRefs degraded the probe: {s:?}"
+    );
 }
 
 #[test]
@@ -158,13 +171,22 @@ fn a_path_newtype_and_the_string_maps() {
         paths.insert(VPath(format!("data/meshes/{i}.nif")), u64::from(i));
     }
     let last = (5_000 / SCALE) as u32 - 1;
-    assert_eq!(paths.get(&VPath(format!("data/meshes/{last}.nif"))), Some(&u64::from(last)));
+    assert_eq!(
+        paths.get(&VPath(format!("data/meshes/{last}.nif"))),
+        Some(&u64::from(last))
+    );
     // Case-sensitive, as its source is.
     assert_eq!(paths.get(&VPath(format!("DATA/MESHES/{last}.NIF"))), None);
 
     // The 47 plain `HashMap<String, _>` declarations: GFF field tables, 2DA columns, MDL nodes.
     let mut fields: Map<String, i64> = Map::new();
-    for name in ["Tag", "TemplateResRef", "LocName", "Appearance_Type", "FactionID"] {
+    for name in [
+        "Tag",
+        "TemplateResRef",
+        "LocName",
+        "Appearance_Type",
+        "FactionID",
+    ] {
         fields.insert(name.to_string(), 1);
     }
     *fields.entry_at("Tag").or_insert(0) += 41;
@@ -196,7 +218,11 @@ fn the_sets_cover_what_the_sets_are_for() {
     // `BTreeSet<u32>` -- 13 of the 14, holding jump targets and block ids, ordered so the
     // decompiler's output can be fingerprinted in a test. That is determinism, not ordering, and
     // this gives it without paying for a tree.
-    let targets = || (0..(500 / SCALE) as u32).map(|i| i.wrapping_mul(2_654_435_761) % 10_000).collect::<WordSet<u32>>();
+    let targets = || {
+        (0..(500 / SCALE) as u32)
+            .map(|i| i.wrapping_mul(2_654_435_761) % 10_000)
+            .collect::<WordSet<u32>>()
+    };
     let a: Vec<u32> = targets().into_iter().collect();
     let b: Vec<u32> = targets().into_iter().collect();
     assert_eq!(a, b, "iteration order moved between two identical builds");
@@ -214,7 +240,10 @@ fn the_untrusted_indexes_are_peppered_by_construction() {
         index.insert((format!("res{i:05}"), 2_002), i);
     }
     let last = (10_000 / SCALE) as u32 - 1;
-    assert_eq!(index.get_at((format!("res{last:05}").as_str(), 2_002u16)), Some(&last));
+    assert_eq!(
+        index.get_at((format!("res{last:05}").as_str(), 2_002u16)),
+        Some(&last)
+    );
     assert!(index.stats().peppered);
     assert!(!index.stats().looks_aimed());
 
@@ -233,7 +262,11 @@ fn the_std_shaped_surface_is_all_there() {
     assert_eq!(m["a"], 1);
 
     assert_eq!(m.get_at("a"), Some(&1));
-    assert_eq!(m.get_key_value(&"a".to_string()).map(|(k, v)| (k.as_str(), *v)), Some(("a", 1)));
+    assert_eq!(
+        m.get_key_value(&"a".to_string())
+            .map(|(k, v)| (k.as_str(), *v)),
+        Some(("a", 1))
+    );
     *m.get_mut_at("a").unwrap() += 10;
     assert_eq!(m["a"], 11);
 

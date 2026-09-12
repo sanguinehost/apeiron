@@ -31,7 +31,10 @@ fn main() {
     let n = 100_000_000u64;
     let (v, counts) = c.count(|| spin(n));
     println!("value {v}");
-    println!("in-process: {} instructions, {} cycles", counts.instructions, counts.cycles);
+    println!(
+        "in-process: {} instructions, {} cycles",
+        counts.instructions, counts.cycles
+    );
     #[expect(clippy::cast_precision_loss, reason = "a harness printing a rate")]
     let per = counts.instructions as f64 / n as f64;
     println!("per iteration: {per:.3} instructions");

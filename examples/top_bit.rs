@@ -31,7 +31,10 @@ fn main() {
 
     // 2. DiffDist's bit-63 measurement, local: flip the top bit, look at the difference.
     for (name, f) in [
-        ("fold (as shipped)", (|k: &[u8]| fold_bytes(k)) as fn(&[u8]) -> u64),
+        (
+            "fold (as shipped)",
+            (|k: &[u8]| fold_bytes(k)) as fn(&[u8]) -> u64,
+        ),
         ("fold then finish", |k: &[u8]| finish(fold_bytes(k))),
     ] {
         for bit in [32u32, 62, 63] {
@@ -39,14 +42,19 @@ fn main() {
             let mut hi32 = std::collections::HashSet::new();
             let mut s = 0x243F_6A88_85A3_08D3u64;
             for _ in 0..200_000 {
-                s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
                 let a = f(&s.to_le_bytes());
                 let b = f(&(s ^ (1u64 << bit)).to_le_bytes());
                 diffs.insert(a ^ b);
                 hi32.insert((a ^ b) >> 32);
             }
-            println!("  {name:<18} bit {bit:>2}: {:>6} distinct differences, {:>6} distinct high-32",
-                diffs.len(), hi32.len());
+            println!(
+                "  {name:<18} bit {bit:>2}: {:>6} distinct differences, {:>6} distinct high-32",
+                diffs.len(),
+                hi32.len()
+            );
         }
     }
 }

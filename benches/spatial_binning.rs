@@ -73,8 +73,6 @@ fn apeiron_parallel(addrs: &[u64], probe: &[u64], bits: u32, threads: usize) -> 
     t.sum_parallel(probe, threads)
 }
 
-
-
 const SHARDS: usize = 256;
 
 /// A stream cut into shards the way `apeiron::table` cuts it: each worker partitions a contiguous
@@ -93,7 +91,10 @@ impl<K: Copy + Default + Send + Sync> Runs<K> {
     fn of(xs: &[K], shard: &(impl Fn(&K) -> usize + Sync), threads: usize) -> Self {
         let workers = threads.max(1);
         if xs.is_empty() {
-            return Self { bufs: Vec::new(), ends: Vec::new() };
+            return Self {
+                bufs: Vec::new(),
+                ends: Vec::new(),
+            };
         }
         let chunk = xs.len().div_ceil(workers).max(1);
         let done: Vec<(Vec<K>, Vec<usize>)> = std::thread::scope(|scope| {
@@ -151,7 +152,12 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
     let shard = |k: &(i32, i32, i32)| {
         apeiron::table::shard_of(
             apeiron::map::Salt::default(),
-            (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed(),
+            (
+                i21::new(k.0).unwrap(),
+                i21::new(k.1).unwrap(),
+                i21::new(k.2).unwrap(),
+            )
+                .packed(),
         )
     };
     let kb = Runs::of(keys, &shard, threads);
@@ -188,7 +194,12 @@ fn sharded_parallel<S: std::hash::BuildHasher + Default + Send + Sync>(
 /// actually has. `hashtrinity` had an arm here until its dependency was dropped; its tuple fold
 /// collided on signed coordinates, and `tests/coord_is_injective.rs` is what keeps this one from
 /// doing the same.
-fn apeiron_tuple(keys: &[(i32, i32, i32)], probe: &[(i32, i32, i32)], bits: u32, threads: usize) -> i64 {
+fn apeiron_tuple(
+    keys: &[(i32, i32, i32)],
+    probe: &[(i32, i32, i32)],
+    bits: u32,
+    threads: usize,
+) -> i64 {
     use apeiron::coord::Coord;
     let addrs: Vec<u64> = keys.iter().map(Coord::coord).collect();
     let probes: Vec<u64> = probe.iter().map(Coord::coord).collect();
@@ -219,9 +230,18 @@ fn hashbrown_with<S: std::hash::BuildHasher + Default>(
 }
 
 fn pack(k: (i32, i32, i32)) -> u64 {
-    (i21::new(k.0).unwrap(), i21::new(k.1).unwrap(), i21::new(k.2).unwrap()).packed()
+    (
+        i21::new(k.0).unwrap(),
+        i21::new(k.1).unwrap(),
+        i21::new(k.2).unwrap(),
+    )
+        .packed()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one criterion group measures the whole spatial surface; the shared scene is the function"
+)]
 fn bench(c: &mut Criterion) {
     for &n in &[100_000usize, 1_000_000] {
         let keys = scene(n);
@@ -244,8 +264,14 @@ fn bench(c: &mut Criterion) {
                 (got - truth).abs()
             );
         };
-        report("apeiron_serial", apeiron_serial(&packed, &probe_packed, bits));
-        report("apeiron_parallel", apeiron_parallel(&packed, &probe_packed, bits, 16));
+        report(
+            "apeiron_serial",
+            apeiron_serial(&packed, &probe_packed, bits),
+        );
+        report(
+            "apeiron_parallel",
+            apeiron_parallel(&packed, &probe_packed, bits, 16),
+        );
         report(
             "hashbrown_foldhash",
             hashbrown_with::<foldhash::fast::RandomState>(&keys, &occupied),
@@ -254,7 +280,10 @@ fn bench(c: &mut Criterion) {
             "hashbrown_fxhash",
             hashbrown_with::<BuildHasherDefault<rustc_hash::FxHasher>>(&keys, &occupied),
         );
-        report("apeiron_tuple_par16", apeiron_tuple(&keys, &occupied, bits, 16));
+        report(
+            "apeiron_tuple_par16",
+            apeiron_tuple(&keys, &occupied, bits, 16),
+        );
         report(
             "std_siphash_par16",
             sharded_parallel::<std::collections::hash_map::RandomState>(&keys, &occupied, 16),
@@ -267,7 +296,11 @@ fn bench(c: &mut Criterion) {
             "fxhash_par16",
             sharded_parallel::<BuildHasherDefault<rustc_hash::FxHasher>>(&keys, &occupied, 16),
         );
-        assert_eq!(apeiron_serial(&packed, &probe_packed, bits), truth, "apeiron must be exact");
+        assert_eq!(
+            apeiron_serial(&packed, &probe_packed, bits),
+            truth,
+            "apeiron must be exact"
+        );
         assert_eq!(
             apeiron_parallel(&packed, &probe_packed, bits, 16),
             truth,
@@ -314,13 +347,19 @@ fn bench(c: &mut Criterion) {
             });
         });
         g.bench_with_input(BenchmarkId::new("foldhash_par16", n), &n, |b, _| {
-            b.iter(|| black_box(sharded_parallel::<foldhash::fast::RandomState>(&keys, &occupied, 16)));
+            b.iter(|| {
+                black_box(sharded_parallel::<foldhash::fast::RandomState>(
+                    &keys, &occupied, 16,
+                ))
+            });
         });
         g.bench_with_input(BenchmarkId::new("fxhash_par16", n), &n, |b, _| {
             b.iter(|| {
-                black_box(sharded_parallel::<BuildHasherDefault<rustc_hash::FxHasher>>(
-                    &keys, &occupied, 16,
-                ))
+                black_box(
+                    sharded_parallel::<BuildHasherDefault<rustc_hash::FxHasher>>(
+                        &keys, &occupied, 16,
+                    ),
+                )
             });
         });
         g.finish();

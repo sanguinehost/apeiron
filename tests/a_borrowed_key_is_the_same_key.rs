@@ -105,7 +105,11 @@ fn the_two_surfaces_see_one_table() {
         }
         for (i, s) in corpus().into_iter().enumerate() {
             assert_eq!(m.get(&s), Some(&(i as u32)), "owned read of {s:?}");
-            assert_eq!(m.get_at(s.as_str()), Some(&(i as u32)), "borrowed read of {s:?}");
+            assert_eq!(
+                m.get_at(s.as_str()),
+                Some(&(i as u32)),
+                "borrowed read of {s:?}"
+            );
             assert!(m.contains_at(s.as_str()));
         }
         // And removal, which has to find the same slot the insert took.
@@ -151,5 +155,9 @@ fn a_pepper_changes_the_layout_and_nothing_else() {
         assert_eq!(salted.get(&s), Some(&(i as u32)));
     }
     let order = |m: &Map<String, u32>| m.keys().cloned().collect::<Vec<_>>();
-    assert_ne!(order(&plain), order(&salted), "the pepper did not move anything");
+    assert_ne!(
+        order(&plain),
+        order(&salted),
+        "the pepper did not move anything"
+    );
 }

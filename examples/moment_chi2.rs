@@ -84,8 +84,10 @@ fn fold(variant: u8, len: usize, x: u64) -> u64 {
     let (a, c) = if len >= 8 {
         (w(&b[..8]), w(&b[len - 8..]))
     } else {
-        (u64::from(u32::from_le_bytes(b[..4].try_into().unwrap())),
-         u64::from(u32::from_le_bytes(b[len - 4..].try_into().unwrap())))
+        (
+            u64::from(u32::from_le_bytes(b[..4].try_into().unwrap())),
+            u64::from(u32::from_le_bytes(b[len - 4..].try_into().unwrap())),
+        )
     };
     settle(match variant {
         0 => mix2(a.wrapping_add(seed), c.wrapping_add(seed2)),
@@ -169,9 +171,16 @@ fn variance(len: usize, h: impl Fn(u64) -> u64) -> f64 {
         prev = cur;
     }
     let total: u64 = hist.iter().sum();
-    let mean: f64 =
-        hist.iter().enumerate().map(|(k, &c)| k as f64 * c as f64).sum::<f64>() / total as f64;
-    hist.iter().enumerate().map(|(k, &c)| (k as f64 - mean).powi(2) * c as f64).sum::<f64>()
+    let mean: f64 = hist
+        .iter()
+        .enumerate()
+        .map(|(k, &c)| k as f64 * c as f64)
+        .sum::<f64>()
+        / total as f64;
+    hist.iter()
+        .enumerate()
+        .map(|(k, &c)| (k as f64 - mean).powi(2) * c as f64)
+        .sum::<f64>()
         / total as f64
 }
 
@@ -186,7 +195,10 @@ fn main() {
         (5, "5  xor both:        (a^s1, c^s2)   <- foldhash's shape"),
         (6, "6  xor both, rot c: (a^s1, rotl(c,32)^s2)"),
         (7, "7  NO GUARD:        (hi^lo) only"),
-        (8, "8  unrotated guard: p ^ (x+y)          [symmetric: forbidden]"),
+        (
+            8,
+            "8  unrotated guard: p ^ (x+y)          [symmetric: forbidden]",
+        ),
         (9, "9  guard rotl 1:    p ^ (x + rotl(y,1))"),
         (10, "10 guard rotl 8:    p ^ (x + rotl(y,8))"),
         (11, "11 guard rotl 16:   p ^ (x + rotl(y,16))"),
@@ -197,8 +209,14 @@ fn main() {
         (16, "16 OR:              p ^ (x | y)"),
         (17, "17 add ^ and:       p ^ ((x+y) ^ (x&y))"),
         (18, "18 xor ^ rot-and:   p ^ (x ^ y ^ rotl(x&y,32))"),
-        (19, "19 (x|y)+x:         p ^ ((x|y) + x)      [asym + non-affine]"),
-        (20, "20 (x|y)+y:         p ^ ((x|y) + y)      [asym + non-affine]"),
+        (
+            19,
+            "19 (x|y)+x:         p ^ ((x|y) + x)      [asym + non-affine]",
+        ),
+        (
+            20,
+            "20 (x|y)+y:         p ^ ((x|y) + y)      [asym + non-affine]",
+        ),
         (21, "21 or ^ (and+x):    p ^ ((x|y) ^ ((x&y)+x))"),
         (22, "22 (x+y)|x:         p ^ ((x+y) | x)"),
         (23, "23 x + 3y:          both odd, sum even, asymmetric"),
@@ -208,8 +226,10 @@ fn main() {
         (27, "27 x + 7y:          both odd, sum even, asymmetric"),
         (28, "28 x - y:           both odd, sum 0, ONE instruction"),
     ] {
-        let vs: Vec<String> =
-            [4usize, 8].iter().map(|&l| format!("len={l}: {:7.3}", variance(l, |x| fold(v, l, x)))).collect();
+        let vs: Vec<String> = [4usize, 8]
+            .iter()
+            .map(|&l| format!("len={l}: {:7.3}", variance(l, |x| fold(v, l, x))))
+            .collect();
         println!("  {name:<42} {}", vs.join("   "));
     }
 }

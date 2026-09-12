@@ -28,7 +28,12 @@ const SAMPLES: usize = 20_000;
 fn sac(mix: impl Fn(u64) -> u64) -> (f64, f64) {
     let mut flips = [[0u32; 64]; 64];
     let mut r = 0x243F_6A88_85A3_08D3u64;
-    let mut next = || { r ^= r << 13; r ^= r >> 7; r ^= r << 17; r };
+    let mut next = || {
+        r ^= r << 13;
+        r ^= r >> 7;
+        r ^= r << 17;
+        r
+    };
     for _ in 0..SAMPLES {
         let x = next();
         let h = mix(x);
@@ -62,32 +67,59 @@ fn main() {
     // Cheap candidates that are still bijections, so `bucket` never merges what `packed` split.
     type Reduce = (&'static str, Box<dyn Fn(u64) -> u64>);
     let arms: [Reduce; 10] = [
-        ("parabolic  lo",     Box::new(move |x| lo(prod(x)))),
-        ("hyperbolic lo+hi",  Box::new(move |x| lo(prod(x)).wrapping_add(hi(prod(x))))),
-        ("elliptic   lo-hi",  Box::new(move |x| lo(prod(x)).wrapping_sub(hi(prod(x))))),
-        ("foldhash   lo^hi",  Box::new(move |x| lo(prod(x)) ^ hi(prod(x)))),
-        ("elliptic x2",       Box::new(move |x| {
-            let a = lo(prod(x)).wrapping_sub(hi(prod(x)));
-            let p = u128::from(a).wrapping_mul(u128::from(C));
-            lo(p).wrapping_sub(hi(p))
-        })),
+        ("parabolic  lo", Box::new(move |x| lo(prod(x)))),
+        (
+            "hyperbolic lo+hi",
+            Box::new(move |x| lo(prod(x)).wrapping_add(hi(prod(x)))),
+        ),
+        (
+            "elliptic   lo-hi",
+            Box::new(move |x| lo(prod(x)).wrapping_sub(hi(prod(x)))),
+        ),
+        (
+            "foldhash   lo^hi",
+            Box::new(move |x| lo(prod(x)) ^ hi(prod(x))),
+        ),
+        (
+            "elliptic x2",
+            Box::new(move |x| {
+                let a = lo(prod(x)).wrapping_sub(hi(prod(x)));
+                let p = u128::from(a).wrapping_mul(u128::from(C));
+                lo(p).wrapping_sub(hi(p))
+            }),
+        ),
         ("splitmix64 finish", Box::new(apeiron::coord::finish)),
         // mul by odd is a bijection; xorshift is a bijection; so are their compositions.
         ("mul                ", Box::new(|x| x.wrapping_mul(C))),
-        ("mul,xs32           ", Box::new(|x| { let h = x.wrapping_mul(C); h ^ (h >> 32) })),
-        ("xs32,mul,xs32      ", Box::new(|x| {
-            let h = x ^ (x >> 32);
-            let h = h.wrapping_mul(C);
-            h ^ (h >> 32)
-        })),
-        ("xs29,mul,xs32      ", Box::new(|x| {
-            let h = x ^ (x >> 29);
-            let h = h.wrapping_mul(C);
-            h ^ (h >> 32)
-        })),
+        (
+            "mul,xs32           ",
+            Box::new(|x| {
+                let h = x.wrapping_mul(C);
+                h ^ (h >> 32)
+            }),
+        ),
+        (
+            "xs32,mul,xs32      ",
+            Box::new(|x| {
+                let h = x ^ (x >> 32);
+                let h = h.wrapping_mul(C);
+                h ^ (h >> 32)
+            }),
+        ),
+        (
+            "xs29,mul,xs32      ",
+            Box::new(|x| {
+                let h = x ^ (x >> 29);
+                let h = h.wrapping_mul(C);
+                h ^ (h >> 32)
+            }),
+        ),
     ];
 
-    println!("  {:<20} {:>12} {:>12}", "reduction", "worst dev", "mean dev");
+    println!(
+        "  {:<20} {:>12} {:>12}",
+        "reduction", "worst dev", "mean dev"
+    );
     for (name, f) in arms {
         let (worst, mean) = sac(&f);
         println!("  {name:<20} {worst:>11.4} {mean:>12.5}");

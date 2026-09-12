@@ -116,7 +116,8 @@ const fn home(p: u64) -> usize {
 /// a `const` means the day someone gives `CountTable` a `Set` or a `Link` merge -- both
 /// `Ordered`, both order-dependent -- the crate stops building rather than silently returning an
 /// answer that depends on how the threads were scheduled.
-const _: () = assert!(
+const _: () =
+    assert!(
     matches!(crate::merge::Face::Count.species(), crate::merge::Species::Free),
     "build_parallel splits the stream and recombines it; only a commutative merge licenses that"
 );
@@ -147,8 +148,14 @@ pub struct CountTable {
 /// It reads as the hyperbolic face because the *fold* that produced the address is a discard. That
 /// is a property of the caller's `Coord`, not of this table's storage.
 const _: () = {
-    assert!(CountTable::FACE.key_survives(), "a stored `id` is a bijection of the address");
-    assert!(!CountTable::FACE.stores_the_key(), "the address is the key; nothing else is stored");
+    assert!(
+        CountTable::FACE.key_survives(),
+        "a stored `id` is a bijection of the address"
+    );
+    assert!(
+        !CountTable::FACE.stores_the_key(),
+        "the address is the key; nothing else is stored"
+    );
 };
 
 impl CountTable {
@@ -176,7 +183,11 @@ impl CountTable {
     #[must_use]
     pub fn build_with(salt: Salt, addresses: &[u64], bits: u32) -> Self {
         let _ = bits;
-        Self::assemble(salt, &Parts::of(salt, addresses, 1), &[(0..SHARDS).collect()])
+        Self::assemble(
+            salt,
+            &Parts::of(salt, addresses, 1),
+            &[(0..SHARDS).collect()],
+        )
     }
 
     /// This table's pepper.
@@ -386,7 +397,10 @@ impl Parts {
         }
         let chunk = addresses.len().div_ceil(workers).max(1);
         let done: Vec<Chunk> = if workers == 1 || addresses.len() <= chunk {
-            addresses.chunks(chunk).map(|c| partition_chunk(salt, c)).collect()
+            addresses
+                .chunks(chunk)
+                .map(|c| partition_chunk(salt, c))
+                .collect()
         } else {
             std::thread::scope(|scope| {
                 let handles: Vec<_> = addresses

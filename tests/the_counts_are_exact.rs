@@ -47,12 +47,20 @@ fn check(name: &str, addrs: &[u64]) {
     for threads in [1usize, 2, 3, 7, 16] {
         let t = CountTable::build_parallel(addrs, 16, threads);
         for &a in &probe {
-            assert_eq!(t.get(a), want[&a], "{name}: key {a:#x} at {threads} threads");
+            assert_eq!(
+                t.get(a),
+                want[&a],
+                "{name}: key {a:#x} at {threads} threads"
+            );
         }
         // A key that was never inserted counts zero, not a neighbour's count.
         for &a in &[u64::MAX, 0xDEAD_BEEF_DEAD_BEEF, 1] {
             if !want.contains_key(&a) {
-                assert_eq!(t.get(a), 0, "{name}: absent key {a:#x} at {threads} threads");
+                assert_eq!(
+                    t.get(a),
+                    0,
+                    "{name}: absent key {a:#x} at {threads} threads"
+                );
             }
         }
         let total: i64 = t.sum_parallel(addrs, threads);
@@ -96,7 +104,10 @@ fn a_single_key_repeated_counts_once_per_occurrence() {
 /// Includes the sentinel a slot used to be initialised with, and zero.
 #[test]
 fn the_extremes_of_the_word_are_ordinary_keys() {
-    check("extremes", &[0, u64::MAX, 1, u64::MAX - 1, 0, u64::MAX, 1 << 63]);
+    check(
+        "extremes",
+        &[0, u64::MAX, 1, u64::MAX - 1, 0, u64::MAX, 1 << 63],
+    );
 }
 
 #[test]
@@ -128,7 +139,9 @@ fn a_stream_aimed_at_one_shard_still_counts_exactly() {
             addrs.push(a);
         }
     }
-    assert!(addrs.iter().all(|&a| apeiron::table::shard_of(apeiron::map::Salt::default(), a) == 0));
+    assert!(addrs
+        .iter()
+        .all(|&a| apeiron::table::shard_of(apeiron::map::Salt::default(), a) == 0));
     check("one shard", &addrs);
 }
 
@@ -156,7 +169,10 @@ fn counts_do_not_depend_on_the_worker_count() {
 /// small `n` -- so the one thing it may not do is change an answer. Checked either side of the
 /// boundary, because a threshold is exactly the kind of thing that is right in the middle of a
 /// range and wrong at its edge.
-#[cfg_attr(miri, ignore = "the boundary is at 65,536 keys and does not scale down")]
+#[cfg_attr(
+    miri,
+    ignore = "the boundary is at 65,536 keys and does not scale down"
+)]
 #[test]
 fn the_parallel_floor_does_not_change_any_count() {
     let mut next = rng();
@@ -166,7 +182,11 @@ fn the_parallel_floor_does_not_change_any_count() {
         let one = CountTable::build(&addrs, 16);
         for threads in [1usize, 4, 16] {
             let many = CountTable::build_parallel(&addrs, 16, threads);
-            assert_eq!(one.slots(), many.slots(), "n {n}, {threads} threads: slot count");
+            assert_eq!(
+                one.slots(),
+                many.slots(),
+                "n {n}, {threads} threads: slot count"
+            );
             for &a in &addrs {
                 assert_eq!(one.get(a), many.get(a), "n {n}, {threads} threads, key {a}");
             }
@@ -187,7 +207,11 @@ fn the_counting_table_regenerates_its_key_from_the_slot() {
             let a = next();
             // The slot holds `id`; the address comes back off it exactly, which is what makes the
             // face elliptic rather than a discard.
-            assert_eq!(salt.unspread(salt.spread(a).id), a, "pepper {pepper:#x}, address {a:#x}");
+            assert_eq!(
+                salt.unspread(salt.spread(a).id),
+                a,
+                "pepper {pepper:#x}, address {a:#x}"
+            );
         }
     }
 }
