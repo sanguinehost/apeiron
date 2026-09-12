@@ -1,7 +1,7 @@
 # Intent — Carrier and word refinement
 
 - **Owner:** Lucas 'Paperboy' Rose-Winters (operator: `deepseek-flash`)
-- **Source revision:** `5ffd2521a128e749568ec4b29b3c93ab55c916f4`; working tree clean
+- **Source revision:** `d7121ac0432a4842aff69e63cfc5486d56c4dd73`; working tree clean
 - **Status:** approved; epic complete, evidence in `docs/plan/carrier-refinement.md`
 - **Spec:** `docs/spec/carrier-refinement.md`
 - **Plan:** `docs/plan/carrier-refinement.md`
@@ -60,7 +60,8 @@ cd proof/corpus && lake build
 | the finite conservative total is conserved over the extracted step | proved | `word_conservative_total_mass` |
 | a successful extracted three-cell line step denotes `scalarCarrierStep` per cell with exact-half interior faces | proved | `word_diffusive_line3_step_denote` |
 | a successful line step changes the denoted total only by the sources; zero source conserves it | proved | `word_diffusive_line3_step_total_mass`, `word_diffusive_line3_step_total_mass_zero_source` |
-| odd or unrepresentable line inputs refuse the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal` |
+| odd or unrepresentable line inputs refuse the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal`, `word_diffusive_line3_step_unrepresentable_refusal` |
+| the all-zero line succeeds, so the line's success branch is inhabited | proved | `word_diffusive_line3_step_zero_success` |
 | nominal and boundary Rust behavior on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_diffusive_line3_step_is_exact.rs`, `tests/the_exchange_is_a_swap.rs` |
 | extraction freshness from the committed sources | tested (tool gate) | `proof/regen.sh --check` |
 

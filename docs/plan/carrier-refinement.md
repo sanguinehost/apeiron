@@ -3,8 +3,8 @@
 - **Owner:** Lucas 'Paperboy' Rose-Winters (operator: `deepseek-flash`)
 - **Intent:** `docs/intent/carrier-refinement.md`
 - **Spec:** `docs/spec/carrier-refinement.md`
-- **Source revision:** `e5c86391b784261050cd75e8997a7cb69ebddfda`; working tree carries W7
-- **Status:** approved; all waves complete, W7 added for the fixed three-cell line
+- **Source revision:** `d7121ac0432a4842aff69e63cfc5486d56c4dd73`; working tree clean
+- **Status:** approved; all waves complete, W7 committed with the fixed three-cell line and its success/unrepresentable witnesses
 
 ## Goal and completion condition
 
@@ -38,7 +38,7 @@ only after the previous gate is green.
 | W4 | Exchange and checked-acceptance refinement | `src/exchange.rs`, `proof/extract/lib.rs`, `proof/corpus/WordRefinement.lean` | Flash | `cd proof/corpus && lake build` | impulse `sub → add` and generated branch inversion turn the exchange/acceptance theorems red |
 | W5 | Scalar step, half-flux and finite conservation | `src/carrier.rs`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean` | Flash | `cd proof/corpus && lake build` | generated `checked_sub → checked_add` and the face-orientation swap turn the step theorems red |
 | W6 | Corpus pin and carrier lab | `proof/corpus/lakefile.lean`, corpus `Carrier*.lean`, `tests/the_carrier_*.rs` | Flash | corpus `lake build`; `cargo test --workspace --all-features --locked` | swapping the two face arguments in `sum_scalarCarrierStep_eq` breaks the telescoping proof |
-| W7 | Fixed three-cell diffusive line | `src/carrier.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `tests/the_diffusive_line3_step_is_exact.rs` | Flash | `proof/regen.sh --check`; `cd proof/corpus && lake build`; `cargo test --workspace --all-features --locked` | swapping the generated left cell's shared face breaks `word_diffusive_line3_step_eq_some_iff`; the odd-difference and unrepresentable fixtures refuse |
+| W7 | Fixed three-cell diffusive line | `src/carrier.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `tests/the_diffusive_line3_step_is_exact.rs` | Flash | `proof/regen.sh --check`; `cd proof/corpus && lake build`; `cargo test --workspace --all-features --locked` | swapping the generated left cell's shared face breaks `word_diffusive_line3_step_eq_some_iff`; an always-`none` generated body breaks `word_diffusive_line3_step_zero_success`; the odd-difference and unrepresentable fixtures refuse |
 
 ## Task blocks
 
@@ -137,7 +137,7 @@ cargo test --workspace --all-features --locked
 
 ### W7 · Fixed three-cell diffusive line
 
-- **Scope:** add the closed three-cell `nu = 1/2` production kernel `diffusive_line3_step` and its `DensityLine3` carrier; extract it as `word_diffusive_line3_step`; prove the success characterization, the per-component `scalarCarrierStep` refinement, the two `exactHalfFlux` face witnesses, the source-only total-mass equation, its zero-source corollary and the odd-difference refusal; test the exact values, refusal and transactionality.
+- **Scope:** add the closed three-cell `nu = 1/2` production kernel `diffusive_line3_step` and its `DensityLine3` carrier; extract it as `word_diffusive_line3_step`; prove the success characterization, the per-component `scalarCarrierStep` refinement, the two `exactHalfFlux` face witnesses, the source-only total-mass equation, its zero-source corollary, the odd-difference and unrepresentable refusals, and the all-zero success witness; test the exact values, refusal and transactionality.
 - **Files:** `src/carrier.rs`, `proof/extract/lib.rs`, `proof/regen.sh`, `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `tests/the_diffusive_line3_step_is_exact.rs`
 - **Lane:** one task in its own wave; the generated file is shared, so the production, extraction, refinement and test edits land together rather than in parallel lanes.
 - **Depends on:** W5, W6
@@ -150,8 +150,8 @@ cd proof/corpus && lake build
 cargo test --workspace --all-features --locked
 ```
 
-- **Negative control:** swapping the generated left cell's shared face from `face_left` to `face_right` in a throwaway `ApeironWord.lean` breaks `word_diffusive_line3_step_eq_some_iff` and its consumers; restoring the generated file passes. The odd-difference and unrepresentable fixtures and the transactional-refusal test fail if the kernel rounds or returns a partial line.
-- **Evidence to record:** `word_diffusive_line3_step_eq_some_iff`, `_denote_of`, `_denote`, `_total_mass`, `_total_mass_zero_source`, `_odd_refusal`; corpus `d9aefc93522e2109bc96158526de6dbd52477276`; `src/carrier.rs` `4fcdbeba…`; `ApeironWord.lean` `95542402…`; bridge build 3276 jobs.
+- **Negative control:** swapping the generated left cell's shared face from `face_left` to `face_right` in a throwaway `ApeironWord.lean` breaks `word_diffusive_line3_step_eq_some_iff` and its consumers; replacing the generated final `ok (some { left, center, right })` with `ok none` breaks `word_diffusive_line3_step_zero_success`; restoring the generated file passes. The odd-difference and unrepresentable fixtures and the transactional-refusal test fail if the kernel rounds or returns a partial line.
+- **Evidence to record:** `word_diffusive_line3_step_eq_some_iff`, `_denote_of`, `_denote`, `_total_mass`, `_total_mass_zero_source`, `_odd_refusal`, `_unrepresentable_refusal`, `_zero_success`; corpus `d9aefc93522e2109bc96158526de6dbd52477276`; `src/carrier.rs` `4fcdbeba…`; `ApeironWord.lean` `95542402…`; bridge build 3276 jobs.
 
 ## Recorded digests
 

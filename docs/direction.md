@@ -74,8 +74,9 @@ pulled, rebased, switched, committed or pushed. Existing changes were preserved.
 as an ancestor of `origin/apeiron-rebuild`, and both `Parser/Expression.lean` and
 `Parser/Arithmetic.lean` are published. The latter includes exact-suffix soundness,
 finite-fuel completeness, token-derived fuel and node-capacity bounds. The models
-explicitly exclude production Slang arena/machine refinement. Song's citation
-resolver still searches `../sanguine/proof`, not `../sanguine-apeiron/proof`; pinning
+explicitly exclude production Slang arena/machine refinement. At the time of this
+check Song's citation resolver searched `../sanguine/proof`; the current resolver path
+is `../sanguine-apeiron/proof`. Pinning
 and path convergence remain coordination work, but missing publication is no longer
 the blocker. The fetched corpus still uses Lean `4.30.0-rc2`.
 
@@ -274,7 +275,7 @@ migrated before the pin landed. The proposal text is historical:
 > 3. `lake build` and reverify the bridge against the new pin.
 >
 > This is a corpus-repo commit eventually consumed by Song; it is **not** applied to either corpus
-> worktree from this Apeiron workstream, and Song's resolver still points at `../sanguine/proof`.
+> worktree from this Apeiron workstream, and Song's resolver then pointed at `../sanguine/proof`.
 > A first 4.31.0 build of the corpus source found at least one **source** break beyond the manifest:
 > `Trichotomy/Flow.lean:310` fails to elaborate, so the bump also needs a migration of the analysis
 > files, not just the toolchain line.

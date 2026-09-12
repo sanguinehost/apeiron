@@ -2,7 +2,7 @@
 
 - **Owner:** Lucas 'Paperboy' Rose-Winters (operator: `deepseek-flash`)
 - **Intent:** `docs/intent/carrier-refinement.md`
-- **Source revision:** `5ffd2521a128e749568ec4b29b3c93ab55c916f4`; working tree clean
+- **Source revision:** `d7121ac0432a4842aff69e63cfc5486d56c4dd73`; working tree clean
 - **Status:** approved; epic complete
 
 ## Scope and admissible domain
@@ -70,7 +70,8 @@ restatements. The corpus pin is `d9aefc93522e2109bc96158526de6dbd52477276`
 | finite total | the denoted `ZMod (2^64)` sum over `n` successful cells is conserved | proved | `word_conservative_total_mass`, `word_conservative_total_mass_closed` |
 | three-cell line | a successful extracted line step has exact-half interior faces and each component is `scalarCarrierStep` at the shared face and closed end | proved | `word_diffusive_line3_step_denote` |
 | three-cell total | a successful line step changes the denoted total only by the denoted sources; zero source conserves it | proved | `word_diffusive_line3_step_total_mass`, `word_diffusive_line3_step_total_mass_zero_source` |
-| three-cell refusal | an odd or unrepresentable interior difference refuses the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal` |
+| three-cell refusal | an odd or unrepresentable interior difference refuses the whole line, not a partial result | proved | `word_diffusive_line3_step_odd_refusal`, `word_diffusive_line3_step_unrepresentable_refusal` |
+| three-cell success witness | the all-zero old/source line returns the all-zero line as `some`, so the partial kernel is not vacuously total | proved | `word_diffusive_line3_step_zero_success` |
 | line energy | no energy statement transfers to the word ring; the corpus quarter-energy identity is over `ℝ` | anchor (scope) | `dirichletEnergy_halfStep_three`, `dirichletEnergy_halfStep_three_lt` |
 | nominal Rust behavior | readout, step, line and exchange on the production path | tested | `tests/the_carrier_readout_is_generic.rs`, `tests/the_carrier_step_is_conservative.rs`, `tests/the_diffusive_line3_step_is_exact.rs`, `tests/the_exchange_is_a_swap.rs` |
 
