@@ -246,8 +246,10 @@ and `find_from_spec` lifts it to the `@[reducible]` `find_from`. The proof decom
 `Array.index_usize` read through `Array.index_usize_spec` and the `I64` equality through a local
 `@[step]` lemma; both theorems audit inside `{propext, Classical.choice, Quot.sound}`. A throwaway
 copy with the generated `done (some index)` changed to `done none` fails the same proof, so the
-control is red. The canonical `Apeiron.Table` denotation and the `get`/`try_insert`/`remove` links
-are the next step; this file proves the search semantics they consume. Generic `SafeTable::new` is
+control is red. `findIdx` and `findIdx_spec`/`findIdx_none_iff` give the `List`-index denotation,
+`tableHMap` reads it as the corpus `Apeiron.Table.HMap` (absence `none`), and `get_spec`/
+`get_spec_canonical` prove the extracted `get` returns exactly `Apeiron.Table.get (tableHMap self) key`.
+The `empty_from` search, `try_insert` and `remove` links are the next step. Generic `SafeTable::new` is
 not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
 introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
 directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as

@@ -325,10 +325,13 @@ total `loop` combinator marked `#[rust_loop]` with no `partial_fixpoint`, so the
 proves `find_from_loop_spec` with measure `4 - index` and the invariant `NoMatchIn key l start index`,
 so the generated search returns the first key match in `[start, 4)`, and `find_from_spec` lifts it to
 `find_from`; both audit inside `{propext, Classical.choice, Quot.sound}`, and a throwaway generated
-mutation (`done (some index)` to `done none`) fails the same proof. The remaining obligation is the
-`Apeiron.Table` denotation and the `get`/`try_insert`/`remove` links; that is proof work, not an
-extraction blocker. The optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope
-note is unchanged.
+mutation (`done (some index)` to `done none`) fails the same proof. The lookup link is written:
+`findIdx`/`findIdx_spec`/`findIdx_none_iff` give the list denotation, `tableHMap` reads it as the
+corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` returns
+`Apeiron.Table.get (tableHMap self) key`. The remaining obligation is the `empty_from` search and the
+`try_insert`/`remove` links to `Apeiron.Table.insertWith`; that is proof work, not an extraction
+blocker. The optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope note is
+unchanged.
 
 ### Correctness Work Before Physics Reuse
 

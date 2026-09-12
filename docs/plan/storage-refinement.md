@@ -166,6 +166,8 @@ exist.
 - Control: a throwaway copy with the generated `done (some index)` changed to `done none` fails the
   same proof. The real `proof/regen.sh --check` and the 3277-job bridge build stay green.
 
-Still open: the `Apeiron.Table` denotation (`Apeiron.Table.get`/`insertWith`/`replace`) and the
-`get`, `try_insert` and `remove` links, plus the `empty_from` search used by insertion. The next
-bounded task is the `List`-index denotation and those three callers.
+Still open: the `try_insert` and `remove` links and the `empty_from` search used by insertion. The
+`List`-index denotation and the lookup link are now proved: `findIdx_spec`/`findIdx_none_iff`,
+`tableHMap`, and `get_spec`/`get_spec_canonical` (the extracted `get` returns
+`Apeiron.Table.get (tableHMap self) key`). The next bounded task is the `empty_from` search and the
+two write callers.
