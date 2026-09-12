@@ -154,8 +154,14 @@ production struct. `WordRefinement.lean` proves:
 - `word_diffusive_line3_step_total_mass`: the denoted total changes only by the denoted sources,
   proved by instantiating the existing `word_conservative_total_mass`, not a second telescoping;
 - `word_diffusive_line3_step_total_mass_zero_source`: the zero-source conservation corollary;
+- `word_diffusive_line3_step_zero_success`: the all-zero old/source line returns the all-zero line as
+  `some`, so the success branch is inhabited and the partial kernel is not vacuously total;
 - `word_diffusive_line3_step_odd_refusal`: the odd interior difference `1 - 0` refuses the whole
-  line, so the step is not total.
+  line, so the step is not total;
+- `word_diffusive_line3_step_unrepresentable_refusal`: with all three cells at `i64::MAX`, the
+  interior differences are even (faces `0`), the left cell succeeds, and the centre cell's
+  `after_net + source` (`i64::MAX + 1`) is unrepresentable, so the whole line returns `ok none` — a
+  line-level unrepresentable refusal distinct from the odd-face one.
 
 The composition is a `ZMod (2 ^ 64)` statement over the three-cell line, not a physical mass law;
 it inherits the partiality and the no-partial-result shape of the two scalar kernels.
@@ -283,12 +289,13 @@ carrier-step/half-flux theorems (`word_conservative_density_step_denote`,
 `word_diffusive_flux_half_success`, `word_diffusive_flux_half_odd_refusal`,
 `word_diffusive_flux_half_unrepresentable_refusal`,
 `word_conservative_density_step_overflow_refusal`), the two finite-conservation theorems
-(`word_conservative_total_mass`, `word_conservative_total_mass_closed`), the nine
+(`word_conservative_total_mass`, `word_conservative_total_mass_closed`), the eleven
 three-cell-line theorems (`sum_line3`, `word_diffusive_flux_half_cases`,
 `word_conservative_density_step_cases`, `word_diffusive_line3_step_eq_some_iff`,
 `word_diffusive_line3_step_denote_of`, `word_diffusive_line3_step_denote`,
 `word_diffusive_line3_step_total_mass`, `word_diffusive_line3_step_total_mass_zero_source`,
-`word_diffusive_line3_step_odd_refusal`), the five
+`word_diffusive_line3_step_odd_refusal`, `word_diffusive_line3_step_zero_success`,
+`word_diffusive_line3_step_unrepresentable_refusal`), the five
 ring-generic exchange theorems, the six canonical point-readout theorems
 (`pointDensity_eq`, `pointFlux_eq`, `pointDensity_ringOne`, `pointDensity_ringOne_independent`,
 `pointFlux_ringOne`, `pointFlux_ringOne_independent`), and the five scalar-step links
@@ -345,6 +352,14 @@ longer denotes `scalarCarrierStep` at the shared left face); restoring the uncha
 passes again. The production source and the committed generated file are not modified for the
 control.
 
+For the three-cell line success witness, replacing the generated final `ok (some { left, center,
+right })` with `ok none` in a throwaway copy of `ApeironWord.lean` and re-elaborating
+`WordRefinement` **fails** at `word_diffusive_line3_step_zero_success` (the all-zero line no longer
+returns `some`) as well as at `word_diffusive_line3_step_eq_some_iff`; restoring the unchanged
+generated file passes again. The success witness is therefore sensitive to the actual extracted
+body and cannot be satisfied by a vacuous always-`none` implementation. The production source and
+the committed generated file are not modified for the control.
+
 For the shared-face orientation, swapping the two face arguments in the statement of
 `Apeiron.Physics.sum_scalarCarrierStep_eq` (outgoing at `i + 1` to incoming at `i`) in a throwaway
 copy of `CarrierScalarKernelAnyRing.lean` and elaborating it **fails** (the telescoping proof no
@@ -373,7 +388,9 @@ SHA-256 `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591`.
 - Totality of the scalar carrier step, the exact-half flux or the three-cell line. They refuse
   unrepresentable intermediates and odd face differences as `ok none`; the refinement theorems are
   conditional on the generated no-overflow preconditions and the representability/evenness
-  hypotheses, and the refusal witnesses show the partiality is real.
+  hypotheses, and the refusal witnesses (`word_diffusive_line3_step_odd_refusal`,
+  `word_diffusive_line3_step_unrepresentable_refusal`) show the partiality is real while
+  `word_diffusive_line3_step_zero_success` shows the success branch is inhabited.
 - That every integer state is iterable, or that an updated value remains a norm-form square.
 - Any property of rustc/LLVM code generation, the generated machine code or a GPU backend.
 - That the finite conservation theorem is a physical mass law: `word_conservative_total_mass` is
