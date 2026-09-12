@@ -106,6 +106,7 @@ pub mod map;
 pub mod merge;
 pub mod pepper;
 pub mod proofs;
+pub mod safe_table;
 pub mod scalar;
 pub mod set;
 pub mod table;
