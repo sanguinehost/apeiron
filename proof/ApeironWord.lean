@@ -17,6 +17,26 @@ set_option maxRecDepth 2048
 
 namespace apeiron_word
 
+/-- Trait declaration: [apeiron_word::scalar::Ring]
+    Source: 'proof/extract/../../src/scalar.rs', lines 28:0-46:1
+    Visibility: public -/
+structure scalar.Ring (Self : Type) where
+  ZERO : Result Self
+  ONE : Result Self
+  coremarkerCopyInst : core.marker.Copy Self
+  corecmpPartialEqInst : core.cmp.PartialEq Self Self
+  add : Self → Self → Result Self
+  sub : Self → Self → Result Self
+  mul : Self → Self → Result Self
+  from_i64 : Std.I64 → Result Self
+
+/-- [apeiron_word::cell::Cell]
+    Source: 'proof/extract/../../src/cell.rs', lines 79:0-84:1
+    Visibility: public -/
+structure cell.Cell (R : Type) where
+  a : R
+  b : R
+
 /-- [apeiron_word::cell::Sigma]
     Source: 'proof/extract/../../src/cell.rs', lines 17:0-34:1
     Visibility: public -/
@@ -35,47 +55,20 @@ def cell.Sigma.value (self : cell.Sigma) : Result Std.I64 := do
   | cell.Sigma.Parabolic => ok 0#i64
   | cell.Sigma.Hyperbolic => ok 1#i64
 
-/-- [apeiron_word::cell::Cell]
-    Source: 'proof/extract/../../src/cell.rs', lines 79:0-84:1
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::norm_form]:
+    Source: 'proof/extract/../../src/cell.rs', lines 156:4-159:5
     Visibility: public -/
-structure cell.Cell (R : Type) where
-  a : R
-  b : R
-
-/-- [apeiron_word::cell::{impl core::cmp::PartialEq<apeiron_word::cell::Cell<R>> for apeiron_word::cell::Cell<R>}::eq]:
-    Source: 'proof/extract/../../src/cell.rs', lines 78:29-78:38
-    Visibility: public -/
-def cell.Cell.Insts.CoreCmpPartialEqCell.eq
-  {R : Type} (corecmpPartialEqInst : core.cmp.PartialEq R R)
-  (self : cell.Cell R) (other : cell.Cell R) :
-  Result Bool
+def cell.Cell.norm_form
+  {R : Type} (scalarRingInst : scalar.Ring R) (self : cell.Cell R)
+  (sigma : cell.Sigma) :
+  Result R
   := do
-  let b ← corecmpPartialEqInst.eq self.a other.a
-  if b
-  then corecmpPartialEqInst.eq self.b other.b
-  else ok false
-
-/-- Trait declaration: [apeiron_word::scalar::Ring]
-    Source: 'proof/extract/../../src/scalar.rs', lines 28:0-46:1
-    Visibility: public -/
-structure scalar.Ring (Self : Type) where
-  ZERO : Result Self
-  ONE : Result Self
-  coremarkerCopyInst : core.marker.Copy Self
-  corecmpPartialEqInst : core.cmp.PartialEq Self Self
-  add : Self → Self → Result Self
-  sub : Self → Self → Result Self
-  mul : Self → Self → Result Self
-  from_i64 : Std.I64 → Result Self
-
-/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::new]:
-    Source: 'proof/extract/../../src/cell.rs', lines 89:4-91:5
-    Visibility: public -/
-def cell.Cell.new
-  {R : Type} (scalarRingInst : scalar.Ring R) (a : R) (b : R) :
-  Result (cell.Cell R)
-  := do
-  ok { a, b }
+  let i ← cell.Sigma.value sigma
+  let s ← scalarRingInst.from_i64 i
+  let t ← scalarRingInst.mul self.a self.a
+  let t1 ← scalarRingInst.mul s self.b
+  let t2 ← scalarRingInst.mul t1 self.b
+  scalarRingInst.sub t t2
 
 /-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::mul]:
     Source: 'proof/extract/../../src/cell.rs', lines 125:4-131:5
@@ -96,23 +89,93 @@ def cell.Cell.mul
   let t6 ← scalarRingInst.add t4 t5
   ok { a := t3, b := t6 }
 
-/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::norm_form]:
-    Source: 'proof/extract/../../src/cell.rs', lines 156:4-159:5
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::new]:
+    Source: 'proof/extract/../../src/cell.rs', lines 89:4-91:5
     Visibility: public -/
-def cell.Cell.norm_form
-  {R : Type} (scalarRingInst : scalar.Ring R) (self : cell.Cell R)
-  (sigma : cell.Sigma) :
+def cell.Cell.new
+  {R : Type} (scalarRingInst : scalar.Ring R) (a : R) (b : R) :
+  Result (cell.Cell R)
+  := do
+  ok { a, b }
+
+/-- [apeiron_word::carrier::point_density]:
+    Source: 'proof/extract/../../src/carrier.rs', lines 40:0-44:1
+    Visibility: public -/
+def carrier.point_density
+  {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
+  (amplitude : R) (direction : cell.Cell R) :
   Result R
   := do
-  let i ← cell.Sigma.value sigma
-  let s ← scalarRingInst.from_i64 i
-  let t ← scalarRingInst.mul self.a self.a
-  let t1 ← scalarRingInst.mul s self.b
-  let t2 ← scalarRingInst.mul t1 self.b
-  scalarRingInst.sub t t2
+  let t ← scalarRingInst.ZERO
+  let c ← cell.Cell.new scalarRingInst amplitude t
+  let c1 ← cell.Cell.mul scalarRingInst c sigma direction
+  cell.Cell.norm_form scalarRingInst c1 sigma
+
+/-- [apeiron_word::carrier::point_flux]:
+    Source: 'proof/extract/../../src/carrier.rs', lines 52:0-60:1
+    Visibility: public -/
+def carrier.point_flux
+  {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
+  (amplitude : R) (direction : cell.Cell R) (previous : R) (next : R) :
+  Result R
+  := do
+  let t ← carrier.point_density scalarRingInst sigma amplitude direction
+  let t1 ← scalarRingInst.sub next previous
+  scalarRingInst.mul t t1
+
+/-- [apeiron_word::carrier::conservative_density_step]:
+    Source: 'proof/extract/../../src/carrier.rs', lines 79:0-96:1
+    Visibility: public -/
+def carrier.conservative_density_step
+  (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
+  (source : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let o ← lift (I64.checked_sub outgoing incoming)
+  match o with
+  | none => ok none
+  | some net =>
+    let o1 ← lift (I64.checked_sub density net)
+    match o1 with
+    | none => ok none
+    | some after_net => ok (I64.checked_add after_net source)
+
+/-- [apeiron_word::carrier::diffusive_flux_half]:
+    Source: 'proof/extract/../../src/carrier.rs', lines 114:0-134:1
+    Visibility: public -/
+def carrier.diffusive_flux_half
+  (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
+  let o ← lift (I64.checked_sub right left)
+  match o with
+  | none => ok none
+  | some difference =>
+    let o1 ← lift (I64.checked_rem difference 2#i64)
+    match o1 with
+    | none => ok none
+    | some remainder =>
+      if remainder != 0#i64
+      then ok none
+      else
+        let o2 ← lift (I64.checked_div difference 2#i64)
+        match o2 with
+        | none => ok none
+        | some half => ok (I64.checked_sub 0#i64 half)
+
+/-- [apeiron_word::cell::{impl core::cmp::PartialEq<apeiron_word::cell::Cell<R>> for apeiron_word::cell::Cell<R>}::eq]:
+    Source: 'proof/extract/../../src/cell.rs', lines 78:29-78:38
+    Visibility: public -/
+def cell.Cell.Insts.CoreCmpPartialEqCell.eq
+  {R : Type} (corecmpPartialEqInst : core.cmp.PartialEq R R)
+  (self : cell.Cell R) (other : cell.Cell R) :
+  Result Bool
+  := do
+  let b ← corecmpPartialEqInst.eq self.a other.a
+  if b
+  then corecmpPartialEqInst.eq self.b other.b
+  else ok false
 
 /-- [apeiron_word::exchange::Exchange]
-    Source: 'proof/extract/../../src/exchange.rs', lines 35:0-42:1
+    Source: 'proof/extract/../../src/exchange.rs', lines 39:0-46:1
     Visibility: public -/
 structure exchange.Exchange (R : Type) where
   impulse : cell.Cell R
@@ -120,7 +183,7 @@ structure exchange.Exchange (R : Type) where
   body_after : cell.Cell R
 
 /-- [apeiron_word::exchange::exchange_impulse]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 49:0-51:1
+    Source: 'proof/extract/../../src/exchange.rs', lines 53:0-55:1
     Visibility: public -/
 def exchange.exchange_impulse
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -132,7 +195,7 @@ def exchange.exchange_impulse
   cell.Cell.new scalarRingInst t t1
 
 /-- [apeiron_word::exchange::elastic_exchange]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 58:0-65:1
+    Source: 'proof/extract/../../src/exchange.rs', lines 62:0-69:1
     Visibility: public -/
 def exchange.elastic_exchange
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -149,7 +212,7 @@ def exchange.elastic_exchange
   ok { impulse, carrier_after := c, body_after := c1 }
 
 /-- [apeiron_word::exchange::accept_derived_impulse]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 75:0-85:1
+    Source: 'proof/extract/../../src/exchange.rs', lines 79:0-89:1
     Visibility: public -/
 def exchange.accept_derived_impulse
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -220,7 +283,7 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
 }
 
 /-- [apeiron_word::word_mul]:
-    Source: 'proof/extract/lib.rs', lines 19:0-21:1
+    Source: 'proof/extract/lib.rs', lines 21:0-23:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -229,14 +292,52 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'proof/extract/lib.rs', lines 24:0-26:1
+    Source: 'proof/extract/lib.rs', lines 26:0-28:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
+/-- [apeiron_word::word_point_density]:
+    Source: 'proof/extract/lib.rs', lines 35:0-37:1
+    Visibility: public -/
+def word_point_density
+  (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
+  Result Std.I64
+  := do
+  carrier.point_density I64.Insts.Apeiron_wordScalarRing sigma amplitude
+    direction
+
+/-- [apeiron_word::word_point_flux]:
+    Source: 'proof/extract/lib.rs', lines 40:0-48:1
+    Visibility: public -/
+def word_point_flux
+  (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
+  (previous : Std.I64) (next : Std.I64) :
+  Result Std.I64
+  := do
+  carrier.point_flux I64.Insts.Apeiron_wordScalarRing sigma amplitude direction
+    previous next
+
+/-- [apeiron_word::word_conservative_density_step]:
+    Source: 'proof/extract/lib.rs', lines 52:0-59:1
+    Visibility: public -/
+def word_conservative_density_step
+  (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
+  (source : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  carrier.conservative_density_step density incoming outgoing source
+
+/-- [apeiron_word::word_diffusive_flux_half]:
+    Source: 'proof/extract/lib.rs', lines 62:0-64:1
+    Visibility: public -/
+def word_diffusive_flux_half
+  (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
+  carrier.diffusive_flux_half left right
+
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'proof/extract/lib.rs', lines 29:0-31:1
+    Source: 'proof/extract/lib.rs', lines 67:0-69:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -245,7 +346,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'proof/extract/lib.rs', lines 34:0-36:1
+    Source: 'proof/extract/lib.rs', lines 72:0-74:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -254,7 +355,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'proof/extract/lib.rs', lines 43:0-49:1
+    Source: 'proof/extract/lib.rs', lines 81:0-87:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)

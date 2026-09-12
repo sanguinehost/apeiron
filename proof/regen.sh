@@ -47,7 +47,8 @@ echo "rust:    $("$CHARON" toolchain-version)"
 echo "lean:    $(cat "$PROOF_DIR/lean-toolchain")"
 
 echo "== source =="
-sha256sum "$REPO_DIR/src/scalar.rs" "$REPO_DIR/src/cell.rs" "$REPO_DIR/src/exchange.rs"
+sha256sum "$REPO_DIR/src/scalar.rs" "$REPO_DIR/src/cell.rs" "$REPO_DIR/src/exchange.rs" \
+    "$REPO_DIR/src/carrier.rs"
 
 run_extract() {
     dest_dir=$1
@@ -57,6 +58,10 @@ run_extract() {
         --dest-file "$llbc" \
         --start-from crate::word_mul \
         --start-from crate::word_norm \
+        --start-from crate::word_point_density \
+        --start-from crate::word_point_flux \
+        --start-from crate::word_conservative_density_step \
+        --start-from crate::word_diffusive_flux_half \
         --start-from crate::word_exchange_impulse \
         --start-from crate::word_elastic_exchange \
         --start-from crate::word_accept_derived_impulse \

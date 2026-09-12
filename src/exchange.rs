@@ -19,10 +19,14 @@
 //! The functions are generic over the crate's [`Ring`] contract. The type bound does not itself
 //! prove that an implementation satisfies the ring laws, and a partial implementation such as
 //! [`Dyadic`](crate::scalar::Dyadic) can panic when a result is unrepresentable. For lawful,
-//! successful operations the swap, impulse antisymmetry and norm-form ledger are ring identities.
-//! The Lean development currently states them over the reals. The concrete `i64` implementation
-//! is **wrapping** (`Z/2^64`) and is tested below, but full-width Aeneas refinement remains a
-//! separate obligation; the real-number theorem does not transfer to wrapping execution by name.
+//! successful operations the swap, impulse antisymmetry and norm-form ledger are ring identities;
+//! `Apeiron.Physics.CarrierBodyWorkAnyRing` states them over an arbitrary commutative ring. The
+//! concrete `i64` implementation is **wrapping** (`Z/2^64`), and its full-width Aeneas refinement
+//! is proved: the `apeironWordBridge` package (`proof/corpus/WordRefinement.lean`) proves
+//! `word_exchange_impulse_denote` and `word_elastic_exchange_denote` against
+//! `CarrierBodyWorkAnyRing` instantiated at `ZMod (2^64)`. That is a statement about the
+//! Aeneas-extracted kernel; it establishes nothing about rustc/LLVM code generation or the
+//! generated machine code.
 
 use crate::cell::Cell;
 use crate::scalar::Ring;
