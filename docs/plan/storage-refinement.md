@@ -166,9 +166,25 @@ exist.
 - Control: a throwaway copy with the generated `done (some index)` changed to `done none` fails the
   same proof. The real `proof/regen.sh --check` and the 3277-job bridge build stay green.
 
-Still open: the `try_insert` and `remove` links. The `List`-index denotation, the lookup link and the
-empty-slot search are proved: `findIdx_spec`/`findIdx_none_iff`, `tableHMap`, `get_spec`/
-`get_spec_canonical` (the extracted `get` returns `Apeiron.Table.get (tableHMap self) key`), and
-`empty_from_loop_spec`/`empty_from_spec` (the first empty slot in `[start, 4)`; the reference uses a
-`match` so Charon emits a match rather than an `is_none` `ite`). The next bounded task is the two
-write callers.
+### W3 write links
+
+`try_insert_spec` and `remove_spec` in `proof/corpus/SafeTableRefinement.lean` link the extracted
+`try_insert`/`remove` to the canonical table writes, under
+`WellFormed t := t.len.val = List.countP (fun e => e.isSome) t.slots.val ∧ KeysUnique t.slots.val`:
+
+- `try_insert_spec`: `Ok old` gives `old = tableHMap self key` and
+  `tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self)`;
+  `Err _` gives `t' = self`.
+- `remove_spec`: `old = tableHMap self key` and
+  `tableHMap t' = Apeiron.Table.insertWith (fun _ _ => none) key none (tableHMap self)`.
+
+The invariant supplies the `self.len + 1`/`self.len - 1` scalar bounds (`Aeneas.Std.Usize.add_spec`
+needs `len + 1 ≤ max`; `Usize.sub_spec` needs `1 ≤ len`) and, for `remove`, the key uniqueness
+that makes clearing the first match equal to the canonical `none` write. Cones inside
+`{propext, Classical.choice, Quot.sound}`; `#audit`ed. Control: a throwaway copy with `try_insert`'s
+generated `Ok none` changed to `Ok (some value)` fails `try_insert_spec` at
+`SafeTableRefinement.lean:786`; the unmutated bridge builds 3351 jobs.
+
+Still open: `WellFormed` is a hypothesis of both specs, not a conclusion. Proving it holds at
+`SafeTable::new` and is preserved by `try_insert`/`remove` (the `countP` step and the uniqueness step)
+is the next gate before the optimized `Map` can be retired.

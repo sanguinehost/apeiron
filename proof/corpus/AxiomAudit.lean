@@ -146,3 +146,7 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.safe_table.findIdx_set_some_ne
 #audit apeiron_word.safe_table.tableHMap_set_self
 #audit apeiron_word.safe_table.tableHMap_set_ne
+#audit apeiron_word.safe_table.tableHMap_set_none
+#audit apeiron_word.safe_table.tableHMap_set_none_self
+#audit apeiron_word.safe_table.try_insert_spec
+#audit apeiron_word.safe_table.remove_spec

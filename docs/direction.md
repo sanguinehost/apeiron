@@ -330,9 +330,14 @@ mutation (`done (some index)` to `done none`) fails the same proof. The lookup l
 corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` returns
 `Apeiron.Table.get (tableHMap self) key`. The empty-slot search is also proved
 (`empty_from_spec`); its reference uses a `match` so Charon emits a match rather than an `is_none`
-`ite`. The remaining obligation is the `try_insert`/`remove` links to `Apeiron.Table.insertWith`;
-that is proof work, not an extraction blocker. The optimized `Map` stays tested until those theorems
-exist; `src/map.rs`'s scope note is unchanged.
+`ite`. The write links are proved under the invariant
+`WellFormed t := t.len.val = List.countP (fun e => e.isSome) t.slots.val ∧ KeysUnique t.slots.val`:
+`try_insert_spec` and `remove_spec` link the extracted bodies to
+`Apeiron.Table.insertWith (fun new _ => new)` and `Apeiron.Table.insertWith (fun _ _ => none)`
+respectively, with the invariant supplying the `self.len ± 1` scalar bounds and, for `remove`, the
+key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}`. That `WellFormed` holds
+at `SafeTable::new` and is preserved by both write calls is the remaining proof obligation. The
+optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope note is unchanged.
 
 ### Correctness Work Before Physics Reuse
 
