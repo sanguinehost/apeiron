@@ -26,7 +26,8 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 | Wave | Task | Files | Owner | Gate | Negative control |
 |---|---|---|---|---|---|
 | W1 | Safe finite reference and production trace | `src/safe_table.rs`, `src/lib.rs`, `tests/safe_table.rs` | OpenCode | `cargo test --locked --test safe_table` | Full-check or removal mutation makes the trace fail. |
-| W2 | Monomorphic extraction | `proof/extract/lib.rs`, `proof/ApeironWord.lean`, `proof/README.md` | OpenCode | `proof/regen.sh --check` | Generated transition mutation breaks freshness or proof. |
+| W2 | Monomorphic extraction | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | OpenCode | `proof/regen.sh --check` | Generated transition mutation breaks freshness or proof. |
+| W2 | Extraction evidence | `proof/README.md` | OpenCode | `git diff --check` | Not applicable: extraction freshness owns the executable control. |
 | W3 | Canonical Table refinement | `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean` | OpenCode | `lake build` in `proof/corpus` | Transition mutation breaks unchanged theorem. |
 | W4 | Optimized relation decision | `docs/kernel-boundary.md`, `docs/direction.md` | OpenCode | `git diff --check` | Not applicable: records the proved/tested boundary and next executable gate. |
 
@@ -48,12 +49,22 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 
 - **Scope:** Add concrete word/capacity wrappers that call the real safe implementation and regenerate
   the accepted Aeneas output.
-- **Files:** `proof/extract/lib.rs`, `proof/ApeironWord.lean`, `proof/README.md`
+- **Files:** `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean`
 - **Depends on:** W1-T1
 - **Grade:** tested
 - **Gate:** `proof/regen.sh --check`
 - **Negative control:** A generated body mutation must make freshness or W3 fail.
 - **Evidence to record:** Source/tool digests, selected wrappers and extraction result.
+
+### W2-T2 - Extraction evidence
+
+- **Scope:** Record the selected safe-table bodies, source digest, result and exclusions.
+- **Files:** `proof/README.md`
+- **Depends on:** W2-T1
+- **Grade:** tested
+- **Gate:** `git diff --check`
+- **Negative control:** Not applicable. W2-T1 owns extraction freshness.
+- **Evidence to record:** Generated names, source digest and unsupported operations.
 
 ### W3-T1 - Canonical refinement
 
