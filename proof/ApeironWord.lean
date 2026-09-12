@@ -342,11 +342,10 @@ def safe_table.SafeTable.empty_from_loop.body
   if index < N
   then
     let o ← Array.index_usize self.slots index
-    let b := core.option.Option.is_none o
-    if b
-    then ok (done (some index))
-    else let index1 ← index + 1#usize
-         ok (cont index1)
+    match o with
+    | none => ok (done (some index))
+    | some _ => let index1 ← index + 1#usize
+                ok (cont index1)
   else ok (done none)
 
 /-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]: loop 0:

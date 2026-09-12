@@ -328,10 +328,11 @@ so the generated search returns the first key match in `[start, 4)`, and `find_f
 mutation (`done (some index)` to `done none`) fails the same proof. The lookup link is written:
 `findIdx`/`findIdx_spec`/`findIdx_none_iff` give the list denotation, `tableHMap` reads it as the
 corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` returns
-`Apeiron.Table.get (tableHMap self) key`. The remaining obligation is the `empty_from` search and the
-`try_insert`/`remove` links to `Apeiron.Table.insertWith`; that is proof work, not an extraction
-blocker. The optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope note is
-unchanged.
+`Apeiron.Table.get (tableHMap self) key`. The empty-slot search is also proved
+(`empty_from_spec`); its reference uses a `match` so Charon emits a match rather than an `is_none`
+`ite`. The remaining obligation is the `try_insert`/`remove` links to `Apeiron.Table.insertWith`;
+that is proof work, not an extraction blocker. The optimized `Map` stays tested until those theorems
+exist; `src/map.rs`'s scope note is unchanged.
 
 ### Correctness Work Before Physics Reuse
 

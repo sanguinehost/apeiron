@@ -83,10 +83,10 @@ impl<K: Eq, V, const N: usize> SafeTable<K, V, N> {
     fn empty_from(&self, start: usize) -> Option<usize> {
         let mut index = start;
         while index < N {
-            if self.slots[index].is_none() {
-                return Some(index);
+            match &self.slots[index] {
+                None => return Some(index),
+                Some(_) => index += 1,
             }
-            index += 1;
         }
         None
     }

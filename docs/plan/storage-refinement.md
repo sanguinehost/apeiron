@@ -166,8 +166,9 @@ exist.
 - Control: a throwaway copy with the generated `done (some index)` changed to `done none` fails the
   same proof. The real `proof/regen.sh --check` and the 3277-job bridge build stay green.
 
-Still open: the `try_insert` and `remove` links and the `empty_from` search used by insertion. The
-`List`-index denotation and the lookup link are now proved: `findIdx_spec`/`findIdx_none_iff`,
-`tableHMap`, and `get_spec`/`get_spec_canonical` (the extracted `get` returns
-`Apeiron.Table.get (tableHMap self) key`). The next bounded task is the `empty_from` search and the
-two write callers.
+Still open: the `try_insert` and `remove` links. The `List`-index denotation, the lookup link and the
+empty-slot search are proved: `findIdx_spec`/`findIdx_none_iff`, `tableHMap`, `get_spec`/
+`get_spec_canonical` (the extracted `get` returns `Apeiron.Table.get (tableHMap self) key`), and
+`empty_from_loop_spec`/`empty_from_spec` (the first empty slot in `[start, 4)`; the reference uses a
+`match` so Charon emits a match rather than an `is_none` `ite`). The next bounded task is the two
+write callers.

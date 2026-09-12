@@ -140,3 +140,5 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.safe_table.findIdx_none_iff
 #audit apeiron_word.safe_table.get_spec
 #audit apeiron_word.safe_table.get_spec_canonical
+#audit apeiron_word.safe_table.empty_from_loop_spec
+#audit apeiron_word.safe_table.empty_from_spec
