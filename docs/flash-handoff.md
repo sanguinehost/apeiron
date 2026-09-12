@@ -53,6 +53,29 @@ the order of work, acceptance gates and where to stop, not a completed migration
   identity for credentialed builds, not private-host availability or offline vendoring. Lifecycle:
   `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
   `docs/plan/corpus-release-pin.md`.
+- **Storage reference — partial**: `src/safe_table.rs` is a safe fixed-capacity reference with an
+  explicit full refusal; `tests/safe_table.rs` compares it with the production `Map` over 10,000
+  transitions; `proof/extract/lib.rs` extracts `word_safe_table4_get/insert/remove` from the real
+  body with a fresh, axiom-free generated file. The canonical `Apeiron.Table` refinement is
+  **blocked**: the extracted search is a Lean `partial_fixpoint`, `fun_induction` has no theorem,
+  and `step` is `WP`-only. Three attempts are recorded in `docs/plan/storage-refinement.md`. The
+  optimized `Map` stays tested.
+
+## Post-Stage-6 Barriers
+
+Dependency order. Each row names the gate that closes it and the current blocker.
+
+| # | Barrier | Repo | Gate | Status / blocker |
+|---|---|---|---|---|
+| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; corpus `lake build` | Blocked. Next: a slice-tail or well-founded recursive Rust search, or a `WP.dspec` refinement, plus a denotation from the Aeneas array state to `Apeiron.Table.HMap`. |
+| 2 | Corpus F2 certificate completeness | corpus | New module `proof`/`lake build` + `#audit` | Open. Relative completeness on the capped fragment is reachable; the uncapped alphabet is not. `theory/DEAD_ENDS.md` carries the routes. |
+| 3 | Corpus A5 Transport rooting | corpus | `lake build`; `scripts/check-lints.py`; `scripts/check-style.py` | Open. `Transport/Basic.lean` sits on `Transport/Ordered.lean` (ordered field), not the trichotomy's `InCell`/`meet`. |
+| 4 | Corpus F3 E18 snapshot | corpus | Snapshot doc + an import-minimality gate | Open, cheap. Freeze the trichotomy iffs, the null-basis/integer-le leg and the combinator chain; gate the combinator import closure at `Linter.Notation`, `Mathlib.Data.Nat.Notation`, `Mathlib.Logic.Relation`. |
+| 5 | Song A0.10 access discharge | song | `./song check` exit 0 with unchanged `access warn` | Open. Blockers: a route for raw `memory[RUNTIME_INDEX]` reads and the guard-condition early-return wrap. Do not raise the ratchet. |
+| 6 | Song A0.6.P1-P6 parser semantics | song + corpus | `lake build Apeiron.Parser.*`; Slang refinement | Partial. P1/P2 model + fixtures pass; P3-P6 refinement and bounded completeness are open. |
+| 7 | Song A0.4 stream correspondence | song + corpus | `Apeiron/Decider/Stream.lean` + Slang `ckBatchParse` refinement | Partial. Executing driver green; the model and refinement are the missing gate. |
+| 8 | Penglai material integration | penglai | `cargo test --locked`; `proof/regen.sh --check` | N=3 line refined. Next: `substrate-port-scope.md` milestones 4 (2-factor) through 8 (playable bank). Milestone 7 (temporal material and 3-D) is research. |
+| 9 | Fold migration | fold | fold gates | Deferred until the table/carrier gates above are green. Preserve the dirty CQ work. |
 
 ## First Session
 
