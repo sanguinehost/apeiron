@@ -136,3 +136,7 @@ elab "#audit " id:ident : command => do
 -- The extracted safe table search: the first total loop.spec_decr_nat refinement
 #audit apeiron_word.safe_table.find_from_loop_spec
 #audit apeiron_word.safe_table.find_from_spec
+#audit apeiron_word.safe_table.findIdx_spec
+#audit apeiron_word.safe_table.findIdx_none_iff
+#audit apeiron_word.safe_table.get_spec
+#audit apeiron_word.safe_table.get_spec_canonical

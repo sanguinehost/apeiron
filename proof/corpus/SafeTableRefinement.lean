@@ -1,4 +1,5 @@
 import ApeironWord
+import Apeiron.Table.Basic
 
 /-!
 # The extracted safe table search refines its first-match semantics
@@ -12,6 +13,8 @@ read and `I64` equality, which `step` decomposes through `Array.index_usize_spec
 the next step; this file proves the search semantics they consume.
 -/
 
+set_option linter.apeiron.notation false
+set_option linter.apeiron.citation false
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
 set_option maxHeartbeats 1000000
@@ -147,6 +150,204 @@ theorem find_from_spec (self : SafeTable I64 V 4#usize) (key : I64) (start : Usi
     SafeTable.find_from core.cmp.EqI64 self key start
       ⦃ r => Post key self.slots.val start.val r ⦄ :=
   find_from_loop_spec self key start hstart
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-- The first index in `l` whose slot is `some (key, _)`, if any. -/
+def findIdx (key : I64) : List (Option (I64 × V)) → Option ℕ
+  | [] => none
+  | x :: xs =>
+      match x with
+      | some (k, _) => if k = key then some 0 else (findIdx key xs).map (· + 1)
+      | none => (findIdx key xs).map (· + 1)
+
+theorem matchesAt_none_succ {key : I64} {xs : List (Option (I64 × V))} {j : ℕ} :
+    MatchesAt key (none :: xs) (j + 1) ↔ MatchesAt key xs j := by
+  simp only [MatchesAt, List.getElem?_cons_succ]
+
+theorem matchesAt_some_succ {key k : I64} {w : V} {xs : List (Option (I64 × V))} {j : ℕ} :
+    MatchesAt key (some (k, w) :: xs) (j + 1) ↔ MatchesAt key xs j := by
+  simp only [MatchesAt, List.getElem?_cons_succ]
+
+theorem matchesAt_some_zero {key k : I64} {w : V} {xs : List (Option (I64 × V))} :
+    MatchesAt key (some (k, w) :: xs) 0 ↔ k = key := by
+  simp only [MatchesAt, List.getElem?_cons_zero]
+  constructor
+  · rintro ⟨v, hv⟩
+    simp only [Option.some.injEq, Prod.mk.injEq] at hv
+    exact hv.1
+  · intro hk
+    exact ⟨w, by simp [hk]⟩
+
+theorem noMatchIn_succ_iff {key : I64} {l : List (Option (I64 × V))} {x : Option (I64 × V)}
+    {j : ℕ} (hcons : ∀ i, MatchesAt key (x :: l) (i + 1) ↔ MatchesAt key l i)
+    (h0 : ¬ MatchesAt key (x :: l) 0) :
+    NoMatchIn key (x :: l) 0 (j + 1) ↔ NoMatchIn key l 0 j := by
+  constructor
+  · intro h i _ hij
+    exact fun hm => h (i + 1) (Nat.zero_le _) (Nat.succ_lt_succ hij) ((hcons i).mpr hm)
+  · intro h i _ hij
+    cases i with
+    | zero => exact h0
+    | succ i' =>
+      rw [(hcons i')]
+      exact h i' (Nat.zero_le _) (by omega)
+
+theorem findIdx_spec (key : I64) (l : List (Option (I64 × V))) (i : ℕ) :
+    findIdx key l = some i ↔ MatchesAt key l i ∧ NoMatchIn key l 0 i := by
+  induction l generalizing i with
+  | nil => simp [findIdx, MatchesAt]
+  | cons x xs ih =>
+    rcases x with _ | ⟨k, w⟩
+    · simp only [findIdx]
+      rw [Option.map_eq_some_iff]
+      constructor
+      · rintro ⟨j, hj, hji⟩
+        obtain ⟨hm, hn⟩ := (ih j).mp hj
+        subst hji
+        exact ⟨matchesAt_none_succ.mpr hm,
+          (noMatchIn_succ_iff (x := none) (fun i => matchesAt_none_succ)
+            (by simp only [MatchesAt, List.getElem?_cons_zero]; rintro ⟨v, hv⟩; simp at hv)).mpr hn⟩
+      · rintro ⟨hm, hn⟩
+        cases i with
+        | zero =>
+          simp only [MatchesAt, List.getElem?_cons_zero] at hm
+          rcases hm with ⟨v, hv⟩; simp at hv
+        | succ j =>
+          rw [matchesAt_none_succ] at hm
+          rw [(noMatchIn_succ_iff (x := none) (fun i => matchesAt_none_succ)
+            (by simp only [MatchesAt, List.getElem?_cons_zero]; rintro ⟨v, hv⟩; simp at hv))] at hn
+          exact ⟨j, (ih j).mpr ⟨hm, hn⟩, rfl⟩
+    · simp only [findIdx]
+      by_cases hk : k = key
+      · rw [if_pos hk]
+        constructor
+        · intro h
+          rw [Option.some.injEq] at h
+          subst h
+          exact ⟨matchesAt_some_zero.mpr hk, fun j _ hj => by omega⟩
+        · rintro ⟨hm, hn⟩
+          cases i with
+          | zero => rfl
+          | succ j =>
+            exact absurd (matchesAt_some_zero.mpr hk)
+              (hn 0 (Nat.zero_le _) (Nat.succ_pos j))
+      · rw [if_neg hk]
+        rw [Option.map_eq_some_iff]
+        constructor
+        · rintro ⟨j, hj, hji⟩
+          obtain ⟨hm, hn⟩ := (ih j).mp hj
+          subst hji
+          exact ⟨matchesAt_some_succ.mpr hm,
+            (noMatchIn_succ_iff (x := some (k, w)) (fun i => matchesAt_some_succ)
+              (fun hm => hk (matchesAt_some_zero.mp hm))).mpr hn⟩
+        · rintro ⟨hm, hn⟩
+          cases i with
+          | zero => exact absurd (matchesAt_some_zero.mp hm) hk
+          | succ j =>
+            rw [matchesAt_some_succ] at hm
+            rw [(noMatchIn_succ_iff (x := some (k, w)) (fun i => matchesAt_some_succ)
+              (fun hm => hk (matchesAt_some_zero.mp hm)))] at hn
+            exact ⟨j, (ih j).mpr ⟨hm, hn⟩, rfl⟩
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem findIdx_none_iff (key : I64) (l : List (Option (I64 × V))) :
+    findIdx key l = none ↔ NoMatchIn key l 0 l.length := by
+  induction l with
+  | nil => simp [findIdx, NoMatchIn]
+  | cons x xs ih =>
+    rcases x with _ | ⟨k, w⟩
+    · simp only [findIdx]
+      rw [Option.map_eq_none_iff, ih, List.length_cons]
+      exact (noMatchIn_succ_iff (x := none) (fun i => matchesAt_none_succ)
+        (by simp only [MatchesAt, List.getElem?_cons_zero]; rintro ⟨v, hv⟩; simp at hv)).symm
+    · by_cases hk : k = key
+      · simp only [findIdx]
+        rw [if_pos hk]
+        constructor
+        · intro h; exact absurd h (by simp)
+        · intro h
+          exact absurd (matchesAt_some_zero.mpr hk)
+            (h 0 (Nat.zero_le _) (Nat.succ_pos xs.length))
+      · simp only [findIdx, hk, if_false]
+        rw [Option.map_eq_none_iff, ih, List.length_cons]
+        exact (noMatchIn_succ_iff (x := some (k, w)) (fun i => matchesAt_some_succ)
+          (fun hm => hk (matchesAt_some_zero.mp hm))).symm
+
+/-- The table the safe slots denote: the value stored at the first slot holding `k`. Absence is
+`none`, matching the corpus `Apeiron.Table` default. -/
+def tableHMap (t : SafeTable I64 V 4#usize) : Apeiron.Table.HMap I64 (Option V) :=
+  fun k => (findIdx k t.slots.val).bind
+    (fun i => (t.slots.val[i]?).bind (fun s => s.map Prod.snd))
+
+@[step] theorem find_from_zero_spec (self : SafeTable I64 V 4#usize) (key : I64) :
+    SafeTable.find_from core.cmp.EqI64 self key 0#usize
+      ⦃ r => Post key self.slots.val 0 r ⦄ :=
+  find_from_spec self key 0#usize (by decide)
+
+theorem get_spec (self : SafeTable I64 V 4#usize) (key : I64) :
+    SafeTable.get core.cmp.EqI64 self key ⦃ r => r = tableHMap self key ⦄ := by
+  unfold SafeTable.get
+  step
+  rcases o with _ | index
+  · rw [Aeneas.Std.WP.spec_ok]
+    show none = tableHMap self key
+    simp only [tableHMap]
+    rw [(findIdx_none_iff key self.slots.val).mpr ?_]
+    · rfl
+    · have h4 : (4#usize).val = 4 := by decide
+      have hlen : self.slots.val.length = 4 := by rw [Array.length_eq, h4]
+      have ho : NoMatchIn key self.slots.val 0 4 := o_post
+      rwa [hlen]
+  · step
+    obtain ⟨hlt4, _, hmatch, hno⟩ := o_post
+    have hi : index.val < (self.slots.val).length := by
+      have h4 : (4#usize).val = 4 := by decide
+      have hp : self.slots.val.length = 4 := by rw [Array.length_eq, h4]
+      omega
+    rcases r with _ | ⟨stored, value⟩
+    · rw [Aeneas.Std.WP.spec_ok]
+      exact absurd hmatch (not_matchesAt_of_get hi r_post.symm)
+    · refine Aeneas.Std.WP.spec.ret ?_
+      have hfind : findIdx key self.slots.val = some index.val :=
+        (findIdx_spec key self.slots.val index.val).mpr ⟨hmatch, hno⟩
+      have hlook : (self.slots.val)[index.val]? = some (some (stored, value)) := by
+        rw [List.getElem?_eq_getElem hi]; exact congrArg some r_post.symm
+      simp [tableHMap, hfind, hlook]
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-- The lookup link to the corpus: the extracted `get` returns exactly the value the canonical
+`Apeiron.Table.get` reads from `tableHMap`. -/
+theorem get_spec_canonical (self : SafeTable I64 V 4#usize) (key : I64) :
+    SafeTable.get core.cmp.EqI64 self key
+      ⦃ r => r = Apeiron.Table.get (tableHMap self) key ⦄ := by
+  simpa only [Apeiron.Table.get] using get_spec self key
 
 end safe_table
 end apeiron_word
