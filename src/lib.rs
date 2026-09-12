@@ -96,6 +96,7 @@
 //! a value, the operations take it, and the things only hyperbolic can do are unavailable
 //! elsewhere by construction rather than by comment.
 
+pub mod carrier;
 pub mod cell;
 pub mod coord;
 pub mod exchange;
@@ -116,6 +117,7 @@ pub mod table;
 #[cfg(feature = "derive")]
 pub use apeiron_derive::{Coord, Packed};
 
+pub use carrier::{conservative_density_step, diffusive_flux_half, point_density, point_flux};
 pub use cell::{Cell, Sigma};
 pub use exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse, Exchange};
 pub use map::{Exposed, ExposedWords, Map, Stats, Words};

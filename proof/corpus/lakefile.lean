@@ -11,11 +11,12 @@ package apeironWordBridge where
 require apeironWordProof from ".."
 
 -- The canonical mathematical corpus. The sibling path is a development convenience, not a
--- release pin. This package compiles the corpus source off its own `lean-toolchain`; see README.
+-- release pin. The corpus at 16112030 pins Lean 4.31.0 and Mathlib v4.31.0 and carries the
+-- matching source adjustment in Apeiron/Lattice/EvenUnimodular.lean; see README.
 require «apeiron» from "../../../sanguine-apeiron/proof"
 
--- Must come last so Mathlib's transitive versions win over the corpus's stale manifest. Without
--- this the corpus drags in a 4.30.0-rc2-era Mathlib that does not build on Lean 4.31.0.
+-- Pin the same Mathlib revision as the corpus, last so this package's choice wins any transitive
+-- resolution. The corpus is no longer on a 4.30.0-rc2-era Mathlib.
 require mathlib from git "https://github.com/leanprover-community/mathlib4.git" @ "v4.31.0"
 
 @[default_target]
