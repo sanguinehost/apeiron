@@ -1242,4 +1242,63 @@ theorem word_diffusive_line3_step_odd_refusal :
     carrier.diffusive_flux_half, lift, bind_tc_ok, h1, h2, h3]
   simp
 
+/-- The all-zero line is a concrete success of the extracted three-cell step: it returns the
+all-zero line as `some`. This inhabits the `ok (some …)` branch, so the partial kernel is not
+vacuously total and the success characterization above has a witness. -/
+theorem word_diffusive_line3_step_zero_success :
+    word_diffusive_line3_step
+        { left := 0#i64, center := 0#i64, right := 0#i64 }
+        { left := 0#i64, center := 0#i64, right := 0#i64 }
+      = ok (some { left := 0#i64, center := 0#i64, right := 0#i64 }) := by
+  have hs : I64.checked_sub 0#i64 0#i64 = some 0#i64 := by decide
+  have hr : I64.checked_rem 0#i64 2#i64 = some 0#i64 := by decide
+  have hb : (0#i64 != 0#i64) = false := by decide
+  have hd : I64.checked_div 0#i64 2#i64 = some 0#i64 := by
+    simp only [I64.checked_div, core.num.checked_div_IScalar, Option.ofResult, IScalar.div]
+    norm_num
+    rfl
+  have ha : I64.checked_add 0#i64 0#i64 = some 0#i64 := by decide
+  have hflux : carrier.diffusive_flux_half 0#i64 0#i64 = ok (some 0#i64) := by
+    simp only [carrier.diffusive_flux_half, lift, bind_tc_ok, hs, hr, hb, hd]
+    simp
+  have hstep : carrier.conservative_density_step 0#i64 0#i64 0#i64 0#i64 = ok (some 0#i64) := by
+    simp only [carrier.conservative_density_step, lift, bind_tc_ok, hs, ha]
+  simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, hflux, hstep, bind_tc_ok]
+
+/-- A line-level unrepresentable intermediate is refused, distinct from the odd-face refusal: with
+all three cells at `i64::MAX` the two interior differences are even (both faces are `0`), the left
+cell succeeds, and the centre cell's `after_net + source` (`i64::MAX + 1`) does not fit. The whole
+line returns `ok none` rather than a partially updated line, so the line's own update stage refuses
+an unrepresentable intermediate. -/
+theorem word_diffusive_line3_step_unrepresentable_refusal :
+    word_diffusive_line3_step
+        { left := 9223372036854775807#i64, center := 9223372036854775807#i64,
+          right := 9223372036854775807#i64 }
+        { left := 0#i64, center := 1#i64, right := 0#i64 } = ok none := by
+  have hs00 : I64.checked_sub 0#i64 0#i64 = some 0#i64 := by decide
+  have hrem0 : I64.checked_rem 0#i64 2#i64 = some 0#i64 := by decide
+  have hb : (0#i64 != 0#i64) = false := by decide
+  have hd : I64.checked_div 0#i64 2#i64 = some 0#i64 := by
+    simp only [I64.checked_div, core.num.checked_div_IScalar, Option.ofResult, IScalar.div]
+    norm_num
+    rfl
+  have hsubmm : I64.checked_sub 9223372036854775807#i64 9223372036854775807#i64
+      = some 0#i64 := by decide
+  have hsubm0 : I64.checked_sub 9223372036854775807#i64 0#i64
+      = some 9223372036854775807#i64 := by decide
+  have haddm0 : I64.checked_add 9223372036854775807#i64 0#i64
+      = some 9223372036854775807#i64 := by decide
+  have haddm1 : I64.checked_add 9223372036854775807#i64 1#i64 = none := by decide
+  have hflux : carrier.diffusive_flux_half 9223372036854775807#i64 9223372036854775807#i64
+      = ok (some 0#i64) := by
+    simp only [carrier.diffusive_flux_half, lift, bind_tc_ok, hsubmm, hrem0, hb, hd, hs00]
+    simp
+  have hl : carrier.conservative_density_step 9223372036854775807#i64 0#i64 0#i64 0#i64
+      = ok (some 9223372036854775807#i64) := by
+    simp only [carrier.conservative_density_step, lift, bind_tc_ok, hs00, hsubm0, haddm0]
+  have hc : carrier.conservative_density_step 9223372036854775807#i64 0#i64 0#i64 1#i64
+      = ok none := by
+    simp only [carrier.conservative_density_step, lift, bind_tc_ok, hs00, hsubm0, haddm1]
+  simp only [word_diffusive_line3_step, carrier.diffusive_line3_step, hflux, hl, hc, bind_tc_ok]
+
 end apeiron_word
