@@ -117,7 +117,10 @@ pub mod table;
 #[cfg(feature = "derive")]
 pub use apeiron_derive::{Coord, Packed};
 
-pub use carrier::{conservative_density_step, diffusive_flux_half, point_density, point_flux};
+pub use carrier::{
+    conservative_density_step, diffusive_flux_half, diffusive_line3_step, point_density,
+    point_flux, DensityLine3,
+};
 pub use cell::{Cell, Sigma};
 pub use exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse, Exchange};
 pub use map::{Exposed, ExposedWords, Map, Stats, Words};
