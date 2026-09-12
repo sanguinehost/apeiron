@@ -249,7 +249,9 @@ copy with the generated `done (some index)` changed to `done none` fails the sam
 control is red. `findIdx` and `findIdx_spec`/`findIdx_none_iff` give the `List`-index denotation,
 `tableHMap` reads it as the corpus `Apeiron.Table.HMap` (absence `none`), and `get_spec`/
 `get_spec_canonical` prove the extracted `get` returns exactly `Apeiron.Table.get (tableHMap self) key`.
-The `empty_from` search, `try_insert` and `remove` links are the next step. Generic `SafeTable::new` is
+The `empty_from` search is proved: `empty_from_loop_spec`/`empty_from_spec` give the first empty
+slot in `[start, 4)`, and the reference uses a `match` so Charon emits a match rather than an
+`is_none` `ite`. The `try_insert` and `remove` links are the next step. Generic `SafeTable::new` is
 not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
 introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
 directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as
@@ -309,9 +311,9 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/cell.rs` | `8cfc787aa0c6fcec6b039398f54fd7388f7dec8f047b98f8379e7165c0069404` |
 | `src/exchange.rs` | `f488773c798c649ff59d39f7b24c4c17b6ff350fa9f7a3b4ccc81cfc479b7621` |
 | `src/carrier.rs` | `4fcdbeba5c2d25d10e0a22f2f328e214d0e9884bd9f886a25abd4b6741a8a8e8` |
-| `src/safe_table.rs` | `a33babe0a266e8d442ca68b5a1c53bc4cf02502faf9b0bcbfd6ede7defd2dc43` |
+| `src/safe_table.rs` | `db4b9e9ca70d82ff827c1465df90557d9e7db1ececa0c104f980978a7cd033f7` |
 
-The generated `ApeironWord.lean` is `b83150e53850c3ff6c286fcaf06032d444538b8ade3c1640b879119837592a61`
+The generated `ApeironWord.lean` is `cbca0b8df723d0e8ba54ba9429bfa7f42a121b76543e1615f54798034c8903dc`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. These are the digests
 of the working tree the evidence was taken from, committed with the bridge.
 

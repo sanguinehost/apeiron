@@ -351,3 +351,102 @@ theorem get_spec_canonical (self : SafeTable I64 V 4#usize) (key : I64) :
 
 end safe_table
 end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-- A slot is empty: it holds `none`. -/
+def EmptyAt (l : List (Option (I64 × V))) (i : ℕ) : Prop := l[i]? = some none
+
+/-- No slot in `[a, b)` is empty. -/
+def NoEmptyIn (l : List (Option (I64 × V))) (a b : ℕ) : Prop :=
+  ∀ j, a ≤ j → j < b → ¬ EmptyAt l j
+
+/-- The empty-slot loop invariant. -/
+def InvE (l : List (Option (I64 × V))) (start : ℕ) (index : Usize) : Prop :=
+  index.val ≤ 4 ∧ start ≤ index.val ∧ NoEmptyIn l start index.val
+
+/-- The empty-slot search postcondition. -/
+def PostE (l : List (Option (I64 × V))) (start : ℕ) (r : Option Usize) : Prop :=
+  match r with
+  | some j => j.val < 4 ∧ start ≤ j.val ∧ EmptyAt l j.val ∧ NoEmptyIn l start j.val
+  | none => NoEmptyIn l start 4
+
+theorem noEmptyIn_succ {l : List (Option (I64 × V))} {a i : ℕ}
+    (h : NoEmptyIn l a i) (hnot : ¬ EmptyAt l i) : NoEmptyIn l a (i + 1) := by
+  intro j ha hji
+  rcases Nat.lt_succ_iff_lt_or_eq.mp hji with hlt | heq
+  · exact h j ha hlt
+  · subst heq; exact hnot
+
+theorem emptyAt_of_get {l : List (Option (I64 × V))} {i : ℕ}
+    (hi : i < l.length) (h : l[i] = none) : EmptyAt l i := by
+  rw [EmptyAt, List.getElem?_eq_getElem hi, h]
+
+theorem not_emptyAt_of_get {l : List (Option (I64 × V))} {i : ℕ}
+    (hi : i < l.length) {k : I64} {w : V} (h : l[i] = some (k, w)) : ¬ EmptyAt l i := by
+  intro hv
+  rw [EmptyAt, List.getElem?_eq_getElem hi, h] at hv
+  simp at hv
+
+theorem empty_from_loop_spec (self : SafeTable I64 V 4#usize) (start : Usize)
+    (hstart : start.val ≤ 4) :
+    SafeTable.empty_from_loop self start
+      ⦃ r => PostE self.slots.val start.val r ⦄ := by
+  unfold SafeTable.empty_from_loop
+  apply loop.spec_decr_nat
+    (measure := fun (index : Usize) => 4 - index.val)
+    (inv := fun index => InvE self.slots.val start.val index)
+    (post := fun r => PostE self.slots.val start.val r)
+  · intro index hinv
+    obtain ⟨hlen, hstartle, hno⟩ := hinv
+    unfold SafeTable.empty_from_loop.body
+    by_cases hlt : index < 4#usize
+    · rw [if_pos hlt]
+      have hltn : index.val < 4 := hlt
+      have hi : index.val < (self.slots.val).length := by rw [Array.length_eq]; exact hlt
+      step
+      rcases o with _ | ⟨stored, val⟩
+      · have ho : (self.slots.val)[index.val] = none := o_post.symm
+        rw [Aeneas.Std.WP.spec_ok]
+        exact ⟨hltn, hstartle, emptyAt_of_get hi ho, hno⟩
+      · have ho : (self.slots.val)[index.val] = some (stored, val) := o_post.symm
+        step
+        refine ⟨⟨?_, ?_, ?_⟩, ?_⟩
+        · omega
+        · omega
+        · simpa [r_post] using noEmptyIn_succ hno (not_emptyAt_of_get hi ho)
+        · omega
+    · rw [if_neg hlt]
+      rw [Aeneas.Std.WP.spec_ok]
+      show NoEmptyIn self.slots.val start.val 4
+      have hge : 4 ≤ index.val := not_lt.mp hlt
+      have h4idx : index.val = 4 := by omega
+      simpa [h4idx] using hno
+  · refine ⟨hstart, le_refl _, ?_⟩
+    intro j hsj hj
+    omega
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-- The generated `empty_from` has the same total first-empty-slot postcondition. -/
+theorem empty_from_spec (self : SafeTable I64 V 4#usize) (start : Usize)
+    (hstart : start.val ≤ 4) :
+    SafeTable.empty_from core.cmp.EqI64 self start
+      ⦃ r => PostE self.slots.val start.val r ⦄ :=
+  empty_from_loop_spec self start hstart
+
+end safe_table
+end apeiron_word
