@@ -57,9 +57,9 @@ the order of work, acceptance gates and where to stop, not a completed migration
   explicit full refusal; `tests/safe_table.rs` compares it with the production `Map` over 10,000
   transitions; `proof/extract/lib.rs` extracts `word_safe_table4_get/insert/remove` from the real
   body with a fresh, axiom-free generated file. The canonical `Apeiron.Table` refinement is
-  **blocked**: the extracted search is a Lean `partial_fixpoint`, `fun_induction` has no theorem,
-  and `step` is `WP`-only. Three attempts are recorded in `docs/plan/storage-refinement.md`. The
-  optimized `Map` stays tested.
+  **partial**: commits `3799577` through `76a6824` close total-loop search, canonical lookup and
+  write preservation under `WellFormed`. Initialization and exact insertion success/refusal remain
+  open; see the exit table below. The optimized `Map` stays tested.
 
 ## Post-Stage-6 Barriers
 
@@ -67,15 +67,55 @@ Dependency order. Each row names the gate that closes it and the current blocker
 
 | # | Barrier | Repo | Gate | Status / blocker |
 |---|---|---|---|---|
-| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; corpus `lake build` | Blocked. Next: a slice-tail or well-founded recursive Rust search, or a `WP.dspec` refinement, plus a denotation from the Aeneas array state to `Apeiron.Table.HMap`. |
+| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; `lake build` in `proof/corpus` | Partial. Search, lookup and conditional writes/preservation proved; initialization, branch completeness and assurance gates below remain. |
 | 2 | Corpus F2 certificate completeness | corpus | New module `proof`/`lake build` + `#audit` | Open. Relative completeness on the capped fragment is reachable; the uncapped alphabet is not. `theory/DEAD_ENDS.md` carries the routes. |
 | 3 | Corpus A5 Transport rooting | corpus | `lake build`; `scripts/check-lints.py`; `scripts/check-style.py` | Open. `Transport/Basic.lean` sits on `Transport/Ordered.lean` (ordered field), not the trichotomy's `InCell`/`meet`. |
-| 4 | Corpus F3 E18 snapshot | corpus | Snapshot doc + an import-minimality gate | Open, cheap. Freeze the trichotomy iffs, the null-basis/integer-le leg and the combinator chain; gate the combinator import closure at `Linter.Notation`, `Mathlib.Data.Nat.Notation`, `Mathlib.Logic.Relation`. |
+| 4 | Corpus F3 E18 snapshot | corpus | `theory/E18.md`; `python3 scripts/check-imports.py` in corpus | Recorded closed at `435817b8`; no new run here. Corpus Track F and F2 remain open. |
 | 5 | Song A0.10 access discharge | song | `./song check` exit 0 with unchanged `access warn` | Open. Blockers: a route for raw `memory[RUNTIME_INDEX]` reads and the guard-condition early-return wrap. Do not raise the ratchet. |
 | 6 | Song A0.6.P1-P6 parser semantics | song + corpus | `lake build Apeiron.Parser.*`; Slang refinement | Partial. P1/P2 model + fixtures pass; P3-P6 refinement and bounded completeness are open. |
 | 7 | Song A0.4 stream correspondence | song + corpus | `Apeiron/Decider/Stream.lean` + Slang `ckBatchParse` refinement | Partial. Executing driver green; the model and refinement are the missing gate. |
 | 8 | Penglai material integration | penglai | `cargo test --locked`; `proof/regen.sh --check` | N=3 line refined. Next: `substrate-port-scope.md` milestones 4 (2-factor) through 8 (playable bank). Milestone 7 (temporal material and 3-D) is research. |
 | 9 | Fold migration | fold | fold gates | Deferred until the table/carrier gates above are green. Preserve the dirty CQ work. |
+
+### Epic exits
+
+The table below, `AGENTS.md` §4 and `CLAIMS.md` supplement the existing intent/spec/plan without
+replacing their requirements. An epic closes only when every required row and child is green on one
+source/tool identity, with controls and evidence recorded. Missing commands are gate-first work, not
+passing placeholders. Historical stages above retain their scoped evidence, not fresh acceptance.
+Renewed closure of any epic also requires the shared integration and assurance gates in S7/S8.
+
+| Epic | Existing lifecycle | Exit / present status |
+|---|---|---|
+| `APEIRON-STORAGE` | `docs/{intent,spec,plan}/storage-refinement.md` | All storage rows below; partial, not closed. |
+| `APEIRON-CARRIER` | `docs/{intent,spec,plan}/carrier-refinement.md` | Every listed contract/audit/witness and control, `proof/regen.sh --check`, bridge `lake build`, Rust/Kani barriers; recorded completion at `d7121ac`, new ledger/perimeter acceptance not run. |
+| `APEIRON-PIN` | `docs/{intent,spec,plan}/corpus-release-pin.md` | Exact manifest identity assertion, dependency-resolution control, fresh extraction, bridge and Rust/Kani barriers; recorded completion in that plan. Availability/offline vendoring is excluded, not proved. |
+
+#### Storage reference exit: all rows required
+
+| ID | Required output | Gate (cwd) / remaining work |
+|---|---|---|
+| S1 | Real safe reference and production differential trace; nominal, empty, full, replacement and removal cases | `cargo test --locked --test safe_table` (root); recorded passing, controls in storage plan. Generic Rust API is tested; Lean scope is capacity four with `I64` keys. |
+| S2 | Fresh real-source extraction; no opaque substitute | `proof/regen.sh --check` (root); recorded passing. Constructor extraction is not yet included. |
+| S3 | Canonical lookup/write equations and preservation | `lake build` (`proof/corpus`), headlines in `CLAIMS.md`; recorded conditional proofs at `76a6824`. |
+| S4 | Joint `WellFormed` witness, empty denotation, actual constructor establishes that state; reachable transitions preserve it | **MISSING** constructor/witness theorem and coverage gate; future bridge `lake build`. A direct generated-state witness alone does not close the Rust initialization link. |
+| S5 | Present-key/free-slot insertion succeeds; absent full table refuses with original payload and unchanged state; missing removal and full/replacement witnesses | **MISSING** branch-completeness theorem/fixtures; future bridge `lake build`. Current `try_insert_spec` permits always-`Err`; require that mutation to fail. |
+| S6 | Baseline/red/restore for search, writes, initialization, full handling and branch success; independent optimized relation decision | Tests and bridge commands above on throwaway source/generated mutations; **MISSING** complete durable control record and optimized-relation decision. `Map` remains tested; no retirement authorized by S4 alone. |
+| S7 | Joint Rust and proof integration on the recorded source/toolchain | All `AGENTS.md` §6 Rust commands including `cargo kani`; `lake build` in `proof/` and `proof/corpus/`; `proof/regen.sh --check`. Fresh combined acceptance not run. |
+| S8 | Complete headline ledger, audited cone, joint witness coverage and bounded perimeter | **MISSING** `tools/check-claims.py` and `tools/check-assurance.py`, specified in `CLAIMS.md`; documentation does not implement them. |
+
+The spec's public-API preconditions remain none: private state validity is an obligation of
+construction and transitions, not a new obligation imposed on callers. The existing spec/plan's
+`WordRefinement.lean` target resolves now to `proof/corpus/SafeTableRefinement.lean`. Their older
+extraction-blocker paragraphs are history; S4/S5 are the current proof frontier. All successful
+transition and full-refusal requirements remain; do not weaken them to match the current theorem.
+
+Next bounded proof task: `APEIRON-STORAGE-W3-T2`, owner assigned before dispatch, at most three files,
+joint generated-state witness and empty denotation in `SafeTableRefinement.lean` plus audit; gate
+`lake build` in `proof/corpus`. Record this as inhabitation only. Actual constructor extraction/link
+is a separate dependent task because the generic `Option<(K,V)>: Copy` extraction blocker remains.
+No implementation is dispatched by this documentation change. The ledger/perimeter gates need
+separate gate-design tasks, not expansion of the witness task. No storage performance claim is made.
 
 ## First Session
 
@@ -328,3 +368,17 @@ RETURN: artifacts, commands/results, remaining assumptions or exact blocker
 At the end of every slice, report: stage and status; changed files; actual checks
 and exit codes; proved versus tested versus open; next bounded assignment. Update
 the existing evidence record instead of producing another parallel roadmap.
+
+## Planning adoption record
+
+`APEIRON-ASSURANCE-W1-T1`: user-approved architecture specialist; base `76a6824`.
+Supplied-checkout exception for this documentation pass; no build lane occupied.
+
+```text
+SCOPE:      AGENTS.md, docs/flash-handoff.md, CLAIMS.md; explicit exits and evidence blockers
+REGISTER:   planning; no implementation, proof or runtime claim
+CORPUS:     Song SDLC/ROADMAP read; no theorem establishes a planning policy
+REFERENCE:  /home/socol/Workspace/song/docs/SDLC.md; /home/socol/Workspace/song/docs/ROADMAP.md
+GATE:       git diff --check at repo root; requirement-preservation review; semantic gate MISSING
+GRADE:      no new software evidence; implicit closure becomes explicit, missing checks stay open
+```

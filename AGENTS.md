@@ -64,21 +64,62 @@ An epic without a written intent, spec and plan is still design. Do not allocate
   Preserve unrelated dirty work; a mutation control edits a throwaway copy, never the working tree.
 - A task that needs conversation history to execute is not yet a task.
 
+Use `APEIRON-<EPIC>-W<wave>-T<task>` IDs and an isolated `worktree-agent-<id>` per task.
+Record owner, base revision and build lane before editing; serialize shared caches. A documentation
+pass explicitly assigned to the supplied checkout may record that exception. A spike uses
+`APEIRON-<EPIC>-SPIKE-<slug>`, a time limit and a question; it ends in evidence or a blocker, not
+epic closure. Existing short IDs remain historical aliases.
+
+Emit this Arc Block before the first nontrivial edit; retain it in the plan and, when authorized,
+the commit body. Templates do not waive these fields:
+
+```text
+SCOPE:      owned files, change and completion condition
+REGISTER:   local obligation (algebra/refinement/state/test/measurement/planning); exclusions
+CORPUS:     exact module and quoted theorem with native grade, or files read and no match
+REFERENCE:  absolute path read, derived from <theorem>, or NONE - inventing
+GATE:       command, cwd, observed red output; if absent, MISSING and a gate-first task
+GRADE:      evidence grade and before/after result; unmeasured or not applicable with reason
+```
+
+`REGISTER` classifies the obligation; it does not import Song's deciders or R1–R5 certification.
+
 ## 4 · Definition of done
 
-A task, wave or epic is not closed until every applicable item holds. Skip an item only by stating
-why it does not apply.
+A task closes on its focused gate and control. A wave requires every child plus the shared gates.
+An epic closes only when every row of its exit table is green on the same source/tool identity;
+missing gates, witnesses or evidence keep it open. `docs/flash-handoff.md` owns the epic exits;
+`CLAIMS.md` owns headline evidence. Historical completion records are not fresh acceptance.
+Record inapplicability with its excluded population and reason, never because a gate is difficult.
+
+The eleven obligations below instantiate five pillars; none is removed:
+
+| Pillar | Obligations |
+|---|---|
+| Primary artifact | 1, 3: production path and real-source extraction |
+| Non-vacuous contracts | 2: domain, joint witnesses, initialization and preservation |
+| Mathematical attribution | 4, 5: exact authority, refinement and closed axiom cone |
+| Falsifiable verification | 6, 7: positives and baseline/red/restore controls |
+| System pass and trusted perimeter | 8, 9, 11: identities, integration gates and bounded trust |
+
+Item 10 applies whenever a performance claim or epic budget is required; documentation cannot waive it.
 
 1. **Production wiring.** The change is on the path the crate or proof actually builds and runs. No
    mock, stub, parallel copy, or dead code presented as complete.
 2. **Explicit admissible domain and partiality.** Total, `Option`/`Result`, checked, or panicking is
-   stated. Preconditions are named. No silent reduction of the domain to make a proof close, and no
+   stated. Every claimed `Pre`/`WellFormed` domain has a checked witness term or `#guard` for the
+   joint hypotheses at the claimed types, not separate incompatible witnesses. Require initialization
+   from the actual constructor, preservation, and successful/refusing branch witnesses for partial
+   operations. A model witness does not refine a Rust constructor. No silent domain reduction or
    infallible signature over an operation that can lose bits.
 3. **Actual Rust extraction where a Rust claim is made.** The Aeneas/Charon extraction includes the
    real source by `#[path]` and calls the production body; a wrapper may fix a type, not restate the
    formula.
 4. **Lean theorem link.** The representation relation names the exact canonical definition or
-   theorem it refines, in the corpus or the bridge. A theorem name is a link only if it resolves.
+   theorem it refines. Generic mathematics lives in the pinned canonical corpus, navigated at
+   `../sanguine-apeiron/proof/Apeiron/`; its audits are `Audit.lean` and `AuditCarrier.lean`.
+   Rust representation theorems live in `proof/corpus/`, audited by `AxiomAudit.lean`.
+   Record the resolved corpus revision; a sibling path or `@grade` alone proves nothing.
 5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
    `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
    `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note.
@@ -93,7 +134,15 @@ why it does not apply.
 10. **Measurement for performance claims.** A number is a measurement only when a named command ran
     and its output was read. Name the machine, the metric and the interval; before and after.
 11. **Trust-boundary statement.** State what the claim does not cover: rustc/LLVM codegen, the
-    kernel ABI, GPU/SPIR-V, the `unsafe` container, or any layer the evidence does not reach.
+     kernel ABI, GPU/SPIR-V, the `unsafe` container, or any layer the evidence does not reach.
+
+At an implementation epic barrier, run all §6 Rust commands, including `cargo kani`,
+`proof/regen.sh --check`, and `lake build` in both `proof/` and `proof/corpus/`, plus the named
+controls. These are the local barrier set, not one existing aggregate harness. Missing tools block
+acceptance. `CLAIMS.md` specifies the missing ledger/witness and perimeter checks: local trusted
+checking code ≤5,000 physical lines, owned source files ≤1,500 lines, ≤12 immediate source files
+per directory. Inventory external trust separately; neither the whole proof library nor a bridge
+line count is the full TCB. Until the inventory and rejecting checks exist, size acceptance is open.
 
 ## 5 · Evidence grades
 
