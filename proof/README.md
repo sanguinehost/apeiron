@@ -239,12 +239,19 @@ The first extraction attempt found unsupported iterator closures and returns fro
 loops, and a bounded recursive index search extracted to a Lean `partial_fixpoint` with no supplied
 induction principle. The production reference now uses `while index < N` searches whose bodies
 return the found index; Charon translates each to a total `loop` combinator (`@[rust_loop]`), so the
-supplied `Aeneas.Std.loop.spec_decr_nat` measure principle applies. The remaining canonical-`Table`
-refinement is a loop-invariant proof over the `Array (Option (K × V)) N` abstraction and is not yet
-written. Generic `SafeTable::new` is not an extraction root because Charon cannot resolve the generic
-`Option<(K, V)>: Copy` obligation introduced by the inline array repeat; bridge witnesses construct
-the generated capacity-four state directly. The lookup wrapper uses an explicit match because
-`Option::copied` would otherwise enter as an external axiom.
+supplied `Aeneas.Std.loop.spec_decr_nat` measure principle applies. `proof/corpus/SafeTableRefinement.lean`
+exercises it: `find_from_loop_spec` proves with measure `4 - index` and the invariant
+`NoMatchIn key l start index` that the generated search returns the first key match in `[start, 4)`,
+and `find_from_spec` lifts it to the `@[reducible]` `find_from`. The proof decomposes the generated
+`Array.index_usize` read through `Array.index_usize_spec` and the `I64` equality through a local
+`@[step]` lemma; both theorems audit inside `{propext, Classical.choice, Quot.sound}`. A throwaway
+copy with the generated `done (some index)` changed to `done none` fails the same proof, so the
+control is red. The canonical `Apeiron.Table` denotation and the `get`/`try_insert`/`remove` links
+are the next step; this file proves the search semantics they consume. Generic `SafeTable::new` is
+not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
+introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
+directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as
+an external axiom.
 
 This extraction does not verify `src/map.rs`. `tests/safe_table.rs` executes a 10,000-transition
 comparison between `Map<u32, u32>` and the safe reference, which is tested evidence only.
