@@ -928,3 +928,52 @@ theorem remove_spec (self : SafeTable I64 V 4#usize) (key : I64) (hwf : WellForm
 
 end safe_table
 end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem keysUnique_set_none {l : List (Option (I64 × V))} {i : ℕ} (huniq : KeysUnique l) :
+    KeysUnique (l.set i none) := by
+  intro k p q hp hq
+  by_cases hpi : p = i
+  · rw [hpi] at hp
+    exact absurd hp not_matchesAt_set_none
+  · rw [matchesAt_set_ne_iff (Ne.symm hpi)] at hp
+    by_cases hqi : q = i
+    · rw [hqi] at hq
+      exact absurd hq not_matchesAt_set_none
+    · rw [matchesAt_set_ne_iff (Ne.symm hqi)] at hq
+      exact huniq k p q hp hq
+
+theorem keysUnique_set_some {l : List (Option (I64 × V))} {i : ℕ} {key : I64} {value : V}
+    (huniq : KeysUnique l) (hi : i < l.length)
+    (hkey : ∀ j, j ≠ i → ¬ MatchesAt key l j) :
+    KeysUnique (l.set i (some (key, value))) := by
+  intro k p q hp hq
+  by_cases hpi : p = i
+  · rw [hpi] at hp
+    by_cases hqi : q = i
+    · rw [hpi, hqi]
+    · rw [matchesAt_set_ne_iff (Ne.symm hqi)] at hq
+      have hk : k = key := by
+        rcases (matchesAt_set_self_iff hi).mp hp with ⟨w, hw⟩
+        exact (Prod.mk.inj (Option.some.inj hw)).1.symm
+      rw [hk] at hq
+      exact absurd hq (hkey q hqi)
+  · rw [matchesAt_set_ne_iff (Ne.symm hpi)] at hp
+    by_cases hqi : q = i
+    · rw [hqi] at hq
+      have hk : k = key := by
+        rcases (matchesAt_set_self_iff hi).mp hq with ⟨w, hw⟩
+        exact (Prod.mk.inj (Option.some.inj hw)).1.symm
+      rw [hk] at hp
+      exact absurd hp (hkey p hpi)
+    · rw [matchesAt_set_ne_iff (Ne.symm hqi)] at hq
+      exact huniq k p q hp hq
+
+end safe_table
+end apeiron_word
