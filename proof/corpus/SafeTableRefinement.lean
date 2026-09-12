@@ -450,3 +450,100 @@ theorem empty_from_spec (self : SafeTable I64 V 4#usize) (start : Usize)
 
 end safe_table
 end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem matchesAt_set_self {l : List (Option (I64 × V))} {i : ℕ} {k : I64} {w : V}
+    (hi : i < l.length) : MatchesAt k (l.set i (some (k, w))) i :=
+  ⟨w, by rw [List.getElem?_set_self hi]⟩
+
+theorem not_matchesAt_set_self {l : List (Option (I64 × V))} {i : ℕ} {key k : I64} {w : V}
+    (hi : i < l.length) (hne : key ≠ k) : ¬ MatchesAt k (l.set i (some (key, w))) i := by
+  rintro ⟨v, hv⟩
+  rw [List.getElem?_set_self hi] at hv
+  simp only [Option.some.injEq, Prod.mk.injEq] at hv
+  exact hne hv.1
+
+theorem matchesAt_set_ne {l : List (Option (I64 × V))} {i j : ℕ} {k : I64} {e : I64 × V}
+    (hij : i ≠ j) : MatchesAt k (l.set i (some e)) j ↔ MatchesAt k l j := by
+  simp only [MatchesAt, List.getElem?_set_ne hij]
+
+theorem findIdx_set_some_self {l : List (Option (I64 × V))} {i : ℕ} {k : I64} {w : V}
+    (hi : i < l.length) (hbefore : NoMatchIn k l 0 i) :
+    findIdx k (l.set i (some (k, w))) = some i := by
+  refine (findIdx_spec k (l.set i (some (k, w))) i).mpr ⟨matchesAt_set_self hi, ?_⟩
+  intro m _ hm
+  rw [matchesAt_set_ne (by omega : i ≠ m)]
+  exact hbefore m (Nat.zero_le _) hm
+
+theorem findIdx_set_some_ne {l : List (Option (I64 × V))} {i : ℕ} {key k : I64} {w : V}
+    (hi : i < l.length) (hne : key ≠ k) (hnot : ¬ MatchesAt k l i) :
+    findIdx k (l.set i (some (key, w))) = findIdx k l := by
+  cases h : findIdx k l with
+  | none =>
+    rw [findIdx_none_iff] at h
+    rw [findIdx_none_iff]
+    intro m _ hm
+    rw [List.length_set] at hm
+    by_cases hmi : m = i
+    · subst hmi; exact not_matchesAt_set_self hi hne
+    · rw [matchesAt_set_ne (Ne.symm hmi)]
+      exact h m (Nat.zero_le _) hm
+  | some j =>
+    rw [findIdx_spec] at h
+    refine (findIdx_spec k (l.set i (some (key, w))) j).mpr ⟨?_, ?_⟩
+    · by_cases hji : j = i
+      · subst hji; exact absurd h.1 hnot
+      · rw [matchesAt_set_ne (Ne.symm hji)]; exact h.1
+    · intro m _ hm
+      by_cases hmi : m = i
+      · subst hmi; exact not_matchesAt_set_self hi hne
+      · rw [matchesAt_set_ne (Ne.symm hmi)]
+        exact h.2 m (Nat.zero_le _) hm
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem tableHMap_set_self {t : SafeTable I64 V 4#usize} {i : Usize} {k : I64} {w : V}
+    (hi : i.val < t.slots.val.length) (hbefore : NoMatchIn k t.slots.val 0 i.val) :
+    tableHMap { t with slots := t.slots.set i (some (k, w)) } k = some w := by
+  simp only [tableHMap, Array.set_val_eq]
+  rw [findIdx_set_some_self hi hbefore]
+  simp [List.getElem?_set_self hi]
+
+/-- The slot-list readout `tableHMap` computes. -/
+def lookupList (k : I64) (l : List (Option (I64 × V))) : Option V :=
+  (findIdx k l).bind (fun i => (l[i]?).bind (fun s => s.map Prod.snd))
+
+theorem tableHMap_eq_lookupList (t : SafeTable I64 V 4#usize) (k : I64) :
+    tableHMap t k = lookupList k t.slots.val := rfl
+
+theorem tableHMap_set_ne {t : SafeTable I64 V 4#usize} {i : Usize} {key k : I64} {w : V}
+    (hi : i.val < t.slots.val.length) (hne : key ≠ k) (hnot : ¬ MatchesAt k t.slots.val i.val) :
+    tableHMap { t with slots := t.slots.set i (some (key, w)) } k = tableHMap t k := by
+  simp only [tableHMap_eq_lookupList, Array.set_val_eq]
+  cases h : findIdx k t.slots.val with
+  | none =>
+    rw [lookupList, lookupList, findIdx_set_some_ne hi hne hnot, h]
+    simp
+  | some j =>
+    have hj : MatchesAt k t.slots.val j := ((findIdx_spec k t.slots.val j).mp h).1
+    have hji : j ≠ i.val := by
+      intro hji; subst hji; exact hnot hj
+    rw [lookupList, lookupList, findIdx_set_some_ne hi hne hnot, h]
+    simp [List.getElem?_set_ne (Ne.symm hji)]
+
+end safe_table
+end apeiron_word

@@ -251,7 +251,9 @@ control is red. `findIdx` and `findIdx_spec`/`findIdx_none_iff` give the `List`-
 `get_spec_canonical` prove the extracted `get` returns exactly `Apeiron.Table.get (tableHMap self) key`.
 The `empty_from` search is proved: `empty_from_loop_spec`/`empty_from_spec` give the first empty
 slot in `[start, 4)`, and the reference uses a `match` so Charon emits a match rather than an
-`is_none` `ite`. The `try_insert` and `remove` links are the next step. Generic `SafeTable::new` is
+`is_none` `ite`. The write-link foundation is proved: `findIdx_set_some_self`/`findIdx_set_some_ne`
+and `tableHMap_set_self`/`tableHMap_set_ne` describe `tableHMap` after writing a slot. The
+`try_insert` and `remove` specs are the next step. Generic `SafeTable::new` is
 not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
 introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
 directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as
