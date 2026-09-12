@@ -150,3 +150,5 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.safe_table.tableHMap_set_none_self
 #audit apeiron_word.safe_table.try_insert_spec
 #audit apeiron_word.safe_table.remove_spec
+#audit apeiron_word.safe_table.keysUnique_set_none
+#audit apeiron_word.safe_table.keysUnique_set_some
