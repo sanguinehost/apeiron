@@ -547,3 +547,384 @@ theorem tableHMap_set_ne {t : SafeTable I64 V 4#usize} {i : Usize} {key k : I64}
 
 end safe_table
 end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-- The slot element `e` holds key `x`. -/
+def IsElemMatch (x : I64) (e : Option (I64 × V)) : Prop := ∃ w, e = some (x, w)
+
+/-- At most one position holds any given key. -/
+def KeysUnique (l : List (Option (I64 × V))) : Prop :=
+  ∀ k i j, MatchesAt k l i → MatchesAt k l j → i = j
+
+/-- The stored count matches the number of occupied slots. -/
+def WellFormed (t : SafeTable I64 V 4#usize) : Prop :=
+  t.len.val = List.countP (fun e : Option (I64 × V) => e.isSome) t.slots.val ∧
+    KeysUnique t.slots.val
+
+theorem isElemMatch_none {x : I64} : ¬ IsElemMatch x (none : Option (I64 × V)) := by
+  rintro ⟨w, hw⟩; simp at hw
+
+theorem matchesAt_set_self_iff {l : List (Option (I64 × V))} {i : ℕ} {k : I64}
+    {e : Option (I64 × V)} (hi : i < l.length) :
+    MatchesAt k (l.set i e) i ↔ IsElemMatch k e := by
+  rw [MatchesAt, List.getElem?_set_self hi]
+  constructor
+  · rintro ⟨w, hw⟩; exact ⟨w, Option.some.inj hw⟩
+  · rintro ⟨w, rfl⟩; exact ⟨w, rfl⟩
+
+theorem matchesAt_set_ne_iff {l : List (Option (I64 × V))} {i j : ℕ} {k : I64}
+    {e : Option (I64 × V)} (hij : i ≠ j) :
+    MatchesAt k (l.set i e) j ↔ MatchesAt k l j := by
+  rw [MatchesAt, MatchesAt, List.getElem?_set_ne hij]
+
+theorem findIdx_set_self {l : List (Option (I64 × V))} {i : ℕ} {k : I64}
+    {e : Option (I64 × V)} (hi : i < l.length) (hm : IsElemMatch k e)
+    (hbefore : NoMatchIn k l 0 i) :
+    findIdx k (l.set i e) = some i := by
+  refine (findIdx_spec k (l.set i e) i).mpr ⟨(matchesAt_set_self_iff hi).mpr hm, ?_⟩
+  intro m _ hm'
+  rw [matchesAt_set_ne_iff (by omega : i ≠ m)]
+  exact hbefore m (Nat.zero_le _) hm'
+
+theorem findIdx_set_ne {l : List (Option (I64 × V))} {i : ℕ} {k : I64}
+    {e : Option (I64 × V)} (hi : i < l.length)
+    (hold : ¬ MatchesAt k l i) (hnew : ¬ IsElemMatch k e) :
+    findIdx k (l.set i e) = findIdx k l := by
+  cases h : findIdx k l with
+  | none =>
+    rw [findIdx_none_iff] at h ⊢
+    intro m _ hm
+    rw [List.length_set] at hm
+    by_cases hmi : m = i
+    · subst hmi
+      rw [matchesAt_set_self_iff hi]
+      exact hnew
+    · rw [matchesAt_set_ne_iff (Ne.symm hmi)]
+      exact h m (Nat.zero_le _) hm
+  | some j =>
+    rw [findIdx_spec] at h
+    refine (findIdx_spec k (l.set i e) j).mpr ⟨?_, ?_⟩
+    · by_cases hji : j = i
+      · subst hji; exact absurd h.1 hold
+      · rw [matchesAt_set_ne_iff (Ne.symm hji)]; exact h.1
+    · intro m _ hm
+      by_cases hmi : m = i
+      · subst hmi
+        rw [matchesAt_set_self_iff hi]
+        exact hnew
+      · rw [matchesAt_set_ne_iff (Ne.symm hmi)]
+        exact h.2 m (Nat.zero_le _) hm
+
+theorem tableHMap_set_none {t : SafeTable I64 V 4#usize} {i : Usize} {k : I64}
+    (hi : i.val < t.slots.val.length) (hnot : ¬ MatchesAt k t.slots.val i.val) :
+    tableHMap { t with slots := t.slots.set i none } k = tableHMap t k := by
+  simp only [tableHMap_eq_lookupList, Array.set_val_eq]
+  cases h : findIdx k t.slots.val with
+  | none =>
+    rw [lookupList, lookupList,
+      findIdx_set_ne hi hnot (isElemMatch_none), h]
+    simp
+  | some j =>
+    have hj : MatchesAt k t.slots.val j := ((findIdx_spec k t.slots.val j).mp h).1
+    have hji : j ≠ i.val := by
+      intro hji; subst hji; exact hnot hj
+    rw [lookupList, lookupList,
+      findIdx_set_ne hi hnot (isElemMatch_none), h]
+    simp [List.getElem?_set_ne (Ne.symm hji)]
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem countP_isSome_le (l : List (Option (I64 × V))) :
+    List.countP (fun e : Option (I64 × V) => e.isSome) l ≤ l.length :=
+  List.countP_le_length
+
+theorem countP_set_none {l : List (Option (I64 × V))} {i : ℕ} {x : I64 × V}
+    (hi : i < l.length) (h : l[i] = some x) :
+    List.countP (fun e : Option (I64 × V) => e.isSome) (l.set i none) =
+      List.countP (fun e : Option (I64 × V) => e.isSome) l - 1 := by
+  rw [List.countP_set hi, h]
+  simp
+
+theorem countP_set_some {l : List (Option (I64 × V))} {i : ℕ} {y : I64 × V}
+    (hi : i < l.length) (h : l[i] = none) :
+    List.countP (fun e : Option (I64 × V) => e.isSome) (l.set i (some y)) =
+      List.countP (fun e : Option (I64 × V) => e.isSome) l + 1 := by
+  rw [List.countP_set hi, h]
+  simp
+
+theorem wellFormed_len_le_four {t : SafeTable I64 V 4#usize} (hwf : WellFormed t) :
+    t.len.val ≤ 4 := by
+  obtain ⟨hlen, _⟩ := hwf
+  rw [hlen]
+  calc List.countP (fun e : Option (I64 × V) => e.isSome) t.slots.val
+      ≤ t.slots.val.length := List.countP_le_length
+    _ = 4 := by rw [Array.length_eq]; rfl
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem lookupList_none {k : I64} {l : List (Option (I64 × V))} (h : findIdx k l = none) :
+    lookupList k l = none := by
+  simp [lookupList, h]
+
+theorem tableHMap_none_of_noMatchIn (self : SafeTable I64 V 4#usize) (key : I64)
+    (h : NoMatchIn key self.slots.val 0 4) : tableHMap self key = none := by
+  rw [tableHMap_eq_lookupList]
+  apply lookupList_none
+  apply (findIdx_none_iff key self.slots.val).mpr
+  rwa [Array.length_eq]
+
+theorem tableHMap_some_of_get (self : SafeTable I64 V 4#usize) {key : I64} {i : ℕ} {w : V}
+    (hmatches : MatchesAt key self.slots.val i) (hnomatch : NoMatchIn key self.slots.val 0 i)
+    (hget : self.slots.val[i]? = some (some (key, w))) : tableHMap self key = some w := by
+  rw [tableHMap_eq_lookupList, lookupList,
+    (findIdx_spec key self.slots.val i).mpr ⟨hmatches, hnomatch⟩]
+  simp [hget]
+
+theorem not_matchesAt_of_emptyAt {k : I64} {l : List (Option (I64 × V))} {i : ℕ}
+    (h : EmptyAt l i) : ¬ MatchesAt k l i := by
+  intro hm; rcases hm with ⟨v, hv⟩
+  rw [EmptyAt] at h; rw [hv] at h; simp at h
+
+theorem tableHMap_set_eq_insertWith (self : SafeTable I64 V 4#usize) {i : Usize} {key : I64}
+    {value : V} (hi : i.val < self.slots.val.length)
+    (hbefore : NoMatchIn key self.slots.val 0 i.val)
+    (hnot : ∀ x, x ≠ key → ¬ MatchesAt x self.slots.val i.val) :
+    tableHMap { self with slots := self.slots.set i (some (key, value)) } =
+      Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self) := by
+  funext x
+  by_cases hx : x = key
+  · subst hx
+    rw [tableHMap_set_self hi hbefore]
+    simp [Apeiron.Table.insertWith]
+  · rw [tableHMap_set_ne hi (Ne.symm hx) (hnot x hx)]
+    simp [Apeiron.Table.insertWith, hx]
+
+@[step] theorem empty_from_zero_spec (self : SafeTable I64 V 4#usize) :
+    SafeTable.empty_from core.cmp.EqI64 self 0#usize ⦃ r => PostE self.slots.val 0 r ⦄ :=
+  empty_from_spec self 0#usize (by decide)
+
+theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
+    (hwf : WellFormed self) :
+    SafeTable.try_insert core.cmp.EqI64 self key value ⦃ r =>
+      (let (res, t') := r
+       match res with
+       | core.result.Result.Ok old =>
+           old = tableHMap self key ∧
+           tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self)
+       | core.result.Result.Err _ => t' = self) ⦄ := by
+  unfold SafeTable.try_insert
+  step
+  rcases o with _ | index
+  · step
+    rcases r with _ | index
+    · rw [Aeneas.Std.WP.spec_ok]
+    · obtain ⟨hlt, _, hempty, _⟩ := r_post
+      have hno : NoMatchIn key self.slots.val 0 4 := o_post
+      have hbefore : NoMatchIn key self.slots.val 0 index.val := by
+        intro j hj hjlt; exact hno j hj (by omega)
+      have hi : index.val < self.slots.val.length := by
+        rw [Array.length_eq]; simpa using hlt
+      refine Aeneas.Std.WP.spec_bind (Pₘ := fun _ : Unit => index < 4#usize) ?_ ?_
+      · exact Aeneas.Std.massert_spec (index < 4#usize) (by scalar_tac)
+      · intro _ _
+        refine Aeneas.Std.WP.spec_bind (Pₘ := fun r : Option (I64 × V) ×
+            (Option (I64 × V) → Std.Array (Option (I64 × V)) 4#usize) =>
+              r.1 = (↑self.slots)[↑index] ∧ r.2 = self.slots.set index) ?_ ?_
+        · exact Aeneas.Std.Array.index_mut_usize_spec self.slots index hi
+        · rintro ⟨o2, back⟩ ⟨ho2, hback⟩
+          simp only [Prod.fst, Prod.snd] at ho2 hback
+          have hbackid : back o2 = self.slots := by
+            rw [hback, ho2]
+            apply Aeneas.Std.Array.ext
+            rw [Aeneas.Std.Array.set_val_eq]
+            exact List.set_getElem_self hi
+          refine Aeneas.Std.WP.spec_bind (Pₘ := fun a1 : Std.Array (Option (I64 × V)) 4#usize =>
+            a1 = (back o2).set index (some (key, value))) ?_ ?_
+          · exact Aeneas.Std.Array.update_spec (back o2) index (some (key, value))
+              (by rw [hbackid]; exact hi)
+          · intro a1 ha1
+            refine Aeneas.Std.WP.spec_bind (Pₘ := fun z : Std.Usize =>
+              z.val = self.len.val + (1#usize).val) ?_ ?_
+            · refine Aeneas.Std.Usize.add_spec ?_
+              have := wellFormed_len_le_four hwf
+              scalar_tac
+            · intro i hi'
+              rw [Aeneas.Std.WP.spec_ok]
+              constructor
+              · exact (tableHMap_none_of_noMatchIn self key hno).symm
+              · have ha1' : a1 = self.slots.set index (some (key, value)) := by
+                  rw [ha1, hbackid]
+                rw [ha1']
+                exact tableHMap_set_eq_insertWith self hi hbefore
+                  (fun x _ => not_matchesAt_of_emptyAt hempty)
+  · obtain ⟨hlt4, _, hmatch, hno⟩ := o_post
+    have hi : index.val < self.slots.val.length := by
+      rw [Array.length_eq]; simpa using hlt4
+    refine Aeneas.Std.WP.spec_bind (Pₘ := fun r : Option (I64 × V) ×
+        (Option (I64 × V) → Std.Array (Option (I64 × V)) 4#usize) =>
+          r.1 = (↑self.slots)[↑index] ∧ r.2 = self.slots.set index) ?_ ?_
+    · exact Aeneas.Std.Array.index_mut_usize_spec self.slots index hi
+    · rintro ⟨o1, back⟩ ⟨ho1, hback⟩
+      rcases o1 with _ | ⟨stored, old⟩
+      · refine Aeneas.Std.WP.spec.ret ?_
+        exact absurd hmatch (not_matchesAt_of_get hi ho1.symm)
+      · have hget : self.slots.val[index.val] = some (stored, old) := ho1.symm
+        have hkey : stored = key := by
+          rcases hmatch with ⟨w, hw⟩
+          have h1 : self.slots.val[index.val]? = some (some (stored, old)) := by
+            rw [List.getElem?_eq_getElem hi, hget]
+          rw [hw] at h1
+          exact (Prod.mk.inj (Option.some.inj (Option.some.inj h1))).1.symm
+        refine Aeneas.Std.WP.spec.ret ?_
+        constructor
+        · have hlook : self.slots.val[index.val]? = some (some (key, old)) := by
+            rw [List.getElem?_eq_getElem hi, hget, hkey]
+          exact (tableHMap_some_of_get self hmatch hno hlook).symm
+        · simp only [Prod.snd] at hback ⊢
+          rw [hback, hkey]
+          exact tableHMap_set_eq_insertWith self hi hno
+            (fun x hx => not_matchesAt_of_get_ne hi hget (by rw [hkey]; exact Ne.symm hx))
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+theorem not_matchesAt_set_none {l : List (Option (I64 × V))} {i : ℕ} {k : I64} :
+    ¬ MatchesAt k (l.set i none) i := by
+  rintro ⟨v, hv⟩
+  rw [List.getElem?_set] at hv
+  split at hv <;> simp_all
+
+theorem tableHMap_set_none_self (self : SafeTable I64 V 4#usize) {i : Usize} {key : I64}
+    (hfind : findIdx key self.slots.val = some i.val) (huniq : KeysUnique self.slots.val) :
+    tableHMap { self with slots := self.slots.set i none } key = none := by
+  rw [tableHMap_eq_lookupList, Array.set_val_eq]
+  apply lookupList_none
+  rw [findIdx_none_iff]
+  intro j _ hj
+  rw [List.length_set] at hj
+  by_cases hji : j = i.val
+  · subst hji; exact not_matchesAt_set_none
+  · rw [matchesAt_set_ne_iff (Ne.symm hji)]
+    intro hmatchj
+    obtain ⟨hmatchi, _⟩ := (findIdx_spec key self.slots.val i.val).mp hfind
+    exact hji (huniq key j i.val hmatchj hmatchi)
+
+theorem one_le_countP_of_get {l : List (Option (I64 × V))} {i : ℕ} {x : I64 × V}
+    (hi : i < l.length) (h : l[i] = some x) :
+    1 ≤ List.countP (fun e : Option (I64 × V) => e.isSome) l := by
+  have h1 := List.countP_set (p := fun e : Option (I64 × V) => e.isSome) (l := l) (i := i)
+    (a := some x) hi
+  have hset : l.set i (some x) = l := by rw [← h]; exact List.set_getElem_self hi
+  rw [h] at h1
+  simp only [Option.isSome_some, if_true, Nat.sub_zero] at h1
+  rw [hset] at h1
+  omega
+
+theorem remove_spec (self : SafeTable I64 V 4#usize) (key : I64) (hwf : WellFormed self) :
+    SafeTable.remove core.cmp.EqI64 self key ⦃ r =>
+      (let (old, t') := r
+       old = tableHMap self key ∧
+       tableHMap t' = Apeiron.Table.insertWith (fun _ _ => none) key none (tableHMap self)) ⦄ := by
+  unfold SafeTable.remove
+  step
+  rcases o with _ | index
+  · have hnone : tableHMap self key = none := tableHMap_none_of_noMatchIn self key o_post
+    rw [Aeneas.Std.WP.spec_ok]
+    constructor
+    · exact hnone.symm
+    · funext x
+      by_cases hx : x = key
+      · subst hx; rw [hnone]; simp [Apeiron.Table.insertWith]
+      · simp [Apeiron.Table.insertWith, hx]
+  · obtain ⟨hlt4, _, hmatch, hno⟩ := o_post
+    have hi : index.val < self.slots.val.length := by
+      rw [Array.length_eq]; simpa using hlt4
+    have hfind : findIdx key self.slots.val = some index.val :=
+      (findIdx_spec key self.slots.val index.val).mpr ⟨hmatch, hno⟩
+    have htake : core.option.Option.take
+        (self.slots.val)[index.val] = ((self.slots.val)[index.val], none) := by
+      cases (self.slots.val)[index.val] <;> rfl
+    refine Aeneas.Std.WP.spec_bind (Pₘ := fun r : Option (I64 × V) ×
+        (Option (I64 × V) → Std.Array (Option (I64 × V)) 4#usize) =>
+          r.1 = (↑self.slots)[↑index] ∧ r.2 = self.slots.set index) ?_ ?_
+    · exact Aeneas.Std.Array.index_mut_usize_spec self.slots index hi
+    · rintro ⟨o1, back⟩ ⟨ho1, hback⟩
+      rcases o1 with _ | ⟨stored, value⟩
+      · refine Aeneas.Std.WP.spec.ret ?_
+        exact absurd hmatch (not_matchesAt_of_get hi ho1.symm)
+      · have hget : self.slots.val[index.val] = some (stored, value) := ho1.symm
+        have hkey : stored = key := by
+          rcases hmatch with ⟨w, hw⟩
+          have h1 : self.slots.val[index.val]? = some (some (stored, value)) := by
+            rw [List.getElem?_eq_getElem hi, hget]
+          rw [hw] at h1
+          exact (Prod.mk.inj (Option.some.inj (Option.some.inj h1))).1.symm
+        have hlen : 1 ≤ self.len.val := by
+          rw [hwf.1]
+          exact one_le_countP_of_get hi (by rw [hkey] at hget; exact hget)
+        refine Aeneas.Std.WP.spec_bind (Pₘ := fun z : Std.Usize =>
+          z.val = self.len.val - (1#usize).val ∧ (1#usize).val ≤ self.len.val) ?_ ?_
+        · refine Aeneas.Std.Usize.sub_spec ?_
+          scalar_tac
+        · intro i hi'
+          refine Aeneas.Std.WP.spec.ret ?_
+          constructor
+          · have hlook : self.slots.val[index.val]? = some (some (key, value)) := by
+              rw [List.getElem?_eq_getElem hi, hget, hkey]
+            exact (tableHMap_some_of_get self hmatch hno hlook).symm
+          · simp only [Prod.snd] at hback ⊢
+            rw [hback]
+            funext x
+            by_cases hx : x = key
+            · rw [hx]
+              change tableHMap { self with slots := self.slots.set index none } key =
+                insertWith (fun _ _ => none) key none (tableHMap self) key
+              rw [tableHMap_set_none_self self hfind hwf.2]
+              simp [Apeiron.Table.insertWith]
+            · change tableHMap { self with slots := self.slots.set index none } x =
+                insertWith (fun _ _ => none) key none (tableHMap self) x
+              rw [tableHMap_set_none (t := self) hi
+                (not_matchesAt_of_get_ne hi hget (by rw [hkey]; exact Ne.symm hx))]
+              simp [Apeiron.Table.insertWith, hx]
+
+end safe_table
+end apeiron_word

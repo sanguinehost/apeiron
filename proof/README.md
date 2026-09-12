@@ -251,9 +251,16 @@ control is red. `findIdx` and `findIdx_spec`/`findIdx_none_iff` give the `List`-
 `get_spec_canonical` prove the extracted `get` returns exactly `Apeiron.Table.get (tableHMap self) key`.
 The `empty_from` search is proved: `empty_from_loop_spec`/`empty_from_spec` give the first empty
 slot in `[start, 4)`, and the reference uses a `match` so Charon emits a match rather than an
-`is_none` `ite`. The write-link foundation is proved: `findIdx_set_some_self`/`findIdx_set_some_ne`
-and `tableHMap_set_self`/`tableHMap_set_ne` describe `tableHMap` after writing a slot. The
-`try_insert` and `remove` specs are the next step. Generic `SafeTable::new` is
+`is_none` `ite`. The write links are proved under the invariant
+`WellFormed t := t.len.val = List.countP (fun e => e.isSome) t.slots.val ∧ KeysUnique t.slots.val`:
+`try_insert_spec` proves the extracted `try_insert` returns `Ok old` with `old = tableHMap self key`
+and `tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self)`
+(or `Err` with `t' = self`), and `remove_spec` proves `remove` returns `old = tableHMap self key`
+with `tableHMap t' = Apeiron.Table.insertWith (fun _ _ => none) key none (tableHMap self)`. The
+invariant supplies the `self.len ± 1` scalar bounds and, for `remove`, the key uniqueness that
+makes clearing the first match equal to the canonical `none` write. Both audit inside
+`{propext, Classical.choice, Quot.sound}`. The specs take `WellFormed` as a hypothesis; that it holds
+at `SafeTable::new` and is preserved by `try_insert`/`remove` is still open. Generic `SafeTable::new` is
 not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
 introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
 directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as
