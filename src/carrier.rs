@@ -23,6 +23,11 @@
 //! and a face's diffusive half-flux is `-(right - left) / 2` only when the difference is exactly
 //! even. An operation that cannot be represented returns `None` rather than wrapping or rounding.
 //!
+//! [`diffusive_line3_step`] composes them into the smallest fixed-size synchronous update: a
+//! closed three-cell line with `nu = 1/2`, the two interior faces read once each and the two
+//! endpoint faces fixed at zero. It is still not a material model and still partial: an odd
+//! interior difference or an unrepresentable intermediate refuses the whole three-cell update.
+//!
 //! This is deliberately not a material model. There is no coefficient, no time step, no unit and
 //! no calibrated viscosity; the caller supplies the face fluxes and sources and decides what a
 //! step means. It is not a water solver, and a conserved total is a statement about the
@@ -131,4 +136,69 @@ pub fn diffusive_flux_half(left: i64, right: i64) -> Option<i64> {
         None => return None,
     };
     0i64.checked_sub(half)
+}
+
+/// Three adjacent density samples: the smallest closed line a diffusive step updates.
+///
+/// The field names are positions, not roles; [`diffusive_line3_step`] reads `left`/`center` and
+/// `center`/`right` as the two interior faces and treats the two ends as closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DensityLine3 {
+    /// The left cell.
+    pub left: i64,
+    /// The center cell.
+    pub center: i64,
+    /// The right cell.
+    pub right: i64,
+}
+
+/// One synchronous exact diffusive update of a closed three-cell line, `nu = 1/2`.
+///
+/// The two interior faces are derived **once each** from the old state with
+/// [`diffusive_flux_half`] -- `-(center - left) / 2` and `-(right - center) / 2` -- and then
+/// shared: the left cell's outgoing face is the center cell's incoming face, and the center
+/// cell's outgoing face is the right cell's incoming face. The two endpoint faces are closed and
+/// carry zero. Each of the three cells is updated by [`conservative_density_step`] with its own
+/// source, so the update is `old - (outgoing - incoming) + source` per cell.
+///
+/// Every local is computed before the result is constructed, so a refusal at any face or cell
+/// returns `None` and no partially updated line. The operation is **partial** on purpose: an odd
+/// interior difference has no exact half, and an unrepresentable intermediate is refused rather
+/// than wrapped. There is no coefficient, time step, unit, float or rounding here.
+#[must_use]
+#[expect(
+    clippy::question_mark,
+    clippy::manual_let_else,
+    reason = "`?` desugars through `Try::branch`, which the Aeneas extraction has no model for; \
+              the explicit `match` with early `return None` is the form it can read"
+)]
+pub fn diffusive_line3_step(old: DensityLine3, source: DensityLine3) -> Option<DensityLine3> {
+    // Explicit `match` rather than `?` for the same reason as the two kernels above. Every local
+    // is bound before `Some`, so a late refusal discards the earlier results rather than
+    // returning a partial line.
+    let face_left = match diffusive_flux_half(old.left, old.center) {
+        Some(face_left) => face_left,
+        None => return None,
+    };
+    let face_right = match diffusive_flux_half(old.center, old.right) {
+        Some(face_right) => face_right,
+        None => return None,
+    };
+    let left = match conservative_density_step(old.left, 0, face_left, source.left) {
+        Some(left) => left,
+        None => return None,
+    };
+    let center = match conservative_density_step(old.center, face_left, face_right, source.center) {
+        Some(center) => center,
+        None => return None,
+    };
+    let right = match conservative_density_step(old.right, face_right, 0, source.right) {
+        Some(right) => right,
+        None => return None,
+    };
+    Some(DensityLine3 {
+        left,
+        center,
+        right,
+    })
 }
