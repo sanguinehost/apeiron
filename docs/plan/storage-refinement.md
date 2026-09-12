@@ -185,6 +185,7 @@ that makes clearing the first match equal to the canonical `none` write. Cones i
 generated `Ok none` changed to `Ok (some value)` fails `try_insert_spec` at
 `SafeTableRefinement.lean:786`; the unmutated bridge builds 3351 jobs.
 
-Still open: `WellFormed` is a hypothesis of both specs, not a conclusion. Proving it holds at
-`SafeTable::new` and is preserved by `try_insert`/`remove` (the `countP` step and the uniqueness step)
-is the next gate before the optimized `Map` can be retired.
+Both specs now conclude `WellFormed t'`. Preservation is proved by the `countP` step
+(`countP_set_some`/`countP_set_none`, `one_le_countP_of_get`) and the uniqueness step
+(`keysUnique_set_some`/`keysUnique_set_none`). Still open: `WellFormed` at the initial state
+(`SafeTable::new`); that is the next gate before the optimized `Map` can be retired.

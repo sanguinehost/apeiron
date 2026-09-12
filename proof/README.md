@@ -259,8 +259,10 @@ and `tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value)
 with `tableHMap t' = Apeiron.Table.insertWith (fun _ _ => none) key none (tableHMap self)`. The
 invariant supplies the `self.len ± 1` scalar bounds and, for `remove`, the key uniqueness that
 makes clearing the first match equal to the canonical `none` write. Both audit inside
-`{propext, Classical.choice, Quot.sound}`. The specs take `WellFormed` as a hypothesis; that it holds
-at `SafeTable::new` and is preserved by `try_insert`/`remove` is still open. Generic `SafeTable::new` is
+`{propext, Classical.choice, Quot.sound}`. Both specs now conclude `WellFormed t'`: the `countP` step
+(`countP_set_some`/`countP_set_none`, `one_le_countP_of_get`) and the uniqueness step
+(`keysUnique_set_some`/`keysUnique_set_none`). That `WellFormed` holds at the initial state
+(`SafeTable::new`) is the remaining item. Generic `SafeTable::new` is
 not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
 introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
 directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as

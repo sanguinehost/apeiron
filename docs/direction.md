@@ -335,8 +335,9 @@ corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` ret
 `try_insert_spec` and `remove_spec` link the extracted bodies to
 `Apeiron.Table.insertWith (fun new _ => new)` and `Apeiron.Table.insertWith (fun _ _ => none)`
 respectively, with the invariant supplying the `self.len ± 1` scalar bounds and, for `remove`, the
-key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}`. That `WellFormed` holds
-at `SafeTable::new` and is preserved by both write calls is the remaining proof obligation. The
+key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}`. Both specs now conclude `WellFormed t'`,
+so preservation is proved; that it holds at the initial state (`SafeTable::new`) is the remaining proof
+obligation. The
 optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope note is unchanged.
 
 ### Correctness Work Before Physics Reuse
