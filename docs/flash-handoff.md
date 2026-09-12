@@ -19,17 +19,31 @@ the order of work, acceptance gates and where to stop, not a completed migration
   carrier step and the exchange are refined to the ring-generic corpus; the corpus-connected
   carrier lab exercises the production path. Bridge `lake build` exit 0 (3276 jobs). Evidence:
   `proof/README.md`, `docs/plan/carrier-refinement.md`.
-- **Stage 5 — current**: constructive material experiment. The corpus conservation and energy
-  results (`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`,
-  `CarrierAuthority.lean`, `CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved, and
-  the fixed-line carrier realization/refinement proof has landed: the closed three-cell
-  `diffusive_line3_step` is extracted and refined to `scalarCarrierStep`/`exactHalfFlux` with the
-  finite total mass (`proof/README.md`). Corpus `d9aefc93` adds the any-ring line analogue
-  `diffusiveUpdate_half_three_anyRing` and the real exact quarter-energy identity
-  `dirichletEnergy_halfStep_three` with its strict form `dirichletEnergy_halfStep_three_lt`; the
-  `1/4` factor needs the order of `ℝ`, so no energy claim transfers to the word ring. The
-  surrounding Rust production integration, float mapping and live scheduling remain **tested, not
-  refined**. Evidence: `docs/autonomous-run-log.md`, `docs/direction.md`.
+- **Stage 5 — done**: the constructive material experiment, one closed three-cell diffusive line.
+  Production `src/carrier.rs::DensityLine3` / `diffusive_line3_step` (partial, `nu = 1/2`, shared
+  interior faces, checked refusals) is extracted as `word_diffusive_line3_step`
+  (`proof/extract/lib.rs`). `proof/corpus/WordRefinement.lean` proves
+  `word_diffusive_line3_step_denote` (each interior face an `Apeiron.Physics.exactHalfFlux` witness,
+  each component `Apeiron.Physics.scalarCarrierStep` at the shared face and closed end),
+  `_total_mass` and `_total_mass_zero_source`, the non-vacuity witness `_zero_success`, and the
+  refusal witnesses `_odd_refusal` / `_unrepresentable_refusal`; all `#audit`ed in
+  `proof/corpus/AxiomAudit.lean` inside `{propext, Classical.choice, Quot.sound}`. Corpus
+  `d9aefc93` adds the any-ring analogue
+  `Apeiron/Physics/CarrierScalarKernelAnyRing.lean::diffusiveUpdate_half_three_anyRing` (vacuous at
+  `ZMod (2^64)`: no `ν` has `2 * ν = 1`) and the real exact quarter-energy identity
+  `Apeiron/Physics/CarrierDissipation.lean::dirichletEnergy_halfStep_three` with strict form
+  `dirichletEnergy_halfStep_three_lt`, audited in `Apeiron/AuditCarrier.lean`; the `1/4` factor
+  needs the order of `ℝ`, so no energy claim transfers to the word ring. Penglai `f970862` routes
+  exactly-three-cell lines through the kernel (`src/physics/material.rs`, `StepRoute::Line3`; every
+  other length keeps the tested scalar loop), exercises it in `examples/material_line_lab.rs`, tests
+  wiring and runtime energy decrease in `tests/material_line.rs`, specifies the regime in
+  `docs/spec/carrier-material.md`, and measures it with `tests/material_line_bench.rs`
+  (`cargo test --release --locked --test material_line_bench -- --ignored --nocapture`, host
+  `leviathan`). Revisions: corpus `d9aefc93`, Apeiron evidence `d7121ac`, Penglai `f970862`.
+  Evidence: `proof/README.md`, `docs/autonomous-run-log.md`, `docs/direction.md`.
+  **Not covered**: the general `Vec` line (tested only, not a refinement target), any word-ring
+  energy claim, rustc/LLVM or GPU codegen, and live game integration/scheduling (tested, not
+  refined).
 
 ## First Session
 

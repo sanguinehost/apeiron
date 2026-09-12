@@ -288,10 +288,10 @@ half-flux, exchange and checked acceptance to them. `proof/regen.sh --check` is 
 and `cd proof/corpus && lake build` exits 0 (3276 jobs) with every `#audit` inside
 `{propext, Classical.choice, Quot.sound}`. The lifecycle artifacts are
 `docs/intent/carrier-refinement.md`, `docs/spec/carrier-refinement.md` and
-`docs/plan/carrier-refinement.md`. **Stage 5 is current.** Its corpus conservation/energy results
+`docs/plan/carrier-refinement.md`. **Stage 5 complete.** Its corpus conservation/energy results
 (`CarrierEvolve.lean`, `CarrierDissipation.lean`, `CarrierVolume.lean`, `CarrierAuthority.lean`,
 `CarrierCirculation.lean`, `CarrierBodyWork*.lean`) are Lean-proved. The fixed-line carrier
-realization/refinement proof has landed: the closed three-cell `diffusive_line3_step` is extracted
+realization/refinement proof is complete: the closed three-cell `diffusive_line3_step` is extracted
 from the real `src/carrier.rs` and refined to `scalarCarrierStep` and `exactHalfFlux`, with the
 denoted total changing only by the denoted sources (zero-source conservation corollary); see
 `proof/README.md`. Corpus `d9aefc93` adds the whole-line any-ring analogue
@@ -299,7 +299,9 @@ denoted total changing only by the denoted sources (zero-source conservation cor
 `dirichletEnergy_halfStep_three` with its strict form `dirichletEnergy_halfStep_three_lt`; the
 factor `1/4` needs the order of `ℝ`, so the ring theorem and the word bridge claim no energy. The
 surrounding Rust production integration, float mapping and live scheduling remain tested, not
-refined. Evidence for both is in `docs/autonomous-run-log.md`.
+refined. Evidence for both is in `docs/autonomous-run-log.md`. Closing evidence pointers are in
+`docs/flash-handoff.md` (Stage 5); revisions corpus `d9aefc93`, Apeiron evidence `d7121ac`, Penglai
+`f970862`.
 
 ### Correctness Work Before Physics Reuse
 
