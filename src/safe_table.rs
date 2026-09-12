@@ -29,7 +29,7 @@ impl<K, V, const N: usize> SafeTable<K, V, N> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            slots: std::array::from_fn(|_| None),
+            slots: [const { None }; N],
             len: 0,
         }
     }
@@ -69,13 +69,37 @@ impl<K, V, const N: usize> Default for SafeTable<K, V, N> {
 }
 
 impl<K: Eq, V, const N: usize> SafeTable<K, V, N> {
+    fn find_from(&self, key: &K, index: usize) -> Option<usize> {
+        if index == N {
+            return None;
+        }
+        match &self.slots[index] {
+            Some((stored, _)) if stored == key => Some(index),
+            _ => self.find_from(key, index + 1),
+        }
+    }
+
+    fn empty_from(&self, index: usize) -> Option<usize> {
+        if index == N {
+            return None;
+        }
+        if self.slots[index].is_none() {
+            Some(index)
+        } else {
+            self.empty_from(index + 1)
+        }
+    }
+
     /// Value stored at `key`.
     #[must_use]
     pub fn get(&self, key: &K) -> Option<&V> {
-        self.slots.iter().find_map(|slot| match slot {
-            Some((stored, value)) if stored == key => Some(value),
-            _ => None,
-        })
+        match self.find_from(key, 0) {
+            Some(index) => match &self.slots[index] {
+                Some((_, value)) => Some(value),
+                None => None,
+            },
+            None => None,
+        }
     }
 
     /// Whether `key` is stored.
@@ -93,32 +117,33 @@ impl<K: Eq, V, const N: usize> SafeTable<K, V, N> {
     /// Returns [`TableFull`] with ownership of `key` and `value` when the key is absent and every
     /// slot is occupied. The table is unchanged in that case.
     pub fn try_insert(&mut self, key: K, value: V) -> Result<Option<V>, TableFull<K, V>> {
-        for (stored, old) in self.slots.iter_mut().flatten() {
-            if stored == &key {
-                return Ok(Some(std::mem::replace(old, value)));
-            }
+        if let Some(index) = self.find_from(&key, 0) {
+            return match &mut self.slots[index] {
+                Some((_, old)) => Ok(Some(std::mem::replace(old, value))),
+                None => Err(TableFull { key, value }),
+            };
         }
 
-        for slot in &mut self.slots {
-            if slot.is_none() {
-                *slot = Some((key, value));
-                self.len += 1;
-                return Ok(None);
-            }
+        if let Some(index) = self.empty_from(0) {
+            self.slots[index] = Some((key, value));
+            self.len += 1;
+            Ok(None)
+        } else {
+            Err(TableFull { key, value })
         }
-
-        Err(TableFull { key, value })
     }
 
     /// Remove `key`, returning its value when present.
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        for slot in &mut self.slots {
-            let matches = slot.as_ref().is_some_and(|(stored, _)| stored == key);
-            if matches {
-                self.len -= 1;
-                return slot.take().map(|(_, value)| value);
-            }
+        match self.find_from(key, 0) {
+            Some(index) => match self.slots[index].take() {
+                Some((_, value)) => {
+                    self.len -= 1;
+                    Some(value)
+                }
+                None => None,
+            },
+            None => None,
         }
-        None
     }
 }
