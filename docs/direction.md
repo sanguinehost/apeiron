@@ -9,7 +9,7 @@ Execution order and specialist approval gates: [Flash operator handoff](flash-ha
 ## Decision
 
 **One Apeiron project: a canonical mathematical specification, its verified Rust
-implementation, and independently checked consumers. Penglai is the immediate
+implementation, and independent checkers. Penglai is the immediate
 application. Song is the sibling language/runtime instantiation, not a prerequisite
 for developing the Rust game. Fold consumes the substrate; it does not define it.**
 

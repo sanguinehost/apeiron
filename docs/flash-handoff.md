@@ -265,7 +265,7 @@ Do separate reviewed slices, each with a failing regression first:
    Existing f32/f64 `Monoid` implementations do not justify reassociation. Do not
    transfer real channel/projection classification to wrapping words, or call
    multiplication by `(1,1)` an idempotent projector.
-3. Verify the identity/region operations the next consumer needs: packing round
+3. Verify the identity/region operations the next stage needs: packing round
    trips, negative-coordinate Euclidean division, bounds, collision-safe identity,
    get/insert/remove, merge order and explicit capacity/failure outcomes.
 
@@ -276,7 +276,7 @@ optimized implementation equivalent. Preserve useful optimized paths as explicit
 tested implementations until their own obligations are discharged.
 
 Do not complete every std-shaped collection API before advancing the carrier.
-Fold's first consumer migration can follow the required table/identity gates
+Fold's consolidation onto the substrate can follow the required table/identity gates
 independently of the physics work. Hashtrinity adapters stay only where needed;
 TLS, Tokio and iroh replacement do not gate this stage.
 
