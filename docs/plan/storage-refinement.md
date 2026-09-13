@@ -114,9 +114,210 @@ explicit pure/total, equality-respecting home, faithful equality/clone and merge
 | 10 | Sol; B | `proof/corpus/TableReadRefinement.lean`, `proof/corpus/TableRefinement.lean`, `proof/corpus/AxiomAudit.lean`: terminating `find_slots` invariant at measure `N-i`, routing, get = canonical get | `lake build` in `proof/corpus` | Generated search always misses; present-key read theorem fails. |
 | 11 | Sol; B | `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/TableReadRefinement.lean`, `proof/corpus/AxiomAudit.lean`: exact admission/refusal, successful insertWith, Rep preservation; N=0, collision/full and full-existing witnesses | `lake build` in `proof/corpus` | Bypass `f new default`, or refuse an existing key in a full shard; unchanged theorem/witness fails. |
 | 12 | Sol; B | `proof/corpus/TableBuildRefinement.lean`, `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/AxiomAudit.lean`: exact per-shard distinct-key admission, ordered build refinement and canonical order/gauge corollaries | `lake build` in `proof/corpus` | Reverse same-key stream; replace/append control fails. Gauge corollary retains commutativity/associativity. |
-| 13 | Flash; E+B | `proof/storage-controls.py`, this plan: durable fail-closed baseline/red/restored runner for the preceding source/generated controls; runner is currently missing | `python3 proof/storage-controls.py` | Runner must reject a surviving mutation and missing tools. |
+| 13 | Flash; E+B | `proof/storage-controls.py`, this plan: durable fail-closed baseline/red/restored runner for the preceding source/generated controls; runner present (W13-T2/T4, W14-T3), twelve encoded controls with name-based locators | `python3 proof/storage-controls.py --jobs 3` | Runner must reject a surviving mutation and missing tools. |
+| 14 | Flash/Sol; B/E | split the generic admission module (W14-T1); discharge the abstract callback contract (W14-T2/T5); persist the toolchain patches (W14-T4); name-based control runner (W14-T3) | `lake build` in `proof/corpus`; `proof/install-patches.sh --check`; `python3 proof/storage-controls.py --jobs 3` | Each slice's throwaway mutation red at a named declaration; one-byte patch mutation red. |
+| 15 | Flash; B/E | run the epic barrier (W15-T1); real `cfg(kani)` harnesses in `src/proofs.rs` (W15-T2) | §6 barrier set | `Cell::add` → `sub` fails `word_cell_add_matches_native_wrapping`. |
 
-**First gate:** `lake build`, cwd `proof/corpus`; observed exit 1:
+### Generic-N refinement slices (waves 9-11 progress)
+
+Waves 9-10 are integrated at `1403767e671c81737525702946a3eb1eae4f0b0b` (`TableRefinement.lean` carries
+the constructor/read/refusal witnesses at that commit). Wave 11 is discharged serially in three
+slices on top of it; the planned `TableWriteRefinement.lean`/`TableReadRefinement.lean` module split
+was not used, and the obligations landed in `TableRefinement.lean`. Wave 12 (build) is not started.
+
+Owner Sol; lane B; owned files `proof/corpus/TableRefinement.lean`,
+`proof/corpus/AxiomAudit.lean`.
+
+| Slice | Obligation | Headline results | Gate |
+|---|---|---|---|
+| `APEIRON-TABLE-W11-T1` | generic-`N` present-key write preservation | `insert_with_present_exact`, `stateRead_replacePresent`, `insert_with_present_preserves`, `insert_with_present_rep_preservation`, `insert_with_present_joint_witness` | `lake build`, cwd `proof/corpus`, exit 0, 3358 jobs |
+| `APEIRON-TABLE-W11-T2` | generic-`N` executing read refinement | `find_slots_spec_generic`, `word_shard_index_spec`, `generatedRoute_exists`, `generatedLocator_routes`, `table_get_eq_stateRead_of_route`, `table_get_eq_stateRead`, `functionalRep_iff_readRep_of_routes`, `generatedFunctionalRep_iff_readRep`, `readRep_iff_Rep` | same |
+| `APEIRON-TABLE-W11-T3` | generic-`N` fresh-key insertion and vacant-slot loop | `stateRead_insertVacant`, `stateRead_insertEmptyShard`, `insert_with_empty_shard_exact`, `insert_with_loop0_vacant_body_exact`, `insert_with_loop0_vacant_spec`, `insert_with_loop0_full_spec_generic`, `insert_with_vacant_exact`, `insert_with_vacant_rep_preservation`, `insert_with_vacant_readRep_preservation`, `insert_with_absent_joint_witness` | same |
+
+`stateRead` is the total physical-state denotation at a locator; `FunctionalRep` is extensional
+equality with it. A state-independent locator is unsound because the generated `find` searches
+`t.shards`, so the read relation is state-indexed: `ReadRep t h` states the generated `get` result
+directly, and `readRep_iff_Rep` shows it equals the existing extensional `Rep` at `N = 16` in both
+directions. `generatedLocator t` is derived from the generated `shard_index`/`find` through
+`generatedRoute_exists`, so `table_get_eq_stateRead` is total over every generated state and key.
+
+Controls: mutate the generated present-key branch to store `value`; `insert_with_present_exact` fails
+at `TableRefinement.lean:630`. Mutate generated `get`'s present branch to return `self.default`;
+`table_get_eq_stateRead_of_route` fails at `TableRefinement.lean:963` with goal `t.default = value`.
+Mutate the throwaway generated `insert_with_loop0.body` vacant branch to store `value` instead of
+`wrapping_add value default`; `insert_with_loop0_vacant_body_exact` fails at
+`TableRefinement.lean:1240:69`. Restore builds green (3358 jobs). Every new headline `#audit`s inside
+`{propext, Classical.choice, Quot.sound}`; no forbidden token. Source, generated file and pins
+unchanged: `src/table.rs` `83597ecf...`, `proof/ApeironWord.lean` `958b1ab5...`.
+`TableRefinement.lean` `fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100` (587 lines),
+`TableRefinementGeneric.lean` `5db832f56256a22efcd0455dcba73f6e6fdb03d4a953c37f9d4d19481f306720` (1319
+lines), `TableRefinementBuild.lean` `7a8121d7ad7c1e64459f24e3dc09418837b8ccf6366a583bb21ba122daccbbbb`
+(1377 lines), `TableRefinementAdmission.lean`
+`1a6146c728c15660feab1594d56e07fa7b91636341d2c91b762874863422cd42` (1345 lines), `AxiomAudit.lean`
+`a8e5d11a5fadef761611d222423a0f62abc234913b77a9180e8a5672040e96f9` (249 lines).
+
+Module split (`APEIRON-TABLE-W11-T4`): the generic-`N` material moved from `TableRefinement.lean` to
+`TableRefinementGeneric.lean` under the same namespace (audit names unchanged), with
+`TableRefinementGeneric` added to `lakefile.lean` roots and imported by `AxiomAudit.lean`.
+`lakefile.lean` `09c2fb38f143a2ee9eaee9485800bdd0e220cd6bc500512481b6b18d84f2a88b`. Gate `lake build`,
+cwd `proof/corpus`, exit 0, 3359 jobs. Control: `#check Apeiron.TableRefinement.insert_with_present_exact`
+fails `lean.unknownIdentifier` with only `import TableRefinement` (exit 1) and resolves with
+`import TableRefinementGeneric` (exit 0).
+
+Unconditional post-state routing (`APEIRON-TABLE-W11-T5`): `word_shard_index_state_independent`,
+`find_slots_eq_of_matches`, `find_slots_insertVacant_ne`, `find_slots_insertVacant_self`,
+`table_find_insertVacant_ne`, `table_find_replacePresent`, `routes_replacePresent` and
+`routes_insertVacant` show the exact generated updates preserve generated routing;
+`insert_with_present_readRep_preservation` and `insert_with_vacant_readRep_preservation_routed` then
+derive `ReadRep` from `Routes t locate` alone, with no post-state routing premise. Gate `lake build`,
+cwd `proof/corpus`, exit 0, 3359 jobs; cone `{propext, Classical.choice, Quot.sound}`. Control:
+generated `insert_with_loop0.body` vacant branch `if b` → `if false`; red at
+`TableRefinementGeneric.lean:1062:17`; restore green. No forbidden token.
+
+Ordered build refinement, first slice (`APEIRON-TABLE-W12-T1`): `proof/corpus/TableRefinementBuild.lean`
+defines `sliceEntries`, `orderedFold` (`orderedFold_eq_build` shows it is `Apeiron.Table.build`
+definitionally) and the per-step physical predicate `BuildInsertPremises`;
+`build_insert_premises_success` discharges one real `insert_with` and preserves `ReadRep`;
+`table_build_loop_result_readRep` and `table_build_loop_readRep` give the `build_loop`
+`loop.spec_decr_nat` result (Ok returns the ordered fold, Err is `ShardFull`); `word_table_build_readRep`
+composes with the real empty constructor. `TableRefinementBuild` added to `lakefile.lean` roots and
+imported by `AxiomAudit.lean`. Gate `lake build`, cwd `proof/corpus`, exit 0, 3360 jobs; cone
+`{propext, Classical.choice, Quot.sound}`. Control: generated `build_loop.body` guard `i < i1` →
+`i.val + 1 < i1.val` skips the last element; red at `TableRefinementBuild.lean:163`; restore green.
+
+Physical invariant and unconditional build result (`APEIRON-TABLE-W12-T2`): `TableInv` states that
+every populated shard has an occupied prefix and vacant suffix (`OccupiedPrefix`);
+`emptyWordTable_tableInv` and `tableInv_insert_with` establish initialization and preservation by the
+real generated `insert_with` in every branch (present, vacant, untouched, and full-shard refusal via
+`insert_with_full_exact`). `buildInsertResult_of_readRep` and `allBuildInsertResults` expose the
+Err-allowing per-step result, and `word_table_build_result_readRep` is unconditional:
+`word_table_build default kvs = ok (Err ShardFull) ∨ ∃ final, = ok (Ok final) ∧ ReadRep final
+(Apeiron.Table.build core.num.I64.wrapping_add default (sliceEntries kvs))`. Gate `lake build`, cwd
+`proof/corpus`, exit 0, 3360 jobs; cone `{propext, Classical.choice, Quot.sound}`. Control: generated
+`insert_with_loop0.body` writes at `i + 1` instead of the first vacant slot; `tableInv_insert_with`
+fails to rebuild; restore green.
+
+Per-shard capacity admission (`APEIRON-TABLE-W12-T3`): `PrefixShardCapacity` is an explicit
+physical-state capacity contract (every occupied-prefix witness of a populated shard is shorter than
+16); `allBuildInsertsAdmitted_of_prefixShardCapacity` derives `AllBuildInsertsAdmitted`, and
+`word_table_build_readRep_of_prefixShardCapacity` gives the Ok-only canonical-fold refinement. Gate
+`lake build`, cwd `proof/corpus`, exit 0, 3360 jobs; cone `{propext, Classical.choice, Quot.sound}`.
+Control: generated present-key-as-absent mutation turns the build red (the first failure is the
+pre-existing present-key theorem at `TableRefinement.lean:220`, so localization to a new headline was
+not achieved); restore green.
+
+Physical no-duplicate invariant (`APEIRON-TABLE-W12-T4`): `ShardKeysDistinct`/`TableInv2` require
+pairwise-distinct keys in each populated shard's occupied prefix; `emptyWordTable_tableInv2` and
+`tableInv2_insert_with` establish initialization and preservation across every generated branch;
+`occupiedPrefix_distinct_key_count` counts them. `DistinctKeysPerShard` is the stream hypothesis;
+`prefixShardCapacity_of_distinctKeysPerShard` and `word_table_build_readRep_of_distinctKeysPerShard`
+close the capacity bridge conditional on `PrefixShardKeyCoverage`. Gate `lake build`, cwd
+`proof/corpus`, exit 0, 3360 jobs; cone `{propext, Classical.choice, Quot.sound}`. Control: generated
+present branch writes at the first vacant slot instead of the matching slot (duplicate key);
+`tableInv2_insert_with` fails at `TableRefinementBuild.lean:1013`; restore green.
+
+Stream-capacity admission (`APEIRON-TABLE-W12-T5`): `proof/corpus/TableRefinementAdmission.lean`
+proves the Ok-only canonical-fold build from the stream hypothesis `DistinctKeysPerShard` alone.
+`ReachablePrefixCoverage` is indexed by the carried state and prefix (not quantified over arbitrary
+`ReadRep` representatives); `emptyWordTable_reachablePrefixCoverage` and `reachablePrefix_insert`
+carry it through the real generated `insert_with`; `reachablePrefixCoverage_capacity` bounds each
+shard load by the distinct routed stream keys; and
+`word_table_build_readRep_of_distinctKeysPerShard_alone` composes with the real constructor. This
+supersedes the `PrefixShardCapacity`/`PrefixShardKeyCoverage` chain (those declarations remain). Gate
+`lake build`, cwd `proof/corpus`, exit 0, 3361 jobs; cone `{propext, Classical.choice, Quot.sound}`.
+Control: generated present-as-vacant duplicate mutation turns the build red (first failure
+`tableInv2_insert_with` at `TableRefinementBuild.lean:1013`, upstream of the new module); restore
+green.
+
+Exact admission characterization (`APEIRON-TABLE-W12-T6`/`T7`): `ReachablePrefixExact` strengthens the
+loop coverage to a bidirectional locator↔routed-keys equivalence (`emptyWordTable_reachablePrefixExact`,
+`reachablePrefixExact_insert`). `BuildAdmissible` is the tight per-step stream condition (the next key
+is already present in its routed shard, or that shard holds fewer than 16 distinct prefix keys).
+`word_table_build_readRep_of_buildAdmissible` gives the Ok branch; `buildAdmissible_of_distinctKeysPerShard`
+shows the earlier strict condition is sufficient but stronger than necessary;
+`word_table_build_success_implies_buildAdmissible`, `word_table_build_refuses_of_not_buildAdmissible`
+and `word_table_build_refuses_iff_not_buildAdmissible` close
+`word_table_build default kvs = ok (Err ShardFull) ↔ ¬ BuildAdmissible default kvs`. Gate `lake build`,
+cwd `proof/corpus`, exit 0, 3361 jobs; cone `{propext, Classical.choice, Quot.sound}`. Control:
+generated full-shard Err branch mutated to `Ok` with unchanged state; red at
+`TableRefinementAdmission.lean:1018`; restore green.
+
+Generic-`N` build and durable controls (`APEIRON-TABLE-W13-T1`/`T2`). W13-T1 adds
+`proof/corpus/TableRefinementBuildGeneric.lean` (1090 lines): the ordered build refinement at general
+`N` with the concrete word callbacks — `build_insert_premises_successN`, `buildInsertResult_of_readRepN`,
+`table_build_loop_result_readRepN` (unconditional `Err ShardFull ∨ ∃ final, Ok final ∧ ReadRep …`),
+`table_build_result_readRepN`, `table_build_readRepN`, `table_build_readRepN_of_distinctKeysPerShardN` —
+plus an abstract-callback loop layer whose one-step contract `BuildInsertResultG`/`BuildInsertOkG` and
+clone identities are explicit hypotheses (`table_build_loop_result_readRepG`, `table_build_loop_readRepG`).
+Gate `lake build`, cwd `proof/corpus`, exit 0, 3362 jobs; cone `{propext, Classical.choice, Quot.sound}`.
+Control: `BuildInsertResultN`'s `Ok` branch mutated to `ReadRep result.2 h`; red at
+`TableRefinementBuildGeneric.lean:497:12` (`table_build_loop_result_readRepN`); restore green. W13-T2
+adds `proof/storage-controls.py` (sha256 `16d6d4289b32ea8c872f3e81e6caf5f51c6f14c21c8547962c2907b0ba92b854`):
+a stdlib-only runner with `--list`, `--only`, `--jobs`, `--self-test` and 7 encoded generated-body
+controls (`w11-t1`, `w11-t2`, `w11-t3`, `w11-t5`, `w12-t1`, `w12-t6`, `s6-fresh-write`); each copies
+`proof/corpus`, applies one exact-string mutation, asserts the first `lake build` error locator,
+restores and re-asserts green. Gate: `python3 -m py_compile` exit 0, `--list` exit 0 (7 controls),
+`--self-test` exit 0 (10/10), `--only w11-t5` red at `TableRefinementGeneric.lean:1062:17` then green,
+`--jobs 3` 7/7. The repository tree and owned source digests are unchanged by the runner.
+
+Exact admission at general `N` and the durable runner (`APEIRON-TABLE-W13-T3`/`T4`). W13-T3 adds
+`proof/corpus/TableRefinementAdmissionGeneric.lean` (1500 lines, the file-size limit):
+`ReachablePrefixCoverageN`, `ReachablePrefixExactN`, `BuildAdmissibleN`,
+`emptyWordTableN_reachablePrefixExactN`, `reachablePrefixExact_insertN`,
+`reachablePrefixExact_admissible_of_insert_successN`, `buildAdmissibleN_of_distinctKeysPerShardN`,
+`table_build_readRepN_of_buildAdmissibleN`, `table_build_success_implies_buildAdmissibleN`,
+`table_build_refusesN_of_not_buildAdmissibleN`, and `table_build_refusesN_iff_not_buildAdmissibleN`
+(`wordBuildN default kvs = ok (Err ShardFull) ↔ ¬ BuildAdmissibleN default kvs`, `0 < N`). Gate
+`lake build`, cwd `proof/corpus`, exit 0, 3363 jobs; cone `{propext, Classical.choice, Quot.sound}`.
+Control: generated full-shard `Err` → `Ok ()`; the whole-package build fails first at
+`TableRefinement.lean:517` (`insert_full_loop_spec`), so the new headline is falsified transitively,
+not with a new-file red line. W13-T4 hardens `proof/storage-controls.py` (917 lines, sha256
+`ffde2f60e96de3b432cece34f9b1c4eb906b78dbed6181d153aba6ae8c626213`): nine encoded generated-body
+controls (`w11-t1`, `w11-t2`, `w11-t3`, `w11-t5`, `w12-t1`, `w12-t2`, `w12-t3`, `w12-t6`,
+`s6-fresh-write`), each a whole-package `lake build` in a throwaway copy with a current recorded
+locator (no `(stale)`), plus `--list`/`--only`/`--jobs`/`--self-test`; self-test 15/15 including
+missing-tool rejection (exit 3). Gate: `py_compile` exit 0, `--list` exit 0, `--self-test` exit 0,
+`--jobs 3` 9/9. Repository tree and source digests unchanged by the runner.
+
+Contract characterization, module split, runner hardening, toolchain patches (`APEIRON-TABLE-W14-T1`…`T5`).
+W14-T1 split the 1500-line `TableRefinementAdmissionGeneric.lean` into
+`TableRefinementReachablePrefixExactN.lean` (1271 lines) and `TableRefinementAdmissionGeneric.lean`
+(247 lines), byte-for-byte reconstruction verified; gate exit 0, 3364 jobs. W14-T2/W14-T5 discharged
+the abstract callback contract: `cloneI64_identity`, `buildInsertResultG_word_iff`,
+`buildInsertResultG_word`, `buildInsertOkG_word`, `table_build_loop_result_readRepG_word`,
+`table_build_loop_readRepG_word`, `WordBuildOneStepContractN`, `wordBuildOneStepContractN_iff_concrete`,
+`wordBuildOneStepContractN_sufficient`, plus the Aeneas `wpSpec_bind_iff` and the necessity
+characterization `BuildLoopSpecG`, `BuildInsertSpecG`, `AllBuildInsertSpecsG`,
+`buildLoopSpecG_iff_allBuildInsertSpecsG`, `buildLoopSpecG_true_iff_buildInsertResultG`,
+`buildLoopSpecG_false_iff_buildInsertOkG`; `TableRefinementBuildGeneric.lean` 1468 lines. W14-T4
+persisted the toolchain patches: `proof/patches/{charon-repeat-optional-trait.patch,
+aeneas-array-repeat.patch,PINS}`, `proof/install-patches.sh`, a `proof/README.md` pin section; gate
+`proof/install-patches.sh --check --aeneas-src /tmp/opencode/aeneas-src` exit 0, one-byte patch
+mutation red. W14-T3 hardened `proof/storage-controls.py` (1149 lines, sha256
+`06079130309505b8df59ad6e732e8e55969592fbb8c5e2480251e50588701914`): name-based locators, twelve
+encoded controls, `w12-t5` a decided rejection, and two in-file red lines (`w14-admission-generic` in
+`TableRefinementAdmissionGeneric.lean`, `w14-reachable-exact` in `TableRefinementReachablePrefixExactN.lean`);
+`--jobs 3` 12/12, `--self-test` 34/34.
+
+Epic barrier (`APEIRON-TABLE-W15-T1`/`T2`). All ten §6 commands exit 0: `git diff --check`,
+`cargo test --workspace --all-features --locked` (96 passed, 0 failed), `cargo clippy … -D warnings`,
+`cargo fmt --all -- --check`, `cargo kani`, `proof/regen.sh --check` (1708 jobs), `lake build` in
+`proof/` (1708) and `proof/corpus/` (3364), `proof/install-patches.sh --check` (patches apply to the
+pinned bases), `python3 proof/storage-controls.py --jobs 3` (12/12). The barrier mutated nothing:
+`git status --porcelain` and `sha256(proof/ApeironWord.lean)` (`958b1ab5…`) identical before and after.
+W15-T2 replaced the vacuous `cargo kani` gate: `src/proofs.rs` (958 lines, sha256
+`3be901668aee40abd04a1a1f5d99b140663f02a76d659aa7ea3a672692b464c5`) now carries 57 bounded
+`#[kani::proof]` harnesses (`Complete - 57 successfully verified harnesses, 0 failures, 57 total`);
+the control mutating `Cell::add` to `sub` fails `word_cell_add_matches_native_wrapping`; `cargo test`,
+`clippy`, `fmt` stay green.
+
+Residual (S4 open): the `Table` Kani behavioral harnesses use concrete edge keys because a symbolic key
+builds a 256-way mux that CBMC does not decide in reasonable time; `i64` multiplication
+associativity/distributivity is verified at the `i8` width `src/scalar.rs` prescribes, not at full
+`i64`. Both are bounded-model-checking limits, recorded, not correctness gaps. No rustc/LLVM codegen,
+ABI or GPU claim is established.
+
+**First gate (historical):** `lake build`, cwd `proof/corpus`; observed exit 1:
 
 ```text
 error: TableRefinement.lean:56:28: Unknown constant `apeiron_word.table.StorageError.CapacityOverflow`

@@ -1,0 +1,111 @@
+diff --git a/charon-ml/src/generated/Generated_Expressions.ml b/charon-ml/src/generated/Generated_Expressions.ml
+index 7e24ff64..70dc5b48 100644
+--- a/charon-ml/src/generated/Generated_Expressions.ml
++++ b/charon-ml/src/generated/Generated_Expressions.ml
+@@ -291,11 +291,13 @@ and rvalue =
+                 }
+             }
+           ]} *)
+-  | Repeat of operand * ty * constant_expr * trait_ref
++  | Repeat of operand * ty * constant_expr * trait_ref option
+       (** [Repeat(x, n)] creates an array where [x] is copied [n] times.
+ 
+           We translate this to a function call for LLBC. The last field is the
+-          proof that the repeated value is [Copy]. *)
++          proof that the repeated value is [Copy], or [None] when the operand is
++          a constant (rustc allows repeating a constant without requiring
++          [Copy]). *)
+ 
+ (** Unary operation *)
+ and unop =
+diff --git a/charon-ml/src/generated/Generated_OfJson.ml b/charon-ml/src/generated/Generated_OfJson.ml
+index 69a08182..a5c83c82 100644
+--- a/charon-ml/src/generated/Generated_OfJson.ml
++++ b/charon-ml/src/generated/Generated_OfJson.ml
+@@ -1200,7 +1200,7 @@ and rvalue_of_json (ctx : of_json_ctx) (js : json) : (rvalue, string) result =
+         let* _0 = operand_of_json ctx _0 in
+         let* _1 = ty_of_json ctx _1 in
+         let* _2 = constant_expr_of_json ctx _2 in
+-        let* _3 = trait_ref_of_json ctx _3 in
++        let* _3 = option_of_json trait_ref_of_json ctx _3 in
+         Ok (Repeat (_0, _1, _2, _3))
+     | _ -> Error "")
+ 
+diff --git a/charon-ml/src/generated/Generated_OfPostcard.ml b/charon-ml/src/generated/Generated_OfPostcard.ml
+index e1943324..8977edd6 100644
+--- a/charon-ml/src/generated/Generated_OfPostcard.ml
++++ b/charon-ml/src/generated/Generated_OfPostcard.ml
+@@ -1104,7 +1104,7 @@ and rvalue_of_postcard (ctx : of_postcard_ctx) (st : postcard_state) :
+          let* _0 = operand_of_postcard ctx st in
+          let* _1 = ty_of_postcard ctx st in
+          let* _2 = constant_expr_of_postcard ctx st in
+-         let* _3 = trait_ref_of_postcard ctx st in
++         let* _3 = option_of_postcard trait_ref_of_postcard ctx st in
+          Ok (Repeat (_0, _1, _2, _3))
+      | _ -> Error ("unknown enum variant tag: " ^ string_of_int __tag))
+ 
+diff --git a/charon/src/ast/bodies/expressions.rs b/charon/src/ast/bodies/expressions.rs
+index 19a7800b..0b925051 100644
+--- a/charon/src/ast/bodies/expressions.rs
++++ b/charon/src/ast/bodies/expressions.rs
+@@ -85,8 +85,10 @@ pub enum Rvalue {
+     /// `Repeat(x, n)` creates an array where `x` is copied `n` times.
+     ///
+     /// We translate this to a function call for LLBC.
+-    /// The last field is the proof that the repeated value is `Copy`.
+-    Repeat(Operand, Ty, ConstantExpr, TraitRef),
++    /// The last field is the proof that the repeated value is `Copy`. It is `None` when the
++    /// operand is a constant: rustc allows repeating a constant without requiring `Copy` (e.g.
++    /// `[const { None }; N]`), so no trait clause is needed.
++    Repeat(Operand, Ty, ConstantExpr, Option<TraitRef>),
+ }
+ 
+ #[derive(
+diff --git a/charon/src/bin/charon-driver/translate/translate_bodies.rs b/charon/src/bin/charon-driver/translate/translate_bodies.rs
+index b3d6f655..ab200b36 100644
+--- a/charon/src/bin/charon-driver/translate/translate_bodies.rs
++++ b/charon/src/bin/charon-driver/translate/translate_bodies.rs
+@@ -746,7 +746,7 @@ impl<'tcx> BlockTransCtx<'tcx, '_, '_, '_> {
+                 Operand::Const(field),
+                 elem_ty.clone(),
+                 len.clone(),
+-                ty_is_copy,
++                Some(ty_is_copy),
+             )))
+         } else {
+             Ok(None)
+@@ -1202,10 +1202,15 @@ impl<'tcx> BlockTransCtx<'tcx, '_, '_, '_> {
+                 Ok(Rvalue::Use(Operand::Copy(place), WithRetag::No))
+             }
+             mir::Rvalue::Repeat(operand, cnst) => {
+-                let ty_is_copy = {
++                // Repeating a constant (e.g. `[const { None }; N]`) does not require the element
++                // type to be `Copy`, so we must not try to solve for it: doing so would produce a
++                // spurious `Unknown` `<T as Copy>` clause for generic element types.
++                let ty_is_copy = if matches!(operand, mir::Operand::Constant(_)) {
++                    None
++                } else {
+                     let rust_ty = operand.ty(self.local_decls, self.tcx);
+                     let proof = hax::solve_copy(&self.hax_state, rust_ty);
+-                    self.translate_trait_proof(span, &proof)?
++                    Some(self.translate_trait_proof(span, &proof)?)
+                 };
+                 let c = self.translate_ty_constant_expr(span, cnst)?;
+                 let op = self.translate_operand(span, operand)?;
+diff --git a/charon/src/transform/simplify_output/builtins_to_function_calls.rs b/charon/src/transform/simplify_output/builtins_to_function_calls.rs
+index 17aa1ba9..b615f2ff 100644
+--- a/charon/src/transform/simplify_output/builtins_to_function_calls.rs
++++ b/charon/src/transform/simplify_output/builtins_to_function_calls.rs
+@@ -125,6 +125,12 @@ fn transform_operation(std_items: &Transform, ctx: &TransformCtx, statement: &mu
+         }
+         // Transform the array aggregates to function calls.
+         StatementKind::Assign(place, Rvalue::Repeat(operand, ty, len, ty_is_copy)) => {
++            // A repeat with a constant operand carries no `Copy` proof; desugaring it to
++            // `core::array::repeat` would impose a spurious `Clone` bound. Leave it as a native
++            // `Repeat`.
++            let Some(ty_is_copy) = ty_is_copy.as_ref() else {
++                return;
++            };
+             // We could avoid the clone operations below if we take the content of
+             // the statement. In practice, this shouldn't have much impact.
+             let Some(&fun_id) = std_items.item_map.get(&StdItem::ArrayRepeat) else {
