@@ -53,11 +53,12 @@ the order of work, acceptance gates and where to stop, not a completed migration
   identity for credentialed builds, not private-host availability or offline vendoring. Lifecycle:
   `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
   `docs/plan/corpus-release-pin.md`.
-- **Storage — blocked implementation link**: `src/table.rs::Table` is the sole executing storage.
-  Charon carries real bodies for `new`, `get`, `insert_with`, and `build`; Aeneas rejects the stored
-  `fn(&K) -> u64` field with `Arrow types are not supported yet` before translating any method.
-  `TableRefinement.lean` proves only the canonical constant-default/new-first contracts and the two
-  extracted `StorageError` constructors. Deleted `SafeTable` rows are superseded.
+- **Storage — extracted witness link proved; universal preservation open**: all four real bodies
+  occur in `proof/ApeironWord.lean`. `proof/corpus/TableRefinement.lean` proves
+  `word_table_new_rep`, `word_table_get_new_first`, `word_table_get_replaced`,
+  `word_table_build_get_acc`, `word_table_shardFull_refusal` and
+  `word_table_joint_branch_witness`; audits are closed. Universal `Rep` preservation for arbitrary
+  admitted states remains open.
 
 ## Post-Stage-6 Barriers
 
@@ -65,7 +66,7 @@ Dependency order. Each row names the gate that closes it and the current blocker
 
 | # | Barrier | Repo | Gate | Status / blocker |
 |---|---|---|---|---|
-| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; `lake build` in `proof/corpus` | Blocked. Canonical default/new-first contracts and real error constructors are checked; no generated `Table` type or method exists. |
+| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; `lake build` in `proof/corpus` | Partial. Real bodies and concrete word-instance constructor/write/build/refusal links are proved; universal `Rep` preservation is open. |
 | 2 | Corpus F2 certificate completeness | corpus | New module `proof`/`lake build` + `#audit` | Open. Relative completeness on the capped fragment is reachable; the uncapped alphabet is not. `theory/DEAD_ENDS.md` carries the routes. |
 | 3 | Corpus A5 Transport rooting | corpus | `lake build`; `scripts/check-lints.py`; `scripts/check-style.py` | Open. `Transport/Basic.lean` sits on `Transport/Ordered.lean` (ordered field), not the trichotomy's `InCell`/`meet`. |
 | 4 | Corpus F3 E18 snapshot | corpus | `theory/E18.md`; `python3 scripts/check-imports.py` in corpus | Recorded closed at `435817b8`; no new run here. Corpus Track F and F2 remain open. |
@@ -94,19 +95,18 @@ Renewed closure of any epic also requires the shared integration and assurance g
 | ID | Required output | Gate (cwd) / remaining work |
 |---|---|---|
 | S1 | One executing `Table`; default read, collisions, growth, directional replacement and build tests | `cargo test --locked --test table` (root); implementation tests exist, fresh full barrier not run here. Old SafeTable/Map trace superseded. |
-| S2 | Per-body real-source extraction verdict; no opaque substitute | Charon roots `word_table_{new,get,insert,build}` contain each real body. Aeneas: all blocked at `Table.home` by `Arrow types are not supported yet`. `proof/regen.sh --check` accepts only reachable real `StorageError` constructors. |
-| S3 | Canonical default read and new-first write equations | `newTable_default_read`, `newTable_insertWith_self`, `newTable_insertWith`; `lake build` (`proof/corpus`) exit 0. Grade `proved` for `HMap`, not Rust refinement. |
-| S4 | Joint initialization/write witness tied to the actual constructor | `newTable_joint_witness` is checked for canonical `HMap`; actual `Table::new` link **BLOCKED** because no generated `table.Table` exists. |
-| S5 | Exact `StorageError` refusal witnesses and unchanged denotation | `capacityOverflow_refusal_witness`, `allocationFailed_refusal_witness` use extracted error constructors; exact operation conditions and Rust state preservation remain **BLOCKED** with `insert_with`. |
-| S6 | Baseline/red/restore for default/new-first semantics | Same-filesystem throwaway mutation `merge value default` → `merge default value` fails `newTable_insertWith_self`; restore builds. Rust-body mutation control remains open until a method extracts. |
+| S2 | Per-body real-source extraction verdict; no opaque substitute | `word_table_{new,get,insert,build}` and their real generic bodies occur in `proof/ApeironWord.lean`; `proof/regen.sh --check` exits 0. |
+| S3 | Canonical default read and new-first write equations | `emptyWordTable_read`, `word_table_get_new_first`, `word_table_get_replaced`, `word_table_build_get_acc`; bridge `lake build` exits 0. Grade `proved` at the stated word witnesses. |
+| S4 | Joint initialization/write witness tied to the actual constructor | `word_table_new_rep`, `word_table_new_joint_witness`, `word_table_joint_branch_witness`; universal transition preservation remains open. |
+| S5 | Exact `StorageError` refusal witnesses and unchanged denotation | `table_insert_shardFull`, `word_table_shardFull_refusal`; absent/full joint hypotheses and unchanged generated state are checked. |
+| S6 | Baseline/red/restore for default/new-first semantics | Same-filesystem generated-body mutation `merge value default` → `merge default value` fails `table_insert_empty_zero`; restored copy builds. |
 | S7 | Joint Rust and proof integration on one source/tool identity | `proof/regen.sh --check` and bridge `lake build` required here; all `AGENTS.md` §6 Rust/Kani barriers remain open for epic closure. |
 | S8 | Complete audited cone, source/tool identity and bounded perimeter | New headlines are `#audit`ed inside `{propext, Classical.choice, Quot.sound}`. Full assurance/perimeter enforcement remains open. |
 
-The old `SafeTableRefinement` and `word_safe_table4_*` rows are superseded. No theorem about deleted
-source transfers to `Table`. Next bounded storage wave: add Aeneas support for arrow-valued struct
-fields or change the frozen callback representation through a separately approved contract task,
-then extract `Table::new` and `get` and prove a real `Rep` constructor/read link. No storage
-performance claim is made.
+The old `SafeTableRefinement` and `word_safe_table4_*` rows are superseded. Next bounded storage
+wave: define a physical `Rep` invariant for arbitrary fixed-shard word states and prove successful
+`insert_with`/`build` preservation plus exact admission completeness. No storage performance claim
+is made.
 
 ## First Session
 

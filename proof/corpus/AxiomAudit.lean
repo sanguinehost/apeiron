@@ -133,10 +133,22 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Physics.diffusiveUpdate_eq_scalarCarrierStep
 #audit Apeiron.Physics.exactHalfFlux_diffusiveFlux
 
--- The canonical contract reachable before the executing representation extracts
-#audit Apeiron.TableRefinement.newTable_default_read
-#audit Apeiron.TableRefinement.newTable_insertWith_self
-#audit Apeiron.TableRefinement.newTable_insertWith
-#audit Apeiron.TableRefinement.newTable_joint_witness
-#audit Apeiron.TableRefinement.capacityOverflow_refusal_witness
-#audit Apeiron.TableRefinement.allocationFailed_refusal_witness
+-- The executing fixed-shard table refines the canonical total table
+#audit Apeiron.TableRefinement.word_table_new_eq_empty
+#audit Apeiron.TableRefinement.emptyWordTable_read
+#audit Apeiron.TableRefinement.word_table_new_rep
+#audit Apeiron.TableRefinement.word_table_new_joint_witness
+#audit Apeiron.TableRefinement.table_insert_empty_zero
+#audit Apeiron.TableRefinement.word_table_insert_new_first
+#audit Apeiron.TableRefinement.word_table_get_new_first
+#audit Apeiron.TableRefinement.table_insert_present_zero
+#audit Apeiron.TableRefinement.word_table_insert_replaces_present
+#audit Apeiron.TableRefinement.word_table_get_replaced
+#audit Apeiron.TableRefinement.table_build_loop_two
+#audit Apeiron.TableRefinement.word_table_build_ordered
+#audit Apeiron.TableRefinement.word_table_build_get_acc
+#audit Apeiron.TableRefinement.find_slots_spec
+#audit Apeiron.TableRefinement.insert_full_loop_spec
+#audit Apeiron.TableRefinement.table_insert_shardFull
+#audit Apeiron.TableRefinement.word_table_shardFull_refusal
+#audit Apeiron.TableRefinement.word_table_joint_branch_witness

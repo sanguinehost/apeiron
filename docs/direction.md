@@ -311,17 +311,19 @@ nonexistent-revision mutation exits 128 during Git checkout. The lifecycle and d
 are in `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
 `docs/plan/corpus-release-pin.md` and `proof/README.md`.
 
-**Single-table extraction blocked; canonical contract slice proved.** `src/table.rs` is the sole
-executing storage path. Charon translates the real `new`, `get`, `insert_with` and `build` bodies,
-but Aeneas rejects each selected root before function translation at `Table.home`:
-`Arrow types are not supported yet`; `Could not translate type decl 'apeiron_word::table::Table
-because of previous error`. No axiom or substitute representation is accepted. The generated file
-therefore contains only the real `StorageError` constructors from this path, not `Table` methods.
-`proof/corpus/TableRefinement.lean` proves the canonical `HMap` constant-default read,
-new-first `insertWith`, one joint witness and unchanged-state witnesses for both extracted
-`StorageError` constructors. All audit inside `{propext, Classical.choice, Quot.sound}`. Grade:
-`proved` for the canonical contracts and extracted error constructors; the Rust-to-`HMap`
-implementation link is open. The deleted `SafeTable` proofs are superseded historical evidence.
+**Single-table extracted witness refinement proved; arbitrary-state preservation remains open.**
+`proof/ApeironWord.lean` contains the real `new`, `get`, `insert_with` and `build` bodies.
+`proof/corpus/TableRefinement.lean` proves `word_table_new_rep`, `emptyWordTable_read`,
+`word_table_insert_new_first`, `word_table_get_new_first`,
+`word_table_insert_replaces_present`, `word_table_get_replaced`, `word_table_build_ordered`,
+`word_table_build_get_acc`, `word_table_shardFull_refusal` and
+`word_table_joint_branch_witness`. The build read uses `Apeiron.Table.get_build_acc`; the refusal
+witness has one absent key and sixteen occupied keys in the same shard, with the generated state
+unchanged. `proof/corpus/AxiomAudit.lean` checks every headline inside
+`{propext, Classical.choice, Quot.sound}`. `lake build` in `proof/corpus`,
+`proof/regen.sh --check` and `git diff --check` exit 0. Grade `proved` for these constructor and
+concrete word-instance witnesses. Universal `Rep` preservation for every admitted table/key/stream
+remains open; no broader storage-refinement claim follows.
 
 ### Correctness Work Before Physics Reuse
 
