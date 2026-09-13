@@ -226,13 +226,47 @@ descriptive only.
 
 ## 9 · Agents and escalation
 
-- Work directly. No swarm, generic exploration agents, or automatic fan-out.
-- **One specialist at a time**, and only for a specific unresolved proof, implementation or
-  architecture obligation. Obtain user approval before each invocation; approval covers one
-  invocation, not retries or session resumes.
-- State before the invocation: agent, scoped files, exact question, evidence already obtained, and
-  the acceptance command. Do not change permissions or launch agents through a shell/API to bypass
-  the gate.
+### 9.1 Flash-first escalation
+
+`deepseek-flash` executes every dispatch-ready task by default. Escalation is selected by the
+artifact at risk, not by a subjective difficulty estimate. A mandatory trigger, not familiarity or a
+first failed hypothesis, selects the model.
+
+| role | assignment | mandatory trigger | required return |
+|---|---|---|---|
+| Flash (`deepseek-flash`) | default bounded worker | task is ≤3 files, one task-specific gate, and no escalation trigger holds | edited artifact, exact gate output, measurement, decision |
+| Sol (`openai-sol`) | verification and proof escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation | proof or gate verdict, named premises, residual obligation |
+| Astra (`openai-astra`) | architecture and integration escalation | the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | frozen boundary, task decomposition, integration order, residual risk |
+| Terra (`openai-terra`) | lead-assigned sustained implementation | Astra has frozen a large boundary and the lead assigns the build | implementation diff, frozen-boundary gate results |
+| lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
+
+- Flash continues while the task stays within its declared files and one gate and no trigger holds.
+  When both the Sol and Astra triggers hold, both verdicts are required.
+- A Sol escalation states the theorem, contract, claim grade, control or missing artifact at issue,
+  and the exact decision requested. Sol adjudicates proof sufficiency; it does not waive a gate or a
+  DoD pillar.
+- An Astra escalation states the affected repositories, overlapping paths or conflicting documents,
+  and the proposed boundary. Astra freezes interfaces and decomposes work; it does not waive a
+  register, bound or control.
+- Every handoff includes `SCOPE`, declared paths, the current diff, an available red command and
+  output, available measurements, and one explicit question. A missing gate, theorem, attribution,
+  diff or measurement is named as the residual obligation, never invented. Conversation history is
+  not a handoff.
+- Sol and Astra return a bounded decision or artifact. Execution returns to Flash when that result
+  restores a ≤3-file, one-gate task; escalation does not transfer ordinary work. Terra's
+  lead-assigned implementation is the exception.
+- Standing user authorization covers Sol and Astra invocations that meet a trigger. Only the lead
+  closes a wave, merges, commits or pushes unless the user delegates that authority. A missing
+  required verdict keeps the task open.
+
+### 9.2 Agent conduct
+
+- Lead with the result, the exact measurement and the decision.
+- Ground every claim in a primary artifact: read the source, run the gate, quote the line.
+- Resolve via executables; execute the command and inspect the diff rather than describing it.
+- Maintain forward momentum: complete every actionable subgoal, and on a barrier report the exact
+  obstacle and advance the remaining units.
+- Frame any necessary assumption in one sentence, then execute toward completion.
 - After three materially different failed approaches to one obstacle, stop and report the smallest
   unresolved goal.
 - Do not commit, push, post externally, or modify another active workstream unless the user asks.
