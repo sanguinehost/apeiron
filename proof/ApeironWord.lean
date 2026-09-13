@@ -324,27 +324,532 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
 }
 
 /-- [apeiron_word::table::StorageError]
-    Source: 'proof/extract/../../src/table.rs', lines 9:0-14:1
+    Source: 'proof/extract/../../src/table.rs', lines 10:0-13:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.StorageError where
-| CapacityOverflow : table.StorageError
-| AllocationFailed : table.StorageError
+| ShardFull : table.StorageError
 
-/-- [apeiron_word::word_storage_capacity_overflow]:
-    Source: 'proof/extract/lib.rs', lines 35:0-37:1
+/-- Trait declaration: [apeiron_word::table::Home]
+    Source: 'proof/extract/../../src/table.rs', lines 16:0-19:1
     Visibility: public -/
-def word_storage_capacity_overflow : Result table.StorageError := do
-  ok table.StorageError.CapacityOverflow
+structure table.Home (Self : Type) (K : Type) where
+  home : Self → K → Result Std.U64
 
-/-- [apeiron_word::word_storage_allocation_failed]:
-    Source: 'proof/extract/lib.rs', lines 40:0-42:1
+/-- Trait declaration: [apeiron_word::table::Merge]
+    Source: 'proof/extract/../../src/table.rs', lines 28:0-31:1
     Visibility: public -/
-def word_storage_allocation_failed : Result table.StorageError := do
-  ok table.StorageError.AllocationFailed
+structure table.Merge (Self : Type) (V : Type) where
+  merge : Self → V → V → Result V
+
+/-- [apeiron_word::table::WordHome]
+    Source: 'proof/extract/../../src/table.rs', lines 40:0-40:20
+    Visibility: public -/
+@[reducible]
+def table.WordHome := Unit
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Home<i64> for apeiron_word::table::WordHome}::home]:
+    Source: 'proof/extract/../../src/table.rs', lines 43:4-48:5
+    Visibility: public -/
+def table.WordHome.Insts.Apeiron_wordTableHomeI64.home
+  (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
+  ok (IScalar.hcast .U64 key)
+
+/-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Home<i64> for apeiron_word::table::WordHome}]
+    Source: 'proof/extract/../../src/table.rs', lines 42:0-49:1 -/
+@[reducible]
+def table.WordHome.Insts.Apeiron_wordTableHomeI64 : table.Home table.WordHome
+  Std.I64 := {
+  home := table.WordHome.Insts.Apeiron_wordTableHomeI64.home
+}
+
+/-- [apeiron_word::table::WordMerge]
+    Source: 'proof/extract/../../src/table.rs', lines 52:0-52:21
+    Visibility: public -/
+@[reducible]
+def table.WordMerge := Unit
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}::merge]:
+    Source: 'proof/extract/../../src/table.rs', lines 55:4-57:5
+    Visibility: public -/
+def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
+  (self : table.WordMerge) (new : Std.I64) (old : Std.I64) :
+  Result Std.I64
+  := do
+  ok (core.num.I64.wrapping_add new old)
+
+/-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}]
+    Source: 'proof/extract/../../src/table.rs', lines 54:0-58:1 -/
+@[reducible]
+def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
+  table.WordMerge Std.I64 := {
+  merge := table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
+}
+
+/-- [apeiron_word::table::Table]
+    Source: 'proof/extract/../../src/table.rs', lines 64:0-72:1
+    Visibility: public -/
+structure table.Table (K : Type) (V : Type) (H : Type) (N : Std.Usize) where
+  default : V
+  home : H
+  shards : Array (Option (Array (Option (K × V)) N)) 256#usize
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::new]:
+    Source: 'proof/extract/../../src/table.rs', lines 77:4-83:5
+    Visibility: public -/
+def table.Table.new
+  {K : Type} {V : Type} {H : Type} (N : Std.Usize) (HomeInst : table.Home H K)
+  (default : V) (home : H) :
+  Result (table.Table K V H N)
+  := do
+  let a := Array.repeat 256#usize none
+  ok { default, home, shards := a }
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::shard_index]:
+    Source: 'proof/extract/../../src/table.rs', lines 85:4-93:5 -/
+def table.Table.shard_index
+  {K : Type} {V : Type} {H : Type} {N : Std.Usize} (HomeInst : table.Home H K)
+  (self : table.Table K V H N) (key : K) :
+  Result Std.Usize
+  := do
+  let i ← HomeInst.home self.home key
+  let i1 ← i % 256#u64
+  ok (UScalar.cast .Usize i1)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]: loop body 0:
+    Source: 'proof/extract/../../src/table.rs', lines 106:8-115:5 -/
+@[rust_loop_body]
+def table.Table.find_slots_loop.body
+  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
+  (slots : Array (Option (K × V)) N) (key : K) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
+  := do
+  if i < N
+  then
+    let o ← Array.index_usize slots i
+    match o with
+    | none => let i1 ← i + 1#usize
+              ok (cont i1)
+    | some p =>
+      let (stored, _) := p
+      let b ←
+        core.cmp.impls.PartialEqShared.eq corecmpEqInst.partialEqInst stored
+          key
+      if b
+      then ok (done (some i))
+      else let i1 ← i + 1#usize
+           ok (cont i1)
+  else ok (done none)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]: loop 0:
+    Source: 'proof/extract/../../src/table.rs', lines 106:8-115:5 -/
+@[rust_loop]
+def table.Table.find_slots_loop
+  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
+  (slots : Array (Option (K × V)) N) (key : K) (i : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun i1 => table.Table.find_slots_loop.body corecmpEqInst slots key i1)
+    i
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]:
+    Source: 'proof/extract/../../src/table.rs', lines 104:4-115:5 -/
+@[reducible]
+def table.Table.find_slots
+  {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
+  K) (HomeInst : table.Home H K) (slots : Array (Option (K × V)) N)
+  (key : K) :
+  Result (Option Std.Usize)
+  := do
+  table.Table.find_slots_loop corecmpEqInst slots key 0#usize
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find]:
+    Source: 'proof/extract/../../src/table.rs', lines 97:4-102:5 -/
+def table.Table.find
+  {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
+  K) (HomeInst : table.Home H K) (self : table.Table K V H N)
+  (shard : Std.Usize) (key : K) :
+  Result (Option Std.Usize)
+  := do
+  let o ← Array.index_usize self.shards shard
+  match o with
+  | none => ok none
+  | some slots => table.Table.find_slots corecmpEqInst HomeInst slots key
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::get]:
+    Source: 'proof/extract/../../src/table.rs', lines 119:4-129:5
+    Visibility: public -/
+def table.Table.get
+  {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
+  K) (HomeInst : table.Home H K) (self : table.Table K V H N) (key : K) :
+  Result V
+  := do
+  let shard ← table.Table.shard_index HomeInst self key
+  let o ← table.Table.find corecmpEqInst HomeInst self shard key
+  match o with
+  | none => ok self.default
+  | some i =>
+    let o1 ← Array.index_usize self.shards shard
+    match o1 with
+    | none => ok self.default
+    | some slots =>
+      let o2 ← Array.index_usize slots i
+      match o2 with
+      | none => ok self.default
+      | some p => let (_, value) := p
+                  ok value
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 0:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.insert_with_loop0.body
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize ((core.result.Result Unit table.StorageError)
+    × (Array (Option (Array (Option (K × V)) N)) 256#usize)))
+  := do
+  if i < N
+  then
+    let o ← Array.index_usize slots i
+    let b := core.option.Option.is_none o
+    if b
+    then
+      let t1 ← corecloneCloneInst.clone t
+      let merged ← MergeInst.merge merge value t1
+      massert (i < N)
+      let (o1, index_mut_back1) ← Array.index_mut_usize slots i
+      let slots1 := index_mut_back1 o1
+      let slots2 ← Array.update slots1 i (some (key, merged))
+      let a := index_mut_back (some slots2)
+      ok (done (core.result.Result.Ok (), a))
+    else let i1 ← i + 1#usize
+         ok (cont i1)
+  else
+    let a := index_mut_back (some slots)
+    ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 0:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop]
+def table.Table.insert_with_loop0
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result ((core.result.Result Unit table.StorageError) × (Array (Option (Array
+    (Option (K × V)) N)) 256#usize))
+  := do
+  loop
+    (fun i1 => table.Table.insert_with_loop0.body corecloneCloneInst MergeInst
+      index_mut_back t merge key value slots i1)
+    i
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 1:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.insert_with_loop1.body
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize ((core.result.Result Unit table.StorageError)
+    × (Array (Option (Array (Option (K × V)) N)) 256#usize)))
+  := do
+  if i < N
+  then
+    let o ← Array.index_usize slots i
+    let b := core.option.Option.is_none o
+    if b
+    then
+      let t1 ← corecloneCloneInst.clone t
+      let merged ← MergeInst.merge merge value t1
+      massert (i < N)
+      let (o1, index_mut_back1) ← Array.index_mut_usize slots i
+      let slots1 := index_mut_back1 o1
+      let slots2 ← Array.update slots1 i (some (key, merged))
+      let a := index_mut_back (some slots2)
+      ok (done (core.result.Result.Ok (), a))
+    else let i1 ← i + 1#usize
+         ok (cont i1)
+  else
+    let a := index_mut_back (some slots)
+    ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 1:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop]
+def table.Table.insert_with_loop1
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result ((core.result.Result Unit table.StorageError) × (Array (Option (Array
+    (Option (K × V)) N)) 256#usize))
+  := do
+  loop
+    (fun i1 => table.Table.insert_with_loop1.body corecloneCloneInst MergeInst
+      index_mut_back t merge key value slots i1)
+    i
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 2:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.insert_with_loop2.body
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize ((core.result.Result Unit table.StorageError)
+    × (Array (Option (Array (Option (K × V)) N)) 256#usize)))
+  := do
+  if i < N
+  then
+    let o ← Array.index_usize slots i
+    let b := core.option.Option.is_none o
+    if b
+    then
+      let t1 ← corecloneCloneInst.clone t
+      let merged ← MergeInst.merge merge value t1
+      massert (i < N)
+      let (o1, index_mut_back1) ← Array.index_mut_usize slots i
+      let slots1 := index_mut_back1 o1
+      let slots2 ← Array.update slots1 i (some (key, merged))
+      let a := index_mut_back (some slots2)
+      ok (done (core.result.Result.Ok (), a))
+    else let i1 ← i + 1#usize
+         ok (cont i1)
+  else
+    let a := index_mut_back (some slots)
+    ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 2:
+    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Visibility: public -/
+@[rust_loop]
+def table.Table.insert_with_loop2
+  {K : Type} {V : Type} {F : Type} {N : Std.Usize} (corecloneCloneInst :
+  core.clone.Clone V) (MergeInst : table.Merge F V)
+  (index_mut_back : Option (Array (Option (K × V)) N) → Array (Option (Array
+  (Option (K × V)) N)) 256#usize) (t : V) (merge : F) (key : K) (value : V)
+  (slots : Array (Option (K × V)) N) (i : Std.Usize) :
+  Result ((core.result.Result Unit table.StorageError) × (Array (Option (Array
+    (Option (K × V)) N)) 256#usize))
+  := do
+  loop
+    (fun i1 => table.Table.insert_with_loop2.body corecloneCloneInst MergeInst
+      index_mut_back t merge key value slots i1)
+    i
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]:
+    Source: 'proof/extract/../../src/table.rs', lines 138:4-175:5
+    Visibility: public -/
+def table.Table.insert_with
+  {K : Type} {V : Type} {H : Type} {F : Type} {N : Std.Usize} (corecmpEqInst :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone V) (HomeInst :
+  table.Home H K) (MergeInst : table.Merge F V) (self : table.Table K V H N)
+  (merge : F) (key : K) (value : V) :
+  Result ((core.result.Result Unit table.StorageError) × (table.Table K V H
+    N))
+  := do
+  let shard ← table.Table.shard_index HomeInst self key
+  let o ← table.Table.find corecmpEqInst HomeInst self shard key
+  match o with
+  | none =>
+    if N = 0#usize
+    then ok (core.result.Result.Err table.StorageError.ShardFull, self)
+    else
+      let o1 ← Array.index_usize self.shards shard
+      let b := core.option.Option.is_none o1
+      if b
+      then
+        let slots := Array.repeat N none
+        let t ← corecloneCloneInst.clone self.default
+        let merged ← MergeInst.merge merge value t
+        massert (0#usize < N)
+        let (o2, index_mut_back) ← Array.index_mut_usize slots 0#usize
+        let slots1 := index_mut_back o2
+        let slots2 ← Array.update slots1 0#usize (some (key, merged))
+        massert (shard < 256#usize)
+        let (o3, index_mut_back1) ← Array.index_mut_usize self.shards shard
+        let a := index_mut_back1 o3
+        let a1 ← Array.update a shard (some slots2)
+        ok (core.result.Result.Ok (), { self with shards := a1 })
+      else
+        let (o2, index_mut_back) ← Array.index_mut_usize self.shards shard
+        match o2 with
+        | none =>
+          let a := index_mut_back none
+          ok (core.result.Result.Err table.StorageError.ShardFull,
+            { self with shards := a })
+        | some slots =>
+          let (r, a) ←
+            table.Table.insert_with_loop0 corecloneCloneInst MergeInst
+              index_mut_back self.default merge key value slots 0#usize
+          ok (r, { self with shards := a })
+  | some i =>
+    let (o1, index_mut_back) ← Array.index_mut_usize self.shards shard
+    match o1 with
+    | none =>
+      if N = 0#usize
+      then
+        let a := index_mut_back none
+        ok (core.result.Result.Err table.StorageError.ShardFull,
+          { self with shards := a })
+      else
+        let a := index_mut_back none
+        let o2 ← Array.index_usize a shard
+        let b := core.option.Option.is_none o2
+        if b
+        then
+          let slots := Array.repeat N none
+          let t ← corecloneCloneInst.clone self.default
+          let merged ← MergeInst.merge merge value t
+          massert (0#usize < N)
+          let (o3, index_mut_back1) ← Array.index_mut_usize slots 0#usize
+          let slots1 := index_mut_back1 o3
+          let slots2 ← Array.update slots1 0#usize (some (key, merged))
+          massert (shard < 256#usize)
+          let (o4, index_mut_back2) ← Array.index_mut_usize a shard
+          let a1 := index_mut_back2 o4
+          let a2 ← Array.update a1 shard (some slots2)
+          ok (core.result.Result.Ok (), { self with shards := a2 })
+        else
+          let (o3, index_mut_back1) ← Array.index_mut_usize a shard
+          match o3 with
+          | none =>
+            let a1 := index_mut_back1 none
+            ok (core.result.Result.Err table.StorageError.ShardFull,
+              { self with shards := a1 })
+          | some slots =>
+            let (r, a1) ←
+              table.Table.insert_with_loop1 corecloneCloneInst MergeInst
+                index_mut_back1 self.default merge key value slots 0#usize
+            ok (r, { self with shards := a1 })
+    | some slots =>
+      let (o2, index_mut_back1) ← Array.index_mut_usize slots i
+      match o2 with
+      | none =>
+        if N = 0#usize
+        then
+          let slots1 := index_mut_back1 none
+          let a := index_mut_back (some slots1)
+          ok (core.result.Result.Err table.StorageError.ShardFull,
+            { self with shards := a })
+        else
+          let slots1 := index_mut_back1 none
+          let a := index_mut_back (some slots1)
+          let o3 ← Array.index_usize a shard
+          let b := core.option.Option.is_none o3
+          if b
+          then
+            let slots2 := Array.repeat N none
+            let t ← corecloneCloneInst.clone self.default
+            let merged ← MergeInst.merge merge value t
+            massert (0#usize < N)
+            let (o4, index_mut_back2) ← Array.index_mut_usize slots2 0#usize
+            let slots3 := index_mut_back2 o4
+            let slots4 ← Array.update slots3 0#usize (some (key, merged))
+            massert (shard < 256#usize)
+            let (o5, index_mut_back3) ← Array.index_mut_usize a shard
+            let a1 := index_mut_back3 o5
+            let a2 ← Array.update a1 shard (some slots4)
+            ok (core.result.Result.Ok (), { self with shards := a2 })
+          else
+            let (o4, index_mut_back2) ← Array.index_mut_usize a shard
+            match o4 with
+            | none =>
+              let a1 := index_mut_back2 none
+              ok (core.result.Result.Err table.StorageError.ShardFull,
+                { self with shards := a1 })
+            | some slots2 =>
+              let (r, a1) ←
+                table.Table.insert_with_loop2 corecloneCloneInst MergeInst
+                  index_mut_back2 self.default merge key value slots2 0#usize
+              ok (r, { self with shards := a1 })
+      | some p =>
+        let (t, stored) := p
+        let t1 ← corecloneCloneInst.clone stored
+        let stored1 ← MergeInst.merge merge value t1
+        let slots1 := index_mut_back1 (some (t, stored1))
+        let a := index_mut_back (some slots1)
+        ok (core.result.Result.Ok (), { self with shards := a })
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]: loop body 0:
+    Source: 'proof/extract/../../src/table.rs', lines 193:8-202:5
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.build_loop.body
+  {K : Type} {V : Type} {H : Type} {F : Type} {N : Std.Usize} (corecmpEqInst :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone V) (HomeInst :
+  table.Home H K) (MergeInst : table.Merge F V) (corecloneCloneInst1 :
+  core.clone.Clone K) (merge : F) (kvs : Slice (K × V))
+  (state : table.Table K V H N) (i : Std.Usize) :
+  Result (ControlFlow ((table.Table K V H N) × Std.Usize) (core.result.Result
+    (table.Table K V H N) table.StorageError))
+  := do
+  let i1 := Slice.len kvs
+  if i < i1
+  then
+    let (key, value) ← Slice.index_usize kvs i
+    let t ← corecloneCloneInst1.clone key
+    let t1 ← corecloneCloneInst.clone value
+    let (r, state1) ←
+      table.Table.insert_with corecmpEqInst corecloneCloneInst HomeInst
+        MergeInst state merge t t1
+    match r with
+    | core.result.Result.Ok _ => let i2 ← i + 1#usize
+                                 ok (cont (state1, i2))
+    | core.result.Result.Err error => ok (done (core.result.Result.Err error))
+  else ok (done (core.result.Result.Ok state))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]: loop 0:
+    Source: 'proof/extract/../../src/table.rs', lines 193:8-202:5
+    Visibility: public -/
+@[rust_loop]
+def table.Table.build_loop
+  {K : Type} {V : Type} {H : Type} {F : Type} {N : Std.Usize} (corecmpEqInst :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone V) (HomeInst :
+  table.Home H K) (MergeInst : table.Merge F V) (corecloneCloneInst1 :
+  core.clone.Clone K) (merge : F) (kvs : Slice (K × V))
+  (state : table.Table K V H N) (i : Std.Usize) :
+  Result (core.result.Result (table.Table K V H N) table.StorageError)
+  := do
+  loop
+    (fun (state1, i1) => table.Table.build_loop.body corecmpEqInst
+      corecloneCloneInst HomeInst MergeInst corecloneCloneInst1 merge kvs
+      state1 i1)
+    (state, i)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]:
+    Source: 'proof/extract/../../src/table.rs', lines 182:4-202:5
+    Visibility: public -/
+def table.Table.build
+  {K : Type} {V : Type} {H : Type} {F : Type} (N : Std.Usize) (corecmpEqInst :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone V) (HomeInst :
+  table.Home H K) (MergeInst : table.Merge F V) (corecloneCloneInst1 :
+  core.clone.Clone K) (merge : F) (default : V) (kvs : Slice (K × V))
+  (home : H) :
+  Result (core.result.Result (table.Table K V H N) table.StorageError)
+  := do
+  let state ← table.Table.new N HomeInst default home
+  table.Table.build_loop corecmpEqInst corecloneCloneInst HomeInst MergeInst
+    corecloneCloneInst1 merge kvs state 0#usize
 
 /-- [apeiron_word::word_mul]:
-    Source: 'proof/extract/lib.rs', lines 45:0-47:1
+    Source: 'proof/extract/lib.rs', lines 27:0-29:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -353,14 +858,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'proof/extract/lib.rs', lines 50:0-52:1
+    Source: 'proof/extract/lib.rs', lines 32:0-34:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'proof/extract/lib.rs', lines 59:0-61:1
+    Source: 'proof/extract/lib.rs', lines 41:0-43:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -370,7 +875,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'proof/extract/lib.rs', lines 64:0-72:1
+    Source: 'proof/extract/lib.rs', lines 46:0-54:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -381,7 +886,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'proof/extract/lib.rs', lines 76:0-83:1
+    Source: 'proof/extract/lib.rs', lines 58:0-65:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -391,14 +896,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'proof/extract/lib.rs', lines 86:0-88:1
+    Source: 'proof/extract/lib.rs', lines 68:0-70:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'proof/extract/lib.rs', lines 92:0-97:1
+    Source: 'proof/extract/lib.rs', lines 74:0-79:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -407,7 +912,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'proof/extract/lib.rs', lines 100:0-102:1
+    Source: 'proof/extract/lib.rs', lines 82:0-84:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -416,7 +921,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'proof/extract/lib.rs', lines 105:0-107:1
+    Source: 'proof/extract/lib.rs', lines 87:0-89:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -425,7 +930,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'proof/extract/lib.rs', lines 114:0-120:1
+    Source: 'proof/extract/lib.rs', lines 96:0-102:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -433,5 +938,54 @@ def word_accept_derived_impulse
   Result (Option (exchange.Exchange Std.I64))
   := do
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
+
+/-- [apeiron_word::word_table_new]:
+    Source: 'proof/extract/lib.rs', lines 105:0-107:1
+    Visibility: public -/
+def word_table_new
+  (default : Std.I64) :
+  Result (table.Table Std.I64 Std.I64 table.WordHome 16#usize)
+  := do
+  table.Table.new 16#usize table.WordHome.Insts.Apeiron_wordTableHomeI64
+    default ()
+
+/-- [apeiron_word::word_table_get]:
+    Source: 'proof/extract/lib.rs', lines 110:0-112:1
+    Visibility: public -/
+def word_table_get
+  (state : table.Table Std.I64 Std.I64 table.WordHome 16#usize) (key : Std.I64)
+  :
+  Result Std.I64
+  := do
+  table.Table.get core.cmp.EqI64 table.WordHome.Insts.Apeiron_wordTableHomeI64
+    state key
+
+/-- [apeiron_word::word_table_insert]:
+    Source: 'proof/extract/lib.rs', lines 115:0-122:1
+    Visibility: public -/
+def word_table_insert
+  (state : table.Table Std.I64 Std.I64 table.WordHome 16#usize) (key : Std.I64)
+  (value : Std.I64) :
+  Result ((table.Table Std.I64 Std.I64 table.WordHome 16#usize) ×
+    (core.result.Result Unit table.StorageError))
+  := do
+  let (result, state1) ←
+    table.Table.insert_with core.cmp.EqI64 core.clone.CloneI64
+      table.WordHome.Insts.Apeiron_wordTableHomeI64
+      table.WordMerge.Insts.Apeiron_wordTableMergeI64 state () key value
+  ok (state1, result)
+
+/-- [apeiron_word::word_table_build]:
+    Source: 'proof/extract/lib.rs', lines 125:0-130:1
+    Visibility: public -/
+def word_table_build
+  (default : Std.I64) (kvs : Slice (Std.I64 × Std.I64)) :
+  Result (core.result.Result (table.Table Std.I64 Std.I64 table.WordHome
+    16#usize) table.StorageError)
+  := do
+  table.Table.build 16#usize core.cmp.EqI64 core.clone.CloneI64
+    table.WordHome.Insts.Apeiron_wordTableHomeI64
+    table.WordMerge.Insts.Apeiron_wordTableMergeI64 core.clone.CloneI64 ()
+    default kvs ()
 
 end apeiron_word
