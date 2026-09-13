@@ -435,11 +435,14 @@ migration landed in the corpus before `16112030`.
 
 ## Fold And Hashtrinity
 
-hashtrinity is the superseded basis. Fold is the deprecated tree built on it, and
-sanguine-apeiron was made to replace it. Fold is not a consumer, not a compatibility
-obligation and not a requirements source for apeiron; nothing here is kept or shaped
-for a Fold consumer. Apeiron is not the proposed home of every HTTP, TLS, codec,
-macro, reactor or async-runtime replacement.
+hashtrinity is the superseded basis. Fold as a whole is being sunset (fold#15: D1 merges
+Apeiron and canonical Sanguine into one project and ends Fold as a competing primitive
+stack), with substrate convergence tracked at fold#14 (hashtrinity -> apeiron <-
+sanguine-apeiron) and the RFC and evidence in `docs/rfcs/0001-core-architecture/`. Fold
+is not a consumer, not a compatibility obligation and not a requirements source for
+apeiron; nothing here is kept or shaped for a Fold consumer. The #10-#13 masquerade scope
+stays in fold and does not gate apeiron. Apeiron is not the proposed home of every HTTP,
+TLS, codec, macro, reactor or async-runtime replacement.
 
 This is not a package-name substitution. Hashtrinity's ordinary `Table::get`
 trusts folded coordinates; its sentinel mapping aliases the top three words

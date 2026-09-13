@@ -75,7 +75,7 @@ Dependency order. Each row names the gate that closes it and the current blocker
 | 6 | Song A0.6.P1-P6 parser semantics | song + corpus | `lake build Apeiron.Parser.*`; Slang refinement | Partial. P1/P2 model + fixtures pass; P3-P6 refinement and bounded completeness are open. |
 | 7 | Song A0.4 stream correspondence | song + corpus | `Apeiron/Decider/Stream.lean` + Slang `ckBatchParse` refinement | Partial. Executing driver green; the model and refinement are the missing gate. |
 | 8 | Penglai material integration | penglai | `cargo test --locked`; `proof/regen.sh --check` | N=3 line refined. Next: `substrate-port-scope.md` milestones 4 (2-factor) through 8 (playable bank). Milestone 7 (temporal material and 3-D) is research. |
-| 9 | Fold migration | fold | fold gates | Deferred until the table/carrier gates above are green. Preserve the dirty CQ work. |
+| 9 | Fold sunset | fold#15, fold#14 | fold's own gates | The substrate is apeiron (fold#14); #10-#13 masquerade stays in fold. Preserve the dirty CQ work. |
 
 ### Epic exits
 
