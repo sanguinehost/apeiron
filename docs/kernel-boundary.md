@@ -118,7 +118,7 @@ Reading bottom-up, marking who controls each layer:
 | syscall wrappers (`libc`, or inline `asm!`) | us / libc | the *wrappers* yes, the kernel no |
 | runtime / reactor / scheduler | us | yes, if written in a verifiable subset |
 | **the algebra (`Cell`, `R[x]/(x²−σ)`)** | us | **yes — Lean proves it; Aeneas refines the `Cell<i64>` kernel** |
-| **storage (`Table<K, V>`)** | us | Sole representation; declaration only at the boundary commit. Executing constructor, reads, writes, build and layout must all be refined before acceptance. |
+| **storage (`Table<K, V, H, N>`)** | us | Sole executing representation; all four methods extract and elaborate without allocator axioms. Direct corpus refinement remains open. |
 | application / game logic | us | yes |
 | language and compiler (`song` / Slang) | us | toolchain correctness is its own problem |
 
@@ -156,48 +156,75 @@ The supplied checkout is the authorized boundary-edit lane.
 **Authority read:** gen2 branch `apeiron-rebuild`, clean revision
 `50c94192399add3b9f8e64bd14e36d8cba270705`, at
 `../sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean`.
-The bridge still pins `d9aefc93522e2109bc96158526de6dbd52477276`; moving that pin and checking
-the imported theorems is a separate acceptance task. Reading the new revision is not a build.
+The bridge manifest resolves that same revision and Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
+Reading the revision is not a new corpus proof.
 
 #### Representation and public contract
 
-- **One type:** `apeiron::Table<K, V>`, defined in `src/table.rs`; no aliases or wrapper containers.
+- **One type:** `apeiron::Table<K, V, H, const N: usize = 16>`, defined in `src/table.rs`;
+  no aliases or wrapper containers.
   `src/map.rs`, `src/safe_table.rs` and `src/set.rs` are deleted, including `Map`, `Words`,
   `Exposed`, `ExposedWords`, `SafeTable`, `TableFull`, `Set`, `WordSet`, `ExposedSet` and the map
   entry/iterator/storage-policy types. The former `CountTable`, regions, scanner and worker code
   are removed from `src/table.rs`, not retained under a second name. Algebra modules remain.
-- **Current artifact:** a declaration with private default, home function and initialized-vector
-  shard fields, with no constructor or methods. It is not an executing implementation. Library
-  export and the merge example name only `Table`; legacy tests, examples, benches, fuzz and Kani
-  callers intentionally remain red pending semantic migration. No alias makes their old API work.
-- **Required API:** `new(d, home) -> Self`, `get(&self, &K) -> &V`,
-  `insert_with(&mut self, f, k, v) -> Result<(), StorageError>`, and
-  `build(f, d, kvs: Vec<(K,V)>, home) -> Result<Self, StorageError>`.
-  `home: fn(&K) -> u64`; writes use `K: Eq`, `V: Clone`, and `f: Fn(V,V) -> V`.
-  `new` is allocation-free (empty shard vector); the first write initializes 256 shards.
-  `get` returns the default even before allocation. No `Option`-valued absence is imposed:
+- **Current artifact:** executing constructor, lookup, insertion and build, with private default,
+  concrete home value and inline `[Option<[Option<(K,V)>; N]>; 256]` storage. An outer `None`
+  denotes an untouched empty shard; it does not defer a heap allocation. There is no `Vec` in
+  the table or its build body. Scalar loops and full-key comparisons are the only search path.
+- **API:** `new(d, home: H) -> Self`, `get(&self, &K) -> &V`,
+  `insert_with(&mut self, f: &F, k, v) -> Result<(), StorageError>`, and
+  `build(f: &F, d, kvs: &[(K,V)], home: H) -> Result<Self, StorageError>`.
+  `H: Home<K>`, `F: Merge<V>`, writes use `K: Eq`, `V: Clone`, and build additionally uses
+  `K: Clone`. Blanket function/closure adapters use the same bodies; concrete `WordHome` and
+  `WordMerge` avoid arrow-valued Rust fields in the extracted word instance. The latter is
+  wrapping addition, not an assumption that all merges commute.
+  `new` and table storage operations allocate no heap. No `Option`-valued absence is imposed:
   `V = Option<W>` is an ordinary instance. Presence uses `bool`, count a chosen numeric type,
   adjacency a list value; none introduces another container name.
 - **Semantics:** `HMap K V := K → V`. Let `D(t)(k)` be the unique matching override in shard
-  `home(k) mod 256`, or the stored default. `Rep(t,h)` requires zero or 256 initialized shards,
-  globally unique keys, every entry in its home shard, and `∀ k, D(t)(k) = h(k)` (through key/value
+  `home(k) mod 256`, or the stored default. `Rep(t,h)` requires the fixed outer array, optional
+  length-`N` shard arrays, globally unique keys, every entry in its home shard, and
+  `∀ k, D(t)(k) = h(k)` (through key/value
   denotations when Rust and Lean types differ). Constructors establish `Rep(t, fun _ => d)`;
   reads denote `Apeiron.Table.get`; successful writes establish
   `Rep(t', Apeiron.Table.insertWith f k v h)`. Even the first write computes **`f v d`**, not `v`.
   `build` starts from `d` and applies exactly those writes to the finite stream. This realizes
-  the constant-default, finite-update fragment of total functions; it does not enumerate all `K → V`.
-- **Layout:** one home-sharded representation with initialized `Vec<(K,V)>` entries, bounded
-  scalar search and full-key equality to resolve collisions. Growth preserves denotation; it is
-  not another table or a fixed-capacity-four reference. There is no raw-iteration public contract.
+  the constant-default fragment with at most `N` stored keys per shard; it does not enumerate all
+  `K → V`. All keys remain readable, including when storage is full or `N = 0`.
+- **Layout:** one fixed-capacity sharded representation, not a capacity-four reference beside a
+  growable implementation. The capacity parameter is a caller-selected resource bound; proofs
+  must quantify over `N`, not silently specialize the contract to the default 16-slot probe.
+  There is no growth or raw-iteration public contract.
   The home callback must be total, stable and respect key equality. Generic `Eq`, `Clone` and merge
   callbacks need explicit denotation/termination contracts; Rust trait names alone prove no laws.
-- **Resources:** the canonical functions are total; physical allocation is not. Checked capacity
-  arithmetic and fallible reservation report `StorageError` before changing logical entries.
-  Reservation failure leaves denotation unchanged (not necessarily allocation capacity); `build`
-  returns no partial table. Prove success on the explicit resource-admitted domain, exact checked
-  refusal conditions and witnesses, not only an implication conditional on a returned success.
-  Allocation failure is not logical fullness. Generic callbacks can panic/diverge; their total
-  pure contracts must be discharged for each claimed instance. No unwind theorem is assumed.
+- **Resources:** this authorized replacement removes `CapacityOverflow`/`AllocationFailed` and
+  adds `ShardFull`: insertion refuses exactly when the key is absent and its home shard has no
+  vacant slot. The refusal changes no table field and invokes neither clone nor merge; existing
+  keys still update in a full shard. `N = 0` admits construction/reads and refuses every write.
+  A build is admitted exactly when each shard receives at most `N` distinct keys (including
+  writes whose merged value equals the default). It returns no partial table on refusal.
+  Prove success on this explicit domain, exact refusal and preservation with joint witnesses;
+  a conditional-on-success theorem alone is insufficient. This changes the physical admission
+  contract, not the total canonical `insertWith`/`build` definitions.
+  Inline object/stack size grows with `N`; stack availability is not proved. Borrowed input avoids
+  table-owned stream allocation but adds key/value cloning. Generic `Home`, equality, clone,
+  merge and drop may allocate, panic or diverge; their pure/total denotations require separate
+  instance proofs. No generic allocation-free or unwind claim follows from the word extraction.
+
+**Choice and trust cost (anchor):** fixed shards remove the need to model `Vec::capacity`,
+`Vec::try_reserve_exact` and `TryReserveError`. A growable model would need capacity/length bounds,
+reservation success and refusal, content preservation on both outcomes, and a correspondence to
+the actual allocator primitive. A Lean model definition alone would not prove that correspondence;
+assuming it enlarges external trust even if it adds no Lean axiom. Merely deleting reservation and
+using `Vec::push` hides allocation failure and is rejected. Caller-provided growable arenas introduce
+another ownership/resource interface without eliminating its proof obligation. Fixed inline storage
+is the smallest selected interface; reduced admission and larger stack objects are its explicit cost.
+
+Per-body Charon/Aeneas translation and Lean elaboration pass for `new`, `get`, `insert_with`, `build`;
+`proof/regen.sh --check` accepts their real generic bodies and concrete word roots. No allocator
+axiom, opaque table method or substitute simulation is accepted. Extraction is not yet a proof of
+termination, `Rep`, or equality to `HMap`. `proof/corpus` currently fails on the obsolete allocation
+error witnesses; the next proof task replaces them with actual constructor/refusal witnesses.
 
 #### Exact theorem links and limits
 
@@ -220,11 +247,11 @@ decoder link; no real null-basis theorem automatically transfers to `ZMod (2^64)
 
 | Mechanism | Boundary decision |
 |---|---|
-| Safe scalar home routing, search, growth, writes, stable build | Inside the same executing-source extraction and direct corpus refinement; all presently open. |
+| Safe scalar home routing, search, fixed-slot writes, stable build | Inside the same executing-source extraction; direct corpus refinement remains open. |
 | SSE2/SWAR dispatch and raw `MaybeUninit` lifecycle | Removed. No intrinsic or heap-simulation axiom is allowed to replace their missing proofs. A later optimization must refine this same type and executing path before acceptance. |
 | Scoped worker scheduling and joins | Removed. Pure shard independence can be proved; that does not prove thread memory semantics, panic propagation or liveness. Reintroduction requires a checked implementation route, not gauge invariance alone. |
-| Rust/Lean translation and modeled `Vec` primitives | Explicit external trust inventory: Charon/Aeneas translation fidelity, model correspondence and Lean kernel. Extraction must still reject unmodeled operations. |
-| Allocator/OS, rustc/LLVM, ABI, hardware, GPU | Outside source-level refinement; no allocation-availability, binary-execution, ring-0 or GPU theorem. These assumptions cannot include the desired table transition simulation itself. |
+| Rust/Lean translation and modeled arrays/slices/words | External trust: patched Charon/Aeneas translation fidelity (including const `Repeat` to `Array.repeat`), primitive correspondence and Lean kernel. No new tool patch or allocator model in this change. |
+| Stack/OS, rustc/LLVM, ABI, hardware, GPU; generic value/callback allocation | Outside the word storage claim; no stack-availability, binary-execution, ring-0 or GPU theorem. These assumptions cannot include the desired table transition simulation itself. |
 
 A stored-state application additionally needs its actual read/compute/write composition linked;
 the existing scalar/carrier proofs neither establish that composition nor the new table.

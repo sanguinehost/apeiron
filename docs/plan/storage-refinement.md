@@ -1,6 +1,141 @@
 # Plan - Single Table Refinement
 
-## Binding boundary replacement
+## Fixed-shard representation: current boundary and evidence
+
+Owner Astra; base `d3423b2ec3dea6ddd0a8a668381d7749ecfdfff4`, initially clean main.
+The lead assigns this supplied checkout, representation implementation, build/test acceptance,
+per-body extraction verdicts and a building main commit/push. The unrelated `one-allocation`
+branch is untouched. This section and `docs/kernel-boundary.md` supersede the growable contract
+below and the obsolete storage statements in other documents; no epic closure is claimed.
+
+**Intent/spec:** one executing `Table<K,V,H,N>` with 256 inline optional shards, `N` optional
+full-key entries each, default `N = 16`. Checked `ShardFull` replaces allocator failure, not total
+lookup. `Home<K>`/`Merge<V>` have concrete word instances; adapters call the same generic methods.
+Build borrows a slice and clones entries in input order. Exact admission, representation relation,
+callback premises, rejected alternatives and stack/translation trust cost are in the boundary.
+`Home.lean` does not specify shard capacity, allocation or Rust simulation. Its collision facts do
+not license discarding keys. Fixed capacity is an explicit resource restriction, not a reduced
+statement of `HMap` or an alternative table outside the executing path.
+
+Three serialized owned slices, IDs `APEIRON-TABLE-W8-T1` through `T3`, owner Astra:
+`src/table.rs`, `src/merge.rs`, `tests/table.rs` (R, build/test);
+`proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` (E, regeneration);
+the two governing documents (no build lane). They share the authorized representation commit.
+
+```text
+SCOPE:      the three slices above; fixed inline storage, real-body extraction, bounded proof plan
+REGISTER:   representation/extraction/test/planning; excludes completed Rust-to-HMap refinement
+CORPUS:     Apeiron.Table "get_insertWith_self", "get_build_acc", "get_build_append"; native proved
+REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+GATE:       cargo build/test --workspace --all-features --locked; proof/regen.sh --check (root)
+            supplied red: capacity/try_reserve_exact/TryReserveError axioms after arrow removal
+GRADE:      tested representation; clean extraction/elaboration, not proved table refinement
+```
+
+### Observed gates and extraction verdict
+
+| Command | Exit/result |
+|---|---|
+| `cargo build --workspace --all-features --locked` | 0 |
+| `cargo test --workspace --all-features --locked` | 0; 94 tests and 2 doctests |
+| `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` | 0 |
+| `cargo fmt --all -- --check` | 0 |
+| `proof/regen.sh`; `proof/regen.sh --check` | 0 each; fresh, no `axiom`/`sorry`/`admit`, 1708-job build |
+| `lake build` in `proof/corpus` | 1; obsolete `TableRefinement.lean:56:28` error below; WordRefinement builds |
+
+Per-body command, root cwd, `b` each of `new get insert build`, existing writable `$out`:
+
+```sh
+target/aeneas/charon rustc --preset aeneas --dest-file "$out/$b.llbc" \
+  --start-from "crate::word_table_$b" -- --edition 2021 --crate-type lib \
+  --crate-name apeiron_word proof/extract/lib.rs
+target/aeneas/aeneas -backend lean -dest "$out" -warnings-as-errors \
+  -no-progress-bar "$out/$b.llbc"
+```
+
+Each Charon and Aeneas exit is 0; each generated file has the real method `def`, zero forbidden
+declarations and passes `lake env lean <absolute-generated-file>` from `proof/` (exit 0).
+Verbatim Aeneas output excerpts, ANSI color removed:
+
+```text
+[Info ] Generated: /tmp/opencode/apeiron-fixed-verdicts/New.lean
+[Info ] Generated: /tmp/opencode/apeiron-fixed-verdicts/Get.lean
+[Info ] Generated: /tmp/opencode/apeiron-fixed-verdicts/Insert.lean
+[Info ] Generated: /tmp/opencode/apeiron-fixed-verdicts/Build.lean
+```
+
+Full local per-body logs: `/tmp/opencode/apeiron-fixed-verdicts/{new,get,insert,build}-{charon,aeneas,lean}.log`.
+No remaining unsupported construct in these roots. Trials exposed nested const-repeat failure,
+early return inside an outer optional-shard match, then loop-context joining failure. The final
+source uses a single const-repeat per construction, an isolated array search loop, and no local
+`table` identifier shadowing the generated namespace. `proof/regen.sh` strips backend-emitted
+trailing blanks identically during regeneration and freshness checks; it does not rewrite Lean.
+
+Control: `python3 /tmp/opencode/control-fixed-table.py` compiles throwaway `src/table.rs` copies
+with `rustc --edition=2021 --test`, then runs them. Baseline 0, replace both fresh-write merges
+with `let merged = value;` 101, restored 0. Verbatim failing assertion: `left: 3`, `right: 13` in
+`full_shard_refuses_unchanged_but_existing_key_still_updates`. This is a Rust test control, not a
+refinement control. The temporary runner is evidence only; the durable control task remains below.
+
+### Source/tool identity
+
+Corpus read/resolved: `50c94192399add3b9f8e64bd14e36d8cba270705`;
+Mathlib manifest: `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`; Lean `4.31.0`.
+Rust tests use `rustc 1.97.0-nightly (17584a181 2026-04-13)`; Charon extraction uses
+`nightly-2026-08-18`. Charon reports `0.1.254 (b104e24fea7d721b71e6c39fd70f26ff20bc0980)`;
+Aeneas reports `aeneas 505b6ca-dirty`. Existing const-repeat patches, not an unmodified release:
+
+| Artifact | SHA-256 |
+|---|---|
+| `src/table.rs` | `83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a` |
+| `src/merge.rs` | `7d4ce7656b38da200ba9c5265eca972e7cc475f133ae03efb6a1fa24c728c498` |
+| `tests/table.rs` | `177ff01a04bc731f2ff7ffe6a6e1845e156bfdd3a29de95dcbfd3ef5d7f1a207` |
+| `proof/extract/lib.rs` | `a2ecf3b1a01ca4b77fc575ff21254c0f1f3fe1e7fdc83532b110c996ab051f4e` |
+| `proof/regen.sh` | `1625b0147f458f709fd46f7504a0e41258d0660b79fd60fee00f7086e783dc2d` |
+| `proof/ApeironWord.lean` | `958b1ab563c6fe660fa60ebc91f36f0aa5fb87bad26c5643395f5f5a5404ec49` |
+| `target/aeneas/charon` | `747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e` |
+| `target/aeneas/charon-driver` | `207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297` |
+| `target/aeneas/aeneas` | `33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a` |
+
+Source `table.rs` is 246 lines; generated `ApeironWord.lean` 991. This is not a complete trusted
+perimeter inventory. No performance measurement or new proved table theorem is claimed.
+
+### Remaining serial waves
+
+IDs `APEIRON-TABLE-W<number>-T1`. Lead records integrated base and creates
+`worktree-agent-<id>` before dispatch. **R** = `target/`; **E** = R + generated extraction +
+`proof/.lake/`; **B** = `proof/corpus/.lake/` + `proof/.lake/` + backend cache. Exclusive lanes;
+controls use throwaway files and separate writable outputs. All proofs quantify over `N`, with
+explicit pure/total, equality-respecting home, faithful equality/clone and merge premises.
+
+| Wave | Owner; lane | Owned files (≤3) / result | One gate | Rejecting control |
+|---|---|---|---|---|
+| 9 | Sol; B | `proof/corpus/TableRefinement.lean`, `proof/corpus/AxiomAudit.lean`: replace obsolete error witnesses, define denotation/Rep, prove real constructor initialization and joint default/zero-capacity refusal witnesses | `lake build` in `proof/corpus` | Mutate generated constructor default; unchanged constructor/default witness must fail. No invented reservation axiom or deleted canonical contract. |
+| 10 | Sol; B | `proof/corpus/TableReadRefinement.lean`, `proof/corpus/TableRefinement.lean`, `proof/corpus/AxiomAudit.lean`: terminating `find_slots` invariant at measure `N-i`, routing, get = canonical get | `lake build` in `proof/corpus` | Generated search always misses; present-key read theorem fails. |
+| 11 | Sol; B | `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/TableReadRefinement.lean`, `proof/corpus/AxiomAudit.lean`: exact admission/refusal, successful insertWith, Rep preservation; N=0, collision/full and full-existing witnesses | `lake build` in `proof/corpus` | Bypass `f new default`, or refuse an existing key in a full shard; unchanged theorem/witness fails. |
+| 12 | Sol; B | `proof/corpus/TableBuildRefinement.lean`, `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/AxiomAudit.lean`: exact per-shard distinct-key admission, ordered build refinement and canonical order/gauge corollaries | `lake build` in `proof/corpus` | Reverse same-key stream; replace/append control fails. Gauge corollary retains commutativity/associativity. |
+| 13 | Flash; E+B | `proof/storage-controls.py`, this plan: durable fail-closed baseline/red/restored runner for the preceding source/generated controls; runner is currently missing | `python3 proof/storage-controls.py` | Runner must reject a surviving mutation and missing tools. |
+
+**First gate:** `lake build`, cwd `proof/corpus`; observed exit 1:
+
+```text
+error: TableRefinement.lean:56:28: Unknown constant `apeiron_word.table.StorageError.CapacityOverflow`
+```
+
+The next task is Sol's constructor/resource-premise proof, not another extraction redesign.
+Required Sol verdict: are the fixed-resource domain and callback contracts sufficient, and do
+actual constructor/refusal witnesses inhabit them jointly? Astra's decision does not supply it.
+Terra has no open implementation assignment: all four real bodies extract. If a proof reveals an
+executing-source defect, stop and assign Terra a separate ≤3-file source/caller repair, gate
+`cargo test --workspace --all-features --locked`, before re-extraction in its own E lane. Do not
+silently widen a proof task into source/tool redesign.
+
+The lead's full Rust/Kani, both Lake builds, controls and trusted-perimeter gates remain required
+for epic closure. The present authorization accepts a building representation and extraction
+verdict, not closure of the red bridge. Other governing-doc corrections are a separately scoped
+owner task; old growable and deleted-container claims below are historical only.
+
+## Historical binding boundary replacement (superseded by fixed shards)
 
 Owner Astra; base `da01485d24be8900824750431a70f19100bee200`, initially clean. The lead authorizes
 source deletion and a red boundary commit in the supplied checkout. No branch/worktree is created;

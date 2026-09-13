@@ -21,25 +21,7 @@ pub mod carrier;
 pub mod table;
 
 /// The word instance used to probe the executing table bodies.
-pub type WordTable = table::Table<i64, i64>;
-
-fn word_home(key: &i64) -> u64 {
-    *key as u64
-}
-
-fn word_merge(new: i64, old: i64) -> i64 {
-    new.wrapping_add(old)
-}
-
-/// The real capacity-overflow constructor, rooted without the blocked `Table` representation.
-pub fn word_storage_capacity_overflow() -> table::StorageError {
-    table::StorageError::CapacityOverflow
-}
-
-/// The real allocation-failure constructor, rooted without the blocked `Table` representation.
-pub fn word_storage_allocation_failed() -> table::StorageError {
-    table::StorageError::AllocationFailed
-}
+pub type WordTable = table::Table<i64, i64, table::WordHome>;
 
 /// `Cell::<i64>::mul`, rooted so Charon does not have to translate the whole crate.
 pub fn word_mul(a: cell::Cell<i64>, sigma: cell::Sigma, b: cell::Cell<i64>) -> cell::Cell<i64> {
@@ -121,28 +103,28 @@ pub fn word_accept_derived_impulse(
 
 /// Executing-table construction with a concrete word home callback.
 pub fn word_table_new(default: i64) -> WordTable {
-    WordTable::new(default, word_home)
+    WordTable::new(default, table::WordHome)
 }
 
 /// Executing-table total lookup, returning a copied word value.
-pub fn word_table_get(table: &WordTable, key: i64) -> i64 {
-    *table.get(&key)
+pub fn word_table_get(state: &WordTable, key: i64) -> i64 {
+    *state.get(&key)
 }
 
 /// Executing-table insertion, with the successor state returned explicitly.
 pub fn word_table_insert(
-    mut table: WordTable,
+    mut state: WordTable,
     key: i64,
     value: i64,
 ) -> (WordTable, Result<(), table::StorageError>) {
-    let result = table.insert_with(word_merge, key, value);
-    (table, result)
+    let result = state.insert_with(&table::WordMerge, key, value);
+    (state, result)
 }
 
 /// Executing-table stream build with concrete word callbacks.
 pub fn word_table_build(
     default: i64,
-    kvs: Vec<(i64, i64)>,
+    kvs: &[(i64, i64)],
 ) -> Result<WordTable, table::StorageError> {
-    WordTable::build(word_merge, default, kvs, word_home)
+    WordTable::build(&table::WordMerge, default, kvs, table::WordHome)
 }

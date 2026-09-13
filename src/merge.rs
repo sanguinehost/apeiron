@@ -43,9 +43,9 @@
 //! ```
 //! use apeiron::Table;
 //!
-//! let mut counts: Table<u64, u32> = Table::new(0, |k| *k);
+//! let mut counts = Table::<u64, u32, _>::new(0, |k: &u64| *k);
 //! for k in [7, 7, 9] {
-//!     counts.insert_with(apeiron::merge::count, k, 1).unwrap();
+//!     counts.insert_with(&apeiron::merge::count, k, 1).unwrap();
 //! }
 //! assert_eq!(*counts.get(&7), 2);
 //! assert_eq!(*counts.get(&9), 1);
