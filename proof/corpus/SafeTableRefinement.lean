@@ -1243,6 +1243,140 @@ theorem try_insert_fullTable_refusal {v0 v1 v2 v3 : V} :
         fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3) :=
   try_insert_refusal _ _ _ fullTable_noMatch_five fullTable_noEmpty
 
+/-! ### Exact fresh-insert and full-refusal outcomes -/
+
+/-- A table has an empty capacity-four slot. -/
+def HasEmpty (self : SafeTable I64 V 4#usize) : Prop :=
+  ∃ i, i < 4 ∧ EmptyAt self.slots.val i
+
+theorem hasEmpty_iff_not_noEmpty (self : SafeTable I64 V 4#usize) :
+    HasEmpty self ↔ ¬ NoEmptyIn self.slots.val 0 4 := by
+  constructor
+  · rintro ⟨i, hi, hempty⟩ hno
+    exact hno i (Nat.zero_le _) hi hempty
+  · intro h
+    by_contra hempty
+    apply h
+    intro i _ hi
+    exact fun hiempty => hempty ⟨i, hi, hiempty⟩
+
+theorem tableHMap_eq_none_iff_noMatchIn (self : SafeTable I64 V 4#usize) (key : I64) :
+    tableHMap self key = none ↔ NoMatchIn key self.slots.val 0 4 := by
+  constructor
+  · intro hmap
+    cases hfind : findIdx key self.slots.val with
+    | none =>
+      have hno := (findIdx_none_iff key self.slots.val).mp hfind
+      rwa [Array.length_eq] at hno
+    | some i =>
+      obtain ⟨hmatch, hbefore⟩ := (findIdx_spec key self.slots.val i).mp hfind
+      rcases hmatch with ⟨w, hw⟩
+      have hsome := tableHMap_some_of_get self ⟨w, hw⟩ hbefore hw
+      rw [hsome] at hmap
+      simp at hmap
+  · exact tableHMap_none_of_noMatchIn self key
+
+/-- Extensional guarantees for the state returned by a fresh successful insertion. -/
+def FreshInsertPost (self t' : SafeTable I64 V 4#usize) (key : I64) (value : V) : Prop :=
+  t'.len.val = self.len.val + 1 ∧
+    tableHMap t' key = some value ∧
+    (∀ other, other ≠ key → tableHMap t' other = tableHMap self other) ∧
+    WellFormed t'
+
+/-- Exact branch completeness for fresh insertion.
+
+The existential result is necessary: `FreshInsertPost` observes the canonical map, length and
+invariant, which do not uniquely determine the physical slot order of an arbitrary `t'`. -/
+theorem try_insert_fresh_iff (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
+    (hwf : WellFormed self) :
+    (∃ t', SafeTable.try_insert core.cmp.EqI64 self key value =
+        ok (core.result.Result.Ok none, t') ∧ FreshInsertPost self t' key value) ↔
+      tableHMap self key = none ∧ HasEmpty self := by
+  constructor
+  · rintro ⟨t', hexec, _⟩
+    obtain ⟨y, hy, hpost⟩ := Aeneas.Std.WP.spec_imp_exists
+      (try_insert_spec self key value hwf)
+    rw [hexec] at hy
+    simp only [Result.ok.injEq] at hy
+    subst y
+    simp only [TryInsertPost] at hpost
+    refine ⟨hpost.1.symm, ?_⟩
+    rw [hasEmpty_iff_not_noEmpty]
+    intro hfull
+    have habsent := (tableHMap_eq_none_iff_noMatchIn self key).mp hpost.1.symm
+    have hrefuse := try_insert_refusal self key value habsent hfull
+    rw [hexec] at hrefuse
+    simp at hrefuse
+  · rintro ⟨habsent, hempty⟩
+    obtain ⟨y, hy, hpost⟩ := Aeneas.Std.WP.spec_imp_exists
+      (try_insert_spec self key value hwf)
+    obtain ⟨res, t'⟩ := y
+    rcases res with old | e
+    · simp only [TryInsertPost] at hpost
+      have hold : old = none := hpost.1.trans habsent
+      subst old
+      refine ⟨t', hy, ?_⟩
+      unfold FreshInsertPost
+      refine ⟨hpost.2.2.2.1 rfl, ?_, ?_, hpost.2.2.1⟩
+      · rw [hpost.2.1]
+        simp [Apeiron.Table.insertWith]
+      · intro other hne
+        rw [hpost.2.1]
+        simp [Apeiron.Table.insertWith, hne]
+    · simp only [TryInsertPost] at hpost
+      exact absurd hpost.2.2.1 ((hasEmpty_iff_not_noEmpty self).mp hempty)
+
+/-- Exact branch completeness for full-table refusal, including the original payload and state. -/
+theorem try_insert_err_iff (self t' : SafeTable I64 V 4#usize) (key : I64) (value : V)
+    (e : safe_table.TableFull I64 V) (hwf : WellFormed self) :
+    SafeTable.try_insert core.cmp.EqI64 self key value =
+        ok (core.result.Result.Err e, t') ↔
+      NoEmptyIn self.slots.val 0 4 ∧ tableHMap self key = none ∧
+        e = ({ key, value } : safe_table.TableFull I64 V) ∧ t' = self := by
+  constructor
+  · intro hexec
+    obtain ⟨y, hy, hpost⟩ := Aeneas.Std.WP.spec_imp_exists
+      (try_insert_spec self key value hwf)
+    rw [hexec] at hy
+    simp only [Result.ok.injEq] at hy
+    subst y
+    simpa only [TryInsertPost, and_assoc] using
+      ⟨hpost.2.2.1, hpost.2.1, hpost.1, hpost.2.2.2⟩
+  · rintro ⟨hfull, habsent, he, hstate⟩
+    rw [he, hstate]
+    exact try_insert_refusal self key value
+      ((tableHMap_eq_none_iff_noMatchIn self key).mp habsent) hfull
+
+/-- Joint success-domain witness at the state produced by the real constructor. -/
+theorem emptyTable_fresh_insert_domain (key : I64) :
+    WellFormed (emptyTable (V := V)) ∧
+      tableHMap (emptyTable (V := V)) key = none ∧ HasEmpty (emptyTable (V := V)) := by
+  exact ⟨emptyTable_wellFormed, emptyTable_tableHMap key,
+    ⟨0, by omega, emptyTable_emptyAt_zero⟩⟩
+
+theorem fullTable0123_wellFormed (v0 v1 v2 v3 : V) :
+    WellFormed (fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3) := by
+  unfold WellFormed
+  constructor
+  · simp [fullTable, Array.make_val]
+  · intro key i j hi hj
+    rcases hi with ⟨wi, hwi⟩
+    rcases hj with ⟨wj, hwj⟩
+    simp only [fullTable, Array.make_val] at hwi hwj
+    have hi4 : i < 4 := by
+      have := (List.getElem?_eq_some_iff.mp hwi).1
+      simpa using this
+    have hj4 : j < 4 := by
+      have := (List.getElem?_eq_some_iff.mp hwj).1
+      simpa using this
+    interval_cases i <;> interval_cases j <;> simp_all <;> scalar_tac
+
+/-- Joint refusal-domain witness, with `WellFormed`, absence and fullness on one state. -/
+theorem fullTable_refusal_domain (v0 v1 v2 v3 : V) :
+    let self := fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3
+    WellFormed self ∧ tableHMap self 5#i64 = none ∧ NoEmptyIn self.slots.val 0 4 := by
+  exact ⟨fullTable0123_wellFormed v0 v1 v2 v3,
+    tableHMap_none_of_noMatchIn _ _ fullTable_noMatch_five, fullTable_noEmpty⟩
+
 end safe_table
 end apeiron_word
-

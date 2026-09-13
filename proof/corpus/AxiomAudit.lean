@@ -164,3 +164,7 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.safe_table.try_insert_oneTable_replace
 #audit apeiron_word.safe_table.try_insert_refusal
 #audit apeiron_word.safe_table.try_insert_fullTable_refusal
+#audit apeiron_word.safe_table.try_insert_fresh_iff
+#audit apeiron_word.safe_table.try_insert_err_iff
+#audit apeiron_word.safe_table.emptyTable_fresh_insert_domain
+#audit apeiron_word.safe_table.fullTable_refusal_domain
