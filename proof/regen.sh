@@ -48,7 +48,7 @@ echo "lean:    $(cat "$PROOF_DIR/lean-toolchain")"
 
 echo "== source =="
 sha256sum "$REPO_DIR/src/scalar.rs" "$REPO_DIR/src/cell.rs" "$REPO_DIR/src/exchange.rs" \
-    "$REPO_DIR/src/carrier.rs" "$REPO_DIR/src/safe_table.rs"
+    "$REPO_DIR/src/carrier.rs" "$REPO_DIR/src/table.rs"
 
 run_extract() {
     dest_dir=$1
@@ -66,11 +66,10 @@ run_extract() {
         --start-from crate::word_exchange_impulse \
         --start-from crate::word_elastic_exchange \
         --start-from crate::word_accept_derived_impulse \
-        --start-from crate::word_safe_table4_new \
-        --start-from crate::word_safe_table4_get \
-        --start-from crate::word_safe_table4_insert \
-        --start-from crate::word_safe_table4_remove \
+        --start-from crate::word_storage_capacity_overflow \
+        --start-from crate::word_storage_allocation_failed \
         -- \
+        --edition 2021 \
         --crate-type lib \
         --crate-name "$CRATE" \
         "$EXTRACT_DIR/lib.rs"

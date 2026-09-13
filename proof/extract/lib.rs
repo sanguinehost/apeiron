@@ -3,8 +3,9 @@
 //! This is a development-only translation unit, not a crate in the Apeiron workspace.
 //! Charon drives rustc over this single file; the modules it pulls in by `#[path]` are the
 //! real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`, `src/carrier.rs` and
-//! `src/safe_table.rs`, so the extracted definitions track the source the library builds. The wrappers below exist only to give Charon concrete,
-//! monomorphic roots and to call the real methods; they do not restate any formula.
+//! `src/table.rs`, so the extracted definitions track the source the library builds. The wrappers
+//! below exist only to give Charon concrete, monomorphic roots and to call the real methods; they do
+//! not restate any formula.
 //!
 //! Regenerate with `proof/regen.sh`.
 
@@ -16,11 +17,29 @@ pub mod cell;
 pub mod exchange;
 #[path = "../../src/carrier.rs"]
 pub mod carrier;
-#[path = "../../src/safe_table.rs"]
-pub mod safe_table;
+#[path = "../../src/table.rs"]
+pub mod table;
 
-/// The capacity-four word instance used for finite storage refinement.
-pub type WordTable4 = safe_table::SafeTable<i64, i64, 4>;
+/// The word instance used to probe the executing table bodies.
+pub type WordTable = table::Table<i64, i64>;
+
+fn word_home(key: &i64) -> u64 {
+    *key as u64
+}
+
+fn word_merge(new: i64, old: i64) -> i64 {
+    new.wrapping_add(old)
+}
+
+/// The real capacity-overflow constructor, rooted without the blocked `Table` representation.
+pub fn word_storage_capacity_overflow() -> table::StorageError {
+    table::StorageError::CapacityOverflow
+}
+
+/// The real allocation-failure constructor, rooted without the blocked `Table` representation.
+pub fn word_storage_allocation_failed() -> table::StorageError {
+    table::StorageError::AllocationFailed
+}
 
 /// `Cell::<i64>::mul`, rooted so Charon does not have to translate the whole crate.
 pub fn word_mul(a: cell::Cell<i64>, sigma: cell::Sigma, b: cell::Cell<i64>) -> cell::Cell<i64> {
@@ -100,37 +119,30 @@ pub fn word_accept_derived_impulse(
     exchange::accept_derived_impulse(p, q, claimed)
 }
 
-/// Safe-table construction, rooted so the real generic `SafeTable::<K, V, N>::new` body enters the
-/// Aeneas fragment as a `def`. The body repeats `[const { None }; N]`; with the inline-const repeat
-/// fix Charon leaves the native `Repeat` and Aeneas lowers it to `Array.repeat`, so no unresolved
-/// `Option<(K, V)>: Copy` clause is required.
-pub fn word_safe_table4_new() -> WordTable4 {
-    WordTable4::new()
+/// Executing-table construction with a concrete word home callback.
+pub fn word_table_new(default: i64) -> WordTable {
+    WordTable::new(default, word_home)
 }
 
-/// Safe-table lookup, returning a copied word value.
-pub fn word_safe_table4_get(table: &WordTable4, key: i64) -> Option<i64> {
-    match table.get(&key) {
-        Some(value) => Some(*value),
-        None => None,
-    }
+/// Executing-table total lookup, returning a copied word value.
+pub fn word_table_get(table: &WordTable, key: i64) -> i64 {
+    *table.get(&key)
 }
 
-/// Safe-table replacement/insertion with the successor state returned explicitly.
-pub fn word_safe_table4_insert(
-    mut table: WordTable4,
+/// Executing-table insertion, with the successor state returned explicitly.
+pub fn word_table_insert(
+    mut table: WordTable,
     key: i64,
     value: i64,
-) -> (
-    WordTable4,
-    Result<Option<i64>, safe_table::TableFull<i64, i64>>,
-) {
-    let result = table.try_insert(key, value);
+) -> (WordTable, Result<(), table::StorageError>) {
+    let result = table.insert_with(word_merge, key, value);
     (table, result)
 }
 
-/// Safe-table removal with the successor state returned explicitly.
-pub fn word_safe_table4_remove(mut table: WordTable4, key: i64) -> (WordTable4, Option<i64>) {
-    let result = table.remove(&key);
-    (table, result)
+/// Executing-table stream build with concrete word callbacks.
+pub fn word_table_build(
+    default: i64,
+    kvs: Vec<(i64, i64)>,
+) -> Result<WordTable, table::StorageError> {
+    WordTable::build(word_merge, default, kvs, word_home)
 }

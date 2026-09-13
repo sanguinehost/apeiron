@@ -1,5 +1,5 @@
 import WordRefinement
-import SafeTableRefinement
+import TableRefinement
 import Lean
 
 set_option linter.apeiron.notation false
@@ -133,38 +133,10 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Physics.diffusiveUpdate_eq_scalarCarrierStep
 #audit Apeiron.Physics.exactHalfFlux_diffusiveFlux
 
--- The extracted safe table search: the first total loop.spec_decr_nat refinement
-#audit apeiron_word.safe_table.find_from_loop_spec
-#audit apeiron_word.safe_table.find_from_spec
-#audit apeiron_word.safe_table.findIdx_spec
-#audit apeiron_word.safe_table.findIdx_none_iff
-#audit apeiron_word.safe_table.get_spec
-#audit apeiron_word.safe_table.get_spec_canonical
-#audit apeiron_word.safe_table.empty_from_loop_spec
-#audit apeiron_word.safe_table.empty_from_spec
-#audit apeiron_word.safe_table.findIdx_set_some_self
-#audit apeiron_word.safe_table.findIdx_set_some_ne
-#audit apeiron_word.safe_table.tableHMap_set_self
-#audit apeiron_word.safe_table.tableHMap_set_ne
-#audit apeiron_word.safe_table.tableHMap_set_none
-#audit apeiron_word.safe_table.tableHMap_set_none_self
-#audit apeiron_word.safe_table.try_insert_spec
-#audit apeiron_word.safe_table.remove_spec
-#audit apeiron_word.safe_table.keysUnique_set_none
-#audit apeiron_word.safe_table.keysUnique_set_some
-
--- The generated empty-state witness, its denotation, and the insertion branch witnesses
-#audit apeiron_word.safe_table.safe_table_new_eq_emptyTable
-#audit apeiron_word.safe_table.word_safe_table4_new_eq_emptyTable
-#audit apeiron_word.safe_table.safe_table_new_wellFormed
-#audit apeiron_word.safe_table.emptyTable_wellFormed
-#audit apeiron_word.safe_table.emptyTable_tableHMap
-#audit apeiron_word.safe_table.try_insert_emptyTable_success
-#audit apeiron_word.safe_table.oneTable_wellFormed
-#audit apeiron_word.safe_table.try_insert_oneTable_replace
-#audit apeiron_word.safe_table.try_insert_refusal
-#audit apeiron_word.safe_table.try_insert_fullTable_refusal
-#audit apeiron_word.safe_table.try_insert_fresh_iff
-#audit apeiron_word.safe_table.try_insert_err_iff
-#audit apeiron_word.safe_table.emptyTable_fresh_insert_domain
-#audit apeiron_word.safe_table.fullTable_refusal_domain
+-- The canonical contract reachable before the executing representation extracts
+#audit Apeiron.TableRefinement.newTable_default_read
+#audit Apeiron.TableRefinement.newTable_insertWith_self
+#audit Apeiron.TableRefinement.newTable_insertWith
+#audit Apeiron.TableRefinement.newTable_joint_witness
+#audit Apeiron.TableRefinement.capacityOverflow_refusal_witness
+#audit Apeiron.TableRefinement.allocationFailed_refusal_witness

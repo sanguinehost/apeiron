@@ -269,192 +269,6 @@ def exchange.accept_derived_impulse
        ok (some e)
   else ok none
 
-/-- [apeiron_word::safe_table::TableFull]
-    Source: 'proof/extract/../../src/safe_table.rs', lines 10:0-15:1
-    Visibility: public -/
-structure safe_table.TableFull (K : Type) (V : Type) where
-  key : K
-  value : V
-
-/-- [apeiron_word::safe_table::SafeTable]
-    Source: 'proof/extract/../../src/safe_table.rs', lines 22:0-25:1
-    Visibility: public -/
-structure safe_table.SafeTable (K : Type) (V : Type) (N : Std.Usize) where
-  slots : Array (Option (K × V)) N
-  len : Std.Usize
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::new]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 30:4-35:5
-    Visibility: public -/
-def safe_table.SafeTable.new
-  (K : Type) (V : Type) (N : Std.Usize) :
-  Result (safe_table.SafeTable K V N)
-  := do
-  let a := Array.repeat N none
-  ok { slots := a, len := 0#usize }
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]: loop body 0:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 74:8-81:5 -/
-@[rust_loop_body]
-def safe_table.SafeTable.find_from_loop.body
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) (index : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  if index < N
-  then
-    let o ← Array.index_usize self.slots index
-    match o with
-    | none => let index1 ← index + 1#usize
-              ok (cont index1)
-    | some p =>
-      let (stored, _) := p
-      let b ←
-        core.cmp.impls.PartialEqShared.eq corecmpEqInst.partialEqInst stored
-          key
-      if b
-      then ok (done (some index))
-      else let index1 ← index + 1#usize
-           ok (cont index1)
-  else ok (done none)
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]: loop 0:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 74:8-81:5 -/
-@[rust_loop]
-def safe_table.SafeTable.find_from_loop
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) (index : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun index1 => safe_table.SafeTable.find_from_loop.body corecmpEqInst self
-      key index1)
-    index
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 72:4-81:5 -/
-@[reducible]
-def safe_table.SafeTable.find_from
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) (start : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  safe_table.SafeTable.find_from_loop corecmpEqInst self key start
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]: loop body 0:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 85:8-92:5 -/
-@[rust_loop_body]
-def safe_table.SafeTable.empty_from_loop.body
-  {K : Type} {V : Type} {N : Std.Usize} (self : safe_table.SafeTable K V N)
-  (index : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  if index < N
-  then
-    let o ← Array.index_usize self.slots index
-    match o with
-    | none => ok (done (some index))
-    | some _ => let index1 ← index + 1#usize
-                ok (cont index1)
-  else ok (done none)
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]: loop 0:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 85:8-92:5 -/
-@[rust_loop]
-def safe_table.SafeTable.empty_from_loop
-  {K : Type} {V : Type} {N : Std.Usize} (self : safe_table.SafeTable K V N)
-  (index : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun index1 => safe_table.SafeTable.empty_from_loop.body self index1)
-    index
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::empty_from]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 83:4-92:5 -/
-@[reducible]
-def safe_table.SafeTable.empty_from
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (start : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  safe_table.SafeTable.empty_from_loop self start
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::get]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 96:4-104:5
-    Visibility: public -/
-def safe_table.SafeTable.get
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) :
-  Result (Option V)
-  := do
-  let o ← safe_table.SafeTable.find_from corecmpEqInst self key 0#usize
-  match o with
-  | none => ok none
-  | some index =>
-    let o1 ← Array.index_usize self.slots index
-    match o1 with
-    | none => ok none
-    | some p => let (_, value) := p
-                ok (some value)
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::try_insert]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 120:4-135:5
-    Visibility: public -/
-def safe_table.SafeTable.try_insert
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) (value : V) :
-  Result ((core.result.Result (Option V) (safe_table.TableFull K V)) ×
-    (safe_table.SafeTable K V N))
-  := do
-  let o ← safe_table.SafeTable.find_from corecmpEqInst self key 0#usize
-  match o with
-  | none =>
-    let o1 ← safe_table.SafeTable.empty_from corecmpEqInst self 0#usize
-    match o1 with
-    | none => ok (core.result.Result.Err { key, value }, self)
-    | some index =>
-      massert (index < N)
-      let (o2, index_mut_back) ← Array.index_mut_usize self.slots index
-      let a := index_mut_back o2
-      let a1 ← Array.update a index (some (key, value))
-      let i ← self.len + 1#usize
-      ok (core.result.Result.Ok none, { slots := a1, len := i })
-  | some index =>
-    let (o1, index_mut_back) ← Array.index_mut_usize self.slots index
-    match o1 with
-    | none =>
-      let a := index_mut_back none
-      ok (core.result.Result.Err { key, value }, { self with slots := a })
-    | some p =>
-      let (t, old) := p
-      let (t1, old1) := core.mem.replace old value
-      let a := index_mut_back (some (t, old1))
-      ok (core.result.Result.Ok (some t1), { self with slots := a })
-
-/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::remove]:
-    Source: 'proof/extract/../../src/safe_table.rs', lines 138:4-149:5
-    Visibility: public -/
-def safe_table.SafeTable.remove
-  {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
-  (self : safe_table.SafeTable K V N) (key : K) :
-  Result ((Option V) × (safe_table.SafeTable K V N))
-  := do
-  let o ← safe_table.SafeTable.find_from corecmpEqInst self key 0#usize
-  match o with
-  | none => ok (none, self)
-  | some index =>
-    let (o1, index_mut_back) ← Array.index_mut_usize self.slots index
-    let (o2, o3) := core.option.Option.take o1
-    match o2 with
-    | none => let a := index_mut_back o3
-              ok (none, { self with slots := a })
-    | some p =>
-      let (_, value) := p
-      let i ← self.len - 1#usize
-      let a := index_mut_back o3
-      ok (some value, { slots := a, len := i })
-
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::from_i64]:
     Source: 'proof/extract/../../src/scalar.rs', lines 105:4-107:5
     Visibility: public -/
@@ -509,8 +323,28 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
   from_i64 := I64.Insts.Apeiron_wordScalarRing.from_i64
 }
 
+/-- [apeiron_word::table::StorageError]
+    Source: 'proof/extract/../../src/table.rs', lines 9:0-14:1
+    Visibility: public -/
+@[discriminant isize]
+inductive table.StorageError where
+| CapacityOverflow : table.StorageError
+| AllocationFailed : table.StorageError
+
+/-- [apeiron_word::word_storage_capacity_overflow]:
+    Source: 'proof/extract/lib.rs', lines 35:0-37:1
+    Visibility: public -/
+def word_storage_capacity_overflow : Result table.StorageError := do
+  ok table.StorageError.CapacityOverflow
+
+/-- [apeiron_word::word_storage_allocation_failed]:
+    Source: 'proof/extract/lib.rs', lines 40:0-42:1
+    Visibility: public -/
+def word_storage_allocation_failed : Result table.StorageError := do
+  ok table.StorageError.AllocationFailed
+
 /-- [apeiron_word::word_mul]:
-    Source: 'proof/extract/lib.rs', lines 26:0-28:1
+    Source: 'proof/extract/lib.rs', lines 45:0-47:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -519,14 +353,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'proof/extract/lib.rs', lines 31:0-33:1
+    Source: 'proof/extract/lib.rs', lines 50:0-52:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'proof/extract/lib.rs', lines 40:0-42:1
+    Source: 'proof/extract/lib.rs', lines 59:0-61:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -536,7 +370,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'proof/extract/lib.rs', lines 45:0-53:1
+    Source: 'proof/extract/lib.rs', lines 64:0-72:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -547,7 +381,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'proof/extract/lib.rs', lines 57:0-64:1
+    Source: 'proof/extract/lib.rs', lines 76:0-83:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -557,14 +391,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'proof/extract/lib.rs', lines 67:0-69:1
+    Source: 'proof/extract/lib.rs', lines 86:0-88:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'proof/extract/lib.rs', lines 73:0-78:1
+    Source: 'proof/extract/lib.rs', lines 92:0-97:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -573,7 +407,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'proof/extract/lib.rs', lines 81:0-83:1
+    Source: 'proof/extract/lib.rs', lines 100:0-102:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -582,7 +416,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'proof/extract/lib.rs', lines 86:0-88:1
+    Source: 'proof/extract/lib.rs', lines 105:0-107:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -591,7 +425,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'proof/extract/lib.rs', lines 95:0-101:1
+    Source: 'proof/extract/lib.rs', lines 114:0-120:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -599,47 +433,5 @@ def word_accept_derived_impulse
   Result (Option (exchange.Exchange Std.I64))
   := do
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
-
-/-- [apeiron_word::word_safe_table4_new]:
-    Source: 'proof/extract/lib.rs', lines 107:0-109:1
-    Visibility: public -/
-def word_safe_table4_new
-  : Result (safe_table.SafeTable Std.I64 Std.I64 4#usize) := do
-  safe_table.SafeTable.new Std.I64 Std.I64 4#usize
-
-/-- [apeiron_word::word_safe_table4_get]:
-    Source: 'proof/extract/lib.rs', lines 112:0-117:1
-    Visibility: public -/
-def word_safe_table4_get
-  (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64) :
-  Result (Option Std.I64)
-  := do
-  let o ← safe_table.SafeTable.get core.cmp.EqI64 table key
-  match o with
-  | none => ok none
-  | some _ => ok o
-
-/-- [apeiron_word::word_safe_table4_insert]:
-    Source: 'proof/extract/lib.rs', lines 120:0-130:1
-    Visibility: public -/
-def word_safe_table4_insert
-  (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64)
-  (value : Std.I64) :
-  Result ((safe_table.SafeTable Std.I64 Std.I64 4#usize) × (core.result.Result
-    (Option Std.I64) (safe_table.TableFull Std.I64 Std.I64)))
-  := do
-  let (result, table1) ←
-    safe_table.SafeTable.try_insert core.cmp.EqI64 table key value
-  ok (table1, result)
-
-/-- [apeiron_word::word_safe_table4_remove]:
-    Source: 'proof/extract/lib.rs', lines 133:0-136:1
-    Visibility: public -/
-def word_safe_table4_remove
-  (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64) :
-  Result ((safe_table.SafeTable Std.I64 Std.I64 4#usize) × (Option Std.I64))
-  := do
-  let (result, table1) ← safe_table.SafeTable.remove core.cmp.EqI64 table key
-  ok (table1, result)
 
 end apeiron_word
