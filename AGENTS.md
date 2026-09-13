@@ -191,8 +191,17 @@ cd proof/corpus && lake build
 Evidence tooling:
 
 ```sh
+python3 tools/check-claims.py       # ledger: resolving #audit, named gate, grade/revision; duplicate ID
+python3 tools/check-assurance.py    # perimeter: <=5,000 lines total, <=1,500/file, <=12 files/directory
 python tools/call-census/audit_reports.py --raw-root /tmp/opencode/census-v2
 ```
+
+`check-claims.py` exits nonzero for a claimed headline with no resolving `#audit`, no gate or no
+grade/revision, and for a duplicate ID. `check-assurance.py` exits nonzero when a bounded population
+exceeds its limit or a declared member is absent; production `src/`/`tests/` are currently inventory
+(printed, not enforced) so the committed baseline is green. Control: delete one `#audit` line for a
+claimed headline, or add source files until a bounded directory exceeds twelve; each turns its gate
+red and restore returns it green.
 
 Tool pins and the archive checksum are in `proof/README.md`. Record the versions a run actually used;
 do not cite a pin from memory.
