@@ -152,3 +152,12 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.safe_table.remove_spec
 #audit apeiron_word.safe_table.keysUnique_set_none
 #audit apeiron_word.safe_table.keysUnique_set_some
+
+-- The generated empty-state witness, its denotation, and the insertion branch witnesses
+#audit apeiron_word.safe_table.emptyTable_wellFormed
+#audit apeiron_word.safe_table.emptyTable_tableHMap
+#audit apeiron_word.safe_table.try_insert_emptyTable_success
+#audit apeiron_word.safe_table.oneTable_wellFormed
+#audit apeiron_word.safe_table.try_insert_oneTable_replace
+#audit apeiron_word.safe_table.try_insert_refusal
+#audit apeiron_word.safe_table.try_insert_fullTable_refusal

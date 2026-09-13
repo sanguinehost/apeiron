@@ -800,22 +800,40 @@ theorem one_le_countP_of_get {l : List (Option (I64 × V))} {i : ℕ} {x : I64 �
   rw [hset] at h1
   omega
 
+/-- The full postcondition of the extracted `try_insert`.
+
+On success it records the displaced value, the canonical `insertWith` update and the length step: a
+fresh insert (`old = none`) increments `len`, a replacement leaves it. On refusal it records the
+exact `TableFull { key, value }` payload, that the key was absent, that no slot is empty, and that
+the state is unchanged. The refusal branch cannot be met by an always-refuse body: such a body
+would have to return the payload for a present key and for a table with a free slot, contradicting
+`tableHMap self key = none` and `NoEmptyIn self.slots.val 0 4`. -/
+def TryInsertPost (self : SafeTable I64 V 4#usize) (key : I64) (value : V) :
+    (core.result.Result (Option V) (safe_table.TableFull I64 V) ×
+      SafeTable I64 V 4#usize) → Prop
+  | (core.result.Result.Ok old, t') =>
+      old = tableHMap self key ∧
+      tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self) ∧
+      WellFormed t' ∧
+      (old = none → t'.len.val = self.len.val + 1) ∧
+      (old ≠ none → t'.len.val = self.len.val)
+  | (core.result.Result.Err e, t') =>
+      e = ({ key, value } : safe_table.TableFull I64 V) ∧
+      tableHMap self key = none ∧
+      NoEmptyIn self.slots.val 0 4 ∧
+      t' = self
+
 theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
     (hwf : WellFormed self) :
     SafeTable.try_insert core.cmp.EqI64 self key value ⦃ r =>
-      (let (res, t') := r
-       match res with
-       | core.result.Result.Ok old =>
-           old = tableHMap self key ∧
-           tableHMap t' = Apeiron.Table.insertWith (fun new _ => new) key (some value) (tableHMap self) ∧
-           WellFormed t'
-       | core.result.Result.Err _ => t' = self) ⦄ := by
+      TryInsertPost self key value r ⦄ := by
   unfold SafeTable.try_insert
   step
   rcases o with _ | index
   · step
     rcases r with _ | index
     · rw [Aeneas.Std.WP.spec_ok]
+      refine ⟨rfl, tableHMap_none_of_noMatchIn self key o_post, r_post, rfl⟩
     · obtain ⟨hlt, _, hempty, _⟩ := r_post
       have hno : NoMatchIn key self.slots.val 0 4 := o_post
       have hbefore : NoMatchIn key self.slots.val 0 index.val := by
@@ -855,13 +873,12 @@ theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
               have hl : self.slots.val.length = 4 := by rw [Array.length_eq]; rfl
               have ha1' : a1 = self.slots.set index (some (key, value)) := by
                 rw [ha1, hbackid]
-              refine ⟨?_, ?_, ?_⟩
+              refine ⟨?_, ?_, ?_, ?_, ?_⟩
               · exact (tableHMap_none_of_noMatchIn self key hno).symm
               · rw [ha1']
                 exact tableHMap_set_eq_insertWith self hi hbefore
                   (fun x _ => not_matchesAt_of_emptyAt hempty)
               · rw [ha1']
-                change WellFormed { slots := self.slots.set index (some (key, value)), len := i }
                 unfold WellFormed
                 rw [Array.set_val_eq]
                 refine ⟨?_, ?_⟩
@@ -872,6 +889,9 @@ theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
                   rw [hc]
                 · exact keysUnique_set_some hwf.2 hi
                     (fun j _ => noMatchIn_of_absent hno hl j)
+              · intro _
+                simpa using hi'
+              · intro h; exact absurd rfl h
   · obtain ⟨hlt4, _, hmatch, hno⟩ := o_post
     have hi : index.val < self.slots.val.length := by
       rw [Array.length_eq]; simpa using hlt4
@@ -893,7 +913,7 @@ theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
         refine Aeneas.Std.WP.spec.ret ?_
         simp only [Prod.snd] at hback ⊢
         rw [hback, hkey]
-        refine ⟨?_, ?_, ?_⟩
+        refine ⟨?_, ?_, ?_, ?_, ?_⟩
         · have hlook : self.slots.val[index.val]? = some (some (key, old)) := by
             rw [List.getElem?_eq_getElem hi, hget, hkey]
           exact (tableHMap_some_of_get self hmatch hno hlook).symm
@@ -912,6 +932,8 @@ theorem try_insert_spec (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
             rw [hc]
           · exact keysUnique_set_some hwf.2 hi
               (fun j hj hm => hj (hwf.2 key j index.val hm hmatch))
+        · intro h; exact absurd h (by simp)
+        · intro _; rfl
 
 end safe_table
 end apeiron_word
@@ -1014,6 +1036,197 @@ theorem remove_spec (self : SafeTable I64 V 4#usize) (key : I64) (hwf : WellForm
             · rw [countP_set_none hi hget, ← hwf.1]
               exact hi'.1
             · exact keysUnique_set_none hwf.2
+
+end safe_table
+end apeiron_word
+
+namespace apeiron_word
+namespace safe_table
+
+open Aeneas Aeneas.Std Result Apeiron.Table
+
+variable {V : Type}
+
+/-! ### The generated empty state, its denotation, and the constructor obligation
+
+`emptyTable` is the capacity-four all-`none` state the bridge constructs directly. It is a model
+witness for the generated `safe_table.SafeTable`, not a refinement of the Rust `SafeTable::new`:
+`proof/extract/lib.rs` roots `word_safe_table4_get/insert/remove` but no `new`, and `regen.sh`'s
+Charon selection omits it. The generic `SafeTable::<K, V, N>::new` body repeats
+`[const { None }; N]`, whose `Option<(K, V)>: Copy` obligation Charon cannot resolve at the generic
+type. Initializing this generated state from the actual Rust constructor therefore remains owed;
+nothing below claims that link. -/
+
+/-- The generated capacity-four state with every slot `none` and `len = 0`. -/
+def emptyTable : SafeTable I64 V 4#usize where
+  slots := Array.repeat 4#usize (none : Option (I64 × V))
+  len := 0#usize
+
+theorem not_matchesAt_replicate_none {n i : ℕ} {k : I64} :
+    ¬ MatchesAt k (List.replicate n (none : Option (I64 × V))) i := by
+  rintro ⟨v, hv⟩
+  rw [List.getElem?_replicate] at hv
+  split at hv <;> simp_all
+
+theorem keysUnique_replicate_none (n : ℕ) :
+    KeysUnique (List.replicate n (none : Option (I64 × V))) := by
+  intro k i j hi _
+  exact absurd hi (not_matchesAt_replicate_none (n := n) (i := i) (k := k))
+
+/-- The generated all-`none` state is well formed: `len = 0` counts no occupied slot, and no key
+matches anywhere. This is a model witness for the generated state, not a constructor refinement. -/
+theorem emptyTable_wellFormed : WellFormed (emptyTable (V := V)) := by
+  unfold WellFormed emptyTable
+  constructor
+  · simp [Array.repeat_val, List.countP_replicate]
+  · simpa only [Array.repeat_val] using
+      keysUnique_replicate_none (V := V) (4#usize).val
+
+/-- The empty state denotes the empty table: reading any key is `none`. -/
+theorem emptyTable_tableHMap (key : I64) :
+    tableHMap (emptyTable (V := V)) key = none := by
+  rw [tableHMap_eq_lookupList]
+  apply lookupList_none
+  rw [findIdx_none_iff]
+  intro j _ _
+  rw [emptyTable, Array.repeat_val]
+  exact not_matchesAt_replicate_none
+
+theorem emptyTable_emptyAt_zero : EmptyAt (emptyTable (V := V)).slots.val 0 := by
+  rw [EmptyAt, emptyTable, Array.repeat_val, List.getElem?_replicate]
+  rw [show (4#usize).val = 4 by decide]
+  rfl
+
+theorem not_noEmptyIn_emptyTable :
+    ¬ NoEmptyIn (emptyTable (V := V)).slots.val 0 4 := by
+  intro h
+  exact h 0 (by omega) (by omega) emptyTable_emptyAt_zero
+
+/-- The free-slot success branch is inhabited: inserting any absent key into the generated empty
+state returns `Ok none`, a well-formed successor, and `len` one larger. -/
+theorem try_insert_emptyTable_success (key : I64) (value : V) :
+    ∃ t', SafeTable.try_insert core.cmp.EqI64 (emptyTable (V := V)) key value =
+        ok (core.result.Result.Ok none, t') ∧
+      WellFormed t' ∧
+      t'.len.val = (emptyTable (V := V)).len.val + 1 := by
+  obtain ⟨y, hy, hpost⟩ := Aeneas.Std.WP.spec_imp_exists
+    (try_insert_spec (emptyTable (V := V)) key value (emptyTable_wellFormed (V := V)))
+  obtain ⟨res, t'⟩ := y
+  rcases res with old | e
+  · simp only [TryInsertPost] at hpost
+    have hnone : old = none := by rw [hpost.1, emptyTable_tableHMap]
+    rw [hnone] at hy hpost
+    refine ⟨t', hy, hpost.2.2.1, ?_⟩
+    exact hpost.2.2.2.1 rfl
+  · simp only [TryInsertPost] at hpost
+    exact absurd hpost.2.2.1 not_noEmptyIn_emptyTable
+
+/-- The generated state with one key at slot 0. -/
+def oneTable (k : I64) (v : V) : SafeTable I64 V 4#usize where
+  slots := Array.make 4#usize [some (k, v), none, none, none] (by simp)
+  len := 1#usize
+
+theorem keysUnique_oneTable (k : I64) (v : V) :
+    KeysUnique (oneTable k v).slots.val := by
+  intro key i j hi hj
+  rcases hi with ⟨wi, hwi⟩
+  rcases hj with ⟨wj, hwj⟩
+  simp only [oneTable, Array.make_val] at hwi hwj
+  have hi4 : i < 4 := by
+    have := (List.getElem?_eq_some_iff.mp hwi).1
+    simpa using this
+  have hj4 : j < 4 := by
+    have := (List.getElem?_eq_some_iff.mp hwj).1
+    simpa using this
+  interval_cases i <;> interval_cases j <;> simp_all
+
+theorem oneTable_wellFormed (k : I64) (v : V) : WellFormed (oneTable k v) := by
+  unfold WellFormed
+  constructor
+  · simp [oneTable, Array.make_val]
+  · exact keysUnique_oneTable k v
+
+theorem oneTable_tableHMap_self (k : I64) (v : V) :
+    tableHMap (oneTable k v) k = some v := by
+  rw [tableHMap_eq_lookupList, lookupList]
+  simp only [oneTable, Array.make_val]
+  simp [findIdx]
+
+/-- The present-key replacement branch is inhabited: inserting an already-present key returns its
+old value as `Ok (some _)`, a well-formed successor, and the same `len`. -/
+theorem try_insert_oneTable_replace (k : I64) (v value : V) :
+    ∃ t', SafeTable.try_insert core.cmp.EqI64 (oneTable k v) k value =
+        ok (core.result.Result.Ok (some v), t') ∧
+      WellFormed t' ∧
+      t'.len.val = (oneTable k v).len.val := by
+  obtain ⟨y, hy, hpost⟩ := Aeneas.Std.WP.spec_imp_exists
+    (try_insert_spec (oneTable k v) k value (oneTable_wellFormed k v))
+  obtain ⟨res, t'⟩ := y
+  rcases res with old | e
+  · simp only [TryInsertPost] at hpost
+    have hold : old = some v := by rw [hpost.1, oneTable_tableHMap_self]
+    rw [hold] at hy hpost
+    refine ⟨t', hy, hpost.2.2.1, ?_⟩
+    exact hpost.2.2.2.2 (by simp)
+  · simp only [TryInsertPost] at hpost
+    have hnone : tableHMap (oneTable k v) k = none := hpost.2.1
+    rw [oneTable_tableHMap_self] at hnone
+    exact absurd hnone (by simp)
+
+/-- An absent key in a table with no empty slot is refused with the original payload and the
+unchanged state. The strengthened `try_insert_spec` characterises this branch. -/
+theorem try_insert_refusal (self : SafeTable I64 V 4#usize) (key : I64) (value : V)
+    (habsent : NoMatchIn key self.slots.val 0 4)
+    (hfull : NoEmptyIn self.slots.val 0 4) :
+    SafeTable.try_insert core.cmp.EqI64 self key value =
+      ok (core.result.Result.Err { key, value }, self) := by
+  have hfind : SafeTable.find_from core.cmp.EqI64 self key 0#usize = ok none := by
+    obtain ⟨o, ho, hpost⟩ := Aeneas.Std.WP.spec_imp_exists (find_from_zero_spec self key)
+    cases o with
+    | none => exact ho
+    | some j =>
+      exact absurd hpost.2.2.1 (habsent j.val (Nat.zero_le _) hpost.1)
+  have hempty : SafeTable.empty_from core.cmp.EqI64 self 0#usize = ok none := by
+    obtain ⟨o, ho, hpost⟩ := Aeneas.Std.WP.spec_imp_exists (empty_from_zero_spec self)
+    cases o with
+    | none => exact ho
+    | some j =>
+      exact absurd hpost.2.2.1 (hfull j.val (Nat.zero_le _) hpost.1)
+  unfold SafeTable.try_insert
+  rw [hfind, hempty]
+  simp
+
+/-- A generated capacity-four state whose four slots hold the distinct keys `0, 1, 2, 3`. -/
+def fullTable (k0 k1 k2 k3 : I64) (v0 v1 v2 v3 : V) : SafeTable I64 V 4#usize where
+  slots := Array.make 4#usize
+    [some (k0, v0), some (k1, v1), some (k2, v2), some (k3, v3)] (by simp)
+  len := 4#usize
+
+/-- The full table holds no empty slot. -/
+theorem fullTable_noEmpty {k0 k1 k2 k3 : I64} {v0 v1 v2 v3 : V} :
+    NoEmptyIn (fullTable k0 k1 k2 k3 v0 v1 v2 v3).slots.val 0 4 := by
+  intro j _ _
+  interval_cases j <;> simp [EmptyAt, fullTable, Array.make_val]
+
+/-- The full table with keys `0, 1, 2, 3` does not hold key `5`. -/
+theorem fullTable_noMatch_five {v0 v1 v2 v3 : V} :
+    NoMatchIn 5#i64 (fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3).slots.val 0 4 := by
+  intro j _ _
+  rintro ⟨w, hw⟩
+  simp only [fullTable, Array.make_val] at hw
+  have hj4 : j < 4 := by
+    have := (List.getElem?_eq_some_iff.mp hw).1
+    simpa using this
+  interval_cases j <;> simp_all
+
+/-- The full-table refusal branch is inhabited: an absent key in the four-slot table returns the
+original payload and the unchanged state. -/
+theorem try_insert_fullTable_refusal {v0 v1 v2 v3 : V} :
+    SafeTable.try_insert core.cmp.EqI64
+        (fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3) 5#i64 v0 =
+      ok (core.result.Result.Err { key := 5#i64, value := v0 },
+        fullTable 0#i64 1#i64 2#i64 3#i64 v0 v1 v2 v3) :=
+  try_insert_refusal _ _ _ fullTable_noMatch_five fullTable_noEmpty
 
 end safe_table
 end apeiron_word
