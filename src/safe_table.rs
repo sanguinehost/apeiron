@@ -1,6 +1,6 @@
 //! A safe fixed-capacity table semantics.
 //!
-//! This is the executable reference for the core keyed transitions: lookup, replace and removal.
+//! The fixed-capacity container for the core keyed transitions: lookup, replace and removal.
 //! Storage is an inline array of initialized `Option` values, so there is no `unsafe`, allocation,
 //! tag state, tombstone or placement order in its meaning. [`crate::map::Map`] is compared against
 //! this surface before any relation to its optimized representation is claimed.
