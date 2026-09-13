@@ -60,6 +60,11 @@ An epic without a written intent, spec and plan is still design. Do not allocate
 - **Shared build products are lanes.** `proof/ApeironWord.lean`, `target/`, `proof/.lake/` and
   `proof/corpus/.lake/` each take one agent at a time. Do not mix incompatible Lean/Mathlib
   artifacts in a shared cache.
+- **A branch and its worktree exist only for their task.** Work merges to `main`, the integration
+  target, or is deleted; the worktree is removed with `git worktree remove`. Inventory with
+  `git worktree list` and `git branch -vv` before starting and after closing, and prune stale
+  records (`git worktree prune`). No branch or worktree outlives its task; one that does is a failed
+  task, not a note.
 - Do not run working-tree-mutating git commands (`stash`, `reset`, `checkout`, `restore`, `clean`).
   Preserve unrelated dirty work; a mutation control edits a throwaway copy, never the working tree.
 - A task that needs conversation history to execute is not yet a task.
