@@ -1,6 +1,19 @@
 # RFC 0001 Review Package
 
+**Frozen historical proposal and review artifact.** This package records a proposal for review; it is
+not the current approved programme and it is not dispatch authority for programme work. The sole
+programme authority is [Apeiron programme direction](../../direction.md). That document's current
+approved decision retains canonical Lean with reusable Rust and their refinements converging in
+Apeiron, keeps Song an adjacent independent assembly-up implementation with no Rust or Aeneas runtime
+linkage, and requires a checked cross-repo primitive correspondence. This package's ownership and
+review status is authoritative only for RFC 0001's own scope; it does not assign programme roles.
+
 **Short form posted to GitHub `Ptyktos/fold#15` on 2026-09-11. Canonical GitLab publication (project 211) is not authorized; the full draft and evidence package are below.**
+
+All code discussed here was written by AI under the user's direction. Commit authorship and git
+trailers do not infer direction, inventorship, labour or contribution. Role assignments in
+[ownership.md](ownership.md) are proposed; this documentation pass records no new acceptance of
+proposed task allocations.
 
 - Read [RFC.md](RFC.md) for the complete issue draft.
 - Open [index.html](index.html) for the current/proposed SVG diagrams.

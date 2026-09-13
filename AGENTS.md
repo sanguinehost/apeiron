@@ -1,13 +1,22 @@
 # apeiron: working agreement
 
-`R[x]/(x^2 - sigma)`, its `Cell<i64>` word kernel, and the table that consumes it. One Rust crate,
-one Lean extraction package, one Lean refinement bridge. This file governs the work; the source and
-the gates are the record.
+`R[x]/(x^2 - sigma)`, its `Cell<i64>` word kernel, and the fixed-shard table that consumes it. One
+Rust crate, one Lean extraction package, one Lean refinement bridge. This file governs the work; the
+source and the gates are the record.
+
+Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
+programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
+in the [programme direction](docs/direction.md); that document is the programme authority. This file
+is the local repository authority for the lifecycle, decomposition, gates, evidence grades and trust
+boundary below. The physical canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/` with
+unchanged pins until a separately gated migration; no source has moved. Song is an independent
+assembly-up implementation: no Rust or Aeneas runtime dependency links it to Apeiron, and the
+required cross-repo result is a checked primitive correspondence, not runtime linkage.
 
 Reply with the result and the evidence. State a decision or a blocker; do not narrate tool calls.
 
 The sibling `song` tree is a different repository with its own ontology, registers and `./song`
-gates. None of those apply here. Do not import its commands, its `R1`-`R5` registers, its `//@`
+gates. None of those apply here. Do not import its commands, its `R1`–`R5` registers, its `//@`
 ontology, or its `law`/`spec` block semantics. Adopt only the lifecycle, the wave/task discipline and
 the writing rules below.
 
@@ -18,11 +27,11 @@ that resolves; run the path before citing it.
 
 | Stage | Document | Purpose | Exit condition |
 |---|---|---|---|
-| 1 | `docs/direction.md` | Decisions, evidence, open work, correctness items | Current stage and its unresolved obligations are known |
+| 1 | [`docs/direction.md`](docs/direction.md) | Programme authority: decisions, evidence, open work, correctness items | Current stage and its unresolved obligations are known |
 | 2 | `docs/kernel-boundary.md` | Layer ownership and the trust boundary | Which layer is proved, tested, measured or out of scope is known |
 | 3 | `docs/flash-handoff.md` | Execution order, gates, specialist approval, stop points | The current stage's gate and stop condition are known |
 | 4 | `proof/README.md` | Extraction and bridge, exact commands, what is **not** established | Tool pins, extraction selection and axiom cone are known |
-| 5 | `README.md` | Crate behavior and the measured claims | Claimed numbers have a command behind them |
+| 5 | `README.md` | Crate behavior and its stated non-claims | The actual `Cell`/`Table` behavior and the open obligations are known |
 | 6 | exact source | `src/`, `tests/`, `proof/extract/lib.rs`, `proof/corpus/` | The symbols to change have been read, not recalled |
 
 `docs/direction.md` and `docs/kernel-boundary.md` govern. `docs/flash-handoff.md` governs execution
