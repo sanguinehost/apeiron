@@ -455,8 +455,8 @@ SHA-256 `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591`.
 
 ## What this does not establish
 
-- SIMD or concurrent storage; only the fixed-capacity container,
-  the scalar kernels, the two cell operations, the
+- Not yet covered, and in scope on the same path: SIMD and concurrent storage refinement.
+  Established: the fixed-capacity container, the scalar kernels, the two cell operations, the
   carrier point-density/flux readout, the scalar carrier step and exact-half flux, the closed
   three-cell diffusive line, the two arithmetic exchange kernels, the checked-claim acceptance
   kernel and the finite conservative-total composition.

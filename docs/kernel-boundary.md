@@ -139,11 +139,13 @@ That is the division of labour the apeiron work is built on:
   extracted bodies.
 - **Kani** stays for the narrow, bit-precise facts (the 60 harnesses in `src/proofs.rs`)
   where a witness over all inputs at a width is cheaper than a symbolic argument.
-- **The container is tested, not verified.** `map`/`table` use `unsafe` slots, a SIMD tag scan and
-  threads; they are checked against `std::collections::HashMap` over randomized programs and under
-  Miri, and their address arithmetic by the Kani harnesses, but no Aeneas refinement yet relates
-  that optimized storage to a safe reference. Proximity to the proved algebra does not transfer,
-  and the storage layer is labelled accordingly.
+- **The container is tested, not yet verified.** `map`/`table` use `unsafe` slots, a SIMD tag scan
+  and threads; they are checked against `std::collections::HashMap` over randomized programs and
+  under Miri, and their address arithmetic by the Kani harnesses, but no Aeneas refinement yet
+  relates that storage to the canonical table. This is in scope and is the priority after the
+  algebra itself: the storage-refinement epic moves the container inside the Aeneas fragment.
+  Proximity to the proved algebra does not transfer, and the layer is labelled by its current
+  fragment membership.
 - **The kernel boundary** stays `unsafe`, small, and named — the reactor's syscall cut,
   the `MaybeUninit` slot, the byte↔value cast in `codec::web`. Those are the places that
   are *allowed* to be unsafe and *must* carry a written invariant.
@@ -166,8 +168,9 @@ drift. But three things are worth stating plainly:
 3. **The proven layer should be depended on, not duplicated.** If apeiron's algebra is the verified
    primitive, the sovereign move is for hashtrinity (and everything above it) to *depend on* apeiron
    and shrink to adapters, rather than to keep growing a second, unverified implementation of the
-   same ideas beside it. The container is a separate obligation: a well-tested storage layer, not a
-   proved one, and it should be described that way.
+   same ideas beside it. The container is the second obligation after the algebra, not a sideline: it is
+   tested today and is in scope to be proved, described by its fragment membership rather
+   than as permanently unverified.
 
 The floor is the kernel. Above it, pick the smallest layer that must be right, prove it,
 and let everything else be an adapter.
