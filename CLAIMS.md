@@ -12,11 +12,12 @@ actual axiom cone, gate command with cwd, control and baseline/red/restore outco
 path. A required but missing value MUST read `MISSING`; it prevents closure. Keep one declaration
 per proof record when expanding the grouped inventory below. Do not copy the theorem into the ledger.
 
-The Markdown tables are reviewable data; no current command validates their completeness. Proposed
-`python3 tools/check-claims.py` is **MISSING**, not an installed gate. Its first task MUST reject a
-missing headline/audit/witness, stale identity, duplicate ID and unrecognized grade. Witness presence
-is a structural check; Lean checks the witness and its joint hypotheses. A `#guard` is an execution
-check, not an audited theorem. Require a removal control for every required record class.
+The Markdown tables are reviewable data. `python3 tools/check-claims.py` is installed and rejects a
+claimed headline with no resolving `#audit` line, no named gate command, no recorded grade/revision,
+an unrecognized grade or a duplicate ID. It reports `MISSING` witness and evidence fields without
+failing them; each such field keeps its epic open. Witness presence is a structural check; Lean
+checks the witness and its joint hypotheses. A `#guard` is an execution check, not an audited
+theorem. The `#audit` resolution class has a removal control.
 
 ## Authority and grades
 
@@ -64,21 +65,25 @@ that all `#audit` lines already have complete records.
 
 ## Perimeter and non-vacuity barrier
 
-Proposed `python3 tools/check-assurance.py (unpublished)` is **MISSING**. Before implementing it, freeze a manifest
-of local trust: extraction selection/audit driver, unverified translation/model boundary, axiom and
-claim checkers, and every helper able to admit a headline. Count each local file once using physical
-lines including comments/blanks; total local trusted checking code ≤5,000. Count owned Rust/Lean/
-gate source separately: ≤1,500 lines/file and ≤12 immediate source files/directory, excluding build
-products, vendored dependencies and worktrees but listing those exclusions. Include all owned
-`proof/` packages and source dependencies; no hand-picked bridge subset.
+`python3 tools/check-assurance.py (unpublished)` is installed and measures a frozen manifest. Bounded populations:
+`trusted-checking` (the local gate/audit/extraction/bridge-entry sources) and `bridge-proof` (all
+hand-written sources of the owned `proof/` packages, generated `proof/ApeironWord.lean` excluded by
+name). Each population must be ≤5,000 physical lines total, ≤1,500 lines/file and ≤12 immediate
+source files/directory; each file is counted once in the union total. The manifest is the frozen
+local trust: extraction selection/audit driver, unverified translation/model boundary, axiom and
+claim checkers, and every helper able to admit a headline, measured in physical lines including
+comments/blanks. `src/` and `tests/` are reported as inventory and flagged `OVER` against the same
+numbers but not enforced: they are outside the local trusted-checking perimeter, and binding them is
+a reviewed perimeter change, not an exclusion to meet budget.
 
 List Lean kernel, Lean/Mathlib, Charon/Aeneas and their models/pins outside the local count without
 calling them verified by that count. Generated code and kernel-checked proofs are assurance surface,
 not automatically trusted checking code. `rustc`/LLVM, unsafe `Map`, kernel ABI and GPU remain outside
 the source-refinement claim. Changing the perimeter requires review, not an exclusion to meet budget.
 
-The gate MUST reject absent manifest members, over-budget totals/files/directories, missing joint
-witness coverage and omitted audits. Test each violation in a throwaway copy, baseline/red/restore;
-infrastructure failure is not semantic rejection. The current `lake build` checks only imported
-declarations; it cannot detect a required theorem that was never written. Missing assurance tooling
-keeps the storage epic open even after its next Lean proof passes.
+The gate rejects absent manifest members, over-budget totals/files/directories and omitted audits,
+and reports missing joint witness coverage without failing it: the witness rows above are open. Each
+violation is tested in a throwaway copy, baseline/red/restore; infrastructure failure is not semantic
+rejection. The current `lake build` checks only imported declarations; it cannot detect a required
+theorem that was never written. The assurance gates are installed; the storage epic stays open on the
+open initialization/branch rows and the over-budget production inventory.
