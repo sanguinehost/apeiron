@@ -1,31 +1,18 @@
 # apeiron
 
-`R[x]/(x^2 - sigma)`, and the table that falls out of it.
+`R[x]/(x^2 - sigma)`: one two-slot algebra over a commutative ring, and one corpus-specified
+fixed-shard table.
 
-One ordered pair, one real dial. The sign of `sigma` is the only thing that varies, and it decides
-what a face can do:
+Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
+programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
+in the [programme direction](the design notes); that document is the programme authority. This
+README is the local repository description: it states the crate's actual behavior and links to the
+[local boundary](the design notes) and the [proof evidence](proof/README.md). It makes no
+current benchmark or performance claim.
 
-| sigma | face | channels | zero divisors | discard |
-|---|---|---|---|---|
-| `< 0` | elliptic | 0 | none (a field) | no |
-| `= 0` | parabolic | 1 | nilpotent line | no |
-| `> 0` | hyperbolic | 2 | null cone | **yes** |
-
-Every row is a theorem in `../sanguine-apeiron/proof/Apeiron/Trichotomy/`, cited by name at each
-definition, and the laws that transfer to the word ring are tests in `tests/the_dial_is_real.rs`.
-The table is stated over the real ring; the `i64` bullet below is the boundary of what survives
-`Z/2^64`.
-
-## Why this crate exists
-
-`hashtrinity` names three storage faces after the trichotomy and branches on no discriminant
-anywhere: `sigma` appears in no signature, no type and no test, so nothing there would fail if the
-trichotomy were wrong, absent, or replaced with three other words. It is vocabulary.
-
-Here the dial is a value the operations take. The channel accessors return `None` on faces that
-have no channel, `discards()` is false off the hyperbolic face, and the fold's order-freedom is
-stated as a property of `sigma` rather than assumed. What the algebra forbids is unavailable
-rather than merely undocumented.
+The canonical mathematics is Lean, physically at `../sanguine-apeiron/proof/Apeiron/` with unchanged
+pins; theorem names in the source doc comments resolve there. Rust representation theorems live in
+`proof/corpus/`.
 
 ## The scalar is a choice, not a limit
 
@@ -56,184 +43,63 @@ idempotents need; `i64` implements the first and not the second, so `Cell::<i64>
 does not compile. That is the theorem's scope enforced by the type rather than described in a
 comment.
 
-## What it costs
+## The cell
 
-`benches/spatial_binning.rs`: a clustered scene of signed world coordinates binned into cells,
-counted, then probed for every occupied cell. Criterion, 20 samples, median and 95% interval.
+`Cell<R>` is an ordered pair `(a, b)` over `R: Ring`. `Cell::mul(self, sigma, other) -> Self` is
+`(a1 a2 + sigma b1 b2, a1 b2 + b1 a2)`; the canonical `mul` is commutative and associative on every
+face, which licenses order-free folding (`fold`, `fold_is_order_free`), and the extracted `i64` body
+is refined to it (`word_mul_denote`). The `Ring` trait itself promises no laws: a partial scalar such
+as `Dyadic` panics on an unrepresentable operation, so those laws hold only where the operations are
+defined. `add` is componentwise and `norm_form` is `a^2 - sigma b^2`.
 
-**Single-threaded**, where the measurement is trustworthy -- every interval below is within 3.5%,
-because one thread does not compete with whatever else the machine is doing:
+`Sigma` is the dial: `Elliptic` (`-1`), `Parabolic` (`0`), `Hyperbolic` (`1`), with `value()`,
+`channels()` (`0`, `1`, `2`) and `discards()` (hyperbolic only). Channel accessors are partial by
+face: `upper`/`lower` return `Some` only on `Hyperbolic`, `channel` only on `Parabolic`; the
+idempotent constructions `idem_plus`, `idem_minus` and `of_halves` require `R: Halve`.
 
-| arm | 100k | 1M | exact | deterministic across processes | HashDoS |
-|---|---|---|---|---|---|
-| **apeiron_serial** | **1.06 ms** | **27.7 ms** | yes | **yes** | **structural** |
-| hashbrown_foldhash | 1.44 | 35.2 | yes | no | none advertised |
-| hashbrown_fxhash | 1.45 | 35.4 | yes | yes | none |
-| std_siphash | 4.25 | 108.2 | yes | no | by random seed |
+## The table
 
-21% to 26% ahead, deterministic, and the only arm with a structural answer on the last column.
+`Table<K, V, H, const N: usize = 16>` (`src/table.rs`) is the sole storage type. Storage is inline:
+an outer `[Option<[Option<(K, V)>; N]>; 256]`, 256 fixed shards each an optional length-`N` array.
+An outer `None` is an untouched empty shard; the table owns no `Vec` or heap-backed storage. Generic
+`Home`/`Eq`/`Clone`/`Merge`/drop operations may allocate, panic or diverge, and stack availability
+for the inline object is not proved.
+`H: Home<K>` selects placement (`WordHome` uses the word bit pattern) and `F: Merge<V>` combines
+new-first (`WordMerge` is wrapping addition).
 
-**The 16-thread comparison is owed a quiet machine and is not published here.** The run these
-numbers come from had a background process holding about 3.6 cores, and it shows: the `par16` arms
-came back with intervals from 9% to 62% wide, against 1-3% for the serial arms, so their *ordering*
-is not resolvable from it. What can be said is that the spread is not evenly distributed --
-`apeiron_par16` was the widest arm in the 1M group at +/-50%, against +/-12% for `fxhash_par16` --
-which suggests its two-level partition is more sensitive to core contention than the competitors'
-flat sharding, and is worth measuring on its own rather than assuming.
+Public API:
 
-That run also appeared to say something stronger -- that at 100k the serial build beat every
-parallel arm, apeiron's included, 1.06 ms against 1.60 -- and **it was an artefact of the same
-contention.** A 16-thread arm competes for cores a 1-thread arm never asks for, so a busy machine
-does not slow both arms equally: it biases the comparison systematically toward the serial one.
-Re-measured with each arm alone in its own process, best of 40 rounds, the same point reads 1.75 ms
-serial against 0.69 parallel -- 2.5x the other way.
+| method | behavior |
+|---|---|
+| `new(default, home)` | empty table; every key reads the default |
+| `get(&K) -> &V` | the stored override, or the default; total for every key |
+| `insert_with(&F, k, v) -> Result<(), StorageError>` | applies `merge(v, old)`, including the default on the first write |
+| `build(&F, default, kvs, home) -> Result<Self, StorageError>` | applies the stream in order; no partial table on refusal |
 
-What that re-measurement does establish is where the crossover actually is
-(`examples/where_parallel_pays.rs`):
+Admission and refusal are explicit. `insert_with` returns `Err(StorageError::ShardFull)` exactly
+when the key is absent and its home shard has no vacant slot; refusal invokes neither clone nor merge
+and changes no field, while an existing key still updates in a full shard. `N = 0` is valid: reads
+return the default and every insertion refuses. `build` returns no partial table on refusal and
+preserves per-key stream order. `tests/table.rs` covers the total default read, new-first
+replacement and build order; the `src/table.rs` unit tests cover full-shard refusal with an unchanged
+table, existing-key update, `N = 0`, and that refusal does not invoke merge.
 
-| keys | serial | 16 threads | |
-|---|---|---|---|
-| 25,000 | **0.37 ms** | 0.65 | serial, 1.8x |
-| 50,000 | 0.82 | 1.05 | ambiguous -- they swap places between runs |
-| 100,000 | 1.75 | **0.69** | parallel, 2.5x |
-| 1,000,000 | 34.2 | **2.26** | parallel, 15x |
+The table is tested, and named word-instance witnesses refine scoped behavior of the extracted
+source. Universal physical `Rep` preservation and admission completeness remain pending. The current
+word-instance witnesses and the open universal `Rep` obligation are in
+[proof/README.md](proof/README.md) and the [local boundary](the design notes). No current
+table benchmark or performance claim is made; the removed `Map`/`CountTable`/`Set` measurements and
+their benches concerned source that no longer exists, and the deletions are recorded at the
+[local boundary](the design notes).
 
-`CountTable::build_parallel` used to partition at every size and pay that 1.8x at the small end.
-It now falls back to the serial build below `PARALLEL_FLOOR`, set at 65,536 -- above the ambiguous
-point rather than inside it. `the_parallel_floor_does_not_change_any_count` checks the fallback is
-invisible on both sides of the boundary.
+## What this does not claim
 
-Every arm ending `par16` is sharded and threaded the same way: the same shard function, the same
-two-level parallel partition, one map per shard, and probes grouped exactly as the build was.
-That is not a courtesy. A parallel arm measured against a serial one measures the scheduling and
-not the table, and this benchmark made that mistake in apeiron's favour for one commit -- the
-reference arms were still scattering a million keys on one thread after apeiron's partition was
-threaded, which is worth 4.5 ms and made a 7% lead look like 2.3x.
-
-The whole point is the last three columns. foldhash's seed is the stack pointer and ASLR and its
-own comment says it does not advertise HashDoS resistance; std seeds SipHash randomly. Both are
-therefore non-deterministic across processes, so neither can back a replay.
-
-### A correction to that last column
-
-The claim used to read: apeiron is seedless, and what defends it is the shape of the probe rather
-than a secret -- `table::group_of` descends successive windows of the whole 64-bit word, so
-extending a chain by one step costs the attacker another `gbits` of control and an unbounded chain
-costs all 64.
-
-**That was true, and then it stopped being true.** "Bits of control" is not the same as cost while
-the address is a public *bijection*: all the windows are slices of one word, so matching every one
-of them was a single call to `unspread`. Measured, 200,000 keys aimed that way built **988x** slower
-than an honest set.
-
-`map` then split its address in two (`coord::Addr`). The **identity** word is still a bijection --
-the elliptic face reads keys back off it -- but the **placement** word, the one the descent and the
-tag actually read, is a fold of both halves of a widening multiply and has no inverse. An attacker
-can still evaluate it; they can no longer solve it. So keys agreeing on `j` windows must be *found*,
-at `2^(j * gbits)` trials each:
-
-| windows matched | trials per key | search | mean probe |
-|---|---|---|---|
-| honest | — | — | 1.02 |
-| 1 | 254 | instant | 2.00 |
-| 2 | 67,682 | 0.10 s | 2.99 |
-| 3 | > 4 × 10⁹ | unaffordable | — |
-
-Exponential cost, linear damage — which is what the original claim always meant and could not
-deliver while the word was invertible. `CountTable` took the same split, and the attack there has to
-aim at both ends of the placement word — the shard is its bottom eight bits, the descent walks down
-from bit 57 — so crowding one region costs `2^(8 + j·gbits)` trials per key: 247 for the shard alone
-(which is a *speed-up*, 0.71×, because a region is sized to its load), 63,839 for one further
-window, and unaffordable for two.
-
-What defends it is a secret, as it is for SipHash. `map::Salt` is that secret and `pepper` is how it
-gets set:
-
-```rust
-// once, at startup, before any table exists
-apeiron::pepper::set_process_pepper(config.pepper);
-tracing::info!(pepper = config.pepper, "address salt");   // write it down
-```
-
-The ratio goes to **1.0x**. It stays compatible with replay because a pepper is a process-wide
-*constant* rather than a per-run random seed: a recorded pepper reproduces a recorded session
-exactly, which is the property a random seed denies and the reason foldhash and SipHash cannot back
-one. `Exposed<K, V>` takes a `NonZeroU64`, so a table fed from outside the process can be made
-unable to exist without one; `Map::stats()` reports `longest_probe` so an attack is visible whether
-or not anybody remembered.
-
-`CountTable` has one too (`CountTable::with_pepper`, or the process floor). Measured structurally
-rather than by the clock: the same aimed keys reach **one** shard of 256 under the salt they were
-aimed at, and **all 256** under a peppered table — against 255 for honest traffic.
-
-## The map and the set
-
-`table` keeps a fold and a count and throws the key away, so it reads as the hyperbolic face and is
-not: a `CountTable` slot holds `Addr::id`, which is `address * mul` and so a bijection, and
-`table.rs` asserts `CountTable::FACE.key_survives()` at compile time. The discard happened earlier,
-in the caller's `Coord`, which is where the hyperbolic face actually lives -- see the table under
-*What a fold has to be* below, which has said `Coord` all along. `CountTable` is **elliptic storage
-over a hyperbolic address**.
-
-`map` is the other two keystores, and which one a key gets is decided by the key:
-
-| key | its fold | face | a slot holds | a hit costs |
-|---|---|---|---|---|
-| fits in a word (`Packed`) | a bijection | elliptic, *regenerated* | the address | one compare |
-| wider (`Coord` only) | a discard | parabolic, *carried* | address **and** key | a compare, then the key |
-
-`Map<K, V>`, `Words<K, V>`, `Set<K>`, `WordSet<K>`, `Exposed<K, V>`, `ExposedSet<K>`. The std shape,
-including `entry`, `extract_if`, `get_disjoint_mut`, `try_reserve` and `Index`, plus a borrowed-key
-surface so `Map<String, V>` is probed with `&str` and `Map<(String, u16), V>` with `(&str, u16)`,
-allocating nothing on a hit. `#[derive(Coord)]` and `#[derive(Packed)]` behind the `derive` feature,
-which is off by default so the ordinary build keeps zero dependencies.
-
-Per lookup, 694 keys, L1-resident, `perf stat` on one core. Instructions retired rather than
-cycles: the count is per-process and reproduces on a machine that is doing other work, which cycles
-do not.
-
-| | instr/lookup | deterministic | DoS |
-|---|---|---|---|
-| **apeiron, `u64`** | **34.8** | yes | by pepper |
-| hashbrown + foldhash | 35.3 | no | none advertised |
-| hashbrown + fxhash | 34.2 | yes | none |
-| std (SipHash) | 128.2 | no | by random seed |
-| **apeiron, `String`** | 93.4 | yes | by pepper |
-| hashbrown + foldhash, `String` | 83.9 | no | none advertised |
-| hashbrown + fxhash, `String` | 92.3 | yes | none |
-
-On `u64` keys the probe is half an instruction under the flat competitor and within one of fxhash,
-which buys its count by having no resistance to pay for. On a quiet machine that read 6.84 cycles
-against foldhash's 6.62.
-
-The `u64` gap was 70 instructions until `get` and `find` were made to actually inline; IPC was
-already as high as hashbrown's, which is what said the problem was instruction count rather than
-stalls.
-
-The `String` gap is 9.4 instructions and **its cause is not known**. It is not the fold: the two
-folds are at instruction parity on this corpus, 23.1 against 24.1. The obvious suspect was tested
-and did not survive -- a map with a zero-sized value brings the slot to 32 bytes, the same as
-hashbrown's, and is no faster (93.2 against 93.4). It is recorded as open rather than attributed,
-because a wrong cause forecloses the next measurement. Note also that this is the lookup column
-only: on build-then-look-up, apeiron takes every row from 8 keys to 500,000, which is where
-carrying the address beside the key pays -- growth is a probe per entry rather than a re-fold of
-every key's bytes.
-
-## The coordinate fold, which is three folds
-
-Injectivity is required on one face, irrelevant on the second and impossible on the third, so
-asking for "the" collision rate asks three questions at once:
-
-| face | wants | `coord.rs` gives it |
-|---|---|---|
-| elliptic (*regenerated*) | the address determines the key | `Packed` -- concatenation, exactly invertible, only for keys that fit in 64 bits |
-| parabolic (*carried*) | spreading; the key is carried and compared | `Coord` -- multiply-add, judged on distribution |
-| hyperbolic (*discarded*) | a discard; the key is gone | `Coord` -- same fold, and losing information is the intent |
-
-Two things this corrects. hashtrinity's `a.wrapping_mul(PHI) ^ b` leaves the ring for `GF(2)` and
-collides on 49% of a signed pair grid and 72% of a signed triple grid -- bad *distribution*, on a
-face where distribution is the whole job. And multiply-add, which fixes that, is **not** a
-bijection either: `(2971215073, 50920843)` and `(0, 0)` fold to the same address, because PHI is
-the golden ratio and its convergents are Fibonacci. So it cannot serve the elliptic face, and
-`Packed` is a separate trait rather than a refinement of `Coord` -- a bijection and a discard are
-different operations and should not share a name.
+- No current benchmark or performance number for the table or the crate.
+- No universal `Rep` preservation, admission completeness or physical subsumption for arbitrary
+  fixed-shard states, keys and streams; the checked table witnesses are scoped to the word instance.
+- No claim that the wrapping `i64` ring carries the real trichotomy's classification, the real
+  energy/nonnegativity results, or an order.
+- No claim about rustc/LLVM code generation, the kernel ABI, a GPU backend, or the generic
+  `Home`/`Eq`/`Clone`/`Merge`/drop callbacks, which may allocate, panic or diverge.
+- A theorem name, a sibling path or a citation is a pointer, not evidence; it is `proved` only when
+  the named theorem exists and the in-repo link is checked.
