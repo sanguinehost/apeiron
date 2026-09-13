@@ -1,4 +1,138 @@
-# Plan - Bounded Storage Refinement
+# Plan - Single Table Refinement
+
+## Binding boundary replacement
+
+Owner Astra; base `da01485d24be8900824750431a70f19100bee200`, initially clean. The lead authorizes
+source deletion and a red boundary commit in the supplied checkout. No branch/worktree is created;
+the existing `one-allocation` branch is unrelated and is not modified. The two-container decision
+below is superseded, not a prerequisite to this sequence. No new markdown or other governing-doc
+edits are authorized. `docs/kernel-boundary.md` contains the replacement contract and trust cut.
+
+**Intent:** the executing table is the thesis's proof subject. A proved reference beside an unproved
+container does not satisfy it. Delete both old containers and their wrappers rather than preserving
+that boundary under aliases. Compatibility breakage is accepted; no performance claim transfers.
+**Spec:** one `Table<K,V>`, default-valued total lookup, new-first `insertWith`, finite-stream `build`,
+and home-sharded finite overrides, as specified in the boundary document. No fixed-capacity-four
+restriction, automatic `Option` lifting or commutativity assumption for ordinary builds survives.
+The old intent/spec documents below describe retired source, not the replacement's contract.
+
+The boundary change is three serial owned slices: `APEIRON-TABLE-W0-T1` owns these two documents;
+`APEIRON-TABLE-W0-T2` deletes `src/map.rs`, `src/safe_table.rs`, `src/set.rs`;
+`APEIRON-TABLE-W0-T3` owns `src/table.rs`, `src/lib.rs`, `src/merge.rs`. Astra owns all three for this
+explicit lead-assigned deletion. Only the last slice takes lane R. They share one authorized
+boundary commit, not a claim of implementation completion.
+
+```text
+SCOPE:      the three slices above; remove competing containers, expose only Table, freeze its API
+REGISTER:   planning/API removal; excludes completed implementation, refinement and performance
+CORPUS:     Apeiron.Table "get_build_acc", "build_eq_of_key_streams_eq",
+            "build_gauge_invariance"; Adjacency and Home, native grade proved
+REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+GATE:       root: cargo check --lib --locked baseline 0; cargo test --doc --locked after deletion
+            101: E0599, Table::new missing at src/merge.rs:47; git diff --check 0
+GRADE:      anchor; declaration only, no methods or executing container; no new proof/measurement
+```
+
+The merge doctest is rewired to the required API and deliberately fails without its implementation.
+The library alone compiles, with unread-field warnings. Do not suppress those warnings or add a
+compatibility implementation to manufacture green. The old integration tests, benchmarks, examples,
+fuzz targets and storage Kani harnesses are retained as red migration inputs, not silently disabled.
+`proof/extract/lib.rs` still names deleted source; generated Lean and its old bridge are stale.
+A successful build of those cached definitions alone cannot establish freshness or new-table proof.
+
+Observed boundary checks (root):
+
+| Command | Outcome |
+|---|---|
+| `cargo test --doc --locked` | 101; one passes, the Table example fails with E0599 (`Table::new` missing). |
+| `cargo test --workspace --all-features --locked` | 101; E0432/E0433 on removed `map`, `safe_table`, `set`, `CountTable` and scanner imports. |
+| `proof/regen.sh --check` | 1; source digest stage rejects deleted `src/safe_table.rs`, before extraction. Charon `0.1.254` (`b104e24f`), Aeneas `505b6ca-dirty`, Rust extraction toolchain `nightly-2026-08-18`; script reports Lean pin `4.31.0`. |
+| `git diff --check` | 0. Formatting evidence only; no storage proof or mutation-control closure. |
+| `cargo fmt --all -- --check` | 0 after correcting the changed re-export formatting. |
+
+### Identity
+
+Corpus read: clean `apeiron-rebuild` at `50c94192399add3b9f8e64bd14e36d8cba270705`.
+The bridge currently resolves `d9aefc93522e2109bc96158526de6dbd52477276`.
+
+| Source | SHA-256 at boundary edit |
+|---|---|
+| `src/lib.rs` | `56c0ce5d9fcf14a7075e286cc7710461dc2b986aaf3cecea91844b6b5c15c7a7` |
+| `src/table.rs` | `18c9ce400f8fb8f872e6c9cfe370d4f0415081589833d58f0668240c3feea72f` |
+| `src/merge.rs` | `f1a056ad3d19c460ff49ec565ad1e22d06ac77ac08da3d24efdff48dc63d1874` |
+| corpus `Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |
+| corpus `Table/Adjacency.lean` | `5593d39db83213694ef51b9cb4d73686b9e2b5e8b548a2840e61b5a94d382732` |
+| corpus `Table/Home.lean` | `bab40ae04d1bd19cde8c97e09eb2453652cbddf253969ebad03ac582cf5d599b` |
+
+No Lean/toolchain acceptance is inferred from those digests. Each execution task records its actual
+Rust, Charon/Aeneas binaries (including patches), Lean, Mathlib and corpus identities. Tool pins
+and the historical constructor patch are in `proof/README.md`; do not assume the patch solves
+growable vectors, fallible reservation, function pointers or generic callback translation.
+
+### Serial waves and lanes
+
+IDs are `APEIRON-TABLE-W<n>-T1`; one owner per file. Before dispatch the lead records the integrated
+base and creates `worktree-agent-<id>`. Each row is a serial wave; a rename is one owned artifact.
+**R** = `target/`; **E** = R + `proof/ApeironWord.lean` + `proof/.lake/`;
+**B** = `proof/corpus/.lake/` + `proof/.lake/` + Aeneas backend cache. Controls use throwaway copies
+and separate writable build outputs. No simultaneous lane occupants. Future filenames denote
+required artifacts, not already existing tests or proofs.
+
+| Wave | Owned artifacts / obligation | Owner; lane | One focused gate | One rejecting control |
+|---|---|---|---|---|
+| 1 | `src/table.rs`, `src/merge.rs`: implement the declared constructor/get/insert_with/build, initialized growable shards and fallible resources; expand executable doctests for nonzero default, collisions and directional merges | Terra; R | `cargo test --doc --locked` (root) | First insertion bypasses `f v d` in a throwaway real body; nonidentity-default fixture must fail. |
+| 2 | `tests/safe_table.rs` renamed to `tests/table.rs`: replace the two-container trace with single-table default/write/build tests, growth, exact error witnesses and replace/append order fixtures | Flash; R | `cargo test --locked --test table` (root) | Compare only home addresses instead of full keys in a throwaway real body; collision fixture must fail. |
+| 3 | `proof/corpus/lakefile.lean`, `proof/corpus/lake-manifest.json`: pin the read gen2 revision, check Basic/Adjacency/Home on the bridge toolchain | Sol; B | `lake build Apeiron.Table.Basic Apeiron.Table.Adjacency Apeiron.Table.Home` (cwd `proof/corpus`; preparation: `lake update apeiron`) | Nonexistent corpus revision in a throwaway package must fail resolution, never fall back to sibling source. |
+| 4 | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean`: replace `word_safe_table4_*` roots with actual Table constructor/get/insert_with/build roots, no capacity bound; include executing routing/growth and concrete merge instances | Sol; E | `proof/regen.sh --check` (root; first regenerate with `proof/regen.sh`) | Mutate the real default-read branch; unchanged generated output must fail freshness. |
+| 5 | `proof/corpus/SafeTableRefinement.lean` renamed/reshaped to `TableRefinement.lean`, `proof/corpus/AxiomAudit.lean`, `proof/corpus/lakefile.lean`: remove retired roots/audits; prove constructor, joint representation witnesses, terminating home-shard lookup and total default read | Sol; B | `lake build` (cwd `proof/corpus`) | Generated lookup returns the default for a present key; unchanged lookup theorem must fail. |
+| 6 | `proof/corpus/TableRefinement.lean`, `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/AxiomAudit.lean`: writes/growth refine canonical insertWith, preserve Rep, characterize success/resource refusal with witnesses; audit imports the new module | Sol; B | `lake build` (cwd `proof/corpus`) | Generated first-write branch stores `v` instead of `f v d`; unchanged insertWith theorem must fail. |
+| 7 | `proof/corpus/TableBuildRefinement.lean`, `proof/corpus/TableWriteRefinement.lean`, `proof/corpus/AxiomAudit.lean`: actual build = canonical build; compose get_build_acc, per-key stream equality and conditional gauge invariance; exact Home attribution and order counterexamples | Sol; B | `lake build` (cwd `proof/corpus`) | Reverse same-key contributions in the generated build; unchanged replace/append build theorem or witness must fail. |
+
+All gates are required with baseline/red/restored controls; the proof tasks target `proved`, tests
+only `tested`. A type or empty module that elaborates is not a completed row. No `sorry`, admission,
+opaque reservation axiom, assumed desired simulation, or reduced-capacity proof can close a row.
+If proof size would exceed 1,500 lines, split the obligation into another serialized ≤3-file task
+before editing beyond the declared paths. Sol must approve the resource and callback premises;
+this architecture decision is not that proof-sufficiency verdict.
+
+**First gate:** `cargo test --doc --locked`, cwd repository root. It currently exits 101 on the
+missing `Table::new`. Implement the same path; do not ignore the doctest. The extraction row is an
+explicit feasibility stop: after three materially different unsupported shapes, return the exact
+unsupported primitive and next tool-model task. Never restore a separate reference to evade it.
+
+### Caller migration and integration barrier
+
+The seven rows do not repair the whole compatibility surface. After the API lands, Flash migrates
+retained callers in serialized ≤3-file batches, without introducing old-name aliases:
+
+- `tests/a_map_is_a_map.rs`, `tests/a_set_is_a_set.rs`, `tests/the_counts_are_exact.rs`: one initial
+  batch, gate `cargo test --locked --test a_map_is_a_map --test a_set_is_a_set --test the_counts_are_exact`;
+  control: change a new-first merge to old-first and require the unchanged directional fixture red.
+  Preserve corresponding semantic/boundary cases; entry/iterator-only contracts are explicitly
+  retired, not claimed for the new minimal API.
+- `src/proofs.rs`: separate Kani batch, gate `cargo kani`; replace retired storage/scan claims with
+  bounds/routing/collision harnesses for Table; a routing-mask mutation must fail. Preserve unrelated
+  algebra harnesses. Bounded Kani is supplementary, not the storage refinement theorem.
+- Remaining test/example/bench/fuzz callers need an exact path manifest and ≤3-file, single-command
+  batches selected by their owners; no unbounded "repair all callers" dispatch. That manifest is
+  **MISSING** and blocks whole-workspace closure, not the seven focused gates. Benchmarks must be
+  remeasured on the new executing path before old numbers are reused.
+
+Integration order: declaration/deletion → implementation and tests → corpus pin → actual extraction
+→ constructor/read → write/resource → build/layout → caller migrations → full assurance barrier.
+The lead, not an individual task, runs all AGENTS §6 Rust commands (including Kani), regeneration
+freshness, both Lake builds and the controls on one source/tool identity. Existing S7/S8 requirements
+remain: claim/witness/audit coverage, trusted checker ≤5,000 lines, owned source ≤1,500 lines and
+≤12 immediate source files. Missing assurance gates remain missing; deletion alone does not close
+them. Corrections to out-of-scope README, direction, handoff and old lifecycle documents need a
+separate lead-owned documentation batch; their retired-container claims are not current acceptance.
+
+**Residual:** no executing Table, no new extraction/refinement, no runtime measurement. SIMD, raw
+slot lifecycle and workers are removed rather than left in a tested-only path. Source-level proof
+still trusts translation/model fidelity, compiler/runtime/allocator realization and machine execution
+as explicitly bounded in `docs/kernel-boundary.md`; it may not assume the table semantics themselves.
+
+## Historical bounded-reference plan and evidence (superseded)
 
 - **Owner:** OpenCode
 - **Intent:** `docs/intent/storage-refinement.md`

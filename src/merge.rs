@@ -30,29 +30,25 @@
 //! a directional merge cannot be built in parallel and recombined -- that is a real precondition
 //! and it belongs beside the merge rather than in a caller's head.
 //!
-//! # Why each merge appears twice
+//! # Table integration
 //!
 //! [`keep`], [`set`], [`count`] and [`link`] are the merges *as functions*, `(new, old) -> V`.
 //! That is the form the table above names and the form the commutativity and associativity
 //! arguments are stated about, so they are the definitions.
 //!
-//! [`keep_into`], [`set_into`], [`count_into`] and [`link_into`] are the same four with the
-//! signature [`crate::map::Map::insert_with`] actually takes, `(&mut V, V)`. **Use these.** The
-//! in-place form is the crate's insertion primitive rather than a convenience over the by-value
-//! one, and the reason is failure atomicity: a merge that panics has to leave the map exactly as
-//! it was, which a `(new, old) -> V` merge cannot promise because it has already moved the old
-//! value out of the slot. `a_merge_that_panics_leaves_the_map_intact`, in
-//! `tests/a_map_is_a_map.rs`, is what holds that.
+//! The single table's required merge signature is `(new, old) -> V`, including the default on
+//! the first write. Its implementation is pending. The standalone `*_into` helpers below are
+//! not a second table path and do not define the table's mutation or panic contract.
 //!
 //! ```
-//! use apeiron::map::Map;
+//! use apeiron::Table;
 //!
-//! let mut counts: Map<u64, u32> = Map::new();
+//! let mut counts: Table<u64, u32> = Table::new(0, |k| *k);
 //! for k in [7, 7, 9] {
-//!     counts.insert_with(k, 1, apeiron::merge::count_into);
+//!     counts.insert_with(apeiron::merge::count, k, 1).unwrap();
 //! }
-//! assert_eq!(counts.get(&7), Some(&2));
-//! assert_eq!(counts.get(&9), Some(&1));
+//! assert_eq!(*counts.get(&7), 2);
+//! assert_eq!(*counts.get(&9), 1);
 //! ```
 
 /// Which merge a table is built with.
@@ -136,10 +132,7 @@ pub fn link<T>(mut new: Vec<T>, old: Vec<T>) -> Vec<T> {
 
 // -- the same four, in place ---------------------------------------------------------------------
 //
-// `Map::insert_with` takes `FnOnce(&mut V, V)` rather than `FnOnce(V, V) -> V`, because a merge
-// that has to move the old value out of the slot to call the closure leaves the slot holding
-// nothing for the duration -- and a panic in there loses the entry. The four above are the
-// *statement*; these are how a table applies them. Each is checked against its pure twin.
+// Standalone in-place helpers; the table does not use these as its write contract.
 
 /// [`keep`], applied in place.
 #[inline]

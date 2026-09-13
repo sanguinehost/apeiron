@@ -118,8 +118,7 @@ Reading bottom-up, marking who controls each layer:
 | syscall wrappers (`libc`, or inline `asm!`) | us / libc | the *wrappers* yes, the kernel no |
 | runtime / reactor / scheduler | us | yes, if written in a verifiable subset |
 | **the algebra (`Cell`, `R[x]/(x²−σ)`)** | us | **yes — Lean proves it; Aeneas refines the `Cell<i64>` kernel** |
-| **safe finite storage** | us | `SafeTable` capacity-four/I64-key transitions have an Aeneas refinement; storage epic assurance remains open |
-| **optimized storage (`Map`, `Words`, `CountTable`)** | us | **tested, not verified**; no universal storage refinement |
+| **storage (`Table<K, V>`)** | us | Sole representation; declaration only at the boundary commit. Executing constructor, reads, writes, build and layout must all be refined before acceptance. |
 | application / game logic | us | yes |
 | language and compiler (`song` / Slang) | us | toolchain correctness is its own problem |
 
@@ -140,77 +139,95 @@ That is the division of labour the apeiron work is built on:
   extracted bodies.
 - **Kani** stays for the narrow, bit-precise facts (the 60 harnesses in `src/proofs.rs`)
   where a witness over all inputs at a width is cheaper than a symbolic argument.
-- **Storage has two evidence boundaries.** `SafeTable` has extracted, refined transitions;
-  `Map`/`Words` have unsafe slots and use the tag scanner in `table.rs`. `CountTable` has initialized
-  `Vec` slots and scoped workers, not `Map`'s `MaybeUninit` representation. Their optimized paths
-  remain tested. Move only real safe scalar bodies into Aeneas incrementally; whole-container
-  extraction is not the selected route. The independent optimized relation below remains open.
+- **Storage has one proof boundary.** The executing `Table` must refine the corpus directly.
+  Neither a reference container nor a tested-only optimized container is an accepted alternative.
+  The former storage proofs remain historical evidence about deleted source, not this table.
 - **The kernel boundary** stays `unsafe`, small, and named — the reactor's syscall cut,
-  the `MaybeUninit` slot, the byte↔value cast in `codec::web`. Those are the places that
+  the byte↔value cast in `codec::web`. Those are the places that
   are *allowed* to be unsafe and *must* carry a written invariant.
 
-### Frozen storage representation boundary
+### Frozen single-table boundary
 
-Architecture target (`anchor`), not an implemented optimized-map theorem. Authority:
-`Apeiron/Table/Basic.lean` at corpus `d9aefc93522e2109bc96158526de6dbd52477276`;
-the checked reference is `proof/corpus/SafeTableRefinement.lean`.
+Binding lead decision supersedes `da01485` and the two-container storage clauses in
+`docs/direction.md`, `docs/flash-handoff.md` and the earlier storage intent/spec. Those files are
+historical for storage until their owners reconcile them. This is an `anchor`, not a new proof.
+The supplied checkout is the authorized boundary-edit lane.
 
-- **Semantic state:** `Apeiron.Table.HMap K (Option V)`. Reads use `get`; insertion uses
-  `insertWith (fun new _ => new) k (some v)`; removal uses
-  `insertWith (fun _ _ => none) k none`. Return the previous mapping. Slot order, salt, capacity
-  and tombstones are not semantic keys. Raw iteration order is excluded, not declared canonical.
-- **Projection:** for a valid optimized state `m`, let `L(m)` be its logical slot list: live slots
-  decode to `some (key,value)`; `EMPTY = 0xFF` and `TOMB = 0xFE` decode to `none`, without reading
-  their payloads. `Stored` uses the carried key, never the lossy address as identity. `Regen`
-  requires the actual packed-key/salt inverse laws. Initially target `Map<i64,i64,Stored<i64>>`;
-  generic `Held`, `Locate`, `Packed` implementations do not inherit that proof.
-- **Relation:** `Rep(m,h) := MemoryValid(m) ∧ PlacementValid(m) ∧ KeysUnique(L(m)) ∧
-  live(m) = countSome(L(m)) ∧ (∀ k, lookupList k L(m) = h k)` at I64 keys. The optimized-to-reference
-  relation is `Rep(m, tableHMap t) ∧ WellFormed t`. Reuse `KeysUnique`/`lookupList`; do not apply
-  capacity-four `WellFormed` directly to a larger optimized layout. This relates arbitrary physical
-  layouts holding at most four keys, not arbitrary-size maps to four slots. Larger populations
-  relate directly to `h`; generalizing the safe-table proof is a separate obligation.
-- **Placement validity:** equal tag/slot lengths; zero allocation or power-of-two group geometry;
-  legal tags; correct tag/address for every live entry; `used = live + tombstones ≤ limit(slots)`;
-  `room = limit(slots) - used`; each key occurs on its probe sequence with no earlier probed group
-  containing `EMPTY`. Its own group may contain empties: hits are checked before absence.
-  Tombstones permit continuation. Prove group coverage, termination and all machine
-  counter/shift bounds from construction and preservation, not from an assumption that large
-  allocations happen to fail. Address consistency must hold for equal keys under a fixed salt.
-- **Memory validity:** live slots own initialized, valid payloads; free slots own no readable or
-  droppable payload; allocations, bounds, alignment, provenance and exclusive mutable loans are
-  valid. Moves transfer ownership once; removal/drop/unwind cannot double-read or double-drop.
-  The tag biconditional alone proves none of this. `assert_unchecked`, `clear`, `rehome`, `Salvage`,
-  iterators and generic callbacks require separate obligations, including unwind states.
-- **Transitions:** constructors establish the relation; reads terminate and preserve it; writes
-  preserve it and match old values and canonical updates. Growth is semantic stuttering, not physical
-  equality. Safe full refusal preserves the exact state/payload. `Map::insert` reserves even before
-  replacement, may grow or fail allocation, and has no `TableFull` branch. Compare only common
-  successful capacity-admitted operations; do not reinterpret allocation failure as logical fullness
-  or impose new public preconditions. A bounded adapter would need its own real implementation/proof.
+**Authority read:** gen2 branch `apeiron-rebuild`, clean revision
+`50c94192399add3b9f8e64bd14e36d8cba270705`, at
+`../sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean`.
+The bridge still pins `d9aefc93522e2109bc96158526de6dbd52477276`; moving that pin and checking
+the imported theorems is a separate acceptance task. Reading the new revision is not a build.
 
-| Mechanism | Refinement target | Present cut |
-|---|---|---|
-| Safe slot transitions | Existing `get_spec_canonical`, `try_insert_spec`, `remove_spec`, constructor and exact branch theorems | Capacity four, I64 keys; Lean methods quantify over `V`, concrete roots use I64 values |
-| Scalar scan / probe arithmetic | Exact 16-bit lane masks, legal group indices, coverage and bounded termination of the executing safe bodies | Feasible targets, not yet extracted/proved here; no proof-only replacement algorithm |
-| SSE2 scan | Bit `i` of match mask iff `line[i] = tag`; free mask iff `line[i] & 0x80 != 0` | Intrinsics/load semantics outside current Aeneas chain; SWAR proof does not prove the x86-selected branch |
-| Unsafe slot lifecycle | A heap-to-`L(m)` simulation including ownership and unwinding | No supported heap refinement supplied; Miri/Kani/tests supplement, not discharge it |
-| Partition and workers | Per-key stream preservation, disjoint complete shard assignment, exact merge and returned joins | Pure partitioning can be a later extraction target; thread memory semantics, panic propagation, scheduling and liveness remain outside |
+#### Representation and public contract
 
-`CountTable` needs a separate relation over **u64 addresses**, default count zero, to canonical
-`build (+) 0` on unit contributions. It does not recover keys discarded by the caller's `Coord`.
-Its `+=`, sizing and sums need explicit checked-overflow domains or an approved semantic change;
-do not silently assign wrapping-word laws. `build_eq_of_key_streams_eq` licenses an established
-per-key sequence equality, not the Rust partition or scheduler by citation.
+- **One type:** `apeiron::Table<K, V>`, defined in `src/table.rs`; no aliases or wrapper containers.
+  `src/map.rs`, `src/safe_table.rs` and `src/set.rs` are deleted, including `Map`, `Words`,
+  `Exposed`, `ExposedWords`, `SafeTable`, `TableFull`, `Set`, `WordSet`, `ExposedSet` and the map
+  entry/iterator/storage-policy types. The former `CountTable`, regions, scanner and worker code
+  are removed from `src/table.rs`, not retained under a second name. Algebra modules remain.
+- **Current artifact:** a declaration with private default, home function and initialized-vector
+  shard fields, with no constructor or methods. It is not an executing implementation. Library
+  export and the merge example name only `Table`; legacy tests, examples, benches, fuzz and Kani
+  callers intentionally remain red pending semantic migration. No alias makes their old API work.
+- **Required API:** `new(d, home) -> Self`, `get(&self, &K) -> &V`,
+  `insert_with(&mut self, f, k, v) -> Result<(), StorageError>`, and
+  `build(f, d, kvs: Vec<(K,V)>, home) -> Result<Self, StorageError>`.
+  `home: fn(&K) -> u64`; writes use `K: Eq`, `V: Clone`, and `f: Fn(V,V) -> V`.
+  `new` is allocation-free (empty shard vector); the first write initializes 256 shards.
+  `get` returns the default even before allocation. No `Option`-valued absence is imposed:
+  `V = Option<W>` is an ordinary instance. Presence uses `bool`, count a chosen numeric type,
+  adjacency a list value; none introduces another container name.
+- **Semantics:** `HMap K V := K → V`. Let `D(t)(k)` be the unique matching override in shard
+  `home(k) mod 256`, or the stored default. `Rep(t,h)` requires zero or 256 initialized shards,
+  globally unique keys, every entry in its home shard, and `∀ k, D(t)(k) = h(k)` (through key/value
+  denotations when Rust and Lean types differ). Constructors establish `Rep(t, fun _ => d)`;
+  reads denote `Apeiron.Table.get`; successful writes establish
+  `Rep(t', Apeiron.Table.insertWith f k v h)`. Even the first write computes **`f v d`**, not `v`.
+  `build` starts from `d` and applies exactly those writes to the finite stream. This realizes
+  the constant-default, finite-update fragment of total functions; it does not enumerate all `K → V`.
+- **Layout:** one home-sharded representation with initialized `Vec<(K,V)>` entries, bounded
+  scalar search and full-key equality to resolve collisions. Growth preserves denotation; it is
+  not another table or a fixed-capacity-four reference. There is no raw-iteration public contract.
+  The home callback must be total, stable and respect key equality. Generic `Eq`, `Clone` and merge
+  callbacks need explicit denotation/termination contracts; Rust trait names alone prove no laws.
+- **Resources:** the canonical functions are total; physical allocation is not. Checked capacity
+  arithmetic and fallible reservation report `StorageError` before changing logical entries.
+  Reservation failure leaves denotation unchanged (not necessarily allocation capacity); `build`
+  returns no partial table. Prove success on the explicit resource-admitted domain, exact checked
+  refusal conditions and witnesses, not only an implication conditional on a returned success.
+  Allocation failure is not logical fullness. Generic callbacks can panic/diverge; their total
+  pure contracts must be discharged for each claimed instance. No unwind theorem is assumed.
 
-**End-to-end limit:** an algebraic kernel theorem remains valid for its explicit inputs irrespective
-of its caller. A verified stored-state application additionally needs the actual safe read/kernel/write
-composition extracted and linked, with its missing/full/refusal branches. No such composed consumer
-is established by the current extraction roots. Using an unproved optimized store makes that
-application claim conditional on `Rep` and its transition simulation; assuming them is not proving
-the container. CPU **ring 0**, rustc/LLVM, ABI, GPU execution and scheduling are not covered.
-There is no unconditional ring-0/end-to-end optimized claim consistent with excluding these layers.
-Retain the optimized implementation; this decision authorizes neither its retirement nor a rewrite.
+#### Exact theorem links and limits
+
+`get_build_acc` fixes **new-first**, per-key stream-order accumulation for every merge.
+`build_eq_of_key_streams_eq` permits stable partition across keys for every merge.
+`build_gauge_invariance` permits arbitrary stream permutations **only with commutativity and
+associativity**, plus a proved permutation of the input. It licenses home sorting/sharding at
+the semantic level, not Rust allocation, routing, joins or scheduling. The first implementation
+preserves per-key order, so replace and append remain supported; `Table/Adjacency.lean`'s
+`Apeiron.Table.get_build_replace`,
+`get_build_append`, `build_replace_swap_ne` and `build_append_swap_ne` supply the order controls.
+
+`Table/Home.lean`'s `Apeiron.Table.one_half_decides` assumes `σ > 0`, real cells and an actual
+decryptor for the lower channel;
+`opaque_needs_lower` explains why a lossy readout cannot decide identity alone.
+`coord_home_collisionFree` is for `id : ℕ → ℕ`, **not** truncation to 256 machine shards;
+`opaque_home_collides` exhibits that truncation can collide. Keeping and comparing full keys is
+the selected collision-safe layout. Dropping them requires a separately checked word encoding/
+decoder link; no real null-basis theorem automatically transfers to `ZMod (2^64)`.
+
+| Mechanism | Boundary decision |
+|---|---|
+| Safe scalar home routing, search, growth, writes, stable build | Inside the same executing-source extraction and direct corpus refinement; all presently open. |
+| SSE2/SWAR dispatch and raw `MaybeUninit` lifecycle | Removed. No intrinsic or heap-simulation axiom is allowed to replace their missing proofs. A later optimization must refine this same type and executing path before acceptance. |
+| Scoped worker scheduling and joins | Removed. Pure shard independence can be proved; that does not prove thread memory semantics, panic propagation or liveness. Reintroduction requires a checked implementation route, not gauge invariance alone. |
+| Rust/Lean translation and modeled `Vec` primitives | Explicit external trust inventory: Charon/Aeneas translation fidelity, model correspondence and Lean kernel. Extraction must still reject unmodeled operations. |
+| Allocator/OS, rustc/LLVM, ABI, hardware, GPU | Outside source-level refinement; no allocation-availability, binary-execution, ring-0 or GPU theorem. These assumptions cannot include the desired table transition simulation itself. |
+
+A stored-state application additionally needs its actual read/compute/write composition linked;
+the existing scalar/carrier proofs neither establish that composition nor the new table.
 
 ---
 
