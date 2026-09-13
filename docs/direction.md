@@ -435,10 +435,11 @@ migration landed in the corpus before `16112030`.
 
 ## Fold And Hashtrinity
 
-Retire hashtrinity as a separately evolving trusted primitive. Keep it temporarily
-as a compatibility/adaptation boundary for existing Fold consumers, then remove
-duplicated implementations as their consumers migrate. Apeiron is not the proposed
-home of every HTTP, TLS, codec, macro, reactor or async-runtime replacement.
+hashtrinity is the superseded basis. Fold is the deprecated tree built on it, and
+sanguine-apeiron was made to replace it. Fold is not a consumer, not a compatibility
+obligation and not a requirements source for apeiron; nothing here is kept or shaped
+for a Fold consumer. Apeiron is not the proposed home of every HTTP, TLS, codec,
+macro, reactor or async-runtime replacement.
 
 This is not a package-name substitution. Hashtrinity's ordinary `Table::get`
 trusts folded coordinates; its sentinel mapping aliases the top three words
@@ -448,10 +449,10 @@ Insertion/merge APIs, panic behavior, iteration and persisted formats need expli
 adapters and regression fixtures. In-place mutation alone does not guarantee
 rollback: Apeiron's `count_into` can leave an identity value after a panic.
 
-The first Fold migration should exercise real stored-key and packed-key consumers
-against collisions, sentinel values, removal, growth, ordered merges and exact
-counts, followed by complete-operation benchmarks. Preserve measured optimized
-paths such as batch access and dense arrays until replacements earn their keep.
+The stored-key/packed-key, collision, sentinel, removal, growth, ordered-merge and
+exact-count distinctions are apeiron's own semantics; Fold is not their acceptance
+source. There is no obligation to preserve Fold's batch-access or dense-array paths; they
+are kept only if the substrate design uses them.
 GitLab branch `fix/hashtrinity-coord-fold` (`4e8534ca`) already applies an Apeiron
 tuple-distribution finding; reuse its regression evidence instead of duplicating it.
 
