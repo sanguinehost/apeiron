@@ -118,7 +118,8 @@ Reading bottom-up, marking who controls each layer:
 | syscall wrappers (`libc`, or inline `asm!`) | us / libc | the *wrappers* yes, the kernel no |
 | runtime / reactor / scheduler | us | yes, if written in a verifiable subset |
 | **the algebra (`Cell`, `R[x]/(x²−σ)`)** | us | **yes — Lean proves it; Aeneas refines the `Cell<i64>` kernel** |
-| **the container (map/table storage)** | us | **tested, not verified** — a `std` oracle, Miri and bounded Kani, no Aeneas storage refinement |
+| **safe finite storage** | us | `SafeTable` capacity-four/I64-key transitions have an Aeneas refinement; storage epic assurance remains open |
+| **optimized storage (`Map`, `Words`, `CountTable`)** | us | **tested, not verified**; no universal storage refinement |
 | application / game logic | us | yes |
 | language and compiler (`song` / Slang) | us | toolchain correctness is its own problem |
 
@@ -139,16 +140,77 @@ That is the division of labour the apeiron work is built on:
   extracted bodies.
 - **Kani** stays for the narrow, bit-precise facts (the 60 harnesses in `src/proofs.rs`)
   where a witness over all inputs at a width is cheaper than a symbolic argument.
-- **The container is tested, not yet verified.** `map`/`table` use `unsafe` slots, a SIMD tag scan
-  and threads; they are checked against `std::collections::HashMap` over randomized programs and
-  under Miri, and their address arithmetic by the Kani harnesses, but no Aeneas refinement yet
-  relates that storage to the canonical table. This is in scope and is the priority after the
-  algebra itself: the storage-refinement epic moves the container inside the Aeneas fragment.
-  Proximity to the proved algebra does not transfer, and the layer is labelled by its current
-  fragment membership.
+- **Storage has two evidence boundaries.** `SafeTable` has extracted, refined transitions;
+  `Map`/`Words` have unsafe slots and use the tag scanner in `table.rs`. `CountTable` has initialized
+  `Vec` slots and scoped workers, not `Map`'s `MaybeUninit` representation. Their optimized paths
+  remain tested. Move only real safe scalar bodies into Aeneas incrementally; whole-container
+  extraction is not the selected route. The independent optimized relation below remains open.
 - **The kernel boundary** stays `unsafe`, small, and named — the reactor's syscall cut,
   the `MaybeUninit` slot, the byte↔value cast in `codec::web`. Those are the places that
   are *allowed* to be unsafe and *must* carry a written invariant.
+
+### Frozen storage representation boundary
+
+Architecture target (`anchor`), not an implemented optimized-map theorem. Authority:
+`Apeiron/Table/Basic.lean` at corpus `d9aefc93522e2109bc96158526de6dbd52477276`;
+the checked reference is `proof/corpus/SafeTableRefinement.lean`.
+
+- **Semantic state:** `Apeiron.Table.HMap K (Option V)`. Reads use `get`; insertion uses
+  `insertWith (fun new _ => new) k (some v)`; removal uses
+  `insertWith (fun _ _ => none) k none`. Return the previous mapping. Slot order, salt, capacity
+  and tombstones are not semantic keys. Raw iteration order is excluded, not declared canonical.
+- **Projection:** for a valid optimized state `m`, let `L(m)` be its logical slot list: live slots
+  decode to `some (key,value)`; `EMPTY = 0xFF` and `TOMB = 0xFE` decode to `none`, without reading
+  their payloads. `Stored` uses the carried key, never the lossy address as identity. `Regen`
+  requires the actual packed-key/salt inverse laws. Initially target `Map<i64,i64,Stored<i64>>`;
+  generic `Held`, `Locate`, `Packed` implementations do not inherit that proof.
+- **Relation:** `Rep(m,h) := MemoryValid(m) ∧ PlacementValid(m) ∧ KeysUnique(L(m)) ∧
+  live(m) = countSome(L(m)) ∧ (∀ k, lookupList k L(m) = h k)` at I64 keys. The optimized-to-reference
+  relation is `Rep(m, tableHMap t) ∧ WellFormed t`. Reuse `KeysUnique`/`lookupList`; do not apply
+  capacity-four `WellFormed` directly to a larger optimized layout. This relates arbitrary physical
+  layouts holding at most four keys, not arbitrary-size maps to four slots. Larger populations
+  relate directly to `h`; generalizing the safe-table proof is a separate obligation.
+- **Placement validity:** equal tag/slot lengths; zero allocation or power-of-two group geometry;
+  legal tags; correct tag/address for every live entry; `used = live + tombstones ≤ limit(slots)`;
+  `room = limit(slots) - used`; each key occurs on its probe sequence with no earlier probed group
+  containing `EMPTY`. Its own group may contain empties: hits are checked before absence.
+  Tombstones permit continuation. Prove group coverage, termination and all machine
+  counter/shift bounds from construction and preservation, not from an assumption that large
+  allocations happen to fail. Address consistency must hold for equal keys under a fixed salt.
+- **Memory validity:** live slots own initialized, valid payloads; free slots own no readable or
+  droppable payload; allocations, bounds, alignment, provenance and exclusive mutable loans are
+  valid. Moves transfer ownership once; removal/drop/unwind cannot double-read or double-drop.
+  The tag biconditional alone proves none of this. `assert_unchecked`, `clear`, `rehome`, `Salvage`,
+  iterators and generic callbacks require separate obligations, including unwind states.
+- **Transitions:** constructors establish the relation; reads terminate and preserve it; writes
+  preserve it and match old values and canonical updates. Growth is semantic stuttering, not physical
+  equality. Safe full refusal preserves the exact state/payload. `Map::insert` reserves even before
+  replacement, may grow or fail allocation, and has no `TableFull` branch. Compare only common
+  successful capacity-admitted operations; do not reinterpret allocation failure as logical fullness
+  or impose new public preconditions. A bounded adapter would need its own real implementation/proof.
+
+| Mechanism | Refinement target | Present cut |
+|---|---|---|
+| Safe slot transitions | Existing `get_spec_canonical`, `try_insert_spec`, `remove_spec`, constructor and exact branch theorems | Capacity four, I64 keys; Lean methods quantify over `V`, concrete roots use I64 values |
+| Scalar scan / probe arithmetic | Exact 16-bit lane masks, legal group indices, coverage and bounded termination of the executing safe bodies | Feasible targets, not yet extracted/proved here; no proof-only replacement algorithm |
+| SSE2 scan | Bit `i` of match mask iff `line[i] = tag`; free mask iff `line[i] & 0x80 != 0` | Intrinsics/load semantics outside current Aeneas chain; SWAR proof does not prove the x86-selected branch |
+| Unsafe slot lifecycle | A heap-to-`L(m)` simulation including ownership and unwinding | No supported heap refinement supplied; Miri/Kani/tests supplement, not discharge it |
+| Partition and workers | Per-key stream preservation, disjoint complete shard assignment, exact merge and returned joins | Pure partitioning can be a later extraction target; thread memory semantics, panic propagation, scheduling and liveness remain outside |
+
+`CountTable` needs a separate relation over **u64 addresses**, default count zero, to canonical
+`build (+) 0` on unit contributions. It does not recover keys discarded by the caller's `Coord`.
+Its `+=`, sizing and sums need explicit checked-overflow domains or an approved semantic change;
+do not silently assign wrapping-word laws. `build_eq_of_key_streams_eq` licenses an established
+per-key sequence equality, not the Rust partition or scheduler by citation.
+
+**End-to-end limit:** an algebraic kernel theorem remains valid for its explicit inputs irrespective
+of its caller. A verified stored-state application additionally needs the actual safe read/kernel/write
+composition extracted and linked, with its missing/full/refusal branches. No such composed consumer
+is established by the current extraction roots. Using an unproved optimized store makes that
+application claim conditional on `Rep` and its transition simulation; assuming them is not proving
+the container. CPU **ring 0**, rustc/LLVM, ABI, GPU execution and scheduling are not covered.
+There is no unconditional ring-0/end-to-end optimized claim consistent with excluding these layers.
+Retain the optimized implementation; this decision authorizes neither its retirement nor a rewrite.
 
 ---
 
