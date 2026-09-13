@@ -1,0 +1,130 @@
+diff --git a/src/interp/Interp.ml b/src/interp/Interp.ml
+index 6b6f110..8c801d0 100644
+--- a/src/interp/Interp.ml
++++ b/src/interp/Interp.ml
+@@ -163,6 +163,18 @@ let compute_contexts (crate : crate) : decls_ctx =
+       (fun id _ -> FunDeclId.Set.mem id !fun_decl_ids)
+       fun_decls
+   in
++  (* Aeneas lowers a native [Repeat] (which carries no [Copy]/[Clone] proof) to
++     a call to [core::array::repeat]. Charon does not put that function in the
++     declaration groups in this case, so we make sure it is translated. *)
++  let to_extract =
++    FunDeclId.Map.fold
++      (fun id (d : fun_decl) acc ->
++        match d.item_meta.name with
++        | [ PeIdent ("core", _); PeIdent ("array", _); PeIdent ("repeat", _) ] ->
++            FunDeclId.Map.add id d acc
++        | _ -> acc)
++      fun_decls to_extract
++  in
+   let fun_infos = FunsAnalysis.analyze_module crate fun_decls in
+   let fun_ctx = { fun_decls; fun_infos; to_extract } in
+ 
+diff --git a/src/interp/InterpStatements.ml b/src/interp/InterpStatements.ml
+index e35c5bc..c52ede2 100644
+--- a/src/interp/InterpStatements.ml
++++ b/src/interp/InterpStatements.ml
+@@ -647,6 +647,23 @@ let eval_global_as_fresh_symbolic_value (span : Meta.span)
+       let cc = S.synthesize_global_eval gref sval in
+       (ctx, mk_tvalue_from_symbolic_value sval, cc)
+ 
++(** Find the declaration id of [core::array::repeat], if it is present in the
++    crate. Used to lower a native [Repeat] (which carries no [Copy]/[Clone]
++    proof) to the [core::array::repeat] builtin. *)
++let find_core_array_repeat (span : Meta.span) (ctx : eval_ctx) : FunDeclId.id =
++  let found = ref None in
++  FunDeclId.Map.iter
++    (fun id (def : fun_decl) ->
++      if !found = None then
++        match def.item_meta.name with
++        | [ PeIdent ("core", _); PeIdent ("array", _); PeIdent ("repeat", _) ] ->
++            found := Some id
++        | _ -> ())
++    ctx.crate.fun_decls;
++  match !found with
++  | Some id -> id
++  | None -> [%craise] span "Could not find `core::array::repeat` in the crate"
++
+ (** Evaluate a statement. *)
+ let rec eval_statement (config : config) (st : statement) : stl_cm_fun =
+  fun ctx ->
+@@ -715,6 +732,57 @@ and eval_statement_raw (config : config) (st : statement) : stl_cm_fun =
+  fun ctx ->
+   [%ltrace "statement:\n" ^ statement_to_string_with_tab ctx st ^ "\n"];
+   match st.kind with
++  | Assign (p, Repeat (op, ty, len, _)) ->
++      (* A native [Repeat] carries no [Copy]/[Clone] proof: this is the case for
++         `[const { e }; N]`, where rustc does not require the element type to be
++         `Copy`. Charon leaves such a repeat in place instead of desugaring it to
++         `core::array::repeat`. We perform the same desugaring here: the builtin
++         is extracted to `Array.repeat`, which needs no `Clone` proof. The
++         `Clone` trait clause of the builtin is filled with a builtin placeholder
++         so that the call is well-formed; it is dropped at extraction time. *)
++      let fid = find_core_array_repeat st.span ctx in
++      let def = ctx_lookup_fun_decl st.span ctx fid in
++      let clone_tdr =
++        match def.generics.trait_clauses with
++        | clause :: _ -> clause.trait.binder_value
++        | [] -> [%craise] st.span "`core::array::repeat` has no `Clone` clause"
++      in
++      let clone_ref : trait_ref =
++        {
++          kind = BuiltinOrAuto (BuiltinClone, [], AssocTypeId.Map.empty, None);
++          trait_decl_ref =
++            {
++              binder_regions = [];
++              binder_value =
++                {
++                  id = clone_tdr.id;
++                  generics =
++                    {
++                      regions = [];
++                      types = [ ty ];
++                      const_generics = [];
++                      trait_refs = [];
++                    };
++                };
++            };
++        }
++      in
++      let generics =
++        {
++          regions = [];
++          types = [ ty ];
++          const_generics = [ len ];
++          trait_refs = [ clone_ref ];
++        }
++      in
++      let call =
++        {
++          func = FnOpRegular { kind = Fun fid; generics };
++          args = [ op ];
++          dest = p;
++        }
++      in
++      eval_function_call config st.span call ctx
+   | Assign (p, rvalue) ->
+       if
+         (* We handle global assignments separately as a specific case. *)
+diff --git a/src/llbc/FunsAnalysis.ml b/src/llbc/FunsAnalysis.ml
+index 7bf693c..47c2483 100644
+--- a/src/llbc/FunsAnalysis.ml
++++ b/src/llbc/FunsAnalysis.ml
+@@ -310,4 +310,16 @@ let analyze_module (m : crate) (funs_map : fun_decl FunDeclId.Map.t) :
+ 
+   analyze_decl_groups (Option.get m.declarations);
+ 
++  (* Aeneas lowers a native [Repeat] (which carries no [Copy]/[Clone] proof) to
++     a call to [core::array::repeat]. Charon does not put that function in the
++     declaration groups in this case, so we analyze it explicitly. *)
++  let fmt_env = Charon.Print.crate_to_fmt_env m in
++  FunDeclId.Map.iter
++    (fun id (d : fun_decl) ->
++      if
++        Charon.Print.name_to_string fmt_env d.item_meta.name
++        = "core::array::repeat"
++      then analyze_fun_decl_group [ id ])
++    m.fun_decls;
++
+   !infos

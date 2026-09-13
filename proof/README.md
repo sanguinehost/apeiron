@@ -10,6 +10,12 @@ so the machine-word extraction and the corpus link can be built and trusted sepa
 
 Neither is imported by the `apeiron` crate.
 
+This file is the local proof authority for the extraction and bridge under `proof/`. The programme
+thesis, ownership, outcomes, primitive correspondence, migration and execution order are in the
+[programme direction](../the design notes); that document is the programme authority. The physical
+canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/` with unchanged pins. The table
+claim's scope and trust boundary are in the [local boundary](../the design notes).
+
 ## Stage 1: extraction (`proof/`, alias `apeironWordProof`)
 
 - `extract/lib.rs` includes the real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`,
@@ -45,8 +51,10 @@ The essential Charon selection:
   --start-from crate::word_exchange_impulse \
   --start-from crate::word_elastic_exchange \
   --start-from crate::word_accept_derived_impulse \
-  --start-from crate::word_storage_capacity_overflow \
-  --start-from crate::word_storage_allocation_failed
+  --start-from crate::word_table_new \
+  --start-from crate::word_table_get \
+  --start-from crate::word_table_insert \
+  --start-from crate::word_table_build
 ```
 
 `regen.sh` also prints the SHA-256 digest of every extraction source (`scalar.rs`, `cell.rs`,
@@ -230,15 +238,23 @@ word equality from `ZMod (2^64)` equality.
 
 ### Single table refinement
 
-`proof/corpus/TableRefinement.lean` links the generated word instance to the canonical table at
-checked witnesses: `word_table_new_rep` and `emptyWordTable_read`; new-first
+`proof/corpus/TableRefinement.lean` links the generated word instance `Table I64 I64 WordHome 16` to
+the canonical table at checked witnesses: `word_table_new_rep` and `emptyWordTable_read`; new-first
 `word_table_insert_new_first`/`word_table_get_new_first`; present-key
 `word_table_insert_replaces_present`/`word_table_get_replaced`; ordered
 `word_table_build_ordered`/`word_table_build_get_acc`; and unchanged-state
 `word_table_shardFull_refusal`. `word_table_joint_branch_witness` inhabits constructor success,
 write success and refusal jointly. `find_slots_spec` and `insert_full_loop_spec` prove termination
-and the searched/full loop behavior. Universal `Rep` preservation for arbitrary admitted states,
-keys and streams remains open.
+and the searched/full loop behavior.
+
+`Apeiron.TableRefinement.Rep` is a **read-only extensional** relation at the public read boundary,
+`∀ key, word_table_get t key ⦃ value => value = h key ⦄`, instantiated at the concrete word
+instance `N = 16`. It is not the physical invariant named in the
+[local boundary](../the design notes): the
+fixed outer array, optional length-`N` shard arrays, globally unique keys, every entry in its home
+shard, and the per-key denotation. Those physical clauses, universal `Rep` preservation and
+admission completeness for arbitrary admitted states, keys and streams remain open. The checked
+witnesses are not arbitrary preservation, admission completeness or physical subsumption.
 
 ```sh
 cd proof/corpus && lake build
@@ -246,9 +262,11 @@ cd proof/corpus && lake build
 
 ### Corpus / toolchain compatibility
 
-The corpus pins Lean `4.31.0` and Mathlib `v4.31.0` at `50c94192`, the same backend the pinned
-Aeneas extraction uses. The bridge is rebuilt against that revision; `proof/corpus/lakefile.lean`
-requires the same `mathlib @ v4.31.0`, so the bridge and the corpus resolve one revision.
+The corpus is at Git `50c94192399add3b9f8e64bd14e36d8cba270705`; the corpus and the bridge both pin
+Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
+`fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`), the same backend the pinned Aeneas extraction uses.
+`proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0`, so the bridge and the corpus resolve one
+revision.
 
 `proof/corpus/lakefile.lean` requires the corpus by Git at
 `50c94192399add3b9f8e64bd14e36d8cba270705` with subdirectory `proof`; the generated manifest
@@ -410,20 +428,60 @@ The tools are not vendored. Unpack the pinned archive into `target/aeneas/` (git
 <https://github.com/AeneasVerif/aeneas/releases/download/nightly-2026.09.09-505b6ca/aeneas-linux-x86_64.tar.gz>,
 SHA-256 `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591`.
 
-The storage constructor extraction requires the patched Charon/Aeneas at `target/aeneas/`: Charon's
-`Repeat` carries an `Option<TraitRef>` so a `const` element operand needs no `Copy` clause, and
-Aeneas lowers native `Repeat` to `Array.repeat`. Patched binary SHA-256:
+The fixed-shard table constructor extraction requires the patched Charon/Aeneas at `target/aeneas/`:
+Charon's `Repeat` carries an `Option<TraitRef>` so a `const` element operand needs no `Copy` clause,
+and Aeneas lowers native `Repeat` to `Array.repeat`. Patched binary SHA-256:
 `charon` `747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e`, `charon-driver`
 `207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297`, `aeneas`
-`33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a`.
+`33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a`. These hashes identify the
+patched binaries the evidence was taken with; a binary hash alone does not establish durable
+reproducibility of a patched tool build.
+
+### Patched tool sources
+
+The two source changes the patched binaries were built from are under `proof/patches/`, each pinned
+to its upstream base:
+
+| patch | base commit | base git tree |
+| --- | --- | --- |
+| `patches/charon-repeat-optional-trait.patch` | `b104e24fea7d721b71e6c39fd70f26ff20bc0980` | `784a177101bbfd956047ac2ee1b7335d4c057b7b` |
+| `patches/aeneas-array-repeat.patch` | `505b6ca35217e7be5c96c3e2f8045edfbdf47291` | `af23d5d9d866050c2158700cedab07501443bcdd` |
+
+`patches/PINS` records, for each base, the commit, the git tree and the sha256 of every base file
+the patch modifies. The patch files are the exact `git diff` of the source working trees the
+patched binaries were built from; patch sha256
+`c6099150efe8416a0495205a6bdf23925b9c79f2ecd6ca7a25335d0ae89e21c9` (Charon) and
+`7c8920f3fe994cc6e1f5f05108318297e2869165e578bdb960279833f3f5d9f0` (Aeneas).
+
+`install-patches.sh` locates a source checkout, verifies its `HEAD` commit, git tree and base file
+digests against `PINS`, then checks or applies both patches. The Charon source defaults to
+`$AENEAS_SRC/charon`. Aeneas source resolution is `--aeneas-src`, then `APEIRON_AENEAS_SRC`, then
+`AENEAS_SRC`, then `AENEAS_HOME` and `target/aeneas` if those are git checkouts. `target/aeneas/` is
+the installed binary tree, not a source checkout, so a source argument is required unless the
+sources are checked out elsewhere.
+
+```sh
+proof/install-patches.sh --check --aeneas-src /path/to/aeneas-src
+proof/install-patches.sh --aeneas-src /path/to/aeneas-src
+```
+
+`--check` archives the pinned `HEAD` tree with `git archive` into a temporary directory and runs
+`git apply --check` there, so it neither reads nor writes the source working tree and is independent
+of local edits. It exits nonzero on a base commit, tree or file-digest mismatch, and on a hunk that
+does not apply. Install mode applies the patches to the checkout and skips a patch already applied;
+the two modes were exercised against a fresh checkout of both pinned revisions, and the applied
+working-tree diff is byte-identical to the patch files.
 
 ## What this does not establish
 
-- Not yet covered: universal `Rep` preservation and admission completeness for arbitrary fixed-shard
-  states, keys and streams. Established: extracted table witnesses, scalar kernels, the two cell operations, the
-  carrier point-density/flux readout, the scalar carrier step and exact-half flux, the closed
-  three-cell diffusive line, the two arithmetic exchange kernels, the checked-claim acceptance
-  kernel and the finite conservative-total composition.
+- Not yet covered: the physical `Rep` clauses (fixed outer array, optional length-`N` shard arrays,
+  globally unique keys, every entry in its home shard) and universal `Rep` preservation and
+  admission completeness for arbitrary fixed-shard states, keys and streams. The current
+  `TableRefinement.Rep` is read-only and extensional at `N = 16`. Established: extracted table
+  witnesses, scalar kernels, the two cell operations, the carrier point-density/flux readout, the
+  scalar carrier step and exact-half flux, the closed three-cell diffusive line, the two arithmetic
+  exchange kernels, the checked-claim acceptance kernel and the finite conservative-total
+  composition.
 - Totality of the scalar carrier step, the exact-half flux or the three-cell line. They refuse
   unrepresentable intermediates and odd face differences as `ok none`; the refinement theorems are
   conditional on the generated no-overflow preconditions and the representability/evenness

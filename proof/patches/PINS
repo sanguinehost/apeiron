@@ -1,0 +1,29 @@
+# Base pins for the tool patches in this directory.
+#
+# Each patch was taken against the upstream commit below. `install-patches.sh` sources this file,
+# verifies the located source checkout is at the recorded commit and git tree, verifies the base
+# sha256 of every file the patch modifies, and runs `git apply --check` against the base tree
+# archived from the pinned commit. A wrong commit, wrong tree, wrong base file or a hunk that does
+# not apply exits nonzero.
+#
+# Refresh a pin after a deliberate rebase:
+#   git -C <src> rev-parse HEAD HEAD^{tree}
+#   git -C <src> show HEAD:<path> | sha256sum
+#
+# CHARON_COMMIT / CHARON_TREE identify AeneasVerif/charon.
+# AENEAS_COMMIT / AENEAS_TREE identify AeneasVerif/aeneas (its `charon/` is a separate checkout).
+
+CHARON_COMMIT=b104e24fea7d721b71e6c39fd70f26ff20bc0980
+CHARON_TREE=784a177101bbfd956047ac2ee1b7335d4c057b7b
+CHARON_BASE_SHA256="bc7237dedc10e1ab69896fef41a1becf5f4c7900a211637c8328c28896469589 charon-ml/src/generated/Generated_Expressions.ml
+c0d78e6c27f82102f466da67224509bd371f20af43376d8d877f18ff355c63d0 charon-ml/src/generated/Generated_OfJson.ml
+8df0e071296fdb2e6303213909ff0d83b0a6b33a44c4f773d46185ed4217e8c3 charon-ml/src/generated/Generated_OfPostcard.ml
+d43da982bf233a3ed42ff84732e10ceb957a8bffb0b2532975779d378fb5e183 charon/src/ast/bodies/expressions.rs
+09b99643abae66101d5061ff291087ae75343e93575815aa842fcb07d14bd43f charon/src/bin/charon-driver/translate/translate_bodies.rs
+2d8923360eb794e4bf9b855d92b06a69523db60ca81a6c86420e6f8d5078b132 charon/src/transform/simplify_output/builtins_to_function_calls.rs"
+
+AENEAS_COMMIT=505b6ca35217e7be5c96c3e2f8045edfbdf47291
+AENEAS_TREE=af23d5d9d866050c2158700cedab07501443bcdd
+AENEAS_BASE_SHA256="fb2f04f57b99b85cf6963912f0e0ee07ff47711d3b89757e6fcd514bc2ec1a4a src/interp/Interp.ml
+a9006c2f3c7a4ac222a49d5d5c5828a5cccc5af0e6612f3fbce857b4ea5a1d70 src/interp/InterpStatements.ml
+ef66c299ccf1a87ae15af712484f86955b9d957a188f62c263fec752276b3fd7 src/llbc/FunsAnalysis.ml"

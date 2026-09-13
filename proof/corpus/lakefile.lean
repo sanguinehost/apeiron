@@ -20,4 +20,6 @@ require mathlib from git "https://github.com/leanprover-community/mathlib4.git" 
 
 @[default_target]
 lean_lib ApeironWordBridge where
-  roots := #[`WordRefinement, `TableRefinement, `AxiomAudit]
+  roots := #[`WordRefinement, `TableRefinement, `TableRefinementGeneric,
+    `TableRefinementBuild, `TableRefinementAdmission, `TableRefinementBuildGeneric,
+    `TableRefinementReachablePrefixExactN, `TableRefinementAdmissionGeneric, `AxiomAudit]

@@ -1,5 +1,10 @@
 import WordRefinement
 import TableRefinement
+import TableRefinementGeneric
+import TableRefinementBuild
+import TableRefinementAdmission
+import TableRefinementBuildGeneric
+import TableRefinementAdmissionGeneric
 import Lean
 
 set_option linter.apeiron.notation false
@@ -152,3 +157,168 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.TableRefinement.table_insert_shardFull
 #audit Apeiron.TableRefinement.word_table_shardFull_refusal
 #audit Apeiron.TableRefinement.word_table_joint_branch_witness
+
+-- Generic-N present-key write preservation through the functional state denotation
+#audit Apeiron.TableRefinement.insert_with_present_exact
+#audit Apeiron.TableRefinement.stateRead_replacePresent
+#audit Apeiron.TableRefinement.insert_with_present_preserves
+#audit Apeiron.TableRefinement.insert_with_present_rep_preservation
+#audit Apeiron.TableRefinement.insert_with_present_joint_witness
+
+-- Generic-N executing reads through state-indexed generated routing
+#audit Apeiron.TableRefinement.find_slots_spec_generic
+#audit Apeiron.TableRefinement.findPostN_unique
+#audit Apeiron.TableRefinement.find_slots_eq_of_matches
+#audit Apeiron.TableRefinement.find_slots_insertVacant_ne
+#audit Apeiron.TableRefinement.word_shard_index_spec
+#audit Apeiron.TableRefinement.word_shard_index_state_independent
+#audit Apeiron.TableRefinement.generatedRoute_exists
+#audit Apeiron.TableRefinement.generatedRoute_none_of_find
+#audit Apeiron.TableRefinement.generatedRoute_some_of_find
+#audit Apeiron.TableRefinement.generatedLocator_routes
+#audit Apeiron.TableRefinement.table_get_eq_stateRead_of_route
+#audit Apeiron.TableRefinement.table_get_eq_stateRead
+#audit Apeiron.TableRefinement.functionalRep_iff_readRep_of_routes
+#audit Apeiron.TableRefinement.generatedFunctionalRep_iff_readRep
+#audit Apeiron.TableRefinement.readRep_iff_Rep
+
+-- Generic-N absent-key insertion through empty and vacant physical slots
+#audit Apeiron.TableRefinement.stateRead_insertVacant
+#audit Apeiron.TableRefinement.stateRead_insertEmptyShard
+#audit Apeiron.TableRefinement.find_slots_replacePresent
+#audit Apeiron.TableRefinement.table_find_insertVacant_ne
+#audit Apeiron.TableRefinement.table_find_replacePresent
+#audit Apeiron.TableRefinement.find_slots_insertVacant_self
+#audit Apeiron.TableRefinement.routes_replacePresent
+#audit Apeiron.TableRefinement.routes_insertVacant
+#audit Apeiron.TableRefinement.insert_with_empty_shard_exact
+#audit Apeiron.TableRefinement.insert_with_loop0_vacant_body_exact
+#audit Apeiron.TableRefinement.insert_with_loop0_vacant_spec
+#audit Apeiron.TableRefinement.insert_with_loop0_full_spec_generic
+#audit Apeiron.TableRefinement.insert_with_vacant_exact
+#audit Apeiron.TableRefinement.insert_with_vacant_rep_preservation
+#audit Apeiron.TableRefinement.insert_with_vacant_readRep_preservation
+#audit Apeiron.TableRefinement.insert_with_present_readRep_preservation
+#audit Apeiron.TableRefinement.insert_with_vacant_readRep_preservation_routed
+#audit Apeiron.TableRefinement.insert_with_absent_joint_witness
+
+-- Ordered generated build refinement, including success and capacity-refusal loop branches
+#audit Apeiron.TableRefinement.sliceEntries_length
+#audit Apeiron.TableRefinement.orderedFold_eq_build
+#audit Apeiron.TableRefinement.build_insert_premises_success
+#audit Apeiron.TableRefinement.emptyWordTable_tableInv
+#audit Apeiron.TableRefinement.ShardKeysDistinct
+#audit Apeiron.TableRefinement.TableInv2
+#audit Apeiron.TableRefinement.emptyWordTable_tableInv2
+#audit Apeiron.TableRefinement.occupiedPrefix_distinct_key_count
+#audit Apeiron.TableRefinement.insert_with_full_exact
+#audit Apeiron.TableRefinement.tableInv_insert_with
+#audit Apeiron.TableRefinement.tableInv2_insert_with
+#audit Apeiron.TableRefinement.buildInsertResult_of_readRep
+#audit Apeiron.TableRefinement.allBuildInsertResults
+#audit Apeiron.TableRefinement.table_build_loop_result_readRep
+#audit Apeiron.TableRefinement.word_table_build_result_readRep
+#audit Apeiron.TableRefinement.table_build_loop_readRep
+#audit Apeiron.TableRefinement.word_table_build_readRep
+#audit Apeiron.TableRefinement.PrefixShardCapacity
+#audit Apeiron.TableRefinement.routedStreamKeys
+#audit Apeiron.TableRefinement.DistinctKeysPerShard
+#audit Apeiron.TableRefinement.PrefixShardKeyCoverage
+#audit Apeiron.TableRefinement.prefixShardCapacity_of_distinctKeysPerShard
+#audit Apeiron.TableRefinement.allBuildInsertsAdmitted_of_prefixShardCapacity
+#audit Apeiron.TableRefinement.word_table_build_readRep_of_prefixShardCapacity
+#audit Apeiron.TableRefinement.word_table_build_readRep_of_distinctKeysPerShard
+
+-- Reachable-prefix stream-only admission
+#audit Apeiron.TableRefinement.ReachablePrefixCoverage
+#audit Apeiron.TableRefinement.emptyWordTable_reachablePrefixCoverage
+#audit Apeiron.TableRefinement.reachablePrefixCoverage_capacity
+#audit Apeiron.TableRefinement.reachablePrefix_insert
+#audit Apeiron.TableRefinement.table_build_loop_readRep_of_distinctKeysPerShard
+#audit Apeiron.TableRefinement.word_table_build_readRep_of_distinctKeysPerShard_alone
+
+-- Exact reachable-prefix key sets and the tight per-step admission condition
+#audit Apeiron.TableRefinement.ReachablePrefixExact
+#audit Apeiron.TableRefinement.emptyWordTable_reachablePrefixExact
+#audit Apeiron.TableRefinement.reachablePrefixExact_insert
+#audit Apeiron.TableRefinement.BuildAdmissible
+#audit Apeiron.TableRefinement.buildAdmissible_of_distinctKeysPerShard
+#audit Apeiron.TableRefinement.word_table_build_readRep_of_buildAdmissible
+#audit Apeiron.TableRefinement.word_table_build_refusal_implies_not_buildAdmissible
+#audit Apeiron.TableRefinement.reachablePrefixExact_admissible_of_insert_success
+#audit Apeiron.TableRefinement.word_table_build_success_implies_buildAdmissible
+#audit Apeiron.TableRefinement.word_table_build_refuses_of_not_buildAdmissible
+#audit Apeiron.TableRefinement.word_table_build_refuses_iff_not_buildAdmissible
+
+-- Generic-N ordered build refinement with the concrete word callbacks
+#audit Apeiron.TableRefinement.emptyWordTableN
+#audit Apeiron.TableRefinement.emptyWordTableN_read
+#audit Apeiron.TableRefinement.emptyWordTableN_readRep
+#audit Apeiron.TableRefinement.BuildInsertPremisesN
+#audit Apeiron.TableRefinement.build_insert_premises_successN
+#audit Apeiron.TableRefinement.insert_with_full_exactN
+#audit Apeiron.TableRefinement.BuildInsertResultN
+#audit Apeiron.TableRefinement.buildInsertResult_of_readRepN
+#audit Apeiron.TableRefinement.AllBuildInsertResultsN
+#audit Apeiron.TableRefinement.allBuildInsertResultsN
+#audit Apeiron.TableRefinement.table_build_loop_result_readRepN
+#audit Apeiron.TableRefinement.table_build_result_readRepN
+#audit Apeiron.TableRefinement.AllBuildInsertsAdmittedN
+#audit Apeiron.TableRefinement.table_build_loop_readRepN
+#audit Apeiron.TableRefinement.table_build_readRepN
+
+-- Abstract-callback ordered build refinement at general N
+#audit Apeiron.TableRefinement.sliceEntriesG_length
+#audit Apeiron.TableRefinement.orderedFoldG
+#audit Apeiron.TableRefinement.ReadRepG
+#audit Apeiron.TableRefinement.BuildInsertResultG
+#audit Apeiron.TableRefinement.BuildInsertOkG
+#audit Apeiron.TableRefinement.table_build_loop_result_readRepG
+#audit Apeiron.TableRefinement.table_build_loop_readRepG
+#audit Apeiron.TableRefinement.cloneI64_identity
+#audit Apeiron.TableRefinement.buildInsertResultG_word_iff
+#audit Apeiron.TableRefinement.buildInsertResultG_word
+#audit Apeiron.TableRefinement.buildInsertOkG_word
+#audit Apeiron.TableRefinement.table_build_loop_result_readRepG_word
+#audit Apeiron.TableRefinement.table_build_loop_readRepG_word
+#audit Apeiron.TableRefinement.WordBuildOneStepContractN
+#audit Apeiron.TableRefinement.wordBuildOneStepContractN
+#audit Apeiron.TableRefinement.wordBuildOneStepContractN_iff_concrete
+#audit Apeiron.TableRefinement.wordBuildOneStepContractN_sufficient
+
+-- Generic-N occupied-prefix capacity and stream-level distinct-key admission
+#audit Apeiron.TableRefinement.OccupiedPrefixN
+#audit Apeiron.TableRefinement.TableInvN
+#audit Apeiron.TableRefinement.ShardKeysDistinctN
+#audit Apeiron.TableRefinement.TableInv2N
+#audit Apeiron.TableRefinement.emptyWordTableN_tableInv
+#audit Apeiron.TableRefinement.emptyWordTableN_tableInv2
+#audit Apeiron.TableRefinement.occupiedPrefix_distinct_key_countN
+#audit Apeiron.TableRefinement.PrefixShardCapacityN
+#audit Apeiron.TableRefinement.DistinctKeysPerShardN
+#audit Apeiron.TableRefinement.PrefixShardKeyCoverageN
+#audit Apeiron.TableRefinement.prefixShardCapacity_of_distinctKeysPerShardN
+#audit Apeiron.TableRefinement.allBuildInsertsAdmitted_of_prefixShardCapacityN
+#audit Apeiron.TableRefinement.table_build_readRepN_of_distinctKeysPerShardN
+
+-- Exact stream-only admission at general N
+#audit Apeiron.TableRefinement.tableInv2N_insert_with
+#audit Apeiron.TableRefinement.ReachablePrefixCoverageN
+#audit Apeiron.TableRefinement.emptyWordTableN_reachablePrefixCoverageN
+#audit Apeiron.TableRefinement.ReachablePrefixExactN
+#audit Apeiron.TableRefinement.emptyWordTableN_reachablePrefixExactN
+#audit Apeiron.TableRefinement.reachablePrefixExact_insertN
+#audit Apeiron.TableRefinement.reachablePrefixExact_admissible_of_insert_successN
+#audit Apeiron.TableRefinement.BuildAdmissibleN
+#audit Apeiron.TableRefinement.buildAdmissibleN_of_distinctKeysPerShardN
+#audit Apeiron.TableRefinement.table_build_readRepN_of_buildAdmissibleN
+#audit Apeiron.TableRefinement.table_build_success_implies_buildAdmissibleN
+#audit Apeiron.TableRefinement.table_build_refusesN_of_not_buildAdmissibleN
+#audit Apeiron.TableRefinement.table_build_refusesN_iff_not_buildAdmissibleN
+#audit Apeiron.TableRefinement.wpSpec_bind_iff
+#audit Apeiron.TableRefinement.BuildInsertSpecG
+#audit Apeiron.TableRefinement.AllBuildInsertSpecsG
+#audit Apeiron.TableRefinement.BuildLoopSpecG
+#audit Apeiron.TableRefinement.buildLoopSpecG_iff_allBuildInsertSpecsG
+#audit Apeiron.TableRefinement.buildLoopSpecG_true_iff_buildInsertResultG
+#audit Apeiron.TableRefinement.buildLoopSpecG_false_iff_buildInsertOkG
