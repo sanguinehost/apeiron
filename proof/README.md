@@ -144,7 +144,7 @@ faces are read once each from `word_diffusive_flux_half`, the two endpoint faces
 and the three cells are updated by `word_conservative_density_step`. Every local is computed before
 the result is constructed, so a late refusal returns `ok none` with no partially updated line.
 `carrier::DensityLine3` is a plain `Copy`/`Eq` triple; the extracted `carrier.DensityLine3` is the
-production struct. `WordRefinement.lean` proves:
+generated struct. `WordRefinement.lean` proves:
 
 - `word_diffusive_flux_half_cases` / `word_conservative_density_step_cases`: each partial kernel
   either succeeds with a word or returns `ok none`, the case split the composition needs;
@@ -409,7 +409,7 @@ For the checked-claim kernel, inverting the generated branch (swapping the `then
 impulse is no longer accepted, and `some` is no longer characterised by the derived impulse);
 restoring the unchanged generated file passes again. Likewise, changing one equality component
 (comparing `self.a` with `other.b` instead of `other.a` in the generated `CoreCmpPartialEqCell.eq`)
-breaks `word_cell_eq_eq` and the acceptance theorems. The production source and the committed
+breaks `word_cell_eq_eq` and the acceptance theorems. The source and the committed
 generated file are not modified for the control.
 
 For the scalar carrier step, changing the generated `carrier.diffusive_flux_half` result from
@@ -417,13 +417,13 @@ For the scalar carrier step, changing the generated `carrier.diffusive_flux_half
 `ApeironWord.lean` and rebuilding `WordRefinement` **fails** at
 `word_diffusive_flux_half_success` (the extracted operation no longer produces the `checked_sub`
 result the witness is stated over); restoring the unchanged generated file passes again. The
-production source and the committed generated file are not modified for the control.
+source and the committed generated file are not modified for the control.
 
 For the three-cell line, changing the generated left cell's shared face from `face_left` to
 `face_right` in a throwaway copy of `ApeironWord.lean` and re-elaborating `WordRefinement` **fails**
 at `word_diffusive_line3_step_eq_some_iff` and the theorems built on it (the left component no
 longer denotes `scalarCarrierStep` at the shared left face); restoring the unchanged generated file
-passes again. The production source and the committed generated file are not modified for the
+passes again. The source and the committed generated file are not modified for the
 control.
 
 For the three-cell line success witness, replacing the generated final `ok (some { left, center,
@@ -431,7 +431,7 @@ right })` with `ok none` in a throwaway copy of `ApeironWord.lean` and re-elabor
 `WordRefinement` **fails** at `word_diffusive_line3_step_zero_success` (the all-zero line no longer
 returns `some`) as well as at `word_diffusive_line3_step_eq_some_iff`; restoring the unchanged
 generated file passes again. The success witness is therefore sensitive to the actual extracted
-body and cannot be satisfied by a vacuous always-`none` implementation. The production source and
+body and cannot be satisfied by a vacuous always-`none` implementation. The source and
 the committed generated file are not modified for the control.
 
 For the shared-face orientation, swapping the two face arguments in the statement of
