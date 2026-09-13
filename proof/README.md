@@ -262,11 +262,30 @@ makes clearing the first match equal to the canonical `none` write. Both audit i
 `{propext, Classical.choice, Quot.sound}`. Both specs now conclude `WellFormed t'`: the `countP` step
 (`countP_set_some`/`countP_set_none`, `one_le_countP_of_get`) and the uniqueness step
 (`keysUnique_set_some`/`keysUnique_set_none`). That `WellFormed` holds at the initial state
-(`SafeTable::new`) is the remaining item. Generic `SafeTable::new` is
-not an extraction root because Charon cannot resolve the generic `Option<(K, V)>: Copy` obligation
-introduced by the inline array repeat; bridge witnesses construct the generated capacity-four state
-directly. The lookup wrapper uses an explicit match because `Option::copied` would otherwise enter as
-an external axiom.
+(`SafeTable::new`) is the remaining item. A monomorphic constructor root was added to
+`proof/extract/lib.rs` (`word_safe_table4_new`, calling the real `SafeTable::<i64, i64, 4>::new`)
+and probed with the pinned Charon/Aeneas; it does not extract. Charon lowers the generic
+`SafeTable::<K, V, N>::new` body `[const { None }; N]` with an unresolved trait clause, and Aeneas
+refuses the root, emitting an unmodeled axiom:
+
+```text
+warning: Error during trait resolution: Could not find a clause for `Binder { value: <std::option::Option<(K, V)> as std::marker::Copy>, bound_vars: [] }` in the current context: `Ambiguity`
+  --> proof/extract/../../src/safe_table.rs:32:20
+   |
+32 |             slots: [const { None }; N],
+   |                    ^^^^^^^^^^^^^^^^^^^
+
+[Error] Unknown trait found: Could not find a clause for `Binder { value: <std::option::Option<(K, V)> as std::marker::Copy>, bound_vars: [] }` in the current context: `Ambiguity`
+Source: 'proof/extract/../../src/safe_table.rs', lines 30:4-35:5
+```
+
+The Aeneas backend then writes
+`axiom safe_table.SafeTable.new (K : Type) (V : Type) (N : Std.Usize) : Result (safe_table.SafeTable K V N)`,
+which `regen.sh`'s `axiom` audit rejects. The root was therefore reverted, so `proof/regen.sh --check`
+stays green and the bridge witnesses still construct the generated capacity-four state directly. No
+`partial_fixpoint` or unmodeled axiom was added to force the constructor; the Rust initialization
+link remains owed. The lookup wrapper uses an explicit match because `Option::copied` would otherwise
+enter as an external axiom.
 
 This extraction does not verify `src/map.rs`. `tests/safe_table.rs` executes a 10,000-transition
 comparison between `Map<u32, u32>` and the safe reference, which is tested evidence only.
