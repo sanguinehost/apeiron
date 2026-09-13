@@ -66,6 +66,7 @@ run_extract() {
         --start-from crate::word_exchange_impulse \
         --start-from crate::word_elastic_exchange \
         --start-from crate::word_accept_derived_impulse \
+        --start-from crate::word_safe_table4_new \
         --start-from crate::word_safe_table4_get \
         --start-from crate::word_safe_table4_insert \
         --start-from crate::word_safe_table4_remove \

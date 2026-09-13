@@ -100,6 +100,14 @@ pub fn word_accept_derived_impulse(
     exchange::accept_derived_impulse(p, q, claimed)
 }
 
+/// Safe-table construction, rooted so the real generic `SafeTable::<K, V, N>::new` body enters the
+/// Aeneas fragment as a `def`. The body repeats `[const { None }; N]`; with the inline-const repeat
+/// fix Charon leaves the native `Repeat` and Aeneas lowers it to `Array.repeat`, so no unresolved
+/// `Option<(K, V)>: Copy` clause is required.
+pub fn word_safe_table4_new() -> WordTable4 {
+    WordTable4::new()
+}
+
 /// Safe-table lookup, returning a copied word value.
 pub fn word_safe_table4_get(table: &WordTable4, key: i64) -> Option<i64> {
     match table.get(&key) {
