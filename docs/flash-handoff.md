@@ -57,9 +57,11 @@ the order of work, acceptance gates and where to stop, not a completed migration
   explicit full refusal; `tests/safe_table.rs` compares it with the production `Map` over 10,000
   transitions; `proof/extract/lib.rs` extracts `word_safe_table4_get/insert/remove` from the real
   body with a fresh, axiom-free generated file. The canonical `Apeiron.Table` refinement is
-  **partial**: commits `3799577` through `76a6824` close total-loop search, canonical lookup and
-  write preservation under `WellFormed`. Initialization and exact insertion success/refusal remain
-  open; see the exit table below. The optimized `Map` stays tested.
+  **partial**: commits `3799577` through `57a83ba` close total-loop search, canonical lookup,
+  write preservation and constructor initialization under `WellFormed`.
+  `try_insert_fresh_iff` and `try_insert_err_iff` close exact fresh-success/full-refusal outcomes.
+  Storage assurance and the independent optimized relation remain open; see the exit table below.
+  The optimized `Map` stays tested.
 
 ## Post-Stage-6 Barriers
 
@@ -67,7 +69,7 @@ Dependency order. Each row names the gate that closes it and the current blocker
 
 | # | Barrier | Repo | Gate | Status / blocker |
 |---|---|---|---|---|
-| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; `lake build` in `proof/corpus` | Partial. Search, lookup and conditional writes/preservation proved; initialization, branch completeness and assurance gates below remain. |
+| 1 | Storage canonical refinement | apeiron | `proof/regen.sh --check`; `lake build` in `proof/corpus` | Partial. Search, lookup, initialization, preservation and exact fresh-success/full-refusal outcomes proved; S6-S8 remain. |
 | 2 | Corpus F2 certificate completeness | corpus | New module `proof`/`lake build` + `#audit` | Open. Relative completeness on the capped fragment is reachable; the uncapped alphabet is not. `theory/DEAD_ENDS.md` carries the routes. |
 | 3 | Corpus A5 Transport rooting | corpus | `lake build`; `scripts/check-lints.py`; `scripts/check-style.py` | Open. `Transport/Basic.lean` sits on `Transport/Ordered.lean` (ordered field), not the trichotomy's `InCell`/`meet`. |
 | 4 | Corpus F3 E18 snapshot | corpus | `theory/E18.md`; `python3 scripts/check-imports.py` in corpus | Recorded closed at `435817b8`; no new run here. Corpus Track F and F2 remain open. |
@@ -96,10 +98,10 @@ Renewed closure of any epic also requires the shared integration and assurance g
 | ID | Required output | Gate (cwd) / remaining work |
 |---|---|---|
 | S1 | Real safe reference and production differential trace; nominal, empty, full, replacement and removal cases | `cargo test --locked --test safe_table` (root); recorded passing, controls in storage plan. Generic Rust API is tested; Lean scope is capacity four with `I64` keys. |
-| S2 | Fresh real-source extraction; no opaque substitute | `proof/regen.sh --check` (root); recorded passing. Constructor extraction is not yet included. |
+| S2 | Fresh real-source extraction; no opaque substitute | `proof/regen.sh --check` (root); recorded passing. `word_safe_table4_new` includes the real generic constructor. |
 | S3 | Canonical lookup/write equations and preservation | `lake build` (`proof/corpus`), headlines in `the headline ledger`; recorded conditional proofs at `76a6824`. |
-| S4 | Joint `WellFormed` witness, empty denotation, actual constructor establishes that state; reachable transitions preserve it | Witness and empty denotation proved (`emptyTable_wellFormed`, `emptyTable_tableHMap`); transitions preserve it through `try_insert_spec`/`remove_spec`. Constructor **blocked on extraction**: Charon cannot resolve `Option<(K,V)>: Copy` at the generic repeat and Aeneas emits `axiom safe_table.SafeTable.new` (verbatim error in `proof/README.md`). A source-level constructor path or a Charon/Aeneas capability is a separate user decision. |
-| S5 | Present-key/free-slot insertion succeeds; absent full table refuses with original payload and unchanged state; missing removal and full/replacement witnesses | **MISSING** branch-completeness theorem/fixtures; future bridge `lake build`. Current `try_insert_spec` permits always-`Err`; require that mutation to fail. |
+| S4 | Joint `WellFormed` witness, empty denotation, actual constructor establishes that state; reachable transitions preserve it | Closed at `57a83ba`: `safe_table_new_eq_emptyTable`, `word_safe_table4_new_eq_emptyTable`, `safe_table_new_wellFormed`, `emptyTable_tableHMap`, `try_insert_spec`, `remove_spec`; `proof/regen.sh --check` and bridge `lake build` pass on the current source/tool identity. |
+| S5 | Present-key/free-slot insertion succeeds; absent full table refuses with original payload and unchanged state; removal, full and replacement witnesses | Closed, `proved`: `try_insert_fresh_iff` gives fresh success exactly when `tableHMap self key = none ∧ HasEmpty self`, returning `Ok none` with `len + 1`, the inserted mapping, all other mappings preserved and `WellFormed`; `try_insert_err_iff` gives refusal exactly when `NoEmptyIn self.slots.val 0 4` and the key is absent, with exact `TableFull {key,value}` and unchanged state. `emptyTable_fresh_insert_domain`, `fullTable_refusal_domain`, `try_insert_oneTable_replace` and `try_insert_fullTable_refusal` are joint branch witnesses. All are audited in `{propext, Classical.choice, Quot.sound}`. Inverting the generated `find_from_loop.body` bound condition fails `find_from_loop_spec` at `SafeTableRefinement.lean:103:10`; restore passes. |
 | S6 | Baseline/red/restore for search, writes, initialization, full handling and branch success; independent optimized relation decision | Tests and bridge commands above on throwaway source/generated mutations; **MISSING** complete durable control record and optimized-relation decision. `Map` remains tested; no retirement authorized by S4 alone. |
 | S7 | Joint Rust and proof integration on the recorded source/toolchain | All `AGENTS.md` §6 Rust commands including `cargo kani`; `lake build` in `proof/` and `proof/corpus/`; `proof/regen.sh --check`. Fresh combined acceptance not run. |
 | S8 | Complete headline ledger, audited cone, joint witness coverage and bounded perimeter | `tools/check-claims.py` and `tools/check-assurance.py` installed and wired in `AGENTS.md` §6, with injected-violation controls. **MISSING** machine enforcement of joint-witness coverage (currently a warning) and binding the production `src/`/`tests/` populations (printed as inventory, over the ≤1,500/≤12 limits). |
@@ -107,15 +109,13 @@ Renewed closure of any epic also requires the shared integration and assurance g
 The spec's public-API preconditions remain none: private state validity is an obligation of
 construction and transitions, not a new obligation imposed on callers. The existing spec/plan's
 `WordRefinement.lean` target resolves now to `proof/corpus/SafeTableRefinement.lean`. Their older
-extraction-blocker paragraphs are history; S4/S5 are the current proof frontier. All successful
-transition and full-refusal requirements remain; do not weaken them to match the current theorem.
+extraction-blocker paragraphs are history; S6-S8 are the open storage frontier. All successful
+transition and full-refusal requirements remain in the checked theorems.
 
-Next bounded proof task: `APEIRON-STORAGE-W3-T2`, owner assigned before dispatch, at most three files,
-joint generated-state witness and empty denotation in `SafeTableRefinement.lean` plus audit; gate
-`lake build` in `proof/corpus`. Record this as inhabitation only. Actual constructor extraction/link
-is a separate dependent task because the generic `Option<(K,V)>: Copy` extraction blocker remains.
-No implementation is dispatched by this documentation change. The ledger/perimeter gates need
-separate gate-design tasks, not expansion of the witness task. No storage performance claim is made.
+Next bounded storage task: record baseline/red/restore controls for search, writes, initialization
+and full handling, then state the independent optimized-`Map` relation decision. Gate:
+`lake build` in `proof/corpus` and the named throwaway mutations. The ledger/perimeter gates remain
+separate gate-design tasks. No storage performance claim is made.
 
 ## First Session
 

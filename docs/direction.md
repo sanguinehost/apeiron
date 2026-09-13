@@ -311,7 +311,7 @@ nonexistent-revision mutation exits 128 during Git checkout. The lifecycle and d
 are in `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
 `docs/plan/corpus-release-pin.md` and `proof/README.md`.
 
-**Storage refinement unblocked at the extraction layer, refinement theorem open.** `src/safe_table.rs`
+**Storage refinement partial; initialization and exact write outcomes proved.** `src/safe_table.rs`
 is the fixed-capacity keyed container with an explicit full refusal; `tests/safe_table.rs` runs a
 10,000-transition comparison against `Map`, and `proof/extract/lib.rs` extracts the
 real `word_safe_table4_get/insert/remove` bodies without an axiom, `sorry` or `admit`. The first
@@ -334,9 +334,21 @@ corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` ret
 `try_insert_spec` and `remove_spec` link the extracted bodies to
 `Apeiron.Table.insertWith (fun new _ => new)` and `Apeiron.Table.insertWith (fun _ _ => none)`
 respectively, with the invariant supplying the `self.len ± 1` scalar bounds and, for `remove`, the
-key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}`. Both specs now conclude `WellFormed t'`,
-so preservation is proved; that it holds at the initial state (`SafeTable::new`) is the remaining proof
-obligation. Closing that link makes `src/map.rs` removable; it is not a second container to keep tested.
+key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}` and conclude
+`WellFormed t'`. `safe_table_new_eq_emptyTable`, `word_safe_table4_new_eq_emptyTable` and
+`safe_table_new_wellFormed` prove the real generic constructor produces the empty well-formed state;
+`emptyTable_tableHMap` proves its canonical denotation. Grade: `proved`.
+
+`try_insert_fresh_iff` proves a fresh `Ok none` successor exists exactly when
+`tableHMap self key = none ∧ HasEmpty self`; `FreshInsertPost` states `len + 1`, the inserted mapping,
+preservation of every other key and `WellFormed`. The result is existential because those extensional
+facts do not uniquely determine physical slot order. `try_insert_err_iff` is structural: an `Err e`
+successor is returned exactly when `NoEmptyIn self.slots.val 0 4` and the key is absent, with
+`e = TableFull {key,value}` and `t' = self`. `emptyTable_fresh_insert_domain` and
+`fullTable_refusal_domain` check the joint hypotheses; `try_insert_fullTable_refusal` checks the
+refusing branch. All headlines audit inside `{propext, Classical.choice, Quot.sound}`. Grade:
+`proved`. Storage controls, assurance enforcement and the independent optimized-`Map` relation remain
+open; no `src/map.rs` retirement is authorized.
 
 ### Correctness Work Before Physics Reuse
 
