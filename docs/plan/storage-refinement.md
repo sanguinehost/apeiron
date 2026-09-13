@@ -69,6 +69,26 @@ Rust, Charon/Aeneas binaries (including patches), Lean, Mathlib and corpus ident
 and the historical constructor patch are in `proof/README.md`; do not assume the patch solves
 growable vectors, fallible reservation, function pointers or generic callback translation.
 
+### Extraction feasibility stop
+
+`APEIRON-TABLE-W4-T1`, Sol, base `dde9d58`, lanes E+B. Charon emits the real bodies for all four
+monomorphic probes. Aeneas rejects each LLBC before translating a method because
+`Table.home : fn(&K) -> u64` is an arrow-valued struct field. Verbatim:
+`Arrow types are not supported yet`; `Could not translate type decl
+'apeiron_word::table::Table because of previous error`. The backend therefore does not reach a
+separate verdict on `Vec`, allocation, 256-shard initialization, `usize`, default values, iterator
+loops or callback invocation. `StorageError` and both constructors extract. Wave 4 stops here;
+waves 5-7 remain blocked on a generated `Table` representation.
+
+```text
+SCOPE:      proof extraction roots/generated file, TableRefinement/audits/pin, storage status docs
+REGISTER:   extraction/refinement; excludes compiler, allocator and ungenerated Table transitions
+CORPUS:     Apeiron.Table Basic/Adjacency/Home at 50c94192399add3b9f8e64bd14e36d8cba270705
+REFERENCE:  /home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/{Basic,Adjacency,Home}.lean
+GATE:       proof/regen.sh --check; lake build in proof/corpus; initial stale source digest exit 1
+GRADE:      proved canonical contracts/error constructors; Rust Table implementation link open
+```
+
 ### Serial waves and lanes
 
 IDs are `APEIRON-TABLE-W<n>-T1`; one owner per file. Before dispatch the lead records the integrated

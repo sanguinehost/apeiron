@@ -12,7 +12,7 @@ require apeironWordProof from ".."
 
 -- The canonical mathematical corpus at the exact revision refined by this bridge.
 require «apeiron» from git "git@gitlab.tas.twn.network:lucas/sanguine.git" @
-  "d9aefc93522e2109bc96158526de6dbd52477276" / "proof"
+  "50c94192399add3b9f8e64bd14e36d8cba270705" / "proof"
 
 -- Pin the same Mathlib revision as the corpus, last so this package's choice wins any transitive
 -- resolution. The corpus is no longer on a 4.30.0-rc2-era Mathlib.
@@ -20,4 +20,4 @@ require mathlib from git "https://github.com/leanprover-community/mathlib4.git" 
 
 @[default_target]
 lean_lib ApeironWordBridge where
-  roots := #[`WordRefinement, `SafeTableRefinement, `AxiomAudit]
+  roots := #[`WordRefinement, `TableRefinement, `AxiomAudit]
