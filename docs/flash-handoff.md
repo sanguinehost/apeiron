@@ -79,7 +79,7 @@ Dependency order. Each row names the gate that closes it and the current blocker
 
 ### Epic exits
 
-The table below, `AGENTS.md` §4 and `CLAIMS.md` supplement the existing intent/spec/plan without
+The table below, `AGENTS.md` §4 and `the headline ledger` supplement the existing intent/spec/plan without
 replacing their requirements. An epic closes only when every required row and child is green on one
 source/tool identity, with controls and evidence recorded. Missing commands are gate-first work, not
 passing placeholders. Historical stages above retain their scoped evidence, not fresh acceptance.
@@ -97,7 +97,7 @@ Renewed closure of any epic also requires the shared integration and assurance g
 |---|---|---|
 | S1 | Real safe reference and production differential trace; nominal, empty, full, replacement and removal cases | `cargo test --locked --test safe_table` (root); recorded passing, controls in storage plan. Generic Rust API is tested; Lean scope is capacity four with `I64` keys. |
 | S2 | Fresh real-source extraction; no opaque substitute | `proof/regen.sh --check` (root); recorded passing. Constructor extraction is not yet included. |
-| S3 | Canonical lookup/write equations and preservation | `lake build` (`proof/corpus`), headlines in `CLAIMS.md`; recorded conditional proofs at `76a6824`. |
+| S3 | Canonical lookup/write equations and preservation | `lake build` (`proof/corpus`), headlines in `the headline ledger`; recorded conditional proofs at `76a6824`. |
 | S4 | Joint `WellFormed` witness, empty denotation, actual constructor establishes that state; reachable transitions preserve it | Witness and empty denotation proved (`emptyTable_wellFormed`, `emptyTable_tableHMap`); transitions preserve it through `try_insert_spec`/`remove_spec`. Constructor **blocked on extraction**: Charon cannot resolve `Option<(K,V)>: Copy` at the generic repeat and Aeneas emits `axiom safe_table.SafeTable.new` (verbatim error in `proof/README.md`). A source-level constructor path or a Charon/Aeneas capability is a separate user decision. |
 | S5 | Present-key/free-slot insertion succeeds; absent full table refuses with original payload and unchanged state; missing removal and full/replacement witnesses | **MISSING** branch-completeness theorem/fixtures; future bridge `lake build`. Current `try_insert_spec` permits always-`Err`; require that mutation to fail. |
 | S6 | Baseline/red/restore for search, writes, initialization, full handling and branch success; independent optimized relation decision | Tests and bridge commands above on throwaway source/generated mutations; **MISSING** complete durable control record and optimized-relation decision. `Map` remains tested; no retirement authorized by S4 alone. |
@@ -375,7 +375,7 @@ the existing evidence record instead of producing another parallel roadmap.
 Supplied-checkout exception for this documentation pass; no build lane occupied.
 
 ```text
-SCOPE:      AGENTS.md, docs/flash-handoff.md, CLAIMS.md; explicit exits and evidence blockers
+SCOPE:      AGENTS.md, docs/flash-handoff.md, the headline ledger; explicit exits and evidence blockers
 REGISTER:   planning; no implementation, proof or runtime claim
 CORPUS:     Song SDLC/ROADMAP read; no theorem establishes a planning policy
 REFERENCE:  /home/socol/Workspace/song/docs/SDLC.md; /home/socol/Workspace/song/docs/ROADMAP.md

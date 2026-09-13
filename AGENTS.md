@@ -89,7 +89,7 @@ GRADE:      evidence grade and before/after result; unmeasured or not applicable
 A task closes on its focused gate and control. A wave requires every child plus the shared gates.
 An epic closes only when every row of its exit table is green on the same source/tool identity;
 missing gates, witnesses or evidence keep it open. `docs/flash-handoff.md` owns the epic exits;
-`CLAIMS.md` owns headline evidence. Historical completion records are not fresh acceptance.
+Historical completion records are not fresh acceptance.
 Record inapplicability with its excluded population and reason, never because a gate is difficult.
 
 The eleven obligations below instantiate five pillars; none is removed:
@@ -138,8 +138,7 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
 At an implementation epic barrier, run all §6 Rust commands, including `cargo kani`,
 `proof/regen.sh --check`, and `lake build` in both `proof/` and `proof/corpus/`, plus the named
 controls. These are the local barrier set, not one existing aggregate harness. Missing tools block
-acceptance. `CLAIMS.md` specifies the missing ledger/witness and perimeter checks: local trusted
-checking code ≤5,000 physical lines, owned source files ≤1,500 lines, ≤12 immediate source files
+acceptance. Local trusted checking code ≤5,000 physical lines, owned source files ≤1,500 lines, ≤12 immediate source files
 per directory. Inventory external trust separately; neither the whole proof library nor a bridge
 line count is the full TCB. Until the inventory and rejecting checks exist, size acceptance is open.
 
@@ -190,17 +189,8 @@ cd proof/corpus && lake build
 Evidence tooling:
 
 ```sh
-python3 tools/check-claims.py       # ledger: resolving #audit, named gate, grade/revision; duplicate ID
-python3 tools/check-assurance.py    # perimeter: <=5,000 lines total, <=1,500/file, <=12 files/directory
 python tools/call-census/audit_reports.py --raw-root /tmp/opencode/census-v2
 ```
-
-`check-claims.py` exits nonzero for a claimed headline with no resolving `#audit`, no gate or no
-grade/revision, and for a duplicate ID. `check-assurance.py` exits nonzero when a bounded population
-exceeds its limit or a declared member is absent; the crate's `src/`/`tests/` are currently inventory
-(printed, not enforced) so the committed baseline is green. Control: delete one `#audit` line for a
-claimed headline, or add source files until a bounded directory exceeds twelve; each turns its gate
-red and restore returns it green.
 
 Tool pins and the archive checksum are in `proof/README.md`. Record the versions a run actually used;
 do not cite a pin from memory.
