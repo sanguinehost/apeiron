@@ -283,6 +283,16 @@ structure safe_table.SafeTable (K : Type) (V : Type) (N : Std.Usize) where
   slots : Array (Option (K × V)) N
   len : Std.Usize
 
+/-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::new]:
+    Source: 'proof/extract/../../src/safe_table.rs', lines 30:4-35:5
+    Visibility: public -/
+def safe_table.SafeTable.new
+  (K : Type) (V : Type) (N : Std.Usize) :
+  Result (safe_table.SafeTable K V N)
+  := do
+  let a := Array.repeat N none
+  ok { slots := a, len := 0#usize }
+
 /-- [apeiron_word::safe_table::{apeiron_word::safe_table::SafeTable<K, V, N>}::find_from]: loop body 0:
     Source: 'proof/extract/../../src/safe_table.rs', lines 74:8-81:5 -/
 @[rust_loop_body]
@@ -590,8 +600,15 @@ def word_accept_derived_impulse
   := do
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
+/-- [apeiron_word::word_safe_table4_new]:
+    Source: 'proof/extract/lib.rs', lines 107:0-109:1
+    Visibility: public -/
+def word_safe_table4_new
+  : Result (safe_table.SafeTable Std.I64 Std.I64 4#usize) := do
+  safe_table.SafeTable.new Std.I64 Std.I64 4#usize
+
 /-- [apeiron_word::word_safe_table4_get]:
-    Source: 'proof/extract/lib.rs', lines 104:0-109:1
+    Source: 'proof/extract/lib.rs', lines 112:0-117:1
     Visibility: public -/
 def word_safe_table4_get
   (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64) :
@@ -603,7 +620,7 @@ def word_safe_table4_get
   | some _ => ok o
 
 /-- [apeiron_word::word_safe_table4_insert]:
-    Source: 'proof/extract/lib.rs', lines 112:0-122:1
+    Source: 'proof/extract/lib.rs', lines 120:0-130:1
     Visibility: public -/
 def word_safe_table4_insert
   (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64)
@@ -616,7 +633,7 @@ def word_safe_table4_insert
   ok (table1, result)
 
 /-- [apeiron_word::word_safe_table4_remove]:
-    Source: 'proof/extract/lib.rs', lines 125:0-128:1
+    Source: 'proof/extract/lib.rs', lines 133:0-136:1
     Visibility: public -/
 def word_safe_table4_remove
   (table : safe_table.SafeTable Std.I64 Std.I64 4#usize) (key : Std.I64) :

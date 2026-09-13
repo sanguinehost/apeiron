@@ -1047,20 +1047,30 @@ open Aeneas Aeneas.Std Result Apeiron.Table
 
 variable {V : Type}
 
-/-! ### The generated empty state, its denotation, and the constructor obligation
+/-! ### The generated empty state, its denotation, and the constructor link
 
-`emptyTable` is the capacity-four all-`none` state the bridge constructs directly. It is a model
-witness for the generated `safe_table.SafeTable`, not a refinement of the Rust `SafeTable::new`:
-`proof/extract/lib.rs` roots `word_safe_table4_get/insert/remove` but no `new`, and `regen.sh`'s
-Charon selection omits it. The generic `SafeTable::<K, V, N>::new` body repeats
-`[const { None }; N]`, whose `Option<(K, V)>: Copy` obligation Charon cannot resolve at the generic
-type. Initializing this generated state from the actual Rust constructor therefore remains owed;
-nothing below claims that link. -/
+`emptyTable` is the capacity-four all-`none` state. `safe_table_new_eq_emptyTable` proves the real
+extracted `safe_table.SafeTable.new` at the word instantiation is exactly this state, so the model
+witness is linked to the generated constructor body: `proof/extract/lib.rs` roots
+`word_safe_table4_new`, whose Charon/Aeneas translation is the real generic
+`SafeTable::<K, V, N>::new` lowered through `Array.repeat` (no `Option<(K, V)>: Copy` clause). -/
 
 /-- The generated capacity-four state with every slot `none` and `len = 0`. -/
 def emptyTable : SafeTable I64 V 4#usize where
   slots := Array.repeat 4#usize (none : Option (I64 × V))
   len := 0#usize
+
+/-- The real extracted constructor at the capacity-four word instantiation returns `emptyTable`.
+The generated body repeats `none` and sets `len = 0`, so the equation is definitional. -/
+theorem safe_table_new_eq_emptyTable (V : Type) :
+    SafeTable.new I64 V 4#usize = ok (emptyTable (V := V)) := by
+  rfl
+
+/-- The extraction root `word_safe_table4_new` is the same constructor at `I64` keys and values. -/
+theorem word_safe_table4_new_eq_emptyTable :
+    word_safe_table4_new = ok (emptyTable (V := I64)) := by
+  unfold word_safe_table4_new
+  exact safe_table_new_eq_emptyTable I64
 
 theorem not_matchesAt_replicate_none {n i : ℕ} {k : I64} :
     ¬ MatchesAt k (List.replicate n (none : Option (I64 × V))) i := by
@@ -1074,13 +1084,18 @@ theorem keysUnique_replicate_none (n : ℕ) :
   exact absurd hi (not_matchesAt_replicate_none (n := n) (i := i) (k := k))
 
 /-- The generated all-`none` state is well formed: `len = 0` counts no occupied slot, and no key
-matches anywhere. This is a model witness for the generated state, not a constructor refinement. -/
+matches anywhere. -/
 theorem emptyTable_wellFormed : WellFormed (emptyTable (V := V)) := by
   unfold WellFormed emptyTable
   constructor
   · simp [Array.repeat_val, List.countP_replicate]
   · simpa only [Array.repeat_val] using
       keysUnique_replicate_none (V := V) (4#usize).val
+
+/-- Initialization: the real extracted constructor produces a well-formed capacity-four state. -/
+theorem safe_table_new_wellFormed (V : Type) :
+    ∃ t, SafeTable.new I64 V 4#usize = ok t ∧ WellFormed t :=
+  ⟨emptyTable (V := V), safe_table_new_eq_emptyTable V, emptyTable_wellFormed⟩
 
 /-- The empty state denotes the empty table: reading any key is `none`. -/
 theorem emptyTable_tableHMap (key : I64) :
