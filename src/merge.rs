@@ -37,8 +37,8 @@
 //! arguments are stated about, so they are the definitions.
 //!
 //! The single table's required merge signature is `(new, old) -> V`, including the default on
-//! the first write. Its implementation is pending. The standalone `*_into` helpers below are
-//! not a second table path and do not define the table's mutation or panic contract.
+//! the first write. The standalone `*_into` helpers below are not a second table path and do not
+//! define the table's mutation or panic contract.
 //!
 //! ```
 //! use apeiron::Table;

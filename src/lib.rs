@@ -7,8 +7,7 @@
 
 //! The two-slot algebra `R[x]/(x^2 - sigma)` and one corpus-specified table.
 //!
-//! [`Table`] is the sole storage type. Its implementation and source refinement are pending;
-//! the removed containers' proofs and measurements do not establish this type's behavior.
+//! [`Table`] is the sole storage type. It is tested; its source refinement is pending.
 
 pub mod carrier;
 pub mod cell;
@@ -33,4 +32,4 @@ pub use carrier::{
 pub use cell::{Cell, Sigma};
 pub use exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse, Exchange};
 pub use pepper::{process_pepper, set_process_pepper};
-pub use table::Table;
+pub use table::{StorageError, Table};

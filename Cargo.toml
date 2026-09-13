@@ -41,14 +41,6 @@ members = ["derive", "fold-abi"]
 # project, not a member of this one.
 exclude = ["fuzz"]
 
-[[bench]]
-name = "spatial_binning"
-harness = false
-
-[[bench]]
-name = "against_the_field"
-harness = false
-
 # Pedantic is on. Most of what it flags in this crate is numeric casts, and numeric casts are
 # exactly what this code does -- which is the argument for the lint rather than against it: a cast
 # that is safe by construction should have to say so, and one that is not should be found.
