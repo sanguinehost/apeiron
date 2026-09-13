@@ -55,11 +55,11 @@ definitions cannot pass silently.
 `word_exchange_impulse`, `word_elastic_exchange` and `word_accept_derived_impulse` are thin wrappers
 over the real `src/exchange.rs::{exchange_impulse, elastic_exchange, accept_derived_impulse}`; the
 generated `exchange.Exchange<i64>` and `exchange.exchange_impulse`/`elastic_exchange`/
-`accept_derived_impulse` are the production bodies, not restatements.
+`accept_derived_impulse` are the real bodies, not restatements.
 
 `word_point_density` and `word_point_flux` are thin wrappers over the real
 `src/carrier.rs::{point_density, point_flux}`; the generated `carrier.point_density` /
-`carrier.point_flux` are those production bodies instantiated at the `i64` `Ring`, not restatements.
+`carrier.point_flux` are those real bodies instantiated at the `i64` `Ring`, not restatements.
 
 ### The checked-claim kernel
 
@@ -132,7 +132,7 @@ proves, over `ZMod (2 ^ 64)`:
 
 The denotation proofs read the generated `I64.checked_sub`/`checked_add`/`checked_rem`/`checked_div`
 specs and carry each result through `denote`; they do not restate the arithmetic. The `?` operator
-is not used in these two production kernels because it desugars through `Try::branch`, which Aeneas
+is not used in these two kernels because it desugars through `Try::branch`, which Aeneas
 has no model for; the source uses explicit `match` with early `return None` instead. No claim is
 made that every integer state is iterable or that the updated value remains a norm-form square.
 
@@ -237,7 +237,7 @@ capacity-four state operations.
 
 The first extraction attempt found unsupported iterator closures and returns from desugared `for`
 loops, and a bounded recursive index search extracted to a Lean `partial_fixpoint` with no supplied
-induction principle. The production reference now uses `while index < N` searches whose bodies
+induction principle. The container now uses `while index < N` searches whose bodies
 return the found index; Charon translates each to a total `loop` combinator (`@[rust_loop]`), so the
 supplied `Aeneas.Std.loop.spec_decr_nat` measure principle applies. `proof/corpus/SafeTableRefinement.lean`
 exercises it: `find_from_loop_spec` proves with measure `4 - index` and the invariant
@@ -288,7 +288,7 @@ link remains owed. The lookup wrapper uses an explicit match because `Option::co
 enter as an external axiom.
 
 This extraction does not verify `src/map.rs`. `tests/safe_table.rs` executes a 10,000-transition
-comparison between `Map<u32, u32>` and the safe reference, which is tested evidence only.
+comparison between `Map<u32, u32>` and the container; `tested`, not `proved`.
 
 ```sh
 cd proof/corpus && lake build
@@ -400,7 +400,7 @@ For the exchange, changing the derived impulse from `p.a.sub(q.a)` to `p.a.add(q
 for `q.b`) in a throwaway copy of `src/exchange.rs`, re-extracting, and rebuilding
 `WordRefinement` **fails** at `word_exchange_impulse_denote` and `word_elastic_exchange_denote`
 (the extracted operation no longer denotes `ringExchangeImpulse`); restoring the unchanged source
-and generated file passes again. The production source is not modified for the control.
+and generated file passes again. The source is not modified for the control.
 
 For the checked-claim kernel, inverting the generated branch (swapping the `then`/`else` arms of
 `exchange.accept_derived_impulse` in a throwaway copy of `ApeironWord.lean`) and rebuilding
@@ -455,7 +455,7 @@ SHA-256 `d5ba53b1370d30866bcd86de5e34abfbadf09e76b3689a7f70f458cd0c133591`.
 
 ## What this does not establish
 
-- Optimized map/table, SIMD or concurrent storage; only the safe fixed-capacity table reference,
+- SIMD or concurrent storage; only the fixed-capacity container,
   the scalar kernels, the two cell operations, the
   carrier point-density/flux readout, the scalar carrier step and exact-half flux, the closed
   three-cell diffusive line, the two arithmetic exchange kernels, the checked-claim acceptance

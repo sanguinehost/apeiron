@@ -10,7 +10,7 @@
 //! `std::collections::HashMap` over randomized operation programs (`tests/a_map_is_a_map.rs`,
 //! `tests/a_set_is_a_set.rs`), under Miri where the `unsafe` is reachable, and by the bit-precise
 //! Kani harnesses in `src/proofs.rs` for its address arithmetic. No Aeneas refinement yet relates
-//! this storage to a safe reference implementation, so proximity to the proved algebra (`Cell<i64>`
+//! this storage to the fixed-capacity container, so proximity to the proved algebra (`Cell<i64>`
 //! in `proof/`) is not a proof about the map, its SIMD tag scan or its threads. Treat the container
 //! as a well-tested implementation with named invariants, not a verified one.
 //!

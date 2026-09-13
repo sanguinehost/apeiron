@@ -300,8 +300,7 @@ denoted total changing only by the denoted sources (zero-source conservation cor
 `diffusiveUpdate_half_three_anyRing` and the real exact quarter-energy identity
 `dirichletEnergy_halfStep_three` with its strict form `dirichletEnergy_halfStep_three_lt`; the
 factor `1/4` needs the order of `ℝ`, so the ring theorem and the word bridge claim no energy. The
-surrounding Rust production integration, float mapping and live scheduling remain tested, not
-refined. Evidence for both is in `docs/autonomous-run-log.md`. Closing evidence pointers are in
+surrounding Rust integration, float mapping and live scheduling are not refined. Evidence for both is in `docs/autonomous-run-log.md`. Closing evidence pointers are in
 `docs/flash-handoff.md` (Stage 5); revisions corpus `d9aefc93`, Apeiron evidence `d7121ac`, Penglai
 `f970862`.
 
@@ -313,8 +312,8 @@ are in `docs/intent/corpus-release-pin.md`, `docs/spec/corpus-release-pin.md`,
 `docs/plan/corpus-release-pin.md` and `proof/README.md`.
 
 **Storage refinement unblocked at the extraction layer, refinement theorem open.** `src/safe_table.rs`
-is a safe fixed-capacity reference with an explicit full refusal; `tests/safe_table.rs` runs a
-10,000-transition comparison against the production `Map`, and `proof/extract/lib.rs` extracts the
+is the fixed-capacity keyed container with an explicit full refusal; `tests/safe_table.rs` runs a
+10,000-transition comparison against `Map`, and `proof/extract/lib.rs` extracts the
 real `word_safe_table4_get/insert/remove` bodies without an axiom, `sorry` or `admit`. The first
 three shapes (iterator loop, bounded recursion, `fun_induction`/`step`) were blocked; a slice-tail
 recursion (attempt 4) still extracted to a `partial_fixpoint` and added an unmodeled
@@ -329,7 +328,7 @@ mutation (`done (some index)` to `done none`) fails the same proof. The lookup l
 `findIdx`/`findIdx_spec`/`findIdx_none_iff` give the list denotation, `tableHMap` reads it as the
 corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` returns
 `Apeiron.Table.get (tableHMap self) key`. The empty-slot search is also proved
-(`empty_from_spec`); its reference uses a `match` so Charon emits a match rather than an `is_none`
+(`empty_from_spec`); it uses a `match` so Charon emits a match rather than an `is_none`
 `ite`. The write links are proved under the invariant
 `WellFormed t := t.len.val = List.countP (fun e => e.isSome) t.slots.val ∧ KeysUnique t.slots.val`:
 `try_insert_spec` and `remove_spec` link the extracted bodies to
@@ -337,8 +336,7 @@ corpus `Apeiron.Table.HMap`, and `get_spec`/`get_spec_canonical` prove `get` ret
 respectively, with the invariant supplying the `self.len ± 1` scalar bounds and, for `remove`, the
 key uniqueness. Both audit inside `{propext, Classical.choice, Quot.sound}`. Both specs now conclude `WellFormed t'`,
 so preservation is proved; that it holds at the initial state (`SafeTable::new`) is the remaining proof
-obligation. The
-optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope note is unchanged.
+obligation. Closing that link makes `src/map.rs` removable; it is not a second container to keep tested.
 
 ### Correctness Work Before Physics Reuse
 
@@ -362,7 +360,7 @@ optimized `Map` stays tested until those theorems exist; `src/map.rs`'s scope no
    `(1,1)`, not `(1/2,1/2)` (`src/keystore.rs:68-83`). It is not idempotent, and
    multiplying by two in the word ring can lose additional information.
 5. **Scope container claims.** `map`/`table` use unsafe storage, SIMD and threads.
-   They are not proved by extracting `Cell`. Establish a safe executable reference
+   They are not proved by extracting `Cell`. Establish the executable container
    and finite-slot abstraction for required operations; independently relate any
    optimized implementation to it. Until then label that implementation as tested,
    not verified. Miri, fuzzing and Kani supplement but do not close that refinement.

@@ -9,7 +9,7 @@
 ## Goal and completion condition
 
 Establish one safe finite storage semantics, prove its successful transitions against the canonical
-Table definitions, then relate the production map without promoting sampled agreement to proof.
+Table definitions, then relate `Map` without promoting sampled agreement to proof.
 
 ```sh
 sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check && cd proof/corpus && lake build'
@@ -25,7 +25,7 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 
 | Wave | Task | Files | Owner | Gate | Negative control |
 |---|---|---|---|---|---|
-| W1 | Safe finite reference and production trace | `src/safe_table.rs`, `src/lib.rs`, `tests/safe_table.rs` | OpenCode | `cargo test --locked --test safe_table` | Full-check or removal mutation makes the trace fail. |
+| W1 | Fixed-capacity container and differential trace | `src/safe_table.rs`, `src/lib.rs`, `tests/safe_table.rs` | OpenCode | `cargo test --locked --test safe_table` | Full-check or removal mutation makes the trace fail. |
 | W2 | Monomorphic extraction | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | OpenCode | `proof/regen.sh --check` | Generated transition mutation breaks freshness or proof. |
 | W2 | Extraction evidence | `proof/README.md` | OpenCode | `git diff --check` | Not applicable: extraction freshness owns the executable control. |
 | W3 | Canonical Table refinement | `proof/corpus/WordRefinement.lean`, `proof/corpus/AxiomAudit.lean` | OpenCode | `lake build` in `proof/corpus` | Transition mutation breaks unchanged theorem. |
@@ -35,7 +35,7 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 
 ### W1-T1 - Safe finite reference
 
-- **Scope:** Implement fixed-capacity safe lookup/replace/remove and compare the production map on
+- **Scope:** Implement fixed-capacity lookup/replace/remove and compare against `Map` on
   the same bounded traces.
 - **Files:** `src/safe_table.rs`, `src/lib.rs`, `tests/safe_table.rs`
 - **Depends on:** None
@@ -78,10 +78,9 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
   refinement must fail and the original must pass.
 - **Evidence to record:** Theorem names and complete axiom cones.
 
-### W4-T1 - Production relation boundary
+### W4-T1 - Universal relation to `Map`
 
-- **Scope:** Select the smallest universal relation target for optimized slots from W1 evidence and
-  retain tested status until that target passes.
+- **Scope:** Select the smallest universal relation target from W1 evidence; closing it authorizes removing `Map`.
 - **Files:** `docs/kernel-boundary.md`, `docs/direction.md`
 - **Depends on:** W3-T1
 - **Grade:** tested
@@ -91,10 +90,10 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 
 ## Barrier checklist
 
-- [ ] Safe reference tests and controls pass.
+- [ ] Container tests and controls pass.
 - [ ] Extraction is fresh and free of `axiom`, `sorry` and `admit`.
 - [ ] Canonical refinement and fail-closed audits pass.
-- [ ] Production map remains tested unless a universal relation is checked.
+- [ ] The universal relation to `Map` is checked, authorizing its removal.
 - [ ] Rust tests, clippy, formatting and Kani pass.
 - [ ] Source and tool digests and trust boundaries are recorded.
 
@@ -108,7 +107,7 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 ## W3 blocker record
 
 `W1` and `W2` are closed: the safe fixed-capacity reference passes its focused tests and the
-10,000-step production comparison, and `word_safe_table4_get/insert/remove` are extracted from the
+10,000-step differential comparison, and `word_safe_table4_get/insert/remove` are extracted from the
 real `src/safe_table.rs` with a fresh, axiom-free generated file. `W3` is blocked before the first
 refinement theorem.
 
@@ -130,7 +129,7 @@ Next bounded task, unblocked now: give the Rust search a form Aeneas translates 
 well-founded recursive function (for example recursion on a slice/list tail rather than a numeric
 index, with the index carried as an accumulator), so the extracted body has equation lemmas and
 `fun_induction` support. If that fails, state the refinement through `Apeiron.WP`/`loop.spec_decr_nat`
-with the array denotation above. Until then the optimized `Map` stays tested.
+with the array denotation above.
 
 ### W3 unblock attempt (2026-09-12)
 
@@ -151,8 +150,7 @@ The remaining obligation is the canonical refinement itself: a `loop.spec_decr_n
 relating the generated `Array (Option (K × V)) N` state to a denotation over that array, then
 `Apeiron.Table.get`/`insertWith`/`replace` lemmas for `get`, `try_insert` and `remove`. That is a
 loop-invariant proof, not an extraction blocker; the first four attempts failed because no total
-generated search existed, and one does now. The optimized `Map` stays tested until those theorems
-exist.
+generated search existed, and one does now.
 
 ### W3 first slice (2026-09-12)
 
@@ -188,4 +186,4 @@ generated `Ok none` changed to `Ok (some value)` fails `try_insert_spec` at
 Both specs now conclude `WellFormed t'`. Preservation is proved by the `countP` step
 (`countP_set_some`/`countP_set_none`, `one_le_countP_of_get`) and the uniqueness step
 (`keysUnique_set_some`/`keysUnique_set_none`). Still open: `WellFormed` at the initial state
-(`SafeTable::new`); that is the next gate before the optimized `Map` can be retired.
+(`SafeTable::new`); that is the gate before `Map` is removed.

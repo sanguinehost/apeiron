@@ -40,7 +40,7 @@ are in `docs/templates/`.
    Rust-to-Lean representation relation, the failure semantics, the evidence plan.
 3. **Plan** (`docs/templates/plan.md`) — the waves, files, owners, one gate command per task, and
    the negative control where soundness is at stake.
-4. **Implementation** — the smallest change that turns the named gate green, on the production path.
+4. **Implementation** — the smallest change that turns the named gate green, on the path the crate and proof build and run.
 5. **Verification** — run the gate and its control, record the result, then register the claim at its
    evidence grade.
 
@@ -96,7 +96,7 @@ The eleven obligations below instantiate five pillars; none is removed:
 
 | Pillar | Obligations |
 |---|---|
-| Primary artifact | 1, 3: production path and real-source extraction |
+| Primary artifact | 1, 3: build and run path and real-source extraction |
 | Non-vacuous contracts | 2: domain, joint witnesses, initialization and preservation |
 | Mathematical attribution | 4, 5: exact authority, refinement and closed axiom cone |
 | Falsifiable verification | 6, 7: positives and baseline/red/restore controls |
@@ -104,8 +104,7 @@ The eleven obligations below instantiate five pillars; none is removed:
 
 Item 10 applies whenever a performance claim or epic budget is required; documentation cannot waive it.
 
-1. **Production wiring.** The change is on the path the crate or proof actually builds and runs. No
-   mock, stub, parallel copy, or dead code presented as complete.
+1. **Build and run path.** The change is on the path the crate and proof actually build and run; there is no separate production, reference or mock path. No stub, parallel copy or dead code presented as complete.
 2. **Explicit admissible domain and partiality.** Total, `Option`/`Result`, checked, or panicking is
    stated. Every claimed `Pre`/`WellFormed` domain has a checked witness term or `#guard` for the
    joint hypotheses at the claimed types, not separate incompatible witnesses. Require initialization
@@ -113,7 +112,7 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
    operations. A model witness does not refine a Rust constructor. No silent domain reduction or
    infallible signature over an operation that can lose bits.
 3. **Actual Rust extraction where a Rust claim is made.** The Aeneas/Charon extraction includes the
-   real source by `#[path]` and calls the production body; a wrapper may fix a type, not restate the
+   real source by `#[path]` and calls the real body; a wrapper may fix a type, not restate the
    formula.
 4. **Lean theorem link.** The representation relation names the exact canonical definition or
    theorem it refines. Generic mathematics lives in the pinned canonical corpus, navigated at
@@ -151,7 +150,7 @@ Every stated result carries one grade. The grade is part of the claim.
 | grade | means |
 |---|---|
 | `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. |
-| `tested` | A `cargo test` executes the production path and its boundary cases. |
+| `tested` | A `cargo test` executes the build path and its boundary cases. |
 | `measured` | A benchmark or `perf` command ran, with a named machine, metric and interval. |
 | `model` / `anchor` | A reading of the algebra onto a domain, or a design assumption. True as a mapping; not evidence of correctness. |
 
@@ -198,7 +197,7 @@ python tools/call-census/audit_reports.py --raw-root /tmp/opencode/census-v2
 
 `check-claims.py` exits nonzero for a claimed headline with no resolving `#audit`, no gate or no
 grade/revision, and for a duplicate ID. `check-assurance.py` exits nonzero when a bounded population
-exceeds its limit or a declared member is absent; production `src/`/`tests/` are currently inventory
+exceeds its limit or a declared member is absent; the crate's `src/`/`tests/` are currently inventory
 (printed, not enforced) so the committed baseline is green. Control: delete one `#audit` line for a
 claimed headline, or add source files until a bounded directory exceeds twelve; each turns its gate
 red and restore returns it green.
