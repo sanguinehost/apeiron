@@ -18,6 +18,7 @@ SONG = ROOT.parent / "song"
 CORPUS = ROOT.parent / "sanguine-apeiron" / "proof"
 SPEC_PATH = ROOT / "docs/spec/slang-source-semantics.md"
 PLAN_PATH = ROOT / "the design notes/slang-source-refinement.md"
+CANONICAL_MODULE = "Apeiron/Table/Basic.lean"
 SONG_REV = "aeaf3baac434b2e3c01154d275bea65fdadc69bf"
 CORPUS_REV = "50c94192399add3b9f8e64bd14e36d8cba270705"
 
@@ -98,6 +99,14 @@ PHRASES = (
     "FORBIDDEN: implement a Rust evaluator",
 )
 
+OBLIGATION_HEADER = "| ID | Obligation | Required checked result |"
+STAGE_HEADER = (
+    "| Wave | Purpose | Owned files (maximum three) | Gate | "
+    "Negative control | Opens / stop condition |"
+)
+OBLIGATION_COLUMNS = 3
+STAGE_COLUMNS = 6
+
 
 class CheckError(Exception):
     pass
@@ -107,7 +116,7 @@ class CheckError(Exception):
 class Inputs:
     spec: str
     plan: str
-    sources: dict[str, str]
+    sources: dict[str, bytes]
     corpus: str
 
 
@@ -115,18 +124,27 @@ def fail(message: str) -> None:
     raise CheckError(message)
 
 
-def sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def decode_source(name: str, data: bytes) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeError as exc:
+        fail(f"source is not utf-8: song/{name}: {exc}")
 
 
 def load() -> Inputs:
     try:
-        source_text = {name: (SONG / name).read_text(encoding="utf-8") for name in SOURCES}
+        raw = {name: (SONG / name).read_bytes() for name in SOURCES}
+        for name, data in raw.items():
+            decode_source(name, data)
         return Inputs(
             SPEC_PATH.read_text(encoding="utf-8"),
             PLAN_PATH.read_text(encoding="utf-8"),
-            source_text,
-            (CORPUS / "Apeiron/Table/Basic.lean").read_text(encoding="utf-8"),
+            raw,
+            (CORPUS / CANONICAL_MODULE).read_text(encoding="utf-8"),
         )
     except (OSError, UnicodeError) as exc:
         fail(f"unresolved file: {exc}")
@@ -151,15 +169,134 @@ def require_once(text: str, needle: str, label: str) -> None:
         fail(f"{label}: expected once, found {count}")
 
 
+def row_cells(row: str, columns: int, label: str) -> list[str]:
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    if len(cells) != columns:
+        fail(f"{label}: expected {columns} columns, found {len(cells)}")
+    return cells
+
+
+def section_body(text: str, section: str) -> str:
+    """Text between the `## section` heading and the next level-2 heading."""
+    match = re.search(rf"^## {re.escape(section)}$", text, re.MULTILINE)
+    if match is None:
+        return ""
+    rest = text[match.end():]
+    following = re.search(r"^## ", rest, re.MULTILINE)
+    if following is not None:
+        rest = rest[: following.start()]
+    return rest
+
+
+def has_section_content(body: str) -> bool:
+    """True when the body has a line that is neither blank, a heading, nor a bare comment."""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if re.fullmatch(r"<!--.*-->", stripped):
+            continue
+        return True
+    return False
+
+
+def meaningful_text(text: str) -> bool:
+    """True when the text has content beyond whitespace and HTML comments."""
+    return bool(re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL).strip())
+
+
+def strip_lean_comments(text: str) -> str:
+    """Remove nested Lean block comments and line comments, preserving newlines.
+
+    The result is searched for canonical declarations so that a declaration text
+    that exists only inside a comment is not accepted as code.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if depth == 0 and ch == '"':
+            out.append(ch)
+            i += 1
+            while i < n:
+                inner = text[i]
+                out.append(inner)
+                if inner == "\\" and i + 1 < n:
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                i += 1
+                if inner == '"':
+                    break
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "-":
+            depth += 1
+            out.append("  ")
+            i += 2
+            continue
+        if depth > 0 and ch == "-" and i + 1 < n and text[i + 1] == "/":
+            depth -= 1
+            out.append("  ")
+            i += 2
+            continue
+        if depth > 0:
+            out.append("\n" if ch == "\n" else " ")
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and text[i + 1] == "-":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def detect_cycle(graph: dict[str, set[str]], label: str) -> None:
+    color: dict[str, int] = {node: 0 for node in graph}
+    stack: list[str] = []
+
+    def visit(node: str) -> None:
+        color[node] = 1
+        stack.append(node)
+        for dep in sorted(graph[node]):
+            if dep not in color:
+                continue
+            if color[dep] == 1:
+                cycle = stack[stack.index(dep):] + [dep]
+                fail(f"{label} cycle: " + " -> ".join(cycle))
+            if color[dep] == 0:
+                visit(dep)
+        stack.pop()
+        color[node] = 2
+
+    for node in graph:
+        if color[node] == 0:
+            visit(node)
+
+
 def check_markdown(inputs: Inputs) -> None:
+    require_once(inputs.spec, OBLIGATION_HEADER, "obligations header")
+    require_once(inputs.plan, STAGE_HEADER, "stage table header")
     for section in SECTIONS:
         count = len(re.findall(rf"^## {re.escape(section)}$", inputs.spec, re.MULTILINE))
         if count != 1:
             fail(f"section {section}: expected once, found {count}")
+        if not has_section_content(section_body(inputs.spec, section)):
+            fail(f"section {section}: body is empty")
     for oid in OBLIGATIONS:
-        matches = re.findall(rf"^\| {oid} \|", inputs.spec, re.MULTILINE)
-        if len(matches) != 1:
+        rows = [line for line in inputs.spec.splitlines() if line.startswith(f"| {oid} |")]
+        if len(rows) != 1:
             fail(f"obligation {oid}: expected one table row")
+        cells = row_cells(rows[0], OBLIGATION_COLUMNS, f"obligation {oid}")
+        if cells[0] != oid:
+            fail(f"obligation {oid}: id column mismatch")
+        if not meaningful_text(cells[1]):
+            fail(f"obligation {oid}: empty obligation text")
+        if not meaningful_text(cells[2]):
+            fail(f"obligation {oid}: empty required checked result")
     for phrase in PHRASES[:12]:
         if phrase not in inputs.spec:
             fail(f"required statement missing: {phrase}")
@@ -176,20 +313,13 @@ def check_sources(inputs: Inputs) -> None:
         fail("Song repository identity mismatch")
     if git_revision(CORPUS.parent) != CORPUS_REV or CORPUS_REV not in inputs.spec:
         fail("canonical corpus identity mismatch")
-    for name, expected in SOURCES.items():
-        text = inputs.sources.get(name)
-        if text is None:
+    for name in SOURCES:
+        if name not in inputs.sources:
             fail(f"source missing: song/{name}")
-        actual = sha256(text)
-        if actual != expected:
-            fail(f"source digest mismatch: song/{name}: {actual}")
-        row = f"`song/{name}` | `{expected}`"
-        if row not in inputs.spec:
-            fail(f"source identity row missing: song/{name}")
 
-    table = inputs.sources["src/table/table.slang"]
-    std = inputs.sources["src/kernel/std.slang"]
-    cell = inputs.sources["src/kernel/mem/cell.slang"]
+    table = decode_source("src/table/table.slang", inputs.sources["src/table/table.slang"])
+    std = decode_source("src/kernel/std.slang", inputs.sources["src/kernel/std.slang"])
+    cell = decode_source("src/kernel/mem/cell.slang", inputs.sources["src/kernel/mem/cell.slang"])
     if 'use "src/kernel/mem/cell.slang"' not in table:
         fail("table import edge unresolved")
     if 'use "src/kernel/std.slang"' not in cell:
@@ -210,15 +340,54 @@ def check_sources(inputs: Inputs) -> None:
     if not raw:
         fail("raw table memory access unresolved")
 
+    loaded = set(inputs.sources)
+    import_graph: dict[str, set[str]] = {}
+    for name, data in inputs.sources.items():
+        text = decode_source(name, data)
+        imports = re.findall(r'^\s*use\s+"([^"]+)"', text, re.MULTILINE)
+        for imported in imports:
+            if not (SONG / imported).is_file():
+                fail(f"unresolved import: song/{name} -> {imported}")
+        import_graph[name] = {dep for dep in imports if dep in loaded}
+    detect_cycle(import_graph, "source import")
+
+    for name, expected in SOURCES.items():
+        actual = sha256(inputs.sources[name])
+        if actual != expected:
+            fail(f"source digest mismatch: song/{name}: {actual}")
+        row = f"`song/{name}` | `{expected}`"
+        if row not in inputs.spec:
+            fail(f"source identity row missing: song/{name}")
+
+
+def canonical_references(text: str) -> set[str]:
+    """Every `Apeiron.Table.<name>` reference, including the `{a,b}` shorthand."""
+    names = set(re.findall(r"Apeiron\.Table\.([A-Za-z_][A-Za-z0-9_']*)", text))
+    for group in re.findall(r"Apeiron\.Table\.\{([^}]*)\}", text):
+        for part in group.split(","):
+            part = part.strip()
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_']*", part):
+                names.add(part)
+    return names
+
 
 def check_canonical(inputs: Inputs) -> None:
-    if "namespace Apeiron\nnamespace Table" not in inputs.corpus:
+    module_path = CORPUS / CANONICAL_MODULE
+    if not module_path.is_file():
+        fail(f"canonical module file missing: {module_path}")
+    require_once(inputs.spec, f"`{CANONICAL_MODULE}`", "canonical module reference")
+    code = strip_lean_comments(inputs.corpus)
+    if "namespace Apeiron\nnamespace Table" not in code:
         fail("canonical namespace unresolved")
     for name, kind in CANONICAL.items():
         pattern = rf"^{kind}\s+{re.escape(name)}\b"
-        if not re.search(pattern, inputs.corpus, re.MULTILINE):
+        if not re.search(pattern, code, re.MULTILINE):
             fail(f"canonical target unresolved: Apeiron.Table.{name} ({kind})")
         require_once(inputs.spec, f"`Apeiron.Table.{name}`", f"canonical target {name}")
+    referenced = canonical_references(inputs.spec + "\n" + inputs.plan)
+    unresolved = sorted(referenced - set(CANONICAL))
+    if unresolved:
+        fail("unresolved canonical reference(s): " + ", ".join(unresolved))
 
 
 def stage_row(plan: str, stage: str) -> str:
@@ -228,21 +397,73 @@ def stage_row(plan: str, stage: str) -> str:
     return rows[0]
 
 
+def check_owned_files(cell: str, stage: str) -> None:
+    entries = [entry for entry in re.split(r"[;,\s]+", cell) if entry]
+    tokens: list[str] = []
+    for entry in entries:
+        if not re.fullmatch(r"`[^`]+`", entry):
+            fail(f"stage {stage}: owned files must be backtick-quoted paths: {cell}")
+        tokens.append(entry[1:-1])
+    if not 1 <= len(tokens) <= 3:
+        fail(f"stage {stage}: owned-file count is {len(tokens)}, expected 1..3")
+    for token in tokens:
+        if not token.strip():
+            fail(f"stage {stage}: empty owned-file entry")
+
+
+def check_gate(cell: str, stage: str) -> None:
+    match = re.fullmatch(r"`([^`]+)`", cell)
+    if match is None:
+        fail(f"stage {stage}: gate missing")
+    if not match.group(1).strip():
+        fail(f"stage {stage}: gate is empty")
+
+
+def check_negative_control(cell: str, stage: str) -> None:
+    if "MUST" not in cell:
+        fail(f"stage {stage}: negative control missing")
+    if "reject" not in cell and "fail" not in cell:
+        fail(f"stage {stage}: negative control has no rejection verb")
+
+
+def check_prerequisite(cell: str, stage: str) -> list[str]:
+    parts = re.split(r"\bStop\b", cell, maxsplit=1)
+    head = parts[0]
+    if "Requires" not in head:
+        fail(f"stage {stage}: prerequisite missing")
+    stop = parts[1] if len(parts) == 2 else ""
+    if not stop.strip(" .;:-"):
+        fail(f"stage {stage}: stop condition missing")
+    deps: list[str] = []
+    for match in re.finditer(r"W(\d+)(?:\s*-\s*W(\d+))?", head):
+        low = int(match.group(1))
+        high = int(match.group(2)) if match.group(2) else low
+        if high < low:
+            fail(f"stage {stage}: malformed prerequisite range W{low}-W{high}")
+        for number in range(low, high + 1):
+            dep = f"W{number}"
+            if dep not in STAGES:
+                fail(f"stage {stage}: unresolved prerequisite {dep}")
+            if dep == stage:
+                fail(f"stage {stage}: self prerequisite")
+            deps.append(dep)
+    if len(set(deps)) != len(deps):
+        fail(f"stage {stage}: duplicate prerequisite")
+    return deps
+
+
 def check_plan(inputs: Inputs) -> None:
+    dependencies: dict[str, list[str]] = {}
     for stage in STAGES:
         row = stage_row(inputs.plan, stage)
-        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-        if len(cells) != 6:
-            fail(f"stage {stage}: expected six columns")
-        owned = [item for item in cells[2].split(";") if "`" in item]
-        if not 1 <= len(owned) <= 3:
-            fail(f"stage {stage}: owned-file count is {len(owned)}, expected 1..3")
-        if not cells[3].startswith("`") or not cells[3].endswith("`"):
-            fail(f"stage {stage}: gate missing")
-        if "MUST" not in cells[4] or "reject" not in cells[4] and "fail" not in cells[4]:
-            fail(f"stage {stage}: negative control missing")
-        if "Requires" not in cells[5]:
-            fail(f"stage {stage}: prerequisite missing")
+        cells = row_cells(row, STAGE_COLUMNS, f"stage {stage}")
+        if not cells[1]:
+            fail(f"stage {stage}: purpose is empty")
+        check_owned_files(cells[2], stage)
+        check_gate(cells[3], stage)
+        check_negative_control(cells[4], stage)
+        dependencies[stage] = check_prerequisite(cells[5], stage)
+    detect_cycle({stage: set(deps) for stage, deps in dependencies.items()}, "stage prerequisite")
     if inputs.plan.find("W21") > inputs.plan.find("W30"):
         fail("stage integration order reversed")
 
@@ -272,9 +493,25 @@ def sub_spec_all(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
 def source_sub(path: str, old: str, new: str) -> Callable[[Inputs], Inputs]:
     def mutate(i: Inputs) -> Inputs:
         changed = dict(i.sources)
-        changed[path] = changed[path].replace(old, new, 1)
+        changed[path] = changed[path].replace(old.encode("utf-8"), new.encode("utf-8"), 1)
         return replace(i, sources=changed)
+
     return mutate
+
+
+def source_crlf(path: str) -> Callable[[Inputs], Inputs]:
+    def mutate(i: Inputs) -> Inputs:
+        changed = dict(i.sources)
+        changed[path] = changed[path].replace(b"\n", b"\r\n")
+        return replace(i, sources=changed)
+
+    return mutate
+
+
+def mutate_row_cell(row: str, index: int, value: str) -> str:
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    cells[index] = value
+    return "| " + " | ".join(cells) + " |"
 
 
 def controls(inputs: Inputs) -> list[Mutation]:
@@ -307,6 +544,121 @@ def controls(inputs: Inputs) -> list[Mutation]:
             ("remove W27 control", sub_plan("preservation/admission MUST fail", "control omitted")),
             ("introduce forbidden generic budget term", sub_spec("Counts are not converted", ("fu" + "el") + " is allowed. Counts are not converted")),
         ]
+    )
+    cases.extend(hardening_controls(inputs))
+    return cases
+
+
+def hardening_controls(inputs: Inputs) -> list[Mutation]:
+    """Rejecting controls for the eight reported false greens and the reference checks."""
+    cases: list[Mutation] = []
+
+    obligation = next(
+        line for line in inputs.spec.splitlines() if line.startswith("| O01 |")
+    )
+    cases.append(
+        ("empty obligation text O01", sub_spec(obligation, mutate_row_cell(obligation, 1, "")))
+    )
+    cases.append(
+        ("empty obligation result O01", sub_spec(obligation, mutate_row_cell(obligation, 2, "")))
+    )
+    cases.append(
+        (
+            "comment-only obligation result O01",
+            sub_spec(obligation, mutate_row_cell(obligation, 2, "<!-- x -->")),
+        )
+    )
+
+    termination_body = section_body(inputs.spec, "Termination and source resources")
+    cases.append(("empty termination section body", sub_spec(termination_body, "\n")))
+
+    w21 = stage_row(inputs.plan, "W21")
+    cases.append(("empty W21 gate", sub_plan(w21, mutate_row_cell(w21, 3, "``"))))
+    cases.append(
+        (
+            "four comma-separated owned files W21",
+            sub_plan(w21, mutate_row_cell(w21, 2, "`a.py`, `b.py`, `c.py`, `d.py`")),
+        )
+    )
+    cases.append(
+        (
+            "four owned files packed in one span W21",
+            sub_plan(w21, mutate_row_cell(w21, 2, "`a.py,b.py`; `c.py`; `d.py`")),
+        )
+    )
+    cases.append(
+        (
+            "cyclic prerequisite W21",
+            sub_plan(w21, mutate_row_cell(w21, 5, "Requires W21. Stop if a mutation can survive.")),
+        )
+    )
+    cases.append(
+        (
+            "missing stop condition W21",
+            sub_plan(w21, mutate_row_cell(w21, 5, "Requires this specification gate.")),
+        )
+    )
+
+    w22 = stage_row(inputs.plan, "W22")
+    cases.append(
+        (
+            "unresolved prerequisite W99",
+            sub_plan(w22, mutate_row_cell(w22, 5, "Requires W99. Stop on accepted prefixes.")),
+        )
+    )
+
+    cases.append(
+        (
+            "canonical declaration inside comment",
+            lambda i: replace(
+                i,
+                corpus=i.corpus.replace(
+                    "abbrev HMap (K V : Type) : Type := K → V",
+                    "/- abbrev HMap (K V : Type) : Type := K → V -/",
+                    1,
+                ),
+            ),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent canonical reference",
+            sub_spec("Canonical targets resolve in", "Canonical `Apeiron.Table.bogus` targets resolve in"),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent canonical module reference",
+            sub_spec(f"`{CANONICAL_MODULE}`", "`Apeiron/Table/Gone.lean`"),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent canonical reference in plan",
+            sub_plan("`Apeiron.Table.insertWith`", "`Apeiron.Table.bogus`"),
+        )
+    )
+    cases.append(("crlf source bytes retain old digest", source_crlf("src/table/table.slang")))
+
+    cases.append(
+        (
+            "unresolved source import",
+            source_sub(
+                "src/kernel/std.slang",
+                "COORD_CEILING",
+                'use "src/kernel/mem/gone.slang"\nCOORD_CEILING',
+            ),
+        )
+    )
+    cases.append(
+        (
+            "source import cycle",
+            source_sub(
+                "src/kernel/std.slang",
+                "COORD_CEILING",
+                'use "src/table/table.slang"\nCOORD_CEILING',
+            ),
+        )
     )
     return cases
 

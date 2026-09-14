@@ -1,45 +1,44 @@
 #!/usr/bin/env python3
 """Fail-closed staged Slang source-refinement gate harness.
 
-The harness reads the stage table in ``tools/slang/controls.json`` and, for one
-selected stage, checks the stage's own artifacts and runs its acceptance
-command. With ``--controls`` it additionally runs a baseline / mutation /
-restored-copy control in a throwaway copy of the tree, so the repository working
+For one selected stage the harness checks the stage's artifacts and runs its
+acceptance command; with ``--controls`` it also runs a baseline / mutation /
+restored-copy control in a throwaway copy of the tree. The repository working
 tree is never mutated.
 
 Fail-closed contract
 ====================
-Acceptance for a stage requires every one of the following; each failure is a
-red result with a named reason and a nonzero exit status:
+Acceptance requires every one of the following; each failure is a named red
+result with a nonzero exit status:
 
-* every declared artifact resolves -- a missing proof module, a missing
-  fully-qualified declaration under its namespace, or a missing source input is
-  a blocked stage, never a pass;
-* every declared source input digest matches the working-tree bytes -- a stale
-  digest is a blocked stage;
-* the stage command starts and exits 0 -- a timeout or a nonzero exit is a
-  blocked stage;
-* with ``--controls``, the declared mutation of the actual body turns the stage
-  command red, and the restored copy turns it green again -- a surviving
-  mutation or a failing restored copy is a failed stage.
+* the global source manifest resolves and every selected digest matches the
+  working-tree bytes;
+* every declared artifact resolves -- a missing proof module or source input is
+  a blocked stage;
+* every proof target declaration is **actual Lean code**: the module under test
+  is built in the throwaway, then a generated probe imports the built module and
+  finds the declaration in the elaborated environment. A declaration that exists
+  only as commented text is absent from the environment and blocks the stage;
+* the stage command starts and exits 0; a timeout or nonzero exit is blocked;
+* with ``--controls`` the mutation turns the command red at the declared step
+  and with the declared rejecting output, and the restored copy turns it green.
+  A surviving mutation, a red run at the wrong step, or a red run with an
+  unrelated result is a failed stage. A control marked ``awaiting-definition``
+  records the plan's exact intended control and never passes ``--controls``; it
+  is never replaced by a non-falsifying mutation.
 
-The harness establishes gate consistency only. It does not prove a refinement,
-does not establish a source-semantics link, and never reports correspondence.
-A green stage means the declared artifacts and control behave as recorded, not
-that the represented program is correct.
+Resolution and isolation
+========================
+A declared path resolves against exactly one root: a ``song/``-prefixed path
+resolves only under ``--song-root`` (the explicit root wins and is the only
+source root); every other path resolves only under the repository root. Before
+any write the harness resolves the target and requires it inside the resolved
+throwaway root, so a symlinked ancestor cannot redirect a mutation into the
+working tree.
 
-Stages are data. The eight stage ids are the harness names; each binds
-to one wave of `the design notes/slang-source-refinement.md``: ``decode`` -> W22,
-``machine`` -> W23, ``source`` -> W24, ``init`` -> W25, ``lookup`` -> W26,
-``write`` -> W27, ``resources`` -> W28, ``replacement-link`` -> W29. The proof
-module, command and negative control are the plan's declared outputs for the
-future ``proof/corpus/Slang/*`` and ``proof/corpus/Joint/*`` tasks; they are
-recorded here so a missing module, generator, checker or binding is a named red
-result. The encoded mutation is the plan's negative control expressed as an
-exact replacement against the real Song source. Where the plan names a decoded
-Lean artifact, the stage command must re-render the binding from the mutated
-source; a command that ignores it reports ``mutation survived`` (red), never a
-pass.
+The harness establishes gate consistency only; it never claims correspondence,
+refinement or proof. The eight stage ids bind to W22..W29 of
+`the design notes/slang-source-refinement.md``.
 
 Usage::
 
@@ -79,43 +78,35 @@ EXIT_USAGE = 2
 EXIT_TOOL = 3
 
 HEX64 = re.compile(r"[0-9a-f]{64}")
-DECL_LINE = re.compile(
-    r"^\s*(?:private\s+|protected\s+|noncomputable\s+|partial\s+|unsafe\s+)*"
-    r"(theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
-    r"([A-Za-z_][A-Za-z0-9_.']*)"
-)
-OPEN_NAMESPACE = re.compile(r"^\s*namespace\s+([\w.]+)")
-CLOSE_NAMESPACE = re.compile(r"^\s*end\b\s*([\w.]*)")
-
+STAGE_ID = re.compile(r"[A-Za-z0-9._-]+")
+PROBE_NAME = "__ApeironDeclProbe.lean"
+SELFTEST_TOOLCHAIN = "leanprover/lean4:v4.31.0"
+SOURCE_ARTIFACT = "source"
+PROOF_ARTIFACT = "proof"
+ACTIVE = "active"
+AWAITING = "awaiting-definition"
 
 class GateError(Exception):
     """A stage could not reach its acceptance condition."""
 
-
 class ArtifactError(GateError):
-    """A declared artifact is missing or stale."""
-
+    """A declared artifact is missing, stale or not actual Lean code."""
 
 class CommandTimeout(GateError):
     """A stage command exceeded its declared timeout."""
 
-
 class CommandFailure(GateError):
     """A stage command could not start or did not exit 0 when required."""
-
 
 class MutationError(GateError):
     """The declared mutation target was absent or ambiguous."""
 
-
 class ControlsError(GateError):
     """``controls.json`` is missing or malformed."""
-
 
 # ---------------------------------------------------------------------------
 # Records
 # ---------------------------------------------------------------------------
-
 
 @dataclasses.dataclass(frozen=True)
 class Artifact:
@@ -128,7 +119,6 @@ class Artifact:
     sha256: str | None = None
     note: str = ""
 
-
 @dataclasses.dataclass(frozen=True)
 class Mutation:
     path: str
@@ -136,6 +126,8 @@ class Mutation:
     new: str
     anchor: str | None = None
     expect: str = ""
+    expected_step: int = 0
+    expected_output: str = ""
 
     def apply(self, text: str) -> str:
         """Apply the mutation; a missing or ambiguous target is a hard error."""
@@ -162,13 +154,11 @@ class Mutation:
             )
         return text[:at] + self.new + text[at + len(self.old) :]
 
-
 @dataclasses.dataclass(frozen=True)
 class Command:
     steps: tuple[tuple[str, ...], ...]
     cwd: str
     timeout: int
-
 
 @dataclasses.dataclass(frozen=True)
 class Stage:
@@ -180,11 +170,25 @@ class Stage:
     rejecting_control: str
     artifacts: tuple[Artifact, ...]
     command: Command
-    mutation: Mutation
+    mutation: Mutation | None
     copy: tuple[str, ...]
     link: tuple[str, ...]
+    control_status: str = ACTIVE
+    awaiting_reason: str = ""
     note: str = ""
 
+@dataclasses.dataclass(frozen=True)
+class Controls:
+    roots: dict[str, str]
+    manifest: tuple[Artifact, ...]
+    stages: tuple[Stage, ...]
+
+@dataclasses.dataclass(frozen=True)
+class RunResult:
+    step: int
+    argv: tuple[str, ...]
+    returncode: int
+    output: str
 
 @dataclasses.dataclass
 class StageResult:
@@ -192,6 +196,7 @@ class StageResult:
     status: str
     reason: str
     baseline: str = "not-run"
+    red_step: int | None = None
     red_exit: int | None = None
     green_exit: int | None = None
     throwaway: str | None = None
@@ -199,11 +204,9 @@ class StageResult:
     def to_json(self) -> str:
         return json.dumps(dataclasses.asdict(self), sort_keys=True)
 
-
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -212,87 +215,74 @@ def sha256_file(path: Path) -> str:
             digest.update(block)
     return digest.hexdigest()
 
+def _tail(text: str, limit: int = 400) -> str:
+    text = (text or "").strip()
+    return text[-limit:]
 
-def _variants(path: str) -> list[str]:
-    variants = [path]
+def _inside(candidate: Path, root: Path) -> bool:
+    """True when ``candidate`` resolves to ``root`` or a descendant of it."""
+    try:
+        resolved = candidate.resolve()
+        resolved_root = root.resolve()
+    except OSError:
+        return False
+    try:
+        return os.path.commonpath([str(resolved), str(resolved_root)]) == str(
+            resolved_root
+        )
+    except ValueError:
+        return False
+
+def _split_root(path: str) -> tuple[str, str]:
+    """Classify a declared path to exactly one source root.
+
+    ``song`` and ``song/<rest>`` resolve only under the explicit Song root;
+    every other path resolves only under the repository root. There is no
+    fallback to an ordinary sibling checkout.
+    """
+    if path == "song":
+        return "song", "."
     if path.startswith("song/"):
-        variants.append(path[len("song/") :])
-    return variants
-
+        return "song", path[len("song/") :]
+    return "repo", path
 
 def resolve_many(path: str, repo_root: Path, song_root: Path) -> list[Path]:
-    """Resolve a declared path under the repository and Song checkouts.
-
-    A ``song/``-prefixed path is tried both as given and with the prefix
-    stripped, so the recorded W18 paths resolve against ``--song-root``.
-    Globs are expanded; a literal path must exist to resolve.
-    """
+    """Resolve a declared path under exactly one root; globs expand in place."""
+    kind, relative = _split_root(path)
+    base = song_root if kind == "song" else repo_root
     matches: list[Path] = []
-    for base in (repo_root, repo_root.parent, song_root):
-        for variant in _variants(path):
-            if any(ch in variant for ch in "*?["):
-                try:
-                    matches.extend(sorted(base.glob(variant)))
-                except (OSError, ValueError):
-                    continue
-            else:
-                candidate = base / variant
-                if candidate.exists():
-                    matches.append(candidate)
+    if any(ch in relative for ch in "*?["):
+        try:
+            matches.extend(sorted(base.glob(relative)))
+        except (OSError, ValueError):
+            return []
+    else:
+        candidate = base / relative
+        if candidate.exists():
+            matches.append(candidate)
     seen: set[Path] = set()
     unique: list[Path] = []
     for match in matches:
-        resolved = match.resolve()
+        try:
+            resolved = match.resolve()
+        except OSError:
+            continue
         if resolved not in seen:
             seen.add(resolved)
             unique.append(match)
     return unique
 
-
 def resolve_one(path: str, repo_root: Path, song_root: Path) -> Path | None:
     matches = resolve_many(path, repo_root, song_root)
     return matches[0] if matches else None
-
-
-def lean_declarations(text: str) -> dict[str, set[str]]:
-    """Map every fully-qualified Lean declaration name to its keywords.
-
-    The namespace stack is tracked exactly, so a declaration binds to its real
-    enclosing namespace rather than to a prefix that happens to be opened.
-    """
-    declarations: dict[str, set[str]] = {}
-    stack: list[str] = []
-    for line in text.splitlines():
-        match = DECL_LINE.match(line)
-        if match is not None:
-            keyword, name = match.group(1), match.group(2)
-            full = ".".join(stack + [name]) if stack else name
-            declarations.setdefault(full, set()).add(keyword)
-        opened = OPEN_NAMESPACE.match(line)
-        if opened is not None:
-            stack.extend(opened.group(1).split("."))
-            continue
-        closed = CLOSE_NAMESPACE.match(line)
-        if closed is not None:
-            name = closed.group(1)
-            if name:
-                for _ in name.split("."):
-                    if stack:
-                        stack.pop()
-            elif stack:
-                stack.pop()
-    return declarations
-
 
 # ---------------------------------------------------------------------------
 # controls.json parsing
 # ---------------------------------------------------------------------------
 
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ControlsError(message)
-
 
 def _require_str(value: object, where: str) -> str:
     _require(
@@ -301,11 +291,10 @@ def _require_str(value: object, where: str) -> str:
     )
     return value  # type: ignore[return-value]
 
-
 def _parse_artifact(raw: object, where: str) -> Artifact:
     _require(isinstance(raw, dict), f"{where} must be an object")
     kind = _require_str(raw.get("kind"), f"{where}.kind")
-    if kind == "proof":
+    if kind == PROOF_ARTIFACT:
         root = _require_str(raw.get("root"), f"{where}.root")
         module = _require_str(raw.get("module"), f"{where}.module")
         declaration = raw.get("declaration")
@@ -326,7 +315,7 @@ def _parse_artifact(raw: object, where: str) -> Artifact:
             declaration_prefix=prefix,
             note=str(raw.get("note", "")),
         )
-    if kind == "source":
+    if kind == SOURCE_ARTIFACT:
         path = _require_str(raw.get("path"), f"{where}.path")
         digest = _require_str(raw.get("sha256"), f"{where}.sha256")
         _require(
@@ -338,7 +327,6 @@ def _parse_artifact(raw: object, where: str) -> Artifact:
         )
     raise ControlsError(f"{where}.kind must be 'proof' or 'source', got {kind!r}")
 
-
 def _parse_mutation(raw: object, where: str) -> Mutation:
     _require(isinstance(raw, dict), f"{where} must be an object")
     path = _require_str(raw.get("path"), f"{where}.path")
@@ -349,14 +337,21 @@ def _parse_mutation(raw: object, where: str) -> Mutation:
     anchor = raw.get("anchor")
     if anchor is not None:
         _require_str(anchor, f"{where}.anchor")
+    expected_step = raw.get("expected_step")
+    _require(
+        isinstance(expected_step, int) and expected_step >= 0,
+        f"{where}.expected_step must be a nonnegative integer",
+    )
+    expected_output = _require_str(raw.get("expected_output"), f"{where}.expected_output")
     return Mutation(
         path=path,
         old=old,
         new=new,
         anchor=anchor,
         expect=str(raw.get("expect", "")),
+        expected_step=expected_step,
+        expected_output=expected_output,
     )
-
 
 def _parse_command(raw: object, where: str, default_timeout: int) -> Command:
     _require(isinstance(raw, dict), f"{where} must be an object")
@@ -381,7 +376,6 @@ def _parse_command(raw: object, where: str, default_timeout: int) -> Command:
     )
     return Command(steps=tuple(steps), cwd=cwd, timeout=timeout)
 
-
 def parse_stage(
     raw: object,
     where: str,
@@ -393,6 +387,10 @@ def parse_stage(
 ) -> Stage:
     _require(isinstance(raw, dict), f"{where} must be an object")
     stage_id = _require_str(raw.get("id"), f"{where}.id")
+    _require(
+        STAGE_ID.fullmatch(stage_id) is not None and ".." not in stage_id,
+        f"{where}.id {stage_id!r} is not a safe stage id",
+    )
     order = raw.get("order")
     _require(isinstance(order, int) and order > 0, f"{where}.order must be positive")
     artifacts_raw = raw.get("artifacts")
@@ -405,13 +403,39 @@ def parse_stage(
         for index, item in enumerate(artifacts_raw)
     )
     for artifact in artifacts:
-        if artifact.kind == "proof":
+        if artifact.kind == PROOF_ARTIFACT:
             _require(
                 artifact.root in roots,
                 f"{where}: proof root {artifact.root!r} is not declared in `roots`",
             )
     command = _parse_command(raw.get("command"), f"{where}.command", default_timeout)
-    mutation = _parse_mutation(raw.get("mutation"), f"{where}.mutation")
+    control_status = str(raw.get("control_status", ACTIVE))
+    _require(
+        control_status in (ACTIVE, AWAITING),
+        f"{where}.control_status must be {ACTIVE!r} or {AWAITING!r}",
+    )
+    mutation_raw = raw.get("mutation")
+    if control_status == ACTIVE:
+        _require(
+            mutation_raw is not None,
+            f"{where}: an active control requires a `mutation`",
+        )
+        mutation = _parse_mutation(mutation_raw, f"{where}.mutation")
+        _require(
+            mutation.expected_step < len(command.steps),
+            f"{where}.mutation.expected_step {mutation.expected_step} is outside the "
+            f"{len(command.steps)} declared command step(s)",
+        )
+        awaiting_reason = ""
+    else:
+        _require(
+            mutation_raw is None,
+            f"{where}: an awaiting-definition control must not declare a `mutation`",
+        )
+        mutation = None
+        awaiting_reason = _require_str(
+            raw.get("awaiting_reason"), f"{where}.awaiting_reason"
+        )
     copy_raw = raw.get("copy", list(default_copy))
     link_raw = raw.get("link", list(default_link))
     _require(isinstance(copy_raw, list), f"{where}.copy must be a list")
@@ -428,11 +452,12 @@ def parse_stage(
         mutation=mutation,
         copy=tuple(_require_str(entry, f"{where}.copy") for entry in copy_raw),
         link=tuple(_require_str(entry, f"{where}.link") for entry in link_raw),
+        control_status=control_status,
+        awaiting_reason=awaiting_reason,
         note=str(raw.get("note", "")),
     )
 
-
-def parse_controls(data: object) -> tuple[dict[str, str], list[Stage]]:
+def parse_controls(data: object) -> Controls:
     _require(isinstance(data, dict), "controls.json must be an object")
     _require(data.get("schema") == 1, "controls.json schema must be 1")
     roots_raw = data.get("roots")
@@ -440,6 +465,20 @@ def parse_controls(data: object) -> tuple[dict[str, str], list[Stage]]:
     roots: dict[str, str] = {}
     for name, value in roots_raw.items():
         roots[_require_str(name, "roots key")] = _require_str(value, f"roots.{name}")
+    manifest_raw = data.get("manifest")
+    _require(
+        isinstance(manifest_raw, list) and manifest_raw,
+        "controls.json `manifest` must be a nonempty list",
+    )
+    manifest = tuple(
+        _parse_artifact(item, f"manifest[{index}]")
+        for index, item in enumerate(manifest_raw)
+    )
+    for entry in manifest:
+        _require(
+            entry.kind == SOURCE_ARTIFACT,
+            "controls.json `manifest` entries must be source artifacts",
+        )
     defaults = data.get("defaults", {})
     _require(isinstance(defaults, dict), "controls.json `defaults` must be an object")
     default_timeout = defaults.get("timeout", DEFAULT_TIMEOUT)
@@ -467,10 +506,9 @@ def parse_controls(data: object) -> tuple[dict[str, str], list[Stage]]:
     ]
     ids = [stage.id for stage in stages]
     _require(len(ids) == len(set(ids)), f"duplicate stage id(s): {ids}")
-    return roots, stages
+    return Controls(roots=roots, manifest=manifest, stages=tuple(stages))
 
-
-def load_controls(path: Path = CONTROLS_PATH) -> tuple[dict[str, str], list[Stage]]:
+def load_controls(path: Path = CONTROLS_PATH) -> Controls:
     if not path.is_file():
         raise ControlsError(f"controls file missing: {path}")
     try:
@@ -479,58 +517,39 @@ def load_controls(path: Path = CONTROLS_PATH) -> tuple[dict[str, str], list[Stag
         raise ControlsError(f"controls file is not valid JSON: {exc}") from exc
     return parse_controls(data)
 
-
 # ---------------------------------------------------------------------------
 # Artifact checks
 # ---------------------------------------------------------------------------
 
+def check_source(path: str, digest: str, repo_root: Path, song_root: Path) -> None:
+    resolved = resolve_one(path, repo_root, song_root)
+    if resolved is None:
+        raise ArtifactError(f"missing source input: {path}")
+    actual = sha256_file(resolved)
+    if actual != digest:
+        raise ArtifactError(
+            f"stale source input: {path} digest {actual} != recorded {digest}"
+        )
+
+def check_manifest(manifest: tuple[Artifact, ...], repo_root: Path, song_root: Path) -> None:
+    for entry in manifest:
+        check_source(entry.path, entry.sha256, repo_root, song_root)  # type: ignore[arg-type]
 
 def check_artifact(
     artifact: Artifact, roots: dict[str, str], repo_root: Path, song_root: Path
 ) -> None:
-    if artifact.kind == "proof":
+    if artifact.kind == PROOF_ARTIFACT:
         base = repo_root / roots[artifact.root]  # type: ignore[index]
         module = base / artifact.module  # type: ignore[arg-type]
         if not module.is_file():
             raise ArtifactError(
                 f"missing proof target: {artifact.root}:{artifact.module}"
             )
-        try:
-            text = module.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise ArtifactError(
-                f"proof target unreadable: {artifact.root}:{artifact.module} ({exc})"
-            ) from exc
-        declarations = lean_declarations(text)
-        if artifact.declaration is not None and artifact.declaration not in declarations:
-            raise ArtifactError(
-                f"missing proof target declaration {artifact.declaration} in "
-                f"{artifact.root}:{artifact.module}"
-            )
-        if artifact.declaration_prefix is not None:
-            prefix = artifact.declaration_prefix
-            if not any(
-                name == prefix or name.startswith(prefix + ".")
-                for name in declarations
-            ):
-                raise ArtifactError(
-                    f"missing proof target under namespace {prefix} in "
-                    f"{artifact.root}:{artifact.module}"
-                )
         return
-    if artifact.kind == "source":
-        resolved = resolve_one(artifact.path, repo_root, song_root)  # type: ignore[arg-type]
-        if resolved is None:
-            raise ArtifactError(f"missing source input: {artifact.path}")
-        actual = sha256_file(resolved)
-        if actual != artifact.sha256:
-            raise ArtifactError(
-                f"stale source input: {artifact.path} digest {actual} != recorded "
-                f"{artifact.sha256}"
-            )
+    if artifact.kind == SOURCE_ARTIFACT:
+        check_source(artifact.path, artifact.sha256, repo_root, song_root)  # type: ignore[arg-type]
         return
     raise ArtifactError(f"unknown artifact kind: {artifact.kind!r}")
-
 
 def check_artifacts(
     stage: Stage, roots: dict[str, str], repo_root: Path, song_root: Path
@@ -538,22 +557,34 @@ def check_artifacts(
     for artifact in stage.artifacts:
         check_artifact(artifact, roots, repo_root, song_root)
 
-
 # ---------------------------------------------------------------------------
 # Throwaway copies and command execution
 # ---------------------------------------------------------------------------
 
+def _guard_write(target: Path, resolved_root: Path) -> None:
+    if not _inside(target, resolved_root):
+        raise GateError(
+            f"refusing to write outside the resolved throwaway root: {target}"
+        )
+
+def _replace(target: Path) -> None:
+    if target.exists() or target.is_symlink():
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
 
 def build_throwaway(
     stage: Stage, dest: Path, repo_root: Path, song_root: Path
 ) -> None:
-    """Copy the declared inputs into ``dest``; symlink the declared read-only trees.
+    """Copy declared inputs into ``dest``; symlink the declared read-only trees.
 
-    The repository is only read. A missing real-copy input is a hard error; a
-    missing link target is skipped, so an absent optional cache is not a false
-    red.
+    Every target is resolved and required to stay inside the resolved throwaway
+    root before it is written, so a symlinked ancestor cannot redirect a write
+    into the repository.
     """
     dest.mkdir(parents=True, exist_ok=True)
+    resolved_dest = dest.resolve()
     for entry in stage.copy:
         matches = resolve_many(entry, repo_root, song_root)
         if not matches:
@@ -562,12 +593,9 @@ def build_throwaway(
         parent = Path(entry).parent if globbed else None
         for match in matches:
             target = (dest / parent / match.name) if globbed else (dest / entry)
+            _guard_write(target, resolved_dest)
             target.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists() or target.is_symlink():
-                if target.is_dir() and not target.is_symlink():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink()
+            _replace(target)
             if match.is_dir():
                 shutil.copytree(match, target)
             else:
@@ -576,20 +604,19 @@ def build_throwaway(
         matches = resolve_many(entry, repo_root, song_root)
         if not matches:
             continue
-        match = matches[0]
         target = dest / entry
+        _guard_write(target, resolved_dest)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() or target.is_symlink():
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
-        os.symlink(match.resolve(), target)
+        _replace(target)
+        os.symlink(matches[0].resolve(), target)
 
-    # The mutation target must be a real copy in the throwaway, even when the
-    # stage's copy manifest does not list it; a symlink would write through to
-    # the repository.
+    if stage.mutation is None:
+        return
+    # The mutation target must be a real copy inside the throwaway, even when the
+    # stage's copy manifest does not list it; a symlink or an escaping ancestor
+    # would write through to the repository.
     mutation_target = dest / stage.mutation.path
+    _guard_write(mutation_target, resolved_dest)
     if not mutation_target.exists() or mutation_target.is_symlink():
         mutation_source = resolve_one(stage.mutation.path, repo_root, song_root)
         if mutation_source is None:
@@ -599,8 +626,9 @@ def build_throwaway(
             mutation_target.unlink()
         shutil.copy2(mutation_source, mutation_target)
 
-
-def _expand(argv: tuple[str, ...], dest: Path, repo_root: Path, song_root: Path) -> list[str]:
+def _expand(
+    argv: tuple[str, ...], dest: Path, repo_root: Path, song_root: Path
+) -> list[str]:
     return [
         token.replace("{song_root}", str(song_root))
         .replace("{repo}", str(repo_root))
@@ -608,6 +636,27 @@ def _expand(argv: tuple[str, ...], dest: Path, repo_root: Path, song_root: Path)
         for token in argv
     ]
 
+def _run_once(
+    argv: list[str], cwd: Path, timeout: int
+) -> subprocess.CompletedProcess[str]:
+    """Run one argv, raising a named error on timeout or an unstartable tool."""
+    try:
+        return subprocess.run(
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CommandTimeout(
+            f"timeout after {timeout}s running {' '.join(argv)}"
+        ) from exc
+    except OSError as exc:
+        raise CommandFailure(
+            f"subprocess failed to start ({' '.join(argv)}): {exc}"
+        ) from exc
 
 def run_steps(
     stage: Stage,
@@ -615,52 +664,116 @@ def run_steps(
     repo_root: Path,
     song_root: Path,
     timeout_override: int | None = None,
-) -> subprocess.CompletedProcess[str]:
+) -> RunResult:
     """Run the stage steps in order; return the first nonzero result, else the last.
 
     A timeout or an unstartable executable raises a named :class:`GateError`.
     """
     timeout = timeout_override or stage.command.timeout
     cwd = dest / stage.command.cwd
-    result: subprocess.CompletedProcess[str] | None = None
-    for argv in stage.command.steps:
+    result: RunResult | None = None
+    for index, argv in enumerate(stage.command.steps):
         expanded = _expand(argv, dest, repo_root, song_root)
-        try:
-            result = subprocess.run(
-                expanded,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise CommandTimeout(
-                f"timeout after {timeout}s running {' '.join(expanded)}"
-            ) from exc
-        except OSError as exc:
-            raise CommandFailure(
-                f"subprocess failed to start ({' '.join(expanded)}): {exc}"
-            ) from exc
-        if result.returncode != 0:
+        completed = _run_once(expanded, cwd, timeout)
+        result = RunResult(
+            step=index,
+            argv=tuple(expanded),
+            returncode=completed.returncode,
+            output=completed.stdout or "",
+        )
+        if completed.returncode != 0:
             return result
     assert result is not None
     return result
 
+# ---------------------------------------------------------------------------
+# Proof declaration freshness
+# ---------------------------------------------------------------------------
+
+def _lean_string(value: str) -> str:
+    return json.dumps(value)
+
+def _probe_text(import_name: str, declaration: str, prefix: str) -> str:
+    return (
+        f"import {import_name}\n"
+        "import Lean.Elab.Command\n"
+        "open Lean Elab Command\n"
+        "run_cmd do\n"
+        "  let env ← getEnv\n"
+        f"  let exact := {_lean_string(declaration)}\n"
+        f"  let pfx := {_lean_string(prefix)}\n"
+        "  let found := env.constants.toList.any (fun (n, _) =>\n"
+        "    let s := n.toString\n"
+        "    (exact != \"\" && s == exact) ||\n"
+        "    (pfx != \"\" && (s == pfx || s.startsWith (pfx ++ \".\"))))\n"
+        "  if !found then throwError \"missing proof target declaration\"\n"
+        "  logInfo \"declaration-present\"\n"
+    )
+
+def check_proof_declarations(
+    stage: Stage, roots: dict[str, str], dest: Path, timeout: int
+) -> None:
+    """Build each module under test, then require its declaration to be loaded.
+
+    The declaration must be present in the elaborated environment of the built
+    module, so a declaration that exists only as commented text is rejected.
+    """
+    resolved_dest = dest.resolve()
+    for artifact in stage.artifacts:
+        if artifact.kind != PROOF_ARTIFACT:
+            continue
+        package_dir = dest / roots[artifact.root]  # type: ignore[index]
+        if not _inside(package_dir, resolved_dest):
+            raise ArtifactError(
+                f"proof package root escapes the throwaway: {artifact.root}"
+            )
+        if not package_dir.is_dir():
+            raise ArtifactError(
+                f"missing proof package in throwaway: {artifact.root}"
+            )
+        module_rel = artifact.module  # type: ignore[assignment]
+        module_path = package_dir / module_rel
+        if not _inside(module_path, resolved_dest) or not module_path.is_file():
+            raise ArtifactError(
+                f"missing proof target: {artifact.root}:{module_rel}"
+            )
+        import_name = (
+            module_rel[:-5].replace("/", ".")
+            if module_rel.endswith(".lean")
+            else module_rel
+        )
+        exact = artifact.declaration or ""
+        prefix = artifact.declaration_prefix or ""
+        probe = package_dir / PROBE_NAME
+        _guard_write(probe, resolved_dest)
+        probe.write_text(_probe_text(import_name, exact, prefix), encoding="utf-8")
+        try:
+            build = _run_once(["lake", "build", import_name], package_dir, timeout)
+            if build.returncode != 0:
+                raise ArtifactError(
+                    f"proof dependency build failed: {artifact.root}:{module_rel}: "
+                    f"{_tail(build.stdout)}"
+                )
+            loaded = _run_once(
+                ["lake", "env", "lean", PROBE_NAME], package_dir, timeout
+            )
+            if loaded.returncode != 0:
+                raise ArtifactError(
+                    f"proof target declaration not loaded from real code: "
+                    f"{artifact.root}:{module_rel}::{exact or prefix}: "
+                    f"{_tail(loaded.stdout)}"
+                )
+        finally:
+            probe.unlink(missing_ok=True)
 
 # ---------------------------------------------------------------------------
 # Stage execution
 # ---------------------------------------------------------------------------
 
-
-def _tail(text: str, limit: int = 400) -> str:
-    text = (text or "").strip()
-    return text[-limit:]
-
-
 def check_stage(
     stage: Stage,
     roots: dict[str, str],
+    manifest: tuple[Artifact, ...],
     repo_root: Path,
     song_root: Path,
     *,
@@ -671,6 +784,7 @@ def check_stage(
 ) -> StageResult:
     result = StageResult(stage=stage.id, status="blocked", reason="not-run")
     try:
+        check_manifest(manifest, repo_root, song_root)
         check_artifacts(stage, roots, repo_root, song_root)
     except ArtifactError as exc:
         result.reason = str(exc)
@@ -686,11 +800,32 @@ def check_stage(
         result.reason = f"throwaway copy failed: {exc}"
         return result
 
-    mutated_path = dest / stage.mutation.path
     try:
+        check_proof_declarations(
+            stage, roots, dest, timeout_override or stage.command.timeout
+        )
+    except (GateError, OSError) as exc:
+        result.reason = str(exc)
+        _cleanup(dest, keep)
+        return result
+
+    if controls and stage.control_status != ACTIVE:
+        result.reason = f"control {stage.control_status}: {stage.awaiting_reason}"
+        _cleanup(dest, keep)
+        return result
+    if stage.mutation is None:
+        result.reason = "no active control declared"
+        _cleanup(dest, keep)
+        return result
+
+    mutation = stage.mutation
+    mutated_path = dest / mutation.path
+    resolved_dest = dest.resolve()
+    try:
+        _guard_write(mutated_path, resolved_dest)
         pristine = mutated_path.read_bytes()
-    except OSError as exc:
-        result.reason = f"mutation target missing in throwaway: {stage.mutation.path} ({exc})"
+    except (GateError, OSError) as exc:
+        result.reason = f"mutation target unusable in throwaway: {exc}"
         _cleanup(dest, keep)
         return result
 
@@ -703,7 +838,7 @@ def check_stage(
     if baseline.returncode != 0:
         result.reason = (
             f"nonzero subprocess (exit {baseline.returncode}) in baseline: "
-            f"{_tail(baseline.stdout)}"
+            f"{_tail(baseline.output)}"
         )
         _cleanup(dest, keep)
         return result
@@ -715,15 +850,16 @@ def check_stage(
         return result
 
     try:
-        mutated = stage.mutation.apply(pristine.decode("utf-8"))
+        mutated = mutation.apply(pristine.decode("utf-8"))
     except (MutationError, UnicodeDecodeError) as exc:
         result.status = "fail"
         result.reason = f"mutation rejected: {exc}"
         _cleanup(dest, keep)
         return result
     try:
+        _guard_write(mutated_path, resolved_dest)
         mutated_path.write_text(mutated, encoding="utf-8")
-    except OSError as exc:
+    except (GateError, OSError) as exc:
         result.status = "fail"
         result.reason = f"mutation write failed: {exc}"
         _cleanup(dest, keep)
@@ -736,19 +872,37 @@ def check_stage(
         result.reason = f"mutation run failed: {exc}"
         _cleanup(dest, keep)
         return result
+    result.red_step = red.step
     result.red_exit = red.returncode
     if red.returncode == 0:
         result.status = "fail"
         result.reason = (
             "mutation survived: command exited 0 (expected red at "
-            f"{stage.mutation.expect or 'the declared mutation'})"
+            f"{mutation.expect or 'the declared mutation'})"
+        )
+        _cleanup(dest, keep)
+        return result
+    if red.step != mutation.expected_step:
+        result.status = "fail"
+        result.reason = (
+            f"control target not reached: mutation failed at step {red.step}, "
+            f"expected step {mutation.expected_step} ({mutation.expect or 'declared'})"
+        )
+        _cleanup(dest, keep)
+        return result
+    if mutation.expected_output not in red.output:
+        result.status = "fail"
+        result.reason = (
+            "mutation rejected without the expected rejecting result "
+            f"{mutation.expected_output!r}: {_tail(red.output)}"
         )
         _cleanup(dest, keep)
         return result
 
     try:
+        _guard_write(mutated_path, resolved_dest)
         mutated_path.write_bytes(pristine)
-    except OSError as exc:
+    except (GateError, OSError) as exc:
         result.status = "fail"
         result.reason = f"restore failed: {exc}"
         _cleanup(dest, keep)
@@ -764,28 +918,26 @@ def check_stage(
     if green.returncode != 0:
         result.status = "fail"
         result.reason = (
-            f"restored copy failed (exit {green.returncode}): {_tail(green.stdout)}"
+            f"restored copy failed (exit {green.returncode}): {_tail(green.output)}"
         )
         _cleanup(dest, keep)
         return result
 
     result.status = "pass"
     result.reason = (
-        f"baseline green, mutation red (exit {red.returncode}), restored green"
+        f"baseline green, mutation red at step {red.step} "
+        f"(exit {red.returncode}) with the expected result, restored green"
     )
     _cleanup(dest, keep)
     return result
-
 
 def _cleanup(dest: Path, keep: bool) -> None:
     if not keep:
         shutil.rmtree(dest, ignore_errors=True)
 
-
 # ---------------------------------------------------------------------------
 # Self-test
 # ---------------------------------------------------------------------------
-
 
 def _synthetic_repo(root: Path) -> Path:
     (root / "Slang").mkdir(parents=True, exist_ok=True)
@@ -794,30 +946,80 @@ def _synthetic_repo(root: Path) -> Path:
         "namespace Slang.Synthetic\n\ndef ok : Nat := 1\n\nend Slang.Synthetic\n",
         encoding="utf-8",
     )
-    (root / "song" / "synthetic.slang").write_text("body { return 1; }\n", encoding="utf-8")
+    (root / "Slang" / "Comment.lean").write_text(
+        "namespace Slang.Comment\n\n/-\ndef gone : Nat := 1\n-/\n\nend Slang.Comment\n",
+        encoding="utf-8",
+    )
+    (root / "Slang" / "Broken.lean").write_text(
+        "namespace Slang.Broken\n\ndef bad : Nat := \"not a nat\"\n\nend Slang.Broken\n",
+        encoding="utf-8",
+    )
+    (root / "lakefile.lean").write_text(
+        "import Lake\nopen Lake DSL\n\npackage \"synthetic\"\n\n"
+        "lean_lib «Synthetic» where\n  globs := #[.submodules `Slang]\n",
+        encoding="utf-8",
+    )
+    (root / "lean-toolchain").write_text(SELFTEST_TOOLCHAIN + "\n", encoding="utf-8")
+    (root / "song" / "synthetic.slang").write_text(
+        "body { return 1; }\n", encoding="utf-8"
+    )
     (root / "check.py").write_text(
         "import pathlib, sys\n"
         "text = pathlib.Path('song/synthetic.slang').read_text()\n"
+        "if 'return 2;' in text:\n"
+        "    print('synthetic body change rejected')\n"
+        "    sys.exit(2)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    (root / "crash.py").write_text(
+        "import pathlib, sys\n"
+        "text = pathlib.Path('song/synthetic.slang').read_text()\n"
+        "if 'boom' in text:\n"
+        "    print('unrelated crash')\n"
+        "    sys.exit(3)\n"
         "sys.exit(2 if 'return 2;' in text else 0)\n",
         encoding="utf-8",
     )
     return root
 
+SYNTHETIC_COPY = [
+    "song/synthetic.slang",
+    "Slang/Synthetic.lean",
+    "Slang/Comment.lean",
+    "Slang/Broken.lean",
+    "lakefile.lean",
+    "lean-toolchain",
+    "check.py",
+    "crash.py",
+]
 
 def _synthetic_stage_dict(
     root: Path,
     *,
     module: str = "Slang/Synthetic.lean",
     prefix: str = "Slang.Synthetic",
+    declaration: str | None = None,
     digest: str | None = None,
     steps: list[list[str]] | None = None,
     timeout: int = 60,
     old: str = "return 1;",
     new: str = "return 2;",
+    expected_step: int = 0,
+    expected_output: str = "synthetic body change rejected",
+    control_status: str = ACTIVE,
+    anchor: str | None = None,
+    copy: list[str] | None = None,
+    link: list[str] | None = None,
 ) -> dict:
     if digest is None:
         digest = sha256_file(root / "song" / "synthetic.slang")
-    return {
+    proof: dict = {"kind": "proof", "root": "bridge", "module": module}
+    if declaration is not None:
+        proof["declaration"] = declaration
+    else:
+        proof["declaration_prefix"] = prefix
+    raw: dict = {
         "id": "synthetic",
         "order": 1,
         "title": "synthetic stage",
@@ -825,12 +1027,7 @@ def _synthetic_stage_dict(
         "source_entry": "SE0",
         "rejecting_control": "SC0",
         "artifacts": [
-            {
-                "kind": "proof",
-                "root": "bridge",
-                "module": module,
-                "declaration_prefix": prefix,
-            },
+            proof,
             {"kind": "source", "path": "song/synthetic.slang", "sha256": digest},
         ],
         "command": {
@@ -838,16 +1035,25 @@ def _synthetic_stage_dict(
             "timeout": timeout,
             "steps": steps or [["python3", "check.py"]],
         },
-        "mutation": {
+        "copy": list(copy if copy is not None else SYNTHETIC_COPY),
+        "link": list(link if link is not None else []),
+        "control_status": control_status,
+    }
+    if control_status == ACTIVE:
+        mutation: dict = {
             "path": "song/synthetic.slang",
             "old": old,
             "new": new,
             "expect": "synthetic body change rejected",
-        },
-        "copy": ["song/synthetic.slang", "Slang/Synthetic.lean", "check.py"],
-        "link": [],
-    }
-
+            "expected_step": expected_step,
+            "expected_output": expected_output,
+        }
+        if anchor is not None:
+            mutation["anchor"] = anchor
+        raw["mutation"] = mutation
+    else:
+        raw["awaiting_reason"] = "synthetic control awaiting its real definition"
+    return raw
 
 def self_test() -> int:
     """Prove the rejection classes fire and the positive accepts."""
@@ -856,10 +1062,24 @@ def self_test() -> int:
     def record(name: str, ok: bool, detail: str) -> None:
         checks.append({"check": name, "ok": ok, "detail": detail})
 
+    def expect(
+        name: str, result: StageResult, status: str, *needles: str, extra: bool = True
+    ) -> None:
+        ok = result.status == status and all(n in result.reason for n in needles) and extra
+        record(name, ok, f"status={result.status} reason={result.reason}")
+
     workdir = Path(tempfile.mkdtemp(prefix="slang-refine-self-", dir="/tmp/apeiron"))
     try:
         repo = _synthetic_repo(workdir / "repo")
         roots = {"bridge": "."}
+        default_manifest = (
+            Artifact(
+                kind=SOURCE_ARTIFACT,
+                path="song/synthetic.slang",
+                sha256=sha256_file(repo / "song" / "synthetic.slang"),
+            ),
+        )
+        song_root = repo / "song"
 
         def stage_from(raw: dict) -> Stage:
             return parse_stage(
@@ -871,111 +1091,89 @@ def self_test() -> int:
                 default_link=(),
             )
 
-        def run(raw: dict, *, controls: bool = True) -> StageResult:
-            parsed = stage_from(raw)
+        def run(
+            raw: dict,
+            *,
+            controls: bool = True,
+            manifest: tuple[Artifact, ...] | None = None,
+        ) -> StageResult:
             return check_stage(
-                parsed,
+                stage_from(raw),
                 roots,
+                manifest if manifest is not None else default_manifest,
                 repo,
-                repo,
+                song_root,
                 controls=controls,
                 throwaway_root=workdir / "throwaway",
             )
 
-        # 0. the positive control: present-and-fresh artifact, green baseline,
-        #    mutation red then restored green.
+        # 0. the positive control: fresh artifact, green baseline, mutation red at the
+        #    declared step with the declared result, restored green.
         positive = run(_synthetic_stage_dict(repo), controls=True)
         record(
             "positive_present_and_fresh",
-            positive.status == "pass" and positive.red_exit not in (None, 0)
+            positive.status == "pass"
+            and positive.red_step == 0
+            and positive.red_exit not in (None, 0)
             and positive.green_exit == 0,
             f"status={positive.status} reason={positive.reason}",
         )
 
-        # 1. missing artifact: a proof module that does not exist.
-        missing = run(
-            _synthetic_stage_dict(repo, module="Slang/Absent.lean"), controls=False
-        )
-        record(
-            "reject_missing_artifact",
-            missing.status == "blocked" and "missing proof target" in missing.reason,
-            f"status={missing.status} reason={missing.reason}",
-        )
+        # 1. every simple rejection class, including hole 1 (a block-commented
+        #    declaration is text, not Lean code) and dependency-building.
+        cases = [
+            ("reject_missing_artifact", {"module": "Slang/Absent.lean"}, "blocked", False, ("missing proof target",)),
+            ("reject_missing_declaration", {"prefix": "Slang.Other"}, "blocked", False, ("not loaded from real code",)),
+            ("reject_commented_declaration", {"module": "Slang/Comment.lean", "prefix": "Slang.Comment"}, "blocked", False, ("not loaded from real code",)),
+            ("reject_stale_digest", {"digest": "0" * 64}, "blocked", False, ("stale source input",)),
+            ("reject_timeout", {"steps": [["python3", "-c", "import time; time.sleep(30)"]], "timeout": 1}, "blocked", False, ("timeout",)),
+            ("reject_nonzero_subprocess", {"steps": [["python3", "-c", "import sys; sys.exit(7)"]]}, "blocked", False, ("nonzero subprocess", "exit 7")),
+            ("reject_unstartable_subprocess", {"steps": [["__apeiron_absent_tool__"]]}, "blocked", False, ("failed to start",)),
+            ("reject_dependency_build_failure", {"module": "Slang/Broken.lean", "prefix": "Slang.Broken"}, "blocked", False, ("proof dependency build failed",)),
+            ("reject_surviving_mutation", {"old": "body {", "new": "body  {"}, "fail", True, ("mutation survived",)),
+            ("reject_awaiting_control", {"control_status": AWAITING}, "blocked", True, (AWAITING,)),
+        ]
+        for name, kwargs, status, controls, needles in cases:
+            expect(
+                name,
+                run(_synthetic_stage_dict(repo, **kwargs), controls=controls),
+                status,
+                *needles,
+            )
 
-        # 1b. missing artifact: a declared declaration absent from a present module.
-        missing_decl = run(
-            _synthetic_stage_dict(repo, prefix="Slang.Other"), controls=False
-        )
-        record(
-            "reject_missing_declaration",
-            missing_decl.status == "blocked"
-            and "missing proof target under namespace" in missing_decl.reason,
-            f"status={missing_decl.status} reason={missing_decl.reason}",
-        )
-
-        # 2. stale digest: a recorded sha256 that does not match the bytes.
-        stale = run(
-            _synthetic_stage_dict(repo, digest="0" * 64), controls=False
-        )
-        record(
-            "reject_stale_digest",
-            stale.status == "blocked" and "stale source input" in stale.reason,
-            f"status={stale.status} reason={stale.reason}",
-        )
-
-        # 3. timeout: a command that outlives its declared timeout.
-        timed = run(
-            _synthetic_stage_dict(
-                repo,
-                steps=[["python3", "-c", "import time; time.sleep(30)"]],
-                timeout=1,
+        # 2. hole 2: an unrelated crash, and a red run at the wrong step, are not
+        #    controls even though the command exits nonzero.
+        expect(
+            "reject_unrelated_crash",
+            run(
+                _synthetic_stage_dict(
+                    repo,
+                    steps=[["python3", "crash.py"]],
+                    old="return 1;",
+                    new="boom",
+                    expected_output="synthetic body change rejected",
+                )
             ),
-            controls=False,
+            "fail",
+            "expected rejecting result",
         )
-        record(
-            "reject_timeout",
-            timed.status == "blocked" and "timeout" in timed.reason,
-            f"status={timed.status} reason={timed.reason}",
-        )
-
-        # 4. nonzero subprocess: a command that exits nonzero in the baseline.
-        nonzero = run(
-            _synthetic_stage_dict(repo, steps=[["python3", "-c", "import sys; sys.exit(7)"]]),
-            controls=False,
-        )
-        record(
-            "reject_nonzero_subprocess",
-            nonzero.status == "blocked"
-            and "nonzero subprocess" in nonzero.reason
-            and "exit 7" in nonzero.reason,
-            f"status={nonzero.status} reason={nonzero.reason}",
+        expect(
+            "reject_wrong_red_step",
+            run(
+                _synthetic_stage_dict(
+                    repo,
+                    steps=[["python3", "crash.py"], ["python3", "check.py"]],
+                    old="return 1;",
+                    new="boom",
+                    expected_step=1,
+                    expected_output="synthetic body change rejected",
+                )
+            ),
+            "fail",
+            "control target not reached",
         )
 
-        # 5. an unstartable executable is a named red, not a crash.
-        unstartable = run(
-            _synthetic_stage_dict(repo, steps=[["__apeiron_absent_tool__"]]),
-            controls=False,
-        )
-        record(
-            "reject_unstartable_subprocess",
-            unstartable.status == "blocked"
-            and "failed to start" in unstartable.reason,
-            f"status={unstartable.status} reason={unstartable.reason}",
-        )
-
-        # 6. a surviving mutation is rejected: the command still exits 0.
-        # The mutation edits text the synthetic checker ignores, so the red run
-        # is green and the harness must reject the control.
-        survived = run(
-            _synthetic_stage_dict(repo, old="body {", new="body  {"), controls=True
-        )
-        record(
-            "reject_surviving_mutation",
-            survived.status == "fail" and "mutation survived" in survived.reason,
-            f"status={survived.status} reason={survived.reason}",
-        )
-
-        # 7. the mutation engine fails loudly on an absent or ambiguous target.
+        # 3. the mutation engine fails loudly on an absent or ambiguous target.
         try:
             Mutation(path="x", old="absent", new="y").apply("alpha\nbeta\n")
             record("mutation_absent_raises", False, "missing target did not raise")
@@ -987,10 +1185,61 @@ def self_test() -> int:
         except MutationError as exc:
             record("mutation_ambiguous_raises", True, f"raised: {exc}")
 
-        # 8. controls.json parses and declares the eight required stages.
+        # 4. hole 4: a symlinked ancestor of the mutation target is refused and the
+        #    real source is left untouched.
+        before = (repo / "song" / "synthetic.slang").read_bytes()
+        escape = run(_synthetic_stage_dict(repo, link=["song"]), controls=True)
+        after = (repo / "song" / "synthetic.slang").read_bytes()
+        record(
+            "reject_symlink_ancestor_escape",
+            escape.status == "blocked"
+            and "outside the resolved throwaway root" in escape.reason
+            and before == after,
+            f"status={escape.status} reason={escape.reason}",
+        )
+
+        # 5. hole 3: single-root resolution. The explicit Song root wins over an
+        #    ordinary sibling checkout, and there is no sibling fallback.
+        shadow = workdir / "shadow"
+        explicit = shadow / "repo" / "song"
+        sibling = shadow / "song"
+        explicit.mkdir(parents=True, exist_ok=True)
+        sibling.mkdir(parents=True, exist_ok=True)
+        (explicit / "synthetic.slang").write_text("explicit\n", encoding="utf-8")
+        (sibling / "synthetic.slang").write_text("sibling\n", encoding="utf-8")
+        won = resolve_one("song/synthetic.slang", shadow / "repo", explicit)
+        record(
+            "explicit_song_root_wins",
+            won is not None
+            and won.resolve() == (explicit / "synthetic.slang").resolve(),
+            f"resolved={won}",
+        )
+        (explicit / "synthetic.slang").unlink()
+        fallback = resolve_one("song/synthetic.slang", shadow / "repo", explicit)
+        record(
+            "explicit_song_root_no_sibling_fallback",
+            fallback is None,
+            f"resolved={fallback}",
+        )
+
+        # 6. the manifest rejects a stale or missing selected source.
+        for name, path, needle in (
+            ("reject_manifest_stale", "song/synthetic.slang", "stale source input"),
+            ("reject_manifest_missing", "song/absent.slang", "missing source input"),
+        ):
+            manifest = (Artifact(kind=SOURCE_ARTIFACT, path=path, sha256="0" * 64),)
+            expect(
+                name,
+                run(_synthetic_stage_dict(repo), controls=False, manifest=manifest),
+                "blocked",
+                needle,
+            )
+
+        # 7. controls.json parses, declares the eight stages and the expected
+        #    control status of each.
         try:
-            parsed_roots, stages = load_controls()
-            ids = {stage.id for stage in stages}
+            loaded = load_controls()
+            ids = {stage.id for stage in loaded.stages}
             expected = {
                 "decode",
                 "machine",
@@ -1003,24 +1252,59 @@ def self_test() -> int:
             }
             record(
                 "controls_schema",
-                ids == expected and len(stages) == 8,
+                ids == expected and len(loaded.stages) == 8,
                 f"ids={sorted(ids)}",
             )
-            for name, root in parsed_roots.items():
+            by_id = {stage.id: stage for stage in loaded.stages}
+            for name, root in loaded.roots.items():
                 record(
                     f"controls_root:{name}",
                     (REPO_ROOT / root).exists() or (REPO_ROOT.parent / root).exists(),
                     f"root={root}",
                 )
+            for name in ("machine", "lookup"):
+                stage = by_id[name]
+                record(
+                    f"controls_awaiting:{name}",
+                    stage.control_status == AWAITING
+                    and stage.mutation is None
+                    and bool(stage.awaiting_reason),
+                    f"status={stage.control_status}",
+                )
+            write = by_id["write"].mutation
+            record(
+                "controls_anchor:write",
+                write is not None
+                and write.anchor is not None
+                and "oldVal" in write.new
+                and "else value" in write.old,
+                f"anchor={write.anchor if write else None}",
+            )
+            decode = by_id["decode"].mutation
+            record(
+                "controls_expect:decode",
+                decode is not None
+                and decode.expected_step == 1
+                and "statement count differs" in decode.expected_output,
+                f"step={decode.expected_step if decode else None}",
+            )
+            record(
+                "controls_manifest",
+                len(loaded.manifest) >= 8
+                and all(entry.kind == SOURCE_ARTIFACT for entry in loaded.manifest),
+                f"entries={len(loaded.manifest)}",
+            )
         except ControlsError as exc:
             record("controls_schema", False, str(exc))
 
-        # 9. every declared mutation resolves uniquely against its real source.
+        # 8. every declared active mutation resolves uniquely against its real source.
         try:
-            _, stages = load_controls()
+            loaded = load_controls()
         except ControlsError:
-            stages = []
-        for stage in stages:
+            loaded = Controls(roots={}, manifest=(), stages=())
+        for stage in loaded.stages:
+            if stage.mutation is None:
+                continue
             resolved = resolve_one(stage.mutation.path, REPO_ROOT, DEFAULT_SONG_ROOT)
             if resolved is None:
                 record(
@@ -1053,13 +1337,11 @@ def self_test() -> int:
     )
     return EXIT_OK if not failed else EXIT_BLOCKED
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-
-def _select(stages: list[Stage], requested: list[str]) -> list[Stage]:
+def _select(stages: tuple[Stage, ...], requested: list[str]) -> list[Stage]:
     if not requested:
         return []
     wanted: list[str] = []
@@ -1071,41 +1353,49 @@ def _select(stages: list[Stage], requested: list[str]) -> list[Stage]:
         raise SystemExit(f"unknown stage id(s): {', '.join(unknown)}")
     return [by_id[name] for name in wanted]
 
-
 def cmd_list() -> int:
     try:
-        _, stages = load_controls()
+        controls = load_controls()
     except ControlsError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_BLOCKED
-    for stage in sorted(stages, key=lambda item: item.order):
+    print("manifest:")
+    for entry in controls.manifest:
+        print(f"    source {entry.path} sha256={entry.sha256}")
+    for stage in sorted(controls.stages, key=lambda item: item.order):
         print(
             f"{stage.order:>2}  {stage.id:<16} entry={stage.source_entry:<3} "
-            f"control={stage.rejecting_control:<3} {stage.title}"
+            f"control={stage.rejecting_control:<3} [{stage.control_status}] {stage.title}"
         )
         print(f"    {stage.summary}")
         for artifact in stage.artifacts:
-            if artifact.kind == "proof":
+            if artifact.kind == PROOF_ARTIFACT:
                 target = artifact.declaration or f"{artifact.declaration_prefix}.*"
                 print(f"    proof  {artifact.root}:{artifact.module}::{target}")
             else:
                 print(f"    source {artifact.path} sha256={artifact.sha256}")
         steps = " ; ".join(" ".join(step) for step in stage.command.steps)
         print(f"    command ({stage.command.cwd}) {steps}")
-        print(f"    mutation {stage.mutation.path}: {stage.mutation.expect}")
+        if stage.mutation is not None:
+            print(
+                f"    mutation {stage.mutation.path} step={stage.mutation.expected_step} "
+                f"expect={stage.mutation.expect}"
+            )
+            print(f"      expects output: {stage.mutation.expected_output!r}")
+        else:
+            print(f"    control awaiting definition: {stage.awaiting_reason}")
         if stage.note:
             print(f"    note: {stage.note}")
     return EXIT_OK
 
-
 def cmd_run(args: argparse.Namespace) -> int:
     try:
-        roots, stages = load_controls()
+        controls = load_controls()
     except ControlsError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_BLOCKED
     try:
-        selected = _select(stages, args.stage)
+        selected = _select(controls.stages, args.stage)
     except SystemExit as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1122,7 +1412,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     results = [
         check_stage(
             stage,
-            roots,
+            controls.roots,
+            controls.manifest,
             REPO_ROOT,
             song_root,
             controls=args.controls,
@@ -1146,7 +1437,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"FAIL: {reasons}", file=sys.stderr)
         return EXIT_BLOCKED
     return EXIT_OK
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -1177,7 +1467,9 @@ def main(argv: list[str] | None = None) -> int:
         default=str(DEFAULT_THROWAWAY_ROOT),
         help=f"root for throwaway copies (default: {DEFAULT_THROWAWAY_ROOT})",
     )
-    parser.add_argument("--timeout", type=int, default=None, help="override the per-command timeout")
+    parser.add_argument(
+        "--timeout", type=int, default=None, help="override the per-command timeout"
+    )
     parser.add_argument("--keep", action="store_true", help="keep the throwaway copy")
     args = parser.parse_args(argv)
 
@@ -1190,7 +1482,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.timeout is not None and args.timeout <= 0:
         parser.error("--timeout must be positive")
     return cmd_run(args)
-
 
 if __name__ == "__main__":
     sys.exit(main())
