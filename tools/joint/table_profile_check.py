@@ -5,16 +5,27 @@ This tool establishes **specification consistency only**. It verifies that
 ``docs/spec/joint-table.md`` and ``tools/joint/table_profile_rows.json`` are
 internally complete and that every artifact they name resolves:
 
-* every table subprofile row carries all six required fields;
+* every table subprofile row carries all six required fields and stays
+  ``selected-open`` (a ``closed`` row is rejected);
 * every named canonical authority target resolves as the named declaration
   (``theorem``/``lemma``, ``def``/``abbrev``, ...) in the pinned canonical
-  corpus (``../sanguine-apeiron/proof``), and every named bridge artifact
-  resolves in ``proof/``;
-* every named Rust and Song entry exists as a declaration in its source file;
+  corpus (``../sanguine-apeiron/proof``) under its exact opened namespace, and
+  every named bridge artifact resolves in ``proof/``;
+* every named Rust and Song entry exists as a concrete executing declaration
+  in its source file (a ``law``/``carrier``/``spec`` header alone is not an
+  entry);
+* the corpus revision, Mathlib revision and per-source sha256 digests match the
+  resolved checkout;
+* every implementation of every row carries its required resource kinds
+  separately (a missing account on one side is rejected), and no generic fuel
+  kind is admitted;
+* every named reference, including control targets and any file/symbol
+  reference in the row text, resolves;
 * every required row, hazard and rejecting control is present, and none is
   dropped;
-* the resource accounting names the five distinct kinds and no generic fuel;
-* the spec names every required row, hazard and control.
+* the spec carries the actual records and fields (row headings and titles,
+  required-field records, hazard records, control records), not incidental
+  mentions.
 
 It does **not** establish semantic correspondence, refinement, proof or the
 rejecting controls' execution. A green run says the specification is well formed
@@ -27,17 +38,19 @@ Usage::
     python3 tools/joint/table_profile_check.py --controls
     python3 tools/joint/table_profile_check.py --self-test
 
-``--controls`` and ``--self-test`` mutate a deep copy of the loaded profile in
-memory and require each mutation to be rejected. They never touch the working
-tree.
+``--controls`` and ``--self-test`` mutate a deep copy of the loaded profile and
+the spec text in memory and require each mutation to be rejected. They never
+touch the working tree.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -47,6 +60,7 @@ SPEC_PATH = REPO / "docs" / "spec" / "joint-table.md"
 ROWS_PATH = HERE.parent / "table_profile_rows.json"
 CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
 BRIDGE_ROOT = REPO / "proof"
+SONG_ROOT = REPO.parent / "song"
 
 PROFILE_ID = "APEIRON-PROGRAMME-W18-T3"
 
@@ -78,6 +92,49 @@ REQUIRED_RESOURCE_KINDS = {
     "stack_entries",
     "input_consumption",
 }
+# Per-implementation resource kinds fixed by the subprofile. Every row's Rust
+# and Song account must carry its own required kinds; a kind present in one
+# account is never accepted as covering the other. This is deliberately not a
+# union across rows or across implementations.
+REQUIRED_RESOURCE_KINDS_BY_ROW = {
+    "T1": {
+        "rust": {"nodes", "stack_entries"},
+        "song": {"nodes", "stack_entries"},
+    },
+    "T2": {
+        "rust": {"probes", "arithmetic_ops"},
+        "song": {"probes", "arithmetic_ops"},
+    },
+    "T3": {
+        "rust": {"arithmetic_ops", "probes"},
+        "song": {"arithmetic_ops", "probes"},
+    },
+    "T4": {
+        "rust": {"probes", "arithmetic_ops"},
+        "song": {"probes", "arithmetic_ops"},
+    },
+    "T5": {
+        "rust": {
+            "arithmetic_ops",
+            "probes",
+            "nodes",
+            "stack_entries",
+            "input_consumption",
+        },
+        "song": {
+            "arithmetic_ops",
+            "probes",
+            "nodes",
+            "stack_entries",
+            "input_consumption",
+        },
+    },
+    "T6": {
+        "rust": {"input_consumption", "nodes"},
+        "song": {"input_consumption", "nodes"},
+    },
+}
+FORBIDDEN_RESOURCE_KINDS = {"fuel"}
 REQUIRED_CANONICAL_THEOREMS = {
     "Apeiron.Table.get_insertWith_self",
     "Apeiron.Table.get_insertWith_ne",
@@ -102,6 +159,8 @@ ROW_SONG_KEYS = [
 ADMISSION_SIDES = ["rust", "song"]
 SEPARATE_ADMISSION_KEYS = ["rust", "song", "joint", "unequal_capacities"]
 CONTROL_KEYS = ["name", "target", "mutation", "expected_red", "grade"]
+HEX40 = re.compile(r"[0-9a-f]{40}")
+HEX64 = re.compile(r"[0-9a-f]{64}")
 
 LEAN_DECL_PREFIX = (
     r"(?m)^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
@@ -124,13 +183,18 @@ RUST_DECL = (
     r"(?:fn|struct|enum|trait|union|type|mod)\s+"
 )
 RUST_IMPL = r"(?m)^\s*impl\b[^\n{]*\b"
+# A Song entry is a concrete executing definition: a function with a body, or a
+# constant binding. A bare ``law``/``carrier``/``spec`` header is not an entry.
 SLANG_DECL = [
-    r"(?m)^\s*{n}\s*\(",
-    r"(?m)^\s*law\s+{n}\b",
-    r"(?m)^\s*carrier\s+{n}\b",
-    r"(?m)^\s*spec\s+{n}\b",
+    r"(?m)^\s*{n}\s*\([^\n]*\{",
     r"(?m)^\s*{n}\s*=",
 ]
+# File/symbol references embedded in free text: ``path::{a, b}`` or ``path::a``
+# or a bare source path.
+FILE_REF = re.compile(
+    r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
+    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+))?"
+)
 
 
 class CheckError(Exception):
@@ -149,12 +213,84 @@ def _nonempty(value: object, where: str) -> None:
     )
 
 
+def _norm(text: str) -> str:
+    """Normalize Markdown prose for record presence checks."""
+    return re.sub(r"\s+", " ", text.replace("`", "")).strip()
+
+
 def _resolve_path(rel: str, where: str) -> Path:
     for base in (REPO, REPO.parent):
         candidate = base / rel
         if candidate.is_file():
             return candidate
     raise CheckError(f"{where}: source file does not resolve: {rel}")
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _git(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+
+
+def _git_rev(path: Path) -> str | None:
+    result = _git(["-C", str(path), "rev-parse", "HEAD"])
+    if result is None or result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _git_has_commit(path: Path, rev: str) -> bool:
+    result = _git(["-C", str(path), "cat-file", "-e", f"{rev}^{{commit}}"])
+    return result is not None and result.returncode == 0
+
+
+def _mathlib_rev() -> str | None:
+    for manifest in (
+        CORPUS_ROOT / "lake-manifest.json",
+        CORPUS_ROOT.parent / "lake-manifest.json",
+        REPO / "proof" / "corpus" / "lake-manifest.json",
+    ):
+        if not manifest.is_file():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for package in data.get("packages", []):
+            if package.get("name") == "mathlib" and isinstance(
+                package.get("rev"), str
+            ):
+                return package["rev"]
+    return None
+
+
+def _opened_namespaces(text: str) -> set[str]:
+    """Return every fully-qualified namespace path opened in a Lean file."""
+    paths: set[str] = set()
+    stack: list[str] = []
+    for line in text.splitlines():
+        opened = re.match(r"^\s*namespace\s+([\w.]+)", line)
+        if opened:
+            for part in opened.group(1).split("."):
+                stack.append(part)
+                paths.add(".".join(stack))
+            continue
+        closed = re.match(r"^\s*end\s+([\w.]+)", line)
+        if closed:
+            for _ in closed.group(1).split("."):
+                if stack:
+                    stack.pop()
+    return paths
 
 
 def _check_lean_ref(
@@ -196,14 +332,14 @@ def _check_lean_ref(
         re.search(pattern, text) is not None,
         f"{where}: declaration {last} ({kind or 'any'}) not found in {module}",
     )
-    ns_lines = re.findall(r"(?m)^\s*namespace\s+([\w.]+)", text)
-    tokens: set[str] = set()
-    for ns in ns_lines:
-        tokens.update(ns.split("."))
-    for segment in segments[:-1]:
+    # The declaration namespace must be an exactly opened namespace, so a
+    # reversed or otherwise incorrect prefix (``Table.Apeiron.get_build_acc``)
+    # is rejected rather than accepted on its component tokens.
+    namespace = ".".join(segments[:-1])
+    if namespace:
         _need(
-            segment in tokens,
-            f"{where}: namespace {segment} of {name} not opened in {module}",
+            namespace in _opened_namespaces(text),
+            f"{where}: namespace {namespace} of {name} is not opened in {module}",
         )
     if last == "build_gauge_invariance" and kind == "theorem":
         hypotheses = ref.get("hypotheses")
@@ -222,10 +358,39 @@ def _check_rust(text: str, symbol: str) -> bool:
 
 
 def _check_slang(text: str, symbol: str) -> bool:
+    token = re.escape(symbol)
     return any(
-        re.search(pattern.format(n=re.escape(symbol)), text) is not None
+        re.search(pattern.replace("{n}", token), text) is not None
         for pattern in SLANG_DECL
     )
+
+
+def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".slang":
+        found = _check_slang(text, symbol)
+    else:
+        found = _check_rust(text, symbol)
+    _need(found, f"{where}: {symbol} not found in {path}")
+
+
+def _check_text_refs(text: str, where: str, allow_missing: bool = False) -> None:
+    for match in FILE_REF.finditer(text):
+        rel = match.group(1)
+        symbols = match.group(2)
+        single = match.group(3)
+        try:
+            path = _resolve_path(rel, where)
+        except CheckError:
+            if allow_missing:
+                continue
+            raise
+        if symbols is not None:
+            for symbol in (token.strip() for token in symbols.split(",")):
+                if symbol:
+                    _check_symbol_in_file(path, symbol, where)
+        elif single:
+            _check_symbol_in_file(path, single, where)
 
 
 def _check_source_entry(entry: object, where: str, want_lang: str) -> None:
@@ -246,7 +411,6 @@ def _check_source_entry(entry: object, where: str, want_lang: str) -> None:
 def _validate_row(
     row: object,
     seen_ids: set[str],
-    resource_kinds: set[str],
     canonical_theorems: set[str],
     canonical_defs: set[str],
 ) -> None:
@@ -258,8 +422,8 @@ def _validate_row(
     _nonempty(row.get("title"), f"{rid}.title")
     status = row.get("status")
     _need(
-        status in ("selected-open", "blocker", "closed"),
-        f"{rid}.status invalid: {status!r}",
+        status == "selected-open",
+        f"{rid}.status must be selected-open, got {status!r}",
     )
     for field in REQUIRED_FIELDS:
         _need(field in row, f"{rid} drops required field {field}")
@@ -319,28 +483,52 @@ def _validate_row(
         _nonempty(sub.get("predicate"), f"{rid}.admission.{side}.predicate")
         _nonempty(sub.get("source"), f"{rid}.admission.{side}.source")
 
+    # Per-implementation resource completeness. Each side must independently
+    # carry every required kind; a kind declared on the other side, or in
+    # another row, does not satisfy it.
     resources = row["resources"]
     _need(isinstance(resources, dict), f"{rid}.resources must be an object")
+    required = REQUIRED_RESOURCE_KINDS_BY_ROW.get(rid, {})
     for side in ADMISSION_SIDES:
         entries = resources.get(side)
         _need(
             isinstance(entries, list) and entries,
             f"{rid}.resources.{side} must be nonempty",
         )
+        declared: set[str] = set()
         for entry in entries:
-            _need(isinstance(entry, dict), f"{rid}.resources.{side} entries must be objects")
+            _need(
+                isinstance(entry, dict),
+                f"{rid}.resources.{side} entries must be objects",
+            )
             kind = entry.get("kind")
+            _need(
+                kind not in FORBIDDEN_RESOURCE_KINDS,
+                f"{rid}.resources.{side}: forbidden resource kind {kind!r}",
+            )
             _need(
                 kind in REQUIRED_RESOURCE_KINDS,
                 f"{rid}.resources.{side} invalid kind {kind!r}",
             )
+            _need(
+                kind not in declared,
+                f"{rid}.resources.{side} duplicates resource kind {kind!r}",
+            )
             _nonempty(entry.get("accounting"), f"{rid}.resources.{side}[{kind}]")
-            resource_kinds.add(kind)
+            declared.add(kind)
+        missing = sorted(required.get(side, set()) - declared)
+        _need(
+            not missing,
+            f"{rid}.resources.{side} is missing required kinds {missing}",
+        )
 
     refinement = row["refinement"]
     _need(isinstance(refinement, dict), f"{rid}.refinement must be an object")
     _nonempty(refinement.get("source_connected"), f"{rid}.refinement.source_connected")
     _nonempty(refinement.get("rejecting_control"), f"{rid}.refinement.rejecting_control")
+    _check_text_refs(
+        refinement["source_connected"], f"{rid}.refinement.source_connected"
+    )
     artifacts = refinement.get("artifacts")
     _need(
         isinstance(artifacts, list) and artifacts,
@@ -369,18 +557,26 @@ def _validate_control(control: object, row_ids: set[str]) -> None:
     _nonempty(cid, "control.id")
     for key in CONTROL_KEYS:
         _nonempty(control.get(key), f"{cid}.{key}")
-    targets = [token.strip() for token in re.split(r"[,/ ]+", control["target"]) if token.strip()]
-    _need(
-        any(token in row_ids for token in targets),
-        f"{cid}.target must name at least one row id",
-    )
+    targets = [
+        token.strip()
+        for token in re.split(r"[,/ ]+", control["target"])
+        if token.strip()
+    ]
+    _need(bool(targets), f"{cid}.target must name at least one row id")
+    # Every named target is checked, not only the first valid one.
+    invalid = [token for token in targets if token not in row_ids]
+    _need(not invalid, f"{cid}.target names unknown rows {invalid}")
+    _check_text_refs(control["expected_red"], f"{cid}.expected_red")
+    _check_text_refs(control["mutation"], f"{cid}.mutation")
 
 
 def _validate_spec(
     text: object,
     row_ids: list[str],
+    row_titles: list[str],
     hazard_ids: list[str],
     control_ids: list[str],
+    field_keys: list[str],
 ) -> None:
     _need(isinstance(text, str) and text.strip(), "spec document is empty")
     headings = [m.group(1).strip() for m in re.finditer(r"(?m)^#{1,6}\s+(.*)$", text)]
@@ -389,18 +585,105 @@ def _validate_spec(
             any(section.lower() in heading.lower() for heading in headings),
             f"spec is missing section heading: {section}",
         )
-    named = (
-        [(token, "row") for token in row_ids]
-        + [(token, "hazard") for token in hazard_ids]
-        + [(token, "control") for token in control_ids]
-    )
-    for token, label in named:
+    # Required-field records, not incidental mentions.
+    for key in field_keys:
         _need(
             re.search(
-                r"(?<![A-Za-z0-9])" + re.escape(token) + r"(?![A-Za-z0-9])", text
+                r"(?m)^\s*\|\s*`?" + re.escape(key) + r"`?\s*\|", text
             )
             is not None,
-            f"spec does not name required {label} {token}",
+            f"spec is missing the required-field record {key}",
+        )
+    normalized = _norm(text)
+    for rid, title in zip(row_ids, row_titles):
+        _need(
+            re.search(r"(?m)^#{1,6}\s+" + re.escape(rid) + r"\b", text) is not None,
+            f"spec is missing the row heading {rid}",
+        )
+        _need(
+            _norm(title) in normalized,
+            f"spec does not carry the row record for {rid}",
+        )
+    for hid in hazard_ids:
+        _need(
+            re.search(r"(?m)^\s*\|\s*" + re.escape(hid) + r"\s*\|", text) is not None,
+            f"spec is missing the hazard record {hid}",
+        )
+    for cid in control_ids:
+        _need(
+            re.search(r"(?m)^\s*\|\s*" + re.escape(cid) + r"\s*\|", text) is not None,
+            f"spec is missing the control record {cid}",
+        )
+
+
+def _verify_corpus(corpus: object) -> None:
+    _need(isinstance(corpus, dict), "corpus metadata missing")
+    _nonempty(corpus.get("root"), "corpus.root")
+    _need(CORPUS_ROOT.is_dir(), f"pinned corpus root does not resolve: {CORPUS_ROOT}")
+
+    git = corpus.get("git")
+    _need(
+        isinstance(git, str) and HEX40.fullmatch(git),
+        "corpus.git must be a 40-hex revision",
+    )
+    actual = _git_rev(CORPUS_ROOT)
+    _need(actual is not None, f"cannot resolve the git revision of {CORPUS_ROOT}")
+    _need(
+        git == actual,
+        f"corpus.git {git} does not match the resolved corpus revision {actual}",
+    )
+
+    mathlib = corpus.get("mathlib")
+    _need(
+        isinstance(mathlib, str) and HEX40.fullmatch(mathlib),
+        "corpus.mathlib must be a 40-hex revision",
+    )
+    resolved_mathlib = _mathlib_rev()
+    _need(
+        resolved_mathlib is not None,
+        "cannot resolve the pinned Mathlib revision from a manifest",
+    )
+    _need(
+        mathlib == resolved_mathlib,
+        f"corpus.mathlib {mathlib} does not match the resolved Mathlib revision "
+        f"{resolved_mathlib}",
+    )
+
+    apeiron = corpus.get("apeiron_git")
+    _need(
+        isinstance(apeiron, str) and HEX40.fullmatch(apeiron),
+        "corpus.apeiron_git must be a 40-hex revision",
+    )
+    _need(
+        _git_has_commit(REPO, apeiron),
+        f"corpus.apeiron_git {apeiron} does not resolve in {REPO}",
+    )
+
+    song = corpus.get("song_git")
+    _need(
+        isinstance(song, str) and HEX40.fullmatch(song),
+        "corpus.song_git must be a 40-hex revision",
+    )
+    _need(
+        _git_has_commit(SONG_ROOT, song),
+        f"corpus.song_git {song} does not resolve in {SONG_ROOT}",
+    )
+
+    sources = corpus.get("sources")
+    _need(
+        isinstance(sources, dict) and sources,
+        "corpus.sources must be a nonempty digest map",
+    )
+    for rel, digest in sources.items():
+        _nonempty(rel, "corpus.sources path")
+        _need(
+            isinstance(digest, str) and HEX64.fullmatch(digest),
+            f"corpus.sources[{rel}] must be a sha256 hex digest",
+        )
+        path = _resolve_path(rel, f"corpus.sources[{rel}]")
+        _need(
+            _sha256(path) == digest,
+            f"corpus.sources[{rel}] digest does not match {path}",
         )
 
 
@@ -410,11 +693,7 @@ def validate(data: object, spec_text: str) -> None:
     _need(data.get("profile") == PROFILE_ID, f"profile id must be {PROFILE_ID}")
     _need(isinstance(data.get("version"), int), "version must be an integer")
 
-    corpus = data.get("corpus")
-    _need(isinstance(corpus, dict), "corpus metadata missing")
-    for key in ("root", "git", "mathlib"):
-        _nonempty(corpus.get(key), f"corpus.{key}")
-    _need(CORPUS_ROOT.is_dir(), f"pinned corpus root does not resolve: {CORPUS_ROOT}")
+    _verify_corpus(data.get("corpus"))
 
     fields = data.get("fields")
     _need(
@@ -430,18 +709,12 @@ def validate(data: object, spec_text: str) -> None:
     rows = data.get("rows")
     _need(isinstance(rows, list) and rows, "rows must be a nonempty list")
     seen_ids: set[str] = set()
-    resource_kinds: set[str] = set()
     canonical_theorems: set[str] = set()
     canonical_defs: set[str] = set()
     for row in rows:
-        _validate_row(row, seen_ids, resource_kinds, canonical_theorems, canonical_defs)
+        _validate_row(row, seen_ids, canonical_theorems, canonical_defs)
     missing_rows = [r for r in REQUIRED_ROWS if r not in seen_ids]
     _need(not missing_rows, f"required rows dropped: {missing_rows}")
-    missing_kinds = sorted(REQUIRED_RESOURCE_KINDS - resource_kinds)
-    _need(
-        not missing_kinds,
-        f"resource kinds must include {sorted(REQUIRED_RESOURCE_KINDS)}, missing {missing_kinds}",
-    )
     missing_theorems = sorted(REQUIRED_CANONICAL_THEOREMS - canonical_theorems)
     _need(
         not missing_theorems,
@@ -487,57 +760,167 @@ def validate(data: object, spec_text: str) -> None:
         "not_covered entries must be nonempty strings",
     )
 
-    _validate_spec(spec_text, list(seen_ids), hazard_ids, control_ids)
+    _validate_spec(
+        spec_text,
+        list(seen_ids),
+        [row["title"] for row in rows],
+        hazard_ids,
+        control_ids,
+        list(field_keys),
+    )
 
 
-def _control_cases(data: dict) -> list[tuple[str, dict]]:
-    cases: list[tuple[str, dict]] = []
+def _strip_record(spec_text: str, record_id: str) -> str:
+    return re.sub(
+        r"(?m)^\s*\|\s*" + re.escape(record_id) + r"\s*\|.*\n?",
+        "",
+        spec_text,
+    )
+
+
+def _strip_field_row(spec_text: str, key: str) -> str:
+    return re.sub(
+        r"(?m)^\s*\|\s*`?" + re.escape(key) + r"`?\s*\|.*\n?",
+        "",
+        spec_text,
+    )
+
+
+def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
+    cases: list[tuple[str, dict, str]] = []
+
+    # class 1: resource completeness is per implementation.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["resources"]["rust"] = [
+        e
+        for e in mutated["rows"][0]["resources"]["rust"]
+        if e.get("kind") != "nodes"
+    ]
+    cases.append(
+        (
+            "class 1: drop a required resource account from one implementation of T1",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 2: corpus pin verification.
+    mutated = copy.deepcopy(data)
+    mutated["corpus"]["git"] = "0" * 40
+    cases.append(
+        ("class 2: repin the corpus revision to a wrong value", mutated, spec_text)
+    )
 
     mutated = copy.deepcopy(data)
+    mutated["corpus"]["sources"]["src/table.rs"] = "0" * 64
+    cases.append(
+        ("class 2: change a recorded source digest", mutated, spec_text)
+    )
+
+    # class 3: exact namespace matching.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["canonical"]["targets"].append(
+        {
+            "name": "Table.Apeiron.HMap",
+            "module": "Apeiron/Table/Basic.lean",
+            "kind": "abbrev",
+        }
+    )
+    cases.append(
+        (
+            "class 3: add a canonical target with a reversed namespace",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 4: a law/carrier/spec header is not an executing entry.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["song"]["entry_points"][0]["symbol"] = "mergeacc_comm"
+    cases.append(
+        (
+            "class 4: point a song entry at a law header only",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 5: the spec must carry the records and fields.
+    cases.append(
+        (
+            "class 5: delete the hazard record H1 from the spec",
+            copy.deepcopy(data),
+            _strip_record(spec_text, "H1") + "\nThe H1 hazard is discussed above.\n",
+        )
+    )
+    cases.append(
+        (
+            "class 5: delete the required-field record canonical from the spec",
+            copy.deepcopy(data),
+            _strip_field_row(spec_text, "canonical"),
+        )
+    )
+
+    # class 6: no row closes.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["status"] = "closed"
+    cases.append(("class 6: set row T1 status to closed", mutated, spec_text))
+
+    # class 7: every named reference is checked.
+    mutated = copy.deepcopy(data)
+    mutated["controls"][0]["target"] = "T1, T3, T99"
+    cases.append(
+        ("class 7: name an unknown row in a control target", mutated, spec_text)
+    )
+
+    # Retained structural controls.
+    mutated = copy.deepcopy(data)
     mutated["rows"][0].pop("canonical", None)
-    cases.append(("remove required field canonical from row T1", mutated))
+    cases.append(
+        ("remove required field canonical from row T1", mutated, spec_text)
+    )
 
     mutated = copy.deepcopy(data)
     mutated["fields"] = mutated["fields"][:-1]
-    cases.append(("drop a required field from the fields list", mutated))
+    cases.append(("drop a required field from the fields list", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"] = [r for r in mutated["rows"] if r.get("id") != "T1"]
-    cases.append(("remove required row T1", mutated))
+    cases.append(("remove required row T1", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["hazards"] = [h for h in mutated["hazards"] if h.get("id") != "H1"]
-    cases.append(("remove required hazard H1", mutated))
+    cases.append(("remove required hazard H1", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["controls"] = [c for c in mutated["controls"] if c.get("id") != "C1"]
-    cases.append(("remove required control C1", mutated))
+    cases.append(("remove required control C1", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["canonical"]["targets"][0]["name"] = (
         "Apeiron.Table.does_not_exist"
     )
-    cases.append(("rename a canonical target to a nonexistent name", mutated))
+    cases.append(("rename a canonical target to a nonexistent name", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["canonical"]["targets"][1]["kind"] = "theorem"
-    cases.append(("mislabel a canonical def target as a theorem", mutated))
+    cases.append(("mislabel a canonical def target as a theorem", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["rust"]["entry_points"][0]["file"] = "src/does_not_exist.rs"
-    cases.append(("point a rust entry at a missing file", mutated))
+    cases.append(("point a rust entry at a missing file", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["song"]["entry_points"][0]["symbol"] = "tableDoesNotExist"
-    cases.append(("point a slang entry at a missing symbol", mutated))
+    cases.append(("point a slang entry at a missing symbol", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["resources"]["rust"][0]["kind"] = "fuel"
-    cases.append(("rename a resource kind to generic fuel", mutated))
+    cases.append(("rename a resource kind to generic fuel", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["separate_admission"].pop("joint", None)
-    cases.append(("remove the joint separate_admission clause", mutated))
+    cases.append(("remove the joint separate_admission clause", mutated, spec_text))
 
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["canonical"]["targets"] = [
@@ -548,18 +931,31 @@ def _control_cases(data: dict) -> list[tuple[str, dict]]:
         t for t in mutated["rows"][5]["canonical"]["targets"]
         if t.get("name") != "Apeiron.Table.get_build_acc"
     ]
-    cases.append(("drop the get_build_acc canonical theorem target", mutated))
+    cases.append(("drop the get_build_acc canonical theorem target", mutated, spec_text))
 
     return cases
 
 
-def run_controls(data: dict, spec_text: str) -> list[tuple[str, bool, str]]:
+CLASS_MARKERS = [
+    "class 1:",
+    "class 2:",
+    "class 3:",
+    "class 4:",
+    "class 5:",
+    "class 6:",
+    "class 7:",
+]
+
+
+def run_controls(
+    data: dict, spec_text: str
+) -> list[tuple[str, bool, str]]:
     """Baseline must pass; every in-memory mutation must be rejected."""
     validate(data, spec_text)
     results: list[tuple[str, bool, str]] = []
-    for name, mutated in _control_cases(data):
+    for name, mutated, mutated_spec in _control_cases(data, spec_text):
         try:
-            validate(mutated, spec_text)
+            validate(mutated, mutated_spec)
         except CheckError as exc:
             results.append((name, True, str(exc)))
         else:
@@ -610,17 +1006,11 @@ def _cmd_controls(data: dict, spec_text: str, self_test: bool) -> int:
         else:
             print(f"control GREEN (NOT rejected): {name}: {detail}", file=sys.stderr)
     if self_test:
-        mandated = [
-            name
-            for name, _, _ in results
-            if "remove required field" in name
-            or "remove required row" in name
-            or "remove required hazard" in name
-        ]
-        _need(
-            len(mandated) == 3,
-            "self-test requires the required-field, required-row and required-hazard controls",
-        )
+        for marker in CLASS_MARKERS:
+            _need(
+                any(name.startswith(marker) for name, _, _ in results),
+                f"self-test requires a rejecting control for {marker.rstrip(':')}",
+            )
     if rejected != len(results):
         print(
             f"FAIL: {len(results) - rejected} of {len(results)} controls were not rejected",

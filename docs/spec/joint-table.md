@@ -13,7 +13,10 @@ authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust repr
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
 corpus remains at `../sanguine-apeiron/proof/` at Git
 `50c94192399add3b9f8e64bd14e36d8cba270705`, Mathlib
-`fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The canonical authority for every row is
+`fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The Apeiron sources were read at revision
+`2b5eda334e262f70f7c10ce567c8641c2396626d` and the Song sources at revision
+`47869e76f982cfa3085a8618a82b80463e22ef46`; the per-file digests are recorded under
+[Pins and source digests](#pins-and-source-digests). The canonical authority for every row is
 `Apeiron/Table/Basic.lean`.
 
 This document specifies obligations. It does not claim the correspondence exists. No row is closed:
@@ -79,8 +82,10 @@ home shard has no vacant slot; `N = 0` refuses every write; reads are total. Son
 allocated nodes, initialization recursion bounded by `cap`.
 
 **Refinement.** Rust `word_table_new_rep` and `word_table_new_eq_empty` prove the constructor at the
-concrete `N = 16` word instance; the general-`N` `Rep` clause is open. Song has no checked
-Song-to-Lean refinement of `tableInit` or the slot invariant. Control C1.
+concrete `N = 16` word instance. The proved relation `Rep` is the read-only extensional relation at
+the public read boundary, `∀ key, word_table_get t key ⦃ value => value = h key ⦄`; no physical
+layout invariant is claimed. The general-`N` read-only extensional `Rep` clause is open. Song has no
+checked Song-to-Lean refinement of `tableInit` or the slot invariant. Control C1.
 
 ### T2 · Read
 
@@ -100,8 +105,9 @@ slot or after `cap` probes.
 **Admission.** Rust reads are total for every key. Song `tableGet` returns `-1` for a missing key and
 for the reserved key; a `-1` raw return is overloaded and is not a status.
 
-**Resources.** Rust: up to `N` full-key comparisons per read. Song: up to `cap` steps of
-`tableLookupSlotGo`, measure `cap - step`.
+**Resources.** Rust: up to `N` full-key comparisons per read, plus one home callback and residue.
+Song: up to `cap` steps of `tableLookupSlotGo`, measure `cap - step`, plus one `tableSpread`
+multiply and mask per read.
 
 **Refinement.** Rust `word_table_get_new_first` and `word_table_get_replaced` connect the generated
 read to `Apeiron.Table.get` on the checked word states. Song has no checked refinement of
@@ -122,16 +128,19 @@ different key.
 
 **Song.** `tableInsertWith` probes with `tableFindSlotGo`, then either updates the located present
 slot or fills the first empty probe slot. `MERGE_MAP` computes `newVal = value`, the replacement
-merge. `MERGE_SET` (presence `1`) and `MERGE_ACC` (`old + value`) are outside the matched merge. The
-reserved key `-1` is refused before probing. At most `cap` probes.
+merge. `MERGE_SET` (presence `1`) and `MERGE_ACC` are outside the matched merge. `MERGE_ACC` adds
+`oldVal + value` only on the existing-key path; a fresh (absent) key stores `value` unchanged, so the
+first accumulator insert does not add the default. The reserved key `-1` is refused before probing.
+At most `cap` probes.
 
 **Admission.** Rust: the replacement `Merge` admits every `(i64, i64)`; admission is inherited from
 `insert_with` (a present key always admits; an absent key admits iff its home shard has a vacant
 slot). Song with `MERGE_MAP` admits only when `tableCapacityOk(cap)` is nonzero, `key` is not
 `TABLE_EMPTY`, the merge code is in range, and `tableFindSlotGo` returns a slot.
 
-**Resources.** Rust: one full-key scan of the home shard, at most `N` comparisons; replacement merge
-is constant work. Song: up to `cap` steps of `tableFindSlotGo`, measure `cap - step`; `MERGE_MAP`
+**Resources.** Rust: one full-key scan of the home shard, at most `N` comparisons, plus one home
+callback and residue; replacement merge is constant work. Song: up to `cap` steps of
+`tableFindSlotGo`, measure `cap - step`, plus one `tableSpread` multiply and mask; `MERGE_MAP`
 assigns `value`.
 
 **Refinement.** Rust `table_insert_empty_zero` and `table_insert_present_zero` connect the generated
@@ -216,7 +225,8 @@ input consumption; the caller drives the loop and owns `memory[]`; 0 allocated n
 
 **Refinement.** Rust `word_table_build_get_acc` connects the ordered two-write build to
 `get_build_acc`; `word_table_build_ordered` proves the fold. Song has no checked refinement of an
-insertion loop. The composition obligation is B6. Control C3.
+insertion loop. `build` stays outside the matched primitive boundary: it is the B6 composition
+obligation, not a matched primitive. Control C3.
 
 ## Separate admission
 
@@ -268,26 +278,53 @@ claim the control goes red. A control that cannot fail has no weight.
 - Song local registers, ontology and commands.
 - Semantic correspondence itself: this profile and its checker establish specification consistency
   only.
-- Arbitrary-`N` Rust `Rep` preservation and admission completeness.
+- Arbitrary-`N` Rust read-only extensional `Rep` preservation and admission completeness.
 - A checked Song-to-Lean refinement for any table primitive.
 - Deletion: no deletion operation is selected by this subprofile.
 - Song backing/nonaliasing and address extent beyond `tableCapacityOk`; those remain separate caller
   obligations.
 
+## Pins and source digests
+
+The checker resolves and verifies these pins; a drift in any revision or digest fails `--check`.
+
+| Item | Revision |
+|---|---|
+| Canonical corpus (`../sanguine-apeiron/proof`) | `50c94192399add3b9f8e64bd14e36d8cba270705` |
+| Mathlib | `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f` |
+| Apeiron sources | `2b5eda334e262f70f7c10ce567c8641c2396626d` |
+| Song sources | `47869e76f982cfa3085a8618a82b80463e22ef46` |
+
+| Source | sha256 |
+|---|---|
+| `src/table.rs` | `83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a` |
+| `song/src/table/table.slang` | `bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d` |
+| `proof/corpus/TableRefinement.lean` | `fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100` |
+| `../sanguine-apeiron/proof/Apeiron/Table/Basic.lean` | `e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9` |
+
 ## Checker
 
 `python3 tools/joint/table_profile_check.py --check` validates
 `tools/joint/table_profile_rows.json` against this document and the pinned sources: every row carries
-all six fields, every named canonical target resolves as the named declaration in the pinned corpus,
-every named Rust and Song entry exists as a declaration, every required row, hazard and control is
-present, the resource accounting names the five distinct kinds and no generic fuel, and this document
-names every required row, hazard and control. It exits nonzero on a missing field, row, hazard,
-control, target or source entry.
+all six fields and stays `selected-open`; every named canonical target resolves as the named
+declaration in the pinned corpus under its exact opened namespace; every named Rust and Song entry
+exists as a concrete executing declaration (a `law`/`carrier`/`spec` header alone is not an entry);
+the corpus revision, Mathlib revision and per-source sha256 digests match the resolved checkout;
+every implementation of every row carries its required resource kinds separately, and no generic
+`fuel` is admitted; every named reference, including control targets and any file/symbol reference in
+the row text, resolves; every required row, hazard and control is present; and this document carries
+the actual records and fields, not incidental mentions. It exits nonzero on a missing field, row,
+hazard, control, target or source entry, on a namespace mismatch, on a corpus or digest drift, or on
+a row that is not `selected-open`.
 
-`--controls` and `--self-test` mutate a deep copy of the loaded profile in memory (remove a required
-field, drop a field from the fields list, remove a required row, remove a required hazard, remove a
-required control, rename a canonical target to a nonexistent name, mislabel a def as a theorem,
-point a Rust entry at a missing file, point a Song entry at a missing symbol, rename a resource kind
-to `fuel`, remove the joint admission clause, drop the `get_build_acc` target) and require each
-mutation to be rejected; the working tree is never touched. The checker establishes specification
-consistency only; it never reports correspondence.
+`--controls` and `--self-test` mutate a deep copy of the loaded profile and the spec text in memory
+and require each mutation to be rejected. Seven controls target the false-green classes: a missing
+resource account on one implementation; a wrong corpus revision and a changed source digest; a
+reversed canonical namespace; a Song entry that is only a `law` header; a deleted required-field
+record and a deleted hazard record in the spec; a `closed` row; and an unknown control target. The
+retained structural controls remove a required field, drop a field from the fields list, remove a
+required row, hazard or control, rename a canonical target to a nonexistent name, mislabel a def as a
+theorem, point a Rust entry at a missing file, point a Song entry at a missing symbol, rename a
+resource kind to `fuel`, remove the joint admission clause and drop the `get_build_acc` target. The
+working tree is never touched. The checker establishes specification consistency only; it never
+reports correspondence.

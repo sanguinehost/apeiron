@@ -4,7 +4,15 @@
   "corpus": {
     "root": "../sanguine-apeiron/proof",
     "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
-    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f",
+    "apeiron_git": "2b5eda334e262f70f7c10ce567c8641c2396626d",
+    "song_git": "47869e76f982cfa3085a8618a82b80463e22ef46",
+    "sources": {
+      "src/table.rs": "83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a",
+      "song/src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
+      "proof/corpus/TableRefinement.lean": "fcf322ccb1c743097105514bfef422c03ee9d58ee690512a9cf0d3760b1a9100",
+      "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+    }
   },
   "fields": [
     {"key": "canonical", "name": "1 canonical authority, object and exact theorem targets per obligation"},
@@ -20,7 +28,7 @@
       "title": "Fixed-shard layout and representation",
       "status": "selected-open",
       "canonical": {
-        "object": "A table is the total function Apeiron.Table.HMap K V := K -> V. Absence is the stored default, not a partial lookup; reading is Apeiron.Table.get. The physical layout denotes that function under the representation invariant below.",
+        "object": "A table is the total function Apeiron.Table.HMap K V := K -> V. Absence is the stored default, not a partial lookup; reading is Apeiron.Table.get. The physical layout is related to that function only by the read-only extensional Rep relation proved at the concrete N = 16 word instance; no physical-layout invariant is claimed.",
         "module": "Apeiron/Table/Basic.lean",
         "targets": [
           {"name": "Apeiron.Table.HMap", "module": "Apeiron/Table/Basic.lean", "kind": "abbrev"},
@@ -78,7 +86,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: proof/corpus/TableRefinement.lean proves word_table_new_rep and word_table_new_eq_empty at the concrete N = 16 word instance; the general-N Rep clause is open. Song: no checked Song-to-Lean refinement of tableInit or the slot invariant exists.",
+        "source_connected": "Rust: proof/corpus/TableRefinement.lean proves word_table_new_rep and word_table_new_eq_empty at the concrete N = 16 word instance; Rep is the read-only extensional relation at the public read boundary and the general-N read-only extensional Rep clause is open. Song: no checked Song-to-Lean refinement of tableInit or the slot invariant exists.",
         "rejecting_control": "C1",
         "artifacts": [
           {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"}
@@ -186,7 +194,7 @@
         "stride": "The write address is base + TABLE_STRIDE * slot for the key and + 1 for the value.",
         "keys": "The reserved key -1 is refused before probing; a present key is located by full-key equality in tableFindSlotGo.",
         "probes": "At most cap probes; a present key updates in place, an absent key fills the first empty slot.",
-        "merge": "MERGE_MAP computes newVal = value, the replacement merge. MERGE_SET (presence 1) and MERGE_ACC (old + value) are outside this subprofile's matched merge.",
+        "merge": "MERGE_MAP computes newVal = value, the replacement merge. MERGE_SET (presence 1) and MERGE_ACC are outside this subprofile's matched merge; MERGE_ACC adds oldVal + value only on the existing-key path and stores value unchanged for a fresh key.",
         "transactionality": "The write mutates one slot in place and returns the new value; there is no rollback."
       },
       "admission": {
@@ -312,7 +320,7 @@
         "stride": "Each probe reads two cells; no allocation.",
         "keys": "The probe bound counts key comparisons and empty-slot stops.",
         "probes": "At most cap probes; recursion depth bounded by cap; measure cap - step.",
-        "merge": "MERGE_MAP is constant work; MERGE_ACC would add one addition.",
+        "merge": "MERGE_MAP is constant work; MERGE_ACC would add one addition on the existing-key path only, a fresh key storing value unchanged.",
         "transactionality": "No input consumption: the primitive reads and writes caller memory[]. 0 allocated nodes."
       },
       "admission": {

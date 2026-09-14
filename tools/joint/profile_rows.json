@@ -1,10 +1,19 @@
 {
   "profile": "APEIRON-PROGRAMME-W17-T1",
-  "version": 1,
+  "version": 2,
   "corpus": {
     "root": "../sanguine-apeiron/proof",
     "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
     "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+  },
+  "source_identity": {
+    "apeiron_revision": "2b5eda334e262f70f7c10ce567c8641c2396626d",
+    "song_revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+    "files": [
+      {"path": "src/scalar.rs", "sha256": "9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e"},
+      {"path": "src/table.rs", "sha256": "83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a"},
+      {"path": "song/src/table/table.slang", "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"}
+    ]
   },
   "seven_fields": [
     {"key": "canonical", "name": "1 canonical object and observation relation with an exact scalar type"},
@@ -18,13 +27,13 @@
   "rows": [
     {
       "id": "R1",
-      "title": "Word arithmetic merge (wrapping addition)",
+      "title": "Word arithmetic merge: the addition slice",
       "status": "selected-open",
       "canonical": {
         "object": "The merge parameter f : V -> V -> V of Apeiron.Table.HMap; the arithmetic merge is commutative-ring addition on the scalar. Canonical observation: reading a built table at a key is a fold of f over that key's values in stream order.",
         "module": "Apeiron/Table/Basic.lean",
         "observation_relation": "Apeiron.Table.get (Apeiron.Table.build f d kvs) x = ((kvs.filter (fun kv => kv.1 = x)).map Prod.snd).foldl (fun acc v => f v acc) d (get_build_acc); schedule freedom under hcomm and hassoc (build_gauge_invariance).",
-        "scalar_type": "Rust i64, wrapping Z/2^64 (Ring::add = i64::wrapping_add); Song mergeAcc(left, right) = left + right on bounded machine integers with 0 <= left, right <= COORD_CEILING; canonical scalar ZMod (2^64) under denote.",
+        "scalar_type": "Rust i64, wrapping Z/2^64 (i64 as Ring add = i64::wrapping_add); Song mergeAcc(left, right) = left + right on bounded machine integers with 0 <= left, right <= COORD_CEILING; canonical scalar ZMod (2^64) under denote.",
         "theorems": [
           {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
           {"name": "Apeiron.Table.build_gauge_invariance", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
@@ -34,8 +43,8 @@
       },
       "entry_points": {
         "rust": [
-          {"symbol": "WordMerge", "file": "src/table.rs", "lang": "rust", "role": "concrete wrapping-add Merge<i64> instance"},
-          {"symbol": "Ring", "file": "src/scalar.rs", "lang": "rust", "role": "the scalar trait whose i64 instance is wrapping"}
+          {"symbol": "WordMerge::merge", "file": "src/table.rs", "lang": "rust", "role": "concrete Merge<i64> wrapping-add method"},
+          {"symbol": "<i64 as Ring>::add", "file": "src/scalar.rs", "lang": "rust", "role": "wrapping i64 ring-addition instance method"}
         ],
         "song": [
           {"symbol": "mergeAcc", "file": "song/src/table/table.slang", "lang": "slang", "role": "pure accumulator merge with in-tree comm/assoc laws"},
@@ -43,36 +52,36 @@
         ]
       },
       "representation_invariant": {
-        "constructor": "src/table.rs::WordMerge (impl Merge<i64> for WordMerge) and src/scalar.rs impl Ring for i64; Song mergeAcc and the MERGE_ACC arm of tableInsertWith.",
+        "constructor": "Scalar arguments have no table constructor: their representation obligation is the input encoding and denotation. WordMerge is a stateless Rust instance; mergeAcc and the inline addition are operations, not constructors. Table-state construction belongs to R2.",
         "statement": "A scalar is its i64 bit pattern. Rust wrapping add denotes addition in ZMod (2^64). Song mergeAcc(left, right) = left + right is that same addition on the matched bounded domain 0 <= v <= COORD_CEILING. Rust WordMerge and the Song inline oldVal + value are the canonical merge f only when the two additions agree on the matched domain; that agreement is not yet proved for the Song side."
       },
       "admission": {
         "rust": {
-          "predicate": "The merge admits every (i64, i64); Ring::add is total wrapping. There is no merge-level refusal; admission is inherited from the table write (insert_with).",
+          "predicate": "The merge admits every (i64, i64); i64 as Ring add is total wrapping. There is no merge-level refusal; admission is inherited from the table write (insert_with).",
           "source": "src/table.rs, src/scalar.rs"
         },
         "song": {
-          "predicate": "mergeAcc admits every pair. The MERGE_ACC arm of tableInsertWith is reached only when tableCapacityOk(cap) is nonzero, key is not TABLE_EMPTY (-1), and merge is in MERGE_SET..MERGE_ACC. mergeAcc's law givens require 0 <= left, right <= COORD_CEILING; the inline arm carries no such guard.",
+          "predicate": "mergeAcc admits every pair. The inline addition in tableInsertWith executes only for an existing key with merge = MERGE_ACC, after capacity, key, merge-code and slot checks succeed. mergeAcc's law givens require 0 <= left, right <= COORD_CEILING; the inline arm carries no such guard.",
           "source": "song/src/table/table.slang"
         }
       },
       "behavior": {
-        "success": "Rust WordMerge::merge(new, old) = new.wrapping_add(old). Song MERGE_ACC writes oldVal + value into the slot and returns the new value.",
+        "success": "mergeAcc is pure addition. In tableInsertWith, the inline addition executes only for an existing key with merge = MERGE_ACC, after capacity, key, merge-code and slot checks succeed. A fresh MERGE_ACC or MERGE_MAP insertion stores and returns value without addition; a fresh MERGE_SET insertion stores and returns 1. An existing MERGE_ACC insertion stores and returns oldVal + value; existing MAP and SET writes return value and 1, respectively.",
         "unsupported_input": "Rust: none at the merge; every pair is defined. Song: none at mergeAcc; a value outside 0..COORD_CEILING is outside the matched domain (the inline arm still computes).",
         "resource_exhaustion": "Not applicable at the merge: one addition either fits the word or wraps. There is no merge-level refusal.",
-        "raw_return_encoding": "Rust an i64 word (wrapping). Song an i64-width word returned through tableSlotValSet; no separate success tag.",
-        "post_state": "Rust merge is pure (Merge::merge(&self, new, old) -> V). Song MERGE_ACC writes the merged value into the slot; mergeAcc alone is pure."
+        "raw_return_encoding": "Rust an i64 word (wrapping). Song an i64-width word returned through tableSlotValSet; no separate success tag. A successful Song MAP or ACC write and a present-key read can also return -1.",
+        "post_state": "Rust merge is pure (Merge::merge(&self, new, old) -> V). Song MERGE_ACC writes the merged value into the slot for an existing key; a fresh insertion stores value (or 1 under MERGE_SET) without addition; mergeAcc alone is pure."
       },
       "resources": {
         "rust": [
-          {"kind": "arithmetic_ops", "accounting": "one wrapping addition per merge call"},
+          {"kind": "arithmetic_ops", "accounting": "one wrapping addition per successful merge call"},
           {"kind": "probes", "accounting": "none"},
           {"kind": "nodes", "accounting": "none"},
           {"kind": "stack_entries", "accounting": "none"},
           {"kind": "input_consumption", "accounting": "two scalar arguments; no stream"}
         ],
         "song": [
-          {"kind": "arithmetic_ops", "accounting": "one addition in mergeAcc; the MERGE_ACC arm computes oldVal + value inline"},
+          {"kind": "arithmetic_ops", "accounting": "zero merge additions on a fresh ACC insertion and one on an existing ACC update; address, hash and probe arithmetic are additional costs"},
           {"kind": "probes", "accounting": "none at the merge"},
           {"kind": "nodes", "accounting": "none"},
           {"kind": "stack_entries", "accounting": "none"},
@@ -107,15 +116,9 @@
       },
       "entry_points": {
         "rust": [
-          {"symbol": "Table", "file": "src/table.rs", "lang": "rust", "role": "fixed-shard inline table"},
-          {"symbol": "new", "file": "src/table.rs", "lang": "rust", "role": "constructor"},
-          {"symbol": "get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
-          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
-          {"symbol": "build", "file": "src/table.rs", "lang": "rust", "role": "transactional ordered build"},
-          {"symbol": "StorageError", "file": "src/table.rs", "lang": "rust", "role": "ShardFull refusal type"},
-          {"symbol": "WordHome", "file": "src/table.rs", "lang": "rust", "role": "word placement by bit pattern"},
-          {"symbol": "Home", "file": "src/table.rs", "lang": "rust", "role": "placement trait"},
-          {"symbol": "Merge", "file": "src/table.rs", "lang": "rust", "role": "value combination trait"}
+          {"symbol": "Table::new", "file": "src/table.rs", "lang": "rust", "role": "constructor"},
+          {"symbol": "Table::get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
+          {"symbol": "Table::insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"}
         ],
         "song": [
           {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "initialize slots to TABLE_EMPTY"},
@@ -135,39 +138,39 @@
       },
       "representation_invariant": {
         "constructor": "Rust Table::new(default, home) sets shards = [None; 256] and stores default; Song tableInit / tableInitGo writes key TABLE_EMPTY and value 0 into every slot.",
-        "statement": "Rust Rep(t, h): the fixed outer [Option<[Option<(K,V)>; N]>; 256], an untouched shard is None, globally unique keys, every entry in its home shard home(k) mod 256, and forall k, D(t)(k) = h(k) with D the matching override or the stored default. The Rust constructor establishes Rep(t, fun _ => d) at N = 16 (word_table_new_rep); the general-N clause is open. Song invariant: memory[base + 2*slot] is the key (TABLE_EMPTY = -1 for empty) and memory[base + 2*slot + 1] the value; tableInit establishes the all-empty state. No Song Rep theorem exists."
+        "statement": "Rust Rep(t, h): the fixed outer [Option<[Option<(K,V)>; N]>; 256], an untouched shard is None, globally unique keys, every entry in its home shard home(k) mod 256, and forall k, D(t)(k) = h(k) with D the matching override or the stored default. word_table_new_rep establishes the existing read-only extensional relation forall key, word_table_get t key (value => value = h key) at Table I64 I64 WordHome 16, with canonical map type HMap I64 I64. It does not establish the physical invariant listed here, nor a table-wide ZMod (2^64) representation theorem. Those require separately named refinements. The general-N clause is open. Required Song invariant: an owned, valid extent of 2*cap memory cells; representable address calculations; unique occupied keys distinct from TABLE_EMPTY; probe reachability before the first empty slot; and an explicit denotation of occupied and absent keys. tableInit initializes the empty layout on valid memory. Constructor establishment, preservation and canonical denotation remain proof obligations. Capacity validation alone does not validate the memory extent."
       },
       "admission": {
         "rust": {
-          "predicate": "insert_with refuses with StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot; N = 0 refuses every write; reads are total; build refuses at the first refused insertion. Refusal invokes neither clone nor merge and changes no field.",
+          "predicate": "Rust N = 0 is a supported zero-capacity configuration, not an unsupported input; writes return ShardFull. Full-capacity refusal requires an absent key. Existing keys can still update in a full Rust shard. Every explicit refusal occurs before any slot write and changes no field; earlier successful calls in a sequence remain visible.",
           "source": "src/table.rs"
         },
         "song": {
-          "predicate": "tableInsertWith returns TABLE_EMPTY = -1 when tableCapacityOk(cap) is 0, when key is TABLE_EMPTY (-1), when the merge code is outside MERGE_SET..MERGE_ACC, or when tableFindSlotGo exhausts the cap probes. tableGet and tableFind return -1 for a missing key.",
+          "predicate": "On valid memory, Song tableInit returns 0 after initialization and returns -1 without writes for invalid capacity. tableFind returns a slot index or -1; tableGet returns the stored value or -1. Reads do not write. Every explicit tableInsertWith refusal occurs before slot writes and leaves the table unchanged; earlier successful calls in a sequence remain visible. Invalid memory/address extent and stack exhaustion have no checked refusal encoding in this profile.",
           "source": "song/src/table/table.slang"
         }
       },
       "behavior": {
-        "success": "Rust: Ok(()) with an existing key updating stored = merge(value, stored.clone()) and a new key inserting merge(value, default.clone()) in the home shard. Song: returns the merged value, updating the slot for an existing key or filling the first empty probe slot for a new key (TABLE_PRESENT = 1 under MERGE_SET).",
-        "unsupported_input": "Rust: N = 0 write. Song: non-positive or non-power-of-two cap; key -1 (reserved); merge code outside 1..3.",
-        "resource_exhaustion": "Rust: ShardFull when the home shard holds N absent-key entries. Song: -1 when all cap probes are occupied (no empty slot). The capacities are different and the refusals need not coincide.",
-        "raw_return_encoding": "Rust Result<(), StorageError>, StorageError::ShardFull; reads return &V. Song a raw word: -1 (TABLE_EMPTY) is overloaded across missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table; a successful MERGE_SET write returns 1 (TABLE_PRESENT). Therefore -1 is not a reliable success/refusal tag (H1).",
+        "success": "Rust: Ok(()) with an existing key updating stored = merge(value, stored.clone()) and a new key inserting merge(value, default.clone()) in the home shard; N = 0 is a supported zero-capacity configuration, not an unsupported input, and writes return ShardFull. Song returns the stored value: a fresh MERGE_ACC or MERGE_MAP insertion stores and returns value without addition, a fresh MERGE_SET insertion stores and returns 1, an existing MERGE_ACC insertion stores and returns oldVal + value, and existing MAP and SET writes return value and 1.",
+        "unsupported_input": "Rust: no table input is unsupported at this primitive; N = 0 is a supported zero-capacity configuration. Song: non-positive or non-power-of-two cap; key -1 (reserved); merge code outside MERGE_SET..MERGE_ACC.",
+        "resource_exhaustion": "Rust: ShardFull exactly when the key is absent and the home shard has no vacant slot. Song: -1 when all cap probes are occupied. Existing keys can still update in a full Rust shard and a full Song table.",
+        "raw_return_encoding": "Rust Result<(), StorageError>, StorageError::ShardFull; reads return &V. Song a raw word: -1 (TABLE_EMPTY) is overloaded across missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table; a successful MERGE_SET write returns 1 (TABLE_PRESENT). Successful Song MAP or ACC writes and present-key reads can also return -1, so it is not merely a shared failure code (H1).",
         "post_state": "Rust refusal changes no field (word_table_shardFull_refusal at N = 16); success preserves the canonical insertWith denotation (open for arbitrary N). Song writes in place, so a mid-stream full table leaves earlier writes in place (H3); tableInit returns -1 on invalid capacity without writing."
       },
       "resources": {
         "rust": [
-          {"kind": "arithmetic_ops", "accounting": "one wrapping add per successful insert; home callback arithmetic per lookup"},
-          {"kind": "probes", "accounting": "up to N full-key comparisons per find_slots per shard; get scans the same"},
+          {"kind": "arithmetic_ops", "accounting": "Rust word-instance writes perform one wrapping addition on success"},
+          {"kind": "probes", "accounting": "an absent-key insertion into an initialized shard can perform an N-slot key search followed by an N-slot vacancy scan"},
           {"kind": "nodes", "accounting": "0 heap nodes; storage is inline [Option<[Option<(K,V)>; N]>; 256]"},
           {"kind": "stack_entries", "accounting": "constant call depth; a scalar loop index only; object size grows with N"},
-          {"kind": "input_consumption", "accounting": "build consumes kvs in order and clones each key and value; insert_with consumes one pair"}
+          {"kind": "input_consumption", "accounting": "insert_with consumes one key/value pair; build consumes the stream in order and clones each key and value"}
         ],
         "song": [
-          {"kind": "arithmetic_ops", "accounting": "tableSpread one multiply and one and; MERGE_ACC one add"},
+          {"kind": "arithmetic_ops", "accounting": "zero merge additions on fresh ACC insertion and one on existing ACC update; address, hash and probe arithmetic are additional costs; initialization writes 2*cap memory cells"},
           {"kind": "probes", "accounting": "up to cap steps of tableLookupSlotGo / tableFindSlotGo, measure cap - step"},
           {"kind": "nodes", "accounting": "0 allocated nodes; caller or static memory (the cells(32) test arena)"},
-          {"kind": "stack_entries", "accounting": "recursion depth bounded by cap probes, measure cap - step"},
-          {"kind": "input_consumption", "accounting": "none; the primitive reads and writes caller memory[]"}
+          {"kind": "stack_entries", "accounting": "probe/initialization recursion is O(cap) source call depth, not a checked machine-stack bound"},
+          {"kind": "input_consumption", "accounting": "none; the primitive reads and writes caller memory[]; consumed arguments/streams remain a separate account"}
         ]
       },
       "refinement": {
@@ -187,6 +190,7 @@
       "counterpart": "Rust src/cell.rs::{mul, norm_form} (with add, channels and idempotents) over Ring; Song side NONE.",
       "reason": "Song has no executing two-slot algebra with a Sigma dial. song/src/prover/ring/prover0.slang operates on SKI/iota terms, not on R[x]/(x^2 - sigma) cells, so there is no matched domain.",
       "canonical_theorem": {"name": "Apeiron.Trichotomy.mul_comm", "module": "Apeiron/Trichotomy/Basic.lean", "root": "corpus"},
+      "rust_entry": {"symbol": "mul", "file": "src/cell.rs", "lang": "rust"},
       "status": "blocker"
     },
     {
@@ -194,6 +198,7 @@
       "counterpart": "Rust src/carrier.rs::{point_density, point_flux, conservative_density_step, diffusive_flux_half, diffusive_line3_step}; Song side NONE.",
       "reason": "No Song executing primitive denotes the carrier readout or the exact integer carrier update.",
       "canonical_theorem": {"name": "Apeiron.Physics.pointDensity_eq", "module": "Apeiron/Physics/CarrierAnyRing.lean", "root": "corpus"},
+      "rust_entry": {"symbol": "point_density", "file": "src/carrier.rs", "lang": "rust"},
       "status": "blocker"
     },
     {
@@ -201,6 +206,7 @@
       "counterpart": "Rust src/exchange.rs::{exchange_impulse, elastic_exchange, accept_derived_impulse}; Song side NONE.",
       "reason": "No Song executing primitive performs the equal-mass exchange or the checked-claim acceptance.",
       "canonical_theorem": {"name": "Apeiron.Physics.ringExchangeImpulse", "module": "Apeiron/Physics/CarrierBodyWorkAnyRing.lean", "root": "corpus"},
+      "rust_entry": {"symbol": "exchange_impulse", "file": "src/exchange.rs", "lang": "rust"},
       "status": "blocker"
     },
     {
@@ -222,7 +228,9 @@
     {
       "id": "B6",
       "counterpart": "Rust src/table.rs::Table::build is transactional (Result<Self, StorageError>, no partial table); Song has only per-insert tableInsertWith plus tableInit and no transactional build.",
-      "reason": "Song's insertion loop is not Rust's transactional build: a refused insertion leaves earlier writes in place. The composition obligation is to define a matched Song build whose refusal post-state is the empty table, or to restrict the admitted domain.",
+      "reason": "Song has no transactional build. Rust returns Err without exposing its locally constructed partial table; this is not an empty-table return. A separate composition task must specify Song's externally observable success and refusal post-state. A success-only restricted-domain result does not discharge B6's refusal/resource obligation.",
+      "canonical_theorem": {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+      "rust_entry": {"symbol": "Table::build", "file": "src/table.rs", "lang": "rust"},
       "status": "blocker"
     }
   ],
@@ -230,12 +238,12 @@
     {
       "id": "H1",
       "statement": "Song reserves key -1 (TABLE_EMPTY) and returns -1 for a missing read, while Rust has no reserved key and returns the stored default.",
-      "consequence": "Song's raw return is not a reliable success/refusal tag: -1 conflates missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table."
+      "consequence": "Song's raw return is not a reliable success/refusal tag: -1 conflates missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table. Successful Song MAP or ACC writes and present-key reads can also return -1; it is not merely a shared code for several failures."
     },
     {
       "id": "H2",
       "statement": "Rust default is a stored value returned for any unwritten key; Song tableGet returns -1 for a missing key and has no stored default.",
-      "consequence": "The canonical HMap total default is not represented by Song's missing-read. The matched domain must fix the default and exclude the reserved key, or the correspondence is false at absent keys."
+      "consequence": "The matched observation relation remains OPEN. For additive fresh writes, Song stores value, whereas Rust stores value + default; equality under direct word observation requires default zero. But an absent Song read returns -1, whereas Rust then returns zero. Choosing default -1 fixes the direct absent-read comparison but breaks additive fresh-write equality. Excluding key -1 does not resolve this value mismatch. A state-aware observation/adaptation relation must be specified; no such relation is established here."
     },
     {
       "id": "H3",
@@ -250,13 +258,13 @@
     {
       "id": "H5",
       "statement": "Song certcheck must refine Apeiron.Decider.checkCert and checkCert_sound.",
-      "consequence": "Until that refinement exists, Song's UNSAT replay is not the canonical checker and carries its own in-tree soundness only."
+      "consequence": "Until that refinement exists, Song's UNSAT replay is not established as a refinement of the canonical checker."
     }
   ],
   "integration_order": [
-    "R1 word arithmetic: fix the matched scalar domain (0 <= v <= COORD_CEILING, key -1 excluded) and the shared addition observation.",
+    "The matched observation relation remains OPEN. For additive fresh writes, Song stores value, whereas Rust stores value + default; equality under direct word observation requires default zero. But an absent Song read returns -1, whereas Rust then returns zero. Choosing default -1 fixes the direct absent-read comparison but breaks additive fresh-write equality. Excluding key -1 does not resolve this value mismatch. A state-aware observation/adaptation relation must be specified; no such relation is established here.",
     "R2 table init/read/write: the first joint storage target; define the matched admission relation and a Song Rep invariant.",
-    "B6 table build composition: define a transactional Song build or restrict the admitted domain.",
+    "Song has no transactional build. Rust returns Err without exposing its locally constructed partial table; this is not an empty-table return. A separate composition task must specify Song's externally observable success and refusal post-state. A success-only restricted-domain result does not discharge B6's refusal/resource obligation.",
     "B1..B5 unmatched counterparts, in dependency order: cell algebra, carrier, exchange, combinator evaluator, certificate replayer.",
     "Vertical lift/reduction demonstration only after the profile and the executing evaluator refinement."
   ],

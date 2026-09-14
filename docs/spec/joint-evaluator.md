@@ -11,6 +11,9 @@ authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust repr
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
 corpus remains at `../sanguine-apeiron/proof/` at Git
 `50c94192399add3b9f8e64bd14e36d8cba270705`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
+The Apeiron sources were read at revision `2b5eda334e262f70f7c10ce567c8641c2396626d` and the Song
+sources at revision `47869e76f982cfa3085a8618a82b80463e22ef46`; the per-file digests are recorded
+under [Pins and source digests](#pins-and-source-digests).
 
 This document specifies obligations. It does not claim the correspondence exists. No row is closed:
 every row below is `selected-open` or `blocker`. The machine-readable form is
@@ -253,18 +256,50 @@ mutation that the executing refinement must reject.
 - `Apeiron/Decider/Stream.lean` and the executing stream refinement (`BE4`).
 - Any resolution of the `i`/`**skk` compatibility blocker (`BE5`, `HE1`).
 
+## Pins and source digests
+
+The checker resolves and verifies these pins; a drift in any revision or digest fails `--check`.
+
+| Item | Revision |
+|---|---|
+| Canonical corpus (`../sanguine-apeiron/proof`) | `50c94192399add3b9f8e64bd14e36d8cba270705` |
+| Mathlib | `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f` |
+| Apeiron sources | `2b5eda334e262f70f7c10ce567c8641c2396626d` |
+| Song sources | `47869e76f982cfa3085a8618a82b80463e22ef46` |
+
+| Source | sha256 |
+|---|---|
+| `song/src/prover/ring/prover0.slang` | `1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb` |
+| `song/src/prover/cone/certcheck.slang` | `e0c149405af8a2aca9cec254db290625efe1aed1ca68fa256175a3e32cf31f81` |
+| `song/src/prover/cone/satcheck.slang` | `5bc94261d9bd3361c064ebc28bc35e3461247c095cfaacc58520cdc68a332b49` |
+| `../sanguine-apeiron/proof/Apeiron/Combinator/Basic.lean` | `8b5629081130e7b53057b2b797b11e8f8340a34a0e0cfca5ca91282f39523c5c` |
+| `../sanguine-apeiron/proof/Apeiron/Combinator/Verdict.lean` | `090a4cd245660d31ab4107600b6869782cefadfacd6355a2bb7174d3172eb36c` |
+| `../sanguine-apeiron/proof/Apeiron/Combinator/Confluence.lean` | `20e3b958add0f44df499cb71beb2c270781925030abce271424c52e5d93f1d22` |
+| `../sanguine-apeiron/proof/Apeiron/Decider/Cert.lean` | `d91a5ba8e3d25b8425eec7748ee2c415e298adff34b776a9b9cce8bd84c47e27` |
+
 ## Checker
 
 `python3 tools/joint/evaluator_profile_check.py --check` validates
 `tools/joint/evaluator_profile_rows.json` against this document and the pinned sources: every row
-carries all eight fields, every named canonical theorem and canonical entry point resolves as a
-declaration in the pinned corpus, every named Song entry exists as a declaration, every required
-unmatched blocker, hazard and control is present, the representation statement names its declared
-terms, and the resource accounting names the distinct kinds with no generic `fuel`. It exits nonzero
-on a missing field, row, blocker, hazard, control, theorem or source entry. `--controls` and
-`--self-test` mutate a deep copy of the loaded profile in memory (remove a required field, remove an
-unmatched blocker, remove a row, rename a theorem to a nonexistent name, point a source entry at a
-missing file, rename a resource kind to `fuel`, remove a hazard, drop a fields entry, remove a
-required control, drop a representation term, remove the trailing-input policy) and require each
-mutation to be rejected; the working tree is never touched. The checker establishes specification
-consistency only, never correspondence.
+carries all eight fields and stays `selected-open`; every named canonical theorem and canonical entry
+point resolves as a declaration in the pinned corpus under its exact opened namespace; every named
+Song entry exists as a concrete executing declaration (a `law`/`carrier`/`spec` header alone is not
+an entry); the corpus revision, Mathlib revision and per-source sha256 digests match the resolved
+checkout; every implementation of every row carries its required resource kinds separately, and no
+generic `fuel` is admitted; every named reference, including blocker `counterpart`/`reason` entries
+and control targets, is checked; every required unmatched blocker, hazard and control is present; the
+representation statement names its declared terms; and this document carries the actual records and
+fields, not incidental mentions. It exits nonzero on a missing field, row, blocker, hazard, control,
+theorem or source entry, on a namespace mismatch, on a corpus or digest drift, or on a row that is
+not `selected-open`.
+
+`--controls` and `--self-test` mutate a deep copy of the loaded profile and the spec text in memory
+and require each mutation to be rejected. Seven controls target the false-green classes: a missing
+resource account on one implementation; a wrong corpus revision and a changed source digest; a
+reversed canonical namespace; a Song entry that is only a `law` header; a deleted required-field
+record and a deleted blocker record in the spec; a `closed` row; and an unresolved blocker
+reference. The retained structural controls remove a required field, remove an unmatched blocker,
+remove a row, rename a theorem to a nonexistent name, point a source entry at a missing file, rename
+a resource kind to `fuel`, remove a hazard, drop a fields entry, remove a required control, drop a
+representation term and remove the trailing-input policy. The working tree is never touched. The
+checker establishes specification consistency only, never correspondence.
