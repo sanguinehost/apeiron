@@ -1,13 +1,18 @@
 //! Bounded proofs. `cfg(kani)` only.
 //!
 //! Each harness below is a `#[kani::proof]` over a symbolic or bounded input, checked by
-//! `cargo kani`. Two bounds are stated where the tool forces them rather than hidden:
+//! `cargo kani`. Three bounds are stated where the tool forces them rather than hidden:
 //!
 //! - **Width.** CBMC bit-blasts a multiply to the width of the type whatever the operands hold, so
 //!   the structural ring laws are stated over `i8` (`scalar.rs` says why that is the structure) and
 //!   the `i64` path is checked where the solver returns.
 //! - **Window.** A degree-four identity is checked on the small window its harness names rather
 //!   than ground on. The bound is a tractability device, not a domain restriction of the algebra.
+//! - **Shards.** `Table`'s shard index is `home(key) % 256`, and a symbolic index into the
+//!   256-entry `shards` array makes CBMC build a 256-way mux. The symbolic-key table coverage is
+//!   split between the real routing arithmetic, the real bodies at concrete shard indices (reduced
+//!   key width for the multi-key case) and a reduced-shard replica; the table section states which
+//!   harness covers what and what is not covered.
 //!
 //! `cargo build`, `cargo test` and `cargo clippy` do not set `cfg(kani)`, so none of this is
 //! compiled by them: a harness that drifts from the kernel is caught only when `cargo kani` runs.
@@ -19,7 +24,7 @@ mod harnesses {
     use crate::coord::{bucket, i21, Packed};
     use crate::exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse};
     use crate::scalar::{Dyadic, Halve, Ring};
-    use crate::table::{StorageError, Table, WordHome, WordMerge};
+    use crate::table::{Home, Merge, StorageError, Table, WordHome, WordMerge};
 
     const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
@@ -775,12 +780,26 @@ mod harnesses {
     // by `home(key) % 256`. These harnesses pin the read relation, the merge, the refusal path and
     // the bounds of the index.
     //
-    // `shard_index` is private to `table`, so the bound is stated twice: once as the residue
-    // arithmetic it performs, over a symbolic home word, and once behaviourally on concrete keys
-    // that land on the edge shards. The behavioural keys are concrete because a *symbolic* index
-    // into the 256-element shard array makes CBMC build a 256-way mux per access, which took 718s
-    // and 1072s in the solver for two of these harnesses; a concrete index is the same kernel
-    // exercised directly.
+    // `shard_index` is private to `table`, and a *symbolic* index into the 256-element shard array
+    // makes CBMC build a 256-way mux per access (718s and 1072s in the solver for two earlier
+    // harnesses). The symbolic-key coverage is therefore split by what each layer can decide:
+    //
+    // - `the_word_home_route_is_the_low_byte` states the real routing arithmetic over a symbolic
+    //   `i64` key, sharing the expression `WordHome::home` with the kernel.
+    // - `a_reduced_shard_table_searches_symbolic_keys` runs the access path -- `home % SHARDS`,
+    //   first-match slot scan, full-key equality, new-first merge -- in `MiniTable`, a reduced-width
+    //   replica of the kernel. It is a model: a `table.rs` mutation is not observed there.
+    // - `table_symbolic_key_round_trips_a_present_key` and
+    //   `table_symbolic_byte_keys_fill_one_shard` run the *real* kernel with symbolic keys and a
+    //   constant home, so the shard index is concrete and no mux is built; the slot search,
+    //   full-key equality and merge are the extracted body's.
+    // - `table_build_folds_a_multi_key_stream_in_order` runs the real `build` over two shards with
+    //   a repeated key and an order-sensitive merge, so the fold order is observable.
+    //
+    // **Not covered:** a symbolic shard index against the real 256-entry array, hence the real
+    // `% 256` route combined with a symbolic key in one harness. The `% SHARDS` model and the
+    // `% 256` real arithmetic are joined only by the shared expression and the concrete-key
+    // behavioural harnesses below.
 
     /// The residue of a home word below the shard count, for **every** home word.
     ///
@@ -791,6 +810,268 @@ mod harnesses {
     fn the_shard_index_is_a_residue_below_the_shard_count() {
         let home: u64 = kani::any();
         assert!(((home % 256) as usize) < 256);
+    }
+
+    /// The real `WordHome` route is the low byte of the key word, for every key.
+    ///
+    /// `Table::shard_index` is `home(key) % 256`, and `WordHome::home` is the key's bit pattern.
+    /// Over two symbolic `i64` keys this states the routing arithmetic the real kernel performs:
+    /// the residue is the low byte, it is below the shard count, and two keys route together
+    /// exactly when their low bytes agree. It is the `% 256` expression that `MiniTable`'s
+    /// `% SHARDS` reduces and that the concrete-key table harnesses exercise end to end.
+    #[kani::proof]
+    fn the_word_home_route_is_the_low_byte() {
+        let a: i64 = kani::any();
+        let b: i64 = kani::any();
+        assert_eq!(WordHome.home(&a) % 256, (a as u64) & 0xff);
+        assert!((WordHome.home(&a) % 256) < 256);
+        assert_eq!(
+            WordHome.home(&a) % 256 == WordHome.home(&b) % 256,
+            (a as u64) & 0xff == (b as u64) & 0xff,
+            "two keys route together exactly when their low bytes agree"
+        );
+    }
+
+    /// A constant home: every key routes to shard `0`.
+    ///
+    /// A test fixture, not the kernel's `WordHome`. It makes `shard_index` a concrete `0` so the
+    /// real `Table` bodies can be checked with symbolic keys without a symbolic index into the
+    /// 256-entry `shards` array.
+    struct ConstZeroHome;
+
+    impl Home<i64> for ConstZeroHome {
+        fn home(&self, _key: &i64) -> u64 {
+            0
+        }
+    }
+
+    /// A real-table read/write round-trip over a **symbolic** key in one concrete shard.
+    ///
+    /// The home is `ConstZeroHome`, so `shard_index` is concrete and CBMC builds no mux; the key,
+    /// the slot scan and the full-key equality are symbolic and the bodies are `table.rs`'s. A
+    /// present symbolic key reads the value it was written with, and a distinct concrete key reads
+    /// the default. One key rather than several because the solver cost of symbolic `i64` keys in
+    /// the real slot scan is superlinear (measured: one key 0.3s, two 56s, four 1148s); the
+    /// multi-key symbolic case is `table_symbolic_byte_keys_fill_one_shard` at reduced key width and
+    /// `a_reduced_shard_table_searches_symbolic_keys` at reduced shard width.
+    ///
+    /// **Not covered:** the routing from a symbolic key to its shard, which needs a symbolic index
+    /// into the real 256-entry array. It is stated arithmetically by
+    /// `the_word_home_route_is_the_low_byte` and modelled by
+    /// `a_reduced_shard_table_searches_symbolic_keys`.
+    #[kani::proof]
+    fn table_symbolic_key_round_trips_a_present_key() {
+        let key: i64 = kani::any();
+        kani::assume(key != 0);
+        let mut table = Table::<i64, i64, ConstZeroHome, 1>::new(0, ConstZeroHome);
+        table.insert_with(&WordMerge, key, 5).unwrap();
+        assert_eq!(*table.get(&key), 5, "the symbolic key reads its value");
+        assert_eq!(
+            *table.get(&0),
+            0,
+            "the distinct absent key reads the default"
+        );
+    }
+
+    /// A constant home over byte keys, and byte wrapping addition, for the reduced-key harness.
+    struct ConstZeroHomeI8;
+
+    impl Home<i8> for ConstZeroHomeI8 {
+        fn home(&self, _key: &i8) -> u64 {
+            0
+        }
+    }
+
+    struct ByteMerge;
+
+    impl Merge<i8> for ByteMerge {
+        fn merge(&self, new: i8, old: i8) -> i8 {
+            new.wrapping_add(old)
+        }
+    }
+
+    /// A real-table read/write round-trip over four **symbolic** byte keys in one concrete shard.
+    ///
+    /// The real `Table` bodies are monomorphised at `K = i8`, so the slot scan, the full-key
+    /// equality and the first-free-slot placement are the extracted code; only the key width is
+    /// reduced, and an 8-bit key makes four symbolic keys decide where four `i64` keys did not
+    /// (1148s). Four distinct keys fill the four slots and each reads back its own value, so the
+    /// scan must match the full key and not merely the shard. The home is `ConstZeroHomeI8`, so the
+    /// shard index is concrete and no mux is built.
+    ///
+    /// **Not covered:** the routing from a symbolic key to its shard, and any key wider than a
+    /// byte; the `i64` path is `table_symbolic_key_round_trips_a_present_key` (one symbolic key).
+    #[kani::proof]
+    fn table_symbolic_byte_keys_fill_one_shard() {
+        let (k0, k1, k2, k3): (i8, i8, i8, i8) =
+            (kani::any(), kani::any(), kani::any(), kani::any());
+        kani::assume(k0 != k1 && k0 != k2 && k0 != k3 && k1 != k2 && k1 != k3 && k2 != k3);
+        let mut table = Table::<i8, i8, ConstZeroHomeI8, 4>::new(0, ConstZeroHomeI8);
+        table.insert_with(&ByteMerge, k0, 1).unwrap();
+        table.insert_with(&ByteMerge, k1, 2).unwrap();
+        table.insert_with(&ByteMerge, k2, 3).unwrap();
+        table.insert_with(&ByteMerge, k3, 4).unwrap();
+        assert_eq!(*table.get(&k0), 1);
+        assert_eq!(*table.get(&k1), 2);
+        assert_eq!(*table.get(&k2), 3);
+        assert_eq!(*table.get(&k3), 4);
+    }
+
+    /// A reduced-width replica of `Table`'s shard/slot kernel, for symbolic-key checking.
+    ///
+    /// `SHARDS` and `SLOTS` stand where `table.rs`'s `256` and `N` stand, and every expression is
+    /// the one `Table` writes: `home(key) % SHARDS` for the shard, the first-match scan over the
+    /// slot array, the full-key equality that decides a hit, and `merge(new, old)` including the
+    /// default on the first write.
+    ///
+    /// **It is a model, not the extracted body.** A mutation in `table.rs` is not observed here;
+    /// the real bodies carry the same properties through
+    /// `table_symbolic_key_round_trips_a_present_key` and
+    /// `table_symbolic_byte_keys_fill_one_shard` (symbolic keys, one concrete shard) and
+    /// `table_build_folds_a_multi_key_stream_in_order` (two concrete shards, a repeated key). It
+    /// exists because a symbolic index into the real 256-entry `shards` array makes CBMC build a
+    /// 256-way mux per access; at `SHARDS = 4` the same access path is decided.
+    struct MiniTable<K, V, H, const SHARDS: usize, const SLOTS: usize> {
+        default: V,
+        home: H,
+        shards: [Option<[Option<(K, V)>; SLOTS]>; SHARDS],
+    }
+
+    impl<K, V, H: Home<K>, const SHARDS: usize, const SLOTS: usize> MiniTable<K, V, H, SHARDS, SLOTS> {
+        fn new(default: V, home: H) -> Self {
+            Self {
+                default,
+                home,
+                shards: [const { None }; SHARDS],
+            }
+        }
+
+        fn shard_index(&self, key: &K) -> usize {
+            (self.home.home(key) % SHARDS as u64) as usize
+        }
+    }
+
+    impl<K: Eq, V, H: Home<K>, const SHARDS: usize, const SLOTS: usize>
+        MiniTable<K, V, H, SHARDS, SLOTS>
+    {
+        fn find(&self, shard: usize, key: &K) -> Option<usize> {
+            if let Some(slots) = &self.shards[shard] {
+                return Self::find_slots(slots, key);
+            }
+            None
+        }
+
+        fn find_slots(slots: &[Option<(K, V)>; SLOTS], key: &K) -> Option<usize> {
+            let mut i = 0;
+            while i < SLOTS {
+                if let Some((stored, _)) = &slots[i] {
+                    if stored == key {
+                        return Some(i);
+                    }
+                }
+                i += 1;
+            }
+            None
+        }
+
+        fn get(&self, key: &K) -> &V {
+            let shard = self.shard_index(key);
+            if let Some(i) = self.find(shard, key) {
+                if let Some(slots) = &self.shards[shard] {
+                    if let Some((_, value)) = &slots[i] {
+                        return value;
+                    }
+                }
+            }
+            &self.default
+        }
+    }
+
+    impl<K: Eq, V: Clone, H: Home<K>, const SHARDS: usize, const SLOTS: usize>
+        MiniTable<K, V, H, SHARDS, SLOTS>
+    {
+        fn insert_with<F: Merge<V>>(
+            &mut self,
+            merge: &F,
+            key: K,
+            value: V,
+        ) -> Result<(), StorageError> {
+            let shard = self.shard_index(&key);
+            if let Some(i) = self.find(shard, &key) {
+                if let Some(slots) = &mut self.shards[shard] {
+                    if let Some((_, stored)) = &mut slots[i] {
+                        *stored = merge.merge(value, stored.clone());
+                        return Ok(());
+                    }
+                }
+            }
+            if SLOTS == 0 {
+                return Err(StorageError::ShardFull);
+            }
+            if self.shards[shard].is_none() {
+                let mut slots = [const { None }; SLOTS];
+                let merged = merge.merge(value, self.default.clone());
+                slots[0] = Some((key, merged));
+                self.shards[shard] = Some(slots);
+                return Ok(());
+            }
+            if let Some(slots) = &mut self.shards[shard] {
+                let mut i = 0;
+                while i < SLOTS {
+                    if slots[i].is_none() {
+                        let merged = merge.merge(value, self.default.clone());
+                        slots[i] = Some((key, merged));
+                        return Ok(());
+                    }
+                    i += 1;
+                }
+            }
+            Err(StorageError::ShardFull)
+        }
+    }
+
+    /// The reduced-width table routes and searches **symbolic** keys at `% SHARDS` width.
+    ///
+    /// This is `MiniTable`'s coverage, not `Table`'s: a symbolic shard index against the real
+    /// 256-entry array is the cost the model avoids. What it decides is the access path itself,
+    /// over symbolic keys: `home(key) % 4` is below the shard count; a written key reads its value
+    /// (the slot scan matches the full key, not the shard); a distinct key routed to the same shard
+    /// reads the default; and a repeated write merges new-first, with the absent shard-mate still
+    /// reading the default. `WordHome` and `WordMerge` are the real instances, so the expressions
+    /// are the kernel's with `SHARDS` in place of `256`.
+    #[kani::proof]
+    fn a_reduced_shard_table_searches_symbolic_keys() {
+        let key: i64 = kani::any();
+        let mate: i64 = kani::any();
+        let value: i64 = kani::any();
+        let second: i64 = kani::any();
+        kani::assume(mate != key);
+        kani::assume(WordHome.home(&mate) % 4 == WordHome.home(&key) % 4);
+
+        let mut table = MiniTable::<i64, i64, _, 4, 2>::new(0, WordHome);
+        assert!(
+            table.shard_index(&key) < 4,
+            "the route is a residue below the shard count"
+        );
+        table.insert_with(&WordMerge, key, value).unwrap();
+        assert_eq!(*table.get(&key), value, "the written key reads its value");
+        assert_eq!(
+            *table.get(&mate),
+            0,
+            "a same-shard key that was never written reads the default"
+        );
+
+        table.insert_with(&WordMerge, key, second).unwrap();
+        assert_eq!(
+            *table.get(&key),
+            second.wrapping_add(value),
+            "a repeated key merges new-first"
+        );
+        assert_eq!(
+            *table.get(&mate),
+            0,
+            "the update did not disturb the absent shard-mate"
+        );
     }
 
     /// A fresh table reads its total default for every key, across the shard boundaries.
@@ -870,6 +1151,49 @@ mod harnesses {
         let result = table.insert_with(&|_, _| panic!("merge on refusal"), 0, 1);
         assert_eq!(result, Err(StorageError::ShardFull));
         assert_eq!(*table.get(&0), 4);
+    }
+
+    /// `merge(new, old) = new - old`, non-commutative so the build fold's order is observable.
+    ///
+    /// `WordMerge` is wrapping addition, which is commutative: a build that reversed its stream
+    /// would produce the same word and no harness could see it. This instance makes the order a
+    /// value, so `table_build_folds_a_multi_key_stream_in_order` fails on a reversed fold or a
+    /// swapped `insert_with` merge.
+    struct NewFirstDifference;
+
+    impl Merge<i64> for NewFirstDifference {
+        fn merge(&self, new: i64, old: i64) -> i64 {
+            new.wrapping_sub(old)
+        }
+    }
+
+    /// `Table::build` folds a small stream in order across two shards, with a repeated key.
+    ///
+    /// Keys `0` and `1` land on shards `0` and `1`, so the stream exercises more than one shard
+    /// without a symbolic index. Key `0` appears twice, so its second write takes the update path
+    /// and merges with the first write, not the default. The merge is `new - old`, non-commutative,
+    /// so the fold order is observable: a build that reversed its stream, or an `insert_with` that
+    /// merged `old` before `new`, gives a different word. The `get` assertions are the
+    /// insert-then-get round-trip for both a repeated and a distinct key.
+    ///
+    /// **Not covered:** a symbolic key, a symbolic shard count or a refusal inside `build`; the
+    /// two-shard layout and the stream are concrete so the ordered fold is checked exactly.
+    #[kani::proof]
+    fn table_build_folds_a_multi_key_stream_in_order() {
+        let (a, b, c): (i64, i64, i64) = (kani::any(), kani::any(), kani::any());
+        let stream = [(0i64, a), (1i64, b), (0i64, c)];
+        let table =
+            Table::<i64, i64, _, 2>::build(&NewFirstDifference, 10, &stream, WordHome).unwrap();
+        assert_eq!(
+            *table.get(&0),
+            c.wrapping_sub(a.wrapping_sub(10)),
+            "the repeated key must fold new-first in stream order"
+        );
+        assert_eq!(
+            *table.get(&1),
+            b.wrapping_sub(10),
+            "the distinct key must fold once against the default"
+        );
     }
 
     // ── the exchange and the carrier step ─────────────────────────────────────────────────────
