@@ -25,4 +25,5 @@ lean_lib ApeironWordBridge where
     `TableRefinementReachablePrefixExactN, `TableRefinementAdmissionGeneric,
     `TableRefinementPhysical, `AxiomAudit,
     `Joint.TableInstance, `Joint.TableInstanceAudit, `Slang.Syntax, `Slang.Decode,
-    `Slang.DecodeTest, `Slang.Word, `Slang.Machine, `Slang.MachineAudit]
+    `Slang.DecodeTest, `Slang.Word, `Slang.Machine, `Slang.MachineAudit,
+    `Slang.Generated.Table]
