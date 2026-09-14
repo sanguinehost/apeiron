@@ -1,0 +1,273 @@
+{
+  "profile": "APEIRON-PROGRAMME-W17-T1",
+  "version": 1,
+  "corpus": {
+    "root": "../sanguine-apeiron/proof",
+    "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+  },
+  "seven_fields": [
+    {"key": "canonical", "name": "1 canonical object and observation relation with an exact scalar type"},
+    {"key": "entry_points", "name": "2 concrete entry points and source identity on each side"},
+    {"key": "representation_invariant", "name": "3 representation invariant established by the actual constructor"},
+    {"key": "admission", "name": "4 separate Rust and Song admission predicates"},
+    {"key": "behavior", "name": "5 success / unsupported-input / resource-exhaustion behaviour with raw return encoding and post-state"},
+    {"key": "resources", "name": "6 separate Rust and Song resource accounting"},
+    {"key": "refinement", "name": "7 source-connected refinement and a rejecting control"}
+  ],
+  "rows": [
+    {
+      "id": "R1",
+      "title": "Word arithmetic merge (wrapping addition)",
+      "status": "selected-open",
+      "canonical": {
+        "object": "The merge parameter f : V -> V -> V of Apeiron.Table.HMap; the arithmetic merge is commutative-ring addition on the scalar. Canonical observation: reading a built table at a key is a fold of f over that key's values in stream order.",
+        "module": "Apeiron/Table/Basic.lean",
+        "observation_relation": "Apeiron.Table.get (Apeiron.Table.build f d kvs) x = ((kvs.filter (fun kv => kv.1 = x)).map Prod.snd).foldl (fun acc v => f v acc) d (get_build_acc); schedule freedom under hcomm and hassoc (build_gauge_invariance).",
+        "scalar_type": "Rust i64, wrapping Z/2^64 (Ring::add = i64::wrapping_add); Song mergeAcc(left, right) = left + right on bounded machine integers with 0 <= left, right <= COORD_CEILING; canonical scalar ZMod (2^64) under denote.",
+        "theorems": [
+          {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.build_gauge_invariance", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.get_insertWith_self", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.get_insertWith_ne", "module": "Apeiron/Table/Basic.lean", "root": "corpus"}
+        ]
+      },
+      "entry_points": {
+        "rust": [
+          {"symbol": "WordMerge", "file": "src/table.rs", "lang": "rust", "role": "concrete wrapping-add Merge<i64> instance"},
+          {"symbol": "Ring", "file": "src/scalar.rs", "lang": "rust", "role": "the scalar trait whose i64 instance is wrapping"}
+        ],
+        "song": [
+          {"symbol": "mergeAcc", "file": "song/src/table/table.slang", "lang": "slang", "role": "pure accumulator merge with in-tree comm/assoc laws"},
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "executing MERGE_ACC arm computes oldVal + value inline"}
+        ]
+      },
+      "representation_invariant": {
+        "constructor": "src/table.rs::WordMerge (impl Merge<i64> for WordMerge) and src/scalar.rs impl Ring for i64; Song mergeAcc and the MERGE_ACC arm of tableInsertWith.",
+        "statement": "A scalar is its i64 bit pattern. Rust wrapping add denotes addition in ZMod (2^64). Song mergeAcc(left, right) = left + right is that same addition on the matched bounded domain 0 <= v <= COORD_CEILING. Rust WordMerge and the Song inline oldVal + value are the canonical merge f only when the two additions agree on the matched domain; that agreement is not yet proved for the Song side."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "The merge admits every (i64, i64); Ring::add is total wrapping. There is no merge-level refusal; admission is inherited from the table write (insert_with).",
+          "source": "src/table.rs, src/scalar.rs"
+        },
+        "song": {
+          "predicate": "mergeAcc admits every pair. The MERGE_ACC arm of tableInsertWith is reached only when tableCapacityOk(cap) is nonzero, key is not TABLE_EMPTY (-1), and merge is in MERGE_SET..MERGE_ACC. mergeAcc's law givens require 0 <= left, right <= COORD_CEILING; the inline arm carries no such guard.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "behavior": {
+        "success": "Rust WordMerge::merge(new, old) = new.wrapping_add(old). Song MERGE_ACC writes oldVal + value into the slot and returns the new value.",
+        "unsupported_input": "Rust: none at the merge; every pair is defined. Song: none at mergeAcc; a value outside 0..COORD_CEILING is outside the matched domain (the inline arm still computes).",
+        "resource_exhaustion": "Not applicable at the merge: one addition either fits the word or wraps. There is no merge-level refusal.",
+        "raw_return_encoding": "Rust an i64 word (wrapping). Song an i64-width word returned through tableSlotValSet; no separate success tag.",
+        "post_state": "Rust merge is pure (Merge::merge(&self, new, old) -> V). Song MERGE_ACC writes the merged value into the slot; mergeAcc alone is pure."
+      },
+      "resources": {
+        "rust": [
+          {"kind": "arithmetic_ops", "accounting": "one wrapping addition per merge call"},
+          {"kind": "probes", "accounting": "none"},
+          {"kind": "nodes", "accounting": "none"},
+          {"kind": "stack_entries", "accounting": "none"},
+          {"kind": "input_consumption", "accounting": "two scalar arguments; no stream"}
+        ],
+        "song": [
+          {"kind": "arithmetic_ops", "accounting": "one addition in mergeAcc; the MERGE_ACC arm computes oldVal + value inline"},
+          {"kind": "probes", "accounting": "none at the merge"},
+          {"kind": "nodes", "accounting": "none"},
+          {"kind": "stack_entries", "accounting": "none"},
+          {"kind": "input_consumption", "accounting": "two scalar arguments"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust side: proof/Denotation.lean::denote_wrapping_add proves the wrapping word addition is ZMod (2^64) addition. The extracted WordMerge has no dedicated bridge theorem yet, so the Rust merge is source-connected to the canonical addition only through denote_wrapping_add, not through a table-level refinement. Song side: mergeacc_comm and mergeacc_assoc are in-tree Song laws, not canonical Lean, and no checked Song-to-Lean refinement exists. The joint refinement is OPEN.",
+        "artifacts": [
+          {"name": "apeiron_word.denote_wrapping_add", "module": "Denotation.lean", "root": "bridge"}
+        ],
+        "rejecting_control": "Change the Rust merge body from new.wrapping_add(old) to new.wrapping_sub(old) in a throwaway copy of src/table.rs, re-extract, and proof/regen.sh --check fails on the generated-body diff; restoring passes. This is an extraction-drift control; the semantic Song refinement remains the open obligation."
+      }
+    },
+    {
+      "id": "R2",
+      "title": "Table init, read and write",
+      "status": "selected-open",
+      "canonical": {
+        "object": "Apeiron.Table.HMap K V := K -> V with get, insertWith f k v m := fun x => if x = k then f v (m x) else m x, and build f d kvs.",
+        "module": "Apeiron/Table/Basic.lean",
+        "observation_relation": "get (insertWith f k v m) k = f v (m k) and get (insertWith f k v m) x = get m x for x != k; a built table reads as a per-key fold (get_build_acc).",
+        "scalar_type": "Word instance Table I64 I64 WordHome 16: keys and values i64, denotation I64 -> ZMod (2^64); the physical home is home(key) mod 256.",
+        "theorems": [
+          {"name": "Apeiron.Table.get_insertWith_self", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.get_insertWith_ne", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.build_gauge_invariance", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.merge_is_the_only_freedom", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Table.build_eq_of_key_streams_eq", "module": "Apeiron/Table/Basic.lean", "root": "corpus"}
+        ]
+      },
+      "entry_points": {
+        "rust": [
+          {"symbol": "Table", "file": "src/table.rs", "lang": "rust", "role": "fixed-shard inline table"},
+          {"symbol": "new", "file": "src/table.rs", "lang": "rust", "role": "constructor"},
+          {"symbol": "get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
+          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
+          {"symbol": "build", "file": "src/table.rs", "lang": "rust", "role": "transactional ordered build"},
+          {"symbol": "StorageError", "file": "src/table.rs", "lang": "rust", "role": "ShardFull refusal type"},
+          {"symbol": "WordHome", "file": "src/table.rs", "lang": "rust", "role": "word placement by bit pattern"},
+          {"symbol": "Home", "file": "src/table.rs", "lang": "rust", "role": "placement trait"},
+          {"symbol": "Merge", "file": "src/table.rs", "lang": "rust", "role": "value combination trait"}
+        ],
+        "song": [
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "initialize slots to TABLE_EMPTY"},
+          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot initialization loop"},
+          {"symbol": "tableCapacityOk", "file": "song/src/table/table.slang", "lang": "slang", "role": "positive power-of-two capacity admission"},
+          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for a key, returning slot or -1"},
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for empty slot or matching key"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for an existing key"},
+          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "slang", "role": "read value or -1"},
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write across SET/MAP/ACC faces"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "deterministic masked home coordinate"},
+          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key read"},
+          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value read"},
+          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key/value write"},
+          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value update"}
+        ]
+      },
+      "representation_invariant": {
+        "constructor": "Rust Table::new(default, home) sets shards = [None; 256] and stores default; Song tableInit / tableInitGo writes key TABLE_EMPTY and value 0 into every slot.",
+        "statement": "Rust Rep(t, h): the fixed outer [Option<[Option<(K,V)>; N]>; 256], an untouched shard is None, globally unique keys, every entry in its home shard home(k) mod 256, and forall k, D(t)(k) = h(k) with D the matching override or the stored default. The Rust constructor establishes Rep(t, fun _ => d) at N = 16 (word_table_new_rep); the general-N clause is open. Song invariant: memory[base + 2*slot] is the key (TABLE_EMPTY = -1 for empty) and memory[base + 2*slot + 1] the value; tableInit establishes the all-empty state. No Song Rep theorem exists."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "insert_with refuses with StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot; N = 0 refuses every write; reads are total; build refuses at the first refused insertion. Refusal invokes neither clone nor merge and changes no field.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "tableInsertWith returns TABLE_EMPTY = -1 when tableCapacityOk(cap) is 0, when key is TABLE_EMPTY (-1), when the merge code is outside MERGE_SET..MERGE_ACC, or when tableFindSlotGo exhausts the cap probes. tableGet and tableFind return -1 for a missing key.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "behavior": {
+        "success": "Rust: Ok(()) with an existing key updating stored = merge(value, stored.clone()) and a new key inserting merge(value, default.clone()) in the home shard. Song: returns the merged value, updating the slot for an existing key or filling the first empty probe slot for a new key (TABLE_PRESENT = 1 under MERGE_SET).",
+        "unsupported_input": "Rust: N = 0 write. Song: non-positive or non-power-of-two cap; key -1 (reserved); merge code outside 1..3.",
+        "resource_exhaustion": "Rust: ShardFull when the home shard holds N absent-key entries. Song: -1 when all cap probes are occupied (no empty slot). The capacities are different and the refusals need not coincide.",
+        "raw_return_encoding": "Rust Result<(), StorageError>, StorageError::ShardFull; reads return &V. Song a raw word: -1 (TABLE_EMPTY) is overloaded across missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table; a successful MERGE_SET write returns 1 (TABLE_PRESENT). Therefore -1 is not a reliable success/refusal tag (H1).",
+        "post_state": "Rust refusal changes no field (word_table_shardFull_refusal at N = 16); success preserves the canonical insertWith denotation (open for arbitrary N). Song writes in place, so a mid-stream full table leaves earlier writes in place (H3); tableInit returns -1 on invalid capacity without writing."
+      },
+      "resources": {
+        "rust": [
+          {"kind": "arithmetic_ops", "accounting": "one wrapping add per successful insert; home callback arithmetic per lookup"},
+          {"kind": "probes", "accounting": "up to N full-key comparisons per find_slots per shard; get scans the same"},
+          {"kind": "nodes", "accounting": "0 heap nodes; storage is inline [Option<[Option<(K,V)>; N]>; 256]"},
+          {"kind": "stack_entries", "accounting": "constant call depth; a scalar loop index only; object size grows with N"},
+          {"kind": "input_consumption", "accounting": "build consumes kvs in order and clones each key and value; insert_with consumes one pair"}
+        ],
+        "song": [
+          {"kind": "arithmetic_ops", "accounting": "tableSpread one multiply and one and; MERGE_ACC one add"},
+          {"kind": "probes", "accounting": "up to cap steps of tableLookupSlotGo / tableFindSlotGo, measure cap - step"},
+          {"kind": "nodes", "accounting": "0 allocated nodes; caller or static memory (the cells(32) test arena)"},
+          {"kind": "stack_entries", "accounting": "recursion depth bounded by cap probes, measure cap - step"},
+          {"kind": "input_consumption", "accounting": "none; the primitive reads and writes caller memory[]"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance; Rep there is read-only extensional and universal Rep / admission completeness is open. Song side: no checked Song-to-Lean refinement of tableInit, tableFind, tableGet or tableInsertWith exists. The joint row is OPEN and is the first joint storage target.",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"},
+          {"name": "Apeiron.TableRefinement.word_table_shardFull_refusal", "module": "corpus/TableRefinement.lean", "root": "bridge"},
+          {"name": "Apeiron.TableRefinement.word_table_build_get_acc", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ],
+        "rejecting_control": "Same-filesystem throwaway generated-body mutation merge value default -> merge default value fails table_insert_empty_zero (recorded in proof/README.md); restoring builds. This controls the Rust fresh-write denotation only and does not control the Song side."
+      }
+    }
+  ],
+  "unmatched_blockers": [
+    {
+      "id": "B1",
+      "counterpart": "Rust src/cell.rs::{mul, norm_form} (with add, channels and idempotents) over Ring; Song side NONE.",
+      "reason": "Song has no executing two-slot algebra with a Sigma dial. song/src/prover/ring/prover0.slang operates on SKI/iota terms, not on R[x]/(x^2 - sigma) cells, so there is no matched domain.",
+      "canonical_theorem": {"name": "Apeiron.Trichotomy.mul_comm", "module": "Apeiron/Trichotomy/Basic.lean", "root": "corpus"},
+      "status": "blocker"
+    },
+    {
+      "id": "B2",
+      "counterpart": "Rust src/carrier.rs::{point_density, point_flux, conservative_density_step, diffusive_flux_half, diffusive_line3_step}; Song side NONE.",
+      "reason": "No Song executing primitive denotes the carrier readout or the exact integer carrier update.",
+      "canonical_theorem": {"name": "Apeiron.Physics.pointDensity_eq", "module": "Apeiron/Physics/CarrierAnyRing.lean", "root": "corpus"},
+      "status": "blocker"
+    },
+    {
+      "id": "B3",
+      "counterpart": "Rust src/exchange.rs::{exchange_impulse, elastic_exchange, accept_derived_impulse}; Song side NONE.",
+      "reason": "No Song executing primitive performs the equal-mass exchange or the checked-claim acceptance.",
+      "canonical_theorem": {"name": "Apeiron.Physics.ringExchangeImpulse", "module": "Apeiron/Physics/CarrierBodyWorkAnyRing.lean", "root": "corpus"},
+      "status": "blocker"
+    },
+    {
+      "id": "B4",
+      "counterpart": "Song song/src/prover/ring/prover0.slang::{verdict, normalize, pass, structEq}; Rust side NONE.",
+      "reason": "There is no executing Rust evaluator for the canonical Apeiron.Combinator semantics, so the Song prover has no Rust counterpart to relate to.",
+      "canonical_theorem": {"name": "Apeiron.Combinator.Comb.verdict_decided_exact", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+      "status": "blocker"
+    },
+    {
+      "id": "B5",
+      "counterpart": "Song song/src/prover/cone/certcheck.slang::{main, ccBatch, ccRun}; Rust side NONE.",
+      "reason": "There is no Rust decider. certcheck must refine Apeiron.Decider.checkCert and checkCert_sound; that refinement is not established.",
+      "canonical_theorem": {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+      "status": "blocker"
+    },
+    {
+      "id": "B6",
+      "counterpart": "Rust src/table.rs::Table::build is transactional (Result<Self, StorageError>, no partial table); Song has only per-insert tableInsertWith plus tableInit and no transactional build.",
+      "reason": "Song's insertion loop is not Rust's transactional build: a refused insertion leaves earlier writes in place. The composition obligation is to define a matched Song build whose refusal post-state is the empty table, or to restrict the admitted domain.",
+      "status": "blocker"
+    }
+  ],
+  "hazards": [
+    {
+      "id": "H1",
+      "statement": "Song reserves key -1 (TABLE_EMPTY) and returns -1 for a missing read, while Rust has no reserved key and returns the stored default.",
+      "consequence": "Song's raw return is not a reliable success/refusal tag: -1 conflates missing read, empty slot, invalid capacity, reserved key, invalid merge code and full table."
+    },
+    {
+      "id": "H2",
+      "statement": "Rust default is a stored value returned for any unwritten key; Song tableGet returns -1 for a missing key and has no stored default.",
+      "consequence": "The canonical HMap total default is not represented by Song's missing-read. The matched domain must fix the default and exclude the reserved key, or the correspondence is false at absent keys."
+    },
+    {
+      "id": "H3",
+      "statement": "Song tableInsertWith mutates slots in place; Rust build returns Err at the first refused insertion with no partial table.",
+      "consequence": "Song's multi-insert is not transactional; a mid-stream full table leaves partial writes. This is the B6 composition obligation, not a shared semantics."
+    },
+    {
+      "id": "H4",
+      "statement": "Canonical I is S K K, while Song treats primitive i (TAG_I) and the normal form **skk as distinct (distinct_atoms, tag difference).",
+      "consequence": "A regression fixture must pin the distinction; it is not something to patch away by conflating the primitive and the normal form."
+    },
+    {
+      "id": "H5",
+      "statement": "Song certcheck must refine Apeiron.Decider.checkCert and checkCert_sound.",
+      "consequence": "Until that refinement exists, Song's UNSAT replay is not the canonical checker and carries its own in-tree soundness only."
+    }
+  ],
+  "integration_order": [
+    "R1 word arithmetic: fix the matched scalar domain (0 <= v <= COORD_CEILING, key -1 excluded) and the shared addition observation.",
+    "R2 table init/read/write: the first joint storage target; define the matched admission relation and a Song Rep invariant.",
+    "B6 table build composition: define a transactional Song build or restrict the admitted domain.",
+    "B1..B5 unmatched counterparts, in dependency order: cell algebra, carrier, exchange, combinator evaluator, certificate replayer.",
+    "Vertical lift/reduction demonstration only after the profile and the executing evaluator refinement."
+  ],
+  "not_covered": [
+    "rustc/LLVM code generation and the generated machine code.",
+    "The kernel ABI, stack and OS.",
+    "GPU / SPIR-V.",
+    "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
+    "Song local registers, ontology and commands.",
+    "Semantic correspondence itself: the checker establishes specification consistency only.",
+    "Arbitrary-N Rust Rep preservation and admission completeness.",
+    "Song-to-Lean refinement for R1 and R2."
+  ]
+}
