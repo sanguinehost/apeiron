@@ -21,7 +21,7 @@ SPEC_PATH = ROOT / "docs/spec/slang-source-semantics.md"
 PLAN_PATH = ROOT / "the design notes/slang-source-refinement.md"
 CANONICAL_MODULE = "Apeiron/Table/Basic.lean"
 SONG_REV = "aeaf3baac434b2e3c01154d275bea65fdadc69bf"
-CORPUS_REV = "50c94192399add3b9f8e64bd14e36d8cba270705"
+CORPUS_REV = "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f"
 
 OBLIGATIONS = tuple(f"O{i:02d}" for i in range(1, 19))
 SECTIONS = (
