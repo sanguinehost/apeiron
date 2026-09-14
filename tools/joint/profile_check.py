@@ -47,34 +47,34 @@ touch the working tree.
 
 from __future__ import annotations
 
-import argparse
 import copy
 import hashlib
-import json
-import os
 import re
 import shutil
-import subprocess
-import sys
 import tempfile
 from pathlib import Path
+
+import jointlib
+import jointspec
+from jointlib import (
+    CheckError,
+    _check_rust,
+    _markdown_row_status,
+    _need,
+    _nonempty,
+    _resolve_path,
+    _row_section,
+)
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
 SPEC_PATH = REPO / "docs" / "spec" / "joint-primitives.md"
 ROWS_PATH = HERE.parent / "profile_rows.json"
-CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
-BRIDGE_ROOT = REPO / "proof"
-SONG_ROOT = REPO.parent / "song"
 
 # Named artifacts that are deliberately absent from the pinned corpus. A
 # reference that does not resolve is accepted only when its exact path is in
 # this set; the exception is attached to the reference path, not to free text.
 MISSING_ARTIFACTS: set[str] = set()
-
-# The resolved corpus revision, set by ``_verify_corpus_identity``. It binds
-# every referenced corpus module's bytes to the checked-out identity.
-_RESOLVED_CORPUS_GIT: str | None = None
 
 PROFILE_ID = "APEIRON-PROGRAMME-W17-T1"
 
@@ -141,79 +141,9 @@ BEHAVIOR_KEYS = [
 ADMISSION_SIDES = ["rust", "song"]
 ALLOWED_STATUSES = ("selected-open", "blocker")
 
-LEAN_DECL = (
-    r"(?m)^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
-    r"(?:theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
-)
-# A declared Rust item name: the identifier bound by a ``fn``/``struct``/
-# ``enum``/``trait``/``union``/``type``/``mod``/``const``/``static``
-# declaration. A word that appears only in an ``impl`` header, a generic bound
-# or a ``where`` clause binds no item and is not captured here.
-RUST_ITEM = re.compile(
-    r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|unsafe\s+)?"
-    r"(?:fn|struct|enum|trait|union|type|mod|static|const)\s+([A-Za-z_]\w*)"
-)
 # A Song entry must be an executing function definition, not a law/carrier/spec
 # header. Only ``name(`` at the start of a line is accepted.
 SLANG_DECL = r"(?m)^\s*{n}\s*\("
-# Strict reference grammar. A named reference is a repo-relative source path
-# (``.lean``, ``.rs`` or ``.slang``) optionally followed by exactly one of::
-#
-#     path::symbol
-#     path::Type::method
-#     path::Type::{method, method, ...}
-#     path::{symbol, Type::method, ...}
-#     path::<T as Trait>::method
-#     path::<T as Trait>::{method, ...}
-#
-# ``symbol``, ``Type``, ``T``, ``Trait`` and ``method`` are single identifiers;
-# a brace member is a single identifier or a ``Type::method`` pair. The frozen
-# profiles use the qualified self type ``<i64 as Ring>``, qualified brace
-# members (``src/cell.rs::{Cell::mul, ...}``) and a qualified brace group
-# (``src/table.rs::Table::{new, ...}``), so those forms are admitted. Every
-# other form is malformed and rejected, never truncated or split: an extra
-# ``::`` segment, a trailing ``.member``, a generic outside the self-type
-# position, a brace member that is not a single identifier or a ``Type::method``
-# pair, an empty segment, or an unbalanced brace/angle.
-FILE_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang)")
-IDENT = re.compile(r"[A-Za-z_]\w*")
-# Structured keys whose values are checked by their dedicated resolvers, not by
-# the free-text reference scan.
-STRUCTURED_KEYS = {
-    "module",
-    "name",
-    "symbol",
-    "file",
-    "root",
-    "lang",
-    "path",
-    "sha256",
-    "id",
-    "title",
-    "status",
-    "kind",
-    "grade",
-    "role",
-    "hypotheses",
-    "representation_terms",
-}
-_BARE_FILE_INDEX: dict[str, list[Path]] | None = None
-
-
-class CheckError(Exception):
-    """A specification consistency failure."""
-
-
-def _need(condition: bool, message: str) -> None:
-    if not condition:
-        raise CheckError(message)
-
-
-def _nonempty(value: object, where: str) -> None:
-    _need(
-        isinstance(value, str) and value.strip() != "",
-        f"{where} must be a nonempty string",
-    )
 
 
 def _is_hex(value: object, length: int) -> bool:
@@ -224,76 +154,41 @@ def _is_hex(value: object, length: int) -> bool:
     )
 
 
-def _git(args: list[str]) -> subprocess.CompletedProcess[bytes] | None:
-    try:
-        return subprocess.run(
-            ["git", *args], capture_output=True, check=False
-        )
-    except OSError:
-        return None
+def _check_slang(text: str, symbol: str) -> bool:
+    return re.search(SLANG_DECL.format(n=re.escape(symbol)), text) is not None
 
 
-def _git_rev(path: Path) -> str | None:
-    result = _git(["-C", str(path), "rev-parse", "HEAD"])
-    if result is None or result.returncode != 0:
-        return None
-    return result.stdout.decode("utf-8", "replace").strip() or None
+# The profile resolves Song entries with its own executing-function pattern.
+jointlib._CHECK_SLANG = _check_slang
 
 
-def _git_blob(path: Path, rev: str, rel: str) -> bytes | None:
-    result = _git(["-C", str(path), "show", f"{rev}:{rel}"])
-    if result is None or result.returncode != 0:
-        return None
-    return result.stdout
-
-
-def _repo_blob(repo_dir: Path, rev: str, rel_under_dir: str) -> bytes | None:
-    """Read ``rel_under_dir`` at ``rev``, relative to the containing Git repo."""
-    prefix = _git(["-C", str(repo_dir), "rev-parse", "--show-prefix"])
-    if prefix is None or prefix.returncode != 0:
-        return None
-    repo_prefix = prefix.stdout.decode("utf-8", "replace").strip()
-    return _git_blob(repo_dir, rev, repo_prefix + rel_under_dir)
-
-
-def _mathlib_rev() -> str | None:
-    for manifest in (
-        CORPUS_ROOT / "lake-manifest.json",
-        CORPUS_ROOT.parent / "lake-manifest.json",
-        REPO / "proof" / "corpus" / "lake-manifest.json",
-    ):
-        if not manifest.is_file():
-            continue
-        try:
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        for package in data.get("packages", []):
-            if package.get("name") == "mathlib" and isinstance(
-                package.get("rev"), str
-            ):
-                return package["rev"]
-    return None
+def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
+    jointlib.check_lean_ref(
+        ref,
+        where,
+        require_root=require_root,
+        require_root_strict=True,
+        bind_corpus=True,
+    )
 
 
 def _verify_corpus_identity(corpus: dict) -> None:
     """Require a Git repository and a Mathlib manifest at the corpus root."""
-    global _RESOLVED_CORPUS_GIT
     _need(
-        CORPUS_ROOT.is_dir(),
-        f"pinned corpus root does not resolve: {CORPUS_ROOT}",
+        jointlib.CORPUS_ROOT.is_dir(),
+        f"pinned corpus root does not resolve: {jointlib.CORPUS_ROOT}",
     )
-    actual = _git_rev(CORPUS_ROOT)
+    actual = jointlib._git_rev(jointlib.CORPUS_ROOT)
     _need(
         actual is not None,
-        f"pinned corpus root is not a Git repository: {CORPUS_ROOT}",
+        f"pinned corpus root is not a Git repository: {jointlib.CORPUS_ROOT}",
     )
     _need(
         actual == corpus.get("git"),
         f"corpus.git {corpus.get('git')!r} does not match the resolved corpus "
         f"revision {actual!r}",
     )
-    resolved_mathlib = _mathlib_rev()
+    resolved_mathlib = jointlib._mathlib_rev()
     _need(
         resolved_mathlib is not None,
         "cannot resolve the pinned Mathlib revision from a manifest",
@@ -303,553 +198,24 @@ def _verify_corpus_identity(corpus: dict) -> None:
         f"corpus.mathlib {corpus.get('mathlib')!r} does not match the resolved "
         f"Mathlib revision {resolved_mathlib!r}",
     )
-    _RESOLVED_CORPUS_GIT = actual
+    jointlib._RESOLVED_CORPUS_GIT = actual
 
 
 def _bind_source_to_revision(
     path: Path, rel: str, digest: str, identity: dict
 ) -> None:
     """Bind a source file's recorded digest to its owning repository revision."""
-    resolved = path.resolve()
-    if resolved.is_relative_to(REPO):
-        repo = REPO
-        rev = identity.get("apeiron_revision")
-        repo_rel = resolved.relative_to(REPO)
-    elif resolved.is_relative_to(SONG_ROOT):
-        repo = SONG_ROOT
-        rev = identity.get("song_revision")
-        repo_rel = resolved.relative_to(SONG_ROOT)
-    else:
-        return
-    blob = _repo_blob(repo, str(rev), str(repo_rel))
-    _need(
-        blob is not None,
-        f"source_identity.files[{rel}]: cannot read {repo_rel} at {rev}",
+    jointspec.bind_source_bytes(
+        path,
+        rel,
+        digest,
+        {
+            "apeiron": identity.get("apeiron_revision"),
+            "song": identity.get("song_revision"),
+        },
+        corpus_tree=False,
+        prefix="source_identity.files",
     )
-    _need(
-        hashlib.sha256(blob).hexdigest() == digest,
-        f"source_identity.files[{rel}]: recorded digest does not match the blob "
-        f"at {rev}",
-    )
-
-
-def _resolve_path(rel: str, where: str) -> Path:
-    for base in (REPO, REPO.parent):
-        candidate = base / rel
-        if candidate.is_file():
-            return candidate
-    raise CheckError(f"{where}: source file does not resolve: {rel}")
-
-
-LEAN_DECL_LINE = re.compile(
-    r"^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
-    r"(theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
-    r"([A-Za-z_][\w.']*)"
-)
-
-
-def _lean_declarations(text: str) -> dict[str, set[str]]:
-    """Map each fully-qualified Lean declaration name to its keywords.
-
-    The enclosing namespace stack is tracked exactly, so a declaration is bound
-    to its real namespace (``Apeiron.Table.get_build_acc``) and not to any
-    prefix that happens to be opened elsewhere in the file.
-    """
-    declarations: dict[str, set[str]] = {}
-    stack: list[str] = []
-    for line in text.splitlines():
-        match = LEAN_DECL_LINE.match(line)
-        if match is not None:
-            keyword, name = match.group(1), match.group(2)
-            full = ".".join(stack + [name]) if stack else name
-            declarations.setdefault(full, set()).add(keyword)
-        opened = re.match(r"^\s*namespace\s+([\w.]+)", line)
-        if opened is not None:
-            stack.extend(opened.group(1).split("."))
-            continue
-        closed = re.match(r"^\s*end\b\s*([\w.]*)", line)
-        if closed is not None:
-            name = closed.group(1)
-            if name:
-                for _ in name.split("."):
-                    if stack:
-                        stack.pop()
-            elif stack:
-                stack.pop()
-    return declarations
-
-
-def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
-    _need(isinstance(ref, dict), f"{where} entries must be objects")
-    name = ref.get("name")
-    module = ref.get("module")
-    root = ref.get("root")
-    _nonempty(name, f"{where}.name")
-    _nonempty(module, f"{where}.module")
-    _need(root in ("corpus", "bridge"), f"{where}.root must be corpus or bridge")
-    _need(root == require_root, f"{where}.root must be {require_root} for {name}")
-    base = CORPUS_ROOT if root == "corpus" else BRIDGE_ROOT
-    path = base / module
-    _need(path.is_file(), f"{where}: module does not resolve: {root}:{module}")
-    raw = path.read_bytes()
-    declarations = _lean_declarations(raw.decode("utf-8"))
-    _need(
-        name in declarations,
-        f"{where}: declaration {name} is not the exact fully-qualified name "
-        f"declared in {module}",
-    )
-    if root == "corpus" and _RESOLVED_CORPUS_GIT is not None:
-        blob = _repo_blob(CORPUS_ROOT, _RESOLVED_CORPUS_GIT, module)
-        _need(
-            blob is not None,
-            f"{where}: cannot read {module} at corpus revision "
-            f"{_RESOLVED_CORPUS_GIT}",
-        )
-        _need(
-            hashlib.sha256(blob).digest() == hashlib.sha256(raw).digest(),
-            f"{where}: {module} bytes do not match the resolved corpus identity "
-            f"{_RESOLVED_CORPUS_GIT}",
-        )
-
-
-def _strip_leading_generics(header: str) -> str:
-    s = header.lstrip()
-    if not s.startswith("<"):
-        return s
-    depth = 0
-    i = 0
-    while i < len(s):
-        char = s[i]
-        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
-            i += 2
-            continue
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            depth -= 1
-            if depth == 0:
-                return s[i + 1 :]
-        i += 1
-    return ""
-
-
-def _impl_generic_params(header: str) -> set[str]:
-    """Names bound by an impl header's own leading ``<...>`` parameter list.
-
-    A name in this set is a type parameter of the impl, not a concrete self
-    type; a method declared in the impl cannot be attributed to it.
-    """
-    s = header.lstrip()
-    if not s.startswith("<"):
-        return set()
-    rest = _strip_leading_generics(s)
-    if not rest:
-        return set()
-    body = s[1 : len(s) - len(rest) - 1]
-    names: set[str] = set()
-    segments: list[str] = []
-    depth = 0
-    start = 0
-    i = 0
-    while i < len(body):
-        char = body[i]
-        if char == "-" and i + 1 < len(body) and body[i + 1] == ">":
-            i += 2
-            continue
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            depth -= 1
-        elif char == "," and depth == 0:
-            segments.append(body[start:i])
-            start = i + 1
-        i += 1
-    segments.append(body[start:])
-    for segment in segments:
-        segment = segment.strip()
-        if segment.startswith("const "):
-            segment = segment[len("const ") :].lstrip()
-        match = re.match(r"([A-Za-z_]\w*)", segment)
-        if match is not None:
-            names.add(match.group(1))
-    return names
-
-
-def _impl_self_type(header: str) -> str | None:
-    s = _strip_leading_generics(header)
-    depth = 0
-    i = 0
-    while i < len(s):
-        char = s[i]
-        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
-            i += 2
-            continue
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            depth -= 1
-        elif depth == 0 and s.startswith(" for ", i):
-            s = s[i + 5 :]
-            break
-        i += 1
-    match = re.match(r"\s*([A-Za-z_]\w*)", s)
-    if match is None:
-        return None
-    base = match.group(1)
-    # A generic parameter is not a concrete self type. Without this, a method
-    # declared in ``impl<F: ...> Trait for F`` would be attributed to the type
-    # parameter ``F``, so a reference such as ``F::home`` would resolve.
-    if base in _impl_generic_params(header):
-        return None
-    return base
-
-
-def _impl_trait(header: str) -> str | None:
-    """Return the trait an ``impl Trait for T`` header names, or ``None``."""
-    s = _strip_leading_generics(header)
-    depth = 0
-    i = 0
-    while i < len(s):
-        char = s[i]
-        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
-            i += 2
-            continue
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            depth -= 1
-        elif depth == 0 and s.startswith(" for ", i):
-            match = re.match(r"\s*([A-Za-z_]\w*)", s[:i])
-            return match.group(1) if match is not None else None
-        i += 1
-    return None
-
-
-def _impl_blocks(text: str) -> list[tuple[str | None, str, set[str]]]:
-    """Return ``(trait, self_type, method_names)`` for every ``impl`` block."""
-    blocks: list[tuple[str | None, str, set[str]]] = []
-    for match in re.finditer(r"(?m)^[ \t]*impl\b", text):
-        start = match.end()
-        brace = text.find("{", start)
-        if brace < 0:
-            continue
-        header = text[start:brace]
-        base = _impl_self_type(header)
-        if base is None:
-            continue
-        trait = _impl_trait(header)
-        depth = 0
-        k = brace
-        while k < len(text):
-            char = text[k]
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    break
-            k += 1
-        body = text[brace + 1 : k]
-        blocks.append((trait, base, set(re.findall(r"\bfn\s+([A-Za-z_]\w*)", body))))
-    return blocks
-
-
-def _declared_rust_names(text: str) -> set[str]:
-    """Names bound by a Rust item declaration in ``text``.
-
-    The declaration keyword (``fn``/``struct``/``enum``/``trait``/``union``/
-    ``type``/``mod``/``const``/``static``) binds the name. A word that appears
-    only in an ``impl`` header, a generic bound or a ``where`` clause is not a
-    declaration and is not in the result.
-    """
-    return {match.group(1) for match in RUST_ITEM.finditer(text)}
-
-
-def _check_rust(text: str, symbol: str) -> bool:
-    if "::" in symbol:
-        symbol = symbol.strip()
-        trait: str | None = None
-        # A leading generic qualifier such as ``<i64 as Ring>::add`` names the
-        # implementing type ``i64`` and the trait ``Ring``; both must resolve to
-        # an actual ``impl Ring for i64`` block in the file.
-        if symbol.startswith("<"):
-            rest = _strip_leading_generics(symbol)
-            if not rest.startswith("::"):
-                return False
-            generic = symbol[: len(symbol) - len(rest)][1:-1]
-            self_part, sep, trait_part = generic.partition(" as ")
-            if not sep:
-                return False
-            self_match = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*", self_part)
-            trait_match = re.match(r"\s*([A-Za-z_]\w*)", trait_part)
-            if self_match is None or trait_match is None:
-                return False
-            head = self_match.group(1)
-            trait = trait_match.group(1)
-            tail = rest[2:]
-        else:
-            head, _, tail = symbol.partition("::")
-        head = head.strip()
-        if re.fullmatch(r"[A-Za-z_]\w*", head) is None:
-            return False
-        members = [segment.strip() for segment in tail.split("::")] if tail else []
-        if not members or any(
-            re.fullmatch(r"[A-Za-z_]\w*", segment) is None for segment in members
-        ):
-            return False
-        # Every segment after the named type must be declared inside an impl
-        # whose self type is that type; when a ``<T as Trait>`` qualifier is
-        # present, the impl trait must match it as well. The full qualification
-        # is consumed: a trailing method is never silently ignored.
-        methods: set[str] = set()
-        for impl_trait, base, names in _impl_blocks(text):
-            if base != head:
-                continue
-            if trait is not None and impl_trait != trait:
-                continue
-            methods |= names
-        return all(member in methods for member in members)
-    # A bare symbol resolves only to an item this file declares. A word that
-    # appears only in an ``impl`` header, a generic bound (``Fn`` in
-    # ``impl<K, F: Fn(&K) -> u64> Home<K> for F``) or a ``where`` clause binds
-    # no item and is rejected. An impl self type is accepted exactly when the
-    # same identifier is a declared item, which this test already covers.
-    return symbol in _declared_rust_names(text)
-
-
-def _check_slang(text: str, symbol: str) -> bool:
-    return re.search(SLANG_DECL.format(n=re.escape(symbol)), text) is not None
-
-
-def _bare_file_index() -> dict[str, list[Path]]:
-    """Index bare source filenames under the local source trees.
-
-    A prose reference such as ``arith.slang`` names a file without a directory;
-    it is resolved only when exactly one file with that name exists under the
-    Apeiron, Song or canonical corpus trees. Build and cache directories are
-    excluded.
-    """
-    global _BARE_FILE_INDEX
-    if _BARE_FILE_INDEX is not None:
-        return _BARE_FILE_INDEX
-    index: dict[str, list[Path]] = {}
-    skip = {".git", "target", ".lake", "node_modules", "build"}
-    for root in (REPO, SONG_ROOT, CORPUS_ROOT):
-        if not root.is_dir():
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [name for name in dirnames if name not in skip]
-            for filename in filenames:
-                index.setdefault(filename, []).append(Path(dirpath) / filename)
-    _BARE_FILE_INDEX = index
-    return index
-
-
-def _resolve_text_ref(rel: str, where: str) -> Path:
-    for base in (REPO, REPO.parent, CORPUS_ROOT, BRIDGE_ROOT, SONG_ROOT, SONG_ROOT / "src"):
-        candidate = base / rel
-        if candidate.is_file():
-            return candidate
-    if "/" not in rel and not rel.startswith("."):
-        matches = _bare_file_index().get(rel, [])
-        if len(matches) == 1:
-            return matches[0]
-        if not matches:
-            raise CheckError(f"{where}: named reference does not resolve: {rel}")
-        raise CheckError(f"{where}: bare reference {rel} is ambiguous: {matches}")
-    raise CheckError(f"{where}: named reference does not resolve: {rel}")
-
-
-def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    if path.suffix == ".slang":
-        found = _check_slang(text, symbol)
-    elif path.suffix == ".rs":
-        found = _check_rust(text, symbol)
-    else:
-        found = re.search(LEAN_DECL + re.escape(symbol) + r"\b", text) is not None
-    _need(found, f"{where}: {symbol} not found in {path}")
-
-
-def _malformed(where: str, ref: str, reason: str) -> CheckError:
-    return CheckError(f"{where}: malformed reference {ref!r}: {reason}")
-
-
-def _match_angle(text: str, start: int) -> int | None:
-    """Return the index just past the ``>`` matching ``text[start] == '<'``."""
-    depth = 0
-    i = start
-    while i < len(text):
-        char = text[i]
-        if char == "-" and i + 1 < len(text) and text[i + 1] == ">":
-            i += 2
-            continue
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return None
-
-
-def _reject_trailing(text: str, pos: int, where: str, ref: str) -> None:
-    if text[pos : pos + 2] == "::":
-        raise _malformed(where, ref + "::", "unexpected '::' after the reference")
-    if (
-        pos + 1 < len(text)
-        and text[pos] == "."
-        and (text[pos + 1].isalnum() or text[pos + 1] == "_")
-    ):
-        raise _malformed(
-            where, ref + text[pos : pos + 2], "member access after the reference"
-        )
-
-
-def _brace_members(body: str, where: str, ref: str) -> list[str]:
-    members = [token.strip() for token in body.split(",")]
-    if not members or any(member == "" for member in members):
-        raise _malformed(where, ref, "empty brace member")
-    for member in members:
-        parts = member.split("::")
-        if len(parts) > 2 or any(IDENT.fullmatch(part) is None for part in parts):
-            raise _malformed(
-                where,
-                ref,
-                f"brace member {member!r} is not a single identifier or a "
-                "Type::method pair",
-            )
-    return members
-
-
-def _parse_reference(text: str, start: int, where: str, rel: str) -> list[str] | None:
-    """Parse the ``::`` suffix at ``text[start]`` under the strict grammar.
-
-    Returns the symbols to resolve, or ``None`` when the path is a bare
-    mention. Raises :class:`CheckError` for any form outside the grammar.
-    """
-    if text[start : start + 2] != "::":
-        return None
-    ref = rel
-    i = start + 2
-    generic = ""
-    if i < len(text) and text[i] == "<":
-        close = _match_angle(text, i)
-        if close is None:
-            raise _malformed(where, ref + text[start:], "unbalanced generic qualifier")
-        generic = text[i:close]
-        if re.search(r"\S+\s+as\s+\S+", generic[1:-1]) is None:
-            raise _malformed(
-                where,
-                rel + text[start:close],
-                "generic qualifier is not a <T as Trait> self type",
-            )
-        if text[close : close + 2] != "::":
-            raise _malformed(
-                where,
-                ref + text[start:close],
-                "generic qualifier is not followed by '::'",
-            )
-        i = close + 2
-        ref = rel + text[start : close + 2]
-    if i >= len(text):
-        raise _malformed(where, ref, "empty reference segment")
-    if text[i] == "{":
-        close = text.find("}", i + 1)
-        if close < 0:
-            raise _malformed(where, ref + text[i:], "unclosed brace group")
-        full = rel + text[start : close + 1]
-        members = _brace_members(text[i + 1 : close], where, full)
-        _reject_trailing(text, close + 1, where, full)
-        return [f"{generic}::{member}" if generic else member for member in members]
-    match = IDENT.match(text, i)
-    if match is None:
-        raise _malformed(
-            where, ref + text[i:], "expected an identifier, '{' or '<' after '::'"
-        )
-    segments = [match.group(0)]
-    pos = match.end()
-    while text[pos : pos + 2] == "::" and text[pos + 2 : pos + 3] != "{":
-        following = IDENT.match(text, pos + 2)
-        if following is None:
-            raise _malformed(
-                where,
-                ref + text[pos : pos + 2],
-                "'::' is not followed by an identifier",
-            )
-        segments.append(following.group(0))
-        pos = following.end()
-    if text[pos : pos + 2] == "::" and text[pos + 2 : pos + 3] == "{":
-        if len(segments) != 1:
-            raise _malformed(
-                where,
-                ref + "::" + "::".join(segments),
-                "more than one '::' segment before a brace group",
-            )
-        close = text.find("}", pos + 3)
-        if close < 0:
-            raise _malformed(where, ref + text[start:], "unclosed brace group")
-        type_name = segments[0]
-        full = rel + text[start : close + 1]
-        members = _brace_members(text[pos + 3 : close], where, full)
-        _reject_trailing(text, close + 1, where, full)
-        prefix = f"{generic}::{type_name}" if generic else type_name
-        return [f"{prefix}::{member}" for member in members]
-    if len(segments) > 2:
-        raise _malformed(
-            where,
-            ref + "::" + "::".join(segments),
-            "more than one '::' segment after the type",
-        )
-    symbol = "::".join(segments)
-    full = rel + text[start : pos]
-    _reject_trailing(text, pos, where, full)
-    return [f"{generic}::{symbol}" if generic else symbol]
-
-
-def _check_text_refs(text: str, where: str) -> None:
-    """Resolve every named file/symbol reference in one prose string.
-
-    References are parsed under the strict grammar above. A malformed
-    reference is rejected rather than truncated or split.
-    """
-    for match in FILE_PATH.finditer(text):
-        rel = match.group(0)
-        end = match.end()
-        symbols = _parse_reference(text, end, where, rel)
-        if symbols is None and (
-            end + 1 < len(text)
-            and text[end] == "."
-            and (text[end + 1].isalnum() or text[end + 1] == "_")
-        ):
-            raise _malformed(
-                where, rel + text[end : end + 2], "member access after a file path"
-            )
-        try:
-            path = _resolve_text_ref(rel, where)
-        except CheckError:
-            _need(
-                rel in MISSING_ARTIFACTS,
-                f"{where}: named reference {rel} does not resolve and is not a "
-                "declared missing artifact",
-            )
-            continue
-        for symbol in symbols or ():
-            _check_symbol_in_file(path, symbol, where)
-
-
-def _check_data_text_refs(value: object, where: str) -> None:
-    if isinstance(value, str):
-        _check_text_refs(value, where)
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            if key in STRUCTURED_KEYS:
-                continue
-            _check_data_text_refs(item, f"{where}.{key}")
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _check_data_text_refs(item, f"{where}[{index}]")
 
 
 def _check_source_entry(entry: object, where: str) -> None:
@@ -993,29 +359,6 @@ def _markdown_table_first_cells(text: str) -> set[str]:
     return cells
 
 
-def _row_section(text: str, row_id: str) -> str:
-    heading = re.search(r"(?m)^###\s+" + re.escape(row_id) + r"\b[^\n]*$", text)
-    if heading is None:
-        return ""
-    start = heading.end()
-    nxt = re.search(r"(?m)^#{1,3}\s+", text[start:])
-    end = start + nxt.start() if nxt else len(text)
-    return text[start:end]
-
-
-def _markdown_row_status(text: str, row_id: str) -> str | None:
-    for line in text.splitlines():
-        if not line.lstrip().startswith("|"):
-            continue
-        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
-        if not cells or cells[0] != row_id:
-            continue
-        for cell in reversed(cells):
-            if cell in ("selected-open", "blocker", "closed"):
-                return cell
-    return None
-
-
 def _validate_spec(
     text: object,
     row_ids: list[str],
@@ -1089,7 +432,10 @@ def validate(data: object, spec_text: str) -> None:
     _need(isinstance(corpus, dict), "corpus metadata missing")
     for key in ("root", "git", "mathlib"):
         _nonempty(corpus.get(key), f"corpus.{key}")
-    _need(CORPUS_ROOT.is_dir(), f"pinned corpus root does not resolve: {CORPUS_ROOT}")
+    _need(
+        jointlib.CORPUS_ROOT.is_dir(),
+        f"pinned corpus root does not resolve: {jointlib.CORPUS_ROOT}",
+    )
     _need(
         _is_hex(corpus.get("git"), 40),
         f"corpus.git must be a 40-hex revision, got {corpus.get('git')!r}",
@@ -1217,8 +563,8 @@ def validate(data: object, spec_text: str) -> None:
         row["id"]: row["status"] for row in rows if isinstance(row, dict)
     }
     _validate_spec(spec_text, list(seen_ids), row_statuses, blocker_ids, hazard_ids)
-    _check_data_text_refs(data, "profile")
-    _check_text_refs(spec_text, "spec")
+    jointlib._check_data_text_refs(data, "profile")
+    jointlib._check_text_refs(spec_text, "spec")
 
 
 def _remove_table_record(spec_text: str, token: str) -> str:
@@ -1498,14 +844,13 @@ def _corpus_identity_control(
     data: dict, spec_text: str
 ) -> tuple[str, bool, str]:
     """A scratch corpus root with the Lean files but no Git repo or manifest."""
-    global CORPUS_ROOT
-    original = CORPUS_ROOT
+    original = jointlib.CORPUS_ROOT
     with tempfile.TemporaryDirectory(
         prefix="w17-corpus-control-", dir="/tmp/opencode"
     ) as tmp:
         fake = Path(tmp)
         _copy_corpus_modules(data, original, fake)
-        CORPUS_ROOT = fake
+        jointlib.CORPUS_ROOT = fake
         try:
             validate(data, spec_text)
         except CheckError as exc:
@@ -1517,29 +862,18 @@ def _corpus_identity_control(
                 "mutation was NOT rejected",
             )
         finally:
-            CORPUS_ROOT = original
+            jointlib.CORPUS_ROOT = original
 
 
 def run_controls(data: dict, spec_text: str) -> list[tuple[str, bool, str]]:
     """Baseline must pass; every in-memory mutation must be rejected."""
-    validate(data, spec_text)
-    results: list[tuple[str, bool, str]] = []
-    for name, mutated, mutated_spec in _control_cases(data, spec_text):
-        try:
-            validate(mutated, mutated_spec)
-        except CheckError as exc:
-            results.append((name, True, str(exc)))
-        else:
-            results.append((name, False, "mutation was NOT rejected"))
+    results = jointspec.run_control_cases(validate, data, spec_text, _control_cases)
     results.append(_corpus_identity_control(data, spec_text))
     return results
 
 
 def _load() -> tuple[dict, str]:
-    _need(ROWS_PATH.is_file(), f"profile rows missing: {ROWS_PATH}")
-    _need(SPEC_PATH.is_file(), f"profile spec missing: {SPEC_PATH}")
-    data = json.loads(ROWS_PATH.read_text(encoding="utf-8"))
-    return data, SPEC_PATH.read_text(encoding="utf-8")
+    return jointspec.load_profile(ROWS_PATH, SPEC_PATH)
 
 
 def _summary(data: dict) -> str:
@@ -1553,74 +887,17 @@ def _summary(data: dict) -> str:
     )
 
 
-def _cmd_check(data: dict, spec_text: str) -> int:
-    try:
-        validate(data, spec_text)
-    except CheckError as exc:
-        print(f"FAIL: {exc}", file=sys.stderr)
-        return 1
-    print(f"PASS (specification consistency only): {_summary(data)}")
-    return 0
-
-
-def _cmd_controls(data: dict, spec_text: str, self_test: bool) -> int:
-    try:
-        validate(data, spec_text)
-    except CheckError as exc:
-        print(f"FAIL: baseline profile is inconsistent: {exc}", file=sys.stderr)
-        return 1
-    results = run_controls(data, spec_text)
-    rejected = 0
-    names: set[str] = set()
-    for name, ok, detail in results:
-        names.add(name)
-        if ok:
-            rejected += 1
-            print(f"control RED (rejected): {name}")
-        else:
-            print(f"control GREEN (NOT rejected): {name}: {detail}", file=sys.stderr)
-    if self_test:
-        missing = [name for name in MANDATED_CONTROLS if name not in names]
-        _need(
-            not missing,
-            f"self-test is missing mandated controls: {missing}",
-        )
-        for name, ok, _ in results:
-            if name in MANDATED_CONTROLS:
-                _need(ok, f"self-test mandated control was not rejected: {name}")
-    if rejected != len(results):
-        print(
-            f"FAIL: {len(results) - rejected} of {len(results)} controls were not rejected",
-            file=sys.stderr,
-        )
-        return 1
-    label = "self-test" if self_test else "controls"
-    print(
-        f"PASS ({label}): baseline valid, {rejected}/{len(results)} mutations rejected; "
-        "specification consistency only"
-    )
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--check", action="store_true", help="validate the written spec")
-    group.add_argument(
-        "--controls", action="store_true", help="validate and require all mutations rejected"
+    return jointspec.run_cli(
+        __doc__,
+        _load,
+        validate,
+        run_controls,
+        _summary,
+        noun="profile",
+        mandated_controls=tuple(MANDATED_CONTROLS),
+        argv=argv,
     )
-    group.add_argument(
-        "--self-test", action="store_true", help="controls plus the mandated mutation assertions"
-    )
-    args = parser.parse_args(argv)
-    try:
-        data, spec_text = _load()
-    except (CheckError, json.JSONDecodeError) as exc:
-        print(f"FAIL: {exc}", file=sys.stderr)
-        return 1
-    if args.check:
-        return _cmd_check(data, spec_text)
-    return _cmd_controls(data, spec_text, self_test=args.self_test)
 
 
 if __name__ == "__main__":
