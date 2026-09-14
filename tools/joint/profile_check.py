@@ -14,7 +14,9 @@ internally complete and that every artifact they name resolves:
   bridge refinement resolves in ``proof/``;
 * every named Rust and Song entry exists as a concrete declaration in its
   source file, and every Song entry is an executing function rather than a
-  ``law``/``carrier``/``spec`` header;
+  ``law``/``carrier``/``spec`` header; a Rust method belongs to the named
+  type's ``impl``, a generic type parameter is never a self type, and a
+  ``<T as Trait>`` qualifier must name a trait the file implements for ``T``;
 * the frozen selected rows remain ``selected-open`` and no row is ``closed``;
 * the resource accounting names all five distinct kinds separately for every
   implementation of every row, and no generic fuel;
@@ -424,6 +426,48 @@ def _strip_leading_generics(header: str) -> str:
     return ""
 
 
+def _impl_generic_params(header: str) -> set[str]:
+    """Names bound by an impl header's own leading ``<...>`` parameter list.
+
+    A name in this set is a type parameter of the impl, not a concrete self
+    type; a method declared in the impl cannot be attributed to it.
+    """
+    s = header.lstrip()
+    if not s.startswith("<"):
+        return set()
+    rest = _strip_leading_generics(s)
+    if not rest:
+        return set()
+    body = s[1 : len(s) - len(rest) - 1]
+    names: set[str] = set()
+    segments: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(body):
+        char = body[i]
+        if char == "-" and i + 1 < len(body) and body[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif char == "," and depth == 0:
+            segments.append(body[start:i])
+            start = i + 1
+        i += 1
+    segments.append(body[start:])
+    for segment in segments:
+        segment = segment.strip()
+        if segment.startswith("const "):
+            segment = segment[len("const ") :].lstrip()
+        match = re.match(r"([A-Za-z_]\w*)", segment)
+        if match is not None:
+            names.add(match.group(1))
+    return names
+
+
 def _impl_self_type(header: str) -> str | None:
     s = _strip_leading_generics(header)
     depth = 0
@@ -442,20 +486,51 @@ def _impl_self_type(header: str) -> str | None:
             break
         i += 1
     match = re.match(r"\s*([A-Za-z_]\w*)", s)
-    return match.group(1) if match is not None else None
+    if match is None:
+        return None
+    base = match.group(1)
+    # A generic parameter is not a concrete self type. Without this, a method
+    # declared in ``impl<F: ...> Trait for F`` would be attributed to the type
+    # parameter ``F``, so a reference such as ``F::home`` would resolve.
+    if base in _impl_generic_params(header):
+        return None
+    return base
 
 
-def _impl_blocks(text: str) -> list[tuple[str, set[str]]]:
-    """Return ``(self_type, method_names)`` for every ``impl`` block."""
-    blocks: list[tuple[str, set[str]]] = []
+def _impl_trait(header: str) -> str | None:
+    """Return the trait an ``impl Trait for T`` header names, or ``None``."""
+    s = _strip_leading_generics(header)
+    depth = 0
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif depth == 0 and s.startswith(" for ", i):
+            match = re.match(r"\s*([A-Za-z_]\w*)", s[:i])
+            return match.group(1) if match is not None else None
+        i += 1
+    return None
+
+
+def _impl_blocks(text: str) -> list[tuple[str | None, str, set[str]]]:
+    """Return ``(trait, self_type, method_names)`` for every ``impl`` block."""
+    blocks: list[tuple[str | None, str, set[str]]] = []
     for match in re.finditer(r"(?m)^[ \t]*impl\b", text):
         start = match.end()
         brace = text.find("{", start)
         if brace < 0:
             continue
-        base = _impl_self_type(text[start:brace])
+        header = text[start:brace]
+        base = _impl_self_type(header)
         if base is None:
             continue
+        trait = _impl_trait(header)
         depth = 0
         k = brace
         while k < len(text):
@@ -468,21 +543,31 @@ def _impl_blocks(text: str) -> list[tuple[str, set[str]]]:
                     break
             k += 1
         body = text[brace + 1 : k]
-        blocks.append((base, set(re.findall(r"\bfn\s+([A-Za-z_]\w*)", body))))
+        blocks.append((trait, base, set(re.findall(r"\bfn\s+([A-Za-z_]\w*)", body))))
     return blocks
 
 
 def _check_rust(text: str, symbol: str) -> bool:
     if "::" in symbol:
         symbol = symbol.strip()
+        trait: str | None = None
         # A leading generic qualifier such as ``<i64 as Ring>::add`` names the
-        # implementing type ``i64``; keep only the concrete self type.
+        # implementing type ``i64`` and the trait ``Ring``; both must resolve to
+        # an actual ``impl Ring for i64`` block in the file.
         if symbol.startswith("<"):
             rest = _strip_leading_generics(symbol)
             if not rest.startswith("::"):
                 return False
             generic = symbol[: len(symbol) - len(rest)][1:-1]
-            head = re.split(r"[^A-Za-z0-9_]", generic.split(" as ", 1)[0])[-1]
+            self_part, sep, trait_part = generic.partition(" as ")
+            if not sep:
+                return False
+            self_match = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*", self_part)
+            trait_match = re.match(r"\s*([A-Za-z_]\w*)", trait_part)
+            if self_match is None or trait_match is None:
+                return False
+            head = self_match.group(1)
+            trait = trait_match.group(1)
             tail = rest[2:]
         else:
             head, _, tail = symbol.partition("::")
@@ -495,12 +580,16 @@ def _check_rust(text: str, symbol: str) -> bool:
         ):
             return False
         # Every segment after the named type must be declared inside an impl
-        # whose self type is that type. The full qualification is consumed: a
-        # trailing method is never silently ignored.
+        # whose self type is that type; when a ``<T as Trait>`` qualifier is
+        # present, the impl trait must match it as well. The full qualification
+        # is consumed: a trailing method is never silently ignored.
         methods: set[str] = set()
-        for base, names in _impl_blocks(text):
-            if base == head:
-                methods |= names
+        for impl_trait, base, names in _impl_blocks(text):
+            if base != head:
+                continue
+            if trait is not None and impl_trait != trait:
+                continue
+            methods |= names
         return all(member in methods for member in members)
     return (
         re.search(RUST_DECL + re.escape(symbol) + r"\b", text) is not None
@@ -1305,6 +1394,14 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             "src/table.rs::<WordHome as Merge<i64>>::merge",
         ),
         (
+            "reject a generic-qualified method whose trait does not exist",
+            "src/scalar.rs::<i64 as NonexistentTrait>::add",
+        ),
+        (
+            "reject a method attributed to a generic type parameter",
+            "src/table.rs::F::home",
+        ),
+        (
             "reject a reference with a trailing member access",
             "proof/Denotation.lean::denote.missing",
         ),
@@ -1340,6 +1437,8 @@ MANDATED_CONTROLS = [
     "reject a reference with an extra '::' segment",
     "reject a brace member that is not a single identifier or a Type::method pair",
     "reject a generic-qualified method bound to the wrong implementation",
+    "reject a generic-qualified method whose trait does not exist",
+    "reject a method attributed to a generic type parameter",
     "reject a reference with a trailing member access",
     "reject a scratch corpus root without a Git repository or Mathlib manifest",
 ]

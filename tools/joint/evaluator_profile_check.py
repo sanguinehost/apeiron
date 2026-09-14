@@ -1370,6 +1370,14 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             "src/table.rs::<WordHome as Merge<i64>>::merge",
         ),
         (
+            "class 7: reject a generic-qualified method whose trait does not exist",
+            "src/scalar.rs::<i64 as NonexistentTrait>::add",
+        ),
+        (
+            "class 7: reject a method attributed to a generic type parameter",
+            "src/table.rs::F::home",
+        ),
+        (
             "class 7: reject a reference with a trailing member access",
             "proof/Denotation.lean::denote.missing",
         ),
