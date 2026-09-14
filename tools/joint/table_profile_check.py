@@ -231,10 +231,12 @@ SLANG_DECL = [
     r"(?m)^\s*{n}\s*=",
 ]
 # File/symbol references embedded in free text: ``path::{a, b}`` or ``path::a``
-# or a bare source path.
+# or a bare source path. A single symbol may itself be qualified, as in
+# ``path::Type::method``; the whole chain is captured, never truncated at the
+# first segment.
 FILE_REF = re.compile(
     r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
-    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+))?"
+    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*))?"
 )
 
 
@@ -450,7 +452,105 @@ def _check_lean_ref(
         )
 
 
+def _strip_leading_generics(header: str) -> str:
+    s = header.lstrip()
+    if not s.startswith("<"):
+        return s
+    depth = 0
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+            if depth == 0:
+                return s[i + 1 :]
+        i += 1
+    return ""
+
+
+def _impl_self_type(header: str) -> str | None:
+    s = _strip_leading_generics(header)
+    depth = 0
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif depth == 0 and s.startswith(" for ", i):
+            s = s[i + 5 :]
+            break
+        i += 1
+    match = re.match(r"\s*([A-Za-z_]\w*)", s)
+    return match.group(1) if match is not None else None
+
+
+def _impl_blocks(text: str) -> list[tuple[str, set[str]]]:
+    """Return ``(self_type, method_names)`` for every ``impl`` block."""
+    blocks: list[tuple[str, set[str]]] = []
+    for match in re.finditer(r"(?m)^[ \t]*impl\b", text):
+        start = match.end()
+        brace = text.find("{", start)
+        if brace < 0:
+            continue
+        base = _impl_self_type(text[start:brace])
+        if base is None:
+            continue
+        depth = 0
+        k = brace
+        while k < len(text):
+            char = text[k]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        body = text[brace + 1 : k]
+        blocks.append((base, set(re.findall(r"\bfn\s+([A-Za-z_]\w*)", body))))
+    return blocks
+
+
 def _check_rust(text: str, symbol: str) -> bool:
+    if "::" in symbol:
+        symbol = symbol.strip()
+        # A leading generic qualifier such as ``<i64 as Ring>::add`` names the
+        # implementing type ``i64``; keep only the concrete self type.
+        if symbol.startswith("<"):
+            rest = _strip_leading_generics(symbol)
+            if not rest.startswith("::"):
+                return False
+            generic = symbol[: len(symbol) - len(rest)][1:-1]
+            head = re.split(r"[^A-Za-z0-9_]", generic.split(" as ", 1)[0])[-1]
+            tail = rest[2:]
+        else:
+            head, _, tail = symbol.partition("::")
+        head = head.strip()
+        if re.fullmatch(r"[A-Za-z_]\w*", head) is None:
+            return False
+        members = [segment.strip() for segment in tail.split("::")] if tail else []
+        if not members or any(
+            re.fullmatch(r"[A-Za-z_]\w*", segment) is None for segment in members
+        ):
+            return False
+        # Every segment after the named type must be declared inside an impl
+        # whose self type is that type. The full qualification is consumed: a
+        # trailing method is never silently ignored.
+        methods: set[str] = set()
+        for base, names in _impl_blocks(text):
+            if base == head:
+                methods |= names
+        return all(member in methods for member in members)
     return (
         re.search(RUST_DECL + re.escape(symbol) + r"\b", text) is not None
         or re.search(RUST_IMPL + re.escape(symbol) + r"\b", text) is not None
@@ -469,8 +569,10 @@ def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".slang":
         found = _check_slang(text, symbol)
-    else:
+    elif path.suffix == ".rs":
         found = _check_rust(text, symbol)
+    else:
+        found = re.search(LEAN_ANY_DECL + re.escape(symbol) + r"\b", text) is not None
     _need(found, f"{where}: {symbol} not found in {path}")
 
 
@@ -1202,6 +1304,21 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     cases.append(
         (
             "class 7: add an unresolved named reference to the T1 Rust layout",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 7: a qualified reference is consumed in full; ``merge`` belongs to
+    # ``WordMerge``, not ``WordHome``, so the trailing method is rejected.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["rust"]["layout"] = (
+        mutated["rows"][0]["rust"]["layout"] + " src/table.rs::WordHome::merge"
+    )
+    cases.append(
+        (
+            "class 7: reject a qualified method bound to the wrong Rust "
+            "implementation in the T1 Rust layout",
             mutated,
             spec_text,
         )

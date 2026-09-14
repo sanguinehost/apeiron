@@ -234,10 +234,12 @@ SLANG_DECL = [
     r"(?m)^\s*{n}\s*=",
 ]
 # File/symbol references embedded in free text: ``path::{a, b}`` or ``path::a``
-# or a bare source path.
+# or a bare source path. A single symbol may itself be qualified, as in
+# ``path::Type::method``; the whole chain is captured, never truncated at the
+# first segment.
 FILE_REF = re.compile(
     r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
-    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+))?"
+    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*))?"
 )
 
 
@@ -515,23 +517,34 @@ def _impl_blocks(text: str) -> list[tuple[str, set[str]]]:
 
 def _check_rust(text: str, symbol: str) -> bool:
     if "::" in symbol:
-        qualifier, method = symbol.rsplit("::", 1)
-        method = method.strip()
-        if re.fullmatch(r"[A-Za-z_]\w*", method) is None:
+        symbol = symbol.strip()
+        # A leading generic qualifier such as ``<i64 as Ring>::add`` names the
+        # implementing type ``i64``; keep only the concrete self type.
+        if symbol.startswith("<"):
+            rest = _strip_leading_generics(symbol)
+            if not rest.startswith("::"):
+                return False
+            generic = symbol[: len(symbol) - len(rest)][1:-1]
+            head = re.split(r"[^A-Za-z0-9_]", generic.split(" as ", 1)[0])[-1]
+            tail = rest[2:]
+        else:
+            head, _, tail = symbol.partition("::")
+        head = head.strip()
+        if re.fullmatch(r"[A-Za-z_]\w*", head) is None:
             return False
-        qualifier = qualifier.strip()
-        if qualifier.startswith("<") and qualifier.endswith(">"):
-            qualifier = qualifier[1:-1].split(" as ", 1)[0].strip()
-        qualifier = re.split(r"[^A-Za-z0-9_]", qualifier)[-1]
-        if not qualifier:
+        members = [segment.strip() for segment in tail.split("::")] if tail else []
+        if not members or any(
+            re.fullmatch(r"[A-Za-z_]\w*", segment) is None for segment in members
+        ):
             return False
-        # The method must be declared inside the impl whose self type is the
-        # named type. A type token that appears elsewhere in the file does not
-        # make the method a member of it.
-        return any(
-            base == qualifier and method in methods
-            for base, methods in _impl_blocks(text)
-        )
+        # Every segment after the named type must be declared inside an impl
+        # whose self type is that type. The full qualification is consumed: a
+        # trailing method is never silently ignored.
+        methods: set[str] = set()
+        for base, names in _impl_blocks(text):
+            if base == head:
+                methods |= names
+        return all(member in methods for member in members)
     return (
         re.search(RUST_DECL + re.escape(symbol) + r"\b", text) is not None
         or re.search(RUST_IMPL + re.escape(symbol) + r"\b", text) is not None
@@ -1255,6 +1268,19 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     )
     add("class 7: add an unresolved named reference to a row field", mutated)
 
+    # class 7: a qualified reference is consumed in full; ``merge`` belongs to
+    # ``WordMerge``, not ``WordHome``, so the trailing method is rejected.
+    mutated = copy.deepcopy(data)
+    mutated["unmatched_blockers"][0]["counterpart"] = (
+        mutated["unmatched_blockers"][0]["counterpart"]
+        + " src/table.rs::WordHome::merge"
+    )
+    add(
+        "class 7: reject a qualified method bound to the wrong Rust "
+        "implementation in a blocker counterpart",
+        mutated,
+    )
+
     # class 8: one rejecting mutation per row requirement, exercised against
     # the exact-target and exact-artifact checks.
     mutated = copy.deepcopy(data)
@@ -1373,6 +1399,8 @@ MANDATED_CONTROLS = [
     "class 6: set row K1 status to closed",
     "class 7: name an unresolved file in a blocker counterpart",
     "class 7: add an unresolved named reference to a row field",
+    "class 7: reject a qualified method bound to the wrong Rust implementation "
+    "in a blocker counterpart",
     "class 8: C1 word arithmetic drops the wrapping-add bridge refinement",
     "class 8: C2 cell algebra drops the norm multiplicativity target",
     "class 8: C3 point flux drops the pointFlux_eq target",

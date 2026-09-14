@@ -196,9 +196,13 @@ SLANG_DECL = [
     r"(?m)^\s*{n}\s*\([^\n]*\{",
     r"(?m)^\s*{n}\s*=",
 ]
+# File/symbol references embedded in free text: ``path::{a, b}`` or ``path::a``
+# or a bare source path. A single symbol may itself be qualified, as in
+# ``path::Type::method``; the whole chain is captured, never truncated at the
+# first segment.
 FILE_REF = re.compile(
     r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
-    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+))?"
+    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*))?"
 )
 
 
@@ -1165,6 +1169,22 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     cases.append(
         (
             "class 7: add an unresolved named reference to the E1 refinement",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 7: a qualified reference is consumed in full; the trailing segment
+    # names no declared Song function, so the reference is rejected.
+    mutated = copy.deepcopy(data)
+    mutated["unmatched_blockers"][0]["counterpart"] = (
+        mutated["unmatched_blockers"][0]["counterpart"]
+        + " song/src/prover/cone/certcheck.slang::main::missing"
+    )
+    cases.append(
+        (
+            "class 7: reject a qualified reference whose trailing symbol is not "
+            "declared in the named Song file",
             mutated,
             spec_text,
         )
