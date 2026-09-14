@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -39,6 +40,26 @@ SECTIONS = (
     "Checker",
 )
 STAGES = tuple(f"W{i}" for i in range(21, 31))
+
+# A gate is a shell command line. Every command segment after splitting on the
+# shell operators must begin with a known runner, a shell builtin, or a
+# path-like executable token; a bare word such as `x` is not runnable.
+RUNNERS = frozenset({"python3", "python", "lake", "cargo", "bash", "sh", "lean", "dune", "make"})
+SHELL_BUILTINS = frozenset({"cd", "env", "exec", "time", "nice", "export", "set", "source", "."})
+SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".pl", ".rb", ".js")
+FILE_SUFFIXES = (".lean", ".md", ".py", ".sh", ".json", ".slang", ".toml", ".txt")
+DOTTED_DECL = re.compile(r"[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)+")
+MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+# At least one termination statement and one resource-accounting statement must
+# remain in the termination section body, so arbitrary prose cannot replace it.
+TERMINATION_ELEMENTS = (
+    "natural measures derived from decoded arguments",
+    "source annotations alone are not premises",
+    "Counts are not converted into one scalar budget",
+)
+# The only admissible non-stage prerequisite: the root stage's specification gate.
+ROOT_PREREQUISITE = "this specification gate"
 
 SOURCES = {
     "src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
@@ -118,6 +139,10 @@ class Inputs:
     plan: str
     sources: dict[str, bytes]
     corpus: str
+    spec_bytes: bytes = b""
+    plan_bytes: bytes = b""
+    spec_sha256: str = ""
+    plan_sha256: str = ""
 
 
 def fail(message: str) -> None:
@@ -140,11 +165,19 @@ def load() -> Inputs:
         raw = {name: (SONG / name).read_bytes() for name in SOURCES}
         for name, data in raw.items():
             decode_source(name, data)
+        # The spec and plan are bound to their raw bytes, not to newline-normalized
+        # text: a CRLF checkout must not decode into the same accepted document.
+        spec_bytes = SPEC_PATH.read_bytes()
+        plan_bytes = PLAN_PATH.read_bytes()
         return Inputs(
-            SPEC_PATH.read_text(encoding="utf-8"),
-            PLAN_PATH.read_text(encoding="utf-8"),
-            raw,
-            (CORPUS / CANONICAL_MODULE).read_text(encoding="utf-8"),
+            spec=spec_bytes.decode("utf-8"),
+            plan=plan_bytes.decode("utf-8"),
+            sources=raw,
+            corpus=(CORPUS / CANONICAL_MODULE).read_text(encoding="utf-8"),
+            spec_bytes=spec_bytes,
+            plan_bytes=plan_bytes,
+            spec_sha256=sha256(spec_bytes),
+            plan_sha256=sha256(plan_bytes),
         )
     except (OSError, UnicodeError) as exc:
         fail(f"unresolved file: {exc}")
@@ -201,8 +234,13 @@ def has_section_content(body: str) -> bool:
 
 
 def meaningful_text(text: str) -> bool:
-    """True when the text has content beyond whitespace and HTML comments."""
-    return bool(re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL).strip())
+    """True when the text carries a substantive word.
+
+    Whitespace, HTML comments, punctuation and backticks alone are not content;
+    the text must retain at least one alphanumeric character.
+    """
+    cleaned = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    return re.search(r"[^\W_]", cleaned) is not None
 
 
 def strip_lean_comments(text: str) -> str:
@@ -286,6 +324,10 @@ def check_markdown(inputs: Inputs) -> None:
             fail(f"section {section}: expected once, found {count}")
         if not has_section_content(section_body(inputs.spec, section)):
             fail(f"section {section}: body is empty")
+    termination = section_body(inputs.spec, "Termination and source resources")
+    for element in TERMINATION_ELEMENTS:
+        if element not in termination:
+            fail(f"termination section missing required element: {element}")
     for oid in OBLIGATIONS:
         rows = [line for line in inputs.spec.splitlines() if line.startswith(f"| {oid} |")]
         if len(rows) != 1:
@@ -390,6 +432,72 @@ def check_canonical(inputs: Inputs) -> None:
         fail("unresolved canonical reference(s): " + ", ".join(unresolved))
 
 
+def check_document_bytes(inputs: Inputs) -> None:
+    """Bind the spec and plan to their raw bytes; reject normalized line endings."""
+    for label, raw, text, digest in (
+        ("spec", inputs.spec_bytes, inputs.spec, inputs.spec_sha256),
+        ("plan", inputs.plan_bytes, inputs.plan, inputs.plan_sha256),
+    ):
+        if sha256(raw) != digest:
+            fail(f"{label} digest drift from raw bytes")
+        if raw.decode("utf-8") != text:
+            fail(f"{label} text is not the raw-byte decoding")
+        if b"\r" in raw:
+            fail(f"{label} contains CR bytes; line endings are not normalized")
+
+
+def relative_links(text: str) -> list[str]:
+    """Repository-relative link targets, fragment stripped and external links skipped."""
+    targets: list[str] = []
+    for match in MARKDOWN_LINK.finditer(text):
+        target = match.group(1).strip()
+        if not target or target.startswith("#") or "://" in target:
+            continue
+        target = target.split("#", 1)[0]
+        if target:
+            targets.append(target)
+    return targets
+
+
+def planned_files(plan: str) -> set[str]:
+    """Backticked paths declared in the plan's owned-files column."""
+    planned: set[str] = set()
+    for stage in STAGES:
+        rows = [line for line in plan.splitlines() if line.startswith(f"| {stage} |")]
+        if len(rows) != 1:
+            continue
+        cells = [cell.strip() for cell in rows[0].strip().strip("|").split("|")]
+        if len(cells) != STAGE_COLUMNS:
+            continue
+        planned.update(re.findall(r"`([^`]+)`", cells[2]))
+    return planned
+
+
+def check_references(inputs: Inputs) -> None:
+    """Resolve every relative doc link and every backticked module/declaration reference."""
+    planned = planned_files(inputs.plan)
+    for label, text, base in (
+        ("spec", inputs.spec, SPEC_PATH.parent),
+        ("plan", inputs.plan, PLAN_PATH.parent),
+    ):
+        for target in relative_links(text):
+            if not (base / target).is_file():
+                fail(f"{label} relative link unresolved: {target}")
+        for token in re.findall(r"`([^`]+)`", text):
+            if any(ch.isspace() for ch in token):
+                continue
+            if token.endswith(FILE_SUFFIXES):
+                if token in planned or token == CANONICAL_MODULE:
+                    continue
+                if any((root / token).is_file() for root in (ROOT, CORPUS, SONG, ROOT.parent, base)):
+                    continue
+                fail(f"{label} module path unresolved: {token}")
+            elif DOTTED_DECL.fullmatch(token):
+                prefix, _, name = token.rpartition(".")
+                if prefix != "Apeiron.Table" or name not in CANONICAL:
+                    fail(f"{label} declaration reference unresolved: {token}")
+
+
 def stage_row(plan: str, stage: str) -> str:
     rows = [line for line in plan.splitlines() if line.startswith(f"| {stage} |")]
     if len(rows) != 1:
@@ -411,12 +519,46 @@ def check_owned_files(cell: str, stage: str) -> None:
             fail(f"stage {stage}: empty owned-file entry")
 
 
+def gate_command_segments(gate: str) -> list[str]:
+    """First word of every command segment in a shell command line."""
+    first_words: list[str] = []
+    for segment in re.split(r"&&|\|\||;|\|", gate):
+        words = segment.strip().split()
+        index = 0
+        while index < len(words) and ENV_ASSIGNMENT.fullmatch(words[index]):
+            index += 1
+        if index < len(words):
+            first_words.append(words[index])
+    return first_words
+
+
+def is_runnable_command(token: str) -> bool:
+    """True for a known runner, a shell builtin, or a path to an executable script."""
+    if token in RUNNERS or token in SHELL_BUILTINS:
+        return True
+    if token.endswith(SCRIPT_SUFFIXES):
+        return True
+    if token.startswith(("./", "../", "/")) or "/" in token:
+        for candidate in (Path(token), ROOT / token, ROOT.parent / token):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return True
+        return False
+    return False
+
+
 def check_gate(cell: str, stage: str) -> None:
     match = re.fullmatch(r"`([^`]+)`", cell)
     if match is None:
         fail(f"stage {stage}: gate missing")
-    if not match.group(1).strip():
+    gate = match.group(1).strip()
+    if not gate:
         fail(f"stage {stage}: gate is empty")
+    segments = gate_command_segments(gate)
+    if not segments:
+        fail(f"stage {stage}: gate has no command")
+    for token in segments:
+        if not is_runnable_command(token):
+            fail(f"stage {stage}: gate segment does not begin with a runnable command: {token}")
 
 
 def check_negative_control(cell: str, stage: str) -> None:
@@ -426,29 +568,47 @@ def check_negative_control(cell: str, stage: str) -> None:
         fail(f"stage {stage}: negative control has no rejection verb")
 
 
+def prerequisite_dependencies(targets: str, stage: str) -> list[str]:
+    """Stage ids named by the explicit `Requires` target list.
+
+    Both `W<n>` and bare `<n>` stage numbers count, so a cycle cannot be hidden
+    by writing the stage numbers without the `W` prefix. Ranges expand.
+    """
+    deps: list[str] = []
+
+    def expand(match: re.Match[str]) -> str:
+        low, high = int(match.group(1)), int(match.group(2))
+        if high < low:
+            fail(f"stage {stage}: malformed prerequisite range {match.group(0)}")
+        deps.extend(f"W{number}" for number in range(low, high + 1))
+        return " "
+
+    remaining = re.sub(r"W?(\d+)\s*-\s*W?(\d+)", expand, targets)
+    for match in re.finditer(r"W?(\d+)", remaining):
+        deps.append(f"W{int(match.group(1))}")
+    for dep in deps:
+        if dep not in STAGES:
+            fail(f"stage {stage}: unresolved prerequisite {dep}")
+        if dep == stage:
+            fail(f"stage {stage}: self prerequisite")
+    if len(set(deps)) != len(deps):
+        fail(f"stage {stage}: duplicate prerequisite")
+    return deps
+
+
 def check_prerequisite(cell: str, stage: str) -> list[str]:
     parts = re.split(r"\bStop\b", cell, maxsplit=1)
     head = parts[0]
     if "Requires" not in head:
         fail(f"stage {stage}: prerequisite missing")
     stop = parts[1] if len(parts) == 2 else ""
-    if not stop.strip(" .;:-"):
+    if not meaningful_text(stop.strip(" .;:-")):
         fail(f"stage {stage}: stop condition missing")
-    deps: list[str] = []
-    for match in re.finditer(r"W(\d+)(?:\s*-\s*W(\d+))?", head):
-        low = int(match.group(1))
-        high = int(match.group(2)) if match.group(2) else low
-        if high < low:
-            fail(f"stage {stage}: malformed prerequisite range W{low}-W{high}")
-        for number in range(low, high + 1):
-            dep = f"W{number}"
-            if dep not in STAGES:
-                fail(f"stage {stage}: unresolved prerequisite {dep}")
-            if dep == stage:
-                fail(f"stage {stage}: self prerequisite")
-            deps.append(dep)
-    if len(set(deps)) != len(deps):
-        fail(f"stage {stage}: duplicate prerequisite")
+    clause = head.split("Requires", 1)[1]
+    targets = clause.split(".", 1)[0].strip().strip(" .;:-")
+    deps = prerequisite_dependencies(targets, stage)
+    if not deps and not (stage == STAGES[0] and targets == ROOT_PREREQUISITE):
+        fail(f"stage {stage}: prerequisite does not name a stage")
     return deps
 
 
@@ -457,7 +617,7 @@ def check_plan(inputs: Inputs) -> None:
     for stage in STAGES:
         row = stage_row(inputs.plan, stage)
         cells = row_cells(row, STAGE_COLUMNS, f"stage {stage}")
-        if not cells[1]:
+        if not meaningful_text(cells[1]):
             fail(f"stage {stage}: purpose is empty")
         check_owned_files(cells[2], stage)
         check_gate(cells[3], stage)
@@ -469,25 +629,57 @@ def check_plan(inputs: Inputs) -> None:
 
 
 def validate(inputs: Inputs) -> None:
+    check_document_bytes(inputs)
     check_markdown(inputs)
     check_sources(inputs)
     check_canonical(inputs)
     check_plan(inputs)
+    check_references(inputs)
 
 
 Mutation = tuple[str, Callable[[Inputs], Inputs]]
 
 
+def spec_text(text: str) -> Callable[[Inputs], Inputs]:
+    def mutate(i: Inputs) -> Inputs:
+        raw = text.encode("utf-8")
+        return replace(i, spec=text, spec_bytes=raw, spec_sha256=sha256(raw))
+
+    return mutate
+
+
+def plan_text(text: str) -> Callable[[Inputs], Inputs]:
+    def mutate(i: Inputs) -> Inputs:
+        raw = text.encode("utf-8")
+        return replace(i, plan=text, plan_bytes=raw, plan_sha256=sha256(raw))
+
+    return mutate
+
+
 def sub_spec(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
-    return lambda i: replace(i, spec=i.spec.replace(old, new, 1))
+    return lambda i: spec_text(i.spec.replace(old, new, 1))(i)
 
 
 def sub_plan(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
-    return lambda i: replace(i, plan=i.plan.replace(old, new, 1))
+    return lambda i: plan_text(i.plan.replace(old, new, 1))(i)
 
 
 def sub_spec_all(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
-    return lambda i: replace(i, spec=i.spec.replace(old, new))
+    return lambda i: spec_text(i.spec.replace(old, new))(i)
+
+
+def document_crlf(which: str) -> Callable[[Inputs], Inputs]:
+    """Re-encode one document with CRLF bytes without normalizing them."""
+
+    def mutate(i: Inputs) -> Inputs:
+        raw = i.spec_bytes if which == "spec" else i.plan_bytes
+        raw = raw.replace(b"\n", b"\r\n")
+        text = raw.decode("utf-8")
+        if which == "spec":
+            return replace(i, spec=text, spec_bytes=raw, spec_sha256=sha256(raw))
+        return replace(i, plan=text, plan_bytes=raw, plan_sha256=sha256(raw))
+
+    return mutate
 
 
 def source_sub(path: str, old: str, new: str) -> Callable[[Inputs], Inputs]:
@@ -660,6 +852,75 @@ def hardening_controls(inputs: Inputs) -> list[Mutation]:
             ),
         )
     )
+
+    # A gate must be an actual runnable command, not an arbitrary backticked word.
+    cases.append(("non-command gate W21", sub_plan(w21, mutate_row_cell(w21, 3, "`x`"))))
+    cases.append(
+        ("nonexistent path gate W21", sub_plan(w21, mutate_row_cell(w21, 3, "`./missing-gate`")))
+    )
+    cases.append(
+        ("non-executable path gate W21", sub_plan(w21, mutate_row_cell(w21, 3, "`docs/direction.md`")))
+    )
+
+    # The termination section must retain its termination/resource statements.
+    cases.append(
+        (
+            "prose termination section body",
+            sub_spec(
+                termination_body,
+                "\nThis section is intentionally prose and carries no required statement.\n",
+            ),
+        )
+    )
+
+    # A prerequisite cycle cannot be hidden behind bare stage numbers or prose.
+    cases.append(
+        (
+            "bare-number prerequisite cycle W21",
+            sub_plan(w21, mutate_row_cell(w21, 5, "Requires 30. Stop if a mutation can survive.")),
+        )
+    )
+    cases.append(
+        (
+            "prose-only prerequisite W22",
+            sub_plan(w22, mutate_row_cell(w22, 5, "Requires the final stage. Stop on accepted prefixes.")),
+        )
+    )
+
+    # A required field of punctuation or backticks alone is not substantive.
+    cases.append(
+        ("punctuation-only obligation text O01", sub_spec(obligation, mutate_row_cell(obligation, 1, "`...`")))
+    )
+    cases.append(
+        ("backtick-only purpose W21", sub_plan(w21, mutate_row_cell(w21, 1, "```")))
+    )
+
+    # Every relative doc link and backticked module/declaration reference resolves.
+    cases.append(
+        (
+            "nonexistent relative doc link in plan",
+            sub_plan(
+                "[`../spec/slang-source-semantics.md`](../spec/slang-source-semantics.md)",
+                "[`../spec/slang-source-semantics.md`](../spec/slang-source-gone.md)",
+            ),
+        )
+    )
+    cases.append(
+        (
+            "non-Apeiron.Table declaration reference in plan",
+            sub_plan("`Apeiron.Table.insertWith`", "`Apeiron.Other.insertWith`"),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent module path reference in plan",
+            sub_plan("`Apeiron.Table.insertWith`", "`Other/Module.lean`"),
+        )
+    )
+
+    # The spec and plan are bound to raw bytes, not newline-normalized text.
+    cases.append(("crlf spec bytes not normalized", document_crlf("spec")))
+    cases.append(("crlf plan bytes not normalized", document_crlf("plan")))
     return cases
 
 
