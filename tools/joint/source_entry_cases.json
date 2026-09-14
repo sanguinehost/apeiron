@@ -1,0 +1,413 @@
+{
+  "profile": "APEIRON-PROGRAMME-W18-T1",
+  "version": 1,
+  "corpus": {
+    "root": "../sanguine-apeiron/proof",
+    "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f",
+    "apeiron_git": "2b5eda334e262f70f7c10ce567c8641c2396626d",
+    "song_git": "47869e76f982cfa3085a8618a82b80463e22ef46",
+    "sources": {
+      "song/src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
+      "song/src/prover/ring/prover0.slang": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb",
+      "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9",
+      "../sanguine-apeiron/proof/Apeiron/Combinator/Basic.lean": "8b5629081130e7b53057b2b797b11e8f8340a34a0e0cfca5ca91282f39523c5c",
+      "../sanguine-apeiron/proof/Apeiron/Combinator/Verdict.lean": "090a4cd245660d31ab4107600b6869782cefadfacd6355a2bb7174d3172eb36c"
+    }
+  },
+  "fields": [
+    {
+      "key": "song",
+      "label": "Song",
+      "obligation": "The exact Song Slang source file, function, repository revision and sha256 digest of the selected executing body."
+    },
+    {
+      "key": "represented_program",
+      "label": "Represented program",
+      "obligation": "The abstract operation the selected body implements, stated independently of the body so a body mutation can be judged against it."
+    },
+    {
+      "key": "observation_relation",
+      "label": "Observation relation",
+      "obligation": "The relation between the selected body's result and the canonical Lean definition, with the exact canonical declaration names it refines."
+    },
+    {
+      "key": "canonical_targets",
+      "label": "Canonical targets",
+      "obligation": "The exact fully-qualified canonical Lean declarations the represented program is stated against."
+    },
+    {
+      "key": "input_grammar",
+      "label": "Input grammar",
+      "obligation": "The arguments and byte grammar the selected body consumes, and its trailing-input policy."
+    },
+    {
+      "key": "state_effects",
+      "label": "State and effects",
+      "obligation": "The caller-visible state the body reads or mutates and whether any effect can be rolled back."
+    },
+    {
+      "key": "refusal",
+      "label": "Refusal and unsupported input",
+      "obligation": "The refusal, unsupported-input and resource-exhaustion behaviour, including the raw return encoding."
+    },
+    {
+      "key": "rejecting_control",
+      "label": "Rejecting control",
+      "obligation": "The named control that mutates the actual body while leaving the represented program unchanged and must be rejected."
+    },
+    {
+      "key": "missing",
+      "label": "Missing",
+      "obligation": "The checked Slang source-semantics link and the executing refinement that are absent for this entry."
+    }
+  ],
+  "non_refinement": {
+    "copied_model": "A copied implementation model is NOT a source-connected refinement: a Rust or Lean re-implementation of the selected Song body, however faithful, shares no checked denotation with the executing Slang source and closes no row.",
+    "differential_suite": "A differential suite is NOT a source-connected refinement: equal or differing outputs on sampled inputs are evidence about two executions, not a checked denotation of the Slang body by the canonical definition.",
+    "equal_outputs": "Equal outputs are NOT a source-connected refinement: agreement on a test corpus does not establish that the executing body denotes the canonical object on its matched domain.",
+    "body_change_rule": "Changing a selected actual Song body without changing its represented program must be rejected: the source-semantics link is a function of the actual body, so a body mutation that preserves the stated represented program is exactly the change the link must fail to accept."
+  },
+  "entries": [
+    {
+      "id": "SE1",
+      "title": "mergeAcc scalar addition",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/table/table.slang",
+        "symbol": "mergeAcc",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+      },
+      "represented_program": "The binary merge parameter `f : V -> V -> V` of `Apeiron.Table.insertWith` and `Apeiron.Table.build`, instantiated at scalar addition: `mergeAcc(left, right) = left + right` on bounded machine integers. The represented program is the merge function, not the table that folds it.",
+      "observation_relation": "For a key `x` and a stream `kvs`, `Apeiron.Table.get (Apeiron.Table.build mergeAcc d kvs) x` is the fold of `mergeAcc` over that key's values in stream order, the equation named by `Apeiron.Table.get_build_acc`. The relation is stated as an anchor, not checked; no denotation from the Song machine integer to the canonical scalar exists.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Table.insertWith",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Table.get_build_acc",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Two arguments `left` and `right`, each a bounded machine integer. No byte input, no input consumption and no trailing-input policy; the body is a pure call, not a stream reader.",
+      "state_effects": "None. The body reads no `memory[]` cell and writes no `memory[]` cell. The in-tree laws `mergeacc_comm` and `mergeacc_assoc` are Song laws, not canonical Lean.",
+      "refusal": "None. The body admits every pair of machine integers. The in-tree laws carry the domain `0 <= left, right <= COORD_CEILING`, but the executing body has no guard and computes for every pair; an out-of-domain value is outside the matched domain but is not refused.",
+      "rejecting_control": "SC1",
+      "missing": "MISSING: a checked Slang source-semantics link from the executing `mergeAcc` body to the canonical merge parameter, and any executing refinement of the fold. `mergeacc_comm` and `mergeacc_assoc` are in-tree Song laws and do not establish the link."
+    },
+    {
+      "id": "SE2",
+      "title": "tableGet read",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/table/table.slang",
+        "symbol": "tableGet",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+      },
+      "represented_program": "The total canonical read `Apeiron.Table.get`: return the value stored at `key`. The body locates the slot with `tableFind` and reads it with `tableSlotVal`; the represented program is the read at an occupied key.",
+      "observation_relation": "At an occupied key the raw word returned by `tableGet` is intended to equal the value read by `Apeiron.Table.get`; `Apeiron.Table.get_insertWith_self` names the read-back equation at a written key. The canonical read is total with a stored default, while the Song read returns the sentinel `-1` for a missing key; the relation is stated, not checked.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Table.get",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Table.get_insertWith_self",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Arguments `base`, `cap` and `key`; `base` and `cap` describe a caller-owned `memory[]` extent of `2*cap` cells. No byte input and no input consumption.",
+      "state_effects": "None. A read does not write; `tableFind` and `tableSlotVal` read `memory[]` only.",
+      "refusal": "A missing key, an empty probe slot, an invalid capacity or the reserved key `-1` all return the raw word `-1`, which is overloaded across those cases and is not a status. The canonical read has no refusal.",
+      "rejecting_control": "SC2",
+      "missing": "MISSING: a checked Slang source-semantics link from `tableGet` to `Apeiron.Table.get` and any executing refinement. The missing-key sentinel and the canonical stored default are unresolved."
+    },
+    {
+      "id": "SE3",
+      "title": "tableInsertWith replacement and accumulator write",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/table/table.slang",
+        "symbol": "tableInsertWith",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+      },
+      "represented_program": "The canonical `Apeiron.Table.insertWith f k v m`: for an existing key store and return `f value old`; for a fresh key store and return `value`. The selected merge is the accumulator face (`old + value`) on the existing-key path, while the fresh-key path stores `value` without adding a default. The body is the write operation, not `Apeiron.Table.build`.",
+      "observation_relation": "For an existing key, `Apeiron.Table.get (Apeiron.Table.insertWith mergeAcc k v m) k = mergeAcc v (m k)`; for a different key the map is unchanged. The corpus equations `Apeiron.Table.get_insertWith_self` and `Apeiron.Table.get_insertWith_ne` name the relation. The relation is stated, not checked.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Table.insertWith",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Table.get_insertWith_self",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        },
+        {
+          "name": "Apeiron.Table.get_insertWith_ne",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Arguments `base`, `cap`, `key`, `value` and `merge`; the caller owns a `memory[]` extent of `2*cap` cells. No byte input; the merge code is an integer in the range `MERGE_SET..MERGE_ACC`.",
+      "state_effects": "The body writes the located slot in place: `tableSlotSet` for a fresh key and `tableSlotValSet` for an existing key. The caller memory is mutated and there is no rollback.",
+      "refusal": "Invalid capacity, the reserved key `-1`, an out-of-range merge code or probe exhaustion returns `-1` before any slot write. Earlier successful calls in a sequence remain visible, so the multi-insert is not transactional.",
+      "rejecting_control": "SC3",
+      "missing": "MISSING: a checked Slang source-semantics link from `tableInsertWith` to `Apeiron.Table.insertWith` and any executing refinement. The absent default on a fresh write and the non-transactional post-state are unresolved."
+    },
+    {
+      "id": "SE4",
+      "title": "tableInit empty layout",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/table/table.slang",
+        "symbol": "tableInit",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+      },
+      "represented_program": "The constant-default canonical table `Apeiron.Table.build f d [] = fun _ => d`: initialize `cap` slots to the empty key and the zero value. The represented program is the empty table construction, not a build over a stream.",
+      "observation_relation": "After `tableInit` returns `0`, every slot key reads the reserved empty key; the canonical object is the total function `Apeiron.Table.HMap K V`. The relation is stated as an anchor, not checked; no denotation from the caller `memory[]` to `Apeiron.Table.HMap` exists.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Table.HMap",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "abbrev"
+        },
+        {
+          "name": "Apeiron.Table.build",
+          "module": "Apeiron/Table/Basic.lean",
+          "root": "corpus",
+          "kind": "def"
+        }
+      ],
+      "input_grammar": "Arguments `base` and `cap`; the caller owns a `memory[]` extent of `2*cap` cells. No byte input and no input consumption.",
+      "state_effects": "Writes `2*cap` cells: each slot key is set to the empty key and each value to `0` through `tableInitGo` and `tableSlotSet`. The caller memory is mutated and there is no rollback.",
+      "refusal": "`tableInit` returns the raw word `-1` without writes when `tableCapacityOk(cap)` is `0`, that is for a non-positive or non-power-of-two capacity. The raw word is overloaded and is not a status.",
+      "rejecting_control": "SC4",
+      "missing": "MISSING: a checked Slang source-semantics link from `tableInit` to the canonical constant-default table and any executing refinement. The caller's address extent is a separate caller obligation."
+    },
+    {
+      "id": "SE5",
+      "title": "headReduce one head step",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/prover/ring/prover0.slang",
+        "symbol": "headReduce",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb"
+      },
+      "represented_program": "The canonical `Apeiron.Combinator.Comb.headReduce`: fire one head redex on already-reduced children. The `TAG_I`, `TAG_IOTA`, `TAG_K` and `S`-head shapes are the four arms; a term with no head redex is rebuilt.",
+      "observation_relation": "`Apeiron.Combinator.Comb.headReduce_sound` states `Reduces c (headReduce c)`, so the canonical one-step reduction reaches the reduced term. The Song body is intended to implement that one step, but no denotation from the Song arena to `Apeiron.Combinator.Comb` is established.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Combinator.Comb.headReduce",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Combinator.Comb.headReduce_sound",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Arguments `fl`, `fr` and `orig`: two already-reduced child node indices and the original node index in the Song arena. No byte input and no input consumption at this entry.",
+      "state_effects": "Allocates arena nodes through `newApp` and `newNode` and may set the `SPENT` flag on arena exhaustion. The input node's children are not mutated and there is no rollback.",
+      "refusal": "Arena exhaustion is not a refusal at this entry: `newNode` sets `SPENT` and returns the inert `NIL` node (tag `0`), and the caller `verdict` maps `SPENT` to `FUEL`. Unsupported input: none at this entry.",
+      "rejecting_control": "SC5",
+      "missing": "MISSING: a checked Slang source-semantics link from `headReduce` to `Apeiron.Combinator.Comb.headReduce` and any executing refinement of the Song arena to `Apeiron.Combinator.Comb`. The `SPENT` and `NIL` arm is unresolved."
+    },
+    {
+      "id": "SE6",
+      "title": "normalize budgeted composition",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/prover/ring/prover0.slang",
+        "symbol": "normalize",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb"
+      },
+      "represented_program": "The canonical `Apeiron.Combinator.Comb.normalize fuel c`: apply `reduceDeep` at most `fuel` times. The Song body composes `pass` to a fixed point or the source budget `FUEL_PASSES`.",
+      "observation_relation": "`Apeiron.Combinator.Comb.reduces_normalize` states `Reduces c (normalize fuel c)`. The Song pass composition is intended to implement the same iteration; `FUEL_PASSES` is a source constant, not a Lean `fuel` value, and no relation is checked.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Combinator.Comb.normalize",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Combinator.Comb.reduces_normalize",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Arguments `root`, a Song node index, and `fuel`, a pass count. No byte input and no input consumption.",
+      "state_effects": "Increments the pass counter, resets and reuses the walk stack, and mutates the memo and memo-stamp arrays. There is no rollback.",
+      "refusal": "When the source budget is exhausted or `SPENT` is set, the body returns the current root and the caller reports `FUEL`. Unsupported input: none at this entry.",
+      "rejecting_control": "SC6",
+      "missing": "MISSING: a checked Slang source-semantics link from `normalize` to `Apeiron.Combinator.Comb.normalize` and any executing refinement. The source budget is not a Lean `fuel` value."
+    },
+    {
+      "id": "SE7",
+      "title": "hasRedex floor detector",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/prover/ring/prover0.slang",
+        "symbol": "hasRedex",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb"
+      },
+      "represented_program": "The canonical `Apeiron.Combinator.Comb.hasRedex`: report whether the term carries a redex. The Song body walks the arena and reports `1` for the `TAG_I`, `TAG_IOTA`, `TAG_K`-head or `S`-head application shapes.",
+      "observation_relation": "`Apeiron.Combinator.Comb.normal_of_hasRedex_false` states that a clean report is a `NormalForm`. The Song body is intended to decide the same predicate; the relation is stated, not checked.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Combinator.Comb.hasRedex",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Combinator.Comb.normal_of_hasRedex_false",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Argument `root`, a Song node index. No byte input and no input consumption.",
+      "state_effects": "Resets and reuses the walk stack. On stack exhaustion the body sets `SPENT` and the caller reports a redex. There is no rollback.",
+      "refusal": "Stack exhaustion reports a redex (`1`) through `SPENT`; it is not a refusal. Unsupported input: none at this entry.",
+      "rejecting_control": "SC7",
+      "missing": "MISSING: a checked Slang source-semantics link from `hasRedex` to `Apeiron.Combinator.Comb.hasRedex` and any executing refinement. The `SPENT` report is unresolved."
+    },
+    {
+      "id": "SE8",
+      "title": "verdict normalize-and-compare",
+      "status": "selected-open",
+      "song": {
+        "file": "song/src/prover/ring/prover0.slang",
+        "symbol": "verdict",
+        "revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
+        "sha256": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb"
+      },
+      "represented_program": "The canonical `Apeiron.Combinator.Comb.verdict fuel a b`: normalize two terms, detect remaining redexes and compare the floors, reporting `equal`, `distinct` or `fuel`. The Song body parses two prefix terms, normalizes both, detects redexes and structurally compares.",
+      "observation_relation": "`Apeiron.Combinator.Comb.verdict_decided_exact` states that when `verdict fuel a b` is not `fuel`, `equal` holds exactly when `Joinable a b` holds. The Song `EQUAL`, `DISTINCT`, `FUEL` and `PARSE` reports are intended to implement that decision; no denotation from the byte stream and arena to `Apeiron.Combinator.Comb` is established.",
+      "canonical_targets": [
+        {
+          "name": "Apeiron.Combinator.Comb.verdict",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "def"
+        },
+        {
+          "name": "Apeiron.Combinator.Comb.verdict_decided_exact",
+          "module": "Apeiron/Combinator/Verdict.lean",
+          "root": "corpus",
+          "kind": "theorem"
+        }
+      ],
+      "input_grammar": "Stdin bytes: `*` application, `k`, `s`, `i` and `u` atoms, digits `0..9` for variables, whitespace skipped. `readToken` consumes one byte per call and increments the position counter; `verdict` reads exactly two prefix terms and leaves trailing bytes unconsumed.",
+      "state_effects": "Mutates the arena, memo, stamps, counters and stacks in place. There is no rollback.",
+      "refusal": "`PARSE <pos>` with exit `2` on an unknown byte, an incomplete term or parse-stack overflow; `FUEL` with exit `3` on `SPENT` or a remaining redex; `RING` with exit `4` on startup ring-claim failure.",
+      "rejecting_control": "SC8",
+      "missing": "MISSING: a checked Slang source-semantics link from `verdict` to `Apeiron.Combinator.Comb.verdict` and any executing refinement. The byte grammar and the arena denotation are unresolved."
+    }
+  ],
+  "missing_artifacts": [
+    "MISSING: a checked Slang source-semantics link for every selected entry. No denotation from the executing Song Slang body to its canonical Lean definition exists.",
+    "MISSING: an executing refinement for every selected entry. No Song-to-Lean refinement theorem for any selected body exists, and every entry stays selected-open."
+  ],
+  "controls": [
+    {
+      "id": "SC1",
+      "name": "mergeAcc body arithmetic substitution",
+      "target": "SE1",
+      "mutation": "In a throwaway copy of `song/src/table/table.slang::mergeAcc`, replace `return left + right;` with `return left - right;` and leave the represented program (scalar addition) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the body no longer denotes it. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC2",
+      "name": "tableGet key/value swap",
+      "target": "SE2",
+      "mutation": "In a throwaway copy of `song/src/table/table.slang::tableGet`, read the key cell instead of the value cell at the located slot, and leave the represented program (read the stored value) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the body returns the key rather than the value. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC3",
+      "name": "tableInsertWith existing-key addition drop",
+      "target": "SE3",
+      "mutation": "In a throwaway copy of `song/src/table/table.slang::tableInsertWith`, drop the existing-key accumulator addition so the body stores `value` on the existing-key path, and leave the represented program unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the existing-key path no longer denotes `Apeiron.Table.insertWith` at the accumulator merge. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC4",
+      "name": "tableInit value-cell write drop",
+      "target": "SE4",
+      "mutation": "In a throwaway copy of `song/src/table/table.slang::tableInitGo`, stop writing the value cell so only the key cell is initialized, and leave the represented program (empty table construction) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the initialized extent no longer denotes the constant-default table. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC5",
+      "name": "headReduce I arm return",
+      "target": "SE5",
+      "mutation": "In a throwaway copy of `song/src/prover/ring/prover0.slang::headReduce`, change the `TAG_I` arm to return `fl` instead of `fr`, and leave the represented program (one head step) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the `I` arm no longer denotes `Apeiron.Combinator.Comb.headReduce`. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC6",
+      "name": "normalize fixed-point test removal",
+      "target": "SE6",
+      "mutation": "In a throwaway copy of `song/src/prover/ring/prover0.slang::normalize`, remove the fixed-point test so the body always recurses on the budget, and leave the represented program (budgeted iteration) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the body no longer denotes `Apeiron.Combinator.Comb.normalize`. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC7",
+      "name": "hasRedex iota redex drop",
+      "target": "SE7",
+      "mutation": "In a throwaway copy of `song/src/prover/ring/prover0.slang::isHeadRedex`, drop the `TAG_IOTA` redex case, and leave the represented program (redex detector) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the detector no longer denotes `Apeiron.Combinator.Comb.hasRedex`. The checker does not execute this control.",
+      "grade": "open"
+    },
+    {
+      "id": "SC8",
+      "name": "verdict label swap",
+      "target": "SE8",
+      "mutation": "In a throwaway copy of `song/src/prover/ring/prover0.slang::verdict`, swap the `sayEqual` and `sayDistinct` branches, and leave the represented program (normalize-and-compare verdict) unchanged.",
+      "expected_red": "The source-semantics link must reject the mutated actual body because the represented program is unchanged and the reported verdict no longer denotes `Apeiron.Combinator.Comb.verdict`. The checker does not execute this control.",
+      "grade": "open"
+    }
+  ],
+  "not_covered": [
+    "Semantic correspondence itself: this profile and its checker establish specification consistency only and never report correspondence, refinement or proof.",
+    "A checked Slang source-semantics link for any selected entry; none exists.",
+    "An executing refinement for any selected entry; none exists.",
+    "rustc/LLVM code generation, the generated machine code and the kernel ABI.",
+    "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
+    "Song local registers, ontology and commands."
+  ]
+}
