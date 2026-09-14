@@ -1,0 +1,451 @@
+{
+  "schema": 1,
+  "profile": "",
+  "note": "Staged Slang source-refinement gate table. The stage ids are the harness names; each binds to one wave of the design notes/slang-source-refinement.md (W22..W29). The proof module, command and negative control are the plan's declared outputs, not claims that those files exist. A missing module, generator, checker or binding is a named red result. The encoded mutation is the plan's negative control expressed as an exact replacement against the real Song source that the wave consumes; where the plan's control names a decoded Lean artifact, the source mutation is the input that decodes to the defect and the stage command must re-render the binding, else the control reports `mutation survived` (red), never a pass. The harness establishes gate consistency only and never claims correspondence, refinement or proof.",
+  "roots": {
+    "corpus": "../sanguine-apeiron/proof",
+    "bridge": "proof",
+    "bridge_corpus": "proof/corpus"
+  },
+  "defaults": {
+    "timeout": 1800,
+    "copy": [
+      "proof/corpus/Slang",
+      "proof/corpus/Joint",
+      "proof/corpus/*.lean",
+      "proof/corpus/lakefile.lean",
+      "proof/corpus/lake-manifest.json",
+      "proof/corpus/lean-toolchain",
+      "proof/*.lean",
+      "proof/extract",
+      "proof/regen.sh",
+      "proof/lakefile.lean",
+      "proof/lake-manifest.json",
+      "proof/lean-toolchain",
+      "tools/slang"
+    ],
+    "link": [
+      "proof/.lake/packages",
+      "proof/corpus/.lake/packages",
+      "target"
+    ]
+  },
+  "stages": [
+    {
+      "id": "decode",
+      "order": 1,
+      "title": "Decode exact bytes into the selected AST",
+      "summary": "W22: decode the selected Song Slang bytes into the checked AST with complete body consumption.",
+      "source_entry": "W22",
+      "rejecting_control": "plan W22 negative control",
+      "plan": {
+        "wave": "W22",
+        "purpose": "Decode exact bytes into the selected AST with complete body consumption",
+        "owned_files": [
+          "proof/corpus/Slang/Syntax.lean",
+          "proof/corpus/Slang/Decode.lean",
+          "proof/corpus/Slang/DecodeTest.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/DecodeTest.lean",
+        "negative_control": "Delete the final statement of `tableInsertWith` or append a reachable unsupported token; decode test MUST reject."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/Decode.lean",
+          "declaration_prefix": "Slang.Decode",
+          "note": "declared target; the W22 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/DecodeTest.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "  return tableSlotValSet(base, slot, newVal);\n",
+        "new": "",
+        "expect": "the decode test rejects the deleted final tableInsertWith statement (W22 control)"
+      },
+      "note": "The plan's decode test must read the mutated Song source from the throwaway copy; a test that ignores it reports `mutation survived` and the stage fails closed."
+    },
+    {
+      "id": "machine",
+      "order": 2,
+      "title": "64-bit source machine, environments, control, traces and raw memory",
+      "summary": "W23: define the 64-bit source machine, environments, control, traces and raw memory.",
+      "source_entry": "W23",
+      "rejecting_control": "plan W23 negative control",
+      "plan": {
+        "wave": "W23",
+        "purpose": "Define the 64-bit source machine, environments, control, traces, and raw memory",
+        "owned_files": [
+          "proof/corpus/Slang/Word.lean",
+          "proof/corpus/Slang/Memory.lean",
+          "proof/corpus/Slang/Semantics.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/Semantics.lean",
+        "negative_control": "Replace eager bitwise `or` with short-circuit evaluation or make multiplication unbounded; semantic fixtures MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/Semantics.lean",
+          "declaration_prefix": "Slang.Semantics",
+          "note": "declared target; the W23 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/Semantics.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "  return (pos * TABLE_PHI) and 4611686018427387903;\n",
+        "new": "  return pos * TABLE_PHI;\n",
+        "expect": "the semantic fixtures reject the unmasked (unbounded) spread multiplication (W23 control)"
+      },
+      "note": "The encoded source change realizes the plan's `make multiplication unbounded` arm; the plan's other arm (eager `or` to short-circuit) is owned by the W23 fixture and is recorded in `plan.negative_control`."
+    },
+    {
+      "id": "source",
+      "order": 3,
+      "title": "Bind decoded declarations, constants, imports and reachable calls to exact bytes",
+      "summary": "W24: bind decoded declarations, constants, imports and reachable calls to the exact source bytes.",
+      "source_entry": "W24",
+      "rejecting_control": "plan W24 negative control",
+      "plan": {
+        "wave": "W24",
+        "purpose": "Bind decoded declarations, constants, imports, and reachable calls to exact source bytes",
+        "owned_files": [
+          "proof/corpus/Slang/SourceBinding.lean",
+          "proof/corpus/Slang/TableSource.lean",
+          "tools/slang/render_source_binding.py"
+        ],
+        "gate": "python3 tools/slang/source_semantics_check.py --check binding",
+        "negative_control": "Change `TABLE_PHI`, a brace boundary, or a reachable callee while retaining the theorem input; binding gate MUST reject."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/SourceBinding.lean",
+          "declaration_prefix": "Slang.SourceBinding",
+          "note": "declared target; the W24 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": ".",
+        "timeout": 1800,
+        "steps": [
+          ["python3", "tools/slang/source_semantics_check.py", "--check", "binding"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "TABLE_PHI = 2654435769",
+        "new": "TABLE_PHI = 2654435768",
+        "expect": "the binding gate rejects the changed TABLE_PHI constant (W24 control)"
+      },
+      "note": "The W24 binding gate is owned by the plan's W21 source-semantics checker; the harness only runs the declared command in the throwaway copy."
+    },
+    {
+      "id": "init",
+      "order": 4,
+      "title": "Constructor execution and RepSong establishment",
+      "summary": "W25: prove constructor execution and RepSong establishment for the decoded tableInit.",
+      "source_entry": "W25",
+      "rejecting_control": "plan W25 negative control",
+      "plan": {
+        "wave": "W25",
+        "purpose": "Prove constructor execution and `RepSong` establishment",
+        "owned_files": [
+          "proof/corpus/Slang/TableRep.lean",
+          "proof/corpus/Slang/TableInit.lean",
+          "proof/corpus/Slang/TableWitness.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/TableInit.lean",
+        "negative_control": "Omit the value-cell store in decoded `tableInitGo`; constructor establishment MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/TableInit.lean",
+          "declaration_prefix": "Slang.TableInit",
+          "note": "declared target; the W25 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/TableInit.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "  tableSlotSet(base, i, TABLE_EMPTY, 0);\n",
+        "new": "  memory[base + TABLE_STRIDE * i] = TABLE_EMPTY;\n",
+        "expect": "constructor establishment rejects the omitted value-cell store (W25 control)"
+      },
+      "note": "The plan's control names the decoded `tableInitGo`; the encoded source change is the input that decodes to the omitted value-cell store."
+    },
+    {
+      "id": "lookup",
+      "order": 5,
+      "title": "Probe/read correctness and state-aware observation",
+      "summary": "W26: prove probe/read correctness and state-aware observation for the decoded tableGet.",
+      "source_entry": "W26",
+      "rejecting_control": "plan W26 negative control",
+      "plan": {
+        "wave": "W26",
+        "purpose": "Prove probe/read correctness and state-aware observation",
+        "owned_files": [
+          "proof/corpus/Slang/TableProbe.lean",
+          "proof/corpus/Slang/TableRead.lean",
+          "proof/corpus/Slang/ReadWitness.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/TableRead.lean",
+        "negative_control": "Classify raw `-1` as absence without consulting `O`; the present-`-1` witness MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/TableRead.lean",
+          "declaration_prefix": "Slang.TableRead",
+          "note": "declared target; the W26 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/TableRead.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "return tableSlotVal(base, slot);",
+        "new": "return tableSlotKey(base, slot);",
+        "expect": "the read witness rejects reading the key cell instead of the value cell (closest resolvable realization of the W26 control)"
+      },
+      "note": "The plan's control (`classify raw -1 as absence without consulting O`) names the decoded observation relation; the encoded source change is a real read-body mutation. The plan's exact fixture mutation is owned by the W26 witness."
+    },
+    {
+      "id": "write",
+      "order": 6,
+      "title": "Replacement write preservation and exact write admission/refusal",
+      "summary": "W27: prove replacement write preservation and exact write admission/refusal.",
+      "source_entry": "W27",
+      "rejecting_control": "plan W27 negative control",
+      "plan": {
+        "wave": "W27",
+        "purpose": "Prove replacement write preservation and exact write admission/refusal",
+        "owned_files": [
+          "proof/corpus/Slang/TableWrite.lean",
+          "proof/corpus/Slang/TableAdmission.lean",
+          "proof/corpus/Slang/WriteWitness.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/TableWrite.lean",
+        "negative_control": "Make a full table reject a present key or write before an explicit refusal; preservation/admission MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/TableWrite.lean",
+          "declaration_prefix": "Slang.TableWrite",
+          "note": "declared target; the W27 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/TableWrite.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "  if merge is MERGE_ACC { newVal = oldVal + value; }\n",
+        "new": "",
+        "expect": "the write preservation/admission gate rejects the dropped existing-key accumulator addition (closest resolvable realization of the W27 control)"
+      },
+      "note": "The plan's control names the decoded full-table refusal/admission path; the encoded source change is a real write-body mutation. The plan's exact fixture mutation is owned by the W27 admission witness."
+    },
+    {
+      "id": "resources",
+      "order": 7,
+      "title": "Termination and source-level resource projections",
+      "summary": "W28: prove termination and separate source-level resource projections.",
+      "source_entry": "W28",
+      "rejecting_control": "plan W28 negative control",
+      "plan": {
+        "wave": "W28",
+        "purpose": "Prove termination and separate source-level resource projections",
+        "owned_files": [
+          "proof/corpus/Slang/TableTermination.lean",
+          "proof/corpus/Slang/TableResources.lean",
+          "proof/corpus/Slang/ResourceWitness.lean"
+        ],
+        "gate": "cd proof/corpus && lake env lean Slang/TableResources.lean",
+        "negative_control": "Remove `step + 1` or count the spread mask while omitting its multiply; termination/resource gate MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Slang/TableResources.lean",
+          "declaration_prefix": "Slang.TableResources",
+          "note": "declared target; the W28 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "env", "lean", "Slang/TableResources.lean"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "  return tableFindSlotGo(base, cap, mask, key, slot, step + 1);\n",
+        "new": "  return tableFindSlotGo(base, cap, mask, key, slot, step);\n",
+        "expect": "the termination/resource gate rejects the removed probe step increment (W28 control)"
+      },
+      "note": "The plan's control names the decoded probe step; the encoded source change is the input that decodes to the removed `step + 1`."
+    },
+    {
+      "id": "replacement-link",
+      "order": 8,
+      "title": "Link replacement execution to canonical Apeiron.Table.insertWith",
+      "summary": "W29: link replacement execution to canonical Apeiron.Table.insertWith under the closed axiom cone.",
+      "source_entry": "W29",
+      "rejecting_control": "plan W29 negative control",
+      "plan": {
+        "wave": "W29",
+        "purpose": "Link replacement execution to canonical `Apeiron.Table.insertWith` under the closed axiom cone",
+        "owned_files": [
+          "proof/corpus/Joint/SongTable.lean",
+          "proof/corpus/AxiomAudit.lean",
+          "proof/corpus/Joint/SongTableControl.lean"
+        ],
+        "gate": "cd proof/corpus && lake build",
+        "negative_control": "Change decoded `MERGE_MAP` from replacement to addition; `SongTableControl` or the axiom-audited headline MUST fail."
+      },
+      "artifacts": [
+        {
+          "kind": "proof",
+          "root": "bridge_corpus",
+          "module": "Joint/SongTable.lean",
+          "declaration_prefix": "Joint.SongTable",
+          "note": "declared target; the W29 task fixes the headline declaration name"
+        },
+        {
+          "kind": "source",
+          "path": "song/src/table/table.slang",
+          "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+        },
+        {
+          "kind": "source",
+          "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+          "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+        }
+      ],
+      "command": {
+        "cwd": "proof/corpus",
+        "timeout": 1800,
+        "steps": [
+          ["lake", "build"]
+        ]
+      },
+      "mutation": {
+        "path": "song/src/table/table.slang",
+        "old": "MERGE_MAP = 2",
+        "new": "MERGE_MAP = 3",
+        "expect": "SongTableControl or the axiom-audited headline rejects the decoded MERGE_MAP replacement-to-addition change (W29 control)"
+      },
+      "note": "The plan's control names the decoded `MERGE_MAP`; the encoded source change sets the map face to the accumulator code. The W29 stage command must re-render the binding, else the control reports `mutation survived` (red)."
+    }
+  ]
+}
