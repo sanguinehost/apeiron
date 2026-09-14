@@ -22,7 +22,8 @@
       "proof/lakefile.lean",
       "proof/lake-manifest.json",
       "proof/lean-toolchain",
-      "tools/slang"
+      "tools/slang",
+      "song/src/kernel/std.slang"
     ],
     "link": [
       "proof/.lake/packages",
@@ -72,6 +73,7 @@
         "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
+          ["lake", "build", "Slang.Decode"],
           ["lake", "env", "lean", "Slang/DecodeTest.lean"]
         ]
       },
