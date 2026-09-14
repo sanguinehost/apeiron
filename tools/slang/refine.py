@@ -696,17 +696,25 @@ def _lean_string(value: str) -> str:
 def _probe_text(import_name: str, declaration: str, prefix: str) -> str:
     return (
         f"import {import_name}\n"
-        "import Lean.Elab.Command\n"
+        "import Lean\n"
         "open Lean Elab Command\n"
         "run_cmd do\n"
         "  let env ← getEnv\n"
         f"  let exact := {_lean_string(declaration)}\n"
         f"  let pfx := {_lean_string(prefix)}\n"
-        "  let found := env.constants.toList.any (fun (n, _) =>\n"
-        "    let s := n.toString\n"
-        "    (exact != \"\" && s == exact) ||\n"
-        "    (pfx != \"\" && (s == pfx || s.startsWith (pfx ++ \".\"))))\n"
-        "  if !found then throwError \"missing proof target declaration\"\n"
+        "  let closed : NameSet := ((({} : NameSet).insert `propext).insert `Classical.choice).insert `Quot.sound\n"
+        "  let hits := env.constants.toList.filter (fun (n, _) =>\n"
+        "    (exact != \"\" && n.toString == exact) ||\n"
+        "    (pfx != \"\" && (n.toString == pfx || n.toString.startsWith (pfx ++ \".\"))))\n"
+        "  if hits.isEmpty then throwError \"missing proof target declaration\"\n"
+        "  for (n, info) in hits do\n"
+        "    if let .axiomInfo _ := info then\n"
+        "      throwError s!\"proof target {n} is an axiom, not a checked declaration\"\n"
+        "    else\n"
+        "      let axioms ← Lean.collectAxioms n\n"
+        "      let bad := axioms.filter (fun a => !closed.contains a)\n"
+        "      if !bad.isEmpty then\n"
+        "        throwError s!\"proof target {n} uses axioms outside the closed cone: {bad.toList}\"\n"
         "  logInfo \"declaration-present\"\n"
     )
 
@@ -954,6 +962,14 @@ def _synthetic_repo(root: Path) -> Path:
         "namespace Slang.Broken\n\ndef bad : Nat := \"not a nat\"\n\nend Slang.Broken\n",
         encoding="utf-8",
     )
+    (root / "Slang" / "Axiom.lean").write_text(
+        "namespace Slang.Axiom\n\naxiom bad : False\n\nend Slang.Axiom\n",
+        encoding="utf-8",
+    )
+    (root / "Slang" / "Sorry.lean").write_text(
+        "namespace Slang.Sorry\n\ntheorem bad : False := by sorry\n\nend Slang.Sorry\n",
+        encoding="utf-8",
+    )
     (root / "lakefile.lean").write_text(
         "import Lake\nopen Lake DSL\n\npackage \"synthetic\"\n\n"
         "lean_lib «Synthetic» where\n  globs := #[.submodules `Slang]\n",
@@ -988,6 +1004,8 @@ SYNTHETIC_COPY = [
     "Slang/Synthetic.lean",
     "Slang/Comment.lean",
     "Slang/Broken.lean",
+    "Slang/Axiom.lean",
+    "Slang/Sorry.lean",
     "lakefile.lean",
     "lean-toolchain",
     "check.py",
@@ -1130,6 +1148,8 @@ def self_test() -> int:
             ("reject_nonzero_subprocess", {"steps": [["python3", "-c", "import sys; sys.exit(7)"]]}, "blocked", False, ("nonzero subprocess", "exit 7")),
             ("reject_unstartable_subprocess", {"steps": [["__apeiron_absent_tool__"]]}, "blocked", False, ("failed to start",)),
             ("reject_dependency_build_failure", {"module": "Slang/Broken.lean", "prefix": "Slang.Broken"}, "blocked", False, ("proof dependency build failed",)),
+            ("reject_axiom_target", {"module": "Slang/Axiom.lean", "declaration": "Slang.Axiom.bad"}, "blocked", False, ("is an axiom",)),
+            ("reject_sorry_target", {"module": "Slang/Sorry.lean", "declaration": "Slang.Sorry.bad"}, "blocked", False, ("outside the closed cone",)),
             ("reject_surviving_mutation", {"old": "body {", "new": "body  {"}, "fail", True, ("mutation survived",)),
             ("reject_awaiting_control", {"control_status": AWAITING}, "blocked", True, (AWAITING,)),
         ]

@@ -207,8 +207,8 @@
           "kind": "proof",
           "root": "bridge_corpus",
           "module": "Slang/SourceAudit.lean",
-          "declaration_prefix": "Slang.SourceAudit",
-          "note": "W24 audit module; absent, so the stage blocks on the missing proof target"
+          "declaration": "Slang.SourceAudit.source_binding",
+          "note": "W24 audit module; the exact headline declaration, checked for presence, non-axiom type and the closed axiom cone"
         },
         {
           "kind": "source",
@@ -222,10 +222,10 @@
         }
       ],
       "command": {
-        "cwd": ".",
+        "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
-          ["python3", "tools/slang/source_semantics_check.py", "--check", "binding"]
+          ["lake", "build", "Slang.SourceAudit"]
         ]
       },
       "mutation": {
@@ -236,7 +236,7 @@
         "expected_step": 0,
         "expected_output": "TABLE_PHI"
       },
-      "note": "The W24 module is Slang/SourceAudit.lean and the plan's W24 binding gate is the W21 source-semantics checker. The module is absent, so the stage blocks with a named missing-proof-target result; the W24 task defines the module and its binding control."
+      "note": "The W24 module is Slang/SourceAudit.lean; the harness builds it and loads the exact declaration Slang.SourceAudit.source_binding, rejecting a missing, axiomatic or out-of-cone target. The module is not yet proved, so the stage blocks with a named missing-proof-target result. The command and the TABLE_PHI regeneration control are owned by the W24 integration task once the proof-producing translation exists; the mutation is retained so the intended control is recorded, not silently dropped."
     },
     {
       "id": "init",
