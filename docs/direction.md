@@ -105,7 +105,7 @@ necessary component, not sufficient by itself.
 
 | Outcome | Owner | Consumer | Dependencies | Current evidence vs open gate | Closure condition |
 |---|---|---|---|---|---|
-| Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | Both source trees and recorded successful builds exist. Open: the canonical corpus is still at `../sanguine-apeiron/proof` (Git `50c94192`), not in the Apeiron tree. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
+| Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | Both source trees and recorded successful builds exist. Open: the canonical corpus is still at `../sanguine-apeiron/proof` (Git `88866412`), not in the Apeiron tree. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
 | Literal algebra, combinator and evaluator foundation | corpus lead (Apeiron) | Song, Rust, physics | retained Lean | `Apeiron.Combinator.routes_are_a_combinatory_algebra` and `Apeiron.Combinator.denote_reduces` are checked theorems. `Apeiron.Combinator.Comb.normalize` is a fuel-bounded evaluator definition; `Apeiron.Combinator.Comb.verdict_decided_exact` proves exactness when the verdict is not `.fuel`. `Omega.lean` proves non-normalization for a named term; that is a boundary, not an unfinished theorem. Open: selected finite-machine representations and executing evaluator refinement. | The selected executing evaluator refines the canonical semantics on an explicit domain and reports resource exhaustion without a false verdict. |
 | Independent Rust–Slang primitive correspondence | cross-repo lead (Apeiron + Song) | both executing implementations | retained Lean; combinator evaluator | The required joint primitive correspondence is not established by the recorded evidence. `Apeiron/Combinator/Verdict.lean` exists; the missing artifact is the concrete-runtime refinement and the matched primitive profile. | A checked joint primitive profile relates both executing implementations to the same canonical definition on a matched domain, including representation, state/effects, admission/refusal and resources. |
 | Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles | Real Rust extraction and selected canonical refinements exist; historical LLVM/Lean lifting supplies transfer input. Open: an admitted source population, effects/undefined-behaviour contract and complete lift-to-realization gate. | Supported source interpretations and target realizations compose through canonical semantics, with unsupported inputs refused explicitly. |
@@ -127,8 +127,13 @@ Claims are stated at the grade the artifact supports.
   They do not establish arbitrary `Rep` preservation, admission completeness or physical
   subsumption. Universal `Rep` preservation is the open priority.
 - **Decider F2.** `capped_certificate_complete` proves an accepted capped certificate exists iff no
-  assignment inside the box satisfies the rows. It is not a `CertOp` derivation, and it does not
-  prove that every uncapped unsatisfiable system has a `checkCert`-accepted log.
+  assignment inside the box satisfies the rows. The uncapped fragment is now closed:
+  `certificate_complete` proves `(∃ log : List CertOp, checkCert raw [] log = true) ↔ ¬ ∃ ρ, SatLines ρ raw`
+  and `synthesizeCert_accepts` exhibits the log; `completeSat_eq_true_iff` / `completeSat_eq_false_iff`
+  decide `SatRows` exactly; `residue_certificate_complete` gives the same iff for the
+  `ResidueCertificate` language; and `checkCertStream_sound` / `checkCertRecords_sound` replay framed
+  streams framewise. These are the canonical `Row`/`Line`/`CertOp`/`ResidueCertificate` fragments over
+  `ℤ`; the Song executing reader refinement and the Slang source binding are not thereby established.
 - **Combinator evaluator.** `Apeiron/Combinator/Verdict.lean` defines `reduceDeep`, `normalize` and
   `verdict`. `Apeiron.Combinator.Comb.reduces_normalize` proves that `normalize fuel c` is reachable
   from `c`; `Apeiron.Combinator.Comb.verdict_decided_exact` is exact when the verdict is not `.fuel`.
@@ -236,7 +241,7 @@ sampled test and a universal proof are different evidence and are labelled separ
 ## What is not claimed
 
 No claim is made that the migration is complete, that the cross-repo correspondence exists, that
-the uncapped decider is complete, that arbitrary table states preserve `Rep`, that the word ring
+the Song certificate reader refines the canonical decider, that arbitrary table states preserve `Rep`, that the word ring
 carries the real-valued energy or nonnegativity results, that the model theorems establish a global
 physics equality, or that rustc/LLVM, the kernel ABI or a GPU backend implement the source
 semantics. Those are open programme obligations, not silent assumptions. A citation to a theorem, a

@@ -42,8 +42,10 @@ not reintroduce deleted `check_claims`/`check_assurance` as if they were mandate
 
 - **Song A0–A6/B6** is owned by Song. The joint readiness profile is MISSING and is not satisfied by
   A0 alone; the existing milestones are not dropped.
-- **Corpus F2/F3 and A5** are owned by the corpus repository. `capped_certificate_complete` is the
-  capped fragment only, not an uncapped `CertOp` completeness proof.
+- **Corpus F2/F3 and A5** are owned by the corpus repository. The canonical decider is now complete
+  on its named fragments: `certificate_complete` (uncapped `CertOp`), `completeSat_eq_true_iff`
+  (residue decision), `residue_certificate_complete` and `checkCertStream_sound` (framed replay). The
+  Song executing reader refinement and the Slang source binding remain open.
 - **Penglai material integration** is owned by Penglai.
 - **Fold sunset** is owned by Fold.
 

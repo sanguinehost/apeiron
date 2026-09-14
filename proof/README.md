@@ -277,7 +277,7 @@ read for this slice. The earlier commit adds
 claim), the real exact quarter-energy identity `dirichletEnergy_halfStep_three` and its strict form
 `dirichletEnergy_halfStep_three_lt`, and the audit registration for both. The scalar-kernel links
 the bridge composes (`CarrierScalarKernelAnyRing.lean` and its `Audit.lean` registration) landed
-earlier in `33bc96f6`. The bridge's generic authorities retained at `50c94192` are:
+earlier in `33bc96f6`. The bridge's generic authorities retained at `88866412` are:
 
 | corpus module | sha256 |
 | --- | --- |
@@ -291,11 +291,12 @@ earlier in `33bc96f6`. The bridge's generic authorities retained at `50c94192` a
 import it (it imports the `AnyRing` closure and the scalar-step links), so that row is provenance
 for the energy scope, not a bridge authority.
 
-The pin was checked with `lake update apeiron` followed by `lake build` in `proof/corpus`: both exit
-0 and the build completes 3358 jobs. A throwaway package with the same Git source and subdirectory
-but revision `0000000000000000000000000000000000000000` reaches checkout and exits 128, so an
-unresolvable corpus identity cannot fall back to local source. The first control run timed out while
-cloning at 120 seconds; the completed run used the same mutation and a 600-second limit.
+The pin was checked with `lake build` in `proof/corpus`: it resolves corpus Git
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` and completes 8881 jobs. A throwaway package with the
+same Git source and subdirectory but revision `0000000000000000000000000000000000000000` reaches
+checkout and exits 128, so an unresolvable corpus identity cannot fall back to local source; that
+control ran at the earlier pin. The current pin is verified by the 8881-job bridge build and the
+3503-job corpus audit on one source/tool identity.
 
 This is reproducible for a checkout with credentials for the configured private Git service. It is
 not an availability guarantee or an offline vendored release.
