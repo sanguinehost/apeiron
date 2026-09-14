@@ -15,8 +15,12 @@ internally complete and that every artifact they name resolves:
 * every named Rust and Song entry exists as a concrete declaration in its
   source file, and every Song entry is an executing function rather than a
   ``law``/``carrier``/``spec`` header; a Rust method belongs to the named
-  type's ``impl``, a generic type parameter is never a self type, and a
-  ``<T as Trait>`` qualifier must name a trait the file implements for ``T``;
+  type's ``impl``, a generic type parameter is never a self type or a resolvable
+  symbol, a bare symbol resolves only to an item the file declares
+  (``fn``/``struct``/``enum``/``trait``/``union``/``type``/``mod``/``const``/
+  ``static``) so a word that appears only in an ``impl`` header, a generic bound
+  or a ``where`` clause is rejected, and a ``<T as Trait>`` qualifier must name a
+  trait the file implements for ``T``;
 * the frozen selected rows remain ``selected-open`` and no row is ``closed``;
 * the resource accounting names all five distinct kinds separately for every
   implementation of every row, and no generic fuel;
@@ -141,11 +145,14 @@ LEAN_DECL = (
     r"(?m)^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
     r"(?:theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
 )
-RUST_DECL = (
+# A declared Rust item name: the identifier bound by a ``fn``/``struct``/
+# ``enum``/``trait``/``union``/``type``/``mod``/``const``/``static``
+# declaration. A word that appears only in an ``impl`` header, a generic bound
+# or a ``where`` clause binds no item and is not captured here.
+RUST_ITEM = re.compile(
     r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|unsafe\s+)?"
-    r"(?:fn|struct|enum|trait|union|type|mod)\s+"
+    r"(?:fn|struct|enum|trait|union|type|mod|static|const)\s+([A-Za-z_]\w*)"
 )
-RUST_IMPL = r"(?m)^\s*impl\b[^\n{]*\b"
 # A Song entry must be an executing function definition, not a law/carrier/spec
 # header. Only ``name(`` at the start of a line is accepted.
 SLANG_DECL = r"(?m)^\s*{n}\s*\("
@@ -547,6 +554,17 @@ def _impl_blocks(text: str) -> list[tuple[str | None, str, set[str]]]:
     return blocks
 
 
+def _declared_rust_names(text: str) -> set[str]:
+    """Names bound by a Rust item declaration in ``text``.
+
+    The declaration keyword (``fn``/``struct``/``enum``/``trait``/``union``/
+    ``type``/``mod``/``const``/``static``) binds the name. A word that appears
+    only in an ``impl`` header, a generic bound or a ``where`` clause is not a
+    declaration and is not in the result.
+    """
+    return {match.group(1) for match in RUST_ITEM.finditer(text)}
+
+
 def _check_rust(text: str, symbol: str) -> bool:
     if "::" in symbol:
         symbol = symbol.strip()
@@ -591,10 +609,12 @@ def _check_rust(text: str, symbol: str) -> bool:
                 continue
             methods |= names
         return all(member in methods for member in members)
-    return (
-        re.search(RUST_DECL + re.escape(symbol) + r"\b", text) is not None
-        or re.search(RUST_IMPL + re.escape(symbol) + r"\b", text) is not None
-    )
+    # A bare symbol resolves only to an item this file declares. A word that
+    # appears only in an ``impl`` header, a generic bound (``Fn`` in
+    # ``impl<K, F: Fn(&K) -> u64> Home<K> for F``) or a ``where`` clause binds
+    # no item and is rejected. An impl self type is accepted exactly when the
+    # same identifier is a declared item, which this test already covers.
+    return symbol in _declared_rust_names(text)
 
 
 def _check_slang(text: str, symbol: str) -> bool:
@@ -1402,6 +1422,15 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             "src/table.rs::F::home",
         ),
         (
+            "reject a bare symbol that is only an impl-header generic parameter",
+            "src/table.rs::F",
+        ),
+        (
+            "reject a bare symbol that is only an impl-header bound, not a "
+            "declaration",
+            "src/table.rs::Fn",
+        ),
+        (
             "reject a reference with a trailing member access",
             "proof/Denotation.lean::denote.missing",
         ),
@@ -1439,6 +1468,8 @@ MANDATED_CONTROLS = [
     "reject a generic-qualified method bound to the wrong implementation",
     "reject a generic-qualified method whose trait does not exist",
     "reject a method attributed to a generic type parameter",
+    "reject a bare symbol that is only an impl-header generic parameter",
+    "reject a bare symbol that is only an impl-header bound, not a declaration",
     "reject a reference with a trailing member access",
     "reject a scratch corpus root without a Git repository or Mathlib manifest",
 ]
