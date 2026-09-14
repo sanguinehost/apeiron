@@ -106,13 +106,13 @@ an unknown token byte or on parse-stack overflow, and `verdict` maps 0 to `PARSE
 domain excludes terms whose parse exceeds `PSTACK_CAP` or whose construction exceeds `NODE_CAP`.
 
 **6 · Behaviour.** Success: `EQUAL` (exit 0) when both reached floors are redex-free and `structEq`
-reports index-equal; `DISTINCT` (exit 1) when both floors are redex-free and `structEq` reports
-unequal. Unsupported input: `PARSE <pos>` (exit 2). Resource exhaustion: `FUEL` (exit 3) when
-`normalize` runs out of passes without a fixed point, or when `SPENT` is set by arena
-(`NODE_CAP`), walk-stack (`STACK_CAP`) or parse-stack (`PSTACK_CAP`) exhaustion; `RING` (exit 4)
-when `ringClaim` fails in `main()`. Raw return encoding: stdout `EQUAL|DISTINCT|FUEL|PARSE <pos>`
-then the meter line, and the process exit code. Post-state: the arena, memo, stamps, counters and
-stacks are mutated in place; no rollback.
+reports structural equality; `DISTINCT` (exit 1) when both floors are redex-free and `structEq`
+reports unequal. Unsupported input: `PARSE <pos>` (exit 2). Resource exhaustion: A zero result from
+either `parseTerm` returns `PARSE <pos>` with exit 2 before checking `SPENT`; parser-stack overflow
+and allocation failure during parsing can therefore report PARSE. After parsing, `SPENT` or a
+remaining redex reports FUEL with exit 3. Startup ring-claim failure reports RING with exit 4.
+Raw return encoding: EQUAL, DISTINCT and FUEL include the meter line; PARSE and RING do not.
+Post-state: the arena, memo, stamps, counters and stacks are mutated in place; no rollback.
 
 **7 · Resource accounting.** Canonical: `normalize fuel c` applies `reduceDeep` at most `fuel`
 times and `reduceDeep` visits each subterm once; these are definitional recursion counts, not
@@ -180,7 +180,8 @@ mutated in place; no rollback.
 **7 · Resource accounting.** Canonical: one `CRow` appended per non-closing step; one combination,
 negation, meet or tidy per step; the Lean model computes in `ℤ` with no limb budget. Song:
 `CERTCAP = 4096` certificate rows, `RAWCAP = 1024` system rows, `MAXV = 24` columns per row,
-`satcheck` `MAXV = 12` and `ROWCAP = 256`, and `WF_W = 4` limbs per wide value. The limb arithmetic
+`satcheck` `MAXV = 12` and `ROWCAP = 256`, and `WF_W = 4` cells per wide value: one tri-state sign
+cell and three 64-bit magnitude limbs. The limb arithmetic
 (`wAddc`, `wMulWordA`, `wMulWordB`, `wCombineTAB`, `wMagSub3`) carries no law of its own and is
 trusted like an ISA primitive. The source capacities are not Lean reduction-step counts.
 
@@ -209,7 +210,7 @@ assumed, and the checker requires every one of them to be present.
 | ID | Hazard | Consequence |
 |---|---|---|
 | HE1 | Canonical `I` is `S K K`, while Song treats primitive `i` (`TAG_I`) and the normal form `**skk` (`app (app S K) K`) as distinct tags and shapes. | Song `structEq` reports `DISTINCT` for the pair while canonical `Joinable` holds; the `C6` regression fixture must pin both readings. |
-| HE2 | Song `FUEL` conflates Lean's `.fuel` (a reached floor that still carries a redex) with arena, walk-stack, parser-stack and ring exhaustion. | A `FUEL` verdict does not identify which budget ran out, there is no rollback, and no precise resource-classification theorem exists. |
+| HE2 | Song `FUEL` conflates Lean's `.fuel` (a reached floor that still carries a redex) with arena and walk-stack exhaustion. Parser-stack overflow and allocation failure during parsing report `PARSE`, and startup ring-claim failure reports `RING`, so exhaustion is not uniformly `FUEL`. | A `FUEL` verdict does not identify which of arena or walk-stack ran out, there is no rollback, and no precise resource-classification theorem exists. |
 | HE3 | The source budgets `2048` passes, `1048576` nodes, `65536` walk-stack entries and `4096` parser-stack entries are machine budgets. | They are not Lean reduction-step counts and must not be converted to `fuel`. |
 | HE4 | `certcheck`'s wide row values are a tri-state sign plus three 64-bit magnitude limbs, and the limb arithmetic carries no law of its own. | The encoding is not `ZMod (2^64)` and is trusted like an ISA primitive; `C1` is a required control, not a proved absence. |
 | HE5 | `capped_certificate_complete` is a capped-box existence theorem, and `Apeiron/Decider/Stream.lean` is MISSING. | It is not a completeness theorem for the `certcheck` alphabet and does not establish certificate readiness. |
@@ -282,24 +283,32 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 `python3 tools/joint/evaluator_profile_check.py --check` validates
 `tools/joint/evaluator_profile_rows.json` against this document and the pinned sources: every row
 carries all eight fields and stays `selected-open`; every named canonical theorem and canonical entry
-point resolves as a declaration in the pinned corpus under its exact opened namespace; every named
-Song entry exists as a concrete executing declaration (a `law`/`carrier`/`spec` header alone is not
-an entry); the corpus revision, Mathlib revision and per-source sha256 digests match the resolved
-checkout; every implementation of every row carries its required resource kinds separately, and no
-generic `fuel` is admitted; every named reference, including blocker `counterpart`/`reason` entries
-and control targets, is checked; every required unmatched blocker, hazard and control is present; the
-representation statement names its declared terms; and this document carries the actual records and
-fields, not incidental mentions. It exits nonzero on a missing field, row, blocker, hazard, control,
-theorem or source entry, on a namespace mismatch, on a corpus or digest drift, or on a row that is
-not `selected-open`.
+point resolves as the exact fully-qualified declaration in the pinned corpus, so a merely opened
+prefix or a missing namespace is rejected; every named Song entry exists as a concrete executing
+declaration (a `law`/`carrier`/`spec` header alone is not an entry); the corpus Git revision, the
+Mathlib revision resolved from a manifest, and per-source sha256 digests match the resolved checkout,
+and each recorded digest is bound to the blob at the recorded revision; every implementation of every
+row carries its required resource kinds separately, and no generic `fuel` is admitted; every named
+reference in the structured prose fields and in this document, including blocker
+`counterpart`/`reason` entries and control targets, is checked, and a reference that does not resolve
+is rejected unless its exact path is in the checker's explicit missing-artifact set; each row's
+Markdown fields are present with nonempty bodies and its Markdown status agrees with the JSON status;
+every required unmatched blocker, hazard and control is present; the representation statement names
+its declared terms; and this document carries the actual records and fields, not incidental mentions.
+It exits nonzero on a missing field, row, blocker, hazard, control, theorem or source entry, on a
+declaration-name or namespace mismatch, on a corpus or digest drift, on an unresolved named
+reference, on a Markdown field or status that disagrees with the JSON, or on a row that is not
+`selected-open`.
 
 `--controls` and `--self-test` mutate a deep copy of the loaded profile and the spec text in memory
-and require each mutation to be rejected. Seven controls target the false-green classes: a missing
+and require each mutation to be rejected. The controls target the false-green classes: a missing
 resource account on one implementation; a wrong corpus revision and a changed source digest; a
-reversed canonical namespace; a Song entry that is only a `law` header; a deleted required-field
-record and a deleted blocker record in the spec; a `closed` row; and an unresolved blocker
-reference. The retained structural controls remove a required field, remove an unmatched blocker,
-remove a row, rename a theorem to a nonexistent name, point a source entry at a missing file, rename
-a resource kind to `fuel`, remove a hazard, drop a fields entry, remove a required control, drop a
-representation term and remove the trailing-input policy. The working tree is never touched. The
+reversed canonical namespace and a canonical theorem missing its `Comb` namespace; a Song entry that
+is only a `law` header; a deleted required-field record, a deleted or emptied row field and a deleted
+blocker record in the spec; a `closed` row and a Markdown row status that disagrees with the JSON;
+and an unresolved named reference in a blocker `counterpart` or a row field. The retained structural
+controls remove a required field, remove an unmatched blocker, remove a row, rename a theorem to a
+nonexistent name, point a source entry at a missing file, rename a resource kind to `fuel`, remove a
+hazard, drop a fields entry, remove a required control, drop a representation term and remove the
+trailing-input policy. The working tree is never touched. The
 checker establishes specification consistency only, never correspondence.

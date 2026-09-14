@@ -46,6 +46,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -58,6 +59,31 @@ ROWS_PATH = HERE.parent / "evaluator_profile_rows.json"
 CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
 BRIDGE_ROOT = REPO / "proof"
 SONG_ROOT = REPO.parent / "song"
+
+# Named artifacts deliberately absent from the pinned corpus. A reference that
+# does not resolve is accepted only when its exact path is listed here; the
+# exception is attached to the reference path, not to free text.
+MISSING_ARTIFACTS = {"Apeiron/Decider/Stream.lean"}
+# Structured keys whose values have dedicated resolvers, not the text scan.
+STRUCTURED_KEYS = {
+    "module",
+    "name",
+    "symbol",
+    "file",
+    "root",
+    "lang",
+    "path",
+    "sha256",
+    "id",
+    "title",
+    "status",
+    "kind",
+    "grade",
+    "role",
+    "hypotheses",
+    "representation_terms",
+}
+_BARE_FILE_INDEX: dict[str, list[Path]] | None = None
 
 PROFILE_ID = "APEIRON-PROGRAMME-W18-T2"
 
@@ -159,6 +185,11 @@ LEAN_ANY_DECL = (
     LEAN_DECL_PREFIX
     + r"(?:theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
 )
+LEAN_DECL_LINE = re.compile(
+    r"^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
+    r"(theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
+    r"([A-Za-z_][\w.']*)"
+)
 # A Song entry is a concrete executing definition: a function with a body, or a
 # constant binding. A bare ``law``/``carrier``/``spec`` header is not an entry.
 SLANG_DECL = [
@@ -228,6 +259,58 @@ def _git_has_commit(path: Path, rev: str) -> bool:
     return result is not None and result.returncode == 0
 
 
+def _repo_blob(repo_dir: Path, rev: str, rel_under_dir: str) -> bytes | None:
+    """Read ``rel_under_dir`` at ``rev``, relative to the containing Git repo."""
+    try:
+        prefix = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--show-prefix"],
+            capture_output=True,
+            check=False,
+        )
+        if prefix.returncode != 0:
+            return None
+        blob = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_dir),
+                "show",
+                f"{rev}:{prefix.stdout.decode('utf-8', 'replace').strip()}{rel_under_dir}",
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if blob.returncode != 0:
+        return None
+    return blob.stdout
+
+
+def _bind_source_bytes(path: Path, rel: str, digest: str, corpus: dict) -> None:
+    """Bind a recorded digest to the blob at the owning repository revision."""
+    resolved = path.resolve()
+    if resolved.is_relative_to(REPO):
+        repo, rev, sub = REPO, corpus.get("apeiron_git"), resolved.relative_to(REPO)
+    elif resolved.is_relative_to(SONG_ROOT):
+        repo, rev, sub = SONG_ROOT, corpus.get("song_git"), resolved.relative_to(SONG_ROOT)
+    elif resolved.is_relative_to(REPO.parent / "sanguine-apeiron"):
+        repo = REPO.parent / "sanguine-apeiron"
+        rev = corpus.get("git")
+        sub = resolved.relative_to(repo)
+    else:
+        return
+    blob = _repo_blob(repo, str(rev), str(sub))
+    _need(
+        blob is not None,
+        f"corpus.sources[{rel}]: cannot read {sub} at {rev}",
+    )
+    _need(
+        hashlib.sha256(blob).hexdigest() == digest,
+        f"corpus.sources[{rel}]: recorded digest does not match the blob at {rev}",
+    )
+
+
 def _mathlib_rev() -> str | None:
     for manifest in (
         CORPUS_ROOT / "lake-manifest.json",
@@ -248,23 +331,30 @@ def _mathlib_rev() -> str | None:
     return None
 
 
-def _opened_namespaces(text: str) -> set[str]:
-    """Return every fully-qualified namespace path opened in a Lean file."""
-    paths: set[str] = set()
+def _lean_declarations(text: str) -> dict[str, set[str]]:
+    """Map each fully-qualified Lean declaration name to its keywords."""
+    declarations: dict[str, set[str]] = {}
     stack: list[str] = []
     for line in text.splitlines():
+        match = LEAN_DECL_LINE.match(line)
+        if match is not None:
+            keyword, name = match.group(1), match.group(2)
+            full = ".".join(stack + [name]) if stack else name
+            declarations.setdefault(full, set()).add(keyword)
         opened = re.match(r"^\s*namespace\s+([\w.]+)", line)
-        if opened:
-            for part in opened.group(1).split("."):
-                stack.append(part)
-                paths.add(".".join(stack))
+        if opened is not None:
+            stack.extend(opened.group(1).split("."))
             continue
-        closed = re.match(r"^\s*end\s+([\w.]+)", line)
-        if closed:
-            for _ in closed.group(1).split("."):
-                if stack:
-                    stack.pop()
-    return paths
+        closed = re.match(r"^\s*end\b\s*([\w.]*)", line)
+        if closed is not None:
+            name = closed.group(1)
+            if name:
+                for _ in name.split("."):
+                    if stack:
+                        stack.pop()
+            elif stack:
+                stack.pop()
+    return declarations
 
 
 def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
@@ -280,21 +370,12 @@ def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
     path = base / module
     _need(path.is_file(), f"{where}: module does not resolve: {root}:{module}")
     text = path.read_text(encoding="utf-8")
-    segments = name.split(".")
-    last = segments[-1]
+    declarations = _lean_declarations(text)
     _need(
-        re.search(LEAN_ANY_DECL + re.escape(last) + r"\b", text) is not None,
-        f"{where}: declaration {last} not found in {module}",
+        name in declarations,
+        f"{where}: declaration {name} is not the exact fully-qualified name "
+        f"declared in {module}",
     )
-    # The declaration namespace must be an exactly opened namespace, so a
-    # reversed or otherwise incorrect prefix is rejected rather than accepted on
-    # its component tokens.
-    namespace = ".".join(segments[:-1])
-    if namespace:
-        _need(
-            namespace in _opened_namespaces(text),
-            f"{where}: namespace {namespace} of {name} is not opened in {module}",
-        )
 
 
 def _check_slang(text: str, symbol: str) -> bool:
@@ -312,6 +393,74 @@ def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
     else:
         found = re.search(LEAN_ANY_DECL + re.escape(symbol) + r"\b", text) is not None
     _need(found, f"{where}: {symbol} not found in {path}")
+
+
+def _bare_file_index() -> dict[str, list[Path]]:
+    """Index bare source filenames under the local source trees."""
+    global _BARE_FILE_INDEX
+    if _BARE_FILE_INDEX is not None:
+        return _BARE_FILE_INDEX
+    index: dict[str, list[Path]] = {}
+    skip = {".git", "target", ".lake", "node_modules", "build"}
+    for root in (REPO, SONG_ROOT, CORPUS_ROOT):
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in skip]
+            for filename in filenames:
+                index.setdefault(filename, []).append(Path(dirpath) / filename)
+    _BARE_FILE_INDEX = index
+    return index
+
+
+def _resolve_text_ref(rel: str, where: str) -> Path:
+    for base in (REPO, REPO.parent, CORPUS_ROOT, BRIDGE_ROOT, SONG_ROOT, SONG_ROOT / "src"):
+        candidate = base / rel
+        if candidate.is_file():
+            return candidate
+    if "/" not in rel and not rel.startswith("."):
+        matches = _bare_file_index().get(rel, [])
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise CheckError(f"{where}: named reference does not resolve: {rel}")
+        raise CheckError(f"{where}: bare reference {rel} is ambiguous: {matches}")
+    raise CheckError(f"{where}: named reference does not resolve: {rel}")
+
+
+def _check_text_refs(text: str, where: str) -> None:
+    for match in FILE_REF.finditer(text):
+        rel = match.group(1)
+        symbols = match.group(2)
+        single = match.group(3)
+        try:
+            path = _resolve_text_ref(rel, where)
+        except CheckError:
+            _need(
+                rel in MISSING_ARTIFACTS,
+                f"{where}: named reference {rel} does not resolve and is not a "
+                "declared missing artifact",
+            )
+            continue
+        if symbols is not None:
+            for symbol in (token.strip() for token in symbols.split(",")):
+                if symbol:
+                    _check_symbol_in_file(path, symbol, where)
+        elif single:
+            _check_symbol_in_file(path, single, where)
+
+
+def _check_data_text_refs(value: object, where: str) -> None:
+    if isinstance(value, str):
+        _check_text_refs(value, where)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key in STRUCTURED_KEYS:
+                continue
+            _check_data_text_refs(item, f"{where}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _check_data_text_refs(item, f"{where}[{index}]")
 
 
 def _check_source_entry(entry: object, where: str) -> None:
@@ -492,25 +641,8 @@ def _validate_row(row: object, seen_ids: set[str]) -> None:
 
 
 def _check_blocker_refs(blocker: dict, bid: str) -> None:
-    text = f"{blocker.get('counterpart', '')}\n{blocker.get('reason', '')}"
-    for match in FILE_REF.finditer(text):
-        rel = match.group(1)
-        symbols = match.group(2)
-        single = match.group(3)
-        try:
-            path = _resolve_path(rel, bid)
-        except CheckError:
-            _need(
-                "MISSING" in text,
-                f"{bid}: unresolved reference {rel} is not marked MISSING",
-            )
-            continue
-        if symbols is not None:
-            for symbol in (token.strip() for token in symbols.split(",")):
-                if symbol:
-                    _check_symbol_in_file(path, symbol, bid)
-        elif single:
-            _check_symbol_in_file(path, single, bid)
+    _check_text_refs(blocker.get("counterpart", ""), f"{bid}.counterpart")
+    _check_text_refs(blocker.get("reason", ""), f"{bid}.reason")
 
 
 def _validate_blocker(blocker: object) -> None:
@@ -552,10 +684,46 @@ def _validate_control(control: object, row_ids: set[str]) -> None:
     _need(not invalid, f"{cid}.target names unknown rows {invalid}")
 
 
+FIELD_LABELS = {
+    "canonical": ("1", "Canonical object and observation relation"),
+    "entry_points": ("2", "Entry points and source identity"),
+    "representation_invariant": ("3", "Representation invariant"),
+    "input_grammar": ("4", "Input grammar, byte consumption and trailing-input policy"),
+    "admission": ("5", "Admission predicates"),
+    "behavior": ("6", "Behaviour"),
+    "resources": ("7", "Resource accounting"),
+    "refinement": ("8", "Source-connected refinement and rejecting control"),
+}
+
+
+def _row_section(text: str, row_id: str) -> str:
+    heading = re.search(r"(?m)^###\s+" + re.escape(row_id) + r"\b[^\n]*$", text)
+    if heading is None:
+        return ""
+    start = heading.end()
+    nxt = re.search(r"(?m)^#{1,3}\s+", text[start:])
+    end = start + nxt.start() if nxt else len(text)
+    return text[start:end]
+
+
+def _markdown_row_status(text: str, row_id: str) -> str | None:
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if not cells or cells[0] != row_id:
+            continue
+        for cell in reversed(cells):
+            if cell in ("selected-open", "blocker", "closed"):
+                return cell
+    return None
+
+
 def _validate_spec(
     text: object,
     row_ids: list[str],
     row_titles: list[str],
+    row_statuses: dict[str, str],
     blocker_ids: list[str],
     hazard_ids: list[str],
     control_ids: list[str],
@@ -585,6 +753,31 @@ def _validate_spec(
         _need(
             _norm(title) in normalized,
             f"spec does not carry the row record for {rid}",
+        )
+        section = _row_section(text, rid)
+        _need(section.strip() != "", f"spec is missing a section for row {rid}")
+        for key in field_keys:
+            number, label = FIELD_LABELS[key]
+            pattern = (
+                r"\*\*" + re.escape(number) + r"\s*·\s*" + re.escape(label) + r"\.\*\*"
+            )
+            match = re.search(pattern, section)
+            _need(
+                match is not None,
+                f"spec row {rid} is missing its Markdown field {number} ({label})",
+            )
+            body_start = match.end()
+            following = re.search(r"\*\*\d+\s*·", section[body_start:])
+            body_end = body_start + following.start() if following else len(section)
+            _need(
+                section[body_start:body_end].strip() != "",
+                f"spec row {rid} field {number} ({label}) has an empty body",
+            )
+        markdown_status = _markdown_row_status(text, rid)
+        _need(
+            markdown_status == row_statuses.get(rid),
+            f"spec row {rid} Markdown status {markdown_status!r} disagrees with "
+            f"the JSON status {row_statuses.get(rid)!r}",
         )
     for bid in blocker_ids:
         _need(
@@ -672,6 +865,7 @@ def _verify_corpus(corpus: object) -> None:
             _sha256(path) == digest,
             f"corpus.sources[{rel}] digest does not match {path}",
         )
+        _bind_source_bytes(path, rel, digest, corpus)
 
 
 def validate(data: object, spec_text: str) -> None:
@@ -740,15 +934,21 @@ def validate(data: object, spec_text: str) -> None:
     covered = data.get("not_covered")
     _need(isinstance(covered, list) and covered, "not_covered must be a nonempty list")
 
+    row_statuses = {
+        row["id"]: row["status"] for row in rows if isinstance(row, dict)
+    }
     _validate_spec(
         spec_text,
         list(seen_ids),
         [row["title"] for row in rows],
+        row_statuses,
         blocker_ids,
         hazard_ids,
         control_ids,
         list(field_keys),
     )
+    _check_data_text_refs(data, "profile")
+    _check_text_refs(spec_text, "spec")
 
 
 def _strip_record(spec_text: str, record_id: str) -> str:
@@ -905,6 +1105,70 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     mutated = copy.deepcopy(data)
     mutated["rows"][0]["input_grammar"].pop("trailing_input_policy", None)
     cases.append(("remove the trailing-input policy", mutated, spec_text))
+
+    # class 3: exact fully-qualified declaration name, not a merely opened prefix.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["canonical"]["theorems"][0]["name"] = (
+        "Apeiron.Combinator.I"
+    )
+    cases.append(
+        (
+            "class 3: rename a canonical theorem missing its Comb namespace",
+            mutated,
+            spec_text,
+        )
+    )
+
+    # class 5: Markdown field body, not only its label.
+    cases.append(
+        (
+            "class 5: delete the E1 Markdown representation-invariant field",
+            copy.deepcopy(data),
+            re.sub(
+                r"\*\*3 · Representation invariant\.\*\*.*?(?=\*\*4 · Input grammar)",
+                "",
+                spec_text,
+                count=1,
+                flags=re.S,
+            ),
+        )
+    )
+    cases.append(
+        (
+            "class 5: empty the E1 Markdown representation-invariant body",
+            copy.deepcopy(data),
+            re.sub(
+                r"(\*\*3 · Representation invariant\.\*\*).*?(?=\*\*4 · Input grammar)",
+                r"\1\n\n",
+                spec_text,
+                count=1,
+                flags=re.S,
+            ),
+        )
+    )
+
+    # class 6: the Markdown row status must agree with the JSON status.
+    cases.append(
+        (
+            "class 6: change the E1 Markdown row status to closed",
+            copy.deepcopy(data),
+            spec_text.replace("| selected-open |", "| closed |", 1),
+        )
+    )
+
+    # class 7: a named reference added to a structured prose field.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["refinement"]["source_connected"] = (
+        mutated["rows"][0]["refinement"]["source_connected"]
+        + " src/does_not_exist.rs::missing_fn"
+    )
+    cases.append(
+        (
+            "class 7: add an unresolved named reference to the E1 refinement",
+            mutated,
+            spec_text,
+        )
+    )
 
     return cases
 

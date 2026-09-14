@@ -43,8 +43,12 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -53,6 +57,16 @@ SPEC_PATH = REPO / "docs" / "spec" / "joint-primitives.md"
 ROWS_PATH = HERE.parent / "profile_rows.json"
 CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
 BRIDGE_ROOT = REPO / "proof"
+SONG_ROOT = REPO.parent / "song"
+
+# Named artifacts that are deliberately absent from the pinned corpus. A
+# reference that does not resolve is accepted only when its exact path is in
+# this set; the exception is attached to the reference path, not to free text.
+MISSING_ARTIFACTS: set[str] = set()
+
+# The resolved corpus revision, set by ``_verify_corpus_identity``. It binds
+# every referenced corpus module's bytes to the checked-out identity.
+_RESOLVED_CORPUS_GIT: str | None = None
 
 PROFILE_ID = "APEIRON-PROGRAMME-W17-T1"
 
@@ -131,6 +145,33 @@ RUST_IMPL = r"(?m)^\s*impl\b[^\n{]*\b"
 # A Song entry must be an executing function definition, not a law/carrier/spec
 # header. Only ``name(`` at the start of a line is accepted.
 SLANG_DECL = r"(?m)^\s*{n}\s*\("
+# File/symbol references embedded in prose: ``path::{a, b}`` or ``path::a`` or a
+# bare source path.
+FILE_REF = re.compile(
+    r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
+    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+))?"
+)
+# Structured keys whose values are checked by their dedicated resolvers, not by
+# the free-text reference scan.
+STRUCTURED_KEYS = {
+    "module",
+    "name",
+    "symbol",
+    "file",
+    "root",
+    "lang",
+    "path",
+    "sha256",
+    "id",
+    "title",
+    "status",
+    "kind",
+    "grade",
+    "role",
+    "hypotheses",
+    "representation_terms",
+}
+_BARE_FILE_INDEX: dict[str, list[Path]] | None = None
 
 
 class CheckError(Exception):
@@ -157,6 +198,115 @@ def _is_hex(value: object, length: int) -> bool:
     )
 
 
+def _git(args: list[str]) -> subprocess.CompletedProcess[bytes] | None:
+    try:
+        return subprocess.run(
+            ["git", *args], capture_output=True, check=False
+        )
+    except OSError:
+        return None
+
+
+def _git_rev(path: Path) -> str | None:
+    result = _git(["-C", str(path), "rev-parse", "HEAD"])
+    if result is None or result.returncode != 0:
+        return None
+    return result.stdout.decode("utf-8", "replace").strip() or None
+
+
+def _git_blob(path: Path, rev: str, rel: str) -> bytes | None:
+    result = _git(["-C", str(path), "show", f"{rev}:{rel}"])
+    if result is None or result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _repo_blob(repo_dir: Path, rev: str, rel_under_dir: str) -> bytes | None:
+    """Read ``rel_under_dir`` at ``rev``, relative to the containing Git repo."""
+    prefix = _git(["-C", str(repo_dir), "rev-parse", "--show-prefix"])
+    if prefix is None or prefix.returncode != 0:
+        return None
+    repo_prefix = prefix.stdout.decode("utf-8", "replace").strip()
+    return _git_blob(repo_dir, rev, repo_prefix + rel_under_dir)
+
+
+def _mathlib_rev() -> str | None:
+    for manifest in (
+        CORPUS_ROOT / "lake-manifest.json",
+        CORPUS_ROOT.parent / "lake-manifest.json",
+        REPO / "proof" / "corpus" / "lake-manifest.json",
+    ):
+        if not manifest.is_file():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for package in data.get("packages", []):
+            if package.get("name") == "mathlib" and isinstance(
+                package.get("rev"), str
+            ):
+                return package["rev"]
+    return None
+
+
+def _verify_corpus_identity(corpus: dict) -> None:
+    """Require a Git repository and a Mathlib manifest at the corpus root."""
+    global _RESOLVED_CORPUS_GIT
+    _need(
+        CORPUS_ROOT.is_dir(),
+        f"pinned corpus root does not resolve: {CORPUS_ROOT}",
+    )
+    actual = _git_rev(CORPUS_ROOT)
+    _need(
+        actual is not None,
+        f"pinned corpus root is not a Git repository: {CORPUS_ROOT}",
+    )
+    _need(
+        actual == corpus.get("git"),
+        f"corpus.git {corpus.get('git')!r} does not match the resolved corpus "
+        f"revision {actual!r}",
+    )
+    resolved_mathlib = _mathlib_rev()
+    _need(
+        resolved_mathlib is not None,
+        "cannot resolve the pinned Mathlib revision from a manifest",
+    )
+    _need(
+        corpus.get("mathlib") == resolved_mathlib,
+        f"corpus.mathlib {corpus.get('mathlib')!r} does not match the resolved "
+        f"Mathlib revision {resolved_mathlib!r}",
+    )
+    _RESOLVED_CORPUS_GIT = actual
+
+
+def _bind_source_to_revision(
+    path: Path, rel: str, digest: str, identity: dict
+) -> None:
+    """Bind a source file's recorded digest to its owning repository revision."""
+    resolved = path.resolve()
+    if resolved.is_relative_to(REPO):
+        repo = REPO
+        rev = identity.get("apeiron_revision")
+        repo_rel = resolved.relative_to(REPO)
+    elif resolved.is_relative_to(SONG_ROOT):
+        repo = SONG_ROOT
+        rev = identity.get("song_revision")
+        repo_rel = resolved.relative_to(SONG_ROOT)
+    else:
+        return
+    blob = _repo_blob(repo, str(rev), str(repo_rel))
+    _need(
+        blob is not None,
+        f"source_identity.files[{rel}]: cannot read {repo_rel} at {rev}",
+    )
+    _need(
+        hashlib.sha256(blob).hexdigest() == digest,
+        f"source_identity.files[{rel}]: recorded digest does not match the blob "
+        f"at {rev}",
+    )
+
+
 def _resolve_path(rel: str, where: str) -> Path:
     for base in (REPO, REPO.parent):
         candidate = base / rel
@@ -165,24 +315,42 @@ def _resolve_path(rel: str, where: str) -> Path:
     raise CheckError(f"{where}: source file does not resolve: {rel}")
 
 
-def _opened_namespaces(text: str) -> set[str]:
-    """Return the dotted namespace paths opened in a Lean file, in order.
+LEAN_DECL_LINE = re.compile(
+    r"^\s*(?:noncomputable\s+|private\s+|protected\s+|@\[[^\]]*\]\s*)*"
+    r"(theorem|lemma|def|abbrev|structure|class|inductive|instance)\s+"
+    r"([A-Za-z_][\w.']*)"
+)
 
-    ``end`` lines pop the most recent namespace. This rejects a reversed
-    qualification such as ``Table.Apeiron.get_build_acc`` even though both
-    segments appear somewhere in the file.
+
+def _lean_declarations(text: str) -> dict[str, set[str]]:
+    """Map each fully-qualified Lean declaration name to its keywords.
+
+    The enclosing namespace stack is tracked exactly, so a declaration is bound
+    to its real namespace (``Apeiron.Table.get_build_acc``) and not to any
+    prefix that happens to be opened elsewhere in the file.
     """
-    paths: set[str] = set()
+    declarations: dict[str, set[str]] = {}
     stack: list[str] = []
-    pattern = re.compile(r"(?m)^\s*(?:namespace\s+([\w.]+)|end\b[^\n]*)")
-    for match in pattern.finditer(text):
-        name = match.group(1)
-        if name is not None:
-            stack.extend(name.split("."))
-            paths.add(".".join(stack))
-        elif stack:
-            stack.pop()
-    return paths
+    for line in text.splitlines():
+        match = LEAN_DECL_LINE.match(line)
+        if match is not None:
+            keyword, name = match.group(1), match.group(2)
+            full = ".".join(stack + [name]) if stack else name
+            declarations.setdefault(full, set()).add(keyword)
+        opened = re.match(r"^\s*namespace\s+([\w.]+)", line)
+        if opened is not None:
+            stack.extend(opened.group(1).split("."))
+            continue
+        closed = re.match(r"^\s*end\b\s*([\w.]*)", line)
+        if closed is not None:
+            name = closed.group(1)
+            if name:
+                for _ in name.split("."):
+                    if stack:
+                        stack.pop()
+            elif stack:
+                stack.pop()
+    return declarations
 
 
 def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
@@ -197,20 +365,94 @@ def _check_lean_ref(ref: object, where: str, require_root: str) -> None:
     base = CORPUS_ROOT if root == "corpus" else BRIDGE_ROOT
     path = base / module
     _need(path.is_file(), f"{where}: module does not resolve: {root}:{module}")
-    text = path.read_text(encoding="utf-8")
-    segments = name.split(".")
-    last = segments[-1]
+    raw = path.read_bytes()
+    declarations = _lean_declarations(raw.decode("utf-8"))
     _need(
-        re.search(LEAN_DECL + re.escape(last) + r"\b", text) is not None,
-        f"{where}: declaration {last} not found in {module}",
+        name in declarations,
+        f"{where}: declaration {name} is not the exact fully-qualified name "
+        f"declared in {module}",
     )
-    prefix = ".".join(segments[:-1])
-    if prefix:
-        opened = _opened_namespaces(text)
+    if root == "corpus" and _RESOLVED_CORPUS_GIT is not None:
+        blob = _repo_blob(CORPUS_ROOT, _RESOLVED_CORPUS_GIT, module)
         _need(
-            any(path_ == prefix or path_.startswith(prefix + ".") for path_ in opened),
-            f"{where}: namespace {prefix} of {name} not opened in {module}",
+            blob is not None,
+            f"{where}: cannot read {module} at corpus revision "
+            f"{_RESOLVED_CORPUS_GIT}",
         )
+        _need(
+            hashlib.sha256(blob).digest() == hashlib.sha256(raw).digest(),
+            f"{where}: {module} bytes do not match the resolved corpus identity "
+            f"{_RESOLVED_CORPUS_GIT}",
+        )
+
+
+def _strip_leading_generics(header: str) -> str:
+    s = header.lstrip()
+    if not s.startswith("<"):
+        return s
+    depth = 0
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+            if depth == 0:
+                return s[i + 1 :]
+        i += 1
+    return ""
+
+
+def _impl_self_type(header: str) -> str | None:
+    s = _strip_leading_generics(header)
+    depth = 0
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if char == "-" and i + 1 < len(s) and s[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif depth == 0 and s.startswith(" for ", i):
+            s = s[i + 5 :]
+            break
+        i += 1
+    match = re.match(r"\s*([A-Za-z_]\w*)", s)
+    return match.group(1) if match is not None else None
+
+
+def _impl_blocks(text: str) -> list[tuple[str, set[str]]]:
+    """Return ``(self_type, method_names)`` for every ``impl`` block."""
+    blocks: list[tuple[str, set[str]]] = []
+    for match in re.finditer(r"(?m)^[ \t]*impl\b", text):
+        start = match.end()
+        brace = text.find("{", start)
+        if brace < 0:
+            continue
+        base = _impl_self_type(text[start:brace])
+        if base is None:
+            continue
+        depth = 0
+        k = brace
+        while k < len(text):
+            char = text[k]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        body = text[brace + 1 : k]
+        blocks.append((base, set(re.findall(r"\bfn\s+([A-Za-z_]\w*)", body))))
+    return blocks
 
 
 def _check_rust(text: str, symbol: str) -> bool:
@@ -225,9 +467,13 @@ def _check_rust(text: str, symbol: str) -> bool:
         qualifier = re.split(r"[^A-Za-z0-9_]", qualifier)[-1]
         if not qualifier:
             return False
-        if re.search(RUST_DECL + re.escape(method) + r"\b", text) is None:
-            return False
-        return re.search(r"\b" + re.escape(qualifier) + r"\b", text) is not None
+        # The method must be declared inside the impl whose self type is the
+        # named type. A type token that appears elsewhere in the file does not
+        # make the method a member of it.
+        return any(
+            base == qualifier and method in methods
+            for base, methods in _impl_blocks(text)
+        )
     return (
         re.search(RUST_DECL + re.escape(symbol) + r"\b", text) is not None
         or re.search(RUST_IMPL + re.escape(symbol) + r"\b", text) is not None
@@ -236,6 +482,92 @@ def _check_rust(text: str, symbol: str) -> bool:
 
 def _check_slang(text: str, symbol: str) -> bool:
     return re.search(SLANG_DECL.format(n=re.escape(symbol)), text) is not None
+
+
+def _bare_file_index() -> dict[str, list[Path]]:
+    """Index bare source filenames under the local source trees.
+
+    A prose reference such as ``arith.slang`` names a file without a directory;
+    it is resolved only when exactly one file with that name exists under the
+    Apeiron, Song or canonical corpus trees. Build and cache directories are
+    excluded.
+    """
+    global _BARE_FILE_INDEX
+    if _BARE_FILE_INDEX is not None:
+        return _BARE_FILE_INDEX
+    index: dict[str, list[Path]] = {}
+    skip = {".git", "target", ".lake", "node_modules", "build"}
+    for root in (REPO, SONG_ROOT, CORPUS_ROOT):
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in skip]
+            for filename in filenames:
+                index.setdefault(filename, []).append(Path(dirpath) / filename)
+    _BARE_FILE_INDEX = index
+    return index
+
+
+def _resolve_text_ref(rel: str, where: str) -> Path:
+    for base in (REPO, REPO.parent, CORPUS_ROOT, BRIDGE_ROOT, SONG_ROOT, SONG_ROOT / "src"):
+        candidate = base / rel
+        if candidate.is_file():
+            return candidate
+    if "/" not in rel and not rel.startswith("."):
+        matches = _bare_file_index().get(rel, [])
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise CheckError(f"{where}: named reference does not resolve: {rel}")
+        raise CheckError(f"{where}: bare reference {rel} is ambiguous: {matches}")
+    raise CheckError(f"{where}: named reference does not resolve: {rel}")
+
+
+def _check_symbol_in_file(path: Path, symbol: str, where: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".slang":
+        found = _check_slang(text, symbol)
+    elif path.suffix == ".rs":
+        found = _check_rust(text, symbol)
+    else:
+        found = re.search(LEAN_DECL + re.escape(symbol) + r"\b", text) is not None
+    _need(found, f"{where}: {symbol} not found in {path}")
+
+
+def _check_text_refs(text: str, where: str) -> None:
+    """Resolve every named file/symbol reference in one prose string."""
+    for match in FILE_REF.finditer(text):
+        rel = match.group(1)
+        symbols = match.group(2)
+        single = match.group(3)
+        try:
+            path = _resolve_text_ref(rel, where)
+        except CheckError:
+            _need(
+                rel in MISSING_ARTIFACTS,
+                f"{where}: named reference {rel} does not resolve and is not a "
+                "declared missing artifact",
+            )
+            continue
+        if symbols is not None:
+            for symbol in (token.strip() for token in symbols.split(",")):
+                if symbol:
+                    _check_symbol_in_file(path, symbol, where)
+        elif single:
+            _check_symbol_in_file(path, single, where)
+
+
+def _check_data_text_refs(value: object, where: str) -> None:
+    if isinstance(value, str):
+        _check_text_refs(value, where)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key in STRUCTURED_KEYS:
+                continue
+            _check_data_text_refs(item, f"{where}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _check_data_text_refs(item, f"{where}[{index}]")
 
 
 def _check_source_entry(entry: object, where: str) -> None:
@@ -389,9 +721,23 @@ def _row_section(text: str, row_id: str) -> str:
     return text[start:end]
 
 
+def _markdown_row_status(text: str, row_id: str) -> str | None:
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if not cells or cells[0] != row_id:
+            continue
+        for cell in reversed(cells):
+            if cell in ("selected-open", "blocker", "closed"):
+                return cell
+    return None
+
+
 def _validate_spec(
     text: object,
     row_ids: list[str],
+    row_statuses: dict[str, str],
     blocker_ids: list[str],
     hazard_ids: list[str],
 ) -> None:
@@ -415,11 +761,25 @@ def _validate_spec(
             pattern = (
                 r"\*\*" + re.escape(number) + r"\s*·\s*" + re.escape(label) + r"\.\*\*"
             )
+            match = re.search(pattern, section)
             _need(
-                re.search(pattern, section) is not None,
+                match is not None,
                 f"spec row {row_id} is missing its Markdown field {number} "
                 f"record ({label})",
             )
+            body_start = match.end()
+            following = re.search(r"\*\*\d+\s*·", section[body_start:])
+            body_end = body_start + following.start() if following else len(section)
+            _need(
+                section[body_start:body_end].strip() != "",
+                f"spec row {row_id} field {number} ({label}) has an empty body",
+            )
+        markdown_status = _markdown_row_status(text, row_id)
+        _need(
+            markdown_status == row_statuses.get(row_id),
+            f"spec row {row_id} Markdown status {markdown_status!r} disagrees "
+            f"with the JSON status {row_statuses.get(row_id)!r}",
+        )
     for field in SEVEN_FIELDS:
         _need(
             field in cells,
@@ -466,6 +826,7 @@ def validate(data: object, spec_text: str) -> None:
         f"corpus.mathlib pin mismatch: recorded {corpus.get('mathlib')!r}, "
         f"expected {EXPECTED_MATHLIB!r}",
     )
+    _verify_corpus_identity(corpus)
 
     identity = data.get("source_identity")
     _need(isinstance(identity, dict), "source_identity metadata missing")
@@ -492,11 +853,13 @@ def validate(data: object, spec_text: str) -> None:
             f"source_identity.files[{rel}].sha256 must be 64-hex, got {digest!r}",
         )
         path = _resolve_path(rel, "source_identity.files")
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        raw = path.read_bytes()
+        actual = hashlib.sha256(raw).hexdigest()
         _need(
             actual == digest,
             f"source hash mismatch for {rel}: recorded {digest}, actual {actual}",
         )
+        _bind_source_to_revision(path, rel, digest, identity)
         recorded[rel] = digest
     for rel, expected in REQUIRED_SOURCE_FILES.items():
         _need(
@@ -568,7 +931,12 @@ def validate(data: object, spec_text: str) -> None:
     covered = data.get("not_covered")
     _need(isinstance(covered, list) and covered, "not_covered must be a nonempty list")
 
-    _validate_spec(spec_text, list(seen_ids), blocker_ids, hazard_ids)
+    row_statuses = {
+        row["id"]: row["status"] for row in rows if isinstance(row, dict)
+    }
+    _validate_spec(spec_text, list(seen_ids), row_statuses, blocker_ids, hazard_ids)
+    _check_data_text_refs(data, "profile")
+    _check_text_refs(spec_text, "spec")
 
 
 def _remove_table_record(spec_text: str, token: str) -> str:
@@ -683,6 +1051,56 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             blocker.pop("rust_entry", None)
     add("remove a blocker's structured reference", mutated)
 
+    # Exact fully-qualified declaration name: the Table namespace is required.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["canonical"]["theorems"][0]["name"] = (
+        "Apeiron.get_build_acc"
+    )
+    add(
+        "reject a canonical theorem missing its Table namespace",
+        mutated,
+    )
+
+    # Rust implementation binding: merge belongs to WordMerge, not WordHome.
+    mutated = copy.deepcopy(data)
+    mutated["rows"][0]["entry_points"]["rust"][0]["symbol"] = "WordHome::merge"
+    add(
+        "reject a Rust method bound to the wrong implementation",
+        mutated,
+    )
+
+    # Markdown field body: the label stays, the body is removed.
+    mutated_spec = re.sub(
+        r"(\*\*3\s*·\s*Representation invariant\.\*\*).*?(?=\*\*4\s*·)",
+        r"\1\n\n",
+        spec_text,
+        count=1,
+        flags=re.S,
+    )
+    add(
+        "reject an empty Markdown representation-invariant body",
+        copy.deepcopy(data),
+        mutated_spec,
+    )
+
+    # Markdown status must agree with the JSON status.
+    add(
+        "reject a Markdown selected-row status changed to closed",
+        copy.deepcopy(data),
+        spec_text.replace("| selected-open |", "| closed |", 1),
+    )
+
+    # Named reference in a blocker counterpart.
+    mutated = copy.deepcopy(data)
+    mutated["unmatched_blockers"][0]["counterpart"] = (
+        mutated["unmatched_blockers"][0]["counterpart"]
+        + " src/does_not_exist.rs::missing_fn"
+    )
+    add(
+        "reject a named reference added to a blocker counterpart",
+        mutated,
+    )
+
     return cases
 
 
@@ -698,7 +1116,58 @@ MANDATED_CONTROLS = [
     "reverse a canonical namespace",
     "point a Song entry at a non-executing law/spec header",
     "remove a blocker's structured reference",
+    "reject a canonical theorem missing its Table namespace",
+    "reject a Rust method bound to the wrong implementation",
+    "reject an empty Markdown representation-invariant body",
+    "reject a Markdown selected-row status changed to closed",
+    "reject a named reference added to a blocker counterpart",
+    "reject a scratch corpus root without a Git repository or Mathlib manifest",
 ]
+
+CORPUS_IDENTITY_CONTROL = (
+    "reject a scratch corpus root without a Git repository or Mathlib manifest"
+)
+
+
+def _copy_corpus_modules(data: object, source: Path, target: Path) -> None:
+    if isinstance(data, dict):
+        if data.get("root") == "corpus" and isinstance(data.get("module"), str):
+            src = source / data["module"]
+            if src.is_file():
+                dest = target / data["module"]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dest)
+        for item in data.values():
+            _copy_corpus_modules(item, source, target)
+    elif isinstance(data, list):
+        for item in data:
+            _copy_corpus_modules(item, source, target)
+
+
+def _corpus_identity_control(
+    data: dict, spec_text: str
+) -> tuple[str, bool, str]:
+    """A scratch corpus root with the Lean files but no Git repo or manifest."""
+    global CORPUS_ROOT
+    original = CORPUS_ROOT
+    with tempfile.TemporaryDirectory(
+        prefix="w17-corpus-control-", dir="/tmp/opencode"
+    ) as tmp:
+        fake = Path(tmp)
+        _copy_corpus_modules(data, original, fake)
+        CORPUS_ROOT = fake
+        try:
+            validate(data, spec_text)
+        except CheckError as exc:
+            return (CORPUS_IDENTITY_CONTROL, True, str(exc))
+        else:
+            return (
+                CORPUS_IDENTITY_CONTROL,
+                False,
+                "mutation was NOT rejected",
+            )
+        finally:
+            CORPUS_ROOT = original
 
 
 def run_controls(data: dict, spec_text: str) -> list[tuple[str, bool, str]]:
@@ -712,6 +1181,7 @@ def run_controls(data: dict, spec_text: str) -> list[tuple[str, bool, str]]:
             results.append((name, True, str(exc)))
         else:
             results.append((name, False, "mutation was NOT rejected"))
+    results.append(_corpus_identity_control(data, spec_text))
     return results
 
 

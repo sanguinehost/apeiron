@@ -218,10 +218,10 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: table_insert_empty_zero and table_insert_present_zero connect the generated fresh and present writes to insertWith. Song: no checked Song-to-Lean refinement of tableInsertWith exists. The joint refinement is OPEN.",
+        "source_connected": "Rust: table_insert_empty_zero and table_insert_present_zero are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they do not refine the replacement merge selected here. The replacement-merge source-connected refinement is established at N = 16 by Apeiron.Joint.TableInstance.replacement_insert_with, with Apeiron.Joint.TableInstance.replacement_new_readRep and Apeiron.Joint.TableInstance.replacement_get for the read relation, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.insertWith; the universal physical Rep is still open. Song: no checked Song-to-Lean refinement of tableInsertWith exists. The joint refinement is OPEN.",
         "rejecting_control": "C3",
         "artifacts": [
-          {"name": "Apeiron.TableRefinement.table_insert_empty_zero", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+          {"name": "Apeiron.Joint.TableInstance.replacement_insert_with", "module": "corpus/Joint/TableInstance.lean", "root": "bridge"}
         ]
       }
     },
@@ -246,7 +246,7 @@
         "identity": "A refusal is for an absent key only; a present key in a full shard updates rather than refuses.",
         "merge": "Refusal invokes neither clone nor merge.",
         "refusal": "StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot. Refusal changes no field (word_table_shardFull_refusal at N = 16).",
-        "bounds": "The refusal path inspects at most N slots and then returns without writing."
+        "bounds": "For an absent key in an initialized full shard, the refusal path performs N full-key search inspections followed by N vacancy inspections, then returns without writing."
       },
       "song": {
         "layout": "A refusal returns TABLE_EMPTY = -1. Because tableInsertWith writes in place, a refusal after earlier writes leaves those writes in place.",
@@ -272,7 +272,7 @@
       },
       "resources": {
         "rust": [
-          {"kind": "probes", "accounting": "at most N vacancy inspections on the refusal path"},
+          {"kind": "probes", "accounting": "N full-key search inspections followed by N vacancy inspections on the refusal path"},
           {"kind": "arithmetic_ops", "accounting": "no merge arithmetic on refusal"}
         ],
         "song": [
@@ -415,10 +415,11 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: word_table_build_get_acc connects the ordered two-write build to get_build_acc; word_table_build_ordered proves the fold. Song: no checked Song-to-Lean refinement of an insertion loop exists. The composition obligation is B6.",
+        "source_connected": "Rust: word_table_build_get_acc and word_table_build_ordered are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they are not replacement-merge refinements. The replacement-merge build composition is established at N = 16 by Apeiron.Joint.TableInstance.replacement_build and Apeiron.Joint.TableInstance.replacement_build_get_acc, with Apeiron.Joint.TableInstance.replacement_shardFull_refusal covering the refusal branch, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.build; the universal physical Rep is still open. Song: no checked Song-to-Lean refinement of an insertion loop exists. The composition obligation is B6.",
         "rejecting_control": "C3",
         "artifacts": [
-          {"name": "Apeiron.TableRefinement.word_table_build_get_acc", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+          {"name": "Apeiron.Joint.TableInstance.replacement_build", "module": "corpus/Joint/TableInstance.lean", "root": "bridge"},
+          {"name": "Apeiron.Joint.TableInstance.replacement_build_get_acc", "module": "corpus/Joint/TableInstance.lean", "root": "bridge"}
         ]
       }
     }

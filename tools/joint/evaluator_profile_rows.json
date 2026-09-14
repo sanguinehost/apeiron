@@ -99,10 +99,10 @@
         }
       },
       "behavior": {
-        "success": "EQUAL (exit 0) when both reached floors are redex-free and structEq reports index-equal; DISTINCT (exit 1) when both floors are redex-free and structEq reports unequal. The meter line is printed after either verdict.",
-        "unsupported_input": "PARSE <pos> (exit 2) for a byte that cannot start a term, an incomplete prefix term, or an unknown token; the reported position is CTR[C_POS], the count of bytes read.",
-        "resource_exhaustion": "FUEL (exit 3) when normalize runs out of passes without a fixed point, or when CTR[C_SPENT] is set by arena exhaustion (NODE_CAP), walk-stack exhaustion (STACK_CAP) or parse-stack exhaustion (PSTACK_CAP). RING (exit 4) when ringClaim fails in main(). There is no rollback and no precise resource-classification theorem: a FUEL verdict does not say which budget ran out.",
-        "raw_return_encoding": "stdout EQUAL|DISTINCT|FUEL|PARSE <pos> followed by '# passes=<a>/<b> nodes=<n> stack_hi=... parse_hi=... arena_used=... arena_capacity=...'; the process exit code is 0 EQUAL, 1 DISTINCT, 2 PARSE, 3 FUEL, 4 RING. The meter line is a report, not a success tag.",
+        "success": "EQUAL (exit 0) when both reached floors are redex-free and structEq reports structural equality; DISTINCT (exit 1) when both floors are redex-free and structEq reports unequal. The meter line is printed after EQUAL or DISTINCT.",
+        "unsupported_input": "PARSE <pos> (exit 2) for a byte that cannot start a term, an incomplete prefix term, an unknown token, a parser-stack overflow, or an allocation failure during parsing; the reported position is CTR[C_POS], the count of bytes read.",
+        "resource_exhaustion": "A zero result from either parseTerm returns PARSE <pos> with exit 2 before checking CTR[C_SPENT]; parser-stack overflow and allocation failure during parsing can therefore report PARSE. After parsing, CTR[C_SPENT] or a remaining redex reports FUEL with exit 3. Startup ring-claim failure reports RING with exit 4. There is no rollback and no precise resource-classification theorem: a FUEL verdict does not say which of arena or walk-stack ran out.",
+        "raw_return_encoding": "stdout EQUAL|DISTINCT|FUEL|PARSE <pos>; EQUAL, DISTINCT and FUEL include the meter line '# passes=<a>/<b> nodes=<n> stack_hi=... parse_hi=... arena_used=... arena_capacity=...', PARSE and RING do not. The process exit code is 0 EQUAL, 1 DISTINCT, 2 PARSE, 3 FUEL, 4 RING. The meter line is a report, not a success tag.",
         "post_state": "The arena, MEMO, MSTAMP, CTR counters and the two stacks are mutated in place. On EQUAL/DISTINCT the DAG holds both floors; on FUEL or RING the arena may hold a partial reduction. No transactional rollback is specified or proved."
       },
       "resources": {
@@ -260,8 +260,8 @@
     },
     {
       "id": "HE2",
-      "statement": "Song FUEL conflates Lean's .fuel (a reached floor that still carries a redex) with arena, walk-stack, parser-stack and ring exhaustion.",
-      "consequence": "A FUEL verdict does not identify which budget ran out, there is no rollback, and no precise resource-classification theorem exists. The source budgets are not Lean reduction-step counts."
+      "statement": "Song FUEL conflates Lean's .fuel (a reached floor that still carries a redex) with arena and walk-stack exhaustion. Parser-stack overflow and allocation failure during parsing report PARSE, and startup ring-claim failure reports RING, so exhaustion is not uniformly FUEL.",
+      "consequence": "A FUEL verdict does not identify which of arena or walk-stack ran out, there is no rollback, and no precise resource-classification theorem exists. The source budgets are not Lean reduction-step counts."
     },
     {
       "id": "HE3",

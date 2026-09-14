@@ -143,9 +143,16 @@ callback and residue; replacement merge is constant work. Song: up to `cap` step
 `tableFindSlotGo`, measure `cap - step`, plus one `tableSpread` multiply and mask; `MERGE_MAP`
 assigns `value`.
 
-**Refinement.** Rust `table_insert_empty_zero` and `table_insert_present_zero` connect the generated
-fresh and present writes to `insertWith`. Song has no checked refinement of `tableInsertWith`. The
-joint refinement is OPEN. Controls C1 and C3.
+**Refinement.** Rust `table_insert_empty_zero` and `table_insert_present_zero` are `WordMerge`
+wrapping-add witnesses: they exercise the generated insertion with the wrapping-add callback, and are
+scoped to that callback; they do not refine the replacement merge this subprofile selects. The
+replacement-merge source-connected refinement is established at `N = 16` by
+`Apeiron.Joint.TableInstance.replacement_insert_with`, with
+`Apeiron.Joint.TableInstance.replacement_new_readRep` and
+`Apeiron.Joint.TableInstance.replacement_get` for the read relation, in
+`proof/corpus/Joint/TableInstance.lean` against canonical `Apeiron.Table.insertWith`. The universal
+physical `Rep` is still open. Song has no checked refinement of `tableInsertWith`. The joint
+refinement is OPEN. Controls C1 and C3.
 
 ### T4 · Refusal, post-state and mutation
 
@@ -155,8 +162,9 @@ states whether state changes. `build` is the only canonical composition form.
 
 **Rust.** A refusal returns `StorageError::ShardFull` and the table value is unchanged
 (`word_table_shardFull_refusal` at `N = 16`). A refusal is for an absent key only; a present key in a
-full shard updates rather than refuses. Refusal invokes neither clone nor merge. The refusal path
-inspects at most `N` slots and then returns without writing.
+full shard updates rather than refuses. Refusal invokes neither clone nor merge. For an absent key
+in an initialized full shard, the refusal path performs `N` full-key search inspections followed by
+`N` vacancy inspections, then returns without writing.
 
 **Song.** A refusal returns `TABLE_EMPTY = -1`. Because `tableInsertWith` writes in place, the
 insertion loop mutates its prefix: a refusal after earlier writes leaves those writes in place. The
@@ -166,8 +174,9 @@ transactional, and it is the B6 composition blocker. No deletion operation is se
 **Admission.** Separate predicates; joint success requires both; unequal capacities need not give
 identical refusals.
 
-**Resources.** Rust: at most `N` vacancy inspections on the refusal path, no merge arithmetic. Song:
-at most `cap` probe steps before refusal, no merge arithmetic.
+**Resources.** Rust: `N` full-key search inspections followed by `N` vacancy inspections on the
+refusal path, no merge arithmetic. Song: at most `cap` probe steps before refusal, no merge
+arithmetic.
 
 **Refinement.** Rust `word_table_shardFull_refusal` proves the absent-key full-shard refusal with an
 unchanged state at `N = 16`. Song has no checked refinement of the refusal post-state. Controls C4
@@ -223,10 +232,16 @@ call is admitted independently.
 **Resources.** Rust: consumes `kvs` in order and clones each key and value; 0 heap nodes. Song: no
 input consumption; the caller drives the loop and owns `memory[]`; 0 allocated nodes.
 
-**Refinement.** Rust `word_table_build_get_acc` connects the ordered two-write build to
-`get_build_acc`; `word_table_build_ordered` proves the fold. Song has no checked refinement of an
-insertion loop. `build` stays outside the matched primitive boundary: it is the B6 composition
-obligation, not a matched primitive. Control C3.
+**Refinement.** Rust `word_table_build_get_acc` and `word_table_build_ordered` are `WordMerge`
+wrapping-add witnesses, scoped to the wrapping-add callback; they are not replacement-merge
+refinements. The replacement-merge build composition is established at `N = 16` by
+`Apeiron.Joint.TableInstance.replacement_build` and
+`Apeiron.Joint.TableInstance.replacement_build_get_acc`, with
+`Apeiron.Joint.TableInstance.replacement_shardFull_refusal` covering the refusal branch, in
+`proof/corpus/Joint/TableInstance.lean` against canonical `Apeiron.Table.build`. The universal
+physical `Rep` is still open. Song has no checked refinement of an insertion loop. `build` stays
+outside the matched primitive boundary: it is the B6 composition obligation, not a matched primitive.
+Control C3.
 
 ## Separate admission
 
@@ -306,25 +321,31 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 
 `python3 tools/joint/table_profile_check.py --check` validates
 `tools/joint/table_profile_rows.json` against this document and the pinned sources: every row carries
-all six fields and stays `selected-open`; every named canonical target resolves as the named
-declaration in the pinned corpus under its exact opened namespace; every named Rust and Song entry
-exists as a concrete executing declaration (a `law`/`carrier`/`spec` header alone is not an entry);
-the corpus revision, Mathlib revision and per-source sha256 digests match the resolved checkout;
-every implementation of every row carries its required resource kinds separately, and no generic
-`fuel` is admitted; every named reference, including control targets and any file/symbol reference in
-the row text, resolves; every required row, hazard and control is present; and this document carries
-the actual records and fields, not incidental mentions. It exits nonzero on a missing field, row,
-hazard, control, target or source entry, on a namespace mismatch, on a corpus or digest drift, or on
-a row that is not `selected-open`.
+all six fields and stays `selected-open`; every named canonical target resolves as the exact
+fully-qualified declaration (name and kind) in the pinned corpus, so a merely opened prefix or a
+missing namespace is rejected; every named Rust and Song entry exists as a concrete executing
+declaration (a `law`/`carrier`/`spec` header alone is not an entry); the corpus Git revision, the
+Mathlib revision resolved from a manifest, and per-source sha256 digests match the resolved checkout,
+and each recorded digest is bound to the blob at the recorded revision; every implementation of every
+row carries its required resource kinds separately, and no generic `fuel` is admitted; every named
+reference in the structured prose fields and in this document, including control targets, resolves,
+and a reference that does not resolve is rejected unless its exact path is in the checker's explicit
+missing-artifact set; each row's Markdown fields are present with nonempty bodies and its Markdown
+status agrees with the JSON status; every required row, hazard and control is present; and this
+document carries the actual records and fields, not incidental mentions. It exits nonzero on a
+missing field, row, hazard, control, target or source entry, on a declaration-name or namespace
+mismatch, on a corpus or digest drift, on an unresolved named reference, on a Markdown field or status
+that disagrees with the JSON, or on a row that is not `selected-open`.
 
 `--controls` and `--self-test` mutate a deep copy of the loaded profile and the spec text in memory
-and require each mutation to be rejected. Seven controls target the false-green classes: a missing
+and require each mutation to be rejected. The controls target the false-green classes: a missing
 resource account on one implementation; a wrong corpus revision and a changed source digest; a
-reversed canonical namespace; a Song entry that is only a `law` header; a deleted required-field
-record and a deleted hazard record in the spec; a `closed` row; and an unknown control target. The
-retained structural controls remove a required field, drop a field from the fields list, remove a
-required row, hazard or control, rename a canonical target to a nonexistent name, mislabel a def as a
-theorem, point a Rust entry at a missing file, point a Song entry at a missing symbol, rename a
-resource kind to `fuel`, remove the joint admission clause and drop the `get_build_acc` target. The
-working tree is never touched. The checker establishes specification consistency only; it never
-reports correspondence.
+reversed canonical namespace and a canonical target missing its `Table` namespace; a Song entry that
+is only a `law` header; a deleted required-field record, a deleted or emptied row field and a deleted
+hazard record in the spec; a `closed` row and a Markdown row status that disagrees with the JSON; an
+unknown control target and an unresolved named reference in a row field. The retained structural
+controls remove a required field, drop a field from the fields list, remove a required row, hazard or
+control, rename a canonical target to a nonexistent name, mislabel a def as a theorem, point a Rust
+entry at a missing file, point a Song entry at a missing symbol, rename a resource kind to `fuel`,
+remove the joint admission clause and drop the `get_build_acc` target. The working tree is never
+touched. The checker establishes specification consistency only; it never reports correspondence.
