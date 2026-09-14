@@ -6,7 +6,7 @@
 //!
 //! Run: `taskset -c 2 perf stat -e cpu_core/instructions/,cpu_core/cycles/ cargo run --release --example counter_check`
 
-#[path = "support/counter.rs"]
+#[path = "counter.rs"]
 mod counter;
 
 use std::hint::black_box;
