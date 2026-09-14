@@ -35,6 +35,73 @@ rustc-hash = "2"
 # published crate still has zero dependencies.
 libc = "0.2"
 
+# Examples are grouped by kind under `examples/`, so their target paths are declared here rather
+# than auto-discovered from the directory root. Names are unchanged, so every `cargo run --example
+# <name>` invocation keeps working.
+[[example]]
+name = "avalanche"
+path = "examples/smhasher/avalanche.rs"
+
+[[example]]
+name = "avalanche_bias"
+path = "examples/smhasher/avalanche_bias.rs"
+
+[[example]]
+name = "collision_survey"
+path = "examples/smhasher/collision_survey.rs"
+
+[[example]]
+name = "diffdist"
+path = "examples/smhasher/diffdist.rs"
+
+[[example]]
+name = "lowbits_probe"
+path = "examples/smhasher/lowbits_probe.rs"
+
+[[example]]
+name = "moment_chi2"
+path = "examples/smhasher/moment_chi2.rs"
+
+[[example]]
+name = "perlin"
+path = "examples/smhasher/perlin.rs"
+
+[[example]]
+name = "sparse_keys"
+path = "examples/smhasher/sparse_keys.rs"
+
+[[example]]
+name = "top_bit"
+path = "examples/smhasher/top_bit.rs"
+
+[[example]]
+name = "addr_latency"
+path = "examples/fold/addr_latency.rs"
+
+[[example]]
+name = "context_keys"
+path = "examples/fold/context_keys.rs"
+
+[[example]]
+name = "hash_only"
+path = "examples/fold/hash_only.rs"
+
+[[example]]
+name = "length_sweep"
+path = "examples/fold/length_sweep.rs"
+
+[[example]]
+name = "rolling_key"
+path = "examples/fold/rolling_key.rs"
+
+[[example]]
+name = "why_slower"
+path = "examples/fold/why_slower.rs"
+
+[[example]]
+name = "counter_check"
+path = "examples/support/counter_check.rs"
+
 [workspace]
 members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
