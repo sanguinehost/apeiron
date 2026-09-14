@@ -128,7 +128,7 @@ proved, but that does not prove thread memory semantics, panic propagation or li
 
 | Layer | Owner | Status |
 |---|---|---|
-| Canonical algebra and combinator definitions | Apeiron (Lean corpus) | proved at stated scope |
+| Canonical algebra and combinator definitions | Apeiron (Lean corpus) | proved at stated scope (`Apeiron.Combinator.Comb.reduceDeep_sound`, `Apeiron.Trichotomy.AnyRing.ringNormForm_mul`) |
 | Rust `Cell<i64>` kernels | Apeiron | refined to canonical definitions; axiom cone `{propext, Classical.choice, Quot.sound}` |
 | Rust `Table` bodies | Apeiron | extracted and elaborated; word-instance witnesses proved; universal `Rep` open |
 | Charon/Aeneas translation fidelity | pinned toolchain | external trust; patched for const `Repeat` to `Array.repeat` |
