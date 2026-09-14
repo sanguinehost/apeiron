@@ -1,12 +1,54 @@
 {
   "schema": 1,
-  "profile": "APEIRON-PROGRAMME-W21-T1",
-  "note": "Staged Slang source-refinement gate table. The stage ids are the W21-T1 harness names; each binds to one wave of docs/plan/slang-source-refinement.md (W22..W29). The proof module, command and negative control are the plan's declared outputs, not claims that those files exist. A missing module, generator, checker or binding is a named red result. The encoded mutation is the plan's negative control expressed as an exact replacement against the real Song source that the wave consumes; where the plan's control names a decoded Lean artifact, the source mutation is the input that decodes to the defect and the stage command must re-render the binding, else the control reports `mutation survived` (red), never a pass. The harness establishes gate consistency only and never claims correspondence, refinement or proof.",
+  "profile": "APEIRON-PROGRAMME-W21-T2",
+  "note": "Staged Slang source-refinement gate table. The stage ids bind to one wave of docs/plan/slang-source-refinement.md (W22..W29). The proof module, command and negative control are the plan's declared outputs, not claims that those files exist. A missing module, generator, checker or binding is a named red result. An active control declares the exact source mutation, the command step that must fail, and the rejecting output that step must produce; a red run that fails elsewhere or for an unrelated reason is a failed control, never a pass. A stage whose control is `awaiting-definition` records the plan's exact intended control and never passes `--controls`: the plan's control is a property of the decoded artifact or observation relation that no source-byte mutation falsifies. The `manifest` lists the selected source closure and its digests; the harness verifies it and the proof declarations by building the module under test and loading the declaration from the elaborated environment. The harness establishes gate consistency only and never claims correspondence, refinement or proof.",
   "roots": {
     "corpus": "../sanguine-apeiron/proof",
     "bridge": "proof",
     "bridge_corpus": "proof/corpus"
   },
+  "manifest": [
+    {
+      "kind": "source",
+      "path": "song/src/table/table.slang",
+      "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/kernel/std.slang",
+      "sha256": "e24b0e360f26794fab0fe1332c32455143d22d2059e871b8c012b4e8a89a6cae"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/kernel/mem/cell.slang",
+      "sha256": "35e3e46c5b7820c67f9c92f2af07a16bf581964b90acf7c508c5b13570d9b3cc"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/front/parser.slang",
+      "sha256": "e643bd85ca34b195888a0c64ec3662ce75c0c770d365b360285a9e0af2e4a882"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/front/node.slang",
+      "sha256": "db096abda00e40ddf6114db7d8da8590b4e03e46390eb4fd38ce0477679b2d6c"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/front/bridge.slang",
+      "sha256": "6d3aef63833ac4c2eaf99c71b044b7ae22346a7020c414ceb73ad03f5b4466c0"
+    },
+    {
+      "kind": "source",
+      "path": "song/src/emit/isa.slang",
+      "sha256": "da75ad47bbbbb4ddb8a22c2d5d2729910583f0e37fcec6a198aa7257dd5e79f9"
+    },
+    {
+      "kind": "source",
+      "path": "../sanguine-apeiron/proof/Apeiron/Table/Basic.lean",
+      "sha256": "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
+    }
+  ],
   "defaults": {
     "timeout": 1800,
     "copy": [
@@ -81,7 +123,9 @@
         "path": "song/src/table/table.slang",
         "old": "  return tableSlotValSet(base, slot, newVal);\n",
         "new": "",
-        "expect": "the decode test rejects the deleted final tableInsertWith statement (W22 control)"
+        "expect": "the decode test rejects the deleted final tableInsertWith statement (W22 control)",
+        "expected_step": 1,
+        "expected_output": "tableInsertWith statement count differs"
       },
       "note": "The plan's decode test must read the mutated Song source from the throwaway copy; a test that ignores it reports `mutation survived` and the stage fails closed."
     },
@@ -129,13 +173,9 @@
           ["lake", "env", "lean", "Slang/Semantics.lean"]
         ]
       },
-      "mutation": {
-        "path": "song/src/table/table.slang",
-        "old": "  return (pos * TABLE_PHI) and 4611686018427387903;\n",
-        "new": "  return pos * TABLE_PHI;\n",
-        "expect": "the semantic fixtures reject the unmasked (unbounded) spread multiplication (W23 control)"
-      },
-      "note": "The encoded source change realizes the plan's `make multiplication unbounded` arm; the plan's other arm (eager `or` to short-circuit) is owned by the W23 fixture and is recorded in `plan.negative_control`."
+      "control_status": "awaiting-definition",
+      "awaiting_reason": "The plan's W23 control (replace eager bitwise `or` with short-circuit evaluation, or make multiplication unbounded) is a semantic-machine property owned by the W23 fixture; removing the spread mask is not the same change and does not falsify the control. Awaiting the W23 fixture's own control.",
+      "note": "The plan's exact control text is recorded in `plan.negative_control`; no source-byte mutation is substituted."
     },
     {
       "id": "source",
@@ -185,7 +225,9 @@
         "path": "song/src/table/table.slang",
         "old": "TABLE_PHI = 2654435769",
         "new": "TABLE_PHI = 2654435768",
-        "expect": "the binding gate rejects the changed TABLE_PHI constant (W24 control)"
+        "expect": "the binding gate rejects the changed TABLE_PHI constant (W24 control)",
+        "expected_step": 0,
+        "expected_output": "TABLE_PHI"
       },
       "note": "The W24 binding gate is owned by the plan's W21 source-semantics checker; the harness only runs the declared command in the throwaway copy."
     },
@@ -237,7 +279,9 @@
         "path": "song/src/table/table.slang",
         "old": "  tableSlotSet(base, i, TABLE_EMPTY, 0);\n",
         "new": "  memory[base + TABLE_STRIDE * i] = TABLE_EMPTY;\n",
-        "expect": "constructor establishment rejects the omitted value-cell store (W25 control)"
+        "expect": "constructor establishment rejects the omitted value-cell store (W25 control)",
+        "expected_step": 0,
+        "expected_output": "tableInitGo"
       },
       "note": "The plan's control names the decoded `tableInitGo`; the encoded source change is the input that decodes to the omitted value-cell store."
     },
@@ -285,13 +329,9 @@
           ["lake", "env", "lean", "Slang/TableRead.lean"]
         ]
       },
-      "mutation": {
-        "path": "song/src/table/table.slang",
-        "old": "return tableSlotVal(base, slot);",
-        "new": "return tableSlotKey(base, slot);",
-        "expect": "the read witness rejects reading the key cell instead of the value cell (closest resolvable realization of the W26 control)"
-      },
-      "note": "The plan's control (`classify raw -1 as absence without consulting O`) names the decoded observation relation; the encoded source change is a real read-body mutation. The plan's exact fixture mutation is owned by the W26 witness."
+      "control_status": "awaiting-definition",
+      "awaiting_reason": "The plan's W26 control (classify raw `-1` as absence without consulting `O`) is an observation-relation property owned by the ReadWitness fixture; reading the key cell does not test sentinel-value misclassification. Awaiting the W26 witness's own control.",
+      "note": "The plan's exact control text is recorded in `plan.negative_control`; no source-byte mutation is substituted."
     },
     {
       "id": "write",
@@ -339,11 +379,14 @@
       },
       "mutation": {
         "path": "song/src/table/table.slang",
-        "old": "  if merge is MERGE_ACC { newVal = oldVal + value; }\n",
-        "new": "",
-        "expect": "the write preservation/admission gate rejects the dropped existing-key accumulator addition (closest resolvable realization of the W27 control)"
+        "anchor": "  tableSlotSet(base, slot, key, newVal);\n",
+        "old": "  newVal = TABLE_PRESENT if merge is MERGE_SET else value;\n",
+        "new": "  newVal = TABLE_PRESENT if merge is MERGE_SET else oldVal;\n",
+        "expect": "the replacement-write preservation gate rejects the existing-key MERGE_MAP path that keeps oldVal instead of replacing with value (W27 anchored replacement control)",
+        "expected_step": 0,
+        "expected_output": "tableInsertWith"
       },
-      "note": "The plan's control names the decoded full-table refusal/admission path; the encoded source change is a real write-body mutation. The plan's exact fixture mutation is owned by the W27 admission witness."
+      "note": "The anchor is the unique fresh-key store, so the mutation edits the existing-key replacement path rather than the fresh-key path. Removing the ACC addition does not falsify replacement correctness or admission and is not used."
     },
     {
       "id": "resources",
@@ -393,7 +436,9 @@
         "path": "song/src/table/table.slang",
         "old": "  return tableFindSlotGo(base, cap, mask, key, slot, step + 1);\n",
         "new": "  return tableFindSlotGo(base, cap, mask, key, slot, step);\n",
-        "expect": "the termination/resource gate rejects the removed probe step increment (W28 control)"
+        "expect": "the termination/resource gate rejects the removed probe step increment (W28 control)",
+        "expected_step": 0,
+        "expected_output": "tableFindSlotGo"
       },
       "note": "The plan's control names the decoded probe step; the encoded source change is the input that decodes to the removed `step + 1`."
     },
@@ -445,7 +490,9 @@
         "path": "song/src/table/table.slang",
         "old": "MERGE_MAP = 2",
         "new": "MERGE_MAP = 3",
-        "expect": "SongTableControl or the axiom-audited headline rejects the decoded MERGE_MAP replacement-to-addition change (W29 control)"
+        "expect": "SongTableControl or the axiom-audited headline rejects the decoded MERGE_MAP replacement-to-addition change (W29 control)",
+        "expected_step": 0,
+        "expected_output": "MERGE_MAP"
       },
       "note": "The plan's control names the decoded `MERGE_MAP`; the encoded source change sets the map face to the accumulator code. The W29 stage command must re-render the binding, else the control reports `mutation survived` (red)."
     }
