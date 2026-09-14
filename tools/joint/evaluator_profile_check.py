@@ -18,7 +18,10 @@ are internally complete and that every artifact they name resolves:
   separately (a missing account on one side is rejected), and no generic fuel
   kind is admitted;
 * every named reference, including blocker ``counterpart``/``reason`` entries
-  and control targets, is checked, not only the selected structured references;
+  and control targets, is parsed under the strict grammar documented at
+  ``FILE_PATH`` and checked, not only the selected structured references; a
+  reference outside the grammar is rejected as malformed, never truncated or
+  split;
 * every required unmatched blocker, hazard and control is present, and none is
   dropped;
 * the spec carries the actual records and fields (row headings and titles,
@@ -196,14 +199,27 @@ SLANG_DECL = [
     r"(?m)^\s*{n}\s*\([^\n]*\{",
     r"(?m)^\s*{n}\s*=",
 ]
-# File/symbol references embedded in free text: ``path::{a, b}`` or ``path::a``
-# or a bare source path. A single symbol may itself be qualified, as in
-# ``path::Type::method``; the whole chain is captured, never truncated at the
-# first segment.
-FILE_REF = re.compile(
-    r"([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang))"
-    r"(?:::\{([^}]*)\}|::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*))?"
-)
+# Strict reference grammar. A named reference is a repo-relative source path
+# (``.lean``, ``.rs`` or ``.slang``) optionally followed by exactly one of::
+#
+#     path::symbol
+#     path::Type::method
+#     path::Type::{method, method, ...}
+#     path::{symbol, Type::method, ...}
+#     path::<T as Trait>::method
+#     path::<T as Trait>::{method, ...}
+#
+# ``symbol``, ``Type``, ``T``, ``Trait`` and ``method`` are single identifiers;
+# a brace member is a single identifier or a ``Type::method`` pair. The frozen
+# profiles use the qualified self type ``<i64 as Ring>``, qualified brace
+# members (``src/cell.rs::{Cell::mul, ...}``) and a qualified brace group
+# (``src/table.rs::Table::{new, ...}``), so those forms are admitted. Every
+# other form is malformed and rejected, never truncated or split: an extra
+# ``::`` segment, a trailing ``.member``, a generic outside the self-type
+# position, a brace member that is not a single identifier or a ``Type::method``
+# pair, an empty segment, or an unbalanced brace/angle.
+FILE_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:lean|rs|slang)")
+IDENT = re.compile(r"[A-Za-z_]\w*")
 
 
 class CheckError(Exception):
@@ -432,11 +448,161 @@ def _resolve_text_ref(rel: str, where: str) -> Path:
     raise CheckError(f"{where}: named reference does not resolve: {rel}")
 
 
+def _malformed(where: str, ref: str, reason: str) -> CheckError:
+    return CheckError(f"{where}: malformed reference {ref!r}: {reason}")
+
+
+def _match_angle(text: str, start: int) -> int | None:
+    """Return the index just past the ``>`` matching ``text[start] == '<'``."""
+    depth = 0
+    i = start
+    while i < len(text):
+        char = text[i]
+        if char == "-" and i + 1 < len(text) and text[i + 1] == ">":
+            i += 2
+            continue
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
+def _reject_trailing(text: str, pos: int, where: str, ref: str) -> None:
+    if text[pos : pos + 2] == "::":
+        raise _malformed(where, ref + "::", "unexpected '::' after the reference")
+    if (
+        pos + 1 < len(text)
+        and text[pos] == "."
+        and (text[pos + 1].isalnum() or text[pos + 1] == "_")
+    ):
+        raise _malformed(
+            where, ref + text[pos : pos + 2], "member access after the reference"
+        )
+
+
+def _brace_members(body: str, where: str, ref: str) -> list[str]:
+    members = [token.strip() for token in body.split(",")]
+    if not members or any(member == "" for member in members):
+        raise _malformed(where, ref, "empty brace member")
+    for member in members:
+        parts = member.split("::")
+        if len(parts) > 2 or any(IDENT.fullmatch(part) is None for part in parts):
+            raise _malformed(
+                where,
+                ref,
+                f"brace member {member!r} is not a single identifier or a "
+                "Type::method pair",
+            )
+    return members
+
+
+def _parse_reference(text: str, start: int, where: str, rel: str) -> list[str] | None:
+    """Parse the ``::`` suffix at ``text[start]`` under the strict grammar.
+
+    Returns the symbols to resolve, or ``None`` when the path is a bare
+    mention. Raises :class:`CheckError` for any form outside the grammar.
+    """
+    if text[start : start + 2] != "::":
+        return None
+    ref = rel
+    i = start + 2
+    generic = ""
+    if i < len(text) and text[i] == "<":
+        close = _match_angle(text, i)
+        if close is None:
+            raise _malformed(where, ref + text[start:], "unbalanced generic qualifier")
+        generic = text[i:close]
+        if re.search(r"\S+\s+as\s+\S+", generic[1:-1]) is None:
+            raise _malformed(
+                where,
+                rel + text[start:close],
+                "generic qualifier is not a <T as Trait> self type",
+            )
+        if text[close : close + 2] != "::":
+            raise _malformed(
+                where,
+                ref + text[start:close],
+                "generic qualifier is not followed by '::'",
+            )
+        i = close + 2
+        ref = rel + text[start : close + 2]
+    if i >= len(text):
+        raise _malformed(where, ref, "empty reference segment")
+    if text[i] == "{":
+        close = text.find("}", i + 1)
+        if close < 0:
+            raise _malformed(where, ref + text[i:], "unclosed brace group")
+        full = rel + text[start : close + 1]
+        members = _brace_members(text[i + 1 : close], where, full)
+        _reject_trailing(text, close + 1, where, full)
+        return [f"{generic}::{member}" if generic else member for member in members]
+    match = IDENT.match(text, i)
+    if match is None:
+        raise _malformed(
+            where, ref + text[i:], "expected an identifier, '{' or '<' after '::'"
+        )
+    segments = [match.group(0)]
+    pos = match.end()
+    while text[pos : pos + 2] == "::" and text[pos + 2 : pos + 3] != "{":
+        following = IDENT.match(text, pos + 2)
+        if following is None:
+            raise _malformed(
+                where,
+                ref + text[pos : pos + 2],
+                "'::' is not followed by an identifier",
+            )
+        segments.append(following.group(0))
+        pos = following.end()
+    if text[pos : pos + 2] == "::" and text[pos + 2 : pos + 3] == "{":
+        if len(segments) != 1:
+            raise _malformed(
+                where,
+                ref + "::" + "::".join(segments),
+                "more than one '::' segment before a brace group",
+            )
+        close = text.find("}", pos + 3)
+        if close < 0:
+            raise _malformed(where, ref + text[start:], "unclosed brace group")
+        type_name = segments[0]
+        full = rel + text[start : close + 1]
+        members = _brace_members(text[pos + 3 : close], where, full)
+        _reject_trailing(text, close + 1, where, full)
+        prefix = f"{generic}::{type_name}" if generic else type_name
+        return [f"{prefix}::{member}" for member in members]
+    if len(segments) > 2:
+        raise _malformed(
+            where,
+            ref + "::" + "::".join(segments),
+            "more than one '::' segment after the type",
+        )
+    symbol = "::".join(segments)
+    full = rel + text[start : pos]
+    _reject_trailing(text, pos, where, full)
+    return [f"{generic}::{symbol}" if generic else symbol]
+
+
 def _check_text_refs(text: str, where: str) -> None:
-    for match in FILE_REF.finditer(text):
-        rel = match.group(1)
-        symbols = match.group(2)
-        single = match.group(3)
+    """Resolve every named file/symbol reference in one prose string.
+
+    References are parsed under the strict grammar above. A malformed
+    reference is rejected rather than truncated or split.
+    """
+    for match in FILE_PATH.finditer(text):
+        rel = match.group(0)
+        end = match.end()
+        symbols = _parse_reference(text, end, where, rel)
+        if symbols is None and (
+            end + 1 < len(text)
+            and text[end] == "."
+            and (text[end + 1].isalnum() or text[end + 1] == "_")
+        ):
+            raise _malformed(
+                where, rel + text[end : end + 2], "member access after a file path"
+            )
         try:
             path = _resolve_text_ref(rel, where)
         except CheckError:
@@ -446,12 +612,8 @@ def _check_text_refs(text: str, where: str) -> None:
                 "declared missing artifact",
             )
             continue
-        if symbols is not None:
-            for symbol in (token.strip() for token in symbols.split(",")):
-                if symbol:
-                    _check_symbol_in_file(path, symbol, where)
-        elif single:
-            _check_symbol_in_file(path, single, where)
+        for symbol in symbols or ():
+            _check_symbol_in_file(path, symbol, where)
 
 
 def _check_data_text_refs(value: object, where: str) -> None:
@@ -1189,6 +1351,34 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             spec_text,
         )
     )
+
+    # class 7: the strict reference grammar. A reference outside it is
+    # rejected, never truncated or split.
+    for label, reference in (
+        (
+            "class 7: reject a reference with an extra '::' segment",
+            "src/table.rs::Table::new::get",
+        ),
+        (
+            "class 7: reject a brace member that is not a single identifier "
+            "or a Type::method pair",
+            "src/table.rs::{Table::new::get}",
+        ),
+        (
+            "class 7: reject a generic-qualified method bound to the wrong "
+            "implementation",
+            "src/table.rs::<WordHome as Merge<i64>>::merge",
+        ),
+        (
+            "class 7: reject a reference with a trailing member access",
+            "proof/Denotation.lean::denote.missing",
+        ),
+    ):
+        mutated = copy.deepcopy(data)
+        mutated["unmatched_blockers"][0]["counterpart"] = (
+            mutated["unmatched_blockers"][0]["counterpart"] + " " + reference
+        )
+        cases.append((label, mutated, spec_text))
 
     return cases
 
