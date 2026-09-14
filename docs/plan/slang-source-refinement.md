@@ -25,6 +25,10 @@ GRADE: specification consistency only; no proved or tested semantic claim.
 
 ## Staged tasks
 
+The table below is the original route. The Astra root-cause freeze (`## Root-cause freeze`) revises
+W21-W30: it reopens W21 and W22, replaces the W24 artifact with a proof-producing translation, and
+records the decoder's inline-conditional precedence defect. Where the two disagree, the freeze governs.
+
 | Wave | Purpose | Owned files (maximum three) | Gate | Negative control | Opens / stop condition |
 |---|---|---|---|---|---|
 | W21 | Rejecting gate harness and exact fixture manifest | `tools/slang/source_semantics_check.py`; `tools/slang/source_manifest.json`; `tools/slang/source_controls.json` | `python3 tools/slang/source_semantics_check.py --check harness` | Change one selected byte while retaining the old manifest; gate MUST reject source identity. | Requires this specification gate. Stop if a mutation can survive or the Song/corpus checkout identity cannot be resolved. |
@@ -67,3 +71,122 @@ This plan does not prove correspondence, all-Slang semantics, compiler/emitter/I
 native stack safety, the kernel ABI, transactional multi-insert build, accumulator adaptation,
 rustc/LLVM, GPU/SPIR-V, or performance. W21-W30 produce those claims only where a named stage says so;
 the present task establishes specification consistency only.
+
+## Root-cause freeze
+
+Source: Astra escalation on the W24 source binding. W24 stays `proved`; the whole-file kernel
+normalization is replaced by a proof-producing source translation plus compositional denotational
+refinement. Every Lean and `refine.py` run is memory-capped (`ulimit -v 8000000`,
+`LEAN_NUM_THREADS=1`).
+
+### Why the original W24 cannot be proved as written
+
+The kernel cannot evaluate the decoder on the real bytes: `ByteArray` is not kernel-computable
+(`ByteArray.mk` is `noncomputable`, `"...".toUTF8` is stuck), and `String` operations exceed the
+heartbeat limit at 7 KB. A pure-`List Char` lexer evaluates in 2.8 s / ~1 GB, but the parser path
+(`scanSelected` -> the `mutual` `parseBlockFuel`/`parseStmtFuel` and
+`parseExprFuel`/`parsePrimaryFuel`/`parseArgsFuel`/`parseBinaryFuel`) exceeds 18 GB and does not
+finish. Proving the equality by evaluation is therefore both intractable and the wrong method.
+
+### Decoder defects found during the freeze
+
+| Location | Defect |
+|---|---|
+| `proof/corpus/Slang/Decode.lean:202-207` | Inline-conditional parsing ignores `minPrec`, so `0 - k if k < 0 else k` parses as `0 - (k if k < 0 else k)` rather than `(0 - k) if k < 0 else k`. This is the actual `tableSpread` first assignment. |
+| `proof/corpus/Slang/DecodeTest.lean:44-46` | The fixture checks only the final multiply/mask expression, so it does not catch the precedence defect. |
+| `proof/corpus/Slang/Decode.lean:300-319` | Token-pattern scanning rather than top-level declaration-boundary parsing; a removed selected name can skip a later conflicting occurrence. |
+| `proof/corpus/Slang/Decode.lean:404-410` | `decodeClosure` receives only table and std bytes; it neither validates the intermediate `cell.slang` import nor the textual import edges. |
+| `Certificate.Valid` | Five Boolean equalities set to `true` by the success branch; it does not express grammar or import correctness. |
+| `Machine.Context.ofProgram` | Takes its constant environment independently; binding it to the decoded constants is still open. |
+| `tools/slang/controls.json` | Wires the source stage to `tools/slang/source_semantics_check.py`, which is absent, and accepts the prefix `Slang.SourceAudit.*` rather than the exact `source_binding`; the probe checks existence, not theorem type or axiom cone. |
+
+### Method
+
+An untrusted producer supplies literal bytes, candidate syntax and local derivations. Kernel-checked
+rules validate byte decoding, token boundaries, grammar productions, declaration boundaries and
+import resolution. Soundness lemmas relate those derivations to the real `Decode.decodeClosure`, and
+per-declaration proofs compose by named lemmas, so no application unfolds the whole mutual parser.
+Candidate ASTs are generated, never handwritten table algorithms. Producer execution proves nothing;
+only the checked proof terms do. This is not a grade downgrade: W24 remains `proved`.
+
+### Frozen interfaces
+
+```lean
+abbrev SourceByte := Fin 256
+abbrev SourceBytes := List SourceByte
+structure SourceFile where path : SourceBytes; bytes : SourceBytes
+structure SourceBundle where entry : SourceBytes; files : List SourceFile
+
+encodeBytes : SourceBytes -> ByteArray
+ByteRep : SourceBytes -> ByteArray -> Prop                 -- extensional; generic view lemmas
+
+ParsesClosure : SourceBundle -> Program -> Prop
+DecodeDerivation : SourceBytes -> SourceBytes -> Decode.CertifiedDecoded -> Prop
+decodeDerivation_sound :
+  DecodeDerivation table std value ->
+  Decode.decodeClosure (encodeBytes table) (encodeBytes std) = .ok value
+```
+
+`Decode.decodeClosure : ByteArray -> ByteArray -> Result CertifiedDecoded` keeps its type; only its
+body is repaired. No tail-recursion rewrite is authorized merely to make evaluation cheaper. The
+strengthened binding is
+
+```lean
+theorem source_binding :
+  ∃ value : Decode.CertifiedDecoded,
+    Decode.decodeClosure tableBytes stdBytes = .ok value ∧
+    value.val.certificate.Valid ∧
+    ExpectedSelectedSyntax value.val.program = true ∧
+    ParsesClosure selectedBundle value.val.program
+```
+
+`selectedBundle` includes table, cell and std. The fallback empty program is removed; rejection must
+not select a replacement. A checked constant environment derived from `Program.constants` builds
+`Machine.Context`. Trichotomy enters through `wordDenote : Slang.Word -> ZMod (2^64)` and
+`cellDenote : Slang.Word × Slang.Word -> Apeiron.Trichotomy.AnyRing.RingCell (ZMod (2^64))`,
+licensing reuse of `ringMul_comm`, `ringMul_assoc` and `ringNormForm_mul` only for matching
+operations; replacement is not claimed to be ring multiplication.
+
+### Revised barriers
+
+`S/` abbreviates `proof/corpus/Slang/`; `G(stage)` is
+`ulimit -v 8000000; LEAN_NUM_THREADS=1 python3 tools/slang/refine.py --stage stage --controls --song-root ../song`.
+
+| Barrier | Owner / owned files (max three) | Gate | Negative control |
+|---|---|---|---|
+| W21 repair | Flash: `tools/slang/refine.py`, `tools/slang/controls.json`, `proof/corpus/lakefile.lean` | `refine.py --self-test` | A namespace helper without the required theorem must not satisfy a proof target. |
+| W22 precedence | Sol: `S/Decode.lean`, `S/DecodeTest.lean` | `G(decode)` | Reinstate the misplaced conditional precedence; the complete `tableSpread` assignment fixture fails. |
+| W24 byte bridge | Sol: `S/Source/Bytes.lean`, `S/Source/BytesAudit.lean` | `lake env lean Slang/Source/BytesAudit.lean` | Alter one encoded byte; the representation proof fails. |
+| W22 lexical fidelity | Sol: `S/Source/Lexing.lean`, `S/Source/LexingAudit.lean`, `S/Decode.lean` | `lake env lean Slang/Source/LexingAudit.lean` | Incorrect byte offset after a multibyte character fails; an unknown reachable token is not trivia. |
+| W22 grammar fidelity | Sol: `S/Source/Grammar.lean`, `S/Source/GrammarAudit.lean`, `S/Decode.lean` | `lake env lean Slang/Source/GrammarAudit.lean` | A selected-body prefix or incorrect conditional grouping fails. |
+| W22 closure fidelity | Sol: `S/Source/Closure.lean`, `S/Source/ClosureAudit.lean`, `S/Decode.lean` | `lake env lean Slang/Source/ClosureAudit.lean` | A conflicting duplicate declaration or missing import edge cannot produce a binding. |
+| W24 decoder refinement | Sol: `S/Source/DecodeProof.lean`, `S/Source/DecodeProofAudit.lean`, `S/Decode.lean` | `lake env lean Slang/Source/DecodeProofAudit.lean` | Corrupt an intermediate parser result; the soundness application fails. |
+| W24 generation | Flash: `tools/slang/export.py`, `S/Generated/Table.lean`, `S/Generated/TableDerivation.lean` | `export.py --check` plus a proof-producing check mode (MISSING) | Altered candidate syntax with unchanged source/derivation fails kernel checking. |
+| W24 integration | Sol: `S/SourceAudit.lean`, `tools/slang/controls.json`, `proof/corpus/lakefile.lean` | `G(source)` | The stale-source `TABLE_PHI` control plus regenerated-byte/stale-derivation rejection. |
+| W23 arithmetic link | Sol: `S/Refinement/WordDenotation.lean`, `S/Refinement/WordDenotationAudit.lean` | `lake env lean Slang/Refinement/WordDenotationAudit.lean` | Replace source-word multiplication with addition; the denotation theorem fails. |
+| W23 context binding | Sol: `S/Refinement/Context.lean`, `S/Refinement/ContextAudit.lean` | `lake env lean Slang/Refinement/ContextAudit.lean` | A constant environment disagreeing with decoded `TABLE_PHI` fails context binding. |
+| Downstream wiring | Flash: `tools/slang/refine.py`, `tools/slang/controls.json` | `refine.py --self-test` | A mutation rejected only by stale identity must not count as a semantic-refinement control. |
+| W25-W30 | as the original rows, with witness/audit files imported by their gate target | the original stage gates | the original controls, regenerated after the byte-level change |
+
+### Integration order
+
+W21 repair -> W22 precedence -> byte/lexical/grammar/closure barriers -> decoder refinement ->
+generation -> W24 integration -> W23 arithmetic link and context binding -> downstream wiring ->
+W25 -> W26 -> W27 -> W28 -> W29 -> W30.
+
+After W22 changes, re-run the decode and machine stages with their controls. Before W25, re-run
+decode, machine and source on one source/tool identity. W29 re-runs all stages through
+replacement-link and the complete corpus axiom audit.
+
+### Acceptance command
+
+```sh
+# cwd: /home/socol/Workspace/apeiron
+ulimit -v 8000000
+LEAN_NUM_THREADS=1 python3 tools/slang/refine.py --stage source --controls --song-root ../song
+```
+
+Acceptance requires the strengthened theorem, the checked axiom cone, full-byte freshness, kernel
+rejection of a corrupt derivation, and baseline/red/restored-green outcomes. A timeout or memory
+failure is inconclusive, not a passing control. The architecture removes the known global
+normalization dependency; tractability is not yet measured or proved.
