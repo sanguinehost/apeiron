@@ -6,3 +6,5 @@
 /fuzz/coverage
 # Crash inputs are NOT ignored. If the fuzzer ever writes one, it belongs in the history with the
 # fix, as the regression test that proves the fix.
+# Cross-stream coordination for the three parallel work streams. Working notes, not source.
+/.tracks/
