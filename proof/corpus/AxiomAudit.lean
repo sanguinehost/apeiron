@@ -5,6 +5,7 @@ import TableRefinementBuild
 import TableRefinementAdmission
 import TableRefinementBuildGeneric
 import TableRefinementAdmissionGeneric
+import TableRefinementPhysical
 import Lean
 
 set_option linter.apeiron.notation false
@@ -322,3 +323,18 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.TableRefinement.buildLoopSpecG_iff_allBuildInsertSpecsG
 #audit Apeiron.TableRefinement.buildLoopSpecG_true_iff_buildInsertResultG
 #audit Apeiron.TableRefinement.buildLoopSpecG_false_iff_buildInsertOkG
+
+-- Universal physical representation at general N
+#audit Apeiron.TableRefinement.globalKeysDistinct_of_tableInv2N_homePlaced
+#audit Apeiron.TableRefinement.physicalInv_iff
+#audit Apeiron.TableRefinement.readRep_exists
+#audit Apeiron.TableRefinement.offHomeTable_not_homePlaced
+#audit Apeiron.TableRefinement.readRep_exists_without_physicalShape
+#audit Apeiron.TableRefinement.emptyWordTableN_homePlaced
+#audit Apeiron.TableRefinement.emptyWordTableN_physicalInv
+#audit Apeiron.TableRefinement.homePlaced_insert_with
+#audit Apeiron.TableRefinement.PhysicalInsertResult
+#audit Apeiron.TableRefinement.physicalInv_insert_with
+#audit Apeiron.TableRefinement.insert_with_zero_exact
+#audit Apeiron.TableRefinement.physicalInv_insert_with_zero
+#audit Apeiron.TableRefinement.physicalInv_insert_with_all
