@@ -1262,7 +1262,7 @@ def self_test() -> int:
                     (REPO_ROOT / root).exists() or (REPO_ROOT.parent / root).exists(),
                     f"root={root}",
                 )
-            for name in ("machine", "lookup"):
+            for name in ("lookup",):
                 stage = by_id[name]
                 record(
                     f"controls_awaiting:{name}",
@@ -1280,14 +1280,18 @@ def self_test() -> int:
                 and "else value" in write.old,
                 f"anchor={write.anchor if write else None}",
             )
-            decode = by_id["decode"].mutation
-            record(
-                "controls_expect:decode",
-                decode is not None
-                and decode.expected_step == 1
-                and "statement count differs" in decode.expected_output,
-                f"step={decode.expected_step if decode else None}",
-            )
+            for name, step, needle in (
+                ("decode", 1, "statement count differs"),
+                ("machine", 0, "EvalExpr.conditionalTrue"),
+            ):
+                control = by_id[name].mutation
+                record(
+                    f"controls_expect:{name}",
+                    control is not None
+                    and control.expected_step == step
+                    and needle in control.expected_output,
+                    f"step={control.expected_step if control else None}",
+                )
             record(
                 "controls_manifest",
                 len(loaded.manifest) >= 8
