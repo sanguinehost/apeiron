@@ -41,6 +41,10 @@ def main : IO Unit := do
   let spread ← match program.functions.find? (·.name = "tableSpread") with
     | some decl => pure decl
     | none => throw (IO.userError "tableSpread absent")
+  require (spread.body.head? == some (.bind "pos" (.conditional
+    (.binary .sub (.literal 0) (.name "k"))
+    (.binary .lt (.name "k") (.literal 0)) (.name "k"))))
+    "tableSpread inline conditional precedence differs"
   require (spread.body.getLast? == some (.return_ (.binary .bitAnd
     (.binary .mul (.name "pos") (.name "TABLE_PHI")) (.literal 4611686018427387903))))
     "tableSpread precedence differs"

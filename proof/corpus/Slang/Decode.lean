@@ -199,14 +199,15 @@ mutual
                 let (right, rest) ← parseExprFuel fuel (prec + 1) rest
                 parseBinaryFuel fuel minPrec (.binary op left right) rest
           | none =>
-              if let .ident "if" := token.kind then do
-                let (condition, rest) ← parseExprFuel fuel 0 rest
-                match dropNewlines rest with
-                | { kind := .ident "else", .. } :: tail =>
-                    let (elseValue, tail) ← parseExprFuel fuel 0 tail
-                    .ok (.conditional left condition elseValue, tail)
-                | next :: _ => .error s!"expected inline else at byte {next.span.start}"
-                | [] => .error "unterminated inline conditional"
+              if let .ident "if" := token.kind then
+                if 0 < minPrec then .ok (left, tokens) else do
+                  let (condition, rest) ← parseExprFuel fuel 0 rest
+                  match dropNewlines rest with
+                  | { kind := .ident "else", .. } :: tail =>
+                      let (elseValue, tail) ← parseExprFuel fuel 0 tail
+                      .ok (.conditional left condition elseValue, tail)
+                  | next :: _ => .error s!"expected inline else at byte {next.span.start}"
+                  | [] => .error "unterminated inline conditional"
               else .ok (left, tokens)
       | [] => .ok (left, [])
 end
