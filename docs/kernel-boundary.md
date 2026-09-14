@@ -95,7 +95,7 @@ of checked word-instance witnesses, not a universal preservation theorem.
 - The real `new`, `get`, `insert_with` and `build` bodies occur in `proof/ApeironWord.lean`, and
   `proof/regen.sh --check` accepts the real generic bodies and concrete word roots. Extraction is not
   a proof of termination, `Rep`, or equality to `HMap`.
-- The manifest resolves corpus Git `50c94192399add3b9f8e64bd14e36d8cba270705` and Mathlib
+- The manifest resolves corpus Git `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` and Mathlib
   `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. A source-proof run log is historical evidence, not
   fresh acceptance.
 

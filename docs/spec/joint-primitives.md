@@ -10,7 +10,7 @@ Authority: [`docs/direction.md`](../direction.md#primitive-correspondence) is th
 authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust representation and trust
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
 corpus remains at `../sanguine-apeiron/proof/` at Git
-`50c94192399add3b9f8e64bd14e36d8cba270705`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 
 This document specifies obligations. It does not claim the correspondence exists. No row is closed:
 every row below is `selected-open` or `blocker`. The machine-readable form is

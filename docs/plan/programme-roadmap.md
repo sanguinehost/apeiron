@@ -45,7 +45,7 @@ intent/spec/plan is the one retained lifecycle record for the pass.
 | Checkout | Base revision | Pre-existing work to preserve |
 |---|---|---|
 | `apeiron` | `1403767e671c81737525702946a3eb1eae4f0b0b` | Clean |
-| `sanguine-apeiron` | `50c94192399add3b9f8e64bd14e36d8cba270705` | Clean; shares Git history with `sanguine` |
+| `sanguine-apeiron` | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` | Clean; shares Git history with `sanguine` |
 | `sanguine` | `e830d3fbdeb40319d1be0d1fc803e706748b6a3c` | Clean; predecessor worktree, not canonical root |
 | `song` | `47869e76f982cfa3085a8618a82b80463e22ef46` | Clean; `song-ref` remains untouched |
 | `penglai` | `ed11d3b34c148eb35050b615dc47e8340a9e224f` | Clean |

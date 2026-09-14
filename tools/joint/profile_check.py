@@ -81,7 +81,7 @@ PROFILE_ID = "APEIRON-PROGRAMME-W17-T1"
 # Frozen identities. These are the pins the evidence binds to; a recorded value
 # that differs from its constant, or a source file whose hash differs from its
 # recorded value, is a rejected profile.
-EXPECTED_CORPUS_GIT = "50c94192399add3b9f8e64bd14e36d8cba270705"
+EXPECTED_CORPUS_GIT = "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f"
 EXPECTED_MATHLIB = "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
 EXPECTED_APEIRON_REVISION = "2b5eda334e262f70f7c10ce567c8641c2396626d"
 EXPECTED_SONG_REVISION = "47869e76f982cfa3085a8618a82b80463e22ef46"

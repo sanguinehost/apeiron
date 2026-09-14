@@ -8,7 +8,7 @@ correspondence result. `tools/slang/spec_check.py` checks this document's consis
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence),
 [`joint-primitives.md`](joint-primitives.md), [`joint-table.md`](joint-table.md), and
 [`slang-source-entry.md`](slang-source-entry.md). The canonical corpus is the checkout
-`../sanguine-apeiron/proof` at Git `50c94192399add3b9f8e64bd14e36d8cba270705`, with Mathlib
+`../sanguine-apeiron/proof` at Git `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, with Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 
 ## Required obligations

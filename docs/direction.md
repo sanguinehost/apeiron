@@ -184,7 +184,7 @@ equivalence. The artifacts remain distinct; their canonical semantic authority i
 ## Migration
 
 The physical canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/`, Git
-`50c94192399add3b9f8e64bd14e36d8cba270705`, Mathlib
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. Apeiron is the approved destination; the sources have
 not moved, and no extraction, package or pin change is authorized by this document. A migration is
 a separately gated task with its own lifecycle artifacts.

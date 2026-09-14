@@ -262,14 +262,14 @@ cd proof/corpus && lake build
 
 ### Corpus / toolchain compatibility
 
-The corpus is at Git `50c94192399add3b9f8e64bd14e36d8cba270705`; the corpus and the bridge both pin
+The corpus is at Git `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`; the corpus and the bridge both pin
 Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`), the same backend the pinned Aeneas extraction uses.
 `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0`, so the bridge and the corpus resolve one
 revision.
 
 `proof/corpus/lakefile.lean` requires the corpus by Git at
-`50c94192399add3b9f8e64bd14e36d8cba270705` with subdirectory `proof`; the generated manifest
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` with subdirectory `proof`; the generated manifest
 records the same full input and resolved revisions. The bridge no longer reads the sibling corpus
 worktree. This revision retains the carrier results from `d9aefc93` and adds the table authorities
 read for this slice. The earlier commit adds

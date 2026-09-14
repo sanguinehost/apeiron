@@ -12,7 +12,7 @@ Authority: [`docs/direction.md`](../direction.md#primitive-correspondence) is th
 authority; [`docs/kernel-boundary.md`](../kernel-boundary.md) owns the Rust representation and trust
 boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge scope. The canonical
 corpus remains at `../sanguine-apeiron/proof/` at Git
-`50c94192399add3b9f8e64bd14e36d8cba270705`, Mathlib
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. The Apeiron sources were read at revision
 `2b5eda334e262f70f7c10ce567c8641c2396626d` and the Song sources at revision
 `47869e76f982cfa3085a8618a82b80463e22ef46`; the per-file digests are recorded under
@@ -305,7 +305,7 @@ The checker resolves and verifies these pins; a drift in any revision or digest 
 
 | Item | Revision |
 |---|---|
-| Canonical corpus (`../sanguine-apeiron/proof`) | `50c94192399add3b9f8e64bd14e36d8cba270705` |
+| Canonical corpus (`../sanguine-apeiron/proof`) | `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` |
 | Mathlib | `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f` |
 | Apeiron sources | `2b5eda334e262f70f7c10ce567c8641c2396626d` |
 | Song sources | `47869e76f982cfa3085a8618a82b80463e22ef46` |

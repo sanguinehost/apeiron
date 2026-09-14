@@ -76,13 +76,13 @@ the present task establishes specification consistency only.
 
 Source: Astra escalation on the W24 source binding. W24 stays `proved`; the whole-file kernel
 normalization is replaced by a proof-producing source translation plus compositional denotational
-refinement. Every Lean and `refine.py` run is memory-capped (`ulimit -v 8000000`,
+refinement. Every Lean and `tools/slang/refine.py` run is memory-capped (`ulimit -v 8000000`,
 `LEAN_NUM_THREADS=1`).
 
 ### Why the original W24 cannot be proved as written
 
 The kernel cannot evaluate the decoder on the real bytes: `ByteArray` is not kernel-computable
-(`ByteArray.mk` is `noncomputable`, `"...".toUTF8` is stuck), and `String` operations exceed the
+(ByteArray.mk is `noncomputable`, `"...".toUTF8` is stuck), and `String` operations exceed the
 heartbeat limit at 7 KB. A pure-`List Char` lexer evaluates in 2.8 s / ~1 GB, but the parser path
 (`scanSelected` -> the `mutual` `parseBlockFuel`/`parseStmtFuel` and
 `parseExprFuel`/`parsePrimaryFuel`/`parseArgsFuel`/`parseBinaryFuel`) exceeds 18 GB and does not
@@ -95,16 +95,16 @@ finish. Proving the equality by evaluation is therefore both intractable and the
 | `proof/corpus/Slang/Decode.lean:202-207` | Inline-conditional parsing ignores `minPrec`, so `0 - k if k < 0 else k` parses as `0 - (k if k < 0 else k)` rather than `(0 - k) if k < 0 else k`. This is the actual `tableSpread` first assignment. |
 | `proof/corpus/Slang/DecodeTest.lean:44-46` | The fixture checks only the final multiply/mask expression, so it does not catch the precedence defect. |
 | `proof/corpus/Slang/Decode.lean:300-319` | Token-pattern scanning rather than top-level declaration-boundary parsing; a removed selected name can skip a later conflicting occurrence. |
-| `proof/corpus/Slang/Decode.lean:404-410` | `decodeClosure` receives only table and std bytes; it neither validates the intermediate `cell.slang` import nor the textual import edges. |
-| `Certificate.Valid` | Five Boolean equalities set to `true` by the success branch; it does not express grammar or import correctness. |
-| `Machine.Context.ofProgram` | Takes its constant environment independently; binding it to the decoded constants is still open. |
+| `proof/corpus/Slang/Decode.lean:404-410` | `decodeClosure` receives only table and std bytes; it neither validates the intermediate cell.slang import nor the textual import edges. |
+| Certificate.Valid | Five Boolean equalities set to `true` by the success branch; it does not express grammar or import correctness. |
+| Machine.Context.ofProgram | Takes its constant environment independently; binding it to the decoded constants is still open. |
 | `tools/slang/controls.json` | Wires the source stage to `tools/slang/source_semantics_check.py`, which is absent, and accepts the prefix `Slang.SourceAudit.*` rather than the exact `source_binding`; the probe checks existence, not theorem type or axiom cone. |
 
 ### Method
 
 An untrusted producer supplies literal bytes, candidate syntax and local derivations. Kernel-checked
 rules validate byte decoding, token boundaries, grammar productions, declaration boundaries and
-import resolution. Soundness lemmas relate those derivations to the real `Decode.decodeClosure`, and
+import resolution. Soundness lemmas relate those derivations to the real Decode.decodeClosure, and
 per-declaration proofs compose by named lemmas, so no application unfolds the whole mutual parser.
 Candidate ASTs are generated, never handwritten table algorithms. Producer execution proves nothing;
 only the checked proof terms do. This is not a grade downgrade: W24 remains `proved`.
