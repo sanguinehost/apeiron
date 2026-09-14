@@ -1,0 +1,298 @@
+{
+  "profile": "APEIRON-PROGRAMME-W18-T2",
+  "version": 1,
+  "corpus": {
+    "root": "../sanguine-apeiron/proof",
+    "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+  },
+  "fields": [
+    {"key": "canonical", "name": "1 canonical object and observation relation with exact types"},
+    {"key": "entry_points", "name": "2 concrete entry points and source identity on each side"},
+    {"key": "representation_invariant", "name": "3 representation invariant established by the actual constructor or initializer"},
+    {"key": "input_grammar", "name": "4 accepted byte grammar, byte consumption and trailing-input policy"},
+    {"key": "admission", "name": "5 separate admission predicates and refusal per side"},
+    {"key": "behavior", "name": "6 success / unsupported-input / resource-exhaustion behaviour with raw return encoding and post-state"},
+    {"key": "resources", "name": "7 separate resource accounting with distinct kinds and no fuel"},
+    {"key": "refinement", "name": "8 source-connected refinement and a rejecting control"}
+  ],
+  "rows": [
+    {
+      "id": "E1",
+      "title": "Combinator evaluator: normalize-and-compare on SKI/iota",
+      "status": "selected-open",
+      "canonical": {
+        "object": "Apeiron.Combinator.Comb with Step, Reduces, NormalForm, Joinable, headReduce, reduceDeep, hasRedex and normalize; verdict fuel a b is .fuel unless both reached floors are redex-free, and then .equal exactly when the floors are equal and .distinct otherwise.",
+        "modules": [
+          "Apeiron/Combinator/Basic.lean",
+          "Apeiron/Combinator/Verdict.lean",
+          "Apeiron/Combinator/Confluence.lean"
+        ],
+        "observation_relation": "verdict fuel a b != .fuel -> (verdict fuel a b = .equal <-> Joinable a b) (verdict_decided_exact); normalize fuel c is a genuine reduct of c (reduces_normalize); a clean hasRedex report is a genuine NormalForm (normal_of_hasRedex_false); normal forms are unique under confluence (normalForm_unique). Joinable a b is exists d, Reduces a d and Reduces b d.",
+        "types": "Comb = S | K | var : Nat -> Comb | app : Comb -> Comb -> Comb; Step : Comb -> Comb -> Prop; Reduces = Relation.ReflTransGen Step; NormalForm c = not exists c', Step c c'; Verdict = equal | distinct | fuel; fuel : Nat; normalize : Nat -> Comb -> Comb.",
+        "theorems": [
+          {"name": "Apeiron.Combinator.Comb.I", "module": "Apeiron/Combinator/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.iota", "module": "Apeiron/Combinator/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.I_app", "module": "Apeiron/Combinator/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.iota_app", "module": "Apeiron/Combinator/Basic.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.reduceDeep_sound", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.reduces_normalize", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.normal_of_hasRedex_false", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.verdict_decided_exact", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.Joinable", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.confluence", "module": "Apeiron/Combinator/Confluence.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.normalForm_unique", "module": "Apeiron/Combinator/Confluence.lean", "root": "corpus"}
+        ]
+      },
+      "entry_points": {
+        "canonical": [
+          {"name": "Apeiron.Combinator.Comb.headReduce", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.reduceDeep", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.normalize", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.hasRedex", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+          {"name": "Apeiron.Combinator.Comb.verdict", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"}
+        ],
+        "song": [
+          {"symbol": "headReduce", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+          {"symbol": "pass", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+          {"symbol": "normalize", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+          {"symbol": "hasRedex", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+          {"symbol": "structEq", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+          {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"}
+        ],
+        "rust": [],
+        "rust_absent": "No executing Rust evaluator exists for Apeiron.Combinator, so E1 is not a paired Rust-Slang row (BE1)."
+      },
+      "representation_invariant": {
+        "constructor": "Song main() ring-claims the arena/memo/mstamp bases and sets CTR[C_NCOUNT] = 1 (index 0 is NIL); newNode()/newApp() allocate stride-3 nodes; parseTerm()/parseStep()/tokenNode() build the DAG; pass() resets CTR[C_PASS] and CTR[C_SP] before each pass.",
+        "statement": "Song represents a term as an acyclic initialized three-cell-node DAG. Each node is (tag, left, right) at CTR[C_NODES] + n*NODE_STRIDE + {0,1,2}; tag is one of TAG_K, TAG_S, TAG_I, TAG_IOTA, TAG_VAR, TAG_APP; left/right are node indices or 0. The DAG is acyclic and initialized because every node is allocated before it is referenced and its children are fixed at allocation. Variable identity is index identity through VCACHE[v] for v in 0..9, so the structEq index-equal shortcut is exact on variables. Memo validity is per pass: MEMO[n] is valid exactly when MSTAMP[n] equals CTR[C_PASS], so no pass reads a stale floor. The walk stack invariant is 0 <= CTR[C_SP] <= STACK_CAP with the top at STK[CTR[C_SP]-1]; the parser stack invariant is 0 <= CTR[C_PSP] <= PSTACK_CAP with pending App nodes at PSTK[0..C_PSP). There is no rollback: a SPENT flag makes exhaustion a reported value, not a state restoration.",
+        "representation_terms": ["acyclic", "initialized", "three-cell", "variable identity", "memo", "stack invariant"]
+      },
+      "input_grammar": {
+        "grammar": "Prefix terms. '*' is application (app); 'k', 's', 'i', 'u' are the atoms TAG_K, TAG_S, TAG_I, TAG_IOTA; digits '0'..'9' are variables TAG_VAR with index 0..9; whitespace is skipped. verdict reads two terms by two parseTerm() calls.",
+        "byte_consumption": "readToken() consumes one byte per call through inByte() and increments CTR[C_POS] for each byte read; it recurses on whitespace and returns the byte. EOF returns a negative value and is not counted. tokenNode() maps one byte to a node or returns 0 for an unknown byte.",
+        "trailing_input_policy": "The evaluator reads exactly two prefix terms and does not require EOF: bytes after the second term are left unconsumed and are not reported. A byte that cannot start a term, an incomplete prefix term, or a parse-stack overflow yields PARSE <pos> with exit 2. This differs from the batch-oriented certificate reader."
+      },
+      "admission": {
+        "canonical": {
+          "predicate": "Comb is total: every S, K, var n and app f g is admitted. Step, Reduces, NormalForm and Joinable are total Prop-valued relations; normalize fuel c is total and returns c when fuel is 0.",
+          "source": "Apeiron/Combinator/Basic.lean, Apeiron/Combinator/Verdict.lean"
+        },
+        "song": {
+          "predicate": "verdict admits a byte string that parses as two prefix terms over the grammar. parseStep returns 0 on EOF before the term is complete, on an unknown token byte, or on parse-stack overflow; verdict maps 0 to PARSE. The matched domain excludes terms whose parse exceeds PSTACK_CAP or whose construction exceeds NODE_CAP.",
+          "source": "song/src/prover/ring/prover0.slang"
+        },
+        "rust": {
+          "predicate": "None: there is no Rust evaluator admission predicate.",
+          "source": "NONE (BE1)"
+        }
+      },
+      "behavior": {
+        "success": "EQUAL (exit 0) when both reached floors are redex-free and structEq reports index-equal; DISTINCT (exit 1) when both floors are redex-free and structEq reports unequal. The meter line is printed after either verdict.",
+        "unsupported_input": "PARSE <pos> (exit 2) for a byte that cannot start a term, an incomplete prefix term, or an unknown token; the reported position is CTR[C_POS], the count of bytes read.",
+        "resource_exhaustion": "FUEL (exit 3) when normalize runs out of passes without a fixed point, or when CTR[C_SPENT] is set by arena exhaustion (NODE_CAP), walk-stack exhaustion (STACK_CAP) or parse-stack exhaustion (PSTACK_CAP). RING (exit 4) when ringClaim fails in main(). There is no rollback and no precise resource-classification theorem: a FUEL verdict does not say which budget ran out.",
+        "raw_return_encoding": "stdout EQUAL|DISTINCT|FUEL|PARSE <pos> followed by '# passes=<a>/<b> nodes=<n> stack_hi=... parse_hi=... arena_used=... arena_capacity=...'; the process exit code is 0 EQUAL, 1 DISTINCT, 2 PARSE, 3 FUEL, 4 RING. The meter line is a report, not a success tag.",
+        "post_state": "The arena, MEMO, MSTAMP, CTR counters and the two stacks are mutated in place. On EQUAL/DISTINCT the DAG holds both floors; on FUEL or RING the arena may hold a partial reduction. No transactional rollback is specified or proved."
+      },
+      "resources": {
+        "canonical": [
+          {"kind": "reduction_steps", "accounting": "normalize fuel c applies reduceDeep at most fuel times and reduceDeep visits each subterm once. These are definitional recursion counts of the Lean evaluator, not machine budgets and not the Song pass count."}
+        ],
+        "song": [
+          {"kind": "passes", "accounting": "FUEL_PASSES = 2048; CTR[C_PASS] counts normalize passes across both terms and C_PASSA records the side-A count."},
+          {"kind": "nodes", "accounting": "NODE_CAP = 1048576; CTR[C_NCOUNT] counts allocated stride-3 nodes with index 0 reserved as NIL."},
+          {"kind": "stack_entries", "accounting": "STACK_CAP = 65536; the single walk stack STK is shared by pass, hasRedex and structEq, and CTR[C_SPHI] records its high-water mark."},
+          {"kind": "parser_entries", "accounting": "PSTACK_CAP = 4096; PSTK holds pending App nodes and PFILL holds their fill count, and CTR[C_PSPHI] records its high-water mark."},
+          {"kind": "input_bytes", "accounting": "readToken consumes bytes through inByte and increments CTR[C_POS]; the bound is the input length, not a pass count."},
+          {"kind": "arith_ops", "accounting": "one addition per pass-counter update and one multiply plus one add per node address; no wide arithmetic."}
+        ],
+        "rust": [],
+        "rust_absent": "No Rust evaluator, so no Rust resource account exists (BE1)."
+      },
+      "refinement": {
+        "source_connected": "Canonical: reduceDeep_sound and reduces_normalize prove the pass and the iterated floor are genuine reducts; normal_of_hasRedex_false proves a clean detector report is a NormalForm; verdict_decided_exact proves EQUAL/DISTINCT exact on the decided fragment. Song: no checked Song-to-Lean refinement of headReduce, pass, normalize, hasRedex, structEq or verdict exists; the in-tree laws k_select, s_rule_open, i_rule_open and iota_unfold are Song laws, not canonical Lean. The joint refinement is OPEN.",
+        "artifacts": [],
+        "artifacts_missing": "No bridge artifact refines the Song evaluator to Apeiron.Combinator.Comb; proof/corpus carries no evaluator refinement.",
+        "rejecting_control": "C6 i/**skk: primitive i (TAG_I) and the normal form **skk (app (app S K) K) are DISTINCT in Song's structEq but Joinable in canonical Comb. The source-derived fixture must pin both readings; it is not resolved by dropping i/u, changing canonical equality, or conflating the primitive with the normal form."
+      }
+    },
+    {
+      "id": "E2",
+      "title": "Certificate replay: checkCert over the cone0 alphabet",
+      "status": "selected-open",
+      "canonical": {
+        "object": "Apeiron.Decider.CRow, CertOp and checkCert. checkCert raw [] log = true exactly when the log ends on a close x naming a row whose bounds cross, with every prior step naming an already-built row.",
+        "modules": [
+          "Apeiron/Decider/Cert.lean"
+        ],
+        "observation_relation": "checkCert raw [] log = true -> not exists rho, SatLines rho raw (checkCert_sound); every step maps rows that hold to rows that hold (certStep_holds); an impossible row holds at no assignment (crImpossible_empty).",
+        "types": "CRow n = { lo : Option Int, up : Option Int, coeff : Fin n -> Int }; CertOp = load k | combo i j a b | neg i | meet i j | tidy i | close i; checkCert : List (Line n) -> List (CRow n) -> List CertOp -> Bool.",
+        "theorems": [
+          {"name": "Apeiron.Decider.checkCert", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+          {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+          {"name": "Apeiron.Decider.certStep_holds", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+          {"name": "Apeiron.Decider.crImpossible_empty", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"}
+        ]
+      },
+      "entry_points": {
+        "canonical": [
+          {"name": "Apeiron.Decider.checkCert", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+          {"name": "Apeiron.Decider.certStep", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+          {"name": "Apeiron.Decider.CertOp", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"}
+        ],
+        "song": [
+          {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+          {"symbol": "ccBatch", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+          {"symbol": "ccRun", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"}
+        ],
+        "rust": [],
+        "rust_absent": "No Rust decider or replayer exists, so E2 is not a paired Rust-Slang row (BE2)."
+      },
+      "representation_invariant": {
+        "constructor": "certcheck main()/ccBatch()/ccNextSystem() initialize the CS control region and reset S_NRAW and S_NROW; rs()/qs() write CROWS/RAWS rows; ccNew() allocates a certificate row.",
+        "statement": "A Song certificate row is a stride-106 record: bound-presence flags F_HASLO and F_HASUP, then F_LO and F_UP, then F_C + k*WF_W per column. A wide value is WF_W = 4 cells: a tri-state sign WF_S in {WF_ZERO, WF_POS, WF_NEG} then three unsigned 64-bit magnitude limbs, least significant first, so the value is +/-(m0 + m1*2^64 + m2*2^128) under the sign. This is a bound-presence flag plus a signed three-limb magnitude and it is not a wrapping ring value: the limbs carry no law of their own and the encoding is not Apeiron's ZMod (2^64) word. The CROWS region is CERTCAP = 4096 rows and RAWS is RAWCAP = 1024 rows; the counters CS.S_NROW and CS.S_NRAW bound the replay. The reader token region and the CS control region are separate, and a step index must be below CS.S_NROW.",
+        "representation_terms": ["bound-presence", "three-limb", "sign", "magnitude", "not a wrapping ring value"]
+      },
+      "input_grammar": {
+        "grammar": "certcheck reads a system header n in 0..MAXV = 24, then g/e wire rows, then a '# cert' line, then certificate ops r k, c i j a b, n i, m i j, t i and x i. satcheck separately reads g/e rows and a 'w <v0> .. <v(n-1)>' witness with MAXV = 12 and ROWCAP = 256.",
+        "byte_consumption": "certcheck_reader.slang reads tokens and integers; certcheck skips everything before '# cert' with ccSeek; each integer token is read by readInt, and readInk returns the next significant byte.",
+        "trailing_input_policy": "certcheck is batch-oriented: after a certificate closes, ccBatch continues with the next system, so trailing input is the next batch and not an error. Within one certificate, bytes after the closing x are the next system; a certificate that ends without x is refused and an unknown op is refused by ccRun."
+      },
+      "admission": {
+        "canonical": {
+          "predicate": "certStep refuses a step naming a row index at or beyond the built rows, a combo with a multiplier below one, and a meet over unequal coefficients; checkCert refuses a log that does not end on close or has anything after it. load k refuses k at or beyond raw.length.",
+          "source": "Apeiron/Decider/Cert.lean"
+        },
+        "song": {
+          "predicate": "ccRow() refuses a step naming i at or beyond CS.S_NROW (a future row); ccNew() refuses when n >= CERTCAP; rs() and qs() refuse an out-of-range row or field rather than truncating; ccStepC requires both multipliers at least one; ccSameCoefs guards the meet; ccStepX requires ccGroundBad (lo > up). The variable count is admitted in 0..MAXV = 24.",
+          "source": "song/src/prover/cone/certcheck.slang"
+        },
+        "rust": {
+          "predicate": "None: there is no Rust decider or replayer admission predicate.",
+          "source": "NONE (BE2)"
+        }
+      },
+      "behavior": {
+        "success": "Exit 0 accept when the log ends on x and the named row is impossible under ccGroundBad; every accepted batch increments the replay totals.",
+        "unsupported_input": "Exit 2 parse for a malformed stream, an unknown certificate op, a variable count outside 0..MAXV, or a step that names a row that does not exist.",
+        "resource_exhaustion": "Exit 1 reject when a step names a future row, when a meet is taken over unequal coefficients, when a multiplier is below one, or when the certificate exceeds CERTCAP. The reader refuses a malformed stream. There is no rollback: earlier rows stay in CROWS/RAWS.",
+        "raw_return_encoding": "Exit 0 accept, 1 reject, 2 parse; ccBad(why) prints the reason. No boolean result crosses the process boundary.",
+        "post_state": "The CS counters and the CROWS/RAWS regions are mutated in place; a refused batch leaves earlier rows in place. No transactional rollback is specified or proved."
+      },
+      "resources": {
+        "canonical": [
+          {"kind": "rows", "accounting": "one CRow is appended per non-closing step; the log length bounds the row count."},
+          {"kind": "arith_ops", "accounting": "one combination, negation, meet or tidy per step; the Lean model computes in Int with no limb budget."}
+        ],
+        "song": [
+          {"kind": "rows", "accounting": "CERTCAP = 4096 certificate rows and RAWCAP = 1024 system rows; a step beyond CERTCAP is refused."},
+          {"kind": "columns", "accounting": "MAXV = 24 columns per certificate row; satcheck uses MAXV = 12 and ROWCAP = 256 rows."},
+          {"kind": "limbs", "accounting": "WF_W = 4 cells per wide value (one tri-state sign plus three 64-bit magnitude limbs); the limb arithmetic wAddc, wMulWordA, wMulWordB, wCombineTAB and wMagSub3 carries no law of its own."},
+          {"kind": "arith_ops", "accounting": "the wide limb operations above plus the small-integer sign tests; the wide values are trusted like an ISA primitive."},
+          {"kind": "input_bytes", "accounting": "the reader consumes the token stream; the certificate and system text bound the work."}
+        ],
+        "rust": [],
+        "rust_absent": "No Rust decider or replayer, so no Rust resource account exists (BE2)."
+      },
+      "refinement": {
+        "source_connected": "Canonical: checkCert_sound is the headline soundness theorem; certStep_holds composes the five operation soundness lemmas and crImpossible_empty closes the crossing. Song: certcheck has in-tree arith.slang laws (combovalid_nonneg, farkas_bound, xsound, meetlo_sound, negeq_sound and the tidy gcd cutting plane) but no checked Song-to-Lean refinement of checkCert exists, and the wide limb arithmetic carries no law of its own. The joint refinement is OPEN.",
+        "artifacts": [],
+        "artifacts_missing": "No bridge artifact refines certcheck to Apeiron.Decider.checkCert; Apeiron/Decider/Stream.lean and the executing stream refinement are MISSING (BE4).",
+        "rejecting_control": "C1 corrupt a carry or sign in the wide row encoding, C2 permit a future row reference, C3 accept trailing records, C4 relabel SAT as UNSAT; each must be rejected by the replay."
+      }
+    }
+  ],
+  "unmatched_blockers": [
+    {
+      "id": "BE1",
+      "counterpart": "Rust side NONE for the canonical Apeiron.Combinator evaluator; Song song/src/prover/ring/prover0.slang::{headReduce, pass, normalize, hasRedex, structEq, verdict} exists.",
+      "reason": "There is no executing Rust evaluator for Apeiron.Combinator, so E1 is not yet a paired Rust-Slang row and no Rust representation theorem can be stated.",
+      "canonical_theorem": {"name": "Apeiron.Combinator.Comb.verdict_decided_exact", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+      "song_entry": {"symbol": "verdict", "file": "song/src/prover/ring/prover0.slang", "lang": "slang"},
+      "status": "blocker"
+    },
+    {
+      "id": "BE2",
+      "counterpart": "Rust side NONE for the canonical Apeiron.Decider.checkCert; Song song/src/prover/cone/certcheck.slang::{main, ccBatch, ccRun} exists.",
+      "reason": "There is no Rust decider or certificate replayer, so E2 is not yet a paired Rust-Slang row and no Rust representation theorem can be stated.",
+      "canonical_theorem": {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/certcheck.slang", "lang": "slang"},
+      "status": "blocker"
+    },
+    {
+      "id": "BE3",
+      "counterpart": "Song song/src/prover/cone/satcheck.slang::{main, batchLoop} with MAXV = 12 and ROWCAP = 256; canonical side NONE.",
+      "reason": "Apeiron has no canonical SAT-witness checker for this alphabet. capped_certificate_complete is a capped-box existence theorem over Fintype.piFinset, not a completeness theorem for satcheck's alphabet and not a CertOp derivation.",
+      "canonical_theorem": {"name": "Apeiron.Decider.capped_certificate_complete", "module": "Apeiron/Decider/Completeness.lean", "root": "corpus"},
+      "song_entry": {"symbol": "main", "file": "song/src/prover/cone/satcheck.slang", "lang": "slang"},
+      "status": "blocker"
+    },
+    {
+      "id": "BE4",
+      "counterpart": "Apeiron/Decider/Stream.lean and the executing stream refinement; both MISSING.",
+      "reason": "The certificate-readiness subprofile requires a stream representation and a checked executing stream refinement of checkCert; neither exists, so certificate readiness is not established.",
+      "status": "blocker"
+    },
+    {
+      "id": "BE5",
+      "counterpart": "Canonical Comb.I = app (app S K) K = S K K; Song treats the primitive i (TAG_I) and the normal form **skk (app (app S K) K) as distinct tags and shapes.",
+      "reason": "The pair i/**skk is a source-derived regression fixture candidate against the canonical Joinable reading of DISTINCT. It is not resolved by dropping i/u, by changing canonical equality, or by conflating the primitive with the normal form.",
+      "canonical_theorem": {"name": "Apeiron.Combinator.Comb.Joinable", "module": "Apeiron/Combinator/Verdict.lean", "root": "corpus"},
+      "status": "blocker"
+    }
+  ],
+  "hazards": [
+    {
+      "id": "HE1",
+      "statement": "Canonical I is S K K, while Song treats primitive i (TAG_I) and the normal form **skk (app (app S K) K) as distinct tags and shapes.",
+      "consequence": "Song structEq reports DISTINCT for the pair while canonical Joinable holds. A regression fixture must pin the distinction; it is not patched away by conflating the primitive and the normal form."
+    },
+    {
+      "id": "HE2",
+      "statement": "Song FUEL conflates Lean's .fuel (a reached floor that still carries a redex) with arena, walk-stack, parser-stack and ring exhaustion.",
+      "consequence": "A FUEL verdict does not identify which budget ran out, there is no rollback, and no precise resource-classification theorem exists. The source budgets are not Lean reduction-step counts."
+    },
+    {
+      "id": "HE3",
+      "statement": "The source budgets 2048 passes, 1048576 nodes, 65536 walk-stack entries and 4096 parser-stack entries are machine budgets.",
+      "consequence": "They are not Lean reduction-step counts and must not be converted to fuel. The canonical resource account is separate."
+    },
+    {
+      "id": "HE4",
+      "statement": "certcheck's wide row values are a tri-state sign plus three 64-bit magnitude limbs, and the limb arithmetic carries no law of its own.",
+      "consequence": "The encoding is not Apeiron's ZMod (2^64) word and is trusted like an ISA primitive; a carry or sign corruption is a required control, not a proved absence."
+    },
+    {
+      "id": "HE5",
+      "statement": "capped_certificate_complete is a capped-box existence theorem, and Apeiron/Decider/Stream.lean and the executing stream refinement are MISSING.",
+      "consequence": "It is not a completeness theorem for the certcheck alphabet and does not establish certificate readiness for the running checker."
+    }
+  ],
+  "required_controls": [
+    {"id": "C1", "target": "E2", "description": "Corrupt a carry or a sign in the wide row encoding (for example flip WF_POS to WF_NEG or drop a carry in wAddc) and require the replayed verdict to change; the fixture is a source-derived certcheck trace."},
+    {"id": "C2", "target": "E2", "description": "Permit a certificate step to name a row index at or beyond the current row count; ccRow() must refuse it and the replay must reject."},
+    {"id": "C3", "target": "E2", "description": "Accept trailing records after the closing x; checkCert requires the rest to be empty, so the replay must reject."},
+    {"id": "C4", "target": "E2", "description": "Relabel a SAT witness as UNSAT or an UNSAT certificate as SAT; satcheck and certcheck must each refuse the relabelled claim."},
+    {"id": "C5", "target": "E2", "description": "Omit the w witness record while claiming SAT; satcheck must refuse a SAT claim that carries no replayed witness."},
+    {"id": "C6", "target": "E1", "description": "Pin the Song DISTINCT of primitive i (TAG_I) against the normal form **skk (app (app S K) K) alongside the canonical Joinable i **skk reading; the fixture records the divergence and does not drop i/u, change canonical equality, or conflate the primitive with the normal form."}
+  ],
+  "integration_order": [
+    "E1 combinator evaluator: fix the DAG representation, variable identity, memo validity and stack invariants, and state the input grammar and trailing-input policy.",
+    "E1 refinement: define a Song-to-Lean refinement of headReduce, pass, normalize, hasRedex, structEq and verdict on the matched domain, and run the C6 i/**skk regression.",
+    "E2 certificate replay: fix the bound-presence and signed three-limb representation, the row capacities and the refusal paths, and state the reader grammar.",
+    "E2 refinement: define a checked Song-to-Lean refinement of checkCert, add Apeiron/Decider/Stream.lean and the executing stream refinement, and run controls C1-C5.",
+    "Only after E1 and E2 are refined: a bounded vertical lift/reduction demonstration."
+  ],
+  "not_covered": [
+    "rustc/LLVM code generation and the generated machine code.",
+    "The kernel ABI, stack and OS.",
+    "GPU / SPIR-V.",
+    "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
+    "Song local registers, ontology and commands.",
+    "Semantic correspondence itself: the checker establishes specification consistency only.",
+    "No executing Rust evaluator and no Rust decider or replayer (BE1, BE2).",
+    "A canonical SAT-witness checker for the satcheck alphabet (BE3).",
+    "Apeiron/Decider/Stream.lean and the executing stream refinement (BE4).",
+    "Any resolution of the i/**skk compatibility blocker (BE5, HE1)."
+  ]
+}

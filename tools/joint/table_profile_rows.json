@@ -1,0 +1,508 @@
+{
+  "profile": "APEIRON-PROGRAMME-W18-T3",
+  "version": 1,
+  "corpus": {
+    "root": "../sanguine-apeiron/proof",
+    "git": "50c94192399add3b9f8e64bd14e36d8cba270705",
+    "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+  },
+  "fields": [
+    {"key": "canonical", "name": "1 canonical authority, object and exact theorem targets per obligation"},
+    {"key": "rust", "name": "2 Rust layout, entry points, identity, merge, refusal and bounds"},
+    {"key": "song", "name": "3 Song layout, entry points, stride, keys, probes, merge and transactionality"},
+    {"key": "admission", "name": "4 separate Rust and Song admission predicates"},
+    {"key": "resources", "name": "5 separate Rust and Song resource accounts"},
+    {"key": "refinement", "name": "6 source-connected refinement and a named rejecting control"}
+  ],
+  "rows": [
+    {
+      "id": "T1",
+      "title": "Fixed-shard layout and representation",
+      "status": "selected-open",
+      "canonical": {
+        "object": "A table is the total function Apeiron.Table.HMap K V := K -> V. Absence is the stored default, not a partial lookup; reading is Apeiron.Table.get. The physical layout denotes that function under the representation invariant below.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.HMap", "module": "Apeiron/Table/Basic.lean", "kind": "abbrev"},
+          {"name": "Apeiron.Table.get", "module": "Apeiron/Table/Basic.lean", "kind": "def"}
+        ]
+      },
+      "rust": {
+        "layout": "Table<K, V, H, N> holds default: V, home: H, and shards: [Option<[Option<(K, V)>; N]>; 256]: 256 inline shards, each an optional array of at most N key/value slots. Storage never allocates; N defaults to 16.",
+        "entry_points": [
+          {"symbol": "Table", "file": "src/table.rs", "lang": "rust", "role": "fixed-shard inline table type"},
+          {"symbol": "new", "file": "src/table.rs", "lang": "rust", "role": "constructor; all shards None, default stored"},
+          {"symbol": "WordHome", "file": "src/table.rs", "lang": "rust", "role": "placement by i64 bit pattern"},
+          {"symbol": "Home", "file": "src/table.rs", "lang": "rust", "role": "placement trait"}
+        ],
+        "identity": "Placement is home(key) mod 256 (shard_index); identity is full-key equality in find_slots (stored == key). Shard truncation selects a shard and never replaces full-key identity.",
+        "merge": "This subprofile selects the replacement merge merge(new, old) = new, realized by a Merge<V> instance. WordMerge (wrapping add) is the R1 merge and is excluded here.",
+        "refusal": "Refusal is StorageError::ShardFull, a checked storage admission failure, not an allocator error.",
+        "bounds": "No heap nodes: the shards array is inline. Object size grows with N and the constant 256 shard count."
+      },
+      "song": {
+        "layout": "tableInit / tableInitGo write key TABLE_EMPTY and value 0 into cap slots. Each slot is two consecutive cells, key at base + 2*slot and value at base + 2*slot + 1, so initialization writes 2*cap cells.",
+        "entry_points": [
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "capacity check then initialization"},
+          {"symbol": "tableInitGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot initialization loop"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "deterministic masked home coordinate"},
+          {"symbol": "tableSlotKey", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key read"},
+          {"symbol": "tableSlotVal", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value read"},
+          {"symbol": "tableSlotSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot key and value write"},
+          {"symbol": "tableSlotValSet", "file": "song/src/table/table.slang", "lang": "slang", "role": "slot value update"}
+        ],
+        "stride": "TABLE_STRIDE = 2. Key and value are adjacent cells; no other cell layout is selected.",
+        "keys": "A live slot has a key other than TABLE_EMPTY. TABLE_EMPTY = 0 - 1 is the reserved empty key, so -1 is not an admissible live key. Live keys are unique and a missing key reads as -1.",
+        "probes": "tableFindSlotGo and tableLookupSlotGo walk (slot + step) and mask for step in 0..cap; a live key must be reachable before any empty slot in its probe sequence.",
+        "merge": "The layout is merge-agnostic; the selected merge is MERGE_MAP in T3.",
+        "transactionality": "tableInsertWith writes one slot in place; there is no rollback and no deletion is selected."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "insert_with refuses with StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot; N = 0 refuses every write; reads are total. Refusal invokes neither clone nor merge and changes no field.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "tableInsertWith refuses with TABLE_EMPTY = -1 when tableCapacityOk(cap) is 0, when key is TABLE_EMPTY, when the merge code is outside MERGE_SET..MERGE_ACC, or when tableFindSlotGo exhausts cap probes. tableGet and tableFind refuse a missing key with -1.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "nodes", "accounting": "0 heap nodes; the 256 shards are inline"},
+          {"kind": "stack_entries", "accounting": "constant call depth; a scalar loop index only"}
+        ],
+        "song": [
+          {"kind": "nodes", "accounting": "0 allocated nodes; caller or static memory"},
+          {"kind": "stack_entries", "accounting": "initialization recursion bounded by cap"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: proof/corpus/TableRefinement.lean proves word_table_new_rep and word_table_new_eq_empty at the concrete N = 16 word instance; the general-N Rep clause is open. Song: no checked Song-to-Lean refinement of tableInit or the slot invariant exists.",
+        "rejecting_control": "C1",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    },
+    {
+      "id": "T2",
+      "title": "Read",
+      "status": "selected-open",
+      "canonical": {
+        "object": "get reads the value at a key. The canonical table is total, so an unwritten key reads the default and a written key reads its stored value.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.get", "module": "Apeiron/Table/Basic.lean", "kind": "def"},
+          {"name": "Apeiron.Table.get_insertWith_self", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"}
+        ]
+      },
+      "rust": {
+        "layout": "get computes the home shard, scans it with full-key equality, and returns the stored override or &self.default on a miss.",
+        "entry_points": [
+          {"symbol": "get", "file": "src/table.rs", "lang": "rust", "role": "total read with stored default"},
+          {"symbol": "find", "file": "src/table.rs", "lang": "rust", "role": "shard lookup"},
+          {"symbol": "find_slots", "file": "src/table.rs", "lang": "rust", "role": "full-key scan of one shard"}
+        ],
+        "identity": "find_slots compares the full stored key; a collision that shares the home residue is not the read key.",
+        "merge": "Read does not merge.",
+        "refusal": "Reads are total; there is no read refusal and no sentinel return.",
+        "bounds": "At most N full-key inspections per read."
+      },
+      "song": {
+        "layout": "tableGet calls tableFind and reads tableSlotVal at the located slot; a missing key returns TABLE_EMPTY = -1.",
+        "entry_points": [
+          {"symbol": "tableGet", "file": "song/src/table/table.slang", "lang": "slang", "role": "read value or -1"},
+          {"symbol": "tableFind", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for a key, returning slot or -1"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe for an existing key"}
+        ],
+        "stride": "The read address is base + TABLE_STRIDE * slot + 1, one cell after the key.",
+        "keys": "tableGet has no stored default: an absent key and a key holding value -1 both return -1. The occupied key must be read separately.",
+        "probes": "tableFind returns -1 on an empty slot or after cap probes.",
+        "merge": "Read does not merge.",
+        "transactionality": "Read does not write."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "get is total for every key. No admission predicate guards a read.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "tableGet returns TABLE_EMPTY = -1 for a missing key and for the reserved key -1. A -1 raw return is overloaded and is not a status.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "probes", "accounting": "up to N full-key comparisons per read"},
+          {"kind": "arithmetic_ops", "accounting": "one home callback and one residue per read"}
+        ],
+        "song": [
+          {"kind": "probes", "accounting": "up to cap steps of tableLookupSlotGo, measure cap - step"},
+          {"kind": "arithmetic_ops", "accounting": "one tableSpread multiply and mask per read"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: word_table_get_new_first and word_table_get_replaced connect the generated read to Apeiron.Table.get on the checked word states. Song: no checked Song-to-Lean refinement of tableGet exists.",
+        "rejecting_control": "C5",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.word_table_get_new_first", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    },
+    {
+      "id": "T3",
+      "title": "Replacement write",
+      "status": "selected-open",
+      "canonical": {
+        "object": "insertWith f k v m := fun x => if x = k then f v (m x) else m x. This subprofile fixes f to replacement, f v old = v, so a write overwrites the stored value and leaves other keys untouched. merge_is_the_only_freedom shows insertWith depends on f only through its values.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.insertWith", "module": "Apeiron/Table/Basic.lean", "kind": "def"},
+          {"name": "Apeiron.Table.get_insertWith_self", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"},
+          {"name": "Apeiron.Table.get_insertWith_ne", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"},
+          {"name": "Apeiron.Table.merge_is_the_only_freedom", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"}
+        ]
+      },
+      "rust": {
+        "layout": "insert_with locates the key in its home shard, replaces the stored value for a present key, or installs the merged value at the first vacant slot for an absent key.",
+        "entry_points": [
+          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
+          {"symbol": "Merge", "file": "src/table.rs", "lang": "rust", "role": "value combination trait; the replacement instance is selected"},
+          {"symbol": "WordMerge", "file": "src/table.rs", "lang": "rust", "role": "wrapping-add merge, excluded from this subprofile"}
+        ],
+        "identity": "The write updates only the slot whose full key equals the argument; a same-residue collision is a different key.",
+        "merge": "Replacement: merge(value, old) = value. WordMerge and any wrapping addition are excluded from the matched merge of this subprofile.",
+        "refusal": "A present key always updates, even in a full shard. An absent key in a full shard refuses with StorageError::ShardFull.",
+        "bounds": "One full-key scan of the home shard to locate the key, then at most N vacancy inspections."
+      },
+      "song": {
+        "layout": "tableInsertWith probes with tableFindSlotGo, then either updates the located present slot or fills the first empty probe slot.",
+        "entry_points": [
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write across SET/MAP/ACC faces"},
+          {"symbol": "MERGE_MAP", "file": "song/src/table/table.slang", "lang": "slang", "role": "map face: value replacement"},
+          {"symbol": "tableSpread", "file": "song/src/table/table.slang", "lang": "slang", "role": "masked home coordinate"}
+        ],
+        "stride": "The write address is base + TABLE_STRIDE * slot for the key and + 1 for the value.",
+        "keys": "The reserved key -1 is refused before probing; a present key is located by full-key equality in tableFindSlotGo.",
+        "probes": "At most cap probes; a present key updates in place, an absent key fills the first empty slot.",
+        "merge": "MERGE_MAP computes newVal = value, the replacement merge. MERGE_SET (presence 1) and MERGE_ACC (old + value) are outside this subprofile's matched merge.",
+        "transactionality": "The write mutates one slot in place and returns the new value; there is no rollback."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "The replacement Merge admits every (i64, i64). Admission is inherited from insert_with: a present key always admits; an absent key admits iff its home shard has a vacant slot.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "tableInsertWith with MERGE_MAP admits only when tableCapacityOk(cap) is nonzero, key is not TABLE_EMPTY, merge is in MERGE_SET..MERGE_ACC, and tableFindSlotGo returns a slot. A full probe sequence refuses with -1.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "arithmetic_ops", "accounting": "replacement merge is constant work; one home callback and residue"},
+          {"kind": "probes", "accounting": "one full-key scan of the home shard, at most N comparisons"}
+        ],
+        "song": [
+          {"kind": "arithmetic_ops", "accounting": "one tableSpread multiply and mask; MERGE_MAP assigns value"},
+          {"kind": "probes", "accounting": "up to cap steps of tableFindSlotGo, measure cap - step"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: table_insert_empty_zero and table_insert_present_zero connect the generated fresh and present writes to insertWith. Song: no checked Song-to-Lean refinement of tableInsertWith exists. The joint refinement is OPEN.",
+        "rejecting_control": "C3",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.table_insert_empty_zero", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    },
+    {
+      "id": "T4",
+      "title": "Refusal, post-state and mutation",
+      "status": "selected-open",
+      "canonical": {
+        "object": "The canonical insertWith is total and has no refusal. On success the implementation post-state denotes insertWith; on resource exhaustion the implementations refuse and the profile states whether state changes. The canonical build is the only composition form.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.insertWith", "module": "Apeiron/Table/Basic.lean", "kind": "def"},
+          {"name": "Apeiron.Table.build", "module": "Apeiron/Table/Basic.lean", "kind": "def"}
+        ]
+      },
+      "rust": {
+        "layout": "A refusal returns StorageError::ShardFull and the table value is unchanged.",
+        "entry_points": [
+          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "merge-write with refusal"},
+          {"symbol": "StorageError", "file": "src/table.rs", "lang": "rust", "role": "ShardFull refusal type"}
+        ],
+        "identity": "A refusal is for an absent key only; a present key in a full shard updates rather than refuses.",
+        "merge": "Refusal invokes neither clone nor merge.",
+        "refusal": "StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot. Refusal changes no field (word_table_shardFull_refusal at N = 16).",
+        "bounds": "The refusal path inspects at most N slots and then returns without writing."
+      },
+      "song": {
+        "layout": "A refusal returns TABLE_EMPTY = -1. Because tableInsertWith writes in place, a refusal after earlier writes leaves those writes in place.",
+        "entry_points": [
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "merge-write with -1 refusal"},
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "probe loop whose exhaustion refuses"}
+        ],
+        "stride": "A refusal writes no cell.",
+        "keys": "The reserved key -1 is refused before any write; a missing read is also -1, so the raw return does not distinguish them.",
+        "probes": "Refusal occurs when all cap probes are occupied.",
+        "merge": "A refused MERGE_MAP write does not merge.",
+        "transactionality": "The insertion loop mutates its prefix: earlier successful writes remain after a later refusal. This is not transactional."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "insert_with refuses exactly on an absent key whose home shard is full; the refusal post-state equals the pre-state. N = 0 refuses every write.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "tableInsertWith refuses with -1 on invalid capacity, reserved key, out-of-range merge code, or probe exhaustion; the refusal post-state is unchanged for the refused call but retains the caller's earlier writes.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "probes", "accounting": "at most N vacancy inspections on the refusal path"},
+          {"kind": "arithmetic_ops", "accounting": "no merge arithmetic on refusal"}
+        ],
+        "song": [
+          {"kind": "probes", "accounting": "at most cap probe steps before refusal"},
+          {"kind": "arithmetic_ops", "accounting": "no merge arithmetic on refusal"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: word_table_shardFull_refusal proves the absent-key full-shard refusal with an unchanged state at N = 16. Song: no checked refinement of the refusal post-state exists; the in-place prefix mutation is the B6 blocker.",
+        "rejecting_control": "C6",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.word_table_shardFull_refusal", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    },
+    {
+      "id": "T5",
+      "title": "Separate resource accounts",
+      "status": "selected-open",
+      "canonical": {
+        "object": "The canonical definitions are total and resource-free; resource bounds belong to each implementation and are not identified across layouts. No canonical theorem carries a cost.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.get", "module": "Apeiron/Table/Basic.lean", "kind": "def"},
+          {"name": "Apeiron.Table.build", "module": "Apeiron/Table/Basic.lean", "kind": "def"}
+        ]
+      },
+      "rust": {
+        "layout": "Cost is counted on the inline fixed-shard table: at most N full-key search inspections, then up to N vacancy inspections.",
+        "entry_points": [
+          {"symbol": "find_slots", "file": "src/table.rs", "lang": "rust", "role": "bounded full-key search"},
+          {"symbol": "shard_index", "file": "src/table.rs", "lang": "rust", "role": "home residue computation"}
+        ],
+        "identity": "The search bound is N full-key comparisons per shard.",
+        "merge": "The replacement merge is constant work; the excluded WordMerge would add one wrapping addition per successful insert.",
+        "refusal": "A full shard costs the full N vacancy inspections before refusing.",
+        "bounds": "At most N search inspections then up to N vacancy inspections per insert_with; 0 heap nodes; constant call depth with object size growing with N."
+      },
+      "song": {
+        "layout": "Cost is counted on the caller memory table: at most cap probe steps.",
+        "entry_points": [
+          {"symbol": "tableFindSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "bounded probe with measure cap - step"},
+          {"symbol": "tableLookupSlotGo", "file": "song/src/table/table.slang", "lang": "slang", "role": "bounded lookup probe with measure cap - step"}
+        ],
+        "stride": "Each probe reads two cells; no allocation.",
+        "keys": "The probe bound counts key comparisons and empty-slot stops.",
+        "probes": "At most cap probes; recursion depth bounded by cap; measure cap - step.",
+        "merge": "MERGE_MAP is constant work; MERGE_ACC would add one addition.",
+        "transactionality": "No input consumption: the primitive reads and writes caller memory[]. 0 allocated nodes."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "The bound is part of admission only through the N-slot shard capacity; it does not admit or refuse independently of insert_with.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "The bound is part of admission only through tableCapacityOk(cap) and the cap-probe exhaustion; backing and extent are separate obligations.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "arithmetic_ops", "accounting": "one home callback and one residue per operation; replacement merge is constant"},
+          {"kind": "probes", "accounting": "at most N search inspections then up to N vacancy inspections"},
+          {"kind": "nodes", "accounting": "0 heap nodes; storage is inline"},
+          {"kind": "stack_entries", "accounting": "constant call depth; a scalar loop index only"},
+          {"kind": "input_consumption", "accounting": "insert_with consumes one pair; build consumes kvs in order and clones each key and value"}
+        ],
+        "song": [
+          {"kind": "arithmetic_ops", "accounting": "tableSpread one multiply and one mask; MERGE_MAP one assignment"},
+          {"kind": "probes", "accounting": "at most cap steps, measure cap - step"},
+          {"kind": "nodes", "accounting": "0 allocated nodes; caller or static memory"},
+          {"kind": "stack_entries", "accounting": "recursion depth bounded by cap, measure cap - step"},
+          {"kind": "input_consumption", "accounting": "none; the primitive reads and writes caller memory[]"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: find_slots_spec and insert_full_loop_spec prove the N-inspection search and the N-vacancy refusal loop at N = 16. Song: tablefindslotgo_bound and tablelookupslotgo_bound are in-tree Song laws, not canonical Lean. No joint resource refinement exists; the accounts are separate and are not converted to a common fuel.",
+        "rejecting_control": "C2",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.find_slots_spec", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    },
+    {
+      "id": "T6",
+      "title": "Build composition",
+      "status": "selected-open",
+      "canonical": {
+        "object": "build f d kvs folds insertWith over the stream from the constant default. get_build_acc gives the per-key fold in stream order; build_gauge_invariance licenses reordering only under commutativity and associativity; build_eq_of_key_streams_eq licenses cross-key reordering under every merge.",
+        "module": "Apeiron/Table/Basic.lean",
+        "targets": [
+          {"name": "Apeiron.Table.build", "module": "Apeiron/Table/Basic.lean", "kind": "def"},
+          {"name": "Apeiron.Table.get_build_acc", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"},
+          {"name": "Apeiron.Table.build_gauge_invariance", "module": "Apeiron/Table/Basic.lean", "kind": "theorem", "hypotheses": "hcomm : forall a b, f a b = f b a; hassoc : forall a b c, f (f a b) c = f a (f b c)"},
+          {"name": "Apeiron.Table.build_eq_of_key_streams_eq", "module": "Apeiron/Table/Basic.lean", "kind": "theorem"}
+        ]
+      },
+      "rust": {
+        "layout": "build constructs a fresh table and folds insert_with over kvs in order.",
+        "entry_points": [
+          {"symbol": "build", "file": "src/table.rs", "lang": "rust", "role": "transactional ordered build"},
+          {"symbol": "insert_with", "file": "src/table.rs", "lang": "rust", "role": "per-pair write"}
+        ],
+        "identity": "The built table is the per-key replacement fold; the last value at a key wins.",
+        "merge": "Replacement merge; WordMerge is excluded.",
+        "refusal": "build returns Err(StorageError::ShardFull) at the first refused insertion; no partial table is returned.",
+        "bounds": "build consumes kvs in order, cloning each key and value; no partial table on refusal."
+      },
+      "song": {
+        "layout": "Song has only per-insert tableInsertWith plus tableInit; there is no transactional build.",
+        "entry_points": [
+          {"symbol": "tableInsertWith", "file": "song/src/table/table.slang", "lang": "slang", "role": "per-insert loop body"},
+          {"symbol": "tableInit", "file": "song/src/table/table.slang", "lang": "slang", "role": "initialization before the loop"}
+        ],
+        "stride": "Each loop iteration writes one slot in place.",
+        "keys": "A refused iteration leaves the keys written by earlier iterations live.",
+        "probes": "Per-iteration probes are bounded by cap; the loop length is the caller's.",
+        "merge": "MERGE_MAP per iteration.",
+        "transactionality": "The insertion loop mutates its prefix and is not transactional. This is the B6 composition blocker, not a matched primitive."
+      },
+      "admission": {
+        "rust": {
+          "predicate": "build admits a stream iff every prefix insertion is admitted; the first refusal makes the whole build Err.",
+          "source": "src/table.rs"
+        },
+        "song": {
+          "predicate": "There is no build admission predicate; each tableInsertWith call is admitted independently.",
+          "source": "song/src/table/table.slang"
+        }
+      },
+      "resources": {
+        "rust": [
+          {"kind": "input_consumption", "accounting": "consumes kvs in order and clones each key and value"},
+          {"kind": "nodes", "accounting": "0 heap nodes; the built table is inline"}
+        ],
+        "song": [
+          {"kind": "input_consumption", "accounting": "none; caller drives the loop and owns memory[]"},
+          {"kind": "nodes", "accounting": "0 allocated nodes"}
+        ]
+      },
+      "refinement": {
+        "source_connected": "Rust: word_table_build_get_acc connects the ordered two-write build to get_build_acc; word_table_build_ordered proves the fold. Song: no checked Song-to-Lean refinement of an insertion loop exists. The composition obligation is B6.",
+        "rejecting_control": "C3",
+        "artifacts": [
+          {"name": "Apeiron.TableRefinement.word_table_build_get_acc", "module": "corpus/TableRefinement.lean", "root": "bridge"}
+        ]
+      }
+    }
+  ],
+  "separate_admission": {
+    "rust": "insert_with refuses with StorageError::ShardFull exactly when the key is absent and its home shard has no vacant slot; N = 0 refuses every write; reads are total.",
+    "song": "tableInsertWith refuses with TABLE_EMPTY = -1 on invalid capacity, reserved key, out-of-range merge code, or probe exhaustion; tableGet and tableFind refuse a missing key with -1.",
+    "joint": "Joint success requires both admission predicates. A write is matched only when the Rust insert_with returns Ok and the Song tableInsertWith returns the merged value for the same key and value.",
+    "unequal_capacities": "The Rust shard capacity N and the Song power-of-two capacity cap are different resources, so unequal capacities need not give identical refusals. A key admitted by one side may be refused by the other; the matched domain is the intersection, not either predicate alone."
+  },
+  "hazards": [
+    {
+      "id": "H1",
+      "statement": "Song returns -1 for a missing read while Rust returns the stored default. Song's raw return is not a reliable success/refusal tag: -1 conflates a missing read, an empty slot, invalid capacity, the reserved key, an out-of-range merge code and a full table.",
+      "consequence": "A consumer that treats the raw return as a status misclassifies a missing read as a refusal, or a refusal as a read. The matched status relation is open."
+    },
+    {
+      "id": "H2",
+      "statement": "A consumer needing unambiguous success/refusal status needs an executing adapter that separates the Song raw word from the occupied-key state; no such adapter exists in this subprofile.",
+      "consequence": "Until the adapter executes and is checked, the joint success/refusal relation is not established, and no row closes on the raw return alone."
+    },
+    {
+      "id": "H3",
+      "statement": "Values equal to -1 are legitimate: a live key may hold value -1, and MERGE_MAP can store it.",
+      "consequence": "A -1 return cannot be read as missing without checking the occupied key separately; a sentinel-value success would be misclassified as a missing read."
+    },
+    {
+      "id": "H4",
+      "statement": "The occupied-key set must be retained separately from the extensional map. Rust distinguishes an unwritten key (default) from a written key whose value equals the default; Song's extensional read alone cannot.",
+      "consequence": "The joint representation must carry occupied keys, not only the map, or the correspondence is false for a written key whose value equals the default."
+    }
+  ],
+  "controls": [
+    {
+      "id": "C1",
+      "name": "collision-key substitution",
+      "target": "T1, T3",
+      "mutation": "In a throwaway copy, substitute a key that shares the home residue (for example 0 -> 256) for a present key in the Rust source and in the Song source, then re-run the read and the write.",
+      "expected_red": "The read and the update must locate the original full key and must not report or overwrite the collision key. Rust: oneSlots_find and table_insert_present_zero. Song: the probe-reachability check.",
+      "grade": "spec-level control; not executed by this checker"
+    },
+    {
+      "id": "C2",
+      "name": "lost probe continuation",
+      "target": "T4, T5",
+      "mutation": "In a throwaway Song copy, remove the step + 1 continuation in tableFindSlotGo and tableLookupSlotGo so each probe returns after the first step.",
+      "expected_red": "A key placed after a collision becomes unreachable and a later insert duplicates it. The in-tree tablefindslotgo_bound and tablelookupslotgo_bound and the probe-reachability check must fail.",
+      "grade": "spec-level control; not executed by this checker"
+    },
+    {
+      "id": "C3",
+      "name": "wrong fresh merge/default",
+      "target": "T3, T6",
+      "mutation": "In a throwaway generated copy, change the Rust fresh write merge value default to merge default value; on the Song side, make MERGE_MAP merge with the old value instead of replacing.",
+      "expected_red": "table_insert_empty_zero must fail on the Rust side, and the Song replacement face must no longer denote insertWith.",
+      "grade": "spec-level control; not executed by this checker"
+    },
+    {
+      "id": "C4",
+      "name": "full-table existing-key refusal",
+      "target": "T3, T4",
+      "mutation": "In a throwaway copy, make a full home shard refuse an existing key instead of updating it.",
+      "expected_red": "The existing-key update in a full shard must still succeed. The Rust test full_shard_refuses_unchanged_but_existing_key_still_updates and the present-key refinement insert_with_present_exact must fail.",
+      "grade": "spec-level control; not executed by this checker"
+    },
+    {
+      "id": "C5",
+      "name": "sentinel-value success misclassification",
+      "target": "T2, T4",
+      "mutation": "In a throwaway adapter copy, classify a -1 raw return as missing regardless of the occupied key.",
+      "expected_red": "A legitimate stored -1 written under MERGE_MAP must be misread as missing, so the adapter status check and the sentinel-value fixture must fail.",
+      "grade": "spec-level control; not executed by this checker"
+    },
+    {
+      "id": "C6",
+      "name": "mutation on refusal",
+      "target": "T4",
+      "mutation": "In a throwaway copy, write a field on a Rust ShardFull refusal, or write a slot on a refused Song insert.",
+      "expected_red": "The refusal post-state must equal the pre-state. Rust word_table_shardFull_refusal must fail; the Song refused-call post-state check must fail.",
+      "grade": "spec-level control; not executed by this checker"
+    }
+  ],
+  "not_covered": [
+    "rustc/LLVM code generation and the generated machine code.",
+    "The kernel ABI, stack and OS.",
+    "GPU / SPIR-V.",
+    "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
+    "Song local registers, ontology and commands.",
+    "Semantic correspondence itself: this profile and its checker establish specification consistency only.",
+    "Arbitrary-N Rust Rep preservation and admission completeness.",
+    "A checked Song-to-Lean refinement for any table primitive.",
+    "Deletion: no deletion operation is selected by this subprofile.",
+    "Song backing/nonaliasing and address extent beyond tableCapacityOk; those remain separate caller obligations."
+  ]
+}
