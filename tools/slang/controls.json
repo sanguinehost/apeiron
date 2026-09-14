@@ -151,9 +151,9 @@
         {
           "kind": "proof",
           "root": "bridge_corpus",
-          "module": "Slang/Semantics.lean",
-          "declaration_prefix": "Slang.Semantics",
-          "note": "declared target; the W23 task fixes the headline declaration name"
+          "module": "Slang/Machine.lean",
+          "declaration_prefix": "Slang.Machine",
+          "note": "W23 semantics module; the W23 task fixes the headline declaration name"
         },
         {
           "kind": "source",
@@ -170,12 +170,19 @@
         "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
-          ["lake", "env", "lean", "Slang/Semantics.lean"]
+          ["lake", "build", "Slang.Machine"],
+          ["lake", "env", "lean", "Slang/MachineAudit.lean"]
         ]
       },
-      "control_status": "awaiting-definition",
-      "awaiting_reason": "The plan's W23 control (replace eager bitwise `or` with short-circuit evaluation, or make multiplication unbounded) is a semantic-machine property owned by the W23 fixture; removing the spread mask is not the same change and does not falsify the control. Awaiting the W23 fixture's own control.",
-      "note": "The plan's exact control text is recorded in `plan.negative_control`; no source-byte mutation is substituted."
+      "mutation": {
+        "path": "proof/corpus/Slang/Machine.lean",
+        "old": "        (hbranch : EvalExpr context policy depth env next thenValue result tb) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb)\n",
+        "new": "        (hbranch : EvalExpr context policy depth env next thenValue result tb)\n        (helse : EvalExpr context policy depth env next elseValue (.value elseResult elseMemory) te) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb ++ te)\n",
+        "expect": "the eager-conditional mutation also evaluates the untaken else branch, so the audited `lazy_inline_conditional_does_not_evaluate_untaken_branch` fixture no longer elaborates (W23 control)",
+        "expected_step": 0,
+        "expected_output": "EvalExpr.conditionalTrue"
+      },
+      "note": "W23 is implemented as Slang/Machine.lean (semantics) plus Slang/MachineAudit.lean (audit driver). The mutation makes the untaken conditional branch eager; the audited lazy-conditional fixture fails to elaborate and the gate is red at the build step. The plan's W23 control text remains in `plan.negative_control`."
     },
     {
       "id": "source",
@@ -199,9 +206,9 @@
         {
           "kind": "proof",
           "root": "bridge_corpus",
-          "module": "Slang/SourceBinding.lean",
-          "declaration_prefix": "Slang.SourceBinding",
-          "note": "declared target; the W24 task fixes the headline declaration name"
+          "module": "Slang/SourceAudit.lean",
+          "declaration_prefix": "Slang.SourceAudit",
+          "note": "W24 audit module; absent, so the stage blocks on the missing proof target"
         },
         {
           "kind": "source",
@@ -229,7 +236,7 @@
         "expected_step": 0,
         "expected_output": "TABLE_PHI"
       },
-      "note": "The W24 binding gate is owned by the plan's W21 source-semantics checker; the harness only runs the declared command in the throwaway copy."
+      "note": "The W24 module is Slang/SourceAudit.lean and the plan's W24 binding gate is the W21 source-semantics checker. The module is absent, so the stage blocks with a named missing-proof-target result; the W24 task defines the module and its binding control."
     },
     {
       "id": "init",
