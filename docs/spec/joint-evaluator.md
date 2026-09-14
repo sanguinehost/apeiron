@@ -82,14 +82,20 @@ and `verdict` (parse, normalize, detect, compare, report). The inline laws `k_se
 **3 · Representation invariant.** Song represents a term as an acyclic initialized three-cell-node
 DAG. Each node is `(tag, left, right)` at `CTR[C_NODES] + n*NODE_STRIDE + {0,1,2}`; `tag` is one of
 `TAG_K`, `TAG_S`, `TAG_I`, `TAG_IOTA`, `TAG_VAR`, `TAG_APP`; `left` and `right` are node indices or
-0. Every node is allocated before it is referenced and its children are fixed at allocation, so the
-DAG is acyclic and initialized. Variable identity is index identity through `VCACHE[v]` for
-`v ∈ 0..9`, which is what makes the `structEq` index-equal shortcut exact on variables. Memo
-validity is per pass: `MEMO[n]` is valid exactly when `MSTAMP[n] = CTR[C_PASS]`. The walk stack
-invariant is `0 ≤ CTR[C_SP] ≤ STACK_CAP` with the top at `STK[CTR[C_SP]-1]`; the parser stack
-invariant is `0 ≤ CTR[C_PSP] ≤ PSTACK_CAP` with pending App nodes at `PSTK[0..C_PSP)`. There is no
-rollback: a `SPENT` flag makes exhaustion a reported value, not a state restoration. No Song `Rep`
-theorem relates this DAG to `Comb`.
+0. Every node is allocated before it is referenced. Atom and variable nodes have both children fixed
+at allocation (0); an application node is allocated by `newApp(0, 0)` with both children NIL and its
+children are attached after allocation by `attach()`, which writes `left` then `right` and pops the
+node from the parser stack once the right child is set. `attach()` writes only a freshly tokenized
+node into the current pending top, so no node becomes its own descendant and the DAG stays acyclic;
+`parseTerm()` clears `CTR[C_PSP]` before any pass runs, so every node read by `pass()` is fully
+attached. Variable identity is index identity through `VCACHE[v]` for `v ∈ 0..9`, which is what makes
+the `structEq` index-equal shortcut exact on variables. Memo validity is per pass: `MEMO[n]` is valid
+exactly when `MSTAMP[n] = CTR[C_PASS]`, so no pass reads a stale floor; nodes are immutable once
+parsing finishes, so a floor memoized in a pass is never invalidated by a later child attachment.
+The walk stack invariant is `0 ≤ CTR[C_SP] ≤ STACK_CAP` with the top at `STK[CTR[C_SP]-1]`; the
+parser stack invariant is `0 ≤ CTR[C_PSP] ≤ PSTACK_CAP` with pending App nodes at `PSTK[0..C_PSP)`.
+There is no rollback: a `SPENT` flag makes exhaustion a reported value, not a state restoration. No
+Song `Rep` theorem relates this DAG to `Comb`.
 
 **4 · Input grammar, byte consumption and trailing-input policy.** Prefix terms: `*` is application;
 `k`, `s`, `i`, `u` are `TAG_K`, `TAG_S`, `TAG_I`, `TAG_IOTA`; digits `0..9` are `TAG_VAR` with
@@ -170,12 +176,17 @@ than truncating; `ccStepC` requires both multipliers at least one; `ccSameCoefs`
 `ccStepX` requires `ccGroundBad` (`lo > up`). The variable count is admitted in `0..MAXV = 24`.
 
 **6 · Behaviour.** Success: exit 0 accept when the log ends on `x` and the named row is impossible
-under `ccGroundBad`. Unsupported input: exit 2 parse for a malformed stream, an unknown op or a
-variable count outside `0..MAXV`. Resource exhaustion: exit 1 reject for a future row, an unequal
-meet, a multiplier below one or a certificate beyond `CERTCAP`; the reader refuses a malformed
-stream. Raw return encoding: exit 0 accept, 1 reject, 2 parse; `ccBad(why)` prints the reason. No
-boolean result crosses the process boundary. Post-state: the control counters and `CROWS`/`RAWS` are
-mutated in place; no rollback.
+under `ccGroundBad`. Refusal: exit 1 for every refused input, because `certcheck_reader.slang`'s
+`ccBad(why)` prints `certcheck: <why> at byte <CS.S_POS>` and returns `songExit(1)`, and
+`certcheck.slang` routes a malformed stream, an unknown op, a variable count outside `0..MAXV`, a
+missing `# cert` line, a step naming a row that does not exist, an unequal meet, a multiplier below
+one, a certificate beyond `CERTCAP`, a system beyond `RAWCAP`, a wide multiply or add beyond the
+certified domain, an `x` on a non-impossible row, and a non-digit, non-EOF byte after the closing `x`
+through `ccBad`. Raw return encoding: exit 0 accept, 1 refusal; there is no exit 2 path in
+`certcheck.slang` or `certcheck_reader.slang` (the `certcheck.slang` file-header comment that lists
+`2 parse` is stale relative to the code), and `ccBad(why)` prints the reason. No boolean result
+crosses the process boundary. Post-state: the control counters and `CROWS`/`RAWS` are mutated in
+place; no rollback.
 
 **7 · Resource accounting.** Canonical: one `CRow` appended per non-closing step; one combination,
 negation, meet or tidy per step; the Lean model computes in `ℤ` with no limb budget. Song:
