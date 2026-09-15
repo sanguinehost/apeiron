@@ -10,6 +10,7 @@ set_option warningAsError true
 namespace Slang.Derivation.DecodeTrace
 
 #audit_empty Slang.Derivation.Derives.ask_done : ∀ {Request : Type} {Answer : Request → Type} {body : (request : Request) → Layer Request Answer (Answer request)} {request : Request} {answer : Answer request}, Derives body (body request) answer → Derives body (.ask request fun result => .done result) answer
+#audit_empty Slang.Derivation.Derives.done_eq : type_of% @Slang.Derivation.Derives.done_eq
 
 #audit_empty Slang.Derivation.DecodeTrace.evaluate : (q : Slang.Derivation.DecodeTrace.Request) → Slang.Derivation.DecodeTrace.Answer q
 #audit_empty Slang.Derivation.DecodeTrace.body_eq : ∀ (q : Slang.Derivation.DecodeTrace.Request), Slang.Derivation.DecodeTrace.evaluate q = Slang.Derivation.fold Slang.Derivation.DecodeTrace.evaluate (Slang.Derivation.DecodeTrace.body q)

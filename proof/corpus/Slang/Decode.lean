@@ -400,7 +400,7 @@ mutual
           .ok (.expression value, rest)
 end
 
-private def parseParameters : Nat → List Token → Result (List String × List Token)
+def parseParameters : Nat → List Token → Result (List String × List Token)
   | 0, _ => .error "parameter limit reached"
   | _ + 1, [] => .error "expected name at end of input"
   | fuel + 1, token :: rest =>
@@ -435,7 +435,7 @@ def selectedFunctionNames : List String :=
    "tableInitGo", "tableInit", "tableCapacityOk", "tableFindSlotGo",
    "tableLookupSlotGo", "tableFind", "tableGet", "tableInsertWith"]
 
-private def takeLine : List Token → List Token × List Token
+def takeLine : List Token → List Token × List Token
   | [] => ([], [])
   | token :: rest =>
       if token.kind = .newline then ([], token :: rest) else
@@ -480,8 +480,8 @@ def scanSelected : Nat → List Token → List String → List String →
           .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
           scanSelected fuel rest constants functions
 
-private def distinct (names : List String) : Bool := names.eraseDups.length = names.length
-private def delimitersBalanced : List Token → List TokenKind → Bool
+def distinct (names : List String) : Bool := names.eraseDups.length = names.length
+def delimitersBalanced : List Token → List TokenKind → Bool
   | tokens, stack =>
       match tokens with
       | [] =>
@@ -511,13 +511,13 @@ private def delimitersBalanced : List Token → List TokenKind → Bool
           | .ident _ | .numeral _ | .comma | .semi | .newline | .assign | .lt | .le |
               .gt | .ge | .other _ => delimitersBalanced rest stack
 
-private def spansValid (size : Nat) (spans : List Span) : Bool :=
+def spansValid (size : Nat) (spans : List Span) : Bool :=
   spans.all (fun span => span.start < span.stop && span.stop ≤ size) &&
   spans.all fun first => spans.all fun second =>
     first == second || first.stop ≤ second.start || second.stop ≤ first.start
 
 mutual
-  private def expressionCallsResolve (available : List String) : Expr → Bool
+  def expressionCallsResolve (available : List String) : Expr → Bool
     | .literal _ | .name _ => true
     | .call callee args =>
         available.contains callee && expressionsCallsResolve available args
@@ -529,14 +529,14 @@ mutual
           expressionCallsResolve available condition &&
           expressionCallsResolve available elseValue
 
-  private def expressionsCallsResolve (available : List String) : List Expr → Bool
+  def expressionsCallsResolve (available : List String) : List Expr → Bool
     | [] => true
     | expression :: rest =>
         expressionCallsResolve available expression && expressionsCallsResolve available rest
 end
 
 mutual
-  private def statementCallsResolve (available : List String) : Stmt → Bool
+  def statementCallsResolve (available : List String) : Stmt → Bool
     | .bind _ value => expressionCallsResolve available value
     | .store address value =>
         expressionCallsResolve available address && expressionCallsResolve available value
@@ -549,18 +549,18 @@ mutual
           | none => true
           | some body => statementsCallsResolve available body
 
-  private def statementsCallsResolve (available : List String) : List Stmt → Bool
+  def statementsCallsResolve (available : List String) : List Stmt → Bool
     | [] => true
     | stmt :: rest =>
         statementCallsResolve available stmt && statementsCallsResolve available rest
 end
 
-private def resolveCalls (functions : List FunctionDecl) : Bool :=
+def resolveCalls (functions : List FunctionDecl) : Bool :=
   let names := functions.map (·.name)
   functions.all fun decl => statementsCallsResolve names decl.body
 
 mutual
-  private def expressionNamesResolve (available : List String) : Expr → Bool
+  def expressionNamesResolve (available : List String) : Expr → Bool
     | .literal _ => true
     | .name name => available.contains name
     | .call _ args => expressionsNamesResolve available args
@@ -572,13 +572,13 @@ mutual
           expressionNamesResolve available condition &&
           expressionNamesResolve available elseValue
 
-  private def expressionsNamesResolve (available : List String) : List Expr → Bool
+  def expressionsNamesResolve (available : List String) : List Expr → Bool
     | [] => true
     | expression :: rest =>
         expressionNamesResolve available expression && expressionsNamesResolve available rest
 end
 
-private def statementsNamesResolve : Nat → List String → List Stmt → Bool
+def statementsNamesResolve : Nat → List String → List Stmt → Bool
   | 0, _, _ => false
   | _, _, [] => true
   | fuel + 1, available, stmt :: rest =>
@@ -601,7 +601,7 @@ private def statementsNamesResolve : Nat → List String → List Stmt → Bool
               | some body => statementsNamesResolve fuel available body) &&
             statementsNamesResolve fuel available rest
 
-private def resolveNames (constants : List ConstantDecl) (functions : List FunctionDecl) : Bool :=
+def resolveNames (constants : List ConstantDecl) (functions : List FunctionDecl) : Bool :=
   let constantNames := constants.map (·.name)
   functions.all fun decl =>
     distinct decl.parameters &&

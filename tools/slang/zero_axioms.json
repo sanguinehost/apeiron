@@ -2602,6 +2602,12 @@
           "path": "proof/corpus/Slang/Derivation/Steps.lean"
         },
         {
+          "name": "Slang.Derivation.Derives.done_eq",
+          "expected_type": "type_of% @Slang.Derivation.Derives.done_eq",
+          "module": "Slang.Derivation.Steps",
+          "path": "proof/corpus/Slang/Derivation/Steps.lean"
+        },
+        {
           "name": "Slang.Derivation.Lexing.lexChars_run",
           "expected_type": "∀ (fuel : Nat) (chars : List Char) (pos : Nat) (tokens : List Slang.Decode.Token), Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.lex fuel chars pos tokens) (Slang.Decode.lexChars fuel chars pos tokens)",
           "module": "Slang.Derivation.Lexing",
