@@ -1,6 +1,8 @@
 import Slang.Audit.Empty
 import Slang.Derivation.Decode
 import Slang.Derivation.Lexing
+import Slang.Derivation.Grammar
+import Slang.Derivation.Statements
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -28,3 +30,18 @@ theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Derivation.Lexing.tokenize_run : ∀ (bytes : ByteArray), Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize bytes) (Slang.Decode.tokenize bytes)
 
 end Slang.Derivation.DecodeTrace
+
+-- The parser-derivation headlines. Each name is bound to its own elaborated
+-- type via `type_of%`; the audited property is the empty axiom cone.
+#audit_empty Slang.Derivation.Grammar.evaluate : type_of% @Slang.Derivation.Grammar.evaluate
+#audit_empty Slang.Derivation.Grammar.body_eq : type_of% @Slang.Derivation.Grammar.body_eq
+#audit_empty Slang.Derivation.Grammar.Run.sound : type_of% @Slang.Derivation.Grammar.Run.sound
+#audit_empty Slang.Derivation.Grammar.expr_run : type_of% @Slang.Derivation.Grammar.expr_run
+#audit_empty Slang.Derivation.Grammar.primary_run : type_of% @Slang.Derivation.Grammar.primary_run
+#audit_empty Slang.Derivation.Grammar.args_run : type_of% @Slang.Derivation.Grammar.args_run
+#audit_empty Slang.Derivation.Grammar.binary_run : type_of% @Slang.Derivation.Grammar.binary_run
+#audit_empty Slang.Derivation.Statements.evaluate : type_of% @Slang.Derivation.Statements.evaluate
+#audit_empty Slang.Derivation.Statements.body_eq : type_of% @Slang.Derivation.Statements.body_eq
+#audit_empty Slang.Derivation.Statements.Run.sound : type_of% @Slang.Derivation.Statements.Run.sound
+#audit_empty Slang.Derivation.Statements.block_run : type_of% @Slang.Derivation.Statements.block_run
+#audit_empty Slang.Derivation.Statements.stmt_run : type_of% @Slang.Derivation.Statements.stmt_run
