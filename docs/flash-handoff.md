@@ -11,9 +11,14 @@ but does not dispatch an entire repository, and those local gates stay owned the
 Extraction and the named word-kernel refinements are done at their stated scopes. `word_mul_denote`
 and `word_norm_denote` quantify over every `Cell<I64>` input and dial under the `ZMod (2^64)`
 denotation; partial carrier kernels retain their named success and refusal premises. The fixed-line
-carrier refinement is closed at its stated scope. The real `Table` bodies are extracted, and its
-constructor, key-zero write/read, two-write build and concrete full-shard refusal witnesses are
-proved. Universal `Rep` preservation and admission completeness for arbitrary `N` remain open. The release identity is in
+carrier refinement is closed at its stated scope. The real `Table` bodies are extracted, and the
+generated table refinement covers arbitrary callbacks satisfying `CallbackLawsG`: the constructor
+establishes `PhysicalInvG`; admitted `insert_with` and build preserve it; the concrete word instance preserves
+`PhysicalInv` and canonical `insertWith` on success and returns the identical representative on
+`ShardFull`, with exact refusal at `N = 0`; for positive `N`, `BuildAdmissibleN` exactly
+characterizes build success versus `ShardFull` and `table_build_physicalInv_of_buildAdmissibleN`
+gives the physical `build` postcondition; and `wordBuildN_zero_ok_iff_empty` characterizes the
+zero-capacity build. The release identity is in
 [proof/README.md](../proof/README.md); the run narrative is in
 [autonomous-run-log.md](autonomous-run-log.md). A source-proof run log is historical evidence, not
 fresh acceptance.
@@ -25,23 +30,22 @@ fresh acceptance.
 | S1 | Executing `new`/`get`/`insert_with`/`build` on the real source path | `cargo test --locked --test table` (root); `proof/regen.sh --check` accepts the real bodies. |
 | S2 | Constructor and witness from the actual constructor | `word_table_new_rep`; `word_table_new_joint_witness`; `word_table_joint_branch_witness`. |
 | S3 | Canonical default read, new-first write and ordered merge | `emptyWordTable_read`, `word_table_get_new_first`, `word_table_get_replaced`, `word_table_build_get_acc`; bridge `lake build` exits 0. |
-| S4 | Joint admission precondition and success/refusal invariant preservation for arbitrary `N` | Open. Universal `Rep` preservation and admission completeness are not proved; the current witnesses are concrete word instances at the default `N = 16`. |
+| S4 | Joint admission precondition and success/refusal invariant preservation for arbitrary `N` | Closed under explicit `CallbackLawsG`: generic admitted insertion and build preserve `PhysicalInvG`; `table_build_zero_ok_iff_empty` gives the exact zero-capacity split; `table_build_physicalInv_of_distinctRoutedKeysPerShardG_all` gives the all-`N` sufficient admission result. |
 | S5 | Actual extraction audit | `proof/regen.sh --check`; `proof/corpus/AxiomAudit.lean` `#audit`s every headline inside `{propext, Classical.choice, Quot.sound}`. |
 | S6 | Baseline / red / restore control on the real source | Same-filesystem generated-body mutation `merge value default` -> `merge default value` fails `table_insert_empty_zero`; the restored copy builds. |
 | S7 | Full Rust and proof integration on one source/tool identity | `cargo test --workspace --all-features --locked`; `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `cargo kani`; `proof/regen.sh --check`; `lake build` in `proof/` and `proof/corpus/`. All are required for epic closure. |
 | S8 | Audited cone, source/tool identity, bounded perimeter, size and performance | New headlines audited inside the standard cone. TCB <= 5000 physical lines, owned source files <= 1500 lines, <= 12 immediate source files per directory. Required performance is not waived; no table performance claim is made. |
 
-Grades at actual scope: S2–S3 are proved at their named word-instance theorems; S1 is test
-evidence; S5 is an extraction audit; S6 is a mutation control, not a proof. S4 is open. S7 and S8
-remain open for epic closure. This recorded evidence is not fresh all-green acceptance. Full
-coverage and perimeter enforcement are not existing gate scripts: the missing coverage/perimeter
-gate is open and must be named when it is created, not pointed at by a path that does not exist. Do
-not reintroduce deleted `check_claims`/`check_assurance` as if they were mandated tools.
+Grades at actual scope: S2–S4 are proved at their named theorems; S1 is test evidence; S5 is an
+extraction audit; S6 is a mutation control, not a proof. S7 passed the full Rust/Kani/extraction and
+Lean barrier on the recorded source/tool identity. S8 passed `tools/check-claims.py` and
+`tools/check-assurance.py`; the latter's 6/6 rejecting controls enforce the 5,000/1,500/12 perimeter.
+These storage results do not establish the separate Rust–Song correspondence.
 
 ## Other owners
 
-- **Song A0–A6/B6** is owned by Song. The joint readiness profile is MISSING and is not satisfied by
-  A0 alone; the existing milestones are not dropped.
+- **Song A0–A6/B6** is owned by Song. Joint profiles exist, but readiness remains open until their
+  selected rows have checked source-connected correspondence; A0 alone does not satisfy it.
 - **Corpus F2/F3 and A5** are owned by the corpus repository. The canonical decider is now complete
   on its named fragments: `certificate_complete` (uncapped `CertOp`), `completeSat_eq_true_iff`
   (residue decision), `residue_certificate_complete` and `checkCertStream_sound` (framed replay). The
@@ -72,19 +76,24 @@ actually used rather than citing a pin from memory.
 
 ## Barrier order
 
-1. Storage: S1–S6 first; S4 is the open universal `Rep` obligation.
+1. Storage: S1–S8 are closed at the explicit callback-law and no-performance-claim scope.
 2. Integration: S7 on one source/tool identity.
-3. Assurance: S8, with the coverage/perimeter gate named when it is created.
+3. Correspondence: use the checked `Joint.WordBridge` carrier/map transport to close the Song source
+   binding and R2/T3 composite before
+   any larger vertical implementation.
 4. An Apeiron barrier is a necessary component of joint readiness, not sufficient: the Song
    foundation, the joint primitive correspondence and the named profiles are also required before
    the next large implementation opens.
 
 ## Storage next wave
 
-The next bounded storage wave defines a physical `Rep` invariant for arbitrary fixed-shard word
-states and proves successful `insert_with`/`build` preservation plus exact admission completeness.
-The old `SafeTableRefinement` and `word_safe_table4_*` rows are superseded. No storage performance
-claim is made.
+The physical `PhysicalInv` postcondition for successful build and the zero-capacity build
+characterization are proved at `table_build_physicalInv_of_buildAdmissibleN` and
+`wordBuildN_zero_ok_iff_empty`. The next bounded storage wave states whether to carry the
+generic-callback `Table<K,V,H,N>` loop contract. The word-instance constructor, `insert_with`
+preservation and exact build admission already hold at every sufficiently large `N`. The old
+`SafeTableRefinement` and `word_safe_table4_*` rows are superseded. No storage performance claim is
+made.
 
 ## Evidence labels
 

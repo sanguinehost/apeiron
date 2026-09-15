@@ -133,9 +133,14 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
    `../sanguine-apeiron/proof/Apeiron/`; its audits are `Audit.lean` and `AuditCarrier.lean`.
    Rust representation theorems live in `proof/corpus/`, audited by `AxiomAudit.lean`.
    Record the resolved corpus revision; a sibling path or `@grade` alone proves nothing.
-5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
-   `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
-   `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note.
+ 5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
+    `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
+    `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note. The Slang
+    source-refinement chain is stricter: every registered declaration, instance, witness and headline
+    must audit with an **empty** axiom set under `proof/corpus/Slang/Audit/Empty.lean` and
+    `tools/slang/zero_axioms.py`; `propext`, `Classical.choice`, `Quot.sound`, `noncomputable` and
+    quotient-based representations such as `Finset` and `ZMod` are rejected there. The Rust/Aeneas
+    bridge and the canonical corpus retain the closed cone above.
 6. **Positive tests.** `cargo test` covers the nominal path and the boundary cases that the contract
    names.
 7. **Mutation control.** A mutation of the real source (or the generated kernel) in a throwaway copy
@@ -162,7 +167,7 @@ Every stated result carries one grade. The grade is part of the claim.
 
 | grade | means |
 |---|---|
-| `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. |
+| `proved` | A Lean kernel check (`lake build`) passes for a named theorem. If it is about Rust, the extraction is from the real source and a refinement theorem links the extracted body to the canonical definition, under the closed axiom cone. The Slang source-refinement chain instead requires an empty axiom cone (`tools/slang/zero_axioms.py`), not `{propext, Classical.choice, Quot.sound}`. |
 | `tested` | A `cargo test` executes the build path and its boundary cases. |
 | `measured` | A benchmark or `perf` command ran, with a named machine, metric and interval. |
 | `model` / `anchor` | A reading of the algebra onto a domain, or a design assumption. True as a mapping; not evidence of correctness. |
@@ -198,6 +203,12 @@ Bridge build (canonical corpus plus the refinement package):
 
 ```sh
 cd proof/corpus && lake build
+```
+
+Slang source-refinement zero-axiom gate (Stream 0; empty cone, per stage):
+
+```sh
+python3 tools/slang/zero_axioms.py --stage <stage> --controls
 ```
 
 Evidence tooling:
@@ -245,8 +256,8 @@ first failed hypothesis, selects the model.
 |---|---|---|---|
 | Flash (`deepseek-flash`) | default bounded worker | task is ≤3 files, one task-specific gate, and no escalation trigger holds | edited artifact, exact gate output, measurement, decision |
 | Sol (`openai-sol`) | verification and proof escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation | proof or gate verdict, named premises, residual obligation |
-| Astra (`openai-astra`) | architecture and integration escalation | the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | frozen boundary, task decomposition, integration order, residual risk |
-| Terra (`openai-terra`) | lead-assigned sustained implementation | Astra has frozen a large boundary and the lead assigns the build | implementation diff, frozen-boundary gate results |
+| Astra (`openai-astra`) | architecture and integration escalation | the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | architecture boundary, task decomposition, integration order, residual risk |
+| Terra (`openai-terra`) | lead-assigned sustained implementation | Astra has defined a large architecture boundary and the lead assigns the build | implementation diff, boundary gate results |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
 
 - Flash continues while the task stays within its declared files and one gate and no trigger holds.
@@ -255,8 +266,8 @@ first failed hypothesis, selects the model.
   and the exact decision requested. Sol adjudicates proof sufficiency; it does not waive a gate or a
   DoD pillar.
 - An Astra escalation states the affected repositories, overlapping paths or conflicting documents,
-  and the proposed boundary. Astra freezes interfaces and decomposes work; it does not waive a
-  register, bound or control.
+  and the proposed architecture boundary. Astra defines interfaces and decomposes work; it does not
+  waive a register, bound or control.
 - Every handoff includes `SCOPE`, declared paths, the current diff, an available red command and
   output, available measurements, and one explicit question. A missing gate, theorem, attribution,
   diff or measurement is named as the residual obligation, never invented. Conversation history is

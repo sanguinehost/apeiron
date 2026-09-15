@@ -35,14 +35,18 @@ Semantics and the required representation invariant:
 
 - `HMap K V := K → V` is the shared canonical semantic object, total on all keys.
 - `D(t)(k)` is the unique matching override in shard `home(k) mod 256`, or the stored default.
-- `Rep(t, h)` is the required physical invariant (a target, not yet the general proved relation):
-  the fixed outer array, optional length-`N` shard arrays, globally unique keys, every entry in its
-  home shard, and `∀ k, D(t)(k) = h(k)` through key/value denotations when Rust and Lean types
-  differ.
-- The obligations to prove are: constructors establish `Rep(t, fun _ => d)`; reads denote
-  `Apeiron.Table.get`; successful writes establish `Rep(t', Apeiron.Table.insertWith f k v h)`.
-  These are desired general obligations, not general proved facts. The actual `TableRefinement.Rep`
-  today is an extensional relation instantiated at the concrete word instance `N = 16`.
+- `Rep(t, h)` is the physical invariant: the fixed outer array, optional length-`N` shard arrays,
+  globally unique keys, every entry in its home shard, and `∀ k, D(t)(k) = h(k)` through key/value
+  denotations when Rust and Lean types differ. `TableRefinement.PhysicalInv` instantiates it for the
+  generated word table; `ReadRep` is its extensional component.
+- The obligations are: constructors establish `Rep(t, fun _ => d)`; reads denote
+  `Apeiron.Table.get`; successful writes establish `Rep(t', Apeiron.Table.insertWith f k v h)`. The
+  concrete `I64` word instance proves them at every fixed shard capacity `N`:
+  `Apeiron.TableRefinement.emptyWordTableN_physicalInv` for the constructor and
+  `Apeiron.TableRefinement.physicalInv_insert_with_all` for insertion, including `N = 0`. The
+  arbitrary-callback `Table<K,V,H,N>` obligations are proved under the explicit `CallbackLawsG`
+  contracts. `insert_with_callback_admitted` preserves `PhysicalInvG`, and
+  `table_build_physicalInv_of_buildAdmissibleG` supplies the successful-build postcondition.
 - Even the first write computes `f v d`, not `v`. `build` starts from `d` and applies exactly those
   writes to the finite stream.
 
@@ -76,22 +80,32 @@ are distinct. `HMap` is the shared semantic object; `Rep` is the physical invari
 particular table state denotes it. `Rep` is not the public contract and is not exposed; the public
 contract is the four methods and their refusal semantics.
 
-`TableRefinement.Rep` is already a valid scoped relation at the concrete word instance `N = 16`.
-Quantifying the invariant and its preservation over arbitrary `N`, keys and streams is the remaining
-target, not a precondition for the scoped relation to be meaningful. The current evidence is a set
-of checked word-instance witnesses, not a universal preservation theorem.
+`TableRefinement.PhysicalInv` is the general word-instance invariant, not scoped to `N = 16`.
+`Apeiron.TableRefinement.emptyWordTableN_physicalInv` proves the real constructor establishes it at
+every `N`, `Apeiron.TableRefinement.physicalInv_insert_with_all` proves the real insertion body
+preserves it at every `N`, including `N = 0`, and
+`Apeiron.TableRefinement.table_build_physicalInv_of_buildAdmissibleN` proves the real positive-`N`
+build returns a `PhysicalInv` table refining canonical `build`; the zero-capacity build is
+characterized at `Apeiron.TableRefinement.wordBuildN_zero_ok_iff_empty`. The generic callback layer
+proves constructor, insertion and admitted-build preservation under `CallbackLawsG`, including the
+exact zero-capacity build split.
 
 ## Current evidence at actual scope
 
-- The current `Table` proofs cover the constructor, the default read, first/present writes at key 0,
-  the ordered two-write build, the bounded 16-slot search and the concrete full home-shard refusal.
-  They do **not** establish arbitrary `Rep` preservation, admission completeness or physical
-  subsumption.
-- The named witnesses in `proof/corpus/TableRefinement.lean` are `word_table_new_rep`,
-  `emptyWordTable_read`, `word_table_insert_new_first`, `word_table_get_new_first`,
-  `word_table_insert_replaces_present`, `word_table_get_replaced`, `word_table_build_ordered`,
-  `word_table_build_get_acc`, `word_table_shardFull_refusal` and
-  `word_table_joint_branch_witness`.
+- The generated word-table refinement covers arbitrary callback instances satisfying
+  `CallbackLawsG`. For the concrete `I64` word instance the constructor establishes `PhysicalInv` at every
+  `N`; `get` reads the represented total map; `insert_with` preserves `PhysicalInv` and canonical
+  `insertWith` on success and returns the identical representative on `ShardFull`, with exact refusal
+  at `N = 0`. For positive `N`, `BuildAdmissibleN` exactly characterizes build success versus
+  `ShardFull`, and success establishes canonical ordered `ReadRep` and `PhysicalInv`.
+- Generic headlines include `CallbackLawsG`, `insert_with_callback_admitted`,
+  `table_build_physicalInv_of_buildAdmissibleG`, `table_build_zero_ok_iff_empty`, and
+  `table_build_physicalInv_of_distinctRoutedKeysPerShardG_all`.
+- Headlines: `emptyWordTableN_physicalInv`, `physicalInv_insert_with_all`, `insert_with_zero_exact`,
+  `table_build_physicalInv_of_buildAdmissibleN`, `wordBuildN_zero_ok_iff_empty`,
+  `table_build_readRepN_of_buildAdmissibleN` and `table_build_refusesN_iff_not_buildAdmissibleN`,
+  each `#audit`ed in `proof/corpus/AxiomAudit.lean`. The older named witnesses in
+  `proof/corpus/TableRefinement.lean` remain at their concrete scope.
 - The real `new`, `get`, `insert_with` and `build` bodies occur in `proof/ApeironWord.lean`, and
   `proof/regen.sh --check` accepts the real generic bodies and concrete word roots. Extraction is not
   a proof of termination, `Rep`, or equality to `HMap`.
@@ -107,6 +121,14 @@ representation, state/effect, refusal and resource obligations. A worked example
 test, identical names or identical layouts are not the correspondence proof. The cross-repo
 primitive correspondence is a required programme outcome and is not established today; see the
 [programme direction](direction.md#primitive-correspondence).
+
+The Slang source-refinement chain carries a stricter evidence rule than the Rust bridge: every
+registered declaration, instance, witness and headline audits with an **empty** axiom set
+(`proof/corpus/Slang/Audit/Empty.lean`, `tools/slang/zero_axioms.py`). `propext`, `Classical.choice`,
+`Quot.sound`, `noncomputable` and quotient-based representations such as `Finset` and `ZMod` are
+rejected there. The Rust `Cell`/`Table` bridge and the canonical corpus retain the
+`{propext, Classical.choice, Quot.sound}` cone. Historical closed-cone Stream 0 evidence is
+historical, not current acceptance.
 
 ## Choice and trust cost (anchor)
 
@@ -129,8 +151,9 @@ proved, but that does not prove thread memory semantics, panic propagation or li
 | Layer | Owner | Status |
 |---|---|---|
 | Canonical algebra and combinator definitions | Apeiron (Lean corpus) | proved at stated scope (`Apeiron.Combinator.Comb.reduceDeep_sound`, `Apeiron.Trichotomy.AnyRing.ringNormForm_mul`) |
+| Slang source refinement (Stream 0) | Apeiron | in zero-axiom migration; empty-cone gate `tools/slang/zero_axioms.py`; current W23/W25 evidence reopened |
 | Rust `Cell<i64>` kernels | Apeiron | refined to canonical definitions; axiom cone `{propext, Classical.choice, Quot.sound}` |
-| Rust `Table` bodies | Apeiron | extracted and elaborated; word-instance witnesses proved; universal `Rep` open |
+| Rust `Table` bodies | Apeiron | extracted and elaborated; word-instance and arbitrary-callback constructor/insertion/admitted-build refinement proved under their explicit laws and domains |
 | Charon/Aeneas translation fidelity | pinned toolchain | external trust; patched for const `Repeat` to `Array.repeat` |
 | Lean kernel | pinned toolchain | trusted |
 | rustc/LLVM codegen and generated machine code | compiler | not covered |
@@ -138,10 +161,10 @@ proved, but that does not prove thread memory semantics, panic propagation or li
 | GPU / SPIR-V | target | not covered |
 | Generic `Home`/`Eq`/`Clone`/`Merge`/drop | caller | separate instance obligations; may allocate, panic or diverge |
 
-The executing table's universal preservation refinement remains open; the checked word-instance
-witnesses above remain established at their stated scope. Neither a reference container nor a
-tested-only optimized container is an accepted substitute. Former storage proofs remain historical
-evidence about deleted source, not this table.
+The executing table's generic callback proof assumes `CallbackLawsG`; it does not establish
+termination or purity for callbacks outside those laws. Neither a reference container nor a
+tested-only optimized container is an accepted substitute.
+Former storage proofs remain historical evidence about deleted source, not this table.
 
 ## Kernel scope and isolation
 
