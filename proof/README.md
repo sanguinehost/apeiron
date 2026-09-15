@@ -247,14 +247,23 @@ the canonical table at checked witnesses: `word_table_new_rep` and `emptyWordTab
 write success and refusal jointly. `find_slots_spec` and `insert_full_loop_spec` prove termination
 and the searched/full loop behavior.
 
-`Apeiron.TableRefinement.Rep` is a **read-only extensional** relation at the public read boundary,
-`∀ key, word_table_get t key ⦃ value => value = h key ⦄`, instantiated at the concrete word
-instance `N = 16`. It is not the physical invariant named in the
+`Apeiron.TableRefinement.PhysicalInv` is the physical invariant named in the
 [local boundary](../the design notes): the
 fixed outer array, optional length-`N` shard arrays, globally unique keys, every entry in its home
-shard, and the per-key denotation. Those physical clauses, universal `Rep` preservation and
-admission completeness for arbitrary admitted states, keys and streams remain open. The checked
-witnesses are not arbitrary preservation, admission completeness or physical subsumption.
+shard, and the per-key denotation (`ReadRep`). It is general over fixed shard capacity `N`, not
+scoped to `N = 16`. For the concrete `I64` word instance, `emptyWordTableN_physicalInv` establishes
+it for the real constructor at every `N`, `physicalInv_insert_with_all` preserves it through the real
+`insert_with` at every `N` (with exact `ShardFull` refusal at `N = 0`), for positive `N`
+`table_build_readRepN_of_buildAdmissibleN` / `table_build_refusesN_iff_not_buildAdmissibleN` give
+canonical ordered `ReadRep` on success and exact `BuildAdmissibleN` refusal,
+`table_build_physicalInv_of_buildAdmissibleN` gives the physical `PhysicalInv` postcondition for
+successful positive-`N` build, and `wordBuildN_zero_ok_iff_empty` characterizes the zero-capacity
+build. `TableRefinement/Callback*.lean` and `TableRefinement/PhysicalBuildGeneric.lean` lift these
+results to arbitrary callbacks satisfying `CallbackLawsG`: generic admitted insertion and build
+preserve `PhysicalInvG`, zero capacity is exact, and distinct routed keys give an all-`N` sufficient
+admission theorem. All headlines are `#audit`ed in
+`proof/corpus/AxiomAudit.lean`. The older concrete witnesses in `proof/corpus/TableRefinement.lean`
+remain at their stated scope.
 
 ```sh
 cd proof/corpus && lake build
@@ -475,14 +484,18 @@ working-tree diff is byte-identical to the patch files.
 
 ## What this does not establish
 
-- Not yet covered: the physical `Rep` clauses (fixed outer array, optional length-`N` shard arrays,
-  globally unique keys, every entry in its home shard) and universal `Rep` preservation and
-  admission completeness for arbitrary fixed-shard states, keys and streams. The current
-  `TableRefinement.Rep` is read-only and extensional at `N = 16`. Established: extracted table
-  witnesses, scalar kernels, the two cell operations, the carrier point-density/flux readout, the
-  scalar carrier step and exact-half flux, the closed three-cell diffusive line, the two arithmetic
-  exchange kernels, the checked-claim acceptance kernel and the finite conservative-total
-  composition.
+- Not covered: callbacks outside `CallbackLawsG`, including implementations that allocate, panic or
+  diverge. Generic refinement is proved only under those explicit laws and the stated admission
+  predicates. Established for the concrete `I64`
+  word instance: `PhysicalInv` constructor at every `N`, `insert_with` preservation at every `N`
+  (exact `ShardFull` refusal at `N = 0`), exact `BuildAdmissibleN` build success/refusal with
+  canonical ordered `ReadRep` for positive `N`, the physical `PhysicalInv` postcondition for
+  successful positive-`N` build, and the exact zero-capacity build characterization. Also
+  established: extracted
+  table witnesses, scalar kernels, the two cell operations, the carrier point-density/flux readout,
+  the scalar carrier step and exact-half flux, the closed three-cell diffusive line, the two
+  arithmetic exchange kernels, the checked-claim acceptance kernel and the finite
+  conservative-total composition.
 - Totality of the scalar carrier step, the exact-half flux or the three-cell line. They refuse
   unrepresentable intermediates and odd face differences as `ok none`; the refinement theorems are
   conditional on the generated no-overflow preconditions and the representability/evenness

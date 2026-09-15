@@ -84,9 +84,20 @@ preserves per-key stream order. `tests/table.rs` covers the total default read, 
 replacement and build order; the `src/table.rs` unit tests cover full-shard refusal with an unchanged
 table, existing-key update, `N = 0`, and that refusal does not invoke merge.
 
-The table is tested, and named word-instance witnesses refine scoped behavior of the extracted
-source. Universal physical `Rep` preservation and admission completeness remain pending. The current
-word-instance witnesses and the open universal `Rep` obligation are in
+The table is tested. The generated generic refinement covers arbitrary `Table<K,V,H,N>` instances
+whose equality, clone, home and merge callbacks satisfy `CallbackLawsG`; the laws state their total,
+stable denotations rather than assuming them from Rust trait names. For the concrete `I64` word instance (`EqI64`, `CloneI64`,
+`WordHome`, wrapping-add `WordMerge`) the real constructor establishes `PhysicalInv` at every `N`;
+`get` reads the represented total map; `insert_with` preserves `PhysicalInv` and canonical
+`insertWith` on success and returns the identical representative on `ShardFull`, with exact refusal at
+`N = 0`. For positive `N`, `BuildAdmissibleN` exactly characterizes build success versus `ShardFull`,
+and success establishes canonical ordered `ReadRep` and `PhysicalInv` through
+`table_build_physicalInv_of_buildAdmissibleN`. The zero-capacity build is characterized exactly by
+`wordBuildN_zero_of_empty` and `wordBuildN_zero_refuses_of_nonempty`
+(`wordBuildN_zero_ok_iff_empty`). Generic insertion preserves `PhysicalInvG` under
+`CallbackInsertPostG`; admitted builds preserve `PhysicalInvG`, with exact zero-capacity behavior
+and an all-`N` sufficient routed-key admission theorem. The joint replacement-map profile remains the concrete `N = 16`
+instance. Evidence and the open obligations are in
 [proof/README.md](proof/README.md) and the [local boundary](the design notes). No current
 table benchmark or performance claim is made; the removed `Map`/`CountTable`/`Set` measurements and
 their benches concerned source that no longer exists, and the deletions are recorded at the
@@ -95,8 +106,9 @@ their benches concerned source that no longer exists, and the deletions are reco
 ## What this does not claim
 
 - No current benchmark or performance number for the table or the crate.
-- No universal `Rep` preservation, admission completeness or physical subsumption for arbitrary
-  fixed-shard states, keys and streams; the checked table witnesses are scoped to the word instance.
+- No semantics for callbacks that violate `CallbackLawsG`, including callbacks that allocate,
+  panic or diverge. The proved generic refinement is conditional on those explicit callback laws and
+  its stated insertion/build admission predicates.
 - No claim that the wrapping `i64` ring carries the real trichotomy's classification, the real
   energy/nonnegativity results, or an order.
 - No claim about rustc/LLVM code generation, the kernel ABI, a GPU backend, or the generic
