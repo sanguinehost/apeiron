@@ -2527,7 +2527,8 @@
         "proof/corpus/Slang/Derivation/Audit.lean",
         "proof/corpus/Slang/Derivation/Grammar.lean",
         "proof/corpus/Slang/Derivation/Statements.lean",
-        "proof/corpus/Slang/Derivation/Composition.lean"
+        "proof/corpus/Slang/Derivation/Composition.lean",
+        "proof/corpus/Slang/Derivation/Selection.lean"
       ],
       "declarations": [
         {
@@ -2739,6 +2740,90 @@
           "expected_type": "type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_wrong",
           "module": "Slang.Derivation.Composition",
           "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.evaluate",
+          "expected_type": "type_of% @Slang.Derivation.Selection.evaluate",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.scan_unfold",
+          "expected_type": "type_of% @Slang.Derivation.Selection.scan_unfold",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.body_eq",
+          "expected_type": "type_of% @Slang.Derivation.Selection.body_eq",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.Run.sound",
+          "expected_type": "type_of% @Slang.Derivation.Selection.Run.sound",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.parameters_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.parameters_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.line_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.line_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.function_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.function_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.scan_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.scan_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.expr_of_grammar",
+          "expected_type": "type_of% @Slang.Derivation.Selection.expr_of_grammar",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.block_of_statements",
+          "expected_type": "type_of% @Slang.Derivation.Selection.block_of_statements",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.expr_zero_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.expr_zero_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.block_zero_run",
+          "expected_type": "type_of% @Slang.Derivation.Selection.block_zero_run",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.expr_zero_wrong",
+          "expected_type": "type_of% @Slang.Derivation.Selection.expr_zero_wrong",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Selection.block_zero_wrong",
+          "expected_type": "type_of% @Slang.Derivation.Selection.block_zero_wrong",
+          "module": "Slang.Derivation.Selection",
+          "path": "proof/corpus/Slang/Derivation/Selection.lean"
         }
       ]
     },
