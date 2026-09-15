@@ -2933,6 +2933,18 @@
           "expected_type": "type_of% @Slang.Derivation.DecodeTrace.validation_of_run",
           "module": "Slang.Derivation.Decode",
           "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.decodeTokens_run",
+          "expected_type": "type_of% @Slang.Derivation.DecodeTrace.decodeTokens_run",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.decodeTokens_wrong",
+          "expected_type": "type_of% @Slang.Derivation.DecodeTrace.decodeTokens_wrong",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
         }
       ]
     },
