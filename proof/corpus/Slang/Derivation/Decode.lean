@@ -21,6 +21,7 @@ inductive Request where
   | decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat)
   | decodeTable (bytes : ByteArray)
   | importedCoord (bytes : ByteArray)
+  | closure (table std : ByteArray)
 
 /-- Answer type per request. -/
 abbrev Answer : Request → Type
@@ -31,6 +32,7 @@ abbrev Answer : Request → Type
   | .decodeTokens _ _ _ => Result CertifiedDecoded
   | .decodeTable _ => Result CertifiedDecoded
   | .importedCoord _ => Result ConstantDecl
+  | .closure _ _ => Result CertifiedDecoded
 
 /-- The real implementation, indexed by request. -/
 def evaluate : (q : Request) → Answer q
@@ -41,6 +43,7 @@ def evaluate : (q : Request) → Answer q
   | .decodeTokens bytes tokens consumed => Decode.decodeTokens bytes tokens consumed
   | .decodeTable bytes => Decode.decodeTable bytes
   | .importedCoord bytes => Decode.decodeImportedCoordCeiling bytes
+  | .closure table std => Decode.decodeClosure table std
 
 /-- One unfolding of the implementation, exposing recursive calls as requests. -/
 def body : (q : Request) → Layer Request Answer (Answer q)
@@ -166,6 +169,25 @@ def body : (q : Request) → Layer Request Answer (Answer q)
                     | _ :: _ :: _ => .done (.error "COORD_CEILING is missing or duplicated"))
             else .done (.error "import tokenizer did not consume every source byte")
         | .error message => .done (.error message))
+  | .closure table std =>
+      .ask (.decodeTable table) (fun decoded =>
+        match decoded with
+        | .error message => .done (.error message)
+        | .ok decoded =>
+            .ask (.importedCoord std) (fun coord =>
+              match coord with
+              | .error message => .done (.error message)
+              | .ok coord =>
+                  match coord.value with
+                  | .literal value =>
+                      match Nat.beq value 8796093022208 with
+                      | true => .done (.ok (Decode.appendImportedCoord decoded coord))
+                      | false => .done (.error "COORD_CEILING has the wrong value")
+                  | .name _ => .done (.error "COORD_CEILING has the wrong value")
+                  | .call _ _ => .done (.error "COORD_CEILING has the wrong value")
+                  | .memory _ => .done (.error "COORD_CEILING has the wrong value")
+                  | .binary _ _ _ => .done (.error "COORD_CEILING has the wrong value")
+                  | .conditional _ _ _ => .done (.error "COORD_CEILING has the wrong value")))
 
 /-- A checked derivation of an answer for a layer. -/
 abbrev Run (q : Request) (answer : Answer q) : Prop :=
@@ -340,6 +362,38 @@ theorem body_eq : ∀ q, evaluate q = fold evaluate (body q)
                             | cons decl2 rest2 => rfl
               · rw [if_neg hc, if_neg hc]
                 rfl
+  | .closure table std => by
+      rw [show Slang.Derivation.DecodeTrace.evaluate (.closure table std)
+            = Decode.decodeClosure table std from rfl]
+      dsimp only [Slang.Derivation.DecodeTrace.body]
+      rw [Slang.Derivation.fold_ask]
+      dsimp only [Slang.Derivation.DecodeTrace.evaluate]
+      rw [Decode.decodeClosure]
+      dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+      cases h : Decode.decodeTable table with
+      | error message => rfl
+      | ok decoded =>
+          dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+          rw [Slang.Derivation.fold_ask]
+          dsimp only [Slang.Derivation.DecodeTrace.evaluate]
+          cases hc : Decode.decodeImportedCoordCeiling std with
+          | error message => rfl
+          | ok coord =>
+              dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+              cases coord with
+              | mk _ value _ =>
+                  dsimp only []
+                  cases value with
+                  | literal v =>
+                      dsimp only []
+                      cases hv : Nat.beq v 8796093022208 with
+                      | true => rfl
+                      | false => rfl
+                  | name n => rfl
+                  | call n args => rfl
+                  | memory n => rfl
+                  | binary op left right => rfl
+                  | conditional thenValue condition elseValue => rfl
 
 /-- A checked derivation of the real tokenizer's byte-level result. -/
 theorem Run.sound {q : Request} {answer : Answer q}
@@ -484,6 +538,16 @@ theorem decodeTable_wrong :
   intro derivation
   have sound := Run.sound derivation
   have actual : evaluate (.decodeTable (ByteArray.empty)) =
+      .error "selected table constants are missing or duplicated" := rfl
+  rw [actual] at sound
+  cases sound
+
+/-- A wrong answer for the empty closure request is not derivable. -/
+theorem closure_wrong :
+    ¬ Run (.closure (ByteArray.empty) (ByteArray.empty)) (.ok wrongDecoded) := by
+  intro derivation
+  have sound := Run.sound derivation
+  have actual : evaluate (.closure (ByteArray.empty) (ByteArray.empty)) =
       .error "selected table constants are missing or duplicated" := rfl
   rw [actual] at sound
   cases sound

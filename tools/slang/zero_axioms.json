@@ -2951,6 +2951,12 @@
           "expected_type": "¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.decodeTable (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)",
           "module": "Slang.Derivation.Decode",
           "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.closure_wrong",
+          "expected_type": "¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.closure (ByteArray.empty) (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
         }
       ]
     },
