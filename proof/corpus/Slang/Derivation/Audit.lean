@@ -36,8 +36,14 @@ namespace Slang.Derivation.DecodeTrace
 
 -- The table/import driver requests reuse the lexing and selection embeds; the
 -- continuation branches on a child answer, so no generic `_run` completeness
--- lemma exists and only the empty-input wrong-answer control is registered.
+-- lemma exists and only the empty-input wrong-answer controls are registered.
 #audit_empty Slang.Derivation.DecodeTrace.decodeTable_wrong : ¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.decodeTable (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)
+
+-- The closure driver mirrors `Decode.decodeClosure`: it asks the table decoder
+-- then the imported coordinate, and branches on the coordinate's `Expr`. Its
+-- continuation also branches on concrete child answers, so completeness belongs
+-- to the generator and only the empty-input wrong-answer control is registered.
+#audit_empty Slang.Derivation.DecodeTrace.closure_wrong : ¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.closure (ByteArray.empty) (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)
 
 /-- Fixture the zero-axiom runner mutates to prove the command rejects a nonempty cone. -/
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
