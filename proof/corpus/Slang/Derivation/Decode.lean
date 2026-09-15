@@ -1,5 +1,8 @@
 import Slang.Audit.Empty
 import Slang.Derivation.Steps
+import Slang.Derivation.Lexing
+import Slang.Derivation.Selection
+import Slang.Derivation.Validation
 import Slang.Decode
 
 set_option autoImplicit false
@@ -12,14 +15,23 @@ open Slang Slang.Decode
 /-- Requests name the recursive work of the decoder instead of evaluating it. -/
 inductive Request where
   | utf8Fuel (fuel : Nat) (bytes : List UInt8)
+  | lexing (q : Slang.Derivation.Lexing.Request)
+  | selection (q : Slang.Derivation.Selection.Request)
+  | validation (q : Slang.Derivation.Validation.Request)
 
 /-- Answer type per request. -/
 abbrev Answer : Request → Type
   | .utf8Fuel _ _ => Result (List Char)
+  | .lexing q => Slang.Derivation.Lexing.Answer q
+  | .selection q => Slang.Derivation.Selection.Answer q
+  | .validation q => Slang.Derivation.Validation.Answer q
 
 /-- The real implementation, indexed by request. -/
 def evaluate : (q : Request) → Answer q
   | .utf8Fuel fuel bytes => Decode.decodeUtf8CharsFuel fuel bytes
+  | .lexing q => Slang.Derivation.Lexing.evaluate q
+  | .selection q => Slang.Derivation.Selection.evaluate q
+  | .validation q => Slang.Derivation.Validation.evaluate q
 
 /-- One unfolding of the implementation, exposing recursive calls as requests. -/
 def body : (q : Request) → Layer Request Answer (Answer q)
@@ -80,6 +92,9 @@ def body : (q : Request) → Layer Request Answer (Answer q)
                           .ask (.utf8Fuel fuel rest)
                             (fun r => .done (r.bind fun tail => .ok (Char.ofNat code :: tail)))
           else .done (.error "source is not UTF-8")
+  | .lexing q => .done (Slang.Derivation.Lexing.evaluate q)
+  | .selection q => .done (Slang.Derivation.Selection.evaluate q)
+  | .validation q => .done (Slang.Derivation.Validation.evaluate q)
 
 /-- A checked derivation of an answer for a layer. -/
 abbrev Run (q : Request) (answer : Answer q) : Prop :=
@@ -131,11 +146,35 @@ theorem body_eq : ∀ q, evaluate q = fold evaluate (body q)
                   (rw [Slang.Derivation.fold_ask]
                    simp only [Slang.Derivation.DecodeTrace.evaluate, Slang.Derivation.fold_done]
                    rfl)
+  | .lexing q => rfl
+  | .selection q => rfl
+  | .validation q => rfl
 
 /-- A checked derivation of the real tokenizer's byte-level result. -/
 theorem Run.sound {q : Request} {answer : Answer q}
     (derivation : Run q answer) : evaluate q = answer :=
   Slang.Derivation.call_sound evaluate body_eq derivation
+
+/-- Transfer a `Lexing` derivation into the `DecodeTrace` lexing request. -/
+theorem lexing_of_run {q : Slang.Derivation.Lexing.Request}
+    {answer : Slang.Derivation.Lexing.Answer q}
+    (derivation : Slang.Derivation.Lexing.Run q answer) :
+    Run (.lexing q) answer :=
+  Slang.Derivation.Derives.done_eq (Slang.Derivation.Lexing.Run.sound derivation)
+
+/-- Transfer a `Selection` derivation into the `DecodeTrace` selection request. -/
+theorem selection_of_run {q : Slang.Derivation.Selection.Request}
+    {answer : Slang.Derivation.Selection.Answer q}
+    (derivation : Slang.Derivation.Selection.Run q answer) :
+    Run (.selection q) answer :=
+  Slang.Derivation.Derives.done_eq (Slang.Derivation.Selection.Run.sound derivation)
+
+/-- Transfer a `Validation` derivation into the `DecodeTrace` validation request. -/
+theorem validation_of_run {q : Slang.Derivation.Validation.Request}
+    {answer : Slang.Derivation.Validation.Answer q}
+    (derivation : Slang.Derivation.Validation.Run q answer) :
+    Run (.validation q) answer :=
+  Slang.Derivation.Derives.done_eq (Slang.Derivation.Validation.Run.sound derivation)
 
 /-- Raw bytes of the two-byte U+00E9 fixture. -/
 abbrev multibyteBytes : List UInt8 := [0xc3, 0xa9]

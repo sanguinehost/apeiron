@@ -2915,6 +2915,24 @@
           "expected_type": "type_of% @Slang.Derivation.Validation.resolveNames_run",
           "module": "Slang.Derivation.Validation",
           "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.lexing_of_run",
+          "expected_type": "type_of% @Slang.Derivation.DecodeTrace.lexing_of_run",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.selection_of_run",
+          "expected_type": "type_of% @Slang.Derivation.DecodeTrace.selection_of_run",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.validation_of_run",
+          "expected_type": "type_of% @Slang.Derivation.DecodeTrace.validation_of_run",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
         }
       ]
     },
