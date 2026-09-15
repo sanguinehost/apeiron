@@ -2524,7 +2524,9 @@
         "proof/corpus/Slang/Derivation/Steps.lean",
         "proof/corpus/Slang/Derivation/Decode.lean",
         "proof/corpus/Slang/Derivation/Lexing.lean",
-        "proof/corpus/Slang/Derivation/Audit.lean"
+        "proof/corpus/Slang/Derivation/Audit.lean",
+        "proof/corpus/Slang/Derivation/Grammar.lean",
+        "proof/corpus/Slang/Derivation/Statements.lean"
       ],
       "declarations": [
         {
@@ -2610,6 +2612,78 @@
           "expected_type": "∀ (bytes : ByteArray), Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize bytes) (Slang.Decode.tokenize bytes)",
           "module": "Slang.Derivation.Lexing",
           "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.evaluate",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.evaluate",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.body_eq",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.body_eq",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.Run.sound",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.Run.sound",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.expr_run",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.expr_run",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.primary_run",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.primary_run",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.args_run",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.args_run",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Grammar.binary_run",
+          "expected_type": "type_of% @Slang.Derivation.Grammar.binary_run",
+          "module": "Slang.Derivation.Grammar",
+          "path": "proof/corpus/Slang/Derivation/Grammar.lean"
+        },
+        {
+          "name": "Slang.Derivation.Statements.evaluate",
+          "expected_type": "type_of% @Slang.Derivation.Statements.evaluate",
+          "module": "Slang.Derivation.Statements",
+          "path": "proof/corpus/Slang/Derivation/Statements.lean"
+        },
+        {
+          "name": "Slang.Derivation.Statements.body_eq",
+          "expected_type": "type_of% @Slang.Derivation.Statements.body_eq",
+          "module": "Slang.Derivation.Statements",
+          "path": "proof/corpus/Slang/Derivation/Statements.lean"
+        },
+        {
+          "name": "Slang.Derivation.Statements.Run.sound",
+          "expected_type": "type_of% @Slang.Derivation.Statements.Run.sound",
+          "module": "Slang.Derivation.Statements",
+          "path": "proof/corpus/Slang/Derivation/Statements.lean"
+        },
+        {
+          "name": "Slang.Derivation.Statements.block_run",
+          "expected_type": "type_of% @Slang.Derivation.Statements.block_run",
+          "module": "Slang.Derivation.Statements",
+          "path": "proof/corpus/Slang/Derivation/Statements.lean"
+        },
+        {
+          "name": "Slang.Derivation.Statements.stmt_run",
+          "expected_type": "type_of% @Slang.Derivation.Statements.stmt_run",
+          "module": "Slang.Derivation.Statements",
+          "path": "proof/corpus/Slang/Derivation/Statements.lean"
         }
       ]
     },
