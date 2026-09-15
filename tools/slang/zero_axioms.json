@@ -2526,7 +2526,8 @@
         "proof/corpus/Slang/Derivation/Lexing.lean",
         "proof/corpus/Slang/Derivation/Audit.lean",
         "proof/corpus/Slang/Derivation/Grammar.lean",
-        "proof/corpus/Slang/Derivation/Statements.lean"
+        "proof/corpus/Slang/Derivation/Statements.lean",
+        "proof/corpus/Slang/Derivation/Composition.lean"
       ],
       "declarations": [
         {
@@ -2690,6 +2691,54 @@
           "expected_type": "type_of% @Slang.Derivation.Statements.stmt_run",
           "module": "Slang.Derivation.Statements",
           "path": "proof/corpus/Slang/Derivation/Statements.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.statements_of_grammar_expr",
+          "expected_type": "type_of% @Slang.Derivation.Composition.statements_of_grammar_expr",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.lexing_of_decodetrace_chars",
+          "expected_type": "type_of% @Slang.Derivation.Composition.lexing_of_decodetrace_chars",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.grammar_expr_zero_run",
+          "expected_type": "type_of% @Slang.Derivation.Composition.grammar_expr_zero_run",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.statements_expr_zero_run",
+          "expected_type": "type_of% @Slang.Derivation.Composition.statements_expr_zero_run",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.statements_expr_zero_wrong",
+          "expected_type": "type_of% @Slang.Derivation.Composition.statements_expr_zero_wrong",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.lexing_chars_multibyte_run",
+          "expected_type": "type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_run",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.lexing_chars_multibyte_result",
+          "expected_type": "type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_result",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
+        },
+        {
+          "name": "Slang.Derivation.Composition.lexing_chars_multibyte_wrong",
+          "expected_type": "type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_wrong",
+          "module": "Slang.Derivation.Composition",
+          "path": "proof/corpus/Slang/Derivation/Composition.lean"
         }
       ]
     },

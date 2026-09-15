@@ -3,6 +3,7 @@ import Slang.Derivation.Decode
 import Slang.Derivation.Lexing
 import Slang.Derivation.Grammar
 import Slang.Derivation.Statements
+import Slang.Derivation.Composition
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -46,3 +47,15 @@ end Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.Statements.Run.sound : type_of% @Slang.Derivation.Statements.Run.sound
 #audit_empty Slang.Derivation.Statements.block_run : type_of% @Slang.Derivation.Statements.block_run
 #audit_empty Slang.Derivation.Statements.stmt_run : type_of% @Slang.Derivation.Statements.stmt_run
+
+-- The cross-family transfer adapters and their composed fixtures. The adapters
+-- transport a child `Run` into the parent `.done` leaf via
+-- `Slang.Derivation.Derives.done_eq`; the negative controls reject a wrong answer.
+#audit_empty Slang.Derivation.Composition.statements_of_grammar_expr : type_of% @Slang.Derivation.Composition.statements_of_grammar_expr
+#audit_empty Slang.Derivation.Composition.lexing_of_decodetrace_chars : type_of% @Slang.Derivation.Composition.lexing_of_decodetrace_chars
+#audit_empty Slang.Derivation.Composition.grammar_expr_zero_run : type_of% @Slang.Derivation.Composition.grammar_expr_zero_run
+#audit_empty Slang.Derivation.Composition.statements_expr_zero_run : type_of% @Slang.Derivation.Composition.statements_expr_zero_run
+#audit_empty Slang.Derivation.Composition.statements_expr_zero_wrong : type_of% @Slang.Derivation.Composition.statements_expr_zero_wrong
+#audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_run : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_run
+#audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_result : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_result
+#audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_wrong : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_wrong
