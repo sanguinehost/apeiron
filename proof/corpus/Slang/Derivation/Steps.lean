@@ -105,6 +105,13 @@ theorem Derives.ask_done {Request : Type} {Answer : Request → Type}
     Derives body (.ask request (fun result => .done result)) answer :=
   .ask called (.done answer)
 
+/-- Transport a checked value equality into a `.done` derivation. -/
+theorem Derives.done_eq {Request : Type} {Answer : Request → Type}
+    {body : (request : Request) → Layer Request Answer (Answer request)}
+    {α : Type} {computed candidate : α}
+    (equal : computed = candidate) : Derives body (.done computed) candidate :=
+  equal.symm ▸ Derives.done candidate
+
 namespace Witness
 
 def body : (request : Nat) → Layer Nat (fun _ => Nat) Nat
