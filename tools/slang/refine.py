@@ -65,6 +65,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from proof_target import ProofTargetError, verify as verify_proof_target
+
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[2]
 CONTROLS_PATH = HERE.parent / "controls.json"
@@ -79,7 +81,7 @@ EXIT_TOOL = 3
 
 HEX64 = re.compile(r"[0-9a-f]{64}")
 STAGE_ID = re.compile(r"[A-Za-z0-9._-]+")
-PROBE_NAME = "__ApeironDeclProbe.lean"
+UNBOUND = "unbound"
 SELFTEST_TOOLCHAIN = "leanprover/lean4:v4.31.0"
 SOURCE_ARTIFACT = "source"
 PROOF_ARTIFACT = "proof"
@@ -114,10 +116,16 @@ class Artifact:
     root: str | None = None
     module: str | None = None
     declaration: str | None = None
+    declaration_type: str | None = None
     declaration_prefix: str | None = None
     path: str | None = None
     sha256: str | None = None
     note: str = ""
+
+    @property
+    def unbound(self) -> bool:
+        """A namespace-prefix target with no exact declaration or type binding."""
+        return self.kind == PROOF_ARTIFACT and self.declaration is None
 
 @dataclasses.dataclass(frozen=True)
 class Mutation:
@@ -200,6 +208,7 @@ class StageResult:
     red_exit: int | None = None
     green_exit: int | None = None
     throwaway: str | None = None
+    canonical_bindings: list[str] = dataclasses.field(default_factory=list)
 
     def to_json(self) -> str:
         return json.dumps(dataclasses.asdict(self), sort_keys=True)
@@ -298,20 +307,45 @@ def _parse_artifact(raw: object, where: str) -> Artifact:
         root = _require_str(raw.get("root"), f"{where}.root")
         module = _require_str(raw.get("module"), f"{where}.module")
         declaration = raw.get("declaration")
+        expected = raw.get("declaration_type")
         prefix = raw.get("declaration_prefix")
+        binding = raw.get("binding", "exact")
         _require(
-            declaration is not None or prefix is not None,
-            f"{where} must declare `declaration` or `declaration_prefix`",
+            binding in ("exact", UNBOUND),
+            f"{where}.binding must be 'exact' or {UNBOUND!r}",
         )
         if declaration is not None:
             _require_str(declaration, f"{where}.declaration")
-        if prefix is not None:
+            _require(
+                expected is not None,
+                f"{where}: exact proof target requires `declaration_type`",
+            )
+            _require_str(expected, f"{where}.declaration_type")
+            _require(
+                prefix is None,
+                f"{where}: `declaration_prefix` is forbidden with an exact `declaration`",
+            )
+            _require(
+                binding == "exact",
+                f"{where}: an exact `declaration` cannot be marked {UNBOUND!r}",
+            )
+        else:
             _require_str(prefix, f"{where}.declaration_prefix")
+            _require(
+                binding == UNBOUND,
+                f"{where}: a namespace-prefix target must declare "
+                f"`binding`: {UNBOUND!r}",
+            )
+            _require(
+                expected is None,
+                f"{where}: {UNBOUND!r} target cannot declare `declaration_type`",
+            )
         return Artifact(
             kind=kind,
             root=root,
             module=module,
             declaration=declaration,
+            declaration_type=expected,
             declaration_prefix=prefix,
             note=str(raw.get("note", "")),
         )
@@ -690,43 +724,17 @@ def run_steps(
 # Proof declaration freshness
 # ---------------------------------------------------------------------------
 
-def _lean_string(value: str) -> str:
-    return json.dumps(value)
-
-def _probe_text(import_name: str, declaration: str, prefix: str) -> str:
-    return (
-        f"import {import_name}\n"
-        "import Lean\n"
-        "open Lean Elab Command\n"
-        "run_cmd do\n"
-        "  let env ← getEnv\n"
-        f"  let exact := {_lean_string(declaration)}\n"
-        f"  let pfx := {_lean_string(prefix)}\n"
-        "  let closed : NameSet := ((({} : NameSet).insert `propext).insert `Classical.choice).insert `Quot.sound\n"
-        "  let hits := env.constants.toList.filter (fun (n, _) =>\n"
-        "    (exact != \"\" && n.toString == exact) ||\n"
-        "    (pfx != \"\" && (n.toString == pfx || n.toString.startsWith (pfx ++ \".\"))))\n"
-        "  if hits.isEmpty then throwError \"missing proof target declaration\"\n"
-        "  for (n, info) in hits do\n"
-        "    if let .axiomInfo _ := info then\n"
-        "      throwError s!\"proof target {n} is an axiom, not a checked declaration\"\n"
-        "    else\n"
-        "      let axioms ← Lean.collectAxioms n\n"
-        "      let bad := axioms.filter (fun a => !closed.contains a)\n"
-        "      if !bad.isEmpty then\n"
-        "        throwError s!\"proof target {n} uses axioms outside the closed cone: {bad.toList}\"\n"
-        "  logInfo \"declaration-present\"\n"
-    )
-
 def check_proof_declarations(
     stage: Stage, roots: dict[str, str], dest: Path, timeout: int
-) -> None:
-    """Build each module under test, then require its declaration to be loaded.
+) -> list[str]:
+    """Build each module under test, then bind its exact declaration and type.
 
-    The declaration must be present in the elaborated environment of the built
-    module, so a declaration that exists only as commented text is rejected.
+    A declaration that exists only as commented text, a same-named helper in the
+    namespace, or a declaration with the wrong proposition is rejected by the
+    generated probe; the empty axiom cone is checked in the same probe.
     """
     resolved_dest = dest.resolve()
+    canonical_bindings: list[str] = []
     for artifact in stage.artifacts:
         if artifact.kind != PROOF_ARTIFACT:
             continue
@@ -745,34 +753,22 @@ def check_proof_declarations(
             raise ArtifactError(
                 f"missing proof target: {artifact.root}:{module_rel}"
             )
-        import_name = (
-            module_rel[:-5].replace("/", ".")
-            if module_rel.endswith(".lean")
-            else module_rel
-        )
-        exact = artifact.declaration or ""
-        prefix = artifact.declaration_prefix or ""
-        probe = package_dir / PROBE_NAME
-        _guard_write(probe, resolved_dest)
-        probe.write_text(_probe_text(import_name, exact, prefix), encoding="utf-8")
         try:
-            build = _run_once(["lake", "build", import_name], package_dir, timeout)
-            if build.returncode != 0:
-                raise ArtifactError(
-                    f"proof dependency build failed: {artifact.root}:{module_rel}: "
-                    f"{_tail(build.stdout)}"
+            canonical_bindings.extend(
+                verify_proof_target(
+                    package_dir,
+                    module_rel,
+                    artifact.declaration,  # type: ignore[arg-type]
+                    artifact.declaration_type or "",
+                    resolved_dest,
+                    timeout,
                 )
-            loaded = _run_once(
-                ["lake", "env", "lean", PROBE_NAME], package_dir, timeout
             )
-            if loaded.returncode != 0:
-                raise ArtifactError(
-                    f"proof target declaration not loaded from real code: "
-                    f"{artifact.root}:{module_rel}::{exact or prefix}: "
-                    f"{_tail(loaded.stdout)}"
-                )
-        finally:
-            probe.unlink(missing_ok=True)
+        except ProofTargetError as exc:
+            raise ArtifactError(
+                f"{exc} [{artifact.root}:{module_rel}::{artifact.declaration}]"
+            ) from exc
+    return sorted(set(canonical_bindings))
 
 # ---------------------------------------------------------------------------
 # Stage execution
@@ -791,6 +787,10 @@ def check_stage(
     timeout_override: int | None = None,
 ) -> StageResult:
     result = StageResult(stage=stage.id, status="blocked", reason="not-run")
+    unbound = [a.declaration_prefix for a in stage.artifacts if a.unbound]
+    if unbound:
+        result.reason = f"unbound proof headline: {unbound}"
+        return result
     try:
         check_manifest(manifest, repo_root, song_root)
         check_artifacts(stage, roots, repo_root, song_root)
@@ -809,7 +809,7 @@ def check_stage(
         return result
 
     try:
-        check_proof_declarations(
+        result.canonical_bindings = check_proof_declarations(
             stage, roots, dest, timeout_override or stage.command.timeout
         )
     except (GateError, OSError) as exc:
@@ -947,419 +947,14 @@ def _cleanup(dest: Path, keep: bool) -> None:
 # Self-test
 # ---------------------------------------------------------------------------
 
-def _synthetic_repo(root: Path) -> Path:
-    (root / "Slang").mkdir(parents=True, exist_ok=True)
-    (root / "song").mkdir(parents=True, exist_ok=True)
-    (root / "Slang" / "Synthetic.lean").write_text(
-        "namespace Slang.Synthetic\n\ndef ok : Nat := 1\n\nend Slang.Synthetic\n",
-        encoding="utf-8",
-    )
-    (root / "Slang" / "Comment.lean").write_text(
-        "namespace Slang.Comment\n\n/-\ndef gone : Nat := 1\n-/\n\nend Slang.Comment\n",
-        encoding="utf-8",
-    )
-    (root / "Slang" / "Broken.lean").write_text(
-        "namespace Slang.Broken\n\ndef bad : Nat := \"not a nat\"\n\nend Slang.Broken\n",
-        encoding="utf-8",
-    )
-    (root / "Slang" / "Axiom.lean").write_text(
-        "namespace Slang.Axiom\n\naxiom bad : False\n\nend Slang.Axiom\n",
-        encoding="utf-8",
-    )
-    (root / "Slang" / "Sorry.lean").write_text(
-        "namespace Slang.Sorry\n\ntheorem bad : False := by sorry\n\nend Slang.Sorry\n",
-        encoding="utf-8",
-    )
-    (root / "lakefile.lean").write_text(
-        "import Lake\nopen Lake DSL\n\npackage \"synthetic\"\n\n"
-        "lean_lib «Synthetic» where\n  globs := #[.submodules `Slang]\n",
-        encoding="utf-8",
-    )
-    (root / "lean-toolchain").write_text(SELFTEST_TOOLCHAIN + "\n", encoding="utf-8")
-    (root / "song" / "synthetic.slang").write_text(
-        "body { return 1; }\n", encoding="utf-8"
-    )
-    (root / "check.py").write_text(
-        "import pathlib, sys\n"
-        "text = pathlib.Path('song/synthetic.slang').read_text()\n"
-        "if 'return 2;' in text:\n"
-        "    print('synthetic body change rejected')\n"
-        "    sys.exit(2)\n"
-        "sys.exit(0)\n",
-        encoding="utf-8",
-    )
-    (root / "crash.py").write_text(
-        "import pathlib, sys\n"
-        "text = pathlib.Path('song/synthetic.slang').read_text()\n"
-        "if 'boom' in text:\n"
-        "    print('unrelated crash')\n"
-        "    sys.exit(3)\n"
-        "sys.exit(2 if 'return 2;' in text else 0)\n",
-        encoding="utf-8",
-    )
-    return root
-
-SYNTHETIC_COPY = [
-    "song/synthetic.slang",
-    "Slang/Synthetic.lean",
-    "Slang/Comment.lean",
-    "Slang/Broken.lean",
-    "Slang/Axiom.lean",
-    "Slang/Sorry.lean",
-    "lakefile.lean",
-    "lean-toolchain",
-    "check.py",
-    "crash.py",
-]
-
-def _synthetic_stage_dict(
-    root: Path,
-    *,
-    module: str = "Slang/Synthetic.lean",
-    prefix: str = "Slang.Synthetic",
-    declaration: str | None = None,
-    digest: str | None = None,
-    steps: list[list[str]] | None = None,
-    timeout: int = 60,
-    old: str = "return 1;",
-    new: str = "return 2;",
-    expected_step: int = 0,
-    expected_output: str = "synthetic body change rejected",
-    control_status: str = ACTIVE,
-    anchor: str | None = None,
-    copy: list[str] | None = None,
-    link: list[str] | None = None,
-) -> dict:
-    if digest is None:
-        digest = sha256_file(root / "song" / "synthetic.slang")
-    proof: dict = {"kind": "proof", "root": "bridge", "module": module}
-    if declaration is not None:
-        proof["declaration"] = declaration
-    else:
-        proof["declaration_prefix"] = prefix
-    raw: dict = {
-        "id": "synthetic",
-        "order": 1,
-        "title": "synthetic stage",
-        "summary": "self-test synthetic stage",
-        "source_entry": "SE0",
-        "rejecting_control": "SC0",
-        "artifacts": [
-            proof,
-            {"kind": "source", "path": "song/synthetic.slang", "sha256": digest},
-        ],
-        "command": {
-            "cwd": ".",
-            "timeout": timeout,
-            "steps": steps or [["python3", "check.py"]],
-        },
-        "copy": list(copy if copy is not None else SYNTHETIC_COPY),
-        "link": list(link if link is not None else []),
-        "control_status": control_status,
-    }
-    if control_status == ACTIVE:
-        mutation: dict = {
-            "path": "song/synthetic.slang",
-            "old": old,
-            "new": new,
-            "expect": "synthetic body change rejected",
-            "expected_step": expected_step,
-            "expected_output": expected_output,
-        }
-        if anchor is not None:
-            mutation["anchor"] = anchor
-        raw["mutation"] = mutation
-    else:
-        raw["awaiting_reason"] = "synthetic control awaiting its real definition"
-    return raw
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
 
 def self_test() -> int:
-    """Prove the rejection classes fire and the positive accepts."""
-    checks: list[dict] = []
-
-    def record(name: str, ok: bool, detail: str) -> None:
-        checks.append({"check": name, "ok": ok, "detail": detail})
-
-    def expect(
-        name: str, result: StageResult, status: str, *needles: str, extra: bool = True
-    ) -> None:
-        ok = result.status == status and all(n in result.reason for n in needles) and extra
-        record(name, ok, f"status={result.status} reason={result.reason}")
-
-    workdir = Path(tempfile.mkdtemp(prefix="slang-refine-self-", dir="/tmp/apeiron"))
-    try:
-        repo = _synthetic_repo(workdir / "repo")
-        roots = {"bridge": "."}
-        default_manifest = (
-            Artifact(
-                kind=SOURCE_ARTIFACT,
-                path="song/synthetic.slang",
-                sha256=sha256_file(repo / "song" / "synthetic.slang"),
-            ),
-        )
-        song_root = repo / "song"
-
-        def stage_from(raw: dict) -> Stage:
-            return parse_stage(
-                raw,
-                "synthetic",
-                roots=roots,
-                default_timeout=60,
-                default_copy=(),
-                default_link=(),
-            )
-
-        def run(
-            raw: dict,
-            *,
-            controls: bool = True,
-            manifest: tuple[Artifact, ...] | None = None,
-        ) -> StageResult:
-            return check_stage(
-                stage_from(raw),
-                roots,
-                manifest if manifest is not None else default_manifest,
-                repo,
-                song_root,
-                controls=controls,
-                throwaway_root=workdir / "throwaway",
-            )
-
-        # 0. the positive control: fresh artifact, green baseline, mutation red at the
-        #    declared step with the declared result, restored green.
-        positive = run(_synthetic_stage_dict(repo), controls=True)
-        record(
-            "positive_present_and_fresh",
-            positive.status == "pass"
-            and positive.red_step == 0
-            and positive.red_exit not in (None, 0)
-            and positive.green_exit == 0,
-            f"status={positive.status} reason={positive.reason}",
-        )
-
-        # 1. every simple rejection class, including hole 1 (a block-commented
-        #    declaration is text, not Lean code) and dependency-building.
-        cases = [
-            ("reject_missing_artifact", {"module": "Slang/Absent.lean"}, "blocked", False, ("missing proof target",)),
-            ("reject_missing_declaration", {"prefix": "Slang.Other"}, "blocked", False, ("not loaded from real code",)),
-            ("reject_commented_declaration", {"module": "Slang/Comment.lean", "prefix": "Slang.Comment"}, "blocked", False, ("not loaded from real code",)),
-            ("reject_stale_digest", {"digest": "0" * 64}, "blocked", False, ("stale source input",)),
-            ("reject_timeout", {"steps": [["python3", "-c", "import time; time.sleep(30)"]], "timeout": 1}, "blocked", False, ("timeout",)),
-            ("reject_nonzero_subprocess", {"steps": [["python3", "-c", "import sys; sys.exit(7)"]]}, "blocked", False, ("nonzero subprocess", "exit 7")),
-            ("reject_unstartable_subprocess", {"steps": [["__apeiron_absent_tool__"]]}, "blocked", False, ("failed to start",)),
-            ("reject_dependency_build_failure", {"module": "Slang/Broken.lean", "prefix": "Slang.Broken"}, "blocked", False, ("proof dependency build failed",)),
-            ("reject_axiom_target", {"module": "Slang/Axiom.lean", "declaration": "Slang.Axiom.bad"}, "blocked", False, ("is an axiom",)),
-            ("reject_sorry_target", {"module": "Slang/Sorry.lean", "declaration": "Slang.Sorry.bad"}, "blocked", False, ("outside the closed cone",)),
-            ("reject_surviving_mutation", {"old": "body {", "new": "body  {"}, "fail", True, ("mutation survived",)),
-            ("reject_awaiting_control", {"control_status": AWAITING}, "blocked", True, (AWAITING,)),
-        ]
-        for name, kwargs, status, controls, needles in cases:
-            expect(
-                name,
-                run(_synthetic_stage_dict(repo, **kwargs), controls=controls),
-                status,
-                *needles,
-            )
-
-        # 2. hole 2: an unrelated crash, and a red run at the wrong step, are not
-        #    controls even though the command exits nonzero.
-        expect(
-            "reject_unrelated_crash",
-            run(
-                _synthetic_stage_dict(
-                    repo,
-                    steps=[["python3", "crash.py"]],
-                    old="return 1;",
-                    new="boom",
-                    expected_output="synthetic body change rejected",
-                )
-            ),
-            "fail",
-            "expected rejecting result",
-        )
-        expect(
-            "reject_wrong_red_step",
-            run(
-                _synthetic_stage_dict(
-                    repo,
-                    steps=[["python3", "crash.py"], ["python3", "check.py"]],
-                    old="return 1;",
-                    new="boom",
-                    expected_step=1,
-                    expected_output="synthetic body change rejected",
-                )
-            ),
-            "fail",
-            "control target not reached",
-        )
-
-        # 3. the mutation engine fails loudly on an absent or ambiguous target.
-        try:
-            Mutation(path="x", old="absent", new="y").apply("alpha\nbeta\n")
-            record("mutation_absent_raises", False, "missing target did not raise")
-        except MutationError as exc:
-            record("mutation_absent_raises", True, f"raised: {exc}")
-        try:
-            Mutation(path="x", old="a", new="b").apply("a\na\n")
-            record("mutation_ambiguous_raises", False, "ambiguous target did not raise")
-        except MutationError as exc:
-            record("mutation_ambiguous_raises", True, f"raised: {exc}")
-
-        # 4. hole 4: a symlinked ancestor of the mutation target is refused and the
-        #    real source is left untouched.
-        before = (repo / "song" / "synthetic.slang").read_bytes()
-        escape = run(_synthetic_stage_dict(repo, link=["song"]), controls=True)
-        after = (repo / "song" / "synthetic.slang").read_bytes()
-        record(
-            "reject_symlink_ancestor_escape",
-            escape.status == "blocked"
-            and "outside the resolved throwaway root" in escape.reason
-            and before == after,
-            f"status={escape.status} reason={escape.reason}",
-        )
-
-        # 5. hole 3: single-root resolution. The explicit Song root wins over an
-        #    ordinary sibling checkout, and there is no sibling fallback.
-        shadow = workdir / "shadow"
-        explicit = shadow / "repo" / "song"
-        sibling = shadow / "song"
-        explicit.mkdir(parents=True, exist_ok=True)
-        sibling.mkdir(parents=True, exist_ok=True)
-        (explicit / "synthetic.slang").write_text("explicit\n", encoding="utf-8")
-        (sibling / "synthetic.slang").write_text("sibling\n", encoding="utf-8")
-        won = resolve_one("song/synthetic.slang", shadow / "repo", explicit)
-        record(
-            "explicit_song_root_wins",
-            won is not None
-            and won.resolve() == (explicit / "synthetic.slang").resolve(),
-            f"resolved={won}",
-        )
-        (explicit / "synthetic.slang").unlink()
-        fallback = resolve_one("song/synthetic.slang", shadow / "repo", explicit)
-        record(
-            "explicit_song_root_no_sibling_fallback",
-            fallback is None,
-            f"resolved={fallback}",
-        )
-
-        # 6. the manifest rejects a stale or missing selected source.
-        for name, path, needle in (
-            ("reject_manifest_stale", "song/synthetic.slang", "stale source input"),
-            ("reject_manifest_missing", "song/absent.slang", "missing source input"),
-        ):
-            manifest = (Artifact(kind=SOURCE_ARTIFACT, path=path, sha256="0" * 64),)
-            expect(
-                name,
-                run(_synthetic_stage_dict(repo), controls=False, manifest=manifest),
-                "blocked",
-                needle,
-            )
-
-        # 7. controls.json parses, declares the eight stages and the expected
-        #    control status of each.
-        try:
-            loaded = load_controls()
-            ids = {stage.id for stage in loaded.stages}
-            expected = {
-                "decode",
-                "machine",
-                "source",
-                "init",
-                "lookup",
-                "write",
-                "resources",
-                "replacement-link",
-            }
-            record(
-                "controls_schema",
-                ids == expected and len(loaded.stages) == 8,
-                f"ids={sorted(ids)}",
-            )
-            by_id = {stage.id: stage for stage in loaded.stages}
-            for name, root in loaded.roots.items():
-                record(
-                    f"controls_root:{name}",
-                    (REPO_ROOT / root).exists() or (REPO_ROOT.parent / root).exists(),
-                    f"root={root}",
-                )
-            for name in ("lookup",):
-                stage = by_id[name]
-                record(
-                    f"controls_awaiting:{name}",
-                    stage.control_status == AWAITING
-                    and stage.mutation is None
-                    and bool(stage.awaiting_reason),
-                    f"status={stage.control_status}",
-                )
-            write = by_id["write"].mutation
-            record(
-                "controls_anchor:write",
-                write is not None
-                and write.anchor is not None
-                and "oldVal" in write.new
-                and "else value" in write.old,
-                f"anchor={write.anchor if write else None}",
-            )
-            for name, step, needle in (
-                ("decode", 1, "statement count differs"),
-                ("machine", 0, "EvalExpr.conditionalTrue"),
-            ):
-                control = by_id[name].mutation
-                record(
-                    f"controls_expect:{name}",
-                    control is not None
-                    and control.expected_step == step
-                    and needle in control.expected_output,
-                    f"step={control.expected_step if control else None}",
-                )
-            record(
-                "controls_manifest",
-                len(loaded.manifest) >= 8
-                and all(entry.kind == SOURCE_ARTIFACT for entry in loaded.manifest),
-                f"entries={len(loaded.manifest)}",
-            )
-        except ControlsError as exc:
-            record("controls_schema", False, str(exc))
-
-        # 8. every declared active mutation resolves uniquely against its real source.
-        try:
-            loaded = load_controls()
-        except ControlsError:
-            loaded = Controls(roots={}, manifest=(), stages=())
-        for stage in loaded.stages:
-            if stage.mutation is None:
-                continue
-            resolved = resolve_one(stage.mutation.path, REPO_ROOT, DEFAULT_SONG_ROOT)
-            if resolved is None:
-                record(
-                    f"mutation_resolves:{stage.id}",
-                    False,
-                    f"missing source {stage.mutation.path}",
-                )
-                continue
-            try:
-                pristine = resolved.read_text(encoding="utf-8")
-                mutated = stage.mutation.apply(pristine)
-                record(
-                    f"mutation_resolves:{stage.id}",
-                    mutated != pristine,
-                    "target resolves uniquely and changes the source",
-                )
-            except (MutationError, OSError) as exc:
-                record(f"mutation_resolves:{stage.id}", False, str(exc))
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-    for check in checks:
-        print(json.dumps(check, sort_keys=True))
-    failed = [check for check in checks if not check["ok"]]
-    print(
-        json.dumps(
-            {"self_test": "pass" if not failed else "fail", "checks": len(checks)},
-            sort_keys=True,
-        )
-    )
-    return EXIT_OK if not failed else EXIT_BLOCKED
+    """Delegate to the self-test module to keep this harness within the size bound."""
+    import refine_selftest
+    return refine_selftest.self_test()
 
 # ---------------------------------------------------------------------------
 # CLI

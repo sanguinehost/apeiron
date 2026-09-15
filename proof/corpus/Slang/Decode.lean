@@ -1,5 +1,8 @@
 import Slang.Syntax
 
+set_option autoImplicit false
+set_option warningAsError true
+
 namespace Slang.Decode
 
 open Slang
@@ -40,106 +43,190 @@ structure Decoded where
 abbrev CertifiedDecoded := { decoded : Decoded // decoded.certificate.Valid }
 abbrev Result (α : Type) := Except String α
 
-private def isSpace : Char → Bool
+def isSpace : Char → Bool
   | ' ' | '\t' | '\r' => true
   | _ => false
 
-private def isDigit (c : Char) : Bool := '0' ≤ c && c ≤ '9'
-private def isAlpha (c : Char) : Bool :=
-  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || c = '_'
-private def isAlphaNum (c : Char) : Bool := isAlpha c || isDigit c
+def isDigit (c : Char) : Bool :=
+  '0'.toNat ≤ c.toNat && c.toNat ≤ '9'.toNat
+def isAlpha (c : Char) : Bool :=
+  ('a'.toNat ≤ c.toNat && c.toNat ≤ 'z'.toNat) ||
+    ('A'.toNat ≤ c.toNat && c.toNat ≤ 'Z'.toNat) || c.toNat == '_'.toNat
+def isAlphaNum (c : Char) : Bool := isAlpha c || isDigit c
 
-private def takeWhile (p : Char → Bool) : List Char → List Char × List Char
+def takeWhile (p : Char → Bool) : List Char → List Char × List Char
   | [] => ([], [])
   | c :: cs => if p c then
       let (front, rest) := takeWhile p cs
       (c :: front, rest)
     else ([], c :: cs)
 
-private def digitsValue (digits : List Char) : Nat :=
+def digitsValue (digits : List Char) : Nat :=
   digits.foldl (fun value digit => value * 10 + (digit.toNat - '0'.toNat)) 0
 
-private def skipComment : List Char → Nat → List Char × Nat
+/-- Number of UTF-8 bytes occupied by a character. -/
+def utf8ByteLength (c : Char) : Nat :=
+  if c.toNat < 0x80 then 1
+  else if c.toNat < 0x800 then 2
+  else if c.toNat < 0x10000 then 3
+  else 4
+
+/-- Number of UTF-8 bytes occupied by a character list. -/
+def utf8ByteLengthList (chars : List Char) : Nat :=
+  chars.foldl (fun size c => size + utf8ByteLength c) 0
+
+def isContinuationByte (value : Nat) : Bool :=
+  0x80 ≤ value && value < 0xc0
+
+def decodeUtf8CharsFuel : Nat → List UInt8 → Result (List Char)
+  | 0, _ => .error "source is not UTF-8"
+  | _ + 1, [] => .ok []
+  | fuel + 1, first :: rest =>
+      let b0 := first.toNat
+      if b0 < 0x80 then do
+        let tail ← decodeUtf8CharsFuel fuel rest
+        .ok (Char.ofNat b0 :: tail)
+      else if b0 < 0xe0 then
+        match rest with
+        | [] => .error "source is not UTF-8"
+        | second :: rest =>
+            let b1 := second.toNat
+            let code := (b0 - 0xc0) * 0x40 + (b1 - 0x80)
+            if b0 < 0xc2 || !isContinuationByte b1 then .error "source is not UTF-8"
+            else do
+              let tail ← decodeUtf8CharsFuel fuel rest
+              .ok (Char.ofNat code :: tail)
+      else if b0 < 0xf0 then
+        match rest with
+        | [] => .error "source is not UTF-8"
+        | second :: afterSecond =>
+            match afterSecond with
+            | [] => .error "source is not UTF-8"
+            | third :: rest =>
+                let b1 := second.toNat
+                let b2 := third.toNat
+                let code := (b0 - 0xe0) * 0x1000 + (b1 - 0x80) * 0x40 + (b2 - 0x80)
+                if !isContinuationByte b1 || !isContinuationByte b2 || code < 0x800 ||
+                    (0xd800 ≤ code && code < 0xe000) then .error "source is not UTF-8"
+                else do
+                  let tail ← decodeUtf8CharsFuel fuel rest
+                  .ok (Char.ofNat code :: tail)
+      else if b0 < 0xf5 then
+        match rest with
+        | [] => .error "source is not UTF-8"
+        | second :: afterSecond =>
+            match afterSecond with
+            | [] => .error "source is not UTF-8"
+            | third :: afterThird =>
+                match afterThird with
+                | [] => .error "source is not UTF-8"
+                | fourth :: rest =>
+                    let b1 := second.toNat
+                    let b2 := third.toNat
+                    let b3 := fourth.toNat
+                    let code := (b0 - 0xf0) * 0x40000 + (b1 - 0x80) * 0x1000 +
+                      (b2 - 0x80) * 0x40 + (b3 - 0x80)
+                    if !isContinuationByte b1 || !isContinuationByte b2 ||
+                        !isContinuationByte b3 || code < 0x10000 || 0x110000 ≤ code then
+                      .error "source is not UTF-8"
+                    else do
+                      let tail ← decodeUtf8CharsFuel fuel rest
+                      .ok (Char.ofNat code :: tail)
+      else .error "source is not UTF-8"
+
+def decodeUtf8Chars (bytes : List UInt8) : Result (List Char) :=
+  decodeUtf8CharsFuel (bytes.length + 1) bytes
+
+def skipComment : List Char → Nat → List Char × Nat
   | [], pos => ([], pos)
   | '\n' :: cs, pos => ('\n' :: cs, pos)
-  | _ :: cs, pos => skipComment cs (pos + 1)
+  | c :: cs, pos => skipComment cs (pos + utf8ByteLength c)
 
-private def lexChars : Nat → List Char → Nat → List Token → Result (List Token × Nat)
+def lexChars : Nat → List Char → Nat → List Token → Result (List Token × Nat)
   | 0, _, _, _ => .error "tokenizer limit reached"
-  | _, [], pos, tokens => .ok (tokens.reverse, pos)
+  | _ + 1, [], pos, tokens => .ok (tokens.reverse, pos)
   | fuel + 1, c :: cs, pos, tokens =>
-      if isSpace c then lexChars fuel cs (pos + 1) tokens else
+      let width := utf8ByteLength c
+      if isSpace c then lexChars fuel cs (pos + width) tokens else
       if c = '\n' then
-        lexChars fuel cs (pos + 1) ({ kind := .newline, span := ⟨pos, pos + 1⟩ } :: tokens)
+        lexChars fuel cs (pos + width) ({ kind := .newline, span := ⟨pos, pos + width⟩ } :: tokens)
       else if c = '/' then
         match cs with
-        | '/' :: tail =>
-            let (rest, next) := skipComment tail (pos + 2)
-            lexChars fuel rest next tokens
-        | _ => lexChars fuel cs (pos + 1) ({ kind := .other c, span := ⟨pos, pos + 1⟩ } :: tokens)
+        | [] => lexChars fuel cs (pos + width) ({ kind := .other c, span := ⟨pos, pos + width⟩ } :: tokens)
+        | second :: tail =>
+            if second.toNat == '/'.toNat then
+              let (rest, next) := skipComment tail (pos + 2)
+              lexChars fuel rest next tokens
+            else lexChars fuel cs (pos + width) ({ kind := .other c, span := ⟨pos, pos + width⟩ } :: tokens)
       else if isAlpha c then
         let (tail, rest) := takeWhile isAlphaNum cs
         let chars := c :: tail
-        let stop := pos + chars.length
+        let stop := pos + utf8ByteLengthList chars
         lexChars fuel rest stop ({ kind := .ident (String.ofList chars), span := ⟨pos, stop⟩ } :: tokens)
       else if isDigit c then
         let (tail, rest) := takeWhile isDigit cs
         let chars := c :: tail
-        let stop := pos + chars.length
+        let stop := pos + utf8ByteLengthList chars
         lexChars fuel rest stop ({ kind := .numeral (digitsValue chars), span := ⟨pos, stop⟩ } :: tokens)
       else
         let one (kind : TokenKind) :=
-          lexChars fuel cs (pos + 1) ({ kind := kind, span := ⟨pos, pos + 1⟩ } :: tokens)
-        match c, cs with
-        | '<', '=' :: rest => lexChars fuel rest (pos + 2) ({ kind := .le, span := ⟨pos, pos + 2⟩ } :: tokens)
-        | '>', '=' :: rest => lexChars fuel rest (pos + 2) ({ kind := .ge, span := ⟨pos, pos + 2⟩ } :: tokens)
-        | '(', _ => one .lparen
-        | ')', _ => one .rparen
-        | '{', _ => one .lbrace
-        | '}', _ => one .rbrace
-        | '[', _ => one .lbracket
-        | ']', _ => one .rbracket
-        | ',', _ => one .comma
-        | ';', _ => one .semi
-        | '=', _ => one .assign
-        | '<', _ => one .lt
-        | '>', _ => one .gt
-        | _, _ => one (.other c)
+          lexChars fuel cs (pos + width) ({ kind := kind, span := ⟨pos, pos + width⟩ } :: tokens)
+        if c.toNat == '<'.toNat then
+          match cs with
+          | [] => one .lt
+          | second :: rest =>
+              if second.toNat == '='.toNat then
+                lexChars fuel rest (pos + 2) ({ kind := .le, span := ⟨pos, pos + 2⟩ } :: tokens)
+              else one .lt
+        else if c.toNat == '>'.toNat then
+          match cs with
+          | [] => one .gt
+          | second :: rest =>
+              if second.toNat == '='.toNat then
+                lexChars fuel rest (pos + 2) ({ kind := .ge, span := ⟨pos, pos + 2⟩ } :: tokens)
+              else one .gt
+        else if c.toNat == '('.toNat then one .lparen
+        else if c.toNat == ')'.toNat then one .rparen
+        else if c.toNat == '{'.toNat then one .lbrace
+        else if c.toNat == '}'.toNat then one .rbrace
+        else if c.toNat == '['.toNat then one .lbracket
+        else if c.toNat == ']'.toNat then one .rbracket
+        else if c.toNat == ','.toNat then one .comma
+        else if c.toNat == ';'.toNat then one .semi
+        else if c.toNat == '='.toNat then one .assign
+        else one (.other c)
 
 def tokenize (bytes : ByteArray) : Result (List Token × Nat) := do
-  let text ← match String.fromUTF8? bytes with
-    | some text => .ok text
-    | none => .error "source is not UTF-8"
-  let (tokens, _) ← lexChars (text.toList.length + 1) text.toList 0 []
-  .ok (tokens, bytes.size)
+  let chars ← decodeUtf8Chars bytes.data.toList
+  lexChars (chars.length + 1) chars 0 []
 
-private def dropNewlines : List Token → List Token
-  | { kind := .newline, .. } :: rest => dropNewlines rest
-  | tokens => tokens
+def dropNewlines : List Token → List Token
+  | [] => []
+  | token :: rest => if token.kind = .newline then dropNewlines rest else token :: rest
 
-private def expectKind (wanted : TokenKind) : List Token → Result (Token × List Token)
+def expectKind (wanted : TokenKind) : List Token → Result (Token × List Token)
   | token :: rest => if token.kind = wanted then .ok (token, rest)
-      else .error s!"expected {repr wanted} at byte {token.span.start}"
-  | [] => .error s!"expected {repr wanted} at end of input"
+      else .error "unexpected token kind"
+  | [] => .error "expected token at end of input"
 
 private def expectIdent : List Token → Result (String × Token × List Token)
   | token@{ kind := .ident name, .. } :: rest => .ok (name, token, rest)
-  | token :: _ => .error s!"expected name at byte {token.span.start}"
+  | _ :: _ => .error "expected name"
   | [] => .error "expected name at end of input"
 
-private def binOp : TokenKind → Option (BinOp × Nat)
-  | .ident "or" => some (.bitOr, 1)
-  | .ident "xor" => some (.bitXor, 1)
-  | .ident "and" => some (.bitAnd, 2)
-  | .ident "is" => some (.eq, 3)
-  | .lt => some (.lt, 3)
-  | .le => some (.le, 3)
-  | .gt => some (.gt, 3)
-  | .ge => some (.ge, 3)
-  | .other '+' => some (.add, 4)
-  | .other '-' => some (.sub, 4)
-  | .other '*' => some (.mul, 5)
-  | _ => none
+def binOp (kind : TokenKind) : Option (BinOp × Nat) :=
+  if kind = .ident "or" then some (.bitOr, 1)
+  else if kind = .ident "xor" then some (.bitXor, 1)
+  else if kind = .ident "and" then some (.bitAnd, 2)
+  else if kind = .ident "is" then some (.eq, 3)
+  else if kind = .lt then some (.lt, 3)
+  else if kind = .le then some (.le, 3)
+  else if kind = .gt then some (.gt, 3)
+  else if kind = .ge then some (.ge, 3)
+  else if kind = .other '+' then some (.add, 4)
+  else if kind = .other '-' then some (.sub, 4)
+  else if kind = .other '*' then some (.mul, 5)
+  else none
 
 mutual
   def parseExprFuel : Nat → Nat → List Token → Result (Expr × List Token)
@@ -152,64 +239,83 @@ mutual
     | 0, _ => .error "expression nesting limit reached"
     | fuel + 1, tokens =>
       match dropNewlines tokens with
-      | { kind := .numeral value, .. } :: rest => .ok (.literal value, rest)
-      | { kind := .ident "memory", .. } :: rest => do
-          let (_, rest) ← expectKind .lbracket rest
-          let (address, rest) ← parseExprFuel fuel 0 rest
-          let (_, rest) ← expectKind .rbracket rest
-          .ok (.memory address, rest)
-      | { kind := .ident name, .. } :: ({ kind := .lparen, .. } :: rest) => do
-          let (args, rest) ← parseArgsFuel fuel rest
-          .ok (.call name args, rest)
-      | { kind := .ident name, .. } :: rest => .ok (.name name, rest)
-      | { kind := .lparen, .. } :: rest => do
-          let (value, rest) ← parseExprFuel fuel 0 rest
-          let (_, rest) ← expectKind .rparen rest
-          .ok (value, rest)
-      | token :: _ => .error s!"unsupported expression token {repr token.kind} at byte {token.span.start}"
       | [] => .error "expected expression at end of input"
+      | token :: rest =>
+          match token.kind with
+          | .numeral value => .ok (.literal value, rest)
+          | .ident name =>
+              if name = "memory" then do
+                let (_, rest) ← expectKind .lbracket rest
+                let (address, rest) ← parseExprFuel fuel 0 rest
+                let (_, rest) ← expectKind .rbracket rest
+                .ok (.memory address, rest)
+              else
+                match rest with
+                | next :: tail =>
+                    if next.kind = .lparen then do
+                      let (args, rest) ← parseArgsFuel fuel tail
+                      .ok (.call name args, rest)
+                    else .ok (.name name, rest)
+                | [] => .ok (.name name, [])
+          | .lparen => do
+              let (value, rest) ← parseExprFuel fuel 0 rest
+              let (_, rest) ← expectKind .rparen rest
+              .ok (value, rest)
+          | .rparen | .lbrace | .rbrace | .lbracket | .rbracket | .comma | .semi |
+              .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
+              .error "unsupported expression token"
 
   def parseArgsFuel : Nat → List Token → Result (List Expr × List Token)
     | 0, _ => .error "call argument nesting limit reached"
     | fuel + 1, tokens =>
       match dropNewlines tokens with
-      | { kind := .rparen, .. } :: rest => .ok ([], rest)
-      | tokens => do
-          let (arg, rest) ← parseExprFuel fuel 0 tokens
-          match dropNewlines rest with
-          | { kind := .comma, .. } :: tail =>
-              let (args, tail) ← parseArgsFuel fuel tail
-              .ok (arg :: args, tail)
-          | { kind := .rparen, .. } :: tail => .ok ([arg], tail)
-          | token :: _ => .error s!"expected ',' or ')' at byte {token.span.start}"
-          | [] => .error "unterminated call arguments"
+      | [] => .error "unterminated call arguments"
+      | token :: rest =>
+          if token.kind = .rparen then .ok ([], rest) else do
+            let (arg, rest) ← parseExprFuel fuel 0 (token :: rest)
+            match dropNewlines rest with
+            | next :: tail =>
+                if next.kind = .comma then
+                  let (args, tail) ← parseArgsFuel fuel tail
+                  .ok (arg :: args, tail)
+                else if next.kind = .rparen then .ok ([arg], tail)
+                else .error "expected comma or closing parenthesis"
+            | [] => .error "unterminated call arguments"
 
   def parseBinaryFuel : Nat → Nat → Expr → List Token → Result (Expr × List Token)
     | 0, _, _, _ => .error "expression operator limit reached"
     | fuel + 1, minPrec, left, tokens =>
       match dropNewlines tokens with
-      | ({ kind := .ident "is", .. } :: { kind := .ident "not", .. } :: rest) =>
-          if 3 < minPrec then .ok (left, tokens) else do
-            let (right, rest) ← parseExprFuel fuel 4 rest
-            parseBinaryFuel fuel minPrec (.binary .ne left right) rest
-      | token :: rest =>
-          match binOp token.kind with
-          | some (op, prec) =>
-              if prec < minPrec then .ok (left, tokens) else do
-                let (right, rest) ← parseExprFuel fuel (prec + 1) rest
-                parseBinaryFuel fuel minPrec (.binary op left right) rest
-          | none =>
-              if let .ident "if" := token.kind then
-                if 0 < minPrec then .ok (left, tokens) else do
-                  let (condition, rest) ← parseExprFuel fuel 0 rest
-                  match dropNewlines rest with
-                  | { kind := .ident "else", .. } :: tail =>
-                      let (elseValue, tail) ← parseExprFuel fuel 0 tail
-                      .ok (.conditional left condition elseValue, tail)
-                  | next :: _ => .error s!"expected inline else at byte {next.span.start}"
-                  | [] => .error "unterminated inline conditional"
-              else .ok (left, tokens)
       | [] => .ok (left, [])
+      | token :: rest =>
+          let ordinary :=
+            match binOp token.kind with
+            | some (op, prec) =>
+                if prec < minPrec then .ok (left, tokens) else do
+                  let (right, rest) ← parseExprFuel fuel (prec + 1) rest
+                  parseBinaryFuel fuel minPrec (.binary op left right) rest
+            | none =>
+                if token.kind = .ident "if" then
+                  if 0 < minPrec then .ok (left, tokens) else do
+                    let (condition, rest) ← parseExprFuel fuel 0 rest
+                    match dropNewlines rest with
+                    | next :: tail =>
+                        if next.kind = .ident "else" then
+                          let (elseValue, tail) ← parseExprFuel fuel 0 tail
+                          .ok (.conditional left condition elseValue, tail)
+                        else .error "expected inline else"
+                    | [] => .error "unterminated inline conditional"
+                else .ok (left, tokens)
+          if token.kind = .ident "is" then
+            match rest with
+            | next :: tail =>
+                if next.kind = .ident "not" then
+                  if 3 < minPrec then .ok (left, tokens) else do
+                    let (right, rest) ← parseExprFuel fuel 4 tail
+                    parseBinaryFuel fuel minPrec (.binary .ne left right) rest
+                else ordinary
+            | [] => ordinary
+          else ordinary
 end
 
 private def parseExpr (tokens : List Token) : Result (Expr × List Token) :=
@@ -220,62 +326,100 @@ mutual
     | 0, _ => .error "statement nesting limit reached"
     | fuel + 1, tokens =>
       match dropNewlines tokens with
-      | close@{ kind := .rbrace, .. } :: rest => .ok ([], close, rest)
       | [] => .error "unterminated function body"
-      | tokens => do
-          let (stmt, rest) ← parseStmtFuel fuel tokens
-          let (body, close, rest) ← parseBlockFuel fuel rest
-          .ok (stmt :: body, close, rest)
+      | token :: rest =>
+          if token.kind = .rbrace then .ok ([], token, rest) else do
+            let (stmt, rest) ← parseStmtFuel fuel (token :: rest)
+            let (body, close, rest) ← parseBlockFuel fuel rest
+            .ok (stmt :: body, close, rest)
 
   def parseStmtFuel : Nat → List Token → Result (Stmt × List Token)
     | 0, _ => .error "statement nesting limit reached"
     | fuel + 1, tokens =>
       match dropNewlines tokens with
-      | { kind := .ident "return", .. } :: rest => do
-          let (value, rest) ← parseExpr rest
-          let (_, rest) ← expectKind .semi (dropNewlines rest)
-          .ok (.return_ value, rest)
-      | { kind := .ident "if", .. } :: rest => do
-          let (condition, rest) ← parseExpr rest
-          let (_, rest) ← expectKind .lbrace (dropNewlines rest)
-          let (thenBody, _, rest) ← parseBlockFuel fuel rest
-          match dropNewlines rest with
-          | { kind := .ident "else", .. } :: tail => do
-              let (_, tail) ← expectKind .lbrace (dropNewlines tail)
-              let (elseBody, _, tail) ← parseBlockFuel fuel tail
-              .ok (.if_ condition thenBody (some elseBody), tail)
-          | _ => .ok (.if_ condition thenBody none, rest)
-      | { kind := .ident "memory", .. } :: { kind := .lbracket, .. } :: rest => do
-          let (address, rest) ← parseExpr rest
-          let (_, rest) ← expectKind .rbracket rest
-          let (_, rest) ← expectKind .assign (dropNewlines rest)
-          let (value, rest) ← parseExpr rest
-          let (_, rest) ← expectKind .semi (dropNewlines rest)
-          .ok (.store address value, rest)
-      | { kind := .ident name, .. } :: { kind := .assign, .. } :: rest => do
-          let (value, rest) ← parseExpr rest
-          let (_, rest) ← expectKind .semi (dropNewlines rest)
-          .ok (.bind name value, rest)
-      | tokens => do
-          let (value, rest) ← parseExpr tokens
+      | token :: rest =>
+          match token.kind with
+          | .ident name =>
+              if name = "return" then do
+                let (value, rest) ← parseExpr rest
+                let (_, rest) ← expectKind .semi (dropNewlines rest)
+                .ok (.return_ value, rest)
+              else if name = "if" then do
+                let (condition, rest) ← parseExpr rest
+                let (_, rest) ← expectKind .lbrace (dropNewlines rest)
+                let (thenBody, _, rest) ← parseBlockFuel fuel rest
+                match dropNewlines rest with
+                | next :: tail =>
+                    if next.kind = .ident "else" then do
+                      let (_, tail) ← expectKind .lbrace (dropNewlines tail)
+                      let (elseBody, _, tail) ← parseBlockFuel fuel tail
+                      .ok (.if_ condition thenBody (some elseBody), tail)
+                    else .ok (.if_ condition thenBody none, rest)
+                | [] => .ok (.if_ condition thenBody none, rest)
+              else if name = "memory" then
+                match rest with
+                | next :: tail =>
+                    if next.kind = .lbracket then do
+                      let (address, rest) ← parseExpr tail
+                      let (_, rest) ← expectKind .rbracket rest
+                      let (_, rest) ← expectKind .assign (dropNewlines rest)
+                      let (value, rest) ← parseExpr rest
+                      let (_, rest) ← expectKind .semi (dropNewlines rest)
+                      .ok (.store address value, rest)
+                    else do
+                      let (value, rest) ← parseExpr (token :: next :: tail)
+                      let (_, rest) ← expectKind .semi (dropNewlines rest)
+                      .ok (.expression value, rest)
+                | [] => do
+                    let (value, rest) ← parseExpr [token]
+                    let (_, rest) ← expectKind .semi (dropNewlines rest)
+                    .ok (.expression value, rest)
+              else
+                match rest with
+                | next :: tail =>
+                    if next.kind = .assign then do
+                      let (value, rest) ← parseExpr tail
+                      let (_, rest) ← expectKind .semi (dropNewlines rest)
+                      .ok (.bind name value, rest)
+                    else do
+                      let (value, rest) ← parseExpr (token :: next :: tail)
+                      let (_, rest) ← expectKind .semi (dropNewlines rest)
+                      .ok (.expression value, rest)
+                | [] => do
+                    let (value, rest) ← parseExpr [token]
+                    let (_, rest) ← expectKind .semi (dropNewlines rest)
+                    .ok (.expression value, rest)
+          | .numeral _ | .lparen | .rparen | .lbrace | .rbrace | .lbracket | .rbracket |
+              .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ => do
+              let (value, rest) ← parseExpr (token :: rest)
+              let (_, rest) ← expectKind .semi (dropNewlines rest)
+              .ok (.expression value, rest)
+      | [] => do
+          let (value, rest) ← parseExpr []
           let (_, rest) ← expectKind .semi (dropNewlines rest)
           .ok (.expression value, rest)
 end
 
 private def parseParameters : Nat → List Token → Result (List String × List Token)
   | 0, _ => .error "parameter limit reached"
-  | _, { kind := .rparen, .. } :: rest => .ok ([], rest)
-  | fuel + 1, tokens => do
-      let (name, _, rest) ← expectIdent tokens
-      match rest with
-      | { kind := .comma, .. } :: tail =>
-          let (names, tail) ← parseParameters fuel tail
-          .ok (name :: names, tail)
-      | { kind := .rparen, .. } :: tail => .ok ([name], tail)
-      | token :: _ => .error s!"expected ',' or ')' in parameters at byte {token.span.start}"
-      | [] => .error "unterminated parameter list"
+  | _ + 1, [] => .error "expected name at end of input"
+  | fuel + 1, token :: rest =>
+      if token.kind = .rparen then .ok ([], rest) else
+      match token.kind with
+      | .ident name =>
+          match rest with
+          | [] => .error "unterminated parameter list"
+          | next :: tail =>
+              if next.kind = .comma then do
+                let (names, tail) ← parseParameters fuel tail
+                .ok (name :: names, tail)
+              else if next.kind = .rparen then .ok ([name], tail)
+              else .error "expected ',' or ')' in parameters"
+      | .numeral _ | .lparen | .rparen | .lbrace | .rbrace | .lbracket | .rbracket |
+          .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
+          .error "expected name"
 
-private def parseFunction (name : String) (start : Nat) (tokens : List Token) : Result (FunctionDecl × List Token) := do
+def parseFunction (name : String) (start : Nat) (tokens : List Token) : Result (FunctionDecl × List Token) := do
   let (_, tokens) ← expectKind .lparen tokens
   let (parameters, tokens) ← parseParameters (tokens.length + 1) tokens
   let (_, tokens) ← expectKind .lbrace (dropNewlines tokens)
@@ -293,75 +437,169 @@ def selectedFunctionNames : List String :=
 
 private def takeLine : List Token → List Token × List Token
   | [] => ([], [])
-  | token@{ kind := .newline, .. } :: rest => ([], token :: rest)
   | token :: rest =>
-      let (line, tail) := takeLine rest
-      (token :: line, tail)
+      if token.kind = .newline then ([], token :: rest) else
+        let (line, tail) := takeLine rest
+        (token :: line, tail)
 
-private def scanSelected : Nat → List Token → List String → List String →
+def scanSelected : Nat → List Token → List String → List String →
     Result (List ConstantDecl × List FunctionDecl)
   | 0, _, _, _ => .error "declaration scan limit reached"
   | _, [], _, _ => .ok ([], [])
-  | fuel + 1, token@{ kind := .ident name, .. } :: { kind := .assign, .. } :: rest, constants, functions =>
-      if constants.contains name then do
-        let (line, tail) := takeLine rest
-        let (value, leftover) ← parseExpr line
-        if dropNewlines leftover != [] then .error s!"trailing constant tokens for {name}" else
-        let stop := line.getLast?.map (fun t => t.span.stop) |>.getD token.span.stop
-        let (decls, funcs) ← scanSelected fuel tail (constants.erase name) functions
-        .ok ({ name, value, span := ⟨token.span.start, stop⟩ } :: decls, funcs)
-      else scanSelected fuel rest constants functions
-  | fuel + 1, token@{ kind := .ident name, .. } :: ({ kind := .lparen, .. } :: rest), constants, functions =>
-      if functions.contains name then do
-        let (decl, tail) ← parseFunction name token.span.start ({ kind := .lparen, span := ⟨token.span.stop, token.span.stop + 1⟩ } :: rest)
-        let (decls, funcs) ← scanSelected fuel tail constants (functions.erase name)
-        .ok (decls, decl :: funcs)
-      else scanSelected fuel rest constants functions
-  | fuel + 1, _ :: rest, constants, functions => scanSelected fuel rest constants functions
+  | fuel + 1, token :: rest, constants, functions =>
+      match token.kind with
+      | .ident name =>
+          match rest with
+          | [] => scanSelected fuel [] constants functions
+          | next :: tail =>
+              if next.kind = .assign then
+                if constants.contains name then do
+                  let (line, afterLine) := takeLine tail
+                  let (value, leftover) ← parseExpr line
+                  if dropNewlines leftover != [] then
+                    .error "trailing constant tokens"
+                  else
+                    let stop := line.getLast?.map (fun t => t.span.stop) |>.getD token.span.stop
+                    let (decls, funcs) ←
+                      scanSelected fuel afterLine (constants.erase name) functions
+                    .ok ({ name, value, span := ⟨token.span.start, stop⟩ } :: decls, funcs)
+                else if selectedConstantNames.contains name then
+                  .error "duplicate selected constant"
+                else scanSelected fuel rest constants functions
+              else if next.kind = .lparen then
+                if functions.contains name then do
+                  let openParen : Token :=
+                    { kind := .lparen, span := ⟨token.span.stop, token.span.stop + 1⟩ }
+                  let (decl, afterDecl) ← parseFunction name token.span.start (openParen :: tail)
+                  let (decls, funcs) ←
+                    scanSelected fuel afterDecl constants (functions.erase name)
+                  .ok (decls, decl :: funcs)
+                else scanSelected fuel rest constants functions
+              else scanSelected fuel rest constants functions
+      | .numeral _ | .lparen | .rparen | .lbrace | .rbrace | .lbracket | .rbracket |
+          .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
+          scanSelected fuel rest constants functions
 
 private def distinct (names : List String) : Bool := names.eraseDups.length = names.length
 private def delimitersBalanced : List Token → List TokenKind → Bool
-  | [], [] => true
-  | [], _ => false
-  | { kind := .lparen, .. } :: rest, stack => delimitersBalanced rest (.lparen :: stack)
-  | { kind := .lbrace, .. } :: rest, stack => delimitersBalanced rest (.lbrace :: stack)
-  | { kind := .lbracket, .. } :: rest, stack => delimitersBalanced rest (.lbracket :: stack)
-  | { kind := .rparen, .. } :: rest, .lparen :: stack => delimitersBalanced rest stack
-  | { kind := .rbrace, .. } :: rest, .lbrace :: stack => delimitersBalanced rest stack
-  | { kind := .rbracket, .. } :: rest, .lbracket :: stack => delimitersBalanced rest stack
-  | { kind := .rparen, .. } :: _, _ => false
-  | { kind := .rbrace, .. } :: _, _ => false
-  | { kind := .rbracket, .. } :: _, _ => false
-  | _ :: rest, stack => delimitersBalanced rest stack
+  | tokens, stack =>
+      match tokens with
+      | [] =>
+          match stack with
+          | [] => true
+          | _ :: _ => false
+      | token :: rest =>
+          match token.kind with
+          | .lparen => delimitersBalanced rest (.lparen :: stack)
+          | .lbrace => delimitersBalanced rest (.lbrace :: stack)
+          | .lbracket => delimitersBalanced rest (.lbracket :: stack)
+          | .rparen =>
+              match stack with
+              | [] => false
+              | top :: tail =>
+                  if top = .lparen then delimitersBalanced rest tail else false
+          | .rbrace =>
+              match stack with
+              | [] => false
+              | top :: tail =>
+                  if top = .lbrace then delimitersBalanced rest tail else false
+          | .rbracket =>
+              match stack with
+              | [] => false
+              | top :: tail =>
+                  if top = .lbracket then delimitersBalanced rest tail else false
+          | .ident _ | .numeral _ | .comma | .semi | .newline | .assign | .lt | .le |
+              .gt | .ge | .other _ => delimitersBalanced rest stack
 
 private def spansValid (size : Nat) (spans : List Span) : Bool :=
   spans.all (fun span => span.start < span.stop && span.stop ≤ size) &&
   spans.all fun first => spans.all fun second =>
     first == second || first.stop ≤ second.start || second.stop ≤ first.start
 
+mutual
+  private def expressionCallsResolve (available : List String) : Expr → Bool
+    | .literal _ | .name _ => true
+    | .call callee args =>
+        available.contains callee && expressionsCallsResolve available args
+    | .memory address => expressionCallsResolve available address
+    | .binary _ left right =>
+        expressionCallsResolve available left && expressionCallsResolve available right
+    | .conditional thenValue condition elseValue =>
+        expressionCallsResolve available thenValue &&
+          expressionCallsResolve available condition &&
+          expressionCallsResolve available elseValue
+
+  private def expressionsCallsResolve (available : List String) : List Expr → Bool
+    | [] => true
+    | expression :: rest =>
+        expressionCallsResolve available expression && expressionsCallsResolve available rest
+end
+
+mutual
+  private def statementCallsResolve (available : List String) : Stmt → Bool
+    | .bind _ value => expressionCallsResolve available value
+    | .store address value =>
+        expressionCallsResolve available address && expressionCallsResolve available value
+    | .return_ value => expressionCallsResolve available value
+    | .expression value => expressionCallsResolve available value
+    | .if_ condition thenBody elseBody =>
+        expressionCallsResolve available condition &&
+          statementsCallsResolve available thenBody &&
+          match elseBody with
+          | none => true
+          | some body => statementsCallsResolve available body
+
+  private def statementsCallsResolve (available : List String) : List Stmt → Bool
+    | [] => true
+    | stmt :: rest =>
+        statementCallsResolve available stmt && statementsCallsResolve available rest
+end
+
 private def resolveCalls (functions : List FunctionDecl) : Bool :=
   let names := functions.map (·.name)
-  functions.all fun decl => (Syntax.FunctionDecl.calls decl).all (names.contains ·)
+  functions.all fun decl => statementsCallsResolve names decl.body
 
-private def expressionNamesResolve (available : List String) (expression : Expr) : Bool :=
-  (Syntax.Expr.names expression).all (available.contains ·)
+mutual
+  private def expressionNamesResolve (available : List String) : Expr → Bool
+    | .literal _ => true
+    | .name name => available.contains name
+    | .call _ args => expressionsNamesResolve available args
+    | .memory address => expressionNamesResolve available address
+    | .binary _ left right =>
+        expressionNamesResolve available left && expressionNamesResolve available right
+    | .conditional thenValue condition elseValue =>
+        expressionNamesResolve available thenValue &&
+          expressionNamesResolve available condition &&
+          expressionNamesResolve available elseValue
+
+  private def expressionsNamesResolve (available : List String) : List Expr → Bool
+    | [] => true
+    | expression :: rest =>
+        expressionNamesResolve available expression && expressionsNamesResolve available rest
+end
 
 private def statementsNamesResolve : Nat → List String → List Stmt → Bool
   | 0, _, _ => false
   | _, _, [] => true
-  | fuel + 1, available, .bind name value :: rest =>
-      expressionNamesResolve available value && statementsNamesResolve fuel (name :: available) rest
-  | fuel + 1, available, .store address value :: rest =>
-      expressionNamesResolve available address && expressionNamesResolve available value &&
-        statementsNamesResolve fuel available rest
-  | fuel + 1, available, .return_ value :: rest =>
-      expressionNamesResolve available value && statementsNamesResolve fuel available rest
-  | fuel + 1, available, .expression value :: rest =>
-      expressionNamesResolve available value && statementsNamesResolve fuel available rest
-  | fuel + 1, available, .if_ condition thenBody elseBody :: rest =>
-      expressionNamesResolve available condition && statementsNamesResolve fuel available thenBody &&
-        statementsNamesResolve fuel available (elseBody.getD []) &&
-        statementsNamesResolve fuel available rest
+  | fuel + 1, available, stmt :: rest =>
+      match stmt with
+      | .bind name value =>
+          expressionNamesResolve available value &&
+            statementsNamesResolve fuel (name :: available) rest
+      | .store address value =>
+          expressionNamesResolve available address && expressionNamesResolve available value &&
+            statementsNamesResolve fuel available rest
+      | .return_ value =>
+          expressionNamesResolve available value && statementsNamesResolve fuel available rest
+      | .expression value =>
+          expressionNamesResolve available value && statementsNamesResolve fuel available rest
+      | .if_ condition thenBody elseBody =>
+          expressionNamesResolve available condition &&
+            statementsNamesResolve fuel available thenBody &&
+            (match elseBody with
+              | none => true
+              | some body => statementsNamesResolve fuel available body) &&
+            statementsNamesResolve fuel available rest
 
 private def resolveNames (constants : List ConstantDecl) (functions : List FunctionDecl) : Bool :=
   let constantNames := constants.map (·.name)
@@ -369,7 +607,7 @@ private def resolveNames (constants : List ConstantDecl) (functions : List Funct
     distinct decl.parameters &&
     statementsNamesResolve (decl.body.length * 4 + 64) (decl.parameters ++ constantNames) decl.body
 
-private def decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat) : Result CertifiedDecoded := do
+def decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat) : Result CertifiedDecoded := do
   if consumed != bytes.size then .error "tokenizer did not consume every source byte" else
   if !delimitersBalanced tokens [] then .error "unbalanced source declaration delimiter" else
   let (constants, functions) ← scanSelected (tokens.length + 1) tokens selectedConstantNames selectedFunctionNames
@@ -388,27 +626,40 @@ private def decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : N
   else
   let program : Program := { constants, functions, sourceBytes := bytes.size, consumedBytes := consumed }
   let certificate : Certificate := ⟨true, true, true, true, true⟩
-  .ok ⟨{ program, certificate }, by simp [Certificate.Valid, certificate]⟩
+  .ok ⟨{ program, certificate }, ⟨rfl, rfl, rfl, rfl, rfl⟩⟩
 
 def decodeTable (bytes : ByteArray) : Result CertifiedDecoded := do
   let (tokens, consumed) ← tokenize bytes
   decodeTokens bytes tokens consumed
 
-def decodeImportedCoordCeiling (bytes : ByteArray) : Result ConstantDecl := do
-  let (tokens, consumed) ← tokenize bytes
-  if consumed != bytes.size then .error "import tokenizer did not consume every source byte" else
-  let (constants, _) ← scanSelected (tokens.length + 1) tokens ["COORD_CEILING"] []
-  match constants with
-  | [decl] => .ok decl
-  | _ => .error "COORD_CEILING is missing or duplicated"
+def decodeImportedCoordCeiling (bytes : ByteArray) : Result ConstantDecl :=
+  (tokenize bytes).bind fun result =>
+    if result.2 = bytes.size then
+      (scanSelected (result.1.length + 1) result.1 ["COORD_CEILING"] []).bind fun selected =>
+        match selected.1 with
+        | [] => .error "COORD_CEILING is missing or duplicated"
+        | decl :: [] => .ok decl
+        | _ :: _ :: _ => .error "COORD_CEILING is missing or duplicated"
+    else .error "import tokenizer did not consume every source byte"
+
+def appendImportedCoord (decoded : CertifiedDecoded) (coord : ConstantDecl) : CertifiedDecoded :=
+  ⟨{ decoded.val with
+      program := { decoded.val.program with
+        constants := decoded.val.program.constants ++ [coord] } }, decoded.property⟩
 
 def decodeClosure (tableBytes stdBytes : ByteArray) : Result CertifiedDecoded := do
   let decoded ← decodeTable tableBytes
   let coord ← decodeImportedCoordCeiling stdBytes
-  if coord.value != .literal 8796093022208 then .error "COORD_CEILING has the wrong value" else
-  let program := decoded.val.program
-  let program := { program with constants := program.constants ++ [coord] }
-  .ok ⟨{ decoded.val with program }, decoded.property⟩
+  match coord.value with
+  | .literal value =>
+      match Nat.beq value 8796093022208 with
+      | true => .ok (appendImportedCoord decoded coord)
+      | false => .error "COORD_CEILING has the wrong value"
+  | .name _ => .error "COORD_CEILING has the wrong value"
+  | .call _ _ => .error "COORD_CEILING has the wrong value"
+  | .memory _ => .error "COORD_CEILING has the wrong value"
+  | .binary _ _ _ => .error "COORD_CEILING has the wrong value"
+  | .conditional _ _ _ => .error "COORD_CEILING has the wrong value"
 
 theorem decode_certified (source : ByteArray) (decoded : CertifiedDecoded)
     (_h : decodeTable source = .ok decoded) : decoded.val.certificate.Valid := decoded.property

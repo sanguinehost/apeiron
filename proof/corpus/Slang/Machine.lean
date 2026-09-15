@@ -1,7 +1,7 @@
 import Slang.Syntax
 import Slang.Word
 
-set_option autoImplicit true
+set_option autoImplicit false
 
 namespace Slang.Machine
 
@@ -11,32 +11,53 @@ abbrev Environment := List (String × Word)
 
 namespace Environment
 
-def lookup (environment : Environment) (name : String) : Option Word :=
-  (environment.find? (fun entry => entry.1 == name)).map (·.2)
+def lookup : Environment → String → Option Word
+  | [], _ => none
+  | (entryName, value) :: rest, name =>
+      match String.decEq entryName name with
+      | isTrue _ => some value
+      | isFalse _ => lookup rest name
 
 def bind (environment : Environment) (name : String) (value : Word) : Environment :=
   (name, value) :: environment
 
 def ofParameters : List String → List Word → Option Environment
-  | [], [] => some []
-  | name :: names, value :: values =>
-      ((name, value) :: ·) <$> ofParameters names values
-  | _, _ => none
+  | [], values => match values with | [] => some [] | _ :: _ => none
+  | name :: names, values =>
+      match values with
+      | [] => none
+      | value :: rest =>
+          match ofParameters names rest with
+          | some environment => some ((name, value) :: environment)
+          | none => none
 
 @[simp] theorem lookup_bind_same (environment : Environment) (name : String) (value : Word) :
     lookup (bind environment name value) name = some value := by
-  simp [lookup, bind]
+  unfold bind
+  rw [lookup]
+  cases heq : String.decEq name name with
+  | isTrue => rfl
+  | isFalse hne => exact False.elim (hne rfl)
 
 theorem lookup_bind_other (environment : Environment) (name other : String) (value : Word)
     (hne : other ≠ name) : lookup (bind environment name value) other = lookup environment other := by
-  have hne' : name ≠ other := Ne.symm hne
-  simp [lookup, bind, hne']
+  unfold bind
+  rw [lookup]
+  cases heq : String.decEq name other with
+  | isTrue hequal => exact False.elim (hne (Eq.symm hequal))
+  | isFalse => rfl
 
 end Environment
 
 structure Memory where
   owned : Nat → Bool
   initialized : Nat → Option Word
+
+def SameOwnership (before after : Memory) : Prop :=
+  ∀ q, after.owned q = before.owned q
+
+def MemoryEquiv (before after : Memory) : Prop :=
+  SameOwnership before after ∧ ∀ q, after.initialized q = before.initialized q
 
 namespace Memory
 
@@ -48,44 +69,98 @@ def load (memory : Memory) (address : Word) : Option Word := do
   if memory.owned coordinate then memory.initialized coordinate else none
 
 def store (memory : Memory) (address value : Word) : Option Memory := do
-  let coordinate ← coordinate address
-  if memory.owned coordinate then
-    some { memory with initialized := Function.update memory.initialized coordinate (some value) }
+  let writtenCoordinate ← coordinate address
+  if memory.owned writtenCoordinate then
+    some {
+      owned := memory.owned
+      initialized := fun q =>
+        if q = writtenCoordinate then some value else memory.initialized q
+    }
   else none
 
 def empty : Memory := ⟨fun _ => false, fun _ => none⟩
 
 theorem store_ownership (memory next : Memory) (address value : Word)
     (hstore : store memory address value = some next) : next.owned = memory.owned := by
-  rcases hcoordinate : coordinate address with _ | coordinate
-  · simp [store, hcoordinate] at hstore
-  · by_cases howned : memory.owned coordinate = true
-    · simp [store, hcoordinate, howned] at hstore
-      subst next
-      rfl
-    · simp [store, hcoordinate, howned] at hstore
+  unfold store at hstore
+  cases hcoordinate : coordinate address with
+  | none =>
+      rw [hcoordinate] at hstore
+      contradiction
+  | some coordinate =>
+      rw [hcoordinate] at hstore
+      change (if memory.owned coordinate then some {
+        owned := memory.owned
+        initialized := fun q =>
+          if q = coordinate then some value else memory.initialized q
+      } else none) = some next at hstore
+      cases howned : memory.owned coordinate with
+      | false =>
+          rw [howned] at hstore
+          contradiction
+      | true =>
+          rw [howned] at hstore
+          cases hstore
+          rfl
 
 theorem store_at (memory next : Memory) (address value : Word) (coordinate : Nat)
     (hcoordinate : Memory.coordinate address = some coordinate)
     (hstore : store memory address value = some next) : next.initialized coordinate = some value := by
-  simp [store, hcoordinate] at hstore
-  rcases hstore with ⟨_, rfl⟩
-  simp
+  unfold store at hstore
+  rw [hcoordinate] at hstore
+  change (if memory.owned coordinate then some {
+    owned := memory.owned
+    initialized := fun q =>
+      if q = coordinate then some value else memory.initialized q
+  } else none) = some next at hstore
+  cases howned : memory.owned coordinate with
+  | false =>
+      rw [howned] at hstore
+      contradiction
+  | true =>
+      rw [howned] at hstore
+      cases hstore
+      change (if coordinate = coordinate then some value else memory.initialized coordinate) = some value
+      exact if_pos rfl
 
 theorem store_other (memory next : Memory) (address value : Word) (coordinate other : Nat)
     (hcoordinate : Memory.coordinate address = some coordinate)
     (hstore : store memory address value = some next) (hne : other ≠ coordinate) :
     next.initialized other = memory.initialized other := by
-  simp [store, hcoordinate] at hstore
-  rcases hstore with ⟨_, rfl⟩
-  simp [Function.update, hne]
+  unfold store at hstore
+  rw [hcoordinate] at hstore
+  change (if memory.owned coordinate then some {
+    owned := memory.owned
+    initialized := fun q =>
+      if q = coordinate then some value else memory.initialized q
+  } else none) = some next at hstore
+  cases howned : memory.owned coordinate with
+  | false =>
+      rw [howned] at hstore
+      contradiction
+  | true =>
+      rw [howned] at hstore
+      cases hstore
+      change (if other = coordinate then some value else memory.initialized other) =
+        memory.initialized other
+      exact if_neg hne
 
 end Memory
 
 inductive StackPolicy where
   | unbounded
   | limited (entries : Nat)
-  deriving Repr, BEq
+  deriving Repr
+
+def stackPolicyBeq (left right : StackPolicy) : Bool :=
+  match left with
+  | .unbounded => match right with | .unbounded => true | .limited _ => false
+  | .limited leftEntries =>
+      match right with
+      | .unbounded => false
+      | .limited rightEntries => Nat.beq leftEntries rightEntries
+
+instance instBEqStackPolicy : BEq StackPolicy := ⟨stackPolicyBeq⟩
 
 def StackPolicy.allows : StackPolicy → Nat → Prop
   | .unbounded, _ => True
@@ -106,7 +181,26 @@ inductive Event where
   | load (address : Word)
   | store (address : Word)
   | call (callee : String) (depth : Nat)
-  deriving Repr, BEq
+
+def binOpTag : BinOp → Nat
+  | .add => 0 | .sub => 1 | .mul => 2
+  | .bitAnd => 3 | .bitOr => 4 | .bitXor => 5
+  | .eq => 6 | .ne => 7 | .lt => 8 | .le => 9 | .gt => 10 | .ge => 11
+
+def stringBeq (left right : String) : Bool :=
+  match String.decEq left right with
+  | isTrue _ => true
+  | isFalse _ => false
+
+instance instReprEvent : Repr Event where
+  reprPrec event _ :=
+    match event with
+    | .arithmetic _ => "Event.arithmetic"
+    | .comparison _ => "Event.comparison"
+    | .bitwise _ => "Event.bitwise"
+    | .load _ => "Event.load"
+    | .store _ => "Event.store"
+    | .call _ _ => "Event.call"
 
 abbrev Trace := List Event
 
@@ -123,13 +217,13 @@ structure Resources where
   externalStreamConsumption : Nat
   deriving Repr, BEq
 
-private def isProbe : String → Bool
+def isProbe : String → Bool
   | "tableFindSlotGo" | "tableLookupSlotGo" => true
   | _ => false
 
 def emptyResources : Resources := ⟨0, 0, 0, 0, 0, 0, 0, 0, 0, 0⟩
 
-private def account (result : Resources) (event : Event) : Resources :=
+def account (result : Resources) (event : Event) : Resources :=
   match event with
   | .arithmetic _ => { result with arithmeticOps := result.arithmeticOps + 1 }
   | .comparison _ => { result with comparisons := result.comparisons + 1 }
@@ -142,32 +236,140 @@ private def account (result : Resources) (event : Event) : Resources :=
         probeIterations := result.probeIterations + if isProbe callee then 1 else 0
         maxCallStack := max result.maxCallStack depth }
 
-def resources (trace : Trace) : Resources := trace.foldl account emptyResources
+def resources : Trace → Resources
+  | [] => emptyResources
+  | event :: rest => account (resources rest) event
 
-private theorem fold_allocatedNodes (trace : Trace) (initial : Resources) :
-    (trace.foldl account initial).allocatedNodes = initial.allocatedNodes := by
-  induction trace generalizing initial with
+def arithmeticCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .arithmetic _ => arithmeticCount rest + 1
+      | .comparison _ | .bitwise _ | .load _ | .store _ | .call _ _ => arithmeticCount rest
+
+def comparisonCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .comparison _ => comparisonCount rest + 1
+      | .arithmetic _ | .bitwise _ | .load _ | .store _ | .call _ _ => comparisonCount rest
+
+def bitwiseCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .bitwise _ => bitwiseCount rest + 1
+      | .arithmetic _ | .comparison _ | .load _ | .store _ | .call _ _ => bitwiseCount rest
+
+def loadCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .load _ => loadCount rest + 1
+      | .arithmetic _ | .comparison _ | .bitwise _ | .store _ | .call _ _ => loadCount rest
+
+def storeCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .store _ => storeCount rest + 1
+      | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .call _ _ => storeCount rest
+
+def callCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .call _ _ => callCount rest + 1
+      | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .store _ => callCount rest
+
+def probeIterationCount : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .call callee _ => probeIterationCount rest + if isProbe callee then 1 else 0
+      | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .store _ => probeIterationCount rest
+
+def callStackMaximum : Trace → Nat
+  | [] => 0
+  | event :: rest => match event with
+      | .call _ depth => max (callStackMaximum rest) depth
+      | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .store _ => callStackMaximum rest
+
+@[simp] theorem resources_arithmeticOps (trace : Trace) :
+    (resources trace).arithmeticOps = arithmeticCount trace := by
+  induction trace with
   | nil => rfl
   | cons event rest ih =>
-      simp only [List.foldl_cons]
-      rw [ih]
-      cases event <;> rfl
+      cases event with
+      | arithmetic _ => exact congrArg (fun count => count + 1) ih
+      | comparison _ | bitwise _ | load _ | store _ | call _ _ => exact ih
 
-private theorem fold_externalStreamConsumption (trace : Trace) (initial : Resources) :
-    (trace.foldl account initial).externalStreamConsumption = initial.externalStreamConsumption := by
-  induction trace generalizing initial with
+@[simp] theorem resources_comparisons (trace : Trace) :
+    (resources trace).comparisons = comparisonCount trace := by
+  induction trace with
   | nil => rfl
   | cons event rest ih =>
-      simp only [List.foldl_cons]
-      rw [ih]
-      cases event <;> rfl
+      cases event with
+      | comparison _ => exact congrArg (fun count => count + 1) ih
+      | arithmetic _ | bitwise _ | load _ | store _ | call _ _ => exact ih
+
+@[simp] theorem resources_bitwiseOps (trace : Trace) :
+    (resources trace).bitwiseOps = bitwiseCount trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | bitwise _ => exact congrArg (fun count => count + 1) ih
+      | arithmetic _ | comparison _ | load _ | store _ | call _ _ => exact ih
+
+@[simp] theorem resources_loads (trace : Trace) :
+    (resources trace).loads = loadCount trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | load _ => exact congrArg (fun count => count + 1) ih
+      | arithmetic _ | comparison _ | bitwise _ | store _ | call _ _ => exact ih
+
+@[simp] theorem resources_stores (trace : Trace) :
+    (resources trace).stores = storeCount trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | store _ => exact congrArg (fun count => count + 1) ih
+      | arithmetic _ | comparison _ | bitwise _ | load _ | call _ _ => exact ih
+
+@[simp] theorem resources_calls (trace : Trace) :
+    (resources trace).calls = callCount trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | call _ _ => exact congrArg (fun count => count + 1) ih
+      | arithmetic _ | comparison _ | bitwise _ | load _ | store _ => exact ih
+
+@[simp] theorem resources_probeIterations (trace : Trace) :
+    (resources trace).probeIterations = probeIterationCount trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | call callee _ => exact congrArg (fun count => count + if isProbe callee then 1 else 0) ih
+      | arithmetic _ | comparison _ | bitwise _ | load _ | store _ => exact ih
+
+@[simp] theorem resources_maxCallStack (trace : Trace) :
+    (resources trace).maxCallStack = callStackMaximum trace := by
+  induction trace with
+  | nil => rfl
+  | cons event rest ih =>
+      cases event with
+      | call _ depth => exact congrArg (fun largest => max largest depth) ih
+      | arithmetic _ | comparison _ | bitwise _ | load _ | store _ => exact ih
 
 @[simp] theorem resources_allocatedNodes (trace : Trace) : (resources trace).allocatedNodes = 0 := by
-  exact fold_allocatedNodes trace emptyResources
+  induction trace with
+  | nil => rfl
+  | cons event rest ih => cases event <;> exact ih
 
 @[simp] theorem resources_externalStreamConsumption (trace : Trace) :
     (resources trace).externalStreamConsumption = 0 := by
-  exact fold_externalStreamConsumption trace emptyResources
+  induction trace with
+  | nil => rfl
+  | cons event rest ih => cases event <;> exact ih
 
 inductive EvalResult (α : Type) where
   | value (value : α) (memory : Memory)
@@ -208,11 +410,12 @@ def operatorEvent : BinOp → Event
   | .gt => .comparison .gt
   | .ge => .comparison .ge
 
+set_option autoImplicit true in
 mutual
   inductive EvalExpr (context : Context) (policy : StackPolicy) :
       Nat → Environment → Memory → Expr → EvalResult Word → Trace → Prop where
-    | literal : EvalExpr context policy depth env memory (.literal value)
-        (.value (Word.ofNat value) memory) []
+    | literal : EvalExpr context policy depth env memory (.literal literalValue)
+        (.value (Word.ofNat literalValue) memory) []
     | local (hlookup : Environment.lookup env name = some value) :
         EvalExpr context policy depth env memory (.name name) (.value value memory) []
     | constant (hlocals : Environment.lookup env name = none)
@@ -254,13 +457,13 @@ mutual
     | conditionalTrue
         (hcondition : EvalExpr context policy depth env memory condition (.value conditionValue next) tc)
         (htrue : Word.nonzero conditionValue)
-        (hbranch : EvalExpr context policy depth env next thenValue result tb) :
-        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb)
+        (hbranch : EvalExpr context policy depth env next thenValue evalResult tb) :
+        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) evalResult (tc ++ tb)
     | conditionalFalse
         (hcondition : EvalExpr context policy depth env memory condition (.value conditionValue next) tc)
         (hfalse : ¬ Word.nonzero conditionValue)
-        (hbranch : EvalExpr context policy depth env next elseValue result tb) :
-        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb)
+        (hbranch : EvalExpr context policy depth env next elseValue evalResult tb) :
+        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) evalResult (tc ++ tb)
     | conditionalFault
         (hcondition : EvalExpr context policy depth env memory condition (.memoryFault next) trace) :
         EvalExpr context policy depth env memory (.conditional thenValue condition elseValue)
@@ -270,8 +473,8 @@ mutual
         EvalExpr context policy depth env memory (.conditional thenValue condition elseValue)
           (.stackExhausted next) trace
     | call (hargs : EvalArgs context policy depth env memory arguments (.value values next) ta)
-        (hcall : EvalCall context policy depth callee values next result tc) :
-        EvalExpr context policy depth env memory (.call callee arguments) result (ta ++ tc)
+        (hcall : EvalCall context policy depth callee values next evalResult tc) :
+        EvalExpr context policy depth env memory (.call callee arguments) evalResult (ta ++ tc)
     | callArgsFault
         (hargs : EvalArgs context policy depth env memory arguments (.memoryFault next) trace) :
         EvalExpr context policy depth env memory (.call callee arguments) (.memoryFault next) trace
@@ -306,49 +509,49 @@ mutual
     | bindExhausted (heval : EvalExpr context policy depth env memory expression (.stackExhausted next) trace) :
         ExecStmt context policy depth env memory (.bind name expression) (.stackExhausted next) trace
     | store (haddress : EvalExpr context policy depth env memory address (.value addressValue afterAddress) ta)
-        (hvalue : EvalExpr context policy depth env afterAddress value (.value stored afterValue) tv)
+        (hvalue : EvalExpr context policy depth env afterAddress valueExpr (.value stored afterValue) tv)
         (hstore : afterValue.store addressValue stored = some next) :
-        ExecStmt context policy depth env memory (.store address value) (.next env next)
+        ExecStmt context policy depth env memory (.store address valueExpr) (.next env next)
           (ta ++ tv ++ [.store addressValue])
     | storeFault (haddress : EvalExpr context policy depth env memory address (.value addressValue afterAddress) ta)
-        (hvalue : EvalExpr context policy depth env afterAddress value (.value stored afterValue) tv)
+        (hvalue : EvalExpr context policy depth env afterAddress valueExpr (.value stored afterValue) tv)
         (hstore : afterValue.store addressValue stored = none) :
-        ExecStmt context policy depth env memory (.store address value) (.memoryFault afterValue)
+        ExecStmt context policy depth env memory (.store address valueExpr) (.memoryFault afterValue)
           (ta ++ tv ++ [.store addressValue])
     | storeAddressFault
         (haddress : EvalExpr context policy depth env memory address (.memoryFault next) trace) :
-        ExecStmt context policy depth env memory (.store address value) (.memoryFault next) trace
+        ExecStmt context policy depth env memory (.store address valueExpr) (.memoryFault next) trace
     | storeAddressExhausted
         (haddress : EvalExpr context policy depth env memory address (.stackExhausted next) trace) :
-        ExecStmt context policy depth env memory (.store address value) (.stackExhausted next) trace
+        ExecStmt context policy depth env memory (.store address valueExpr) (.stackExhausted next) trace
     | storeValueFault
         (haddress : EvalExpr context policy depth env memory address (.value addressValue afterAddress) ta)
-        (hvalue : EvalExpr context policy depth env afterAddress value (.memoryFault next) tv) :
-        ExecStmt context policy depth env memory (.store address value) (.memoryFault next) (ta ++ tv)
+        (hvalue : EvalExpr context policy depth env afterAddress valueExpr (.memoryFault next) tv) :
+        ExecStmt context policy depth env memory (.store address valueExpr) (.memoryFault next) (ta ++ tv)
     | storeValueExhausted
         (haddress : EvalExpr context policy depth env memory address (.value addressValue afterAddress) ta)
-        (hvalue : EvalExpr context policy depth env afterAddress value (.stackExhausted next) tv) :
-        ExecStmt context policy depth env memory (.store address value) (.stackExhausted next) (ta ++ tv)
+        (hvalue : EvalExpr context policy depth env afterAddress valueExpr (.stackExhausted next) tv) :
+        ExecStmt context policy depth env memory (.store address valueExpr) (.stackExhausted next) (ta ++ tv)
     | return_ (heval : EvalExpr context policy depth env memory expression (.value value next) trace) :
         ExecStmt context policy depth env memory (.return_ expression) (.returned value next) trace
     | returnFault (heval : EvalExpr context policy depth env memory expression (.memoryFault next) trace) :
         ExecStmt context policy depth env memory (.return_ expression) (.memoryFault next) trace
     | returnExhausted (heval : EvalExpr context policy depth env memory expression (.stackExhausted next) trace) :
         ExecStmt context policy depth env memory (.return_ expression) (.stackExhausted next) trace
-    | expression (heval : EvalExpr context policy depth env memory value (.value resultWord next) trace) :
-        ExecStmt context policy depth env memory (.expression value) (.next env next) trace
-    | expressionFault (heval : EvalExpr context policy depth env memory value (.memoryFault next) trace) :
-        ExecStmt context policy depth env memory (.expression value) (.memoryFault next) trace
-    | expressionExhausted (heval : EvalExpr context policy depth env memory value (.stackExhausted next) trace) :
-        ExecStmt context policy depth env memory (.expression value) (.stackExhausted next) trace
+    | expression (heval : EvalExpr context policy depth env memory expressionValue (.value resultWord next) trace) :
+        ExecStmt context policy depth env memory (.expression expressionValue) (.next env next) trace
+    | expressionFault (heval : EvalExpr context policy depth env memory expressionValue (.memoryFault next) trace) :
+        ExecStmt context policy depth env memory (.expression expressionValue) (.memoryFault next) trace
+    | expressionExhausted (heval : EvalExpr context policy depth env memory expressionValue (.stackExhausted next) trace) :
+        ExecStmt context policy depth env memory (.expression expressionValue) (.stackExhausted next) trace
     | ifTrue (hcondition : EvalExpr context policy depth env memory condition (.value conditionValue next) tc)
         (htrue : Word.nonzero conditionValue)
-        (hbody : ExecList context policy depth env next thenBody result tb) :
-        ExecStmt context policy depth env memory (.if_ condition thenBody elseBody) result (tc ++ tb)
+        (hbody : ExecList context policy depth env next thenBody controlResult tb) :
+        ExecStmt context policy depth env memory (.if_ condition thenBody elseBody) controlResult (tc ++ tb)
     | ifFalse (hcondition : EvalExpr context policy depth env memory condition (.value conditionValue next) tc)
         (hfalse : ¬ Word.nonzero conditionValue)
-        (hbody : ExecList context policy depth env next (elseBody.getD []) result tb) :
-        ExecStmt context policy depth env memory (.if_ condition thenBody elseBody) result (tc ++ tb)
+        (hbody : ExecList context policy depth env next (elseBody.getD []) controlResult tb) :
+        ExecStmt context policy depth env memory (.if_ condition thenBody elseBody) controlResult (tc ++ tb)
     | ifFault (hcondition : EvalExpr context policy depth env memory condition (.memoryFault next) trace) :
         ExecStmt context policy depth env memory (.if_ condition thenBody elseBody) (.memoryFault next) trace
     | ifExhausted (hcondition : EvalExpr context policy depth env memory condition (.stackExhausted next) trace) :
@@ -358,8 +561,8 @@ mutual
       Nat → Environment → Memory → List Stmt → Control → Trace → Prop where
     | nil : ExecList context policy depth env memory [] (.next env memory) []
     | next (hstmt : ExecStmt context policy depth env memory statement (.next nextEnv nextMemory) ts)
-        (hrest : ExecList context policy depth nextEnv nextMemory rest result tr) :
-        ExecList context policy depth env memory (statement :: rest) result (ts ++ tr)
+        (hrest : ExecList context policy depth nextEnv nextMemory rest controlResult tr) :
+        ExecList context policy depth env memory (statement :: rest) controlResult (ts ++ tr)
     | returned (hstmt : ExecStmt context policy depth env memory statement (.returned value next) trace) :
         ExecList context policy depth env memory (statement :: rest) (.returned value next) trace
     | memoryFault (hstmt : ExecStmt context policy depth env memory statement (.memoryFault next) trace) :
@@ -370,29 +573,29 @@ mutual
   inductive EvalCall (context : Context) (policy : StackPolicy) :
       Nat → String → List Word → Memory → EvalResult Word → Trace → Prop where
     | run (hfunction : context.functions callee = some function)
-        (hframe : Environment.ofParameters function.parameters arguments = some frame)
+        (hframe : Environment.ofParameters function.parameters argumentValues = some frame)
         (hcapacity : policy.allows (depth + 1))
         (hbody : ExecList context policy (depth + 1) frame memory function.body
           (.returned value next) trace) :
-        EvalCall context policy depth callee arguments memory (.value value next)
+        EvalCall context policy depth callee argumentValues memory (.value value next)
           (.call callee (depth + 1) :: trace)
     | memoryFault (hfunction : context.functions callee = some function)
-        (hframe : Environment.ofParameters function.parameters arguments = some frame)
+        (hframe : Environment.ofParameters function.parameters argumentValues = some frame)
         (hcapacity : policy.allows (depth + 1))
         (hbody : ExecList context policy (depth + 1) frame memory function.body
           (.memoryFault next) trace) :
-        EvalCall context policy depth callee arguments memory (.memoryFault next)
+        EvalCall context policy depth callee argumentValues memory (.memoryFault next)
           (.call callee (depth + 1) :: trace)
     | nestedExhausted (hfunction : context.functions callee = some function)
-        (hframe : Environment.ofParameters function.parameters arguments = some frame)
+        (hframe : Environment.ofParameters function.parameters argumentValues = some frame)
         (hcapacity : policy.allows (depth + 1))
         (hbody : ExecList context policy (depth + 1) frame memory function.body
           (.stackExhausted next) trace) :
-        EvalCall context policy depth callee arguments memory (.stackExhausted next)
+        EvalCall context policy depth callee argumentValues memory (.stackExhausted next)
           (.call callee (depth + 1) :: trace)
     | exhausted (hfunction : context.functions callee = some function)
         (hcapacity : ¬ policy.allows (depth + 1)) :
-        EvalCall context policy depth callee arguments memory (.stackExhausted memory)
+        EvalCall context policy depth callee argumentValues memory (.stackExhausted memory)
           [.call callee (depth + 1)]
 end
 
@@ -403,7 +606,8 @@ theorem lazy_inline_conditional_does_not_evaluate_untaken_branch :
       (.conditional (.literal 7) (.literal 1) (.memory (.literal 0)))
       (.value (Word.ofNat 7) Memory.empty) [] := by
   apply EvalExpr.conditionalTrue (hcondition := EvalExpr.literal)
-  · norm_num [Word.nonzero, Word.ofNat, wordModulus, wordBits]
+  · intro heq
+    exact Nat.noConfusion (congrArg Fin.val heq)
   · exact EvalExpr.literal
 
 theorem eager_bitOr_evaluates_right_operand :
@@ -412,8 +616,7 @@ theorem eager_bitOr_evaluates_right_operand :
       (.memoryFault Memory.empty) [.load (Word.ofNat 0)] := by
   apply EvalExpr.binaryRightFault (hleft := EvalExpr.literal)
   apply EvalExpr.loadFault (haddress := EvalExpr.literal)
-  simp [Memory.load, Memory.coordinate, Memory.empty, Word.signed, Word.ofNat,
-    wordSignBit, wordModulus, wordBits]
+  rfl
 
 theorem return_stops_execution (context : Context) (policy : StackPolicy) (depth : Nat)
     (environment : Environment) (memory next : Memory) (expression : Expr) (value : Word)
@@ -429,6 +632,6 @@ theorem stack_exhaustion_is_not_a_word_return (context : Context) (function : Fu
     EvalCall context (.limited 0) 0 callee arguments memory (.stackExhausted memory)
       [.call callee 1] := by
   apply EvalCall.exhausted hfunction
-  simp [StackPolicy.allows]
+  exact Nat.not_lt_zero 1
 
 end Slang.Machine
