@@ -386,8 +386,31 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
   merge := table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
 }
 
+/-- [apeiron_word::table::ReplacementMerge]
+    Source: 'proof/extract/../../src/table.rs', lines 62:0-62:28
+    Visibility: public -/
+@[reducible]
+def table.ReplacementMerge := Unit
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::ReplacementMerge}::merge]:
+    Source: 'proof/extract/../../src/table.rs', lines 65:4-67:5
+    Visibility: public -/
+def table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64.merge
+  (self : table.ReplacementMerge) (new : Std.I64) (_old : Std.I64) :
+  Result Std.I64
+  := do
+  ok new
+
+/-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::ReplacementMerge}]
+    Source: 'proof/extract/../../src/table.rs', lines 64:0-68:1 -/
+@[reducible]
+def table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
+  table.ReplacementMerge Std.I64 := {
+  merge := table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64.merge
+}
+
 /-- [apeiron_word::table::Table]
-    Source: 'proof/extract/../../src/table.rs', lines 64:0-72:1
+    Source: 'proof/extract/../../src/table.rs', lines 74:0-82:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (N : Std.Usize) where
   default : V
@@ -395,7 +418,7 @@ structure table.Table (K : Type) (V : Type) (H : Type) (N : Std.Usize) where
   shards : Array (Option (Array (Option (K × V)) N)) 256#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::new]:
-    Source: 'proof/extract/../../src/table.rs', lines 77:4-83:5
+    Source: 'proof/extract/../../src/table.rs', lines 87:4-93:5
     Visibility: public -/
 def table.Table.new
   {K : Type} {V : Type} {H : Type} (N : Std.Usize) (HomeInst : table.Home H K)
@@ -406,7 +429,7 @@ def table.Table.new
   ok { default, home, shards := a }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::shard_index]:
-    Source: 'proof/extract/../../src/table.rs', lines 85:4-93:5 -/
+    Source: 'proof/extract/../../src/table.rs', lines 95:4-103:5 -/
 def table.Table.shard_index
   {K : Type} {V : Type} {H : Type} {N : Std.Usize} (HomeInst : table.Home H K)
   (self : table.Table K V H N) (key : K) :
@@ -417,7 +440,7 @@ def table.Table.shard_index
   ok (UScalar.cast .Usize i1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 106:8-115:5 -/
+    Source: 'proof/extract/../../src/table.rs', lines 116:8-125:5 -/
 @[rust_loop_body]
 def table.Table.find_slots_loop.body
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
@@ -442,7 +465,7 @@ def table.Table.find_slots_loop.body
   else ok (done none)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 106:8-115:5 -/
+    Source: 'proof/extract/../../src/table.rs', lines 116:8-125:5 -/
 @[rust_loop]
 def table.Table.find_slots_loop
   {K : Type} {V : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq K)
@@ -454,7 +477,7 @@ def table.Table.find_slots_loop
     i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find_slots]:
-    Source: 'proof/extract/../../src/table.rs', lines 104:4-115:5 -/
+    Source: 'proof/extract/../../src/table.rs', lines 114:4-125:5 -/
 @[reducible]
 def table.Table.find_slots
   {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
@@ -465,7 +488,7 @@ def table.Table.find_slots
   table.Table.find_slots_loop corecmpEqInst slots key 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::find]:
-    Source: 'proof/extract/../../src/table.rs', lines 97:4-102:5 -/
+    Source: 'proof/extract/../../src/table.rs', lines 107:4-112:5 -/
 def table.Table.find
   {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
   K) (HomeInst : table.Home H K) (self : table.Table K V H N)
@@ -478,7 +501,7 @@ def table.Table.find
   | some slots => table.Table.find_slots corecmpEqInst HomeInst slots key
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::get]:
-    Source: 'proof/extract/../../src/table.rs', lines 119:4-129:5
+    Source: 'proof/extract/../../src/table.rs', lines 129:4-139:5
     Visibility: public -/
 def table.Table.get
   {K : Type} {V : Type} {H : Type} {N : Std.Usize} (corecmpEqInst : core.cmp.Eq
@@ -501,7 +524,7 @@ def table.Table.get
                   ok value
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.insert_with_loop0.body
@@ -534,7 +557,7 @@ def table.Table.insert_with_loop0.body
     ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop]
 def table.Table.insert_with_loop0
@@ -552,7 +575,7 @@ def table.Table.insert_with_loop0
     i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.insert_with_loop1.body
@@ -585,7 +608,7 @@ def table.Table.insert_with_loop1.body
     ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop]
 def table.Table.insert_with_loop1
@@ -603,7 +626,7 @@ def table.Table.insert_with_loop1
     i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop body 2:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.insert_with_loop2.body
@@ -636,7 +659,7 @@ def table.Table.insert_with_loop2.body
     ok (done (core.result.Result.Err table.StorageError.ShardFull, a))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]: loop 2:
-    Source: 'proof/extract/../../src/table.rs', lines 165:12-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 175:12-185:5
     Visibility: public -/
 @[rust_loop]
 def table.Table.insert_with_loop2
@@ -654,7 +677,7 @@ def table.Table.insert_with_loop2
     i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::insert_with]:
-    Source: 'proof/extract/../../src/table.rs', lines 138:4-175:5
+    Source: 'proof/extract/../../src/table.rs', lines 148:4-185:5
     Visibility: public -/
 def table.Table.insert_with
   {K : Type} {V : Type} {H : Type} {F : Type} {N : Std.Usize} (corecmpEqInst :
@@ -788,7 +811,7 @@ def table.Table.insert_with
         ok (core.result.Result.Ok (), { self with shards := a })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 193:8-202:5
+    Source: 'proof/extract/../../src/table.rs', lines 203:8-212:5
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_loop.body
@@ -816,7 +839,7 @@ def table.Table.build_loop.body
   else ok (done (core.result.Result.Ok state))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 193:8-202:5
+    Source: 'proof/extract/../../src/table.rs', lines 203:8-212:5
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_loop
@@ -834,7 +857,7 @@ def table.Table.build_loop
     (state, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, N>}::build]:
-    Source: 'proof/extract/../../src/table.rs', lines 182:4-202:5
+    Source: 'proof/extract/../../src/table.rs', lines 192:4-212:5
     Visibility: public -/
 def table.Table.build
   {K : Type} {V : Type} {H : Type} {F : Type} (N : Std.Usize) (corecmpEqInst :
@@ -975,8 +998,23 @@ def word_table_insert
       table.WordMerge.Insts.Apeiron_wordTableMergeI64 state () key value
   ok (state1, result)
 
+/-- [apeiron_word::word_table_insert_replacement]:
+    Source: 'proof/extract/lib.rs', lines 125:0-132:1
+    Visibility: public -/
+def word_table_insert_replacement
+  (state : table.Table Std.I64 Std.I64 table.WordHome 16#usize) (key : Std.I64)
+  (value : Std.I64) :
+  Result ((table.Table Std.I64 Std.I64 table.WordHome 16#usize) ×
+    (core.result.Result Unit table.StorageError))
+  := do
+  let (result, state1) ←
+    table.Table.insert_with core.cmp.EqI64 core.clone.CloneI64
+      table.WordHome.Insts.Apeiron_wordTableHomeI64
+      table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64 state () key value
+  ok (state1, result)
+
 /-- [apeiron_word::word_table_build]:
-    Source: 'proof/extract/lib.rs', lines 125:0-130:1
+    Source: 'proof/extract/lib.rs', lines 135:0-140:1
     Visibility: public -/
 def word_table_build
   (default : Std.I64) (kvs : Slice (Std.I64 × Std.I64)) :

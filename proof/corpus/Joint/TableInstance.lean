@@ -11,9 +11,14 @@ open Aeneas Aeneas.Std Result Apeiron.Table
 open apeiron_word
 open Apeiron.TableRefinement
 
-/-- The selected last-write-wins merge, as an Aeneas callback instance. -/
-def replacementMerge : table.Merge Unit I64 where
-  merge := fun _ new _old => ok new
+/-- The selected last-write-wins merge is the instance extracted from the real Rust callback. -/
+def replacementMerge : table.Merge Unit I64 :=
+  table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64
+
+/-- The extracted Rust callback reduces to new-first replacement. -/
+@[simp] theorem extractedReplacementMerge_spec (new old : I64) :
+    table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64.merge () new old = ok new := by
+  rfl
 
 /-- The executing callback computes the selected new-first replacement function. -/
 theorem replacementMerge_spec (new old : I64) :
@@ -363,7 +368,8 @@ private theorem insert_empty_exact (t : ReplacementTable) (key value : I64) (sha
   rw [if_neg (by decide), houter]
   simp only [bind_tc_ok, core.option.Option.is_none]
   rw [if_pos (by rfl)]
-  simp only [core.clone.impls.CloneI64.clone, replacementMerge, bind_tc_ok, massert]
+  simp only [core.clone.impls.CloneI64.clone, replacementMerge,
+    extractedReplacementMerge_spec, bind_tc_ok, massert]
   rw [if_pos (by decide), hmSlot]
   simp only [bind_tc_ok]
   change (do
