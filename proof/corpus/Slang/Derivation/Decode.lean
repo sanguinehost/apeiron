@@ -19,6 +19,8 @@ inductive Request where
   | selection (q : Slang.Derivation.Selection.Request)
   | validation (q : Slang.Derivation.Validation.Request)
   | decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat)
+  | decodeTable (bytes : ByteArray)
+  | importedCoord (bytes : ByteArray)
 
 /-- Answer type per request. -/
 abbrev Answer : Request → Type
@@ -27,6 +29,8 @@ abbrev Answer : Request → Type
   | .selection q => Slang.Derivation.Selection.Answer q
   | .validation q => Slang.Derivation.Validation.Answer q
   | .decodeTokens _ _ _ => Result CertifiedDecoded
+  | .decodeTable _ => Result CertifiedDecoded
+  | .importedCoord _ => Result ConstantDecl
 
 /-- The real implementation, indexed by request. -/
 def evaluate : (q : Request) → Answer q
@@ -35,6 +39,8 @@ def evaluate : (q : Request) → Answer q
   | .selection q => Slang.Derivation.Selection.evaluate q
   | .validation q => Slang.Derivation.Validation.evaluate q
   | .decodeTokens bytes tokens consumed => Decode.decodeTokens bytes tokens consumed
+  | .decodeTable bytes => Decode.decodeTable bytes
+  | .importedCoord bytes => Decode.decodeImportedCoordCeiling bytes
 
 /-- One unfolding of the implementation, exposing recursive calls as requests. -/
 def body : (q : Request) → Layer Request Answer (Answer q)
@@ -140,6 +146,26 @@ def body : (q : Request) → Layer Request Answer (Answer q)
                                         let program : Program := { constants := constants, functions := functions, sourceBytes := bytes.size, consumedBytes := consumed }
                                         let certificate : Certificate := ⟨true, true, true, true, true⟩
                                         .done (.ok ⟨{ program := program, certificate := certificate }, ⟨rfl, rfl, rfl, rfl, rfl⟩⟩))))))))
+  | .decodeTable bytes =>
+      .ask (.lexing (.tokenize bytes)) (fun result =>
+        match result with
+        | .ok (tokens, consumed) => .ask (.decodeTokens bytes tokens consumed) (fun r => .done r)
+        | .error message => .done (.error message))
+  | .importedCoord bytes =>
+      .ask (.lexing (.tokenize bytes)) (fun result =>
+        match result with
+        | .ok (tokens, consumed) =>
+            if consumed = bytes.size then
+              .ask (.selection (.scan (tokens.length + 1) tokens ["COORD_CEILING"] [])) (fun selected =>
+                match selected with
+                | .error message => .done (.error message)
+                | .ok pair =>
+                    match pair.1 with
+                    | [] => .done (.error "COORD_CEILING is missing or duplicated")
+                    | decl :: [] => .done (.ok decl)
+                    | _ :: _ :: _ => .done (.error "COORD_CEILING is missing or duplicated"))
+            else .done (.error "import tokenizer did not consume every source byte")
+        | .error message => .done (.error message))
 
 /-- A checked derivation of an answer for a layer. -/
 abbrev Run (q : Request) (answer : Answer q) : Prop :=
@@ -269,6 +295,51 @@ theorem body_eq : ∀ q, evaluate q = fold evaluate (body q)
                 | rw [Slang.Derivation.DecodeTrace.evaluate]
                 | rw [Slang.Derivation.Selection.evaluate]
                 | rw [Slang.Derivation.Validation.evaluate]
+  | .decodeTable bytes => by
+      rw [show Slang.Derivation.DecodeTrace.evaluate (.decodeTable bytes)
+            = Decode.decodeTable bytes from rfl]
+      dsimp only [Slang.Derivation.DecodeTrace.body]
+      rw [Slang.Derivation.fold_ask]
+      dsimp only [Slang.Derivation.DecodeTrace.evaluate, Slang.Derivation.Lexing.evaluate]
+      rw [Decode.decodeTable]
+      dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+      cases h : Decode.tokenize bytes with
+      | error message => rfl
+      | ok pair =>
+          cases pair with
+          | mk tokens consumed => rfl
+  | .importedCoord bytes => by
+      rw [show Slang.Derivation.DecodeTrace.evaluate (.importedCoord bytes)
+            = Decode.decodeImportedCoordCeiling bytes from rfl]
+      dsimp only [Slang.Derivation.DecodeTrace.body]
+      rw [Slang.Derivation.fold_ask]
+      dsimp only [Slang.Derivation.DecodeTrace.evaluate, Slang.Derivation.Lexing.evaluate]
+      rw [Decode.decodeImportedCoordCeiling]
+      dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+      cases h : Decode.tokenize bytes with
+      | error message => rfl
+      | ok pair =>
+          cases pair with
+          | mk tokens consumed =>
+              dsimp only [Bind.bind, Monad.toBind, Except.instMonad, Except.bind]
+              by_cases hc : consumed = bytes.size
+              · rw [if_pos hc, if_pos hc]
+                rw [Slang.Derivation.fold_ask]
+                dsimp only [Slang.Derivation.DecodeTrace.evaluate, Slang.Derivation.Selection.evaluate]
+                cases hs : Decode.scanSelected (tokens.length + 1) tokens
+                    ["COORD_CEILING"] [] with
+                | error message => rfl
+                | ok selected =>
+                    cases selected with
+                    | mk decls funcs =>
+                        cases decls with
+                        | nil => rfl
+                        | cons decl rest =>
+                            cases rest with
+                            | nil => rfl
+                            | cons decl2 rest2 => rfl
+              · rw [if_neg hc, if_neg hc]
+                rfl
 
 /-- A checked derivation of the real tokenizer's byte-level result. -/
 theorem Run.sound {q : Request} {answer : Answer q}
@@ -403,6 +474,16 @@ theorem decodeTokens_wrong :
   intro derivation
   have sound := Run.sound derivation
   have actual : evaluate (.decodeTokens (ByteArray.empty) [] 0) =
+      .error "selected table constants are missing or duplicated" := rfl
+  rw [actual] at sound
+  cases sound
+
+/-- A wrong answer for the empty table decoder request is not derivable. -/
+theorem decodeTable_wrong :
+    ¬ Run (.decodeTable (ByteArray.empty)) (.ok wrongDecoded) := by
+  intro derivation
+  have sound := Run.sound derivation
+  have actual : evaluate (.decodeTable (ByteArray.empty)) =
       .error "selected table constants are missing or duplicated" := rfl
   rw [actual] at sound
   cases sound

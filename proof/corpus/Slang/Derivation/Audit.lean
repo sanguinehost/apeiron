@@ -34,6 +34,11 @@ namespace Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.DecodeTrace.decodeTokens_run : type_of% @Slang.Derivation.DecodeTrace.decodeTokens_run
 #audit_empty Slang.Derivation.DecodeTrace.decodeTokens_wrong : type_of% @Slang.Derivation.DecodeTrace.decodeTokens_wrong
 
+-- The table/import driver requests reuse the lexing and selection embeds; the
+-- continuation branches on a child answer, so no generic `_run` completeness
+-- lemma exists and only the empty-input wrong-answer control is registered.
+#audit_empty Slang.Derivation.DecodeTrace.decodeTable_wrong : ¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.decodeTable (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)
+
 /-- Fixture the zero-axiom runner mutates to prove the command rejects a nonempty cone. -/
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Derivation.DecodeTrace.nat_add_zero : (0 : Nat) + 0 = 0
