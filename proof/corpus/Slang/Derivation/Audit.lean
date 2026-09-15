@@ -5,6 +5,7 @@ import Slang.Derivation.Grammar
 import Slang.Derivation.Statements
 import Slang.Derivation.Composition
 import Slang.Derivation.Selection
+import Slang.Derivation.Validation
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -79,3 +80,24 @@ end Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.Selection.block_zero_run : type_of% @Slang.Derivation.Selection.block_zero_run
 #audit_empty Slang.Derivation.Selection.expr_zero_wrong : type_of% @Slang.Derivation.Selection.expr_zero_wrong
 #audit_empty Slang.Derivation.Selection.block_zero_wrong : type_of% @Slang.Derivation.Selection.block_zero_wrong
+
+-- The boolean-validation derivation family over the `Decode.decodeTokens`
+-- validators. Every request is a `.done` leaf or a `.ask` chain of recursive
+-- requests; the leaf validators `distinct`, `spansValid`, `resolveCalls` and
+-- `resolveNames` are single calls, and the recursive validators are covered by
+-- their `_run` completeness lemmas.
+#audit_empty Slang.Derivation.Validation.evaluate : type_of% @Slang.Derivation.Validation.evaluate
+#audit_empty Slang.Derivation.Validation.body_eq : type_of% @Slang.Derivation.Validation.body_eq
+#audit_empty Slang.Derivation.Validation.Run.sound : type_of% @Slang.Derivation.Validation.Run.sound
+#audit_empty Slang.Derivation.Validation.delimiters_run : type_of% @Slang.Derivation.Validation.delimiters_run
+#audit_empty Slang.Derivation.Validation.distinct_run : type_of% @Slang.Derivation.Validation.distinct_run
+#audit_empty Slang.Derivation.Validation.spans_run : type_of% @Slang.Derivation.Validation.spans_run
+#audit_empty Slang.Derivation.Validation.expressionCalls_run : type_of% @Slang.Derivation.Validation.expressionCalls_run
+#audit_empty Slang.Derivation.Validation.expressionsCalls_run : type_of% @Slang.Derivation.Validation.expressionsCalls_run
+#audit_empty Slang.Derivation.Validation.statementCalls_run : type_of% @Slang.Derivation.Validation.statementCalls_run
+#audit_empty Slang.Derivation.Validation.statementsCalls_run : type_of% @Slang.Derivation.Validation.statementsCalls_run
+#audit_empty Slang.Derivation.Validation.resolveCalls_run : type_of% @Slang.Derivation.Validation.resolveCalls_run
+#audit_empty Slang.Derivation.Validation.expressionNames_run : type_of% @Slang.Derivation.Validation.expressionNames_run
+#audit_empty Slang.Derivation.Validation.expressionsNames_run : type_of% @Slang.Derivation.Validation.expressionsNames_run
+#audit_empty Slang.Derivation.Validation.statementsNames_run : type_of% @Slang.Derivation.Validation.statementsNames_run
+#audit_empty Slang.Derivation.Validation.resolveNames_run : type_of% @Slang.Derivation.Validation.resolveNames_run

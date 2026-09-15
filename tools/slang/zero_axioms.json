@@ -2528,7 +2528,8 @@
         "proof/corpus/Slang/Derivation/Grammar.lean",
         "proof/corpus/Slang/Derivation/Statements.lean",
         "proof/corpus/Slang/Derivation/Composition.lean",
-        "proof/corpus/Slang/Derivation/Selection.lean"
+        "proof/corpus/Slang/Derivation/Selection.lean",
+        "proof/corpus/Slang/Derivation/Validation.lean"
       ],
       "declarations": [
         {
@@ -2824,6 +2825,96 @@
           "expected_type": "type_of% @Slang.Derivation.Selection.block_zero_wrong",
           "module": "Slang.Derivation.Selection",
           "path": "proof/corpus/Slang/Derivation/Selection.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.evaluate",
+          "expected_type": "type_of% @Slang.Derivation.Validation.evaluate",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.body_eq",
+          "expected_type": "type_of% @Slang.Derivation.Validation.body_eq",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.Run.sound",
+          "expected_type": "type_of% @Slang.Derivation.Validation.Run.sound",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.delimiters_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.delimiters_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.distinct_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.distinct_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.spans_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.spans_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.expressionCalls_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.expressionCalls_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.expressionsCalls_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.expressionsCalls_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.statementCalls_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.statementCalls_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.statementsCalls_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.statementsCalls_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.resolveCalls_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.resolveCalls_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.expressionNames_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.expressionNames_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.expressionsNames_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.expressionsNames_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.statementsNames_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.statementsNames_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Validation.resolveNames_run",
+          "expected_type": "type_of% @Slang.Derivation.Validation.resolveNames_run",
+          "module": "Slang.Derivation.Validation",
+          "path": "proof/corpus/Slang/Derivation/Validation.lean"
         }
       ]
     },
