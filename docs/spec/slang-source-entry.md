@@ -44,8 +44,8 @@ rejects it.
 
 The selected boundary is the executing Song bodies for which a canonical Lean definition exists and a
 profile row requires a source-connected refinement: the table merge, read, write and init bodies in
-[`song/src/table/table.slang`](../../song/src/table/table.slang), and the evaluator bodies in
-[`song/src/prover/ring/prover0.slang`](../../song/src/prover/ring/prover0.slang). No entry is closed.
+[`song/src/table/table.slang`](../../../song/src/table/table.slang), and the evaluator bodies in
+[`song/src/prover/ring/prover0.slang`](../../../song/src/prover/ring/prover0.slang). No entry is closed.
 
 | Entry | Song file | Song entry | Canonical target | Status |
 |---|---|---|---|---|
@@ -59,7 +59,7 @@ profile row requires a source-connected refinement: the table merge, read, write
 | SE8 | `song/src/prover/ring/prover0.slang` | `verdict` | `Apeiron.Combinator.Comb.verdict` | selected-open |
 
 A source-connected refinement of a selected entry is a checked relation between the actual executing
-body and the canonical declaration, on a matched domain, under a closed axiom cone. The relation is a
+body and the canonical declaration, on a matched domain, under an empty axiom cone. The relation is a
 function of the actual body: the recorded digest binds the entry to the bytes the relation is stated
 about, and a body change with an unchanged represented program is a change the relation must fail to
 accept. None of the relations below is checked; every entry states its relation as an anchor.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -19,9 +20,16 @@ SONG = ROOT.parent / "song"
 CORPUS = ROOT.parent / "sanguine-apeiron" / "proof"
 SPEC_PATH = ROOT / "docs/spec/slang-source-semantics.md"
 PLAN_PATH = ROOT / "docs/plan/slang-source-refinement.md"
+SOURCE_AUDIT_PATH = ROOT / "proof/corpus/Slang/SourceAudit.lean"
 CANONICAL_MODULE = "Apeiron/Table/Basic.lean"
 SONG_REV = "aeaf3baac434b2e3c01154d275bea65fdadc69bf"
 CORPUS_REV = "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f"
+# The canonical module is read from the pinned Git blob, not the mutable sibling
+# working tree: the sibling checkout is a shared other-stream worktree whose HEAD
+# advances independently of Apeiron's recorded dependency.
+CORPUS_DEPENDENCY_MANIFEST = ROOT / "proof/corpus/lake-manifest.json"
+CORPUS_DEPENDENCY_NAME = "apeiron"
+CANONICAL_MODULE_SHA256 = "e7558bac1d255643f58100f5a1adf32926a423fe6b49e7c991f8d3a3b0eb26b9"
 
 OBLIGATIONS = tuple(f"O{i:02d}" for i in range(1, 19))
 SECTIONS = (
@@ -40,6 +48,42 @@ SECTIONS = (
     "Checker",
 )
 STAGES = tuple(f"W{i}" for i in range(21, 31))
+
+SOURCE_BINDING_SPEC = (
+    "`ParsesClosure bundle entryProgram` is indexed only by the table-entry program",
+    "Its exact constant-name list has eight entries and excludes",
+    "that program has nine selected constants and includes",
+    "inductive ClosedBinding (bundle : SourceBundle) (value : CertifiedDecoded) : Prop where",
+    "(entryBinding : ParsesClosure bundle entryDecoded.val.program)",
+    "(tableImports : importPaths entryBytes = [cellPath])",
+    "(cellImports : importPaths cellBytes = [stdImportPath])",
+    "(coordDerivation : ImportedCoordDerivation stdBytes stdTokens stdConsumed coord)",
+    "(composed : value = Decode.appendImportedCoord entryDecoded coord)",
+    "theorem source_binding_of_closed_binding {value : Decode.CertifiedDecoded}",
+    "(binding : ClosedBinding entryBundle value)",
+    "theorem source_binding :\n  ∃ value : Decode.CertifiedDecoded,",
+    "ClosedBinding entryBundle value",
+    "MUST be removed, not renamed",
+    "Whole-source `#guard` checks remain compiled regression checks",
+    "`DecodeTrace.Run` step derivations",
+)
+
+SOURCE_BINDING_PLAN = (
+    "The source headline remains open until the unconditional theorem",
+    "ClosedBinding selectedBundle value",
+    "closed program has all nine selected",
+    "contradictory and MUST NOT remain under any",
+    "The corrected helper remains only as `source_binding_of_closed_binding`",
+    "Replacing the unconditional target with the conditional helper MUST fail",
+    "audit target naming `source_binding_of_closed_binding` instead of `source_binding` is red",
+    "Acceptance requires the unconditional `Slang.SourceAudit.source_binding` theorem",
+    "generated `DecodeTrace.Run` derivations for every recursive call and continuation",
+)
+
+FORBIDDEN_SOURCE_BINDING_ACCEPTANCE = (
+    "`source_binding` is a proved conditional headline",
+    "The source stage is unblocked",
+)
 
 # A gate is a shell command line. Every command segment after splitting on the
 # shell operators must begin with a known runner, a shell builtin, or a
@@ -139,6 +183,8 @@ class Inputs:
     plan: str
     sources: dict[str, bytes]
     corpus: str
+    source_audit: str = ""
+    corpus_rev: str = ""
     spec_bytes: bytes = b""
     plan_bytes: bytes = b""
     spec_sha256: str = ""
@@ -160,6 +206,51 @@ def decode_source(name: str, data: bytes) -> str:
         fail(f"source is not utf-8: song/{name}: {exc}")
 
 
+def git_has_commit(path: Path, revision: str) -> bool:
+    """True when the recorded revision resolves as a commit in that repository."""
+    try:
+        subprocess.run(
+            ["git", "-C", str(path), "cat-file", "-e", f"{revision}^{{commit}}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return True
+
+
+def corpus_dependency_revision() -> str:
+    """The corpus revision Apeiron depends on, from the committed Lake manifest."""
+    try:
+        manifest = json.loads(CORPUS_DEPENDENCY_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        fail(f"corpus dependency manifest unresolved: {exc}")
+    for package in manifest.get("packages", []):
+        if package.get("name") == CORPUS_DEPENDENCY_NAME:
+            revision = package.get("rev")
+            if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+                fail("corpus dependency revision is not a 40-hex Git identity")
+            return revision
+    fail(f"corpus dependency absent from manifest: {CORPUS_DEPENDENCY_NAME}")
+
+
+def read_pinned_corpus_module(relative: str) -> str:
+    """Read a canonical module from the pinned dependency revision, not the worktree."""
+    if not git_has_commit(CORPUS.parent, CORPUS_REV):
+        fail(f"canonical corpus pin unresolvable: {CORPUS_REV}")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(CORPUS.parent), "show", f"{CORPUS_REV}:proof/{relative}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        fail(f"canonical corpus module unresolved at pin: {relative}: {exc}")
+    return result.stdout
+
+
 def load() -> Inputs:
     try:
         raw = {name: (SONG / name).read_bytes() for name in SOURCES}
@@ -173,7 +264,9 @@ def load() -> Inputs:
             spec=spec_bytes.decode("utf-8"),
             plan=plan_bytes.decode("utf-8"),
             sources=raw,
-            corpus=(CORPUS / CANONICAL_MODULE).read_text(encoding="utf-8"),
+            corpus=read_pinned_corpus_module(CANONICAL_MODULE),
+            source_audit=SOURCE_AUDIT_PATH.read_text(encoding="utf-8"),
+            corpus_rev=corpus_dependency_revision(),
             spec_bytes=spec_bytes,
             plan_bytes=plan_bytes,
             spec_sha256=sha256(spec_bytes),
@@ -181,19 +274,6 @@ def load() -> Inputs:
         )
     except (OSError, UnicodeError) as exc:
         fail(f"unresolved file: {exc}")
-
-
-def git_revision(path: Path) -> str:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        fail(f"repository identity unresolved: {path}: {exc}")
-    return result.stdout.strip()
 
 
 def require_once(text: str, needle: str, label: str) -> None:
@@ -345,16 +425,27 @@ def check_markdown(inputs: Inputs) -> None:
     for phrase in PHRASES[12:]:
         if phrase not in inputs.plan:
             fail(f"required plan boundary missing: {phrase}")
+    for statement in SOURCE_BINDING_SPEC:
+        if statement not in inputs.spec:
+            fail(f"source binding contract missing: {statement}")
+    for statement in SOURCE_BINDING_PLAN:
+        if statement not in inputs.plan:
+            fail(f"source binding plan missing: {statement}")
+    for stale in FORBIDDEN_SOURCE_BINDING_ACCEPTANCE:
+        if stale in inputs.spec or stale in inputs.plan:
+            fail(f"conditional-only source binding acceptance is forbidden: {stale}")
     forbidden_budget = "fu" + "el"
     if re.search(rf"\b{forbidden_budget}\b", inputs.spec + inputs.plan, re.IGNORECASE):
         fail("generic scalar execution budget is forbidden in this specification route")
 
 
 def check_sources(inputs: Inputs) -> None:
-    if git_revision(SONG) != SONG_REV or SONG_REV not in inputs.spec:
+    if not git_has_commit(SONG, SONG_REV) or SONG_REV not in inputs.spec:
         fail("Song repository identity mismatch")
-    if git_revision(CORPUS.parent) != CORPUS_REV or CORPUS_REV not in inputs.spec:
+    if inputs.corpus_rev != CORPUS_REV or CORPUS_REV not in inputs.spec:
         fail("canonical corpus identity mismatch")
+    if not git_has_commit(CORPUS.parent, CORPUS_REV):
+        fail(f"canonical corpus pin unresolvable: {CORPUS_REV}")
     for name in SOURCES:
         if name not in inputs.sources:
             fail(f"source missing: song/{name}")
@@ -402,6 +493,31 @@ def check_sources(inputs: Inputs) -> None:
             fail(f"source identity row missing: song/{name}")
 
 
+def check_source_binding_artifact(inputs: Inputs) -> None:
+    """Reject the old implication even when its declaration and empty cone still check."""
+    match = re.search(
+        r"^theorem\s+source_binding\s*:\s*(.*?)\s*:=\s*by\b",
+        inputs.source_audit,
+        re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        fail("source binding artifact is not the unconditional headline")
+    headline = match.group(1)
+    required = (
+        "∃ value : Decode.CertifiedDecoded",
+        "Decode.decodeClosure",
+        "ExpectedSelectedSyntax value.val.program = true",
+        "Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value",
+    )
+    for statement in required:
+        if statement not in headline:
+            fail(f"source binding artifact missing unconditional conclusion: {statement}")
+    forbidden = ("DecodeDerivation", "Source.ParsesClosure", "→")
+    for statement in forbidden:
+        if statement in headline:
+            fail(f"source binding artifact retains a conditional premise: {statement}")
+
+
 def canonical_references(text: str) -> set[str]:
     """Every `Apeiron.Table.<name>` reference, including the `{a,b}` shorthand."""
     names = set(re.findall(r"Apeiron\.Table\.([A-Za-z_][A-Za-z0-9_']*)", text))
@@ -414,9 +530,8 @@ def canonical_references(text: str) -> set[str]:
 
 
 def check_canonical(inputs: Inputs) -> None:
-    module_path = CORPUS / CANONICAL_MODULE
-    if not module_path.is_file():
-        fail(f"canonical module file missing: {module_path}")
+    if sha256(inputs.corpus.encode("utf-8")) != CANONICAL_MODULE_SHA256:
+        fail(f"canonical module bytes drift from the pinned revision: {CANONICAL_MODULE}")
     require_once(inputs.spec, f"`{CANONICAL_MODULE}`", "canonical module reference")
     code = strip_lean_comments(inputs.corpus)
     if "namespace Apeiron\nnamespace Table" not in code:
@@ -459,23 +574,95 @@ def relative_links(text: str) -> list[str]:
     return targets
 
 
+FENCE_OPEN = re.compile(r"^\s*(```|~~~)")
+BACKTICK_SPAN = re.compile(r"(`+)(.+?)\1", re.DOTALL)
+
+
+def fenced_segments(text: str) -> list[tuple[str, str]]:
+    """Split into ('text'|'fence', segment) blocks with fence state tracked.
+
+    A code fence must be terminated; an unterminated fence is a failure rather
+    than a licence to skip the remainder of the document.
+    """
+    segments: list[tuple[str, str]] = []
+    buffer: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        opening = FENCE_OPEN.match(line)
+        if fence is None and opening is not None:
+            if buffer:
+                segments.append(("text", "".join(buffer)))
+                buffer = []
+            fence = opening.group(1)
+            continue
+        if fence is not None:
+            if re.match(r"^\s*" + re.escape(fence) + r"\s*$", line):
+                segments.append(("fence", "".join(buffer)))
+                buffer = []
+                fence = None
+                continue
+            buffer.append(line)
+            continue
+        buffer.append(line)
+    if fence is not None:
+        fail("unterminated fenced code block")
+    if buffer:
+        segments.append(("text", "".join(buffer)))
+    return segments
+
+
+def reference_tokens(text: str) -> list[str]:
+    """Every inline backtick span, pairing runs within one block.
+
+    Fenced blocks are scanned too, so a reference cannot be hidden inside a
+    fence; a multi-backtick span ``like this`` is one token, not several.
+    """
+    tokens: list[str] = []
+    for _kind, segment in fenced_segments(text):
+        tokens.extend(match.group(2) for match in BACKTICK_SPAN.finditer(segment))
+    return tokens
+
+
+PLANNED_HEADER = re.compile(r"^\|.*[Oo]wned files.*\|\s*$")
+ALIAS_DEF = re.compile(r"`([^`]+)`\s+abbreviates\s+`([^`]+)`")
+
+
+def plan_aliases(plan: str) -> dict[str, str]:
+    """Declared path aliases, so `S/X.lean` resolves to its package path."""
+    return {alias: target for alias, target in ALIAS_DEF.findall(plan)}
+
+
 def planned_files(plan: str) -> set[str]:
-    """Backticked paths declared in the plan's owned-files column."""
+    """Backticked paths declared in every owned-files column of the plan."""
     planned: set[str] = set()
-    for stage in STAGES:
-        rows = [line for line in plan.splitlines() if line.startswith(f"| {stage} |")]
-        if len(rows) != 1:
+    rows = plan.splitlines()
+    index = 0
+    while index < len(rows):
+        header = rows[index]
+        if not PLANNED_HEADER.match(header):
+            index += 1
             continue
-        cells = [cell.strip() for cell in rows[0].strip().strip("|").split("|")]
-        if len(cells) != STAGE_COLUMNS:
-            continue
-        planned.update(re.findall(r"`([^`]+)`", cells[2]))
+        cells = [cell.strip() for cell in header.strip().strip("|").split("|")]
+        column = next(
+            (j for j, cell in enumerate(cells) if "owned files" in cell.lower()), None
+        )
+        index += 1
+        if index < len(rows) and re.fullmatch(r"\s*\|[\s:|-]+\|\s*", rows[index]):
+            index += 1
+        while index < len(rows) and rows[index].strip().startswith("|"):
+            row_cells = [
+                cell.strip() for cell in rows[index].strip().strip("|").split("|")
+            ]
+            if column is not None and column < len(row_cells):
+                planned.update(re.findall(r"`([^`]+)`", row_cells[column]))
+            index += 1
     return planned
 
 
 def check_references(inputs: Inputs) -> None:
     """Resolve every relative doc link and every backticked module/declaration reference."""
     planned = planned_files(inputs.plan)
+    aliases = plan_aliases(inputs.plan)
     for label, text, base in (
         ("spec", inputs.spec, SPEC_PATH.parent),
         ("plan", inputs.plan, PLAN_PATH.parent),
@@ -483,18 +670,29 @@ def check_references(inputs: Inputs) -> None:
         for target in relative_links(text):
             if not (base / target).is_file():
                 fail(f"{label} relative link unresolved: {target}")
-        for token in re.findall(r"`([^`]+)`", text):
+        for token in reference_tokens(text):
             if any(ch.isspace() for ch in token):
                 continue
-            if token.endswith(FILE_SUFFIXES):
-                if token in planned or token == CANONICAL_MODULE:
+            resolved = token
+            if label == "plan":
+                for alias, target in aliases.items():
+                    if token.startswith(alias):
+                        resolved = target + token[len(alias) :]
+                        break
+            if resolved.endswith(FILE_SUFFIXES):
+                if token in planned or resolved in planned or resolved == CANONICAL_MODULE:
                     continue
-                if any((root / token).is_file() for root in (ROOT, CORPUS, SONG, ROOT.parent, base)):
+                if any((root / resolved).is_file() for root in (ROOT, CORPUS, SONG, ROOT.parent, base)):
                     continue
                 fail(f"{label} module path unresolved: {token}")
             elif DOTTED_DECL.fullmatch(token):
-                prefix, _, name = token.rpartition(".")
-                if prefix != "Apeiron.Table" or name not in CANONICAL:
+                # The normative canonical targets are `Apeiron.Table.*`. Another
+                # qualified name (e.g. `Program.constants`) is prose context, not
+                # a canonical target; an `Apeiron.Table.` name must be canonical.
+                if not token.startswith("Apeiron.Table."):
+                    continue
+                rest = token[len("Apeiron.Table.") :]
+                if "." in rest or rest not in CANONICAL:
                     fail(f"{label} declaration reference unresolved: {token}")
 
 
@@ -632,6 +830,7 @@ def validate(inputs: Inputs) -> None:
     check_document_bytes(inputs)
     check_markdown(inputs)
     check_sources(inputs)
+    check_source_binding_artifact(inputs)
     check_canonical(inputs)
     check_plan(inputs)
     check_references(inputs)
@@ -666,6 +865,10 @@ def sub_plan(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
 
 def sub_spec_all(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
     return lambda i: spec_text(i.spec.replace(old, new))(i)
+
+
+def sub_plan_all(old: str, new: str = "") -> Callable[[Inputs], Inputs]:
+    return lambda i: plan_text(i.plan.replace(old, new))(i)
 
 
 def document_crlf(which: str) -> Callable[[Inputs], Inputs]:
@@ -720,11 +923,17 @@ def controls(inputs: Inputs) -> list[Mutation]:
         cases.append((f"remove statement {phrase[:24]}", sub_spec_all(phrase, "REMOVED")))
     for phrase in PHRASES[12:]:
         cases.append((f"remove boundary {phrase}", sub_plan(phrase, "REMOVED")))
+    for statement in SOURCE_BINDING_SPEC:
+        cases.append((f"remove source contract {statement[:24]}", sub_spec(statement, "REMOVED")))
+    for statement in SOURCE_BINDING_PLAN:
+        cases.append((f"remove source plan {statement[:24]}", sub_plan_all(statement, "REMOVED")))
     cases.extend(
         [
             ("change selected source digest", sub_spec(next(iter(SOURCES.values())), "0" * 64)),
             ("change Song revision", sub_spec(SONG_REV, "0" * 40)),
             ("change corpus revision", sub_spec(CORPUS_REV, "1" * 40)),
+            ("change corpus dependency revision", lambda i: replace(i, corpus_rev="1" * 40)),
+            ("mutate pinned canonical module byte", lambda i: replace(i, corpus=i.corpus + "\n")),
             ("remove table import", source_sub("src/table/table.slang", 'use "src/kernel/mem/cell.slang"', 'use "missing.slang"')),
             ("remove std import", source_sub("src/kernel/mem/cell.slang", 'use "src/kernel/std.slang"', 'use "missing.slang"')),
             ("change COORD_CEILING", source_sub("src/kernel/std.slang", "COORD_CEILING = 8796093022208", "COORD_CEILING = 7")),
@@ -735,6 +944,13 @@ def controls(inputs: Inputs) -> list[Mutation]:
             ("remove W21 gate", sub_plan("`python3 tools/slang/source_semantics_check.py --check harness`", "MISSING")),
             ("remove W27 control", sub_plan("preservation/admission MUST fail", "control omitted")),
             ("introduce forbidden generic budget term", sub_spec("Counts are not converted", ("fu" + "el") + " is allowed. Counts are not converted")),
+            (
+                "reinstate conditional-only source headline",
+                sub_plan(
+                    "The source headline remains open until the unconditional theorem",
+                    "`source_binding` is a proved conditional headline. The source headline remains open until the unconditional theorem",
+                ),
+            ),
         ]
     )
     cases.extend(hardening_controls(inputs))
@@ -907,8 +1123,8 @@ def hardening_controls(inputs: Inputs) -> list[Mutation]:
     )
     cases.append(
         (
-            "non-Apeiron.Table declaration reference in plan",
-            sub_plan("`Apeiron.Table.insertWith`", "`Apeiron.Other.insertWith`"),
+            "non-canonical Apeiron.Table declaration reference in plan",
+            sub_plan("`Apeiron.Table.insertWith`", "`Apeiron.Table.bogus`"),
         )
     )
     cases.append(
@@ -921,6 +1137,38 @@ def hardening_controls(inputs: Inputs) -> list[Mutation]:
     # The spec and plan are bound to raw bytes, not newline-normalized text.
     cases.append(("crlf spec bytes not normalized", document_crlf("spec")))
     cases.append(("crlf plan bytes not normalized", document_crlf("plan")))
+
+    # A reference cannot be hidden by a fence or a multi-backtick span, and an
+    # unterminated fence is a failure, not a licence to skip the rest.
+    anchor = "## Staged tasks"
+    cases.append(
+        (
+            "nonexistent declaration hidden in a fenced block",
+            sub_plan(anchor, anchor + "\n\n```text\n`Apeiron.Table.bogus`\n```\n"),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent declaration after a fenced block",
+            sub_plan(
+                anchor,
+                "```text\nfiller\n```\n\n" + anchor + "\n`Apeiron.Table.bogus`",
+            ),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent declaration in a multi-backtick span",
+            sub_plan(anchor, anchor + "\n\n``Apeiron.Table.bogus``\n"),
+        )
+    )
+    cases.append(
+        (
+            "nonexistent module in a fenced block",
+            sub_plan(anchor, anchor + "\n\n```\n`Apeiron/Table/Gone.lean`\n```\n"),
+        )
+    )
+    cases.append(("unterminated fence", sub_plan(anchor, "~~~text\n" + anchor)))
     return cases
 
 

@@ -3,7 +3,8 @@
 This specification fixes the source language fragment and execution closure used to interpret the
 selected table bodies in `/home/socol/Workspace/song/src/table/table.slang`. It is an obligation for
 later checked artifacts, not an executable semantics, proof, source-to-Lean refinement, or primitive
-correspondence result. `tools/slang/spec_check.py` checks this document's consistency only.
+correspondence result. `tools/slang/spec_check.py` checks this document's consistency and rejects a
+conditional `Slang.SourceAudit.source_binding` artifact in place of the frozen unconditional shape.
 
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence),
 [`joint-primitives.md`](joint-primitives.md), [`joint-table.md`](joint-table.md), and
@@ -111,6 +112,74 @@ bytes to behavior. A handwritten Lean algorithm that resembles the table and is 
 matching source filename is unacceptable: the checked decoder, declaration spans, closure, and
 machine relation must depend on the exact selected bytes.
 
+### Entry and closed-program indices
+
+`ParsesClosure bundle entryProgram` is indexed only by the table-entry program returned by
+`Decode.decodeTable`. Its exact constant-name list has eight entries and excludes
+`COORD_CEILING`. It MUST NOT be formed at the closed program returned by `Decode.decodeClosure`;
+that program has nine selected constants and includes `COORD_CEILING`.
+
+The binding interface is frozen to these declaration shapes. `ParsesClosure` carries only the entry
+decode and entry-source checks. `ClosedBinding` composes that entry binding with the checked
+table-to-cell-to-std import path and the imported coordinate:
+
+```lean
+inductive ParsesClosure (bundle : SourceBundle) (entryProgram : Program) : Prop where
+  | intro (entryBytes : SourceBytes)
+      (entryLookup : bundle.fileBytes? bundle.entry = some entryBytes)
+      (entryDecoded : CertifiedDecoded)
+      (entryDecodes : Decode.decodeTable (encodeBytes entryBytes) = .ok entryDecoded)
+      (programEq : entryDecoded.val.program = entryProgram)
+      (selectedSource : SelectedSourceExact entryBytes)
+      (selectedProgram : SelectedProgramExact entryProgram)
+      (importsResolved : ∀ path, path ∈ importPaths entryBytes →
+        (bundle.fileBytes? path).isSome = true) : ParsesClosure bundle entryProgram
+
+inductive ClosedBinding (bundle : SourceBundle) (value : CertifiedDecoded) : Prop where
+  | intro (entryBytes cellPath cellBytes stdImportPath stdBytes : SourceBytes)
+      (entryDecoded : CertifiedDecoded)
+      (stdTokens : List Token) (stdConsumed : Nat) (coord : ConstantDecl)
+      (entryLookup : bundle.fileBytes? bundle.entry = some entryBytes)
+      (entryBinding : ParsesClosure bundle entryDecoded.val.program)
+      (tableImports : importPaths entryBytes = [cellPath])
+      (cellLookup : bundle.fileBytes? cellPath = some cellBytes)
+      (cellImports : importPaths cellBytes = [stdImportPath])
+      (stdLookup : bundle.fileBytes? stdImportPath = some stdBytes)
+      (coordDerivation : ImportedCoordDerivation stdBytes stdTokens stdConsumed coord)
+      (coordValue : coord.value = .literal 8796093022208)
+      (composed : value = Decode.appendImportedCoord entryDecoded coord) :
+      ClosedBinding bundle value
+
+theorem source_binding_of_closed_binding {value : Decode.CertifiedDecoded}
+    (binding : ClosedBinding entryBundle value)
+    (selectedSyntax : ExpectedSelectedSyntax value.val.program = true) :
+    Decode.decodeClosure (encodeBytes tableSource) (encodeBytes stdSource) = .ok value ∧
+    value.val.certificate.Valid ∧
+    ExpectedSelectedSyntax value.val.program = true ∧
+    ClosedBinding entryBundle value
+
+theorem source_binding :
+  ∃ value : Decode.CertifiedDecoded,
+    Decode.decodeClosure (encodeBytes tableSource) (encodeBytes stdSource) = .ok value ∧
+    value.val.certificate.Valid ∧
+    ExpectedSelectedSyntax value.val.program = true ∧
+    ClosedBinding entryBundle value
+```
+
+The unconditional `source_binding` declaration is the only source-binding headline. The corrected
+conditional composition lemma remains under `source_binding_of_closed_binding` with the exact shape
+above; it is not an acceptance target. The former theorem requiring both
+`ExpectedSelectedSyntax value.val.program = true` and
+`ParsesClosure entryBundle value.val.program` MUST be removed, not renamed, because those premises
+force the same constant-name list to contain respectively nine and eight entries.
+
+The concrete theorem MUST be a named proof term whose transitive `Lean.collectAxioms` set is empty.
+Whole-source `#guard` checks remain compiled regression checks; they are neither a `tested` grade nor
+source-binding acceptance. The concrete producer MUST emit `DecodeTrace.Run` step derivations for
+each recursive decoder call and continuation. `Slang.Derivation.sound` and
+`Slang.Derivation.call_sound` connect those derivations to the real decoder without global kernel
+normalization.
+
 ## Word and expression semantics
 
 Let `Word = Fin (2^64)`. `bits(w)` is its representative in `[0, 2^64)`. The signed view is
@@ -198,8 +267,9 @@ and the executed branch to be the actual refusing branch.
 
 ## Representation and observation
 
-`RepSong(memory, base, cap, default, O, h)` relates a valid initialized table extent to
-`h : Word -> Word` and `O : Finset Word`. It requires:
+`RepSong(memory, base, cap, default, occupied, h)` relates a valid initialized table extent to
+`h : Word -> Word` and a duplicate-free `occupied : List Word` (computable membership; list order is
+bookkeeping, not semantic key order). It requires:
 
 1. positive power-of-two `cap`, valid owned extent, and unchanged outside-frame ownership;
 2. every slot key is `TABLE_EMPTY` or belongs to `O`; occupied keys are unique and never
@@ -211,14 +281,26 @@ and the executed branch to be the actual refusing branch.
 The occupied-key set is essential: an extensional map alone cannot distinguish an unwritten key from
 a written key whose value equals `default`.
 
-`observeRead(memory, base, cap, default, O, h, key, raw)` is state-aware. Under `RepSong`, it is
-`present(h(key), raw)` when `key in O`, requiring `raw = h(key)`; otherwise it is
+`observeRead(memory, base, cap, default, occupied, h, key, raw)` is state-aware. Under `RepSong`, it is
+`present(h(key), raw)` when `key in occupied`, requiring `raw = h(key)`; otherwise it is
 `absent(default, raw)`, requiring `raw = TABLE_EMPTY`. The constructor/read/write theorems preserve
 both the raw return and resulting state, even where the canonical observation ignores the raw word.
 
-Canonical targets resolve in `Apeiron/Table/Basic.lean` as `Apeiron.Table.HMap`,
-`Apeiron.Table.get`, `Apeiron.Table.insertWith`, `Apeiron.Table.build`,
-`Apeiron.Table.get_insertWith_self`, and `Apeiron.Table.get_insertWith_ne`.
+Canonical targets resolve in `Apeiron/Table/Basic.lean` as the axiom-free definitions
+`Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith`, `Apeiron.Table.build`, and in
+`Apeiron/Trichotomy/AnyRing.lean` as `Apeiron.Trichotomy.AnyRing.RingCell`, `ringMul`,
+`ringNormForm`. The canonical theorems `Apeiron.Table.get_insertWith_self`,
+`Apeiron.Table.get_insertWith_ne`, `Apeiron.Trichotomy.AnyRing.ringMul_comm`, `ringMul_assoc` and
+`ringNormForm_mul` are attribution references only; the specializations this chain needs are
+re-proved locally, because those theorems carry `propext`/`Quot.sound` and are inadmissible as
+dependencies.
+
+The Slang source-refinement chain requires an **empty** axiom cone: every registered declaration,
+instance, witness and headline audits with `Lean.collectAxioms` empty
+(`proof/corpus/Slang/Audit/Empty.lean`, `tools/slang/zero_axioms.py`). The source word ring is a
+constructive, locally supplied ring (`Slang.Refinement.WordRing`); `ZMod`, `Finset`, `Quot`,
+`noncomputable` and `classical` are rejected. A `#guard` is a compiled evaluator test, not a proof
+term and not acceptance: an obligation is `proved` only when a named declaration audits empty.
 
 ## Required theorem shapes
 
@@ -267,7 +349,8 @@ not imply a native machine-stack bound. Machine-stack exhaustion remains the sep
 
 ## Checker
 
-`python3 tools/slang/spec_check.py --check` verifies every obligation and section, the
+`python3 tools/slang/spec_check.py --check` verifies every obligation and section, the exact
+unconditional `Slang.SourceAudit.source_binding` headline shape, the
 harness-manifest source hashes, imports, selected constants/functions, canonical declarations, and
 all staged plan rows. The manifest gates the selected execution/import set and the listed grammar,
 AST, bridge, and ISA evidence files; `song/src/front/expr.slang` is recorded here as parsing

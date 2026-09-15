@@ -54,6 +54,7 @@
     "copy": [
       "proof/corpus/Slang",
       "proof/corpus/Joint",
+      "proof/corpus/TableRefinement",
       "proof/corpus/*.lean",
       "proof/corpus/lakefile.lean",
       "proof/corpus/lake-manifest.json",
@@ -65,12 +66,15 @@
       "proof/lake-manifest.json",
       "proof/lean-toolchain",
       "tools/slang",
+      "song/src/table/table.slang",
+      "song/src/kernel/mem/cell.slang",
       "song/src/kernel/std.slang"
     ],
     "link": [
       "proof/.lake/packages",
       "proof/corpus/.lake/packages",
-      "target"
+      "target",
+      "song/.git"
     ]
   },
   "stages": [
@@ -97,8 +101,9 @@
           "kind": "proof",
           "root": "bridge_corpus",
           "module": "Slang/Decode.lean",
-          "declaration_prefix": "Slang.Decode",
-          "note": "declared target; the W22 task fixes the headline declaration name"
+          "declaration": "Slang.Decode.decodeClosure",
+          "declaration_type": "ByteArray → ByteArray → Slang.Decode.Result Slang.Decode.CertifiedDecoded",
+          "note": "exact decoder headline; the probe binds the declaration and its kernel-elaborated type"
         },
         {
           "kind": "source",
@@ -152,8 +157,9 @@
           "kind": "proof",
           "root": "bridge_corpus",
           "module": "Slang/Machine.lean",
-          "declaration_prefix": "Slang.Machine",
-          "note": "W23 semantics module; the W23 task fixes the headline declaration name"
+          "declaration": "Slang.Machine.lazy_inline_conditional_does_not_evaluate_untaken_branch",
+          "declaration_type": "Slang.Machine.EvalExpr Slang.Machine.emptyContext Slang.Machine.StackPolicy.unbounded 0 ([] : List (String × Slang.Word)) Slang.Machine.Memory.empty (Slang.Expr.conditional (Slang.Expr.literal 7) (Slang.Expr.literal 1) (Slang.Expr.memory (Slang.Expr.literal 0))) (Slang.Machine.EvalResult.value (Slang.Word.ofNat 7) Slang.Machine.Memory.empty) ([] : List Slang.Machine.Event)",
+          "note": "exact lazy-conditional fixture headline; the probe binds the declaration and its kernel-elaborated type"
         },
         {
           "kind": "source",
@@ -176,8 +182,8 @@
       },
       "mutation": {
         "path": "proof/corpus/Slang/Machine.lean",
-        "old": "        (hbranch : EvalExpr context policy depth env next thenValue result tb) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb)\n",
-        "new": "        (hbranch : EvalExpr context policy depth env next thenValue result tb)\n        (helse : EvalExpr context policy depth env next elseValue (.value elseResult elseMemory) te) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) result (tc ++ tb ++ te)\n",
+        "old": "        (hbranch : EvalExpr context policy depth env next thenValue evalResult tb) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) evalResult (tc ++ tb)\n",
+        "new": "        (hbranch : EvalExpr context policy depth env next thenValue evalResult tb)\n        (helse : EvalExpr context policy depth env next elseValue (.value elseResult elseMemory) te) :\n        EvalExpr context policy depth env memory (.conditional thenValue condition elseValue) evalResult (tc ++ tb ++ te)\n",
         "expect": "the eager-conditional mutation also evaluates the untaken else branch, so the audited `lazy_inline_conditional_does_not_evaluate_untaken_branch` fixture no longer elaborates (W23 control)",
         "expected_step": 0,
         "expected_output": "EvalExpr.conditionalTrue"
@@ -208,7 +214,8 @@
           "root": "bridge_corpus",
           "module": "Slang/SourceAudit.lean",
           "declaration": "Slang.SourceAudit.source_binding",
-          "note": "W24 audit module; the exact headline declaration, checked for presence, non-axiom type and the closed axiom cone"
+          "declaration_type": "∃ value : Slang.Decode.CertifiedDecoded, Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value ∧ Slang.Decode.Certificate.Valid value.val.certificate ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value",
+          "note": "W24 unconditional headline; the exact declaration probe must reject the conditional helper and remains red until the generated decode and closure derivations construct this witness"
         },
         {
           "kind": "source",
@@ -225,6 +232,7 @@
         "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
+          ["python3", "../../tools/slang/export.py", "--song-root", "../../song"],
           ["lake", "build", "Slang.SourceAudit"]
         ]
       },
@@ -233,10 +241,10 @@
         "old": "TABLE_PHI = 2654435769",
         "new": "TABLE_PHI = 2654435768",
         "expect": "the binding gate rejects the changed TABLE_PHI constant (W24 control)",
-        "expected_step": 0,
-        "expected_output": "TABLE_PHI"
+        "expected_step": 1,
+        "expected_output": "decodedSourceExact"
       },
-      "note": "The W24 module is Slang/SourceAudit.lean; the harness builds it and loads the exact declaration Slang.SourceAudit.source_binding, rejecting a missing, axiomatic or out-of-cone target. The module is not yet proved, so the stage blocks with a named missing-proof-target result. The command and the TABLE_PHI regeneration control are owned by the W24 integration task once the proof-producing translation exists; the mutation is retained so the intended control is recorded, not silently dropped."
+      "note": "The throwaway command regenerates the byte and derivation modules from the mutated Song source before building SourceAudit; the exact conditional headline and closed axiom cone are checked separately by the declaration probe."
     },
     {
       "id": "init",
@@ -249,20 +257,21 @@
         "wave": "W25",
         "purpose": "Prove constructor execution and `RepSong` establishment",
         "owned_files": [
-          "proof/corpus/Slang/TableRep.lean",
-          "proof/corpus/Slang/TableInit.lean",
-          "proof/corpus/Slang/TableWitness.lean"
+          "proof/corpus/Slang/Table/TableRep.lean",
+          "proof/corpus/Slang/Table/TableInit.lean",
+          "proof/corpus/Slang/Table/TableWitness.lean"
         ],
-        "gate": "cd proof/corpus && lake env lean Slang/TableInit.lean",
+        "gate": "cd proof/corpus && lake env lean Slang/Table/TableInit.lean",
         "negative_control": "Omit the value-cell store in decoded `tableInitGo`; constructor establishment MUST fail."
       },
       "artifacts": [
         {
           "kind": "proof",
           "root": "bridge_corpus",
-          "module": "Slang/TableInit.lean",
-          "declaration_prefix": "Slang.TableInit",
-          "note": "declared target; the W25 task fixes the headline declaration name"
+          "module": "Slang/Table/TableInit.lean",
+          "declaration_prefix": "Slang.Table.TableInit",
+          "binding": "unbound",
+          "note": "declared future interface; the W25 task fixes and binds the headline declaration name"
         },
         {
           "kind": "source",
@@ -279,7 +288,7 @@
         "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
-          ["lake", "env", "lean", "Slang/TableInit.lean"]
+          ["lake", "env", "lean", "Slang/Table/TableInit.lean"]
         ]
       },
       "mutation": {
@@ -303,20 +312,21 @@
         "wave": "W26",
         "purpose": "Prove probe/read correctness and state-aware observation",
         "owned_files": [
-          "proof/corpus/Slang/TableProbe.lean",
-          "proof/corpus/Slang/TableRead.lean",
-          "proof/corpus/Slang/ReadWitness.lean"
+          "proof/corpus/Slang/Table/TableProbe.lean",
+          "proof/corpus/Slang/Table/TableRead.lean",
+          "proof/corpus/Slang/Table/ReadWitness.lean"
         ],
-        "gate": "cd proof/corpus && lake env lean Slang/TableRead.lean",
+        "gate": "cd proof/corpus && lake env lean Slang/Table/TableRead.lean",
         "negative_control": "Classify raw `-1` as absence without consulting `O`; the present-`-1` witness MUST fail."
       },
       "artifacts": [
         {
           "kind": "proof",
           "root": "bridge_corpus",
-          "module": "Slang/TableRead.lean",
-          "declaration_prefix": "Slang.TableRead",
-          "note": "declared target; the W26 task fixes the headline declaration name"
+          "module": "Slang/Table/TableRead.lean",
+          "declaration_prefix": "Slang.Table.TableRead",
+          "binding": "unbound",
+          "note": "declared future interface; the W26 task fixes and binds the headline declaration name"
         },
         {
           "kind": "source",
@@ -333,7 +343,7 @@
         "cwd": "proof/corpus",
         "timeout": 1800,
         "steps": [
-          ["lake", "env", "lean", "Slang/TableRead.lean"]
+          ["lake", "env", "lean", "Slang/Table/TableRead.lean"]
         ]
       },
       "control_status": "awaiting-definition",
@@ -364,7 +374,8 @@
           "root": "bridge_corpus",
           "module": "Slang/TableWrite.lean",
           "declaration_prefix": "Slang.TableWrite",
-          "note": "declared target; the W27 task fixes the headline declaration name"
+          "binding": "unbound",
+          "note": "declared future interface; the W27 task fixes and binds the headline declaration name"
         },
         {
           "kind": "source",
@@ -419,7 +430,8 @@
           "root": "bridge_corpus",
           "module": "Slang/TableResources.lean",
           "declaration_prefix": "Slang.TableResources",
-          "note": "declared target; the W28 task fixes the headline declaration name"
+          "binding": "unbound",
+          "note": "declared future interface; the W28 task fixes and binds the headline declaration name"
         },
         {
           "kind": "source",
@@ -453,28 +465,28 @@
       "id": "replacement-link",
       "order": 8,
       "title": "Link replacement execution to canonical Apeiron.Table.insertWith",
-      "summary": "W29: link replacement execution to canonical Apeiron.Table.insertWith under the closed axiom cone.",
-      "source_entry": "W29",
-      "rejecting_control": "plan W29 negative control",
-      "plan": {
-        "wave": "W29",
-        "purpose": "Link replacement execution to canonical `Apeiron.Table.insertWith` under the closed axiom cone",
-        "owned_files": [
-          "proof/corpus/Joint/SongTable.lean",
-          "proof/corpus/AxiomAudit.lean",
-          "proof/corpus/Joint/SongTableControl.lean"
-        ],
-        "gate": "cd proof/corpus && lake build",
-        "negative_control": "Change decoded `MERGE_MAP` from replacement to addition; `SongTableControl` or the axiom-audited headline MUST fail."
-      },
-      "artifacts": [
-        {
-          "kind": "proof",
-          "root": "bridge_corpus",
-          "module": "Joint/SongTable.lean",
-          "declaration_prefix": "Joint.SongTable",
-          "note": "declared target; the W29 task fixes the headline declaration name"
+        "summary": "W29: link replacement execution to canonical Apeiron.Table.insertWith under the empty axiom cone.",
+        "source_entry": "W29",
+        "rejecting_control": "plan W29 negative control",
+        "plan": {
+          "wave": "W29",
+          "purpose": "Link replacement execution to canonical `Apeiron.Table.insertWith` under the empty axiom cone",
+          "owned_files": [
+            "proof/corpus/Slang/Joint/SongTable.lean",
+            "proof/corpus/Slang/Joint/SongTableControl.lean"
+          ],
+          "gate": "cd proof/corpus && lake env lean Slang/Joint/SongTableControl.lean",
+          "negative_control": "Change decoded `MERGE_MAP` from replacement to addition; `SongTableControl` or the audited headline MUST fail."
         },
+        "artifacts": [
+          {
+            "kind": "proof",
+            "root": "bridge_corpus",
+            "module": "Slang/Joint/SongTable.lean",
+            "declaration": "Slang.Joint.songTable_replacement_link",
+            "declaration_type": "∀ (context : Slang.Machine.Context) (capacityOk spread findProbe slotKey slotVal slotSet slotValSet : Slang.FunctionDecl), context.functions \"tableCapacityOk\" = some capacityOk → context.functions \"tableSpread\" = some spread → context.functions \"tableFindSlotGo\" = some findProbe → context.functions \"tableSlotKey\" = some slotKey → context.functions \"tableSlotVal\" = some slotVal → context.functions \"tableSlotSet\" = some slotSet → context.functions \"tableSlotValSet\" = some slotValSet → context.functions \"tableInsertWith\" = some Slang.Table.insertWithDecl → Slang.Table.TableCapacityOkShape capacityOk → Slang.Table.TableSpreadShape spread → Slang.Table.TableFindSlotGoShape findProbe → Slang.Table.TableSlotKeyShape slotKey → Slang.Table.TableSlotValShape slotVal → Slang.Table.TableSlotSetShape slotSet → Slang.Table.TableSlotValSetShape slotValSet → context.constants \"TABLE_STRIDE\" = some (Slang.Word.ofNat 2) → context.constants \"TABLE_EMPTY\" = some Slang.Table.tableEmpty → context.constants \"MERGE_SET\" = some (Slang.Word.ofNat 1) → context.constants \"MERGE_ACC\" = some (Slang.Word.ofNat 3) → context.constants \"TABLE_PHI\" = some Slang.Word.tablePhi → ∀ (memory : Slang.Machine.Memory) (base cap default key value : Slang.Word) (occupied : List Slang.Word) (h : Slang.Word → Slang.Word), Slang.Table.RepSong memory base cap default occupied h → key ≠ Slang.Table.tableEmpty → Slang.Table.WriteAdmitted memory base cap key → ∃ raw memory' trace, Slang.Machine.EvalCall context Slang.Machine.StackPolicy.unbounded 0 \"tableInsertWith\" [base, cap, key, value, Slang.Word.ofNat 2] memory (Slang.Machine.EvalResult.value raw memory') trace ∧ raw = value ∧ Slang.Table.RepSong memory' base cap default (Slang.Table.insertOccupied occupied key) (Apeiron.Table.insertWith (fun new _old => new) key value h) ∧ ∀ (key' raw' : Slang.Word), Slang.Table.observeRead memory' base cap default (Slang.Table.insertOccupied occupied key) (Apeiron.Table.insertWith (fun new _old => new) key value h) key' raw' → Slang.Table.member (Slang.Table.insertOccupied occupied key) key' = true → raw' = Apeiron.Table.get (Apeiron.Table.insertWith (fun new _old => new) key value h) key'",
+            "note": "W29 empty-cone headline; binds the exact declaration and elaborated type"
+          },
         {
           "kind": "source",
           "path": "song/src/table/table.slang",
@@ -494,14 +506,14 @@
         ]
       },
       "mutation": {
-        "path": "song/src/table/table.slang",
-        "old": "MERGE_MAP = 2",
-        "new": "MERGE_MAP = 3",
+        "path": "proof/corpus/Slang/Table/TableWrite.lean",
+        "old": "     [.bind \"newVal\" (.conditional (.name \"TABLE_PRESENT\")\n        (.binary .eq (.name \"merge\") (.name \"MERGE_SET\")) (.name \"value\")),\n      .expression (.call \"tableSlotSet\"",
+        "new": "     [.bind \"newVal\" (.binary .add (.name \"oldVal\") (.name \"value\")),\n      .expression (.call \"tableSlotSet\"",
         "expect": "SongTableControl or the axiom-audited headline rejects the decoded MERGE_MAP replacement-to-addition change (W29 control)",
         "expected_step": 0,
-        "expected_output": "MERGE_MAP"
+        "expected_output": "TableWrite"
       },
-      "note": "The plan's control names the decoded `MERGE_MAP`; the encoded source change sets the map face to the accumulator code. The W29 stage command must re-render the binding, else the control reports `mutation survived` (red)."
+      "note": "The plan's control names the decoded `MERGE_MAP` replacement-to-addition change. The mutation edits the real admitted decoded body `Slang.Table.insertWithBody` (fresh-key path `newVal` becomes `oldVal + value`), the change `insertWithBodyAddition` names; the encoded Song constant is inert because the generated bytes are checked in and the headline executes `insertWithBody` definitionally. Restoring the text must rebuild green."
     }
   ]
 }

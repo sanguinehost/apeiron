@@ -1,0 +1,3731 @@
+{
+  "schema": 1,
+  "note": "Zero-axiom registry for the Slang source-refinement chain. Each active stage lists the declarations that `#audit_empty` in proof/corpus/Slang/Audit/Empty.lean must find with an EMPTY `Lean.collectAxioms` set and the exact registered type. The harness stage is the gate-first population (local axiom-free fixtures plus two real axiom-free Slang.Source.Bytes declarations). The remaining entries are explicit placeholders for the Stream 0 stages of the Astra freeze; they carry no declarations and the runner fails closed if one is selected. This registry does not cover proof/corpus/AxiomAudit.lean or the canonical/Rust bridge population.",
+  "defaults": {
+    "memory_max": "6G",
+    "memory_swap_max": "0",
+    "timeout_seconds": 900
+  },
+  "forbidden_tokens": [
+    "sorry",
+    "admit",
+    "native_decide",
+    "noncomputable",
+    "classical"
+  ],
+  "stages": {
+    "harness": {
+      "kind": "active",
+      "wave": "harness",
+      "title": "Zero-axiom enforcement harness",
+      "note": "Gate-first population. The local fixtures prove the command accepts an empty cone and the runner's mutation control makes the first one nonempty. The two Slang.Source.Bytes declarations show the command auditing real chain modules.",
+      "audit_module": "Slang/Audit/Empty.lean",
+      "source_files": [
+        "proof/corpus/Slang/Audit/Empty.lean",
+        "proof/corpus/Slang/Source/Bytes.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Audit.Harness.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Audit.Harness",
+          "path": "proof/corpus/Slang/Audit/Empty.lean"
+        },
+        {
+          "name": "Slang.Audit.Harness.nat_mul_one",
+          "expected_type": "∀ (n : Nat), n * 1 = n",
+          "module": "Slang.Audit.Harness",
+          "path": "proof/corpus/Slang/Audit/Empty.lean"
+        },
+        {
+          "name": "Slang.Audit.Harness.bool_and_comm",
+          "expected_type": "∀ (a b : Bool), (a && b) = (b && a)",
+          "module": "Slang.Audit.Harness",
+          "path": "proof/corpus/Slang/Audit/Empty.lean"
+        },
+        {
+          "name": "Slang.Source.encodeBytes",
+          "expected_type": "Slang.Source.SourceBytes → ByteArray",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.eq",
+          "expected_type": "∀ {left right : Slang.Source.SourceBytes} {packed : ByteArray}, Slang.Source.ByteRep left packed → Slang.Source.ByteRep right packed → left = right",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        }
+      ]
+    },
+    "word": {
+      "kind": "active",
+      "wave": "W23",
+      "title": "64-bit source word",
+      "note": "Constructive modulo-2^64 carrier, operations, instances and arithmetic contracts.",
+      "audit_module": "Slang/Refinement/WordCoreAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Word.lean",
+        "proof/corpus/Slang/Refinement/WordCoreAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Word.Audit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Refinement.WordCoreAudit",
+          "path": "proof/corpus/Slang/Refinement/WordCoreAudit.lean"
+        },
+        {
+          "name": "Slang.wordBits",
+          "expected_type": "Nat",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.wordModulus",
+          "expected_type": "Nat",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.wordSignBit",
+          "expected_type": "Nat",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.wordModulus_pos",
+          "expected_type": "0 < Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word",
+          "expected_type": "Type",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.ofNat",
+          "expected_type": "Nat → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bits",
+          "expected_type": "Slang.Word → Nat",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.signed",
+          "expected_type": "Slang.Word → Int",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.add",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.sub",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.mul",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitwise",
+          "expected_type": "(Bool → Bool → Bool) → Nat → Nat → Nat → Nat",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitAnd",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitOr",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitXor",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.decidableEq",
+          "expected_type": "DecidableEq Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.instDecidableEq",
+          "expected_type": "DecidableEq Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.beq",
+          "expected_type": "Slang.Word → Slang.Word → Bool",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.instBEq",
+          "expected_type": "BEq Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.instInhabited",
+          "expected_type": "Inhabited Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bool",
+          "expected_type": "Bool → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.eq",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.ne",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.lt",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.le",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.gt",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.ge",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.nonzero",
+          "expected_type": "Slang.Word → Prop",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.tablePhi",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.spreadMask",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.spreadPosition",
+          "expected_type": "Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.tableSpreadProduct",
+          "expected_type": "Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.tableSpread",
+          "expected_type": "Slang.Word → Slang.Word",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.ofNat_val",
+          "expected_type": "∀ (value : Nat), (Slang.Word.ofNat value).val = value % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bits_lt_modulus",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.bits value < Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.signed_view",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.signed value = if value.val < Slang.wordSignBit then Int.ofNat value.val else Int.ofNat value.val - Int.ofNat Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.wrapping_add_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.add left right).val = (left.val + right.val) % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.wrapping_sub_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.sub left right).val = (left.val + Slang.wordModulus - right.val) % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.wrapping_mul_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.mul left right).val = (left.val * right.val) % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitAnd_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.bitAnd left right).val = Slang.Word.bitwise Bool.and Slang.wordBits left.val right.val % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitOr_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.bitOr left right).val = Slang.Word.bitwise Bool.or Slang.wordBits left.val right.val % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitXor_agreement",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Word.bitXor left right).val = Slang.Word.bitwise Bool.xor Slang.wordBits left.val right.val % Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.signed_zero",
+          "expected_type": "Slang.Word.signed (Slang.Word.ofNat 0) = 0",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.signed_allOnes",
+          "expected_type": "Slang.Word.signed (Slang.Word.ofNat (Slang.wordModulus - 1)) = -1",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.tableSpread_multiplies_before_mask",
+          "expected_type": "∀ (key : Slang.Word), Slang.Word.tableSpread key = Slang.Word.bitAnd (Slang.Word.mul (Slang.Word.spreadPosition key) Slang.Word.tablePhi) Slang.Word.spreadMask",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.tableSpread_is_word_bounded",
+          "expected_type": "∀ (position : Slang.Word), Slang.Word.bits (Slang.Word.tableSpread position) < Slang.wordModulus",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.wrapping_add_boundary",
+          "expected_type": "Slang.Word.add (Slang.Word.ofNat (Slang.wordModulus - 1)) (Slang.Word.ofNat 1) = Slang.Word.ofNat 0",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.wrapping_mul_boundary",
+          "expected_type": "Slang.Word.mul (Slang.Word.ofNat Slang.wordSignBit) (Slang.Word.ofNat 2) = Slang.Word.ofNat 0",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.signed_comparison_fixture",
+          "expected_type": "Slang.Word.lt (Slang.Word.ofNat (Slang.wordModulus - 1)) (Slang.Word.ofNat 0) = Slang.Word.ofNat 1",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        },
+        {
+          "name": "Slang.Word.bitwise_fixture",
+          "expected_type": "Slang.Word.bitAnd (Slang.Word.ofNat 0xF0) (Slang.Word.ofNat 0x3C) = Slang.Word.ofNat 0x30 ∧ Slang.Word.bitOr (Slang.Word.ofNat 0xF0) (Slang.Word.ofNat 0x3C) = Slang.Word.ofNat 0xFC ∧ Slang.Word.bitXor (Slang.Word.ofNat 0xF0) (Slang.Word.ofNat 0x3C) = Slang.Word.ofNat 0xCC",
+          "module": "Slang.Word",
+          "path": "proof/corpus/Slang/Word.lean"
+        }
+      ]
+    },
+    "machine": {
+      "kind": "active",
+      "wave": "W23",
+      "title": "Source machine, environments, control, traces and raw memory",
+      "note": "Constructive machine semantics, pointwise memory observations, resource projections and reusable execution headlines.",
+      "audit_module": "Slang/MachineAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Machine.lean",
+        "proof/corpus/Slang/MachineAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Machine.Audit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.MachineAudit",
+          "path": "proof/corpus/Slang/MachineAudit.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment.lookup",
+          "expected_type": "Slang.Machine.Environment → String → Option Slang.Word",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment.bind",
+          "expected_type": "Slang.Machine.Environment → String → Slang.Word → Slang.Machine.Environment",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment.ofParameters",
+          "expected_type": "List String → List Slang.Word → Option Slang.Machine.Environment",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment.lookup_bind_same",
+          "expected_type": "∀ (environment : Slang.Machine.Environment) (name : String) (value : Slang.Word), Slang.Machine.Environment.lookup (Slang.Machine.Environment.bind environment name value) name = some value",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Environment.lookup_bind_other",
+          "expected_type": "∀ (environment : Slang.Machine.Environment) (name other : String) (value : Slang.Word), other ≠ name → Slang.Machine.Environment.lookup (Slang.Machine.Environment.bind environment name value) other = Slang.Machine.Environment.lookup environment other",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.SameOwnership",
+          "expected_type": "Slang.Machine.Memory → Slang.Machine.Memory → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.MemoryEquiv",
+          "expected_type": "Slang.Machine.Memory → Slang.Machine.Memory → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.coordinate",
+          "expected_type": "Slang.Word → Option Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.load",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Option Slang.Word",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.store",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → Option Slang.Machine.Memory",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.empty",
+          "expected_type": "Slang.Machine.Memory",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.store_ownership",
+          "expected_type": "∀ (memory next : Slang.Machine.Memory) (address value : Slang.Word), Slang.Machine.Memory.store memory address value = some next → next.owned = memory.owned",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.store_at",
+          "expected_type": "∀ (memory next : Slang.Machine.Memory) (address value : Slang.Word) (coordinate : Nat), Slang.Machine.Memory.coordinate address = some coordinate → Slang.Machine.Memory.store memory address value = some next → next.initialized coordinate = some value",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Memory.store_other",
+          "expected_type": "∀ (memory next : Slang.Machine.Memory) (address value : Slang.Word) (coordinate other : Nat), Slang.Machine.Memory.coordinate address = some coordinate → Slang.Machine.Memory.store memory address value = some next → other ≠ coordinate → next.initialized other = memory.initialized other",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.StackPolicy",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.instReprStackPolicy",
+          "expected_type": "Repr Slang.Machine.StackPolicy",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.stackPolicyBeq",
+          "expected_type": "Slang.Machine.StackPolicy → Slang.Machine.StackPolicy → Bool",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.instBEqStackPolicy",
+          "expected_type": "BEq Slang.Machine.StackPolicy",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.StackPolicy.allows",
+          "expected_type": "Slang.Machine.StackPolicy → Nat → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Context",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Context.ofProgram",
+          "expected_type": "Slang.Program → (String → Option Slang.Word) → Slang.Machine.Context",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Event",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.binOpTag",
+          "expected_type": "Slang.BinOp → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.stringBeq",
+          "expected_type": "String → String → Bool",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.instReprEvent",
+          "expected_type": "Repr Slang.Machine.Event",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Trace",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Resources",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.instReprResources",
+          "expected_type": "Repr Slang.Machine.Resources",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.instBEqResources",
+          "expected_type": "BEq Slang.Machine.Resources",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.isProbe",
+          "expected_type": "String → Bool",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.emptyResources",
+          "expected_type": "Slang.Machine.Resources",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.account",
+          "expected_type": "Slang.Machine.Resources → Slang.Machine.Event → Slang.Machine.Resources",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources",
+          "expected_type": "Slang.Machine.Trace → Slang.Machine.Resources",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.arithmeticCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.comparisonCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.bitwiseCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.loadCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.storeCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.callCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.probeIterationCount",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.callStackMaximum",
+          "expected_type": "Slang.Machine.Trace → Nat",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_arithmeticOps",
+          "expected_type": "type_of% @Slang.Machine.resources_arithmeticOps",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_comparisons",
+          "expected_type": "type_of% @Slang.Machine.resources_comparisons",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_bitwiseOps",
+          "expected_type": "type_of% @Slang.Machine.resources_bitwiseOps",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_loads",
+          "expected_type": "type_of% @Slang.Machine.resources_loads",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_stores",
+          "expected_type": "type_of% @Slang.Machine.resources_stores",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_calls",
+          "expected_type": "type_of% @Slang.Machine.resources_calls",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_probeIterations",
+          "expected_type": "type_of% @Slang.Machine.resources_probeIterations",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_maxCallStack",
+          "expected_type": "type_of% @Slang.Machine.resources_maxCallStack",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_allocatedNodes",
+          "expected_type": "∀ (trace : Slang.Machine.Trace), (Slang.Machine.resources trace).allocatedNodes = 0",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.resources_externalStreamConsumption",
+          "expected_type": "∀ (trace : Slang.Machine.Trace), (Slang.Machine.resources trace).externalStreamConsumption = 0",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalResult",
+          "expected_type": "Type → Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.Control",
+          "expected_type": "Type",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.applyBinOp",
+          "expected_type": "Slang.BinOp → Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.operatorEvent",
+          "expected_type": "Slang.BinOp → Slang.Machine.Event",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr",
+          "expected_type": "Slang.Machine.Context → Slang.Machine.StackPolicy → Nat → Slang.Machine.Environment → Slang.Machine.Memory → Slang.Expr → Slang.Machine.EvalResult Slang.Word → Slang.Machine.Trace → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs",
+          "expected_type": "Slang.Machine.Context → Slang.Machine.StackPolicy → Nat → Slang.Machine.Environment → Slang.Machine.Memory → List Slang.Expr → Slang.Machine.EvalResult (List Slang.Word) → Slang.Machine.Trace → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt",
+          "expected_type": "Slang.Machine.Context → Slang.Machine.StackPolicy → Nat → Slang.Machine.Environment → Slang.Machine.Memory → Slang.Stmt → Slang.Machine.Control → Slang.Machine.Trace → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList",
+          "expected_type": "Slang.Machine.Context → Slang.Machine.StackPolicy → Nat → Slang.Machine.Environment → Slang.Machine.Memory → List Slang.Stmt → Slang.Machine.Control → Slang.Machine.Trace → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall",
+          "expected_type": "Slang.Machine.Context → Slang.Machine.StackPolicy → Nat → String → List Slang.Word → Slang.Machine.Memory → Slang.Machine.EvalResult Slang.Word → Slang.Machine.Trace → Prop",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.rec",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.rec",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.rec",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.rec",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.rec",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.rec",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.rec",
+          "expected_type": "type_of% @Slang.Machine.ExecList.rec",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall.rec",
+          "expected_type": "type_of% @Slang.Machine.EvalCall.rec",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.literal",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.literal",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.local",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.local",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.constant",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.constant",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.load",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.load",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.loadFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.loadFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.memoryAddressFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.memoryAddressFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.memoryAddressExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.memoryAddressExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.binary",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.binary",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.binaryLeftFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.binaryLeftFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.binaryLeftExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.binaryLeftExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.binaryRightFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.binaryRightFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.binaryRightExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.binaryRightExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.conditionalTrue",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.conditionalTrue",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.conditionalFalse",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.conditionalFalse",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.conditionalFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.conditionalFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.conditionalExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.conditionalExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.call",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.call",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.callArgsFault",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.callArgsFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalExpr.callArgsExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalExpr.callArgsExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.nil",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.nil",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.cons",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.cons",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.headFault",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.headFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.headExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.headExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.tailFault",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.tailFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalArgs.tailExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalArgs.tailExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.bind",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.bind",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.bindFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.bindFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.bindExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.bindExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.store",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.store",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.storeFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.storeFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.storeAddressFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.storeAddressFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.storeAddressExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.storeAddressExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.storeValueFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.storeValueFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.storeValueExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.storeValueExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.return_",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.return_",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.returnFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.returnFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.returnExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.returnExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.expression",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.expression",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.expressionFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.expressionFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.expressionExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.expressionExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.ifTrue",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.ifTrue",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.ifFalse",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.ifFalse",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.ifFault",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.ifFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecStmt.ifExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecStmt.ifExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.nil",
+          "expected_type": "type_of% @Slang.Machine.ExecList.nil",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.next",
+          "expected_type": "type_of% @Slang.Machine.ExecList.next",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.returned",
+          "expected_type": "type_of% @Slang.Machine.ExecList.returned",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.memoryFault",
+          "expected_type": "type_of% @Slang.Machine.ExecList.memoryFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.ExecList.stackExhausted",
+          "expected_type": "type_of% @Slang.Machine.ExecList.stackExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall.run",
+          "expected_type": "type_of% @Slang.Machine.EvalCall.run",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall.memoryFault",
+          "expected_type": "type_of% @Slang.Machine.EvalCall.memoryFault",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall.nestedExhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalCall.nestedExhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.EvalCall.exhausted",
+          "expected_type": "type_of% @Slang.Machine.EvalCall.exhausted",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.emptyContext",
+          "expected_type": "Slang.Machine.Context",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.lazy_inline_conditional_does_not_evaluate_untaken_branch",
+          "expected_type": "type_of% @Slang.Machine.lazy_inline_conditional_does_not_evaluate_untaken_branch",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.eager_bitOr_evaluates_right_operand",
+          "expected_type": "type_of% @Slang.Machine.eager_bitOr_evaluates_right_operand",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.return_stops_execution",
+          "expected_type": "type_of% @Slang.Machine.return_stops_execution",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        },
+        {
+          "name": "Slang.Machine.stack_exhaustion_is_not_a_word_return",
+          "expected_type": "type_of% @Slang.Machine.stack_exhaustion_is_not_a_word_return",
+          "module": "Slang.Machine",
+          "path": "proof/corpus/Slang/Machine.lean"
+        }
+      ]
+    },
+    "context": {
+      "kind": "active",
+      "wave": "W23",
+      "title": "Constant environment binding",
+      "note": "Constructive decoded-constant evaluation and checked machine-context binding.",
+      "audit_module": "Slang/Refinement/ContextAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Refinement/Context.lean",
+        "proof/corpus/Slang/Refinement/ContextAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Refinement.ContextAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Refinement.ContextAudit",
+          "path": "proof/corpus/Slang/Refinement/ContextAudit.lean"
+        },
+        {
+          "name": "Slang.Refinement.denoteExpr",
+          "expected_type": "Slang.Expr → Option Slang.Word",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.constantEnvironment",
+          "expected_type": "Slang.Program → String → Option Slang.Word",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.checkedContext",
+          "expected_type": "Slang.Program → Slang.Machine.Context",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.tablePhiDecl",
+          "expected_type": "Slang.Span → Slang.ConstantDecl",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.constantEnvironment_tablePhi",
+          "expected_type": "∀ (program : Slang.Program) (span : Slang.Span), program.constants.find? (fun declaration => declaration.name == \"TABLE_PHI\") = some (Slang.Refinement.tablePhiDecl span) → Slang.Refinement.constantEnvironment program \"TABLE_PHI\" = some Slang.Word.tablePhi",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.checkedContext_constants",
+          "expected_type": "∀ (program : Slang.Program), (Slang.Refinement.checkedContext program).constants = Slang.Refinement.constantEnvironment program",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.disagreeing_tablePhi_not_checkedContext",
+          "expected_type": "∀ (program : Slang.Program) (context : Slang.Machine.Context), Slang.Refinement.constantEnvironment program \"TABLE_PHI\" = some Slang.Word.tablePhi → context.constants \"TABLE_PHI\" ≠ some Slang.Word.tablePhi → context ≠ Slang.Refinement.checkedContext program",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.zeroTablePhiContext",
+          "expected_type": "Slang.Program → Slang.Machine.Context",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        },
+        {
+          "name": "Slang.Refinement.zeroTablePhiContext_not_checkedContext",
+          "expected_type": "∀ (program : Slang.Program), Slang.Refinement.constantEnvironment program \"TABLE_PHI\" = some Slang.Word.tablePhi → Slang.Refinement.zeroTablePhiContext program ≠ Slang.Refinement.checkedContext program",
+          "module": "Slang.Refinement.Context",
+          "path": "proof/corpus/Slang/Refinement/Context.lean"
+        }
+      ]
+    },
+    "word-ring": {
+      "kind": "active",
+      "wave": "W23",
+      "title": "Constructive word ring laws",
+      "note": "Local quotient-free ring-law bundle for the Fin word carrier; no global algebra instance.",
+      "audit_module": "Slang/Refinement/WordRingAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Refinement/WordRing.lean",
+        "proof/corpus/Slang/Refinement/WordRingAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Refinement.WordRingAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Refinement.WordRingAudit",
+          "path": "proof/corpus/Slang/Refinement/WordRingAudit.lean"
+        },
+        {
+          "name": "Slang.Refinement.addSubCancel",
+          "expected_type": "∀ (left right : Nat), left + right - right = left",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.subAddCancel",
+          "expected_type": "∀ {left right : Nat}, right ≤ left → left - right + right = left",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.addSubAssoc",
+          "expected_type": "∀ {middle subtrahend : Nat}, subtrahend ≤ middle → ∀ (left : Nat), left + middle - subtrahend = left + (middle - subtrahend)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.addSubOfLe",
+          "expected_type": "∀ {left right : Nat}, left ≤ right → left + (right - left) = right",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.mulAssoc",
+          "expected_type": "∀ (left middle right : Nat), left * middle * right = left * (middle * right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordModulusOneLt",
+          "expected_type": "1 < Slang.wordModulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modEqOfLt",
+          "expected_type": "∀ {value modulus : Nat}, value < modulus → value % modulus = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCoreGoFuelCongr",
+          "expected_type": "∀ (value modulus fuel₁ fuel₂ : Nat) (positive : 0 < modulus) (bound₁ : value < fuel₁) (bound₂ : value < fuel₂), Nat.modCore.go modulus positive fuel₁ value bound₁ = Nat.modCore.go modulus positive fuel₂ value bound₂",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCoreGoValueCongr",
+          "expected_type": "∀ (left right modulus fuel₁ fuel₂ : Nat) (positive : 0 < modulus) (leftBound : left < fuel₁) (rightBound : right < fuel₂), left = right → Nat.modCore.go modulus positive fuel₁ left leftBound = Nat.modCore.go modulus positive fuel₂ right rightBound",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCoreGoStep",
+          "expected_type": "∀ (value modulus fuel : Nat) (positive : 0 < modulus) (bound : value < fuel + 1), Nat.modCore.go modulus positive (fuel + 1) value bound = if lower : modulus ≤ value then Nat.modCore.go modulus positive fuel (value - modulus) (Nat.div_rec_fuel_lemma positive lower bound) else value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCorePositive",
+          "expected_type": "∀ (value modulus : Nat) (positive : 0 < modulus), Nat.modCore value modulus = Nat.modCore.go modulus positive (value + 1) value (Nat.lt_succ_self value)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCoreEqMod",
+          "expected_type": "∀ (value modulus : Nat), Nat.modCore value modulus = value % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modZero",
+          "expected_type": "∀ (value : Nat), value % 0 = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modCoreAddModulus",
+          "expected_type": "∀ (value modulus : Nat), 0 < modulus → Nat.modCore (value + modulus) modulus = Nat.modCore value modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modAddModulus",
+          "expected_type": "∀ (value modulus : Nat), (value + modulus) % modulus = value % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modEqSub",
+          "expected_type": "∀ {value modulus : Nat}, 0 < modulus → modulus ≤ value → value % modulus = (value - modulus) % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modAddAbsorbLeft",
+          "expected_type": "∀ (left right modulus : Nat), (left % modulus + right) % modulus = (left + right) % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modAddAbsorbRight",
+          "expected_type": "∀ (left right modulus : Nat), (left + right % modulus) % modulus = (left + right) % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modMulAbsorbRight",
+          "expected_type": "∀ (left right modulus : Nat), (left * (right % modulus)) % modulus = (left * right) % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.modMulAbsorbLeft",
+          "expected_type": "∀ (left right modulus : Nat), ((left % modulus) * right) % modulus = (left * right) % modulus",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_comm",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Word.add left right = Slang.Word.add right left",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_assoc",
+          "expected_type": "∀ (left middle right : Slang.Word), Slang.Word.add (Slang.Word.add left middle) right = Slang.Word.add left (Slang.Word.add middle right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_zero_right",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.add value (Slang.Word.ofNat 0) = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_zero_left",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.add (Slang.Word.ofNat 0) value = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_neg_right",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.add value (Slang.Word.sub (Slang.Word.ofNat 0) value) = Slang.Word.ofNat 0",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordSub_eq_add_neg",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Word.sub left right = Slang.Word.add left (Slang.Word.sub (Slang.Word.ofNat 0) right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_comm",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Word.mul left right = Slang.Word.mul right left",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_assoc",
+          "expected_type": "∀ (left middle right : Slang.Word), Slang.Word.mul (Slang.Word.mul left middle) right = Slang.Word.mul left (Slang.Word.mul middle right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_one_right",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.mul value (Slang.Word.ofNat 1) = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_one_left",
+          "expected_type": "∀ (value : Slang.Word), Slang.Word.mul (Slang.Word.ofNat 1) value = value",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_add",
+          "expected_type": "∀ (left middle right : Slang.Word), Slang.Word.mul left (Slang.Word.add middle right) = Slang.Word.add (Slang.Word.mul left middle) (Slang.Word.mul left right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordAdd_mul",
+          "expected_type": "∀ (left middle right : Slang.Word), Slang.Word.mul (Slang.Word.add left middle) right = Slang.Word.add (Slang.Word.mul left right) (Slang.Word.mul middle right)",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.WordRingLaws",
+          "expected_type": "Type",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordRing",
+          "expected_type": "Slang.Refinement.WordRingLaws",
+          "module": "Slang.Refinement.WordRing",
+          "path": "proof/corpus/Slang/Refinement/WordRing.lean"
+        }
+      ]
+    },
+    "word-denotation": {
+      "kind": "active",
+      "wave": "W23",
+      "title": "Arithmetic link",
+      "note": "Constructive source-word denotation and locally proved canonical two-slot laws.",
+      "audit_module": "Slang/Refinement/WordDenotationAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Refinement/WordDenotation.lean",
+        "proof/corpus/Slang/Refinement/WordDenotationAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Refinement.WordDenotationAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Refinement.WordDenotationAudit",
+          "path": "proof/corpus/Slang/Refinement/WordDenotationAudit.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote",
+          "expected_type": "Slang.Word → Slang.Word",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_eq_val",
+          "expected_type": "∀ (word : Slang.Word), (Slang.Refinement.wordDenote word).val = word.val",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_eq",
+          "expected_type": "∀ (word : Slang.Word), Slang.Refinement.wordDenote word = word",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_ofNat",
+          "expected_type": "∀ (value : Nat), (Slang.Refinement.wordDenote (Slang.Word.ofNat value)).val = value % Slang.wordModulus",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_add_rep",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Refinement.wordDenote (Slang.Word.add left right)).val = (left.val + right.val) % Slang.wordModulus",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_sub_rep",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Refinement.wordDenote (Slang.Word.sub left right)).val = (left.val + Slang.wordModulus - right.val) % Slang.wordModulus",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_mul_rep",
+          "expected_type": "∀ (left right : Slang.Word), (Slang.Refinement.wordDenote (Slang.Word.mul left right)).val = (left.val * right.val) % Slang.wordModulus",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_add",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.add left right) = Slang.Refinement.wordRing.add (Slang.Refinement.wordDenote left) (Slang.Refinement.wordDenote right)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_sub",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.sub left right) = Slang.Refinement.wordRing.sub (Slang.Refinement.wordDenote left) (Slang.Refinement.wordDenote right)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_mul",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.mul left right) = Slang.Refinement.wordRing.mul (Slang.Refinement.wordDenote left) (Slang.Refinement.wordDenote right)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_bitAnd",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.bitAnd left right) = Slang.Refinement.wordRing.ofNat (Slang.Word.bitwise Bool.and Slang.wordBits left.val right.val)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordDenote_tableSpread",
+          "expected_type": "∀ (key : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.tableSpread key) = Slang.Refinement.wordRing.ofNat (Slang.Word.bitwise Bool.and Slang.wordBits (Slang.Word.tableSpreadProduct key).val Slang.Word.spreadMask.val)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellDenote",
+          "expected_type": "Slang.Word × Slang.Word → Apeiron.Trichotomy.AnyRing.RingCell Slang.Word",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellMul",
+          "expected_type": "Slang.Word → Slang.Word × Slang.Word → Slang.Word × Slang.Word → Slang.Word × Slang.Word",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellNormForm",
+          "expected_type": "Slang.Word → Slang.Word × Slang.Word → Slang.Word",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellDenote_mul",
+          "expected_type": "∀ (sigma : Slang.Word) (left right : Slang.Word × Slang.Word), Slang.Refinement.cellDenote (Slang.Refinement.cellMul sigma left right) = Apeiron.Trichotomy.AnyRing.ringMul (Slang.Refinement.wordDenote sigma) (Slang.Refinement.cellDenote left) (Slang.Refinement.cellDenote right)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellNormForm_denote",
+          "expected_type": "∀ (sigma : Slang.Word) (cell : Slang.Word × Slang.Word), Slang.Refinement.wordDenote (Slang.Refinement.cellNormForm sigma cell) = Apeiron.Trichotomy.AnyRing.ringNormForm (Slang.Refinement.wordDenote sigma) (Slang.Refinement.cellDenote cell)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_comm_denote",
+          "expected_type": "∀ (left right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.mul left right) = Slang.Refinement.wordDenote (Slang.Word.mul right left)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.wordMul_assoc_denote",
+          "expected_type": "∀ (left middle right : Slang.Word), Slang.Refinement.wordDenote (Slang.Word.mul (Slang.Word.mul left middle) right) = Slang.Refinement.wordDenote (Slang.Word.mul left (Slang.Word.mul middle right))",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellMul_comm_denote",
+          "expected_type": "∀ (sigma : Slang.Word) (left right : Slang.Word × Slang.Word), Slang.Refinement.cellDenote (Slang.Refinement.cellMul sigma left right) = Slang.Refinement.cellDenote (Slang.Refinement.cellMul sigma right left)",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellMul_assoc_denote",
+          "expected_type": "∀ (sigma : Slang.Word) (left middle right : Slang.Word × Slang.Word), Slang.Refinement.cellDenote (Slang.Refinement.cellMul sigma (Slang.Refinement.cellMul sigma left middle) right) = Slang.Refinement.cellDenote (Slang.Refinement.cellMul sigma left (Slang.Refinement.cellMul sigma middle right))",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        },
+        {
+          "name": "Slang.Refinement.cellNormForm_mul_denote",
+          "expected_type": "∀ (sigma : Slang.Word) (left right : Slang.Word × Slang.Word), Slang.Refinement.wordDenote (Slang.Refinement.cellNormForm sigma (Slang.Refinement.cellMul sigma left right)) = Slang.Refinement.wordRing.mul (Slang.Refinement.wordDenote (Slang.Refinement.cellNormForm sigma left)) (Slang.Refinement.wordDenote (Slang.Refinement.cellNormForm sigma right))",
+          "module": "Slang.Refinement.WordDenotation",
+          "path": "proof/corpus/Slang/Refinement/WordDenotation.lean"
+        }
+      ]
+    },
+    "table-facts": {
+      "kind": "placeholder",
+      "wave": "W25",
+      "title": "Decoded table facts",
+      "note": "Stream 0 placeholder: decoded table shape/constant facts. No declarations registered yet.",
+      "declarations": []
+    },
+    "representation": {
+      "kind": "active",
+      "wave": "W25",
+      "title": "RepSong representation",
+      "note": "Constructive list occupancy, physical occurrence, initialized backing, probe reachability and pointwise transition framing.",
+      "audit_module": "Slang/Refinement/TableRepAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Table/TableRep.lean",
+        "proof/corpus/Slang/Refinement/TableRepAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Refinement.TableRepAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Refinement.TableRepAudit",
+          "path": "proof/corpus/Slang/Refinement/TableRepAudit.lean"
+        },
+        {
+          "name": "Slang.Table.tableEmpty",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.coordCeiling",
+          "expected_type": "Nat",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.powTwo",
+          "expected_type": "Nat → Nat",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.powTwo_pos",
+          "expected_type": "∀ (exponent : Nat), 0 < Slang.Table.powTwo exponent",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.PositivePowerOfTwo",
+          "expected_type": "Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.PositivePowerOfTwo.pos",
+          "expected_type": "∀ {cap : Slang.Word}, Slang.Table.PositivePowerOfTwo cap → 0 < cap.val",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.InExtent",
+          "expected_type": "Slang.Word → Slang.Word → Nat → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.ValidBacking",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.ValidExtent",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.PreservesOutside",
+          "expected_type": "Slang.Machine.Memory → Slang.Machine.Memory → Slang.Word → Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.keyCoordinate",
+          "expected_type": "Slang.Word → Nat → Nat",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.valueCoordinate",
+          "expected_type": "Slang.Word → Nat → Nat",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.keyAt",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Nat → Option Slang.Word",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.valueAt",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Nat → Option Slang.Word",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.probeSlot",
+          "expected_type": "Slang.Word → Slang.Word → Nat → Nat",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.member",
+          "expected_type": "List Slang.Word → Slang.Word → Bool",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.insertOccupied",
+          "expected_type": "List Slang.Word → Slang.Word → List Slang.Word",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.DuplicateFree",
+          "expected_type": "List Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.MemberEquiv",
+          "expected_type": "List Slang.Word → List Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.member_cons_self",
+          "expected_type": "∀ (key : Slang.Word) (tail : List Slang.Word), Slang.Table.member (key :: tail) key = true",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.member_insertOccupied_self",
+          "expected_type": "∀ (occupied : List Slang.Word) (key : Slang.Word), Slang.Table.member (Slang.Table.insertOccupied occupied key) key = true",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.duplicateFree_insertOccupied",
+          "expected_type": "∀ (occupied : List Slang.Word) (key : Slang.Word), Slang.Table.DuplicateFree occupied → Slang.Table.DuplicateFree (Slang.Table.insertOccupied occupied key)",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.duplicate_occupancy_rejected",
+          "expected_type": "∀ (key : Slang.Word), ¬Slang.Table.DuplicateFree [key, key]",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.PhysicalKeysListed",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → List Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.PhysicalOccurrenceExact",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → List Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.unlisted_physical_key_rejected",
+          "expected_type": "∀ (memory : Slang.Machine.Memory) (base cap : Slang.Word) (occupied : List Slang.Word) (slot : Nat) (key : Slang.Word), Slang.Table.PhysicalKeysListed memory base cap occupied → slot < cap.val → Slang.Table.keyAt memory base slot = some key → key ≠ Slang.Table.tableEmpty → Slang.Table.member occupied key = false → False",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong",
+          "expected_type": "Slang.Machine.Memory → Slang.Word → Slang.Word → Slang.Word → List Slang.Word → Apeiron.Table.HMap Slang.Word Slang.Word → Prop",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong.positivePowerOfTwo",
+          "expected_type": "∀ {memory : Slang.Machine.Memory} {base cap default : Slang.Word} {occupied : List Slang.Word} {h : Apeiron.Table.HMap Slang.Word Slang.Word}, Slang.Table.RepSong memory base cap default occupied h → Slang.Table.PositivePowerOfTwo cap",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong.validExtent",
+          "expected_type": "∀ {memory : Slang.Machine.Memory} {base cap default : Slang.Word} {occupied : List Slang.Word} {h : Apeiron.Table.HMap Slang.Word Slang.Word}, Slang.Table.RepSong memory base cap default occupied h → Slang.Table.ValidExtent memory base cap",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong.owned_extent",
+          "expected_type": "∀ {memory : Slang.Machine.Memory} {base cap default : Slang.Word} {occupied : List Slang.Word} {h : Apeiron.Table.HMap Slang.Word Slang.Word}, Slang.Table.RepSong memory base cap default occupied h → ∀ offset < 2 * cap.val, memory.owned (base.val + offset) = true",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong.outside_default",
+          "expected_type": "∀ {memory : Slang.Machine.Memory} {base cap default : Slang.Word} {occupied : List Slang.Word} {h : Apeiron.Table.HMap Slang.Word Slang.Word}, Slang.Table.RepSong memory base cap default occupied h → ∀ key, Slang.Table.member occupied key = false → h key = default",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        },
+        {
+          "name": "Slang.Table.repSong_empty_of_layout",
+          "expected_type": "∀ (memory : Slang.Machine.Memory) (base cap default : Slang.Word), Slang.Table.PositivePowerOfTwo cap → Slang.Table.ValidExtent memory base cap → (∀ slot < cap.val, Slang.Table.keyAt memory base slot = some Slang.Table.tableEmpty) → Slang.Table.RepSong memory base cap default [] (fun _ => default)",
+          "module": "Slang.Table.TableRep",
+          "path": "proof/corpus/Slang/Table/TableRep.lean"
+        }
+      ]
+    },
+    "init": {
+      "kind": "active",
+      "wave": "W25",
+      "title": "Constructor establishment",
+      "note": "Decoded constructor shapes, execution, List-occupancy RepSong establishment, executing witness and omitted-value-store rejection.",
+      "audit_module": "Slang/Table/TableWitness.lean",
+      "source_files": [
+        "proof/corpus/Slang/Table/TableInit.lean",
+        "proof/corpus/Slang/Table/TableWitness.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Table.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.TableSlotSetShape",
+          "expected_type": "type_of% @Slang.Table.TableSlotSetShape",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.TableInitGoShape",
+          "expected_type": "type_of% @Slang.Table.TableInitGoShape",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.TableInitShape",
+          "expected_type": "type_of% @Slang.Table.TableInitShape",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.TableCapacityOkShape",
+          "expected_type": "type_of% @Slang.Table.TableCapacityOkShape",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.ConstructorExecution",
+          "expected_type": "type_of% @Slang.Table.ConstructorExecution",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.tableSlotSet_execution",
+          "expected_type": "type_of% @Slang.Table.tableSlotSet_execution",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.tableInitGo_execution",
+          "expected_type": "type_of% @Slang.Table.tableInitGo_execution",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.tableCapacityOk_execution",
+          "expected_type": "type_of% @Slang.Table.tableCapacityOk_execution",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.tableInit_execution",
+          "expected_type": "type_of% @Slang.Table.tableInit_execution",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.constructor_execution_of_shapes",
+          "expected_type": "type_of% @Slang.Table.constructor_execution_of_shapes",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.constructor_execution_of_certificate",
+          "expected_type": "type_of% @Slang.Table.constructor_execution_of_certificate",
+          "module": "Slang.Table.TableInit",
+          "path": "proof/corpus/Slang/Table/TableInit.lean"
+        },
+        {
+          "name": "Slang.Table.witness_valid_backing",
+          "expected_type": "type_of% @Slang.Table.witness_valid_backing",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.witness_empty_layout",
+          "expected_type": "type_of% @Slang.Table.witness_empty_layout",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.witness_repSong",
+          "expected_type": "type_of% @Slang.Table.witness_repSong",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.joint_constructor_execution_witness",
+          "expected_type": "type_of% @Slang.Table.joint_constructor_execution_witness",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.key_only_shape_cannot_establish_constructor",
+          "expected_type": "type_of% @Slang.Table.key_only_shape_cannot_establish_constructor",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.key_only_cannot_initialize_value",
+          "expected_type": "type_of% @Slang.Table.key_only_cannot_initialize_value",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.single_store_cannot_initialize_other",
+          "expected_type": "type_of% @Slang.Table.single_store_cannot_initialize_other",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        },
+        {
+          "name": "Slang.Table.full_slot_stores_initialize",
+          "expected_type": "type_of% @Slang.Table.full_slot_stores_initialize",
+          "module": "Slang.Table.TableWitness",
+          "path": "proof/corpus/Slang/Table/TableWitness.lean"
+        }
+      ]
+    },
+    "lookup": {
+      "kind": "active",
+      "wave": "W26",
+      "title": "Probe/read correctness",
+      "note": "Decoded probe/read shapes and execution, list-occupancy read correctness, state-aware observation, concrete present/miss/collision witnesses and the naive-sentinel refutation.",
+      "audit_module": "Slang/Table/ReadWitness.lean",
+      "source_files": [
+        "proof/corpus/Slang/Table/TableProbe.lean",
+        "proof/corpus/Slang/Table/TableRead.lean",
+        "proof/corpus/Slang/Table/ReadWitness.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Table.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.TableSlotKeyShape",
+          "expected_type": "type_of% @Slang.Table.TableSlotKeyShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableSlotValShape",
+          "expected_type": "type_of% @Slang.Table.TableSlotValShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableFindSlotGoShape",
+          "expected_type": "type_of% @Slang.Table.TableFindSlotGoShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableLookupSlotGoShape",
+          "expected_type": "type_of% @Slang.Table.TableLookupSlotGoShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableFindShape",
+          "expected_type": "type_of% @Slang.Table.TableFindShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableSpreadShape",
+          "expected_type": "type_of% @Slang.Table.TableSpreadShape",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.source_probe_slot_eq",
+          "expected_type": "type_of% @Slang.Table.source_probe_slot_eq",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.tableSlotKey_execution",
+          "expected_type": "type_of% @Slang.Table.tableSlotKey_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.ProbeOutcome",
+          "expected_type": "type_of% @Slang.Table.ProbeOutcome",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.probe_execution",
+          "expected_type": "type_of% @Slang.Table.probe_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.tableLookupSlotGo_execution",
+          "expected_type": "type_of% @Slang.Table.tableLookupSlotGo_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.tableFindSlotGo_execution",
+          "expected_type": "type_of% @Slang.Table.tableFindSlotGo_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.ProbeOutcome.lookup_present",
+          "expected_type": "type_of% @Slang.Table.ProbeOutcome.lookup_present",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.ProbeOutcome.lookup_miss",
+          "expected_type": "type_of% @Slang.Table.ProbeOutcome.lookup_miss",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.tableSpread_execution",
+          "expected_type": "type_of% @Slang.Table.tableSpread_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.tableFind_execution",
+          "expected_type": "type_of% @Slang.Table.tableFind_execution",
+          "module": "Slang.Table.TableProbe",
+          "path": "proof/corpus/Slang/Table/TableProbe.lean"
+        },
+        {
+          "name": "Slang.Table.TableGetShape",
+          "expected_type": "type_of% @Slang.Table.TableGetShape",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.ReadObservation",
+          "expected_type": "type_of% @Slang.Table.ReadObservation",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.observeRead",
+          "expected_type": "type_of% @Slang.Table.observeRead",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.tableSlotVal_execution",
+          "expected_type": "type_of% @Slang.Table.tableSlotVal_execution",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.tableGet_execution",
+          "expected_type": "type_of% @Slang.Table.tableGet_execution",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.tableGet_read_correct",
+          "expected_type": "type_of% @Slang.Table.tableGet_read_correct",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.tableGet_execution_of_certificate",
+          "expected_type": "type_of% @Slang.Table.tableGet_execution_of_certificate",
+          "module": "Slang.Table.TableRead",
+          "path": "proof/corpus/Slang/Table/TableRead.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_repSong",
+          "expected_type": "type_of% @Slang.Table.readWitness_repSong",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_present",
+          "expected_type": "type_of% @Slang.Table.readWitness_present",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_miss",
+          "expected_type": "type_of% @Slang.Table.readWitness_miss",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_collision_reachability",
+          "expected_type": "type_of% @Slang.Table.readWitness_collision_reachability",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_present_probe",
+          "expected_type": "type_of% @Slang.Table.readWitness_present_probe",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.readWitness_miss_probe",
+          "expected_type": "type_of% @Slang.Table.readWitness_miss_probe",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        },
+        {
+          "name": "Slang.Table.naive_absence_classifier_unsound",
+          "expected_type": "type_of% @Slang.Table.naive_absence_classifier_unsound",
+          "module": "Slang.Table.ReadWitness",
+          "path": "proof/corpus/Slang/Table/ReadWitness.lean"
+        }
+      ]
+    },
+    "write": {
+      "kind": "active",
+      "wave": "W27",
+      "title": "Replacement write and exact admission",
+      "note": "Decoded MERGE_MAP execution, replacement/insertion preservation, exact full-table refusal, exact admission and joint success/refusal witnesses.",
+      "audit_module": "Slang/Table/WriteWitness.lean",
+      "source_files": [
+        "proof/corpus/Slang/Table/TableWrite.lean",
+        "proof/corpus/Slang/Table/TableAdmission.lean",
+        "proof/corpus/Slang/Table/WriteWitness.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Table.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Table.WriteWitness",
+          "path": "proof/corpus/Slang/Table/WriteWitness.lean"
+        },
+        {
+          "name": "Slang.Table.WriteAdmitted",
+          "expected_type": "type_of% @Slang.Table.WriteAdmitted",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.WriteSuccess",
+          "expected_type": "type_of% @Slang.Table.WriteSuccess",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.WriteSuccess.not_exhausted",
+          "expected_type": "type_of% @Slang.Table.WriteSuccess.not_exhausted",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.tableInsertWith_admitted_success",
+          "expected_type": "type_of% @Slang.Table.tableInsertWith_admitted_success",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.tableInsertWith_refusal_full",
+          "expected_type": "type_of% @Slang.Table.tableInsertWith_refusal_full",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.tableInsertWith_admission_exact",
+          "expected_type": "type_of% @Slang.Table.tableInsertWith_admission_exact",
+          "module": "Slang.Table.TableAdmission",
+          "path": "proof/corpus/Slang/Table/TableAdmission.lean"
+        },
+        {
+          "name": "Slang.Table.writeWitnessKey_not_exhausted",
+          "expected_type": "type_of% @Slang.Table.writeWitnessKey_not_exhausted",
+          "module": "Slang.Table.WriteWitness",
+          "path": "proof/corpus/Slang/Table/WriteWitness.lean"
+        },
+        {
+          "name": "Slang.Table.writeWitness_exhausted",
+          "expected_type": "type_of% @Slang.Table.writeWitness_exhausted",
+          "module": "Slang.Table.WriteWitness",
+          "path": "proof/corpus/Slang/Table/WriteWitness.lean"
+        },
+        {
+          "name": "Slang.Table.writeWitness_repSong",
+          "expected_type": "type_of% @Slang.Table.writeWitness_repSong",
+          "module": "Slang.Table.WriteWitness",
+          "path": "proof/corpus/Slang/Table/WriteWitness.lean"
+        },
+        {
+          "name": "Slang.Table.writeWitness_joint",
+          "expected_type": "type_of% @Slang.Table.writeWitness_joint",
+          "module": "Slang.Table.WriteWitness",
+          "path": "proof/corpus/Slang/Table/WriteWitness.lean"
+        },
+        {
+          "name": "Slang.Table.tableInsertWith_map_execution",
+          "expected_type": "type_of% @Slang.Table.tableInsertWith_map_execution",
+          "module": "Slang.Table.TableWrite",
+          "path": "proof/corpus/Slang/Table/TableWrite.lean"
+        },
+        {
+          "name": "Slang.Table.WriteMapOutcome",
+          "expected_type": "type_of% @Slang.Table.WriteMapOutcome",
+          "module": "Slang.Table.TableWrite",
+          "path": "proof/corpus/Slang/Table/TableWrite.lean"
+        },
+        {
+          "name": "Slang.Table.WriteMapOutcome.preserves",
+          "expected_type": "type_of% @Slang.Table.WriteMapOutcome.preserves",
+          "module": "Slang.Table.TableWrite",
+          "path": "proof/corpus/Slang/Table/TableWrite.lean"
+        },
+        {
+          "name": "Slang.Table.RepSong.congr",
+          "expected_type": "type_of% @Slang.Table.RepSong.congr",
+          "module": "Slang.Table.TableWrite",
+          "path": "proof/corpus/Slang/Table/TableWrite.lean"
+        }
+      ]
+    },
+    "bytes": {
+      "kind": "active",
+      "wave": "W24",
+      "title": "Byte bridge",
+      "note": "Constructive source-byte packing, canonical view, length and injectivity proofs.",
+      "audit_module": "Slang/Source/BytesAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Source/Bytes.lean",
+        "proof/corpus/Slang/Source/BytesAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Source.SourceByte",
+          "expected_type": "Type",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBytes",
+          "expected_type": "Type",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.encodeBytes",
+          "expected_type": "Slang.Source.SourceBytes → ByteArray",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep",
+          "expected_type": "Slang.Source.SourceBytes → ByteArray → Prop",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.encodeBytes",
+          "expected_type": "∀ (source : Slang.Source.SourceBytes), Slang.Source.ByteRep source (Slang.Source.encodeBytes source)",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.eq",
+          "expected_type": "∀ {left right : Slang.Source.SourceBytes} {packed : ByteArray}, Slang.Source.ByteRep left packed → Slang.Source.ByteRep right packed → left = right",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.eq_of_encodeBytes",
+          "expected_type": "∀ {left right : Slang.Source.SourceBytes}, Slang.Source.ByteRep left (Slang.Source.encodeBytes right) → left = right",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.encodeBytes_eq",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {packed : ByteArray}, Slang.Source.ByteRep source packed → packed = Slang.Source.encodeBytes source",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.iff_eq_encodeBytes",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {packed : ByteArray}, Slang.Source.ByteRep source packed ↔ packed = Slang.Source.encodeBytes source",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.ByteRep.size_eq_length",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {packed : ByteArray}, Slang.Source.ByteRep source packed → packed.size = source.length",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.encodeBytes_injective",
+          "expected_type": "Function.Injective Slang.Source.encodeBytes",
+          "module": "Slang.Source.Bytes",
+          "path": "proof/corpus/Slang/Source/Bytes.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.sample",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.mutated",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.sample_rep",
+          "expected_type": "Slang.Source.ByteRep Slang.Source.BytesAudit.sample (Slang.Source.encodeBytes Slang.Source.BytesAudit.sample)",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.represented_encoding_eq",
+          "expected_type": "∀ {bytes bytes' : Slang.Source.SourceBytes}, Slang.Source.ByteRep bytes (Slang.Source.encodeBytes bytes') → bytes = bytes'",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        },
+        {
+          "name": "Slang.Source.BytesAudit.mutated_rejected",
+          "expected_type": "¬Slang.Source.ByteRep Slang.Source.BytesAudit.sample (Slang.Source.encodeBytes Slang.Source.BytesAudit.mutated)",
+          "module": "Slang.Source.BytesAudit",
+          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+        }
+      ]
+    },
+    "lexing": {
+      "kind": "active",
+      "wave": "W22",
+      "title": "Lexical fidelity",
+      "note": "Migrated to the empty cone; declarations registered from Slang/Source/LexingAudit.lean.",
+      "audit_module": "Slang/Source/LexingAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Decode.lean",
+        "proof/corpus/Slang/Source/Lexing.lean",
+        "proof/corpus/Slang/Source/LexingAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Decode.utf8ByteLength",
+          "expected_type": "Char → Nat",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.utf8ByteLengthList",
+          "expected_type": "List Char → Nat",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.tokenize",
+          "expected_type": "ByteArray → Slang.Decode.Result (List Slang.Decode.Token × Nat)",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Source.ByteIndexedSpans",
+          "expected_type": "Nat → List Slang.Decode.Token → Prop",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Prop",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.mk",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed)) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.steps",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed))",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.byteIndexed",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.fullConsumption",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → consumed = source.length",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.sound",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed)",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.kinds",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → (Slang.Decode.tokenize (Slang.Source.encodeBytes source)).map (fun result => result.1.map (·.kind)) = .ok (tokens.map (·.kind))",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.endpoints",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → (tokens.all fun token => token.span.start < token.span.stop && token.span.stop ≤ source.length) = true",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.consumes",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → consumed = source.length",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.consumes_rep",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {packed : ByteArray} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.ByteRep source packed → Slang.Source.LexingDerivation source tokens consumed → consumed = packed.size",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.multibyteSource",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.multibyteTokens",
+          "expected_type": "List Slang.Decode.Token",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.multibyte_derivation",
+          "expected_type": "Slang.Source.LexingDerivation Slang.Source.LexingAudit.multibyteSource Slang.Source.LexingAudit.multibyteTokens 2",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.multibyte_advances_two_bytes",
+          "expected_type": "Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.LexingAudit.multibyteSource) = .ok (Slang.Source.LexingAudit.multibyteTokens, 2)",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.multibyte_endpoint_not_char_count",
+          "expected_type": "Slang.Source.LexingAudit.multibyteTokens.head?.map (·.span.stop) ≠ some 1",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.unknown_reachable_rejected",
+          "expected_type": "(match Slang.Decode.parseExprFuel 4 0 Slang.Source.LexingAudit.multibyteTokens with | .error _ => true | .ok _ => false) = true",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.unknown_not_trivia",
+          "expected_type": "(Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.LexingAudit.multibyteSource)).map (fun result => result.1.map (·.kind)) = .ok [.other 'é']",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.LexingAudit",
+          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+        },
+        {
+          "name": "Slang.Source.LexingDerivation.intro",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.Lexing",
+          "path": "proof/corpus/Slang/Source/Lexing.lean"
+        }
+      ]
+    },
+    "derivation": {
+      "kind": "active",
+      "wave": "derivation",
+      "title": "Call-and-continuation derivations",
+      "note": "Astra's Layer/Derives model and the first real instance over the UTF-8 decoder. The unfolding body_eq, its soundness, the U+00E9 witness and its wrong-answer control all audit with an empty axiom set. Registered from Slang/Derivation/Decode.lean; the Steps module is covered by its own in-file audits.",
+      "audit_module": "Slang/Derivation/Audit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Derivation/Steps.lean",
+        "proof/corpus/Slang/Derivation/Decode.lean",
+        "proof/corpus/Slang/Derivation/Lexing.lean",
+        "proof/corpus/Slang/Derivation/Audit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Derivation.DecodeTrace.evaluate",
+          "expected_type": "(q : Slang.Derivation.DecodeTrace.Request) → Slang.Derivation.DecodeTrace.Answer q",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.body_eq",
+          "expected_type": "∀ (q : Slang.Derivation.DecodeTrace.Request), Slang.Derivation.DecodeTrace.evaluate q = Slang.Derivation.fold Slang.Derivation.DecodeTrace.evaluate (Slang.Derivation.DecodeTrace.body q)",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.Run.sound",
+          "expected_type": "∀ {q : Slang.Derivation.DecodeTrace.Request} {answer : Slang.Derivation.DecodeTrace.Answer q}, Slang.Derivation.DecodeTrace.Run q answer → Slang.Derivation.DecodeTrace.evaluate q = answer",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.multibyte_run",
+          "expected_type": "Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.utf8Fuel 3 Slang.Derivation.DecodeTrace.multibyteBytes) (Except.ok ['é'])",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.multibyte_result",
+          "expected_type": "Slang.Derivation.DecodeTrace.evaluate (Slang.Derivation.DecodeTrace.Request.utf8Fuel 3 Slang.Derivation.DecodeTrace.multibyteBytes) = Except.ok ['é']",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.multibyte_wrong",
+          "expected_type": "¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.utf8Fuel 3 Slang.Derivation.DecodeTrace.multibyteBytes) (Except.error \"source is not UTF-8\")",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Audit.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.evaluate",
+          "expected_type": "(q : Slang.Derivation.Lexing.Request) → Slang.Derivation.Lexing.Answer q",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.lexAsk",
+          "expected_type": "Nat → List Char → Nat → List Slang.Decode.Token → Slang.Derivation.Layer Slang.Derivation.Lexing.Request Slang.Derivation.Lexing.Answer (Slang.Decode.Result (List Slang.Decode.Token × Nat))",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.body_eq",
+          "expected_type": "∀ (q : Slang.Derivation.Lexing.Request), Slang.Derivation.Lexing.evaluate q = Slang.Derivation.fold Slang.Derivation.Lexing.evaluate (Slang.Derivation.Lexing.body q)",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.Run.sound",
+          "expected_type": "∀ {q : Slang.Derivation.Lexing.Request} {answer : Slang.Derivation.Lexing.Answer q}, Slang.Derivation.Lexing.Run q answer → Slang.Derivation.Lexing.evaluate q = answer",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Derives.ask_done",
+          "expected_type": "∀ {Request : Type} {Answer : Request → Type} {body : (request : Request) → Layer Request Answer (Answer request)} {request : Request} {answer : Answer request}, Derives body (body request) answer → Derives body (.ask request fun result => .done result) answer",
+          "module": "Slang.Derivation.Steps",
+          "path": "proof/corpus/Slang/Derivation/Steps.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.lexChars_run",
+          "expected_type": "∀ (fuel : Nat) (chars : List Char) (pos : Nat) (tokens : List Slang.Decode.Token), Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.lex fuel chars pos tokens) (Slang.Decode.lexChars fuel chars pos tokens)",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        },
+        {
+          "name": "Slang.Derivation.Lexing.tokenize_run",
+          "expected_type": "∀ (bytes : ByteArray), Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize bytes) (Slang.Decode.tokenize bytes)",
+          "module": "Slang.Derivation.Lexing",
+          "path": "proof/corpus/Slang/Derivation/Lexing.lean"
+        }
+      ]
+    },
+    "grammar": {
+      "kind": "active",
+      "wave": "W22",
+      "title": "Grammar fidelity",
+      "note": "Migrated to the empty cone; declarations registered from Slang/Source/GrammarAudit.lean.",
+      "audit_module": "Slang/Source/GrammarAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Decode.lean",
+        "proof/corpus/Slang/Source/Grammar.lean",
+        "proof/corpus/Slang/Source/GrammarAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Decode.parseExprFuel",
+          "expected_type": "Nat → Nat → List Slang.Decode.Token → Slang.Decode.Result (Slang.Expr × List Slang.Decode.Token)",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.parseFunction",
+          "expected_type": "String → Nat → List Slang.Decode.Token → Slang.Decode.Result (Slang.FunctionDecl × List Slang.Decode.Token)",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.decodeTokens",
+          "expected_type": "ByteArray → List Slang.Decode.Token → Nat → Slang.Decode.Result Slang.Decode.CertifiedDecoded",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.decodeTable",
+          "expected_type": "ByteArray → Slang.Decode.Result Slang.Decode.CertifiedDecoded",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Source.DeclarationSpans",
+          "expected_type": "Nat → List Slang.Span → Prop",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Slang.Decode.CertifiedDecoded → Prop",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.mk",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.decodeTokens (Slang.Source.encodeBytes source) tokens consumed = .ok decoded → Slang.Source.DeclarationSpans source.length (decoded.val.program.constants.map (·.span) ++ decoded.val.program.functions.map (·.span)) → Slang.Source.GrammarDerivation source tokens consumed decoded",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.lexing",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.decoding",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → Slang.Decode.decodeTokens (Slang.Source.encodeBytes source) tokens consumed = .ok decoded",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.declarationSpans",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → Slang.Source.DeclarationSpans source.length (decoded.val.program.constants.map (·.span) ++ decoded.val.program.functions.map (·.span))",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.sound",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → Slang.Decode.decodeTable (Slang.Source.encodeBytes source) = .ok decoded",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.spansInside",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → ((decoded.val.program.constants.map (·.span) ++ decoded.val.program.functions.map (·.span)).all fun span => span.start < span.stop && span.stop ≤ source.length) = true",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarDerivation.spansNonoverlapping",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {decoded : Slang.Decode.CertifiedDecoded}, Slang.Source.GrammarDerivation source tokens consumed decoded → (decoded.val.program.constants.map (·.span) ++ decoded.val.program.functions.map (·.span)).Pairwise (fun left right => left.stop ≤ right.start)",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Slang.Decode.Token → List Slang.Decode.Token → Slang.FunctionDecl → Prop",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.mk",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.LexingDerivation source tokens consumed → tokens = header :: bodyTokens → header.kind = .ident decl.name → Slang.Decode.parseFunction decl.name header.span.start bodyTokens = .ok (decl, []) → decl.span.start < decl.span.stop ∧ decl.span.stop ≤ source.length → Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.lexing",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.tokenShape",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → tokens = header :: bodyTokens",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.headerKind",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → header.kind = .ident decl.name",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.parsed",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → Slang.Decode.parseFunction decl.name header.span.start bodyTokens = .ok (decl, [])",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.spanInside",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → decl.span.start < decl.span.stop ∧ decl.span.stop ≤ source.length",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.sound",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → ∃ header bodyTokens, tokens = header :: bodyTokens ∧ header.kind = .ident decl.name ∧ Slang.Decode.parseFunction decl.name header.span.start bodyTokens = .ok (decl, [])",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.consumesSource",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → consumed = source.length",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.consumesThroughClose",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → Slang.Decode.parseFunction decl.name header.span.start bodyTokens = .ok (decl, [])",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesDecl.spanBounded",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {header : Slang.Decode.Token} {bodyTokens : List Slang.Decode.Token} {decl : Slang.FunctionDecl}, Slang.Source.ParsesDecl source tokens consumed header bodyTokens decl → decl.span.start < decl.span.stop ∧ decl.span.stop ≤ source.length",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesExpr",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Slang.Expr → Prop",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesExpr.mk",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {expression : Slang.Expr}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.parseExprFuel (tokens.length * 4 + 16) 0 tokens = .ok (expression, []) → Slang.Source.ParsesExpr source tokens consumed expression",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesExpr.lexing",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {expression : Slang.Expr}, Slang.Source.ParsesExpr source tokens consumed expression → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesExpr.parsed",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {expression : Slang.Expr}, Slang.Source.ParsesExpr source tokens consumed expression → Slang.Decode.parseExprFuel (tokens.length * 4 + 16) 0 tokens = .ok (expression, [])",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesExpr.sound",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {expression : Slang.Expr}, Slang.Source.ParsesExpr source tokens consumed expression → Slang.Decode.parseExprFuel (tokens.length * 4 + 16) 0 tokens = .ok (expression, [])",
+          "module": "Slang.Source.Grammar",
+          "path": "proof/corpus/Slang/Source/Grammar.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.conditionalSource",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.conditionalTokens",
+          "expected_type": "List Slang.Decode.Token",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.groupedConditional",
+          "expected_type": "Slang.Expr",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.incorrectlyGroupedConditional",
+          "expected_type": "Slang.Expr",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.conditional_derivation",
+          "expected_type": "Slang.Source.ParsesExpr Slang.Source.GrammarAudit.conditionalSource Slang.Source.GrammarAudit.conditionalTokens 21 Slang.Source.GrammarAudit.groupedConditional",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.conditional_groups_after_subtraction",
+          "expected_type": "Slang.Decode.parseExprFuel (Slang.Source.GrammarAudit.conditionalTokens.length * 4 + 16) 0 Slang.Source.GrammarAudit.conditionalTokens = .ok (Slang.Source.GrammarAudit.groupedConditional, [])",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.conditional_not_grouped_as_subtraction_rhs",
+          "expected_type": "Slang.Source.GrammarAudit.groupedConditional ≠ Slang.Source.GrammarAudit.incorrectlyGroupedConditional",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.completeSource",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.completeTokens",
+          "expected_type": "List Slang.Decode.Token",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.completeDecl",
+          "expected_type": "Slang.FunctionDecl",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.completeHeader",
+          "expected_type": "Slang.Decode.Token",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.complete_selected_body_derivation",
+          "expected_type": "Slang.Source.ParsesDecl Slang.Source.GrammarAudit.completeSource Slang.Source.GrammarAudit.completeTokens 59 Slang.Source.GrammarAudit.completeHeader Slang.Source.GrammarAudit.completeTokens.tail Slang.Source.GrammarAudit.completeDecl",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.complete_selected_body_zero_leftover",
+          "expected_type": "Slang.Decode.parseFunction Slang.Source.GrammarAudit.completeDecl.name 0 Slang.Source.GrammarAudit.completeTokens.tail = .ok (Slang.Source.GrammarAudit.completeDecl, [])",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.truncatedSource",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.truncatedTokens",
+          "expected_type": "List Slang.Decode.Token",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.truncated_selected_body_prefix_rejected",
+          "expected_type": "Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.GrammarAudit.truncatedSource) = .ok (Slang.Source.GrammarAudit.truncatedTokens, 45) ∧ (match Slang.Decode.parseFunction \"tableSpread\" 0 Slang.Source.GrammarAudit.truncatedTokens.tail with | .error _ => true | .ok _ => false) = true",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        },
+        {
+          "name": "Slang.Source.GrammarAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.GrammarAudit",
+          "path": "proof/corpus/Slang/Source/GrammarAudit.lean"
+        }
+      ]
+    },
+    "closure": {
+      "kind": "active",
+      "wave": "W22",
+      "title": "Closure fidelity",
+      "note": "Migrated to the empty cone; declarations registered from Slang/Source/ClosureAudit.lean.",
+      "audit_module": "Slang/Source/ClosureAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Decode.lean",
+        "proof/corpus/Slang/Source/Closure.lean",
+        "proof/corpus/Slang/Source/ClosureAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Source.SourceFile",
+          "expected_type": "Type",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceFile.mk",
+          "expected_type": "Slang.Source.SourceBytes → Slang.Source.SourceBytes → Slang.Source.SourceFile",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceFile.path",
+          "expected_type": "Slang.Source.SourceFile → Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceFile.bytes",
+          "expected_type": "Slang.Source.SourceFile → Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.instBEqSourceFile",
+          "expected_type": "BEq Slang.Source.SourceFile",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBundle",
+          "expected_type": "Type",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBundle.mk",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Source.SourceFile → Slang.Source.SourceBundle",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBundle.entry",
+          "expected_type": "Slang.Source.SourceBundle → Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBundle.files",
+          "expected_type": "Slang.Source.SourceBundle → List Slang.Source.SourceFile",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.stdPath",
+          "expected_type": "Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SourceBundle.fileBytes?",
+          "expected_type": "Slang.Source.SourceBundle → Slang.Source.SourceBytes → Option Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.importPaths",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Source.SourceBytes",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.scanSourceSelected",
+          "expected_type": "Slang.Source.SourceBytes → Slang.Decode.Result (List Slang.ConstantDecl × List Slang.FunctionDecl)",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.selectedTableConstantNames",
+          "expected_type": "List String",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.selectedSourceExact",
+          "expected_type": "Slang.Source.SourceBytes → Bool",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SelectedSourceExact",
+          "expected_type": "Slang.Source.SourceBytes → Prop",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.SelectedProgramExact",
+          "expected_type": "Slang.Program → Prop",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Decode.decodeImportedCoordCeiling",
+          "expected_type": "ByteArray → Slang.Decode.Result Slang.ConstantDecl",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure",
+          "expected_type": "Slang.Source.SourceBundle → Slang.Program → Prop",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure.intro",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} (entryBytes : Slang.Source.SourceBytes), bundle.fileBytes? bundle.entry = some entryBytes → (decoded : Slang.Decode.CertifiedDecoded) → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → (stdBytes : Slang.Source.SourceBytes) → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → (coord : Slang.ConstantDecl) → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure.entry_decodes",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes decoded, bundle.fileBytes? bundle.entry = some entryBytes ∧ Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded ∧ decoded.val.program = program",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure.coord_bound",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ stdBytes coord, bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord ∧ coord.value = .literal 8796093022208",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.unresolved_import_not_parses",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes path : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → path ∈ Slang.Source.importPaths entryBytes → bundle.fileBytes? path = none → ¬Slang.Source.ParsesClosure bundle program",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.DuplicateOrSkippedSelected",
+          "expected_type": "Slang.Source.SourceBytes → Prop",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.duplicate_or_skipped_selected_not_parses",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → Slang.Source.DuplicateOrSkippedSelected entryBytes → ¬Slang.Source.ParsesClosure bundle program",
+          "module": "Slang.Source.Closure",
+          "path": "proof/corpus/Slang/Source/Closure.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.importPaths_useCell",
+          "expected_type": "Slang.Source.importPaths useCellSource = [cellPath]",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.importPaths_edge",
+          "expected_type": "cellPath ∈ Slang.Source.importPaths useCellSource",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.importPaths_empty",
+          "expected_type": "Slang.Source.importPaths noUseSource = []",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.open_bundle_missing_cell",
+          "expected_type": "openBundle.fileBytes? cellPath = none",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.missing_cell_rejected",
+          "expected_type": "∀ {program : Slang.Program}, ¬Slang.Source.ParsesClosure openBundle program",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.closed_bundle_edges_resolved",
+          "expected_type": "∀ path, path ∈ Slang.Source.importPaths useCellSource → (closedBundle.fileBytes? path).isSome = true",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.parsesClosure_of",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → {decoded : Slang.Decode.CertifiedDecoded} → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → {stdBytes : Slang.Source.SourceBytes} → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → {coord : Slang.ConstantDecl} → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        },
+        {
+          "name": "Slang.Source.ClosureAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.ClosureAudit",
+          "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
+        }
+      ]
+    },
+    "decoder-proof": {
+      "kind": "active",
+      "wave": "W24",
+      "title": "Decoder refinement",
+      "note": "Migrated to the empty cone; declarations registered from Slang/Source/DecodeProofAudit.lean.",
+      "audit_module": "Slang/Source/DecodeProofAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Decode.lean",
+        "proof/corpus/Slang/Source/DecodeProof.lean",
+        "proof/corpus/Slang/Source/DecodeProofAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Source.ImportedCoordDerivation",
+          "expected_type": "Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Slang.ConstantDecl → Prop",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ImportedCoordDerivation.mk",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {coord : Slang.ConstantDecl}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.scanSelected (tokens.length + 1) tokens [\"COORD_CEILING\"] [] = .ok ([coord], []) → Slang.Source.ImportedCoordDerivation source tokens consumed coord",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ImportedCoordDerivation.lexing",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {coord : Slang.ConstantDecl}, Slang.Source.ImportedCoordDerivation source tokens consumed coord → Slang.Source.LexingDerivation source tokens consumed",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ImportedCoordDerivation.scanned",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {coord : Slang.ConstantDecl}, Slang.Source.ImportedCoordDerivation source tokens consumed coord → Slang.Decode.scanSelected (tokens.length + 1) tokens [\"COORD_CEILING\"] [] = .ok ([coord], [])",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ImportedCoordDerivation.sound",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat} {coord : Slang.ConstantDecl}, Slang.Source.ImportedCoordDerivation source tokens consumed coord → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes source) = .ok coord",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Decode.appendImportedCoord",
+          "expected_type": "Slang.Decode.CertifiedDecoded → Slang.ConstantDecl → Slang.Decode.CertifiedDecoded",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Decode.decodeClosure",
+          "expected_type": "ByteArray → ByteArray → Slang.Decode.Result Slang.Decode.CertifiedDecoded",
+          "module": "Slang.Decode",
+          "path": "proof/corpus/Slang/Decode.lean"
+        },
+        {
+          "name": "Slang.Source.composeDecoded",
+          "expected_type": "Slang.Decode.CertifiedDecoded → Slang.ConstantDecl → Slang.Decode.CertifiedDecoded",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.DecodeDerivation",
+          "expected_type": "Slang.Source.SourceBytes → Slang.Source.SourceBytes → Slang.Decode.CertifiedDecoded → Prop",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.DecodeDerivation.intro",
+          "expected_type": "∀ {table std : Slang.Source.SourceBytes} {value : Slang.Decode.CertifiedDecoded} (decoded : Slang.Decode.CertifiedDecoded) (coord : Slang.ConstantDecl), Slang.Decode.decodeTable (Slang.Source.encodeBytes table) = .ok decoded → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes std) = .ok coord → coord.value = .literal 8796093022208 → value = Slang.Source.composeDecoded decoded coord → Slang.Source.DecodeDerivation table std value",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.decodeDerivation_of_grammar",
+          "expected_type": "∀ {table std : Slang.Source.SourceBytes} {tableTokens stdTokens : List Slang.Decode.Token} {tableConsumed stdConsumed : Nat} {decoded value : Slang.Decode.CertifiedDecoded} {coord : Slang.ConstantDecl}, Slang.Source.GrammarDerivation table tableTokens tableConsumed decoded → Slang.Source.ImportedCoordDerivation std stdTokens stdConsumed coord → coord.value = .literal 8796093022208 → value = Slang.Source.composeDecoded decoded coord → Slang.Source.DecodeDerivation table std value",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.decodeDerivation_sound",
+          "expected_type": "∀ {table std : Slang.Source.SourceBytes} {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation table std value → Slang.Decode.decodeClosure (Slang.Source.encodeBytes table) (Slang.Source.encodeBytes std) = .ok value",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure.decodeDerivation",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes stdBytes coord value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ coord.value = .literal 8796093022208 ∧ Slang.Source.DecodeDerivation entryBytes stdBytes value ∧ value.val.program = { program with constants := program.constants ++ [coord] }",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.ParsesClosure.decodeClosure_ok",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes stdBytes value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ Slang.Decode.decodeClosure (Slang.Source.encodeBytes entryBytes) (Slang.Source.encodeBytes stdBytes) = .ok value",
+          "module": "Slang.Source.DecodeProof",
+          "path": "proof/corpus/Slang/Source/DecodeProof.lean"
+        },
+        {
+          "name": "Slang.Source.DecodeProofAudit.sound_application",
+          "expected_type": "∀ {table std : Slang.Source.SourceBytes} {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation table std value → Slang.Decode.decodeClosure (Slang.Source.encodeBytes table) (Slang.Source.encodeBytes std) = .ok value",
+          "module": "Slang.Source.DecodeProofAudit",
+          "path": "proof/corpus/Slang/Source/DecodeProofAudit.lean"
+        },
+        {
+          "name": "Slang.Source.DecodeProofAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.DecodeProofAudit",
+          "path": "proof/corpus/Slang/Source/DecodeProofAudit.lean"
+        }
+      ]
+    },
+    "generation": {
+      "kind": "placeholder",
+      "wave": "W24",
+      "title": "Proof-producing generation",
+      "note": "Stream 0 placeholder: Slang/Generated/TableDerivation.lean. No declarations registered yet.",
+      "declarations": []
+    },
+    "source": {
+      "kind": "active",
+      "wave": "W24",
+      "title": "Source binding integration",
+      "note": "The two public definitions and conditional source-binding theorem audit with an empty axiom cone. decodedSourceExact being true remains a compiled #guard test and is not a proved acceptance claim.",
+      "audit_module": "Slang/SourceAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/SourceAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.SourceAudit.ExpectedSelectedSyntax",
+          "expected_type": "Slang.Program → Bool",
+          "module": "Slang.SourceAudit",
+          "path": "proof/corpus/Slang/SourceAudit.lean"
+        },
+        {
+          "name": "Slang.SourceAudit.decodedSourceExact",
+          "expected_type": "Bool",
+          "module": "Slang.SourceAudit",
+          "path": "proof/corpus/Slang/SourceAudit.lean"
+        },
+        {
+          "name": "Slang.SourceAudit.source_binding",
+          "expected_type": "∀ {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value → Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true → Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program → Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧ value.val.certificate.Valid ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program",
+          "module": "Slang.SourceAudit",
+          "path": "proof/corpus/Slang/SourceAudit.lean"
+        },
+        {
+          "name": "Slang.SourceAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.SourceAudit",
+          "path": "proof/corpus/Slang/SourceAudit.lean"
+        }
+      ]
+    },
+    "resources": {
+      "kind": "active",
+      "wave": "W28",
+      "title": "Termination and source-level resource projections",
+      "note": "Decoded termination measures for tableInitGo/tableFindSlotGo/tableLookupSlotGo, the separate trace-derived resource projections (arithmetic including the wrapping multiply before the tableSpread mask, comparisons, bitwise, loads, stores, calls, probe iterations, maximum source call-stack entries, zero allocated nodes and zero external stream consumption), the strengthened execution headlines tableInitGo_execution_resources, probe_execution_resources and tableSpread_execution_resources, and the concrete joint witness. Every declaration is registered and reports an empty axiom set.",
+      "audit_module": "Slang/Table/ResourceWitness.lean",
+      "source_files": [
+        "proof/corpus/Slang/Table/TableTermination.lean",
+        "proof/corpus/Slang/Table/TableResources.lean",
+        "proof/corpus/Slang/Table/ResourceWitness.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Table.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        },
+        {
+          "name": "Slang.Table.initGoMeasure",
+          "expected_type": "type_of% @Slang.Table.initGoMeasure",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.probeMeasure",
+          "expected_type": "type_of% @Slang.Table.probeMeasure",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.initGoMeasure_decrease",
+          "expected_type": "type_of% @Slang.Table.initGoMeasure_decrease",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.probeMeasure_decrease",
+          "expected_type": "type_of% @Slang.Table.probeMeasure_decrease",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_recursive_argument",
+          "expected_type": "type_of% @Slang.Table.initGo_recursive_argument",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.probe_recursive_argument",
+          "expected_type": "type_of% @Slang.Table.probe_recursive_argument",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_guard_at_bound",
+          "expected_type": "type_of% @Slang.Table.initGo_guard_at_bound",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.probe_guard_at_bound",
+          "expected_type": "type_of% @Slang.Table.probe_guard_at_bound",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.tableInitGo_termination",
+          "expected_type": "type_of% @Slang.Table.tableInitGo_termination",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.tableFindSlotGo_termination",
+          "expected_type": "type_of% @Slang.Table.tableFindSlotGo_termination",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.tableLookupSlotGo_termination",
+          "expected_type": "type_of% @Slang.Table.tableLookupSlotGo_termination",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.InitGoResourceBounds",
+          "expected_type": "type_of% @Slang.Table.InitGoResourceBounds",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.ProbeResourceBounds",
+          "expected_type": "type_of% @Slang.Table.ProbeResourceBounds",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_arithmetic",
+          "expected_type": "type_of% @Slang.Table.probe_resources_arithmetic",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_comparisons",
+          "expected_type": "type_of% @Slang.Table.probe_resources_comparisons",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_bitwise",
+          "expected_type": "type_of% @Slang.Table.probe_resources_bitwise",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_loads",
+          "expected_type": "type_of% @Slang.Table.probe_resources_loads",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_stores",
+          "expected_type": "type_of% @Slang.Table.probe_resources_stores",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_calls",
+          "expected_type": "type_of% @Slang.Table.probe_resources_calls",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_iterations",
+          "expected_type": "type_of% @Slang.Table.probe_resources_iterations",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.probe_resources_maxCallStack",
+          "expected_type": "type_of% @Slang.Table.probe_resources_maxCallStack",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_arithmetic",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_arithmetic",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_comparisons",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_comparisons",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_bitwise",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_bitwise",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_loads",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_loads",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_stores",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_stores",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_calls",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_calls",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_iterations",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_iterations",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_resources_maxCallStack",
+          "expected_type": "type_of% @Slang.Table.initGo_resources_maxCallStack",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.constructor_execution_stores",
+          "expected_type": "type_of% @Slang.Table.constructor_execution_stores",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.initGo_stores_exact",
+          "expected_type": "type_of% @Slang.Table.initGo_stores_exact",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.resources_allocatedNodes_zero",
+          "expected_type": "type_of% @Slang.Table.resources_allocatedNodes_zero",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.resources_externalStreamConsumption_zero",
+          "expected_type": "type_of% @Slang.Table.resources_externalStreamConsumption_zero",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.resourceWitness_repSong",
+          "expected_type": "type_of% @Slang.Table.resourceWitness_repSong",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        },
+        {
+          "name": "Slang.Table.tableInitGo_execution_resources",
+          "expected_type": "type_of% @Slang.Table.tableInitGo_execution_resources",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableTermination.lean"
+        },
+        {
+          "name": "Slang.Table.probe_execution_resources",
+          "expected_type": "type_of% @Slang.Table.probe_execution_resources",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.tableSpread_execution_resources",
+          "expected_type": "type_of% @Slang.Table.tableSpread_execution_resources",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/TableResources.lean"
+        },
+        {
+          "name": "Slang.Table.resourceWitness_initGo",
+          "expected_type": "type_of% @Slang.Table.resourceWitness_initGo",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        },
+        {
+          "name": "Slang.Table.resourceWitness_probe",
+          "expected_type": "type_of% @Slang.Table.resourceWitness_probe",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        },
+        {
+          "name": "Slang.Table.resourceWitness_initGo_stores",
+          "expected_type": "type_of% @Slang.Table.resourceWitness_initGo_stores",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        },
+        {
+          "name": "Slang.Table.resourceWitness_probe_iterations",
+          "expected_type": "type_of% @Slang.Table.resourceWitness_probe_iterations",
+          "module": "Slang.Table",
+          "path": "proof/corpus/Slang/Table/ResourceWitness.lean"
+        }
+      ]
+    },
+    "replacement-link": {
+      "kind": "active",
+      "wave": "W29",
+      "title": "Replacement execution linked to canonical insertWith",
+      "note": "The decoded MERGE_MAP write linked to Apeiron.Table.insertWith (fun new _old => new): RepSong preservation for insertOccupied, exact raw return and post-memory, occupied-key observation agreement, and a kernel-checked rejecting control for the replacement-to-addition change.",
+      "audit_module": "Slang/Joint/SongTableControl.lean",
+      "source_files": [
+        "proof/corpus/Slang/Joint/SongTable.lean",
+        "proof/corpus/Slang/Joint/SongTableControl.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Joint.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Joint.SongTableControl",
+          "path": "proof/corpus/Slang/Joint/SongTableControl.lean"
+        },
+        {
+          "name": "Slang.Joint.insertOccupied_of_member_true",
+          "expected_type": "type_of% @Slang.Joint.insertOccupied_of_member_true",
+          "module": "Slang.Joint.SongTable",
+          "path": "proof/corpus/Slang/Joint/SongTable.lean"
+        },
+        {
+          "name": "Slang.Joint.insertOccupied_of_member_false",
+          "expected_type": "type_of% @Slang.Joint.insertOccupied_of_member_false",
+          "module": "Slang.Joint.SongTable",
+          "path": "proof/corpus/Slang/Joint/SongTable.lean"
+        },
+        {
+          "name": "Slang.Joint.observeRead_get",
+          "expected_type": "type_of% @Slang.Joint.observeRead_get",
+          "module": "Slang.Joint.SongTable",
+          "path": "proof/corpus/Slang/Joint/SongTable.lean"
+        },
+        {
+          "name": "Slang.Joint.songTable_replacement_link",
+          "expected_type": "type_of% @Slang.Joint.songTable_replacement_link",
+          "module": "Slang.Joint.SongTable",
+          "path": "proof/corpus/Slang/Joint/SongTable.lean"
+        },
+        {
+          "name": "Slang.Joint.control_addition_not_replacement",
+          "expected_type": "type_of% @Slang.Joint.control_addition_not_replacement",
+          "module": "Slang.Joint.SongTableControl",
+          "path": "proof/corpus/Slang/Joint/SongTableControl.lean"
+        }
+      ]
+    },
+    "accumulator-profile": {
+      "kind": "active",
+      "wave": "W30",
+      "title": "Accumulator/default profile and rejecting check",
+      "note": "The decoded MERGE_ACC fresh-key path stores value while canonical Apeiron.Table.insertWith combines with the default. This stage registers the profile rows as Lean data, the compiled profile check and the empty-axiom audit; it states no accumulator correspondence.",
+      "audit_module": "Slang/Joint/AccumulatorProfile.lean",
+      "source_files": [
+        "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Joint.AccumulatorProfile.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.sourceFresh",
+          "expected_type": "Slang.Word → Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.sourcePresent",
+          "expected_type": "Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.canonicalAtKey",
+          "expected_type": "(Slang.Word → Slang.Word → Slang.Word) → Slang.Word → Slang.Word → Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.witnessDefault",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.witnessOld",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.witnessValue",
+          "expected_type": "Slang.Word",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.Verdict",
+          "expected_type": "Type",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.Row",
+          "expected_type": "Type",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.Row.holds",
+          "expected_type": "Slang.Joint.AccumulatorProfile.Row → Bool",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.Row.consistent",
+          "expected_type": "Slang.Joint.AccumulatorProfile.Row → Bool",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.presentRow",
+          "expected_type": "Slang.Joint.AccumulatorProfile.Row",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.freshRow",
+          "expected_type": "Slang.Joint.AccumulatorProfile.Row",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.rejectedRow",
+          "expected_type": "Slang.Joint.AccumulatorProfile.Row",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.profile",
+          "expected_type": "List Slang.Joint.AccumulatorProfile.Row",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.profileCheck",
+          "expected_type": "List Slang.Joint.AccumulatorProfile.Row → Bool",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.word_add_comm",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.word_add_comm",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.sourceFresh_eq_value",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.sourceFresh_eq_value",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.present_key_acc_matches_canonical",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.present_key_acc_matches_canonical",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.fresh_key_acc_stores_value",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.fresh_key_acc_stores_value",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.fresh_key_acc_default_addition_refuted",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.fresh_key_acc_default_addition_refuted",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        },
+        {
+          "name": "Slang.Joint.AccumulatorProfile.profile_rejects_fresh_key_default_addition",
+          "expected_type": "type_of% @Slang.Joint.AccumulatorProfile.profile_rejects_fresh_key_default_addition",
+          "module": "Slang.Joint.AccumulatorProfile",
+          "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
+        }
+      ]
+    }
+  }
+}
