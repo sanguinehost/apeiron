@@ -4,6 +4,7 @@ import Slang.Derivation.Lexing
 import Slang.Derivation.Grammar
 import Slang.Derivation.Statements
 import Slang.Derivation.Composition
+import Slang.Derivation.Selection
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -59,3 +60,22 @@ end Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_run : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_run
 #audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_result : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_result
 #audit_empty Slang.Derivation.Composition.lexing_chars_multibyte_wrong : type_of% @Slang.Derivation.Composition.lexing_chars_multibyte_wrong
+
+-- The declaration-scanner derivation family. The `expr` and `block` requests are
+-- external-call leaves; the adapters transport a `Grammar`/`Statements` `Run`
+-- into that leaf via `Derives.done_eq`, and the wrong-answer controls reject a
+-- non-derivable answer through the composed path.
+#audit_empty Slang.Derivation.Selection.evaluate : type_of% @Slang.Derivation.Selection.evaluate
+#audit_empty Slang.Derivation.Selection.scan_unfold : type_of% @Slang.Derivation.Selection.scan_unfold
+#audit_empty Slang.Derivation.Selection.body_eq : type_of% @Slang.Derivation.Selection.body_eq
+#audit_empty Slang.Derivation.Selection.Run.sound : type_of% @Slang.Derivation.Selection.Run.sound
+#audit_empty Slang.Derivation.Selection.parameters_run : type_of% @Slang.Derivation.Selection.parameters_run
+#audit_empty Slang.Derivation.Selection.line_run : type_of% @Slang.Derivation.Selection.line_run
+#audit_empty Slang.Derivation.Selection.function_run : type_of% @Slang.Derivation.Selection.function_run
+#audit_empty Slang.Derivation.Selection.scan_run : type_of% @Slang.Derivation.Selection.scan_run
+#audit_empty Slang.Derivation.Selection.expr_of_grammar : type_of% @Slang.Derivation.Selection.expr_of_grammar
+#audit_empty Slang.Derivation.Selection.block_of_statements : type_of% @Slang.Derivation.Selection.block_of_statements
+#audit_empty Slang.Derivation.Selection.expr_zero_run : type_of% @Slang.Derivation.Selection.expr_zero_run
+#audit_empty Slang.Derivation.Selection.block_zero_run : type_of% @Slang.Derivation.Selection.block_zero_run
+#audit_empty Slang.Derivation.Selection.expr_zero_wrong : type_of% @Slang.Derivation.Selection.expr_zero_wrong
+#audit_empty Slang.Derivation.Selection.block_zero_wrong : type_of% @Slang.Derivation.Selection.block_zero_wrong
