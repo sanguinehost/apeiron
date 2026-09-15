@@ -22,6 +22,13 @@ namespace Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.DecodeTrace.multibyte_result : Slang.Derivation.DecodeTrace.evaluate (Slang.Derivation.DecodeTrace.Request.utf8Fuel 3 Slang.Derivation.DecodeTrace.multibyteBytes) = Except.ok ['é']
 #audit_empty Slang.Derivation.DecodeTrace.multibyte_wrong : ¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.utf8Fuel 3 Slang.Derivation.DecodeTrace.multibyteBytes) (Except.error "source is not UTF-8")
 
+-- The embedding adapters delegate a `Lexing`/`Selection`/`Validation` `Run` into
+-- the matching `DecodeTrace` request; each transports the child's checked
+-- equality through `Derives.done_eq` on the `.done` leaf of `DecodeTrace.body`.
+#audit_empty Slang.Derivation.DecodeTrace.lexing_of_run : type_of% @Slang.Derivation.DecodeTrace.lexing_of_run
+#audit_empty Slang.Derivation.DecodeTrace.selection_of_run : type_of% @Slang.Derivation.DecodeTrace.selection_of_run
+#audit_empty Slang.Derivation.DecodeTrace.validation_of_run : type_of% @Slang.Derivation.DecodeTrace.validation_of_run
+
 /-- Fixture the zero-axiom runner mutates to prove the command rejects a nonempty cone. -/
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Derivation.DecodeTrace.nat_add_zero : (0 : Nat) + 0 = 0
