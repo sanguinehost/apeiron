@@ -2945,6 +2945,12 @@
           "expected_type": "type_of% @Slang.Derivation.DecodeTrace.decodeTokens_wrong",
           "module": "Slang.Derivation.Decode",
           "path": "proof/corpus/Slang/Derivation/Decode.lean"
+        },
+        {
+          "name": "Slang.Derivation.DecodeTrace.decodeTable_wrong",
+          "expected_type": "¬Slang.Derivation.DecodeTrace.Run (Slang.Derivation.DecodeTrace.Request.decodeTable (ByteArray.empty)) (Except.ok Slang.Derivation.DecodeTrace.wrongDecoded)",
+          "module": "Slang.Derivation.Decode",
+          "path": "proof/corpus/Slang/Derivation/Decode.lean"
         }
       ]
     },
