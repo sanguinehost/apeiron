@@ -174,7 +174,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance; Rep there is read-only extensional and universal Rep / admission completeness is open. Song side: no checked Song-to-Lean refinement of tableInit, tableFind, tableGet or tableInsertWith exists. The joint row is OPEN and is the first joint storage target.",
+        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance. The generated word-table refinement is now universal over fixed shard capacity N, not arbitrary callbacks: the real constructor establishes PhysicalInv at every N, insert_with preserves PhysicalInv and canonical insertWith at every N, and positive-N build admission is exact; a physical PhysicalInv build postcondition and arbitrary-callback refinement remain open. Song side: no checked Song-to-Lean refinement of tableInit, tableFind, tableGet or tableInsertWith exists. The joint row is OPEN and is the first joint storage target.",
         "artifacts": [
           {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"},
           {"name": "Apeiron.TableRefinement.word_table_shardFull_refusal", "module": "corpus/TableRefinement.lean", "root": "bridge"},
@@ -275,7 +275,7 @@
     "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
     "Song local registers, ontology and commands.",
     "Semantic correspondence itself: the checker establishes specification consistency only.",
-    "Arbitrary-N Rust Rep preservation and admission completeness.",
+    "A physical PhysicalInv build postcondition and arbitrary-callback Rust Table<K,V,H,N> refinement.",
     "Song-to-Lean refinement for R1 and R2."
   ]
 }

@@ -31,6 +31,9 @@ REPO = HERE.parents[2]
 CORPUS_ROOT = REPO.parent / "sanguine-apeiron" / "proof"
 BRIDGE_ROOT = REPO / "proof"
 SONG_ROOT = REPO.parent / "song"
+PINNED_CORPUS_REPO = REPO / "proof" / "corpus" / ".lake" / "packages" / "apeiron"
+CORPUS_REFERENCE_PREFIX = "../sanguine-apeiron/"
+CORPUS_TEXT_PREFIX = "sanguine-apeiron/"
 
 # Named artifacts deliberately absent from the pinned corpus. A reference that
 # does not resolve is accepted only when its exact path is listed here; the
@@ -155,6 +158,18 @@ def _norm(text: str) -> str:
 
 
 def _resolve_path(rel: str, where: str) -> Path:
+    corpus_rel = None
+    if rel.startswith(CORPUS_REFERENCE_PREFIX):
+        corpus_rel = rel.removeprefix(CORPUS_REFERENCE_PREFIX)
+    elif rel.startswith(CORPUS_TEXT_PREFIX):
+        corpus_rel = rel.removeprefix(CORPUS_TEXT_PREFIX)
+    if corpus_rel is not None:
+        pinned = PINNED_CORPUS_REPO / corpus_rel
+        if pinned.is_file():
+            return pinned
+        raise CheckError(
+            f"{where}: source file does not resolve at the pinned corpus dependency: {rel}"
+        )
     for base in (REPO, REPO.parent):
         candidate = base / rel
         if candidate.is_file():
@@ -216,6 +231,32 @@ def _repo_blob(repo_dir: Path, rev: str, rel_under_dir: str) -> bytes | None:
     if blob.returncode != 0:
         return None
     return blob.stdout
+
+
+def _pinned_corpus_rev() -> str | None:
+    """The corpus revision Apeiron depends on, from the committed Lake manifest.
+
+    The sibling checkout under ``CORPUS_ROOT`` is a mutable other-stream worktree;
+    its live HEAD is not Apeiron's recorded dependency. The pinned revision comes
+    from ``proof/corpus/lake-manifest.json`` and its bytes are read from that Git
+    revision.
+    """
+    for manifest in (
+        REPO / "proof" / "corpus" / "lake-manifest.json",
+        REPO / "proof" / "lake-manifest.json",
+    ):
+        if not manifest.is_file():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for package in data.get("packages", []):
+            if package.get("name") == "apeiron" and isinstance(
+                package.get("rev"), str
+            ):
+                return package["rev"]
+    return None
 
 
 def _mathlib_rev() -> str | None:
@@ -301,29 +342,39 @@ def check_lean_ref(
                 f"{where}.root must be {require_root} for {name}",
             )
         _need(root in ("corpus", "bridge"), f"{where}.root must be corpus or bridge")
-    base = CORPUS_ROOT if root == "corpus" else BRIDGE_ROOT
-    path = base / module
-    _need(path.is_file(), f"{where}: module does not resolve: {root}:{module}")
-    if bind_corpus:
-        raw: bytes | None = path.read_bytes()
-        declarations = _lean_declarations(raw.decode("utf-8"))
+    if root == "corpus":
+        # Read the canonical module at the pinned dependency revision, not from the
+        # mutable sibling worktree: another stream advances that HEAD independently.
+        pin = _pinned_corpus_rev()
+        _need(
+            pin is not None,
+            f"{where}: cannot resolve the corpus dependency revision",
+        )
+        raw = _repo_blob(CORPUS_ROOT, pin, module)
+        _need(
+            raw is not None,
+            f"{where}: module does not resolve at the pin: corpus:{module}",
+        )
     else:
-        raw = None
-        declarations = _lean_declarations(path.read_text(encoding="utf-8"))
+        path = BRIDGE_ROOT / module
+        _need(path.is_file(), f"{where}: module does not resolve: {root}:{module}")
+        raw = path.read_bytes()
+        pin = None
+    declarations = _lean_declarations(raw.decode("utf-8"))
     _need(
         name in declarations,
         f"{where}: declaration {name} is not the exact fully-qualified name "
         f"declared in {module}",
     )
     if bind_corpus and root == "corpus" and _RESOLVED_CORPUS_GIT is not None:
-        blob = _repo_blob(CORPUS_ROOT, _RESOLVED_CORPUS_GIT, module)
+        resolved = _repo_blob(CORPUS_ROOT, _RESOLVED_CORPUS_GIT, module)
         _need(
-            blob is not None,
+            resolved is not None,
             f"{where}: cannot read {module} at corpus revision "
             f"{_RESOLVED_CORPUS_GIT}",
         )
         _need(
-            hashlib.sha256(blob).digest() == hashlib.sha256(raw).digest(),
+            hashlib.sha256(resolved).digest() == hashlib.sha256(raw).digest(),
             f"{where}: {module} bytes do not match the resolved corpus identity "
             f"{_RESOLVED_CORPUS_GIT}",
         )
@@ -587,7 +638,7 @@ def _bare_file_index() -> dict[str, list[Path]]:
         return _BARE_FILE_INDEX
     index: dict[str, list[Path]] = {}
     skip = {".git", "target", ".lake", "node_modules", "build"}
-    for root in (REPO, SONG_ROOT, CORPUS_ROOT):
+    for root in (REPO, SONG_ROOT, PINNED_CORPUS_REPO / "proof"):
         if not root.is_dir():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
@@ -599,7 +650,18 @@ def _bare_file_index() -> dict[str, list[Path]]:
 
 
 def _resolve_text_ref(rel: str, where: str) -> Path:
-    for base in (REPO, REPO.parent, CORPUS_ROOT, BRIDGE_ROOT, SONG_ROOT, SONG_ROOT / "src"):
+    if rel.startswith(CORPUS_TEXT_PREFIX):
+        candidate = PINNED_CORPUS_REPO / rel.removeprefix(CORPUS_TEXT_PREFIX)
+        if candidate.is_file():
+            return candidate
+    for base in (
+        REPO,
+        PINNED_CORPUS_REPO / "proof",
+        REPO.parent,
+        BRIDGE_ROOT,
+        SONG_ROOT,
+        SONG_ROOT / "src",
+    ):
         candidate = base / rel
         if candidate.is_file():
             return candidate

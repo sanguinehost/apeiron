@@ -135,11 +135,17 @@ checked Song-to-Lean refinement of `headReduce`, `pass`, `normalize`, `hasRedex`
 
 **1 · Canonical object and observation relation.** `Apeiron.Decider.CRow`, `CertOp` and `checkCert`.
 `checkCert raw [] log = true` exactly when the log ends on a `close x` naming a row whose bounds
-cross, with every prior step naming an already-built row. Observation: `checkCert raw [] log = true
-→ ¬ ∃ ρ, SatLines ρ raw` (`Decider.checkCert_sound`); every step maps holding rows to holding rows
-(`Decider.certStep_holds`); an impossible row holds at no assignment
-(`Decider.crImpossible_empty`). Exact types: `CRow n = { lo : Option ℤ, up : Option ℤ, coeff :
-Fin n → ℤ }`; `CertOp = load k | combo i j a b | neg i | meet i j | tidy i | close i`;
+cross, or on a residue-refutation tree, with every prior step naming an already-built row. The
+uncapped language is complete: `certificate_complete` proves a log exists exactly when no assignment
+satisfies the rows, `synthesizeCert` constructs a singleton residue-terminal log, and
+`CompleteCertificate.residue_certificate_complete` gives the same iff for the residue language.
+Observation: `checkCert raw [] log = true → ¬ ∃ ρ, SatLines ρ raw` (`Decider.checkCert_sound`); every
+step maps holding rows to holding rows (`Decider.certStep_holds`); an impossible row holds at no
+assignment (`Decider.crImpossible_empty`). Stream framing and replay are checked in
+`Apeiron/Decider/Stream.lean` (`checkCertStream_eq_true_iff`, `checkCertStream_sound`,
+`parseCertRecords_sound`, `checkCertRecords_sound`); `CertRecord` framing starts after byte decoding.
+Exact types: `CRow n = { lo : Option ℤ, up : Option ℤ, coeff : Fin n → ℤ }`;
+`CertOp = load k | combo i j a b | neg i | meet i j | tidy i | close i | residue (cert : ResidueCertificate)`;
 `checkCert : List (Line n) → List (CRow n) → List CertOp → Bool`.
 
 **2 · Entry points and source identity.** Canonical: `Decider.checkCert`, `Decider.certStep` and
@@ -199,9 +205,11 @@ trusted like an ISA primitive. The source capacities are not Lean reduction-step
 **8 · Source-connected refinement and rejecting control.** Canonical: `Decider.checkCert_sound` is
 the headline, with `Decider.certStep_holds` and `Decider.crImpossible_empty`. Song: no checked
 Song-to-Lean refinement of `checkCert` exists, and the wide limb arithmetic carries no law of its
-own. The joint refinement is OPEN. `Apeiron/Decider/Stream.lean` and the executing stream refinement
-are MISSING. Rejecting controls: `C1` (corrupt a carry or sign), `C2` (future row reference), `C3`
-(trailing records), `C4` (relabel SAT/UNSAT).
+own. The joint refinement is OPEN. Canonical framing/replay exists (`Apeiron/Decider/Stream.lean`);
+the executing Song byte-reader, state, wide-arithmetic, framing and replay refinement is MISSING, and
+the uncapped completeness is for the extended canonical language with the residue terminal, not for
+the Song reader's `r,c,n,m,t,x` alphabet. Rejecting controls: `C1` (corrupt a carry or sign), `C2`
+(future row reference), `C3` (trailing records), `C4` (relabel SAT/UNSAT).
 
 ## Unmatched counterparts
 
@@ -213,7 +221,7 @@ assumed, and the checker requires every one of them to be present.
 | BE1 | Rust side NONE for the canonical `Apeiron.Combinator` evaluator; Song `prover0.slang` exists. | There is no executing Rust evaluator, so E1 is not a paired Rust-Slang row. | blocker |
 | BE2 | Rust side NONE for `Apeiron.Decider.checkCert`; Song `certcheck.slang` exists. | There is no Rust decider or replayer, so E2 is not a paired Rust-Slang row. | blocker |
 | BE3 | Song `satcheck.slang::{main,batchLoop}` at `MAXV = 12`, `ROWCAP = 256`; canonical side NONE. | No canonical SAT-witness checker for this alphabet exists; `capped_certificate_complete` is a capped-box existence theorem, not a completeness theorem for this alphabet. | blocker |
-| BE4 | `Apeiron/Decider/Stream.lean` and the executing stream refinement; both MISSING. | Certificate readiness requires a stream representation and a checked executing stream refinement; neither exists. | blocker |
+| BE4 | Canonical framing/replay exists (`Apeiron/Decider/Stream.lean`); the executing Song byte-reader, state, wide-arithmetic, framing and replay refinement is MISSING. | Certificate readiness requires a checked executing refinement of a Song reader/writer to the canonical framed replay; `Stream.lean` starts after byte decoding and establishes no Song execution. | blocker |
 | BE5 | Canonical `Comb.I = app (app S K) K`; Song `i` (`TAG_I`) and `**skk` (`app (app S K) K`) are distinct tags and shapes. | The pair `i`/`**skk` is a source-derived regression fixture candidate against the canonical `Joinable` reading of `DISTINCT`; it is not resolved by dropping `i`/`u`, changing canonical equality, or conflating the primitive with the normal form. | blocker |
 
 ## Hazards
@@ -224,7 +232,7 @@ assumed, and the checker requires every one of them to be present.
 | HE2 | Song `FUEL` conflates Lean's `.fuel` (a reached floor that still carries a redex) with arena and walk-stack exhaustion. Parser-stack overflow and allocation failure during parsing report `PARSE`, and startup ring-claim failure reports `RING`, so exhaustion is not uniformly `FUEL`. | A `FUEL` verdict does not identify which of arena or walk-stack ran out, there is no rollback, and no precise resource-classification theorem exists. |
 | HE3 | The source budgets `2048` passes, `1048576` nodes, `65536` walk-stack entries and `4096` parser-stack entries are machine budgets. | They are not Lean reduction-step counts and must not be converted to `fuel`. |
 | HE4 | `certcheck`'s wide row values are a tri-state sign plus three 64-bit magnitude limbs, and the limb arithmetic carries no law of its own. | The encoding is not `ZMod (2^64)` and is trusted like an ISA primitive; `C1` is a required control, not a proved absence. |
-| HE5 | `capped_certificate_complete` is a capped-box existence theorem, and `Apeiron/Decider/Stream.lean` is MISSING. | It is not a completeness theorem for the `certcheck` alphabet and does not establish certificate readiness. |
+| HE5 | The uncapped completeness is for the extended canonical language ending in a residue-refutation tree, while the Song reader's selected alphabet is `r,c,n,m,t,x` and has no residue opcode or tree decoder. | `certificate_complete` and `residue_certificate_complete` do not establish completeness of the Song reader alphabet; the executing Song refinement (`BE4`) remains missing. |
 
 ## Required controls
 
@@ -249,8 +257,9 @@ mutation that the executing refinement must reject.
    `structEq` and `verdict` on the matched domain, and run the `C6` `i`/`**skk` regression.
 3. E2 certificate replay: fix the bound-presence and signed three-limb representation, the row
    capacities and the refusal paths, and state the reader grammar.
-4. E2 refinement: define a checked Song-to-Lean refinement of `checkCert`, add
-   `Apeiron/Decider/Stream.lean` and the executing stream refinement, and run controls `C1`–`C5`.
+4. E2 refinement: define a checked Song-to-Lean refinement of `checkCert`, reuse the pinned
+   `Apeiron/Decider/Stream.lean` framing and replay, prove the executing Song reader/writer
+   refinement, and run controls `C1`–`C5`.
 5. Only after E1 and E2 are refined: a bounded vertical lift/reduction demonstration.
 
 ## Not covered
@@ -265,7 +274,8 @@ mutation that the executing refinement must reject.
   specification consistency only; it does not report correspondence.
 - No executing Rust evaluator and no Rust decider or replayer (`BE1`, `BE2`).
 - A canonical SAT-witness checker for the `satcheck` alphabet (`BE3`).
-- `Apeiron/Decider/Stream.lean` and the executing stream refinement (`BE4`).
+- The executing Song byte-reader, state, wide-arithmetic, framing and replay refinement of the
+  canonical framed replay (`BE4`); `Apeiron/Decider/Stream.lean` itself exists at the pin.
 - Any resolution of the `i`/`**skk` compatibility blocker (`BE5`, `HE1`).
 
 ## Pins and source digests

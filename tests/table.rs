@@ -1,4 +1,4 @@
-use apeiron::{merge, Table};
+use apeiron::{merge, table::ReplacementMerge, Table};
 
 #[test]
 fn default_read_is_total_before_any_write() {
@@ -13,6 +13,21 @@ fn insert_is_new_first_and_replaces_an_existing_override() {
     assert_eq!(*table.get(&7), -7);
     table.insert_with(&|new, old| new - old, 7, 5).unwrap();
     assert_eq!(*table.get(&7), 12);
+}
+
+#[test]
+fn replacement_merge_fresh_write_stores_new_value() {
+    let mut table = Table::<i64, _, _, 1>::new(-17, |_: &i64| 0);
+    table.insert_with(&ReplacementMerge, 7, 41).unwrap();
+    assert_eq!(*table.get(&7), 41);
+}
+
+#[test]
+fn replacement_merge_present_write_stores_new_value() {
+    let mut table = Table::<i64, _, _, 1>::new(-17, |_: &i64| 0);
+    table.insert_with(&ReplacementMerge, 7, 41).unwrap();
+    table.insert_with(&ReplacementMerge, 7, -9).unwrap();
+    assert_eq!(*table.get(&7), -9);
 }
 
 #[test]

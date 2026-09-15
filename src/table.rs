@@ -57,6 +57,16 @@ impl Merge<i64> for WordMerge {
     }
 }
 
+/// Word replacement with explicit new-first merge order.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReplacementMerge;
+
+impl Merge<i64> for ReplacementMerge {
+    fn merge(&self, new: i64, _old: i64) -> i64 {
+        new
+    }
+}
+
 /// A constant default plus at most `N` overrides per home shard.
 ///
 /// `N = 0` is valid: reads return the default and all insertions refuse.

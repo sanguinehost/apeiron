@@ -24,13 +24,19 @@ if [ "$AENEAS_HOME" != "$LINK" ]; then
 fi
 
 CHARON="$AENEAS_HOME/charon"
+CHARON_DRIVER="$AENEAS_HOME/charon-driver"
 AENEAS="$AENEAS_HOME/aeneas"
 LEAN_BACKEND="$AENEAS_HOME/backends/lean"
 
 for f in "$CHARON" "$AENEAS"; do
-    [ -x "$f" ] || { echo "missing tool: $f" >&2; exit 2; }
+    [ -f "$f" ] && [ -x "$f" ] || { echo "missing executable tool: $f" >&2; exit 2; }
 done
 [ -d "$LEAN_BACKEND" ] || { echo "missing Aeneas Lean backend: $LEAN_BACKEND" >&2; exit 2; }
+
+tool_sha256() {
+    [ -f "$1" ] && [ -x "$1" ] || { echo "missing executable tool identity: $1" >&2; exit 2; }
+    sha256sum "$1"
+}
 
 # Charon records `Source:` annotations relative to the working directory. Pin it so a normal run
 # and `--check` from any directory produce byte-identical output.
@@ -45,6 +51,12 @@ echo "charon:  $("$CHARON" version)"
 echo "aeneas:  $("$AENEAS" -version)"
 echo "rust:    $("$CHARON" toolchain-version)"
 echo "lean:    $(cat "$PROOF_DIR/lean-toolchain")"
+echo "sha256:"
+tool_sha256 "$CHARON"
+if [ -e "$CHARON_DRIVER" ]; then
+    tool_sha256 "$CHARON_DRIVER"
+fi
+tool_sha256 "$AENEAS"
 
 echo "== source =="
 sha256sum "$REPO_DIR/src/scalar.rs" "$REPO_DIR/src/cell.rs" "$REPO_DIR/src/exchange.rs" \
@@ -69,6 +81,7 @@ run_extract() {
         --start-from crate::word_table_new \
         --start-from crate::word_table_get \
         --start-from crate::word_table_insert \
+        --start-from crate::word_table_insert_replacement \
         --start-from crate::word_table_build \
         -- \
         --edition 2021 \

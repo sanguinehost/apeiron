@@ -121,6 +121,16 @@ pub fn word_table_insert(
     (state, result)
 }
 
+/// Executing-table replacement insertion with the concrete new-first callback.
+pub fn word_table_insert_replacement(
+    mut state: WordTable,
+    key: i64,
+    value: i64,
+) -> (WordTable, Result<(), table::StorageError>) {
+    let result = state.insert_with(&table::ReplacementMerge, key, value);
+    (state, result)
+}
+
 /// Executing-table stream build with concrete word callbacks.
 pub fn word_table_build(
     default: i64,

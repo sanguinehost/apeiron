@@ -21,6 +21,7 @@ from jointlib import (
     CORPUS_ROOT,
     HEX40,
     HEX64,
+    PINNED_CORPUS_REPO,
     REPO,
     SONG_ROOT,
     CheckError,
@@ -28,6 +29,7 @@ from jointlib import (
     _git_rev,
     _markdown_row_status,
     _mathlib_rev,
+    _pinned_corpus_rev,
     _need,
     _nonempty,
     _norm,
@@ -54,7 +56,11 @@ def bind_source_bytes(
     corpus tree are bound as well.
     """
     resolved = path.resolve()
-    if resolved.is_relative_to(REPO):
+    if resolved.is_relative_to(PINNED_CORPUS_REPO):
+        repo = PINNED_CORPUS_REPO
+        rev = revs.get("corpus")
+        sub = resolved.relative_to(PINNED_CORPUS_REPO)
+    elif resolved.is_relative_to(REPO):
         repo, rev, sub = REPO, revs.get("apeiron"), resolved.relative_to(REPO)
     elif resolved.is_relative_to(SONG_ROOT):
         repo, rev, sub = SONG_ROOT, revs.get("song"), resolved.relative_to(SONG_ROOT)
@@ -86,11 +92,18 @@ def verify_corpus(corpus: object) -> None:
         isinstance(git, str) and HEX40.fullmatch(git),
         "corpus.git must be a 40-hex revision",
     )
-    actual = _git_rev(CORPUS_ROOT)
-    _need(actual is not None, f"cannot resolve the git revision of {CORPUS_ROOT}")
+    pin = _pinned_corpus_rev()
     _need(
-        git == actual,
-        f"corpus.git {git} does not match the resolved corpus revision {actual}",
+        pin is not None,
+        "cannot resolve the corpus dependency revision from proof/corpus/lake-manifest.json",
+    )
+    _need(
+        git == pin,
+        f"corpus.git {git} does not match the pinned corpus dependency {pin}",
+    )
+    _need(
+        _git_has_commit(CORPUS_ROOT, git),
+        f"corpus.git {git} does not resolve in {CORPUS_ROOT}",
     )
 
     mathlib = corpus.get("mathlib")
@@ -141,10 +154,9 @@ def verify_corpus(corpus: object) -> None:
             f"corpus.sources[{rel}] must be a sha256 hex digest",
         )
         path = _resolve_path(rel, f"corpus.sources[{rel}]")
-        _need(
-            _sha256(path) == digest,
-            f"corpus.sources[{rel}] digest does not match {path}",
-        )
+        # Bind each recorded digest to the blob at the owning repository revision,
+        # not to the mutable working tree: sibling streams advance their HEAD
+        # independently of these recorded identities.
         bind_source_bytes(
             path,
             rel,

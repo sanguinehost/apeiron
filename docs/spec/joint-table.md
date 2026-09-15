@@ -151,8 +151,12 @@ replacement-merge source-connected refinement is established at `N = 16` by
 `Apeiron.Joint.TableInstance.replacement_new_readRep` and
 `Apeiron.Joint.TableInstance.replacement_get` for the read relation, in
 `proof/corpus/Joint/TableInstance.lean` against canonical `Apeiron.Table.insertWith`. The universal
-physical `Rep` is still open. Song has no checked refinement of `tableInsertWith`. The joint
-refinement is OPEN. Controls C1 and C3.
+generic physical invariant and admitted insertion/build preservation are proved under
+`CallbackLawsG`. Song's empty-cone `Slang.Joint.songTable_replacement_link` proves admitted
+`MERGE_MAP` execution preserves `RepSong` for canonical replacement. It is still parameterized by
+context lookup/shape hypotheses rather than instantiated from the decoded source, and no checked
+`I64 ↔ Slang.Word` map transport or combined Rust–Song theorem exists. The joint refinement is
+OPEN. Controls C1 and C3.
 
 ### T4 · Refusal, post-state and mutation
 
@@ -239,7 +243,8 @@ refinements. The replacement-merge build composition is established at `N = 16` 
 `Apeiron.Joint.TableInstance.replacement_build_get_acc`, with
 `Apeiron.Joint.TableInstance.replacement_shardFull_refusal` covering the refusal branch, in
 `proof/corpus/Joint/TableInstance.lean` against canonical `Apeiron.Table.build`. The universal
-physical `Rep` is still open. Song has no checked refinement of an insertion loop. `build` stays
+generic physical build postcondition is proved under `CallbackLawsG` and `BuildAdmissibleG`. Song
+has no checked refinement of an insertion loop. `build` stays
 outside the matched primitive boundary: it is the B6 composition obligation, not a matched primitive.
 Control C3.
 
@@ -264,7 +269,7 @@ The Rust and Song admission predicates are separate, and joint success requires 
 | ID | Hazard | Consequence |
 |---|---|---|
 | H1 | Song returns `-1` for a missing read while Rust returns the stored default. Song's raw return is not a reliable success/refusal tag: `-1` conflates a missing read, an empty slot, invalid capacity, the reserved key, an out-of-range merge code and a full table. | A consumer that treats the raw return as a status misclassifies a missing read as a refusal, or a refusal as a read. The matched status relation is open. |
-| H2 | A consumer needing unambiguous success/refusal status needs an executing adapter that separates the Song raw word from the occupied-key state; no such adapter exists in this subprofile. | Until the adapter executes and is checked, the joint success/refusal relation is not established, and no row closes on the raw return alone. |
+| H2 | Song's checked `observeRead` relation separates the raw word from occupied-key state, but no joint adapter transports that state to Rust's `I64` map. | Until the carrier/map transport and composite theorem exist, the joint success/refusal relation is not established, and no row closes on the raw return alone. |
 | H3 | Values equal to `-1` are legitimate: a live key may hold value `-1`, and `MERGE_MAP` can store it. | A `-1` return cannot be read as missing without checking the occupied key separately; a sentinel-value success would be misclassified as a missing read. |
 | H4 | The occupied-key set must be retained separately from the extensional map. Rust distinguishes an unwritten key (default) from a written key whose value equals the default; Song's extensional read alone cannot. | The joint representation must carry occupied keys, not only the map, or the correspondence is false for a written key whose value equals the default. |
 
@@ -293,8 +298,10 @@ claim the control goes red. A control that cannot fail has no weight.
 - Song local registers, ontology and commands.
 - Semantic correspondence itself: this profile and its checker establish specification consistency
   only.
-- Arbitrary-`N` Rust read-only extensional `Rep` preservation and admission completeness.
-- A checked Song-to-Lean refinement for any table primitive.
+- Callback behavior outside the explicit Rust `CallbackLawsG` contract.
+- An unconditional decoded-source instantiation of the Song table theorem or a theorem composing
+  the Rust and Song replacement refinements. `Joint.WordBridge` checks the `I64 ↔ Slang.Word`
+  pointwise-map relation and its preservation by new-first replacement.
 - Deletion: no deletion operation is selected by this subprofile.
 - Song backing/nonaliasing and address extent beyond `tableCapacityOk`; those remain separate caller
   obligations.

@@ -20,6 +20,7 @@ elab "#joint_audit " id:ident : command => do
       throwError m!"'{c}' depends on axioms outside the closed cone: {bad.toList}"
 
 #joint_audit Apeiron.Joint.TableInstance.replacementReadRep_iff_readRep
+#joint_audit Apeiron.Joint.TableInstance.extractedReplacementMerge_spec
 #joint_audit Apeiron.Joint.TableInstance.replacementMerge_spec
 #joint_audit Apeiron.Joint.TableInstance.replacementReadRep_iff_scopedRep
 #joint_audit Apeiron.Joint.TableInstance.replacement_new_readRep

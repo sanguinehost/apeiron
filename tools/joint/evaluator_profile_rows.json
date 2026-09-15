@@ -132,12 +132,12 @@
       "title": "Certificate replay: checkCert over the cone0 alphabet",
       "status": "selected-open",
       "canonical": {
-        "object": "Apeiron.Decider.CRow, CertOp and checkCert. checkCert raw [] log = true exactly when the log ends on a close x naming a row whose bounds cross, with every prior step naming an already-built row.",
+        "object": "Apeiron.Decider.CRow, CertOp and checkCert. checkCert raw [] log = true exactly when the log ends on a close `x` naming a row whose bounds cross, or on a residue-refutation tree, with every prior step naming an already-built row. The uncapped language is complete: `certificate_complete` proves a log exists exactly when no assignment satisfies the rows, and `synthesizeCert` constructs a singleton residue-terminal log. `CompleteCertificate.residue_certificate_complete` gives the same iff for the residue language. `Stream.checkCertStream_sound` and `Stream.checkCertRecords_sound` replay framed streams and decoded records framewise.",
         "modules": [
           "Apeiron/Decider/Cert.lean"
         ],
         "observation_relation": "checkCert raw [] log = true -> not exists rho, SatLines rho raw (checkCert_sound); every step maps rows that hold to rows that hold (certStep_holds); an impossible row holds at no assignment (crImpossible_empty).",
-        "types": "CRow n = { lo : Option Int, up : Option Int, coeff : Fin n -> Int }; CertOp = load k | combo i j a b | neg i | meet i j | tidy i | close i; checkCert : List (Line n) -> List (CRow n) -> List CertOp -> Bool.",
+        "types": "CRow n = { lo : Option Int, up : Option Int, coeff : Fin n -> Int }; CertOp = load k | combo i j a b | neg i | meet i j | tidy i | close i | residue (cert : ResidueCertificate); checkCert : List (Line n) -> List (CRow n) -> List CertOp -> Bool.",
         "theorems": [
           {"name": "Apeiron.Decider.checkCert", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
           {"name": "Apeiron.Decider.checkCert_sound", "module": "Apeiron/Decider/Cert.lean", "root": "corpus"},
@@ -206,9 +206,9 @@
         "rust_absent": "No Rust decider or replayer, so no Rust resource account exists (BE2)."
       },
       "refinement": {
-        "source_connected": "Canonical: checkCert_sound is the headline soundness theorem; certStep_holds composes the five operation soundness lemmas and crImpossible_empty closes the crossing. Song: certcheck has in-tree arith.slang laws (combovalid_nonneg, farkas_bound, xsound, meetlo_sound, negeq_sound and the tidy gcd cutting plane) but no checked Song-to-Lean refinement of checkCert exists, and the wide limb arithmetic carries no law of its own. The joint refinement is OPEN.",
+        "source_connected": "Canonical: checkCert_sound is the headline soundness theorem; certStep_holds composes the five operation soundness lemmas and crImpossible_empty closes the crossing. Song: certcheck has in-tree arith.slang laws (combovalid_nonneg, farkas_bound, xsound, meetlo_sound, negeq_sound and the tidy gcd cutting plane) but no checked Song-to-Lean refinement of checkCert exists, and the wide limb arithmetic carries no law of its own. The uncapped completeness is for the extended canonical language ending in a residue-refutation tree; the Song reader's selected alphabet is r,c,n,m,t,x and has no residue opcode or tree decoder, so that completeness is not attributed to the Song reader. The joint refinement is OPEN.",
         "artifacts": [],
-        "artifacts_missing": "No bridge artifact refines certcheck to Apeiron.Decider.checkCert; Apeiron/Decider/Stream.lean and the executing stream refinement are MISSING (BE4).",
+        "artifacts_missing": "No bridge artifact refines certcheck to Apeiron.Decider.checkCert. Canonical framing and replay exist (Stream.lean: checkCertStream_eq_true_iff, checkCertStream_sound; parseCertRecords_sound, checkCertRecords_sound), but the executing Song byte-reader, state, wide-arithmetic, framing and replay refinement is MISSING (BE4).",
         "rejecting_control": "C1 corrupt a carry or sign in the wide row encoding, C2 permit a future row reference, C3 accept trailing records, C4 relabel SAT as UNSAT; each must be rejected by the replay."
       }
     }
@@ -240,8 +240,9 @@
     },
     {
       "id": "BE4",
-      "counterpart": "Apeiron/Decider/Stream.lean and the executing stream refinement; both MISSING.",
-      "reason": "The certificate-readiness subprofile requires a stream representation and a checked executing stream refinement of checkCert; neither exists, so certificate readiness is not established.",
+      "counterpart": "Canonical framing and replay exist (Apeiron/Decider/Stream.lean); the executing Song byte-reader, state, wide-arithmetic, framing and replay refinement is MISSING.",
+      "reason": "The certificate-readiness subprofile requires a checked executing refinement of a Song reader/writer to the canonical framed replay. Stream.lean exists at the pin, but its CertRecord framing starts after byte decoding and it establishes neither whitespace/token parsing, fixed-capacity admission, wide-limb arithmetic, nor any Song execution; the Song-side refinement remains absent, so certificate readiness is not established.",
+      "canonical_theorem": {"name": "Apeiron.Decider.checkCertStream_sound", "module": "Apeiron/Decider/Stream.lean", "root": "corpus"},
       "status": "blocker"
     },
     {
@@ -275,8 +276,8 @@
     },
     {
       "id": "HE5",
-      "statement": "capped_certificate_complete is a capped-box existence theorem, and Apeiron/Decider/Stream.lean and the executing stream refinement are MISSING.",
-      "consequence": "It is not a completeness theorem for the certcheck alphabet and does not establish certificate readiness for the running checker."
+      "statement": "The uncapped completeness is for the extended canonical language ending in a residue-refutation tree, while the Song reader's selected alphabet is r,c,n,m,t,x and has no residue opcode or tree decoder.",
+      "consequence": "certificate_complete and residue_certificate_complete do not establish completeness of the Song reader alphabet; the executing Song refinement (BE4) remains missing."
     }
   ],
   "required_controls": [
@@ -291,7 +292,7 @@
     "E1 combinator evaluator: fix the DAG representation, variable identity, memo validity and stack invariants, and state the input grammar and trailing-input policy.",
     "E1 refinement: define a Song-to-Lean refinement of headReduce, pass, normalize, hasRedex, structEq and verdict on the matched domain, and run the C6 i/**skk regression.",
     "E2 certificate replay: fix the bound-presence and signed three-limb representation, the row capacities and the refusal paths, and state the reader grammar.",
-    "E2 refinement: define a checked Song-to-Lean refinement of checkCert, add Apeiron/Decider/Stream.lean and the executing stream refinement, and run controls C1-C5.",
+    "E2 refinement: define a checked Song-to-Lean refinement of checkCert, reuse the pinned Apeiron/Decider/Stream.lean framing and replay, prove the executing Song reader/writer refinement, and run controls C1-C5.",
     "Only after E1 and E2 are refined: a bounded vertical lift/reduction demonstration."
   ],
   "not_covered": [
@@ -303,7 +304,7 @@
     "Semantic correspondence itself: the checker establishes specification consistency only.",
     "No executing Rust evaluator and no Rust decider or replayer (BE1, BE2).",
     "A canonical SAT-witness checker for the satcheck alphabet (BE3).",
-    "Apeiron/Decider/Stream.lean and the executing stream refinement (BE4).",
+    "The executing Song byte-reader, state, wide-arithmetic, framing and replay refinement of the canonical framed replay (BE4); Stream.lean itself exists at the pin.",
     "Any resolution of the i/**skk compatibility blocker (BE5, HE1)."
   ]
 }

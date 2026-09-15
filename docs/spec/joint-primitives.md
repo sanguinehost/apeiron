@@ -176,10 +176,14 @@ are not converted to a common fuel.
 **7 · Source-connected refinement and rejecting control.** Rust:
 `proof/corpus/TableRefinement.lean` proves `word_table_new_rep`, `word_table_get_new_first`,
 `word_table_get_replaced`, `word_table_build_get_acc` and `word_table_shardFull_refusal` against
-`Apeiron.Table` at the concrete `N = 16` word instance; `Rep` there is read-only extensional and
-universal `Rep`/admission completeness is open. Song: no checked Song-to-Lean refinement of
-`tableInit`, `tableFind`, `tableGet` or `tableInsertWith` exists. The joint row is OPEN and is the
-first joint storage target. Rejecting control: the same-filesystem throwaway generated-body mutation
+`Apeiron.Table` at the concrete `N = 16` word instance. The generic callback layer proves physical
+constructor, admitted insertion and admitted-build preservation under `CallbackLawsG`, including
+the exact zero-capacity split. Song's empty-cone table modules prove `RepSong`, constructor/read/write
+witnesses, exact replacement admission/refusal, resource projections, and
+`Slang.Joint.songTable_replacement_link`. That headline is not yet instantiated from the decoded
+source context; no checked `I64 ↔ Slang.Word` map transport or combined Rust–Song theorem exists.
+The joint row is OPEN and T3 replacement write is the first joint storage target. Rejecting control:
+the same-filesystem throwaway generated-body mutation
 `merge value default` → `merge default value` fails `table_insert_empty_zero` (recorded in
 `proof/README.md`); restoring builds. This controls the Rust fresh-write denotation only and does
 not control the Song side.
@@ -237,8 +241,10 @@ assumed, and the checker requires every one of them to be present.
 - Song local registers, ontology and commands.
 - Semantic correspondence itself. `tools/joint/profile_check.py` establishes specification
   consistency only; it does not report correspondence.
-- Arbitrary-`N` Rust `Rep` preservation and admission completeness.
-- Song-to-Lean refinement for R1 and R2.
+- Callback behavior outside `CallbackLawsG`.
+- The unconditional Song source binding, decoded-context instantiation and combined R2/T3
+  replacement theorem. `Joint.WordBridge` already checks the `I64 ↔ Slang.Word` pointwise-map
+  transport. R1 and the remaining R2 rows stay open.
 
 ## Checker
 

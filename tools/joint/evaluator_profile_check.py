@@ -67,7 +67,7 @@ ROWS_PATH = HERE.parent / "evaluator_profile_rows.json"
 # Named artifacts deliberately absent from the pinned corpus. A reference that
 # does not resolve is accepted only when its exact path is listed here; the
 # exception is attached to the reference path, not to free text.
-MISSING_ARTIFACTS = {"Apeiron/Decider/Stream.lean"}
+MISSING_ARTIFACTS = set()
 jointlib.MISSING_ARTIFACTS = MISSING_ARTIFACTS
 # This profile resolves no ``.rs`` reference: a ``.rs`` path is scanned as a
 # Lean declaration, matching the evaluator profile's grammar.
@@ -181,10 +181,15 @@ def _check_modules(modules: object, where: str) -> None:
         isinstance(modules, list) and modules,
         f"{where} must be a nonempty list of module paths",
     )
+    pin = jointlib._pinned_corpus_rev()
+    _need(pin is not None, f"{where}: cannot resolve the corpus dependency revision")
     for module in modules:
         _nonempty(module, f"{where} entry")
-        path = jointlib.CORPUS_ROOT / module
-        _need(path.is_file(), f"{where}: module does not resolve: corpus:{module}")
+        blob = jointlib._repo_blob(jointlib.CORPUS_ROOT, pin, module)
+        _need(
+            blob is not None,
+            f"{where}: module does not resolve at the pin: corpus:{module}",
+        )
 
 
 def _validate_resources(resources: object, rid: str) -> None:
@@ -478,6 +483,30 @@ def validate(data: object, spec_text: str) -> None:
     for control in controls:
         _validate_control(control, seen_ids)
 
+    # E2 must record the extended canonical language (residue terminal) and BE4
+    # must name the still-missing executing Song refinement; the canonical
+    # completeness is not attributed to the Song reader alphabet.
+    e2 = next((r for r in rows if isinstance(r, dict) and r.get("id") == "E2"), None)
+    _need(e2 is not None, "E2 row missing for the residue-terminal consistency check")
+    _need(
+        "residue" in e2["canonical"]["types"],
+        "E2 canonical types must record the residue terminal",
+    )
+    _need(
+        "residue" in e2["canonical"]["object"],
+        "E2 canonical object must record the residue terminal and uncapped completeness",
+    )
+    he5 = next((h for h in hazards if isinstance(h, dict) and h.get("id") == "HE5"), None)
+    _need(
+        he5 is not None and "residue" in str(he5.get("statement", "")),
+        "HE5 must record the extended-language versus old-reader-alphabet distinction",
+    )
+    be4 = next((b for b in blockers if isinstance(b, dict) and b.get("id") == "BE4"), None)
+    _need(
+        be4 is not None and "executing Song" in str(be4.get("counterpart", "")),
+        "BE4 must name the missing executing Song refinement",
+    )
+
     order = data.get("integration_order")
     _need(isinstance(order, list) and order, "integration_order must be a nonempty list")
     _need(
@@ -759,6 +788,66 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
         )
         cases.append((label, mutated, spec_text))
 
+    # class 8: the E2 residue terminal and the BE4 executing-boundary record.
+    e2_index = next(
+        i for i, r in enumerate(data["rows"]) if r.get("id") == "E2"
+    )
+    mutated = copy.deepcopy(data)
+    mutated["rows"][e2_index]["canonical"]["types"] = mutated["rows"][e2_index][
+        "canonical"
+    ]["types"].replace(" | residue (cert : ResidueCertificate)", "")
+    cases.append(
+        (
+            "class 8: drop the residue terminal from the E2 canonical types",
+            mutated,
+            spec_text,
+        )
+    )
+    he5_index = next(
+        i for i, h in enumerate(data["hazards"]) if h.get("id") == "HE5"
+    )
+    mutated = copy.deepcopy(data)
+    mutated["hazards"][he5_index]["statement"] = (
+        "capped_certificate_complete is a capped-box existence theorem."
+    )
+    cases.append(
+        (
+            "class 8: replace HE5 with the old capped-box statement",
+            mutated,
+            spec_text,
+        )
+    )
+    be4_index = next(
+        i for i, b in enumerate(data["unmatched_blockers"]) if b.get("id") == "BE4"
+    )
+    mutated = copy.deepcopy(data)
+    mutated["unmatched_blockers"][be4_index]["counterpart"] = (
+        "Apeiron/Decider/Stream.lean and the executing stream refinement; both MISSING."
+    )
+    cases.append(
+        (
+            "class 8: restore the stale BE4 both-missing counterpart",
+            mutated,
+            spec_text,
+        )
+    )
+    be4_index = next(
+        i for i, b in enumerate(data["unmatched_blockers"]) if b.get("id") == "BE4"
+    )
+    mutated = copy.deepcopy(data)
+    mutated["unmatched_blockers"][be4_index]["canonical_theorem"] = {
+        "name": "Apeiron.Decider.checkCertStream_sound",
+        "module": "Apeiron/Decider/Stream_Gone.lean",
+        "root": "corpus",
+    }
+    cases.append(
+        (
+            "class 8: point the BE4 canonical theorem at a missing Stream module",
+            mutated,
+            spec_text,
+        )
+    )
+
     return cases
 
 
@@ -770,6 +859,7 @@ CLASS_MARKERS = [
     "class 5:",
     "class 6:",
     "class 7:",
+    "class 8:",
 ]
 
 

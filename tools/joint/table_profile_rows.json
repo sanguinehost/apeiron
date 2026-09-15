@@ -86,7 +86,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: proof/corpus/TableRefinement.lean proves word_table_new_rep and word_table_new_eq_empty at the concrete N = 16 word instance; Rep is the read-only extensional relation at the public read boundary and the general-N read-only extensional Rep clause is open. Song: no checked Song-to-Lean refinement of tableInit or the slot invariant exists.",
+        "source_connected": "Rust: proof/corpus/TableRefinement.lean proves word_table_new_rep and word_table_new_eq_empty at the concrete N = 16 word instance; Rep is the extensional component of the general-N PhysicalInv, proved for the real constructor at every N; a physical PhysicalInv build postcondition and arbitrary-callback refinement remain open. Song: no checked Song-to-Lean refinement of tableInit or the slot invariant exists.",
         "rejecting_control": "C1",
         "artifacts": [
           {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"}
@@ -218,7 +218,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: table_insert_empty_zero and table_insert_present_zero are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they do not refine the replacement merge selected here. The replacement-merge source-connected refinement is established at N = 16 by Apeiron.Joint.TableInstance.replacement_insert_with, with Apeiron.Joint.TableInstance.replacement_new_readRep and Apeiron.Joint.TableInstance.replacement_get for the read relation, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.insertWith; the universal physical Rep is still open. Song: no checked Song-to-Lean refinement of tableInsertWith exists. The joint refinement is OPEN.",
+        "source_connected": "Rust: table_insert_empty_zero and table_insert_present_zero are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they do not refine the replacement merge selected here. The replacement-merge source-connected refinement is established at N = 16 by Apeiron.Joint.TableInstance.replacement_insert_with, with Apeiron.Joint.TableInstance.replacement_new_readRep and Apeiron.Joint.TableInstance.replacement_get for the read relation, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.insertWith; a physical PhysicalInv build postcondition is still open. Song: no checked Song-to-Lean refinement of tableInsertWith exists. The joint refinement is OPEN.",
         "rejecting_control": "C3",
         "artifacts": [
           {"name": "Apeiron.Joint.TableInstance.replacement_insert_with", "module": "corpus/Joint/TableInstance.lean", "root": "bridge"}
@@ -415,7 +415,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust: word_table_build_get_acc and word_table_build_ordered are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they are not replacement-merge refinements. The replacement-merge build composition is established at N = 16 by Apeiron.Joint.TableInstance.replacement_build and Apeiron.Joint.TableInstance.replacement_build_get_acc, with Apeiron.Joint.TableInstance.replacement_shardFull_refusal covering the refusal branch, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.build; the universal physical Rep is still open. Song: no checked Song-to-Lean refinement of an insertion loop exists. The composition obligation is B6.",
+        "source_connected": "Rust: word_table_build_get_acc and word_table_build_ordered are WordMerge wrapping-add witnesses scoped to the wrapping-add callback; they are not replacement-merge refinements. The replacement-merge build composition is established at N = 16 by Apeiron.Joint.TableInstance.replacement_build and Apeiron.Joint.TableInstance.replacement_build_get_acc, with Apeiron.Joint.TableInstance.replacement_shardFull_refusal covering the refusal branch, in proof/corpus/Joint/TableInstance.lean against canonical Apeiron.Table.build; a physical PhysicalInv build postcondition is still open. Song: no checked Song-to-Lean refinement of an insertion loop exists. The composition obligation is B6.",
         "rejecting_control": "C3",
         "artifacts": [
           {"name": "Apeiron.Joint.TableInstance.replacement_build", "module": "corpus/Joint/TableInstance.lean", "root": "bridge"},
@@ -509,7 +509,7 @@
     "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
     "Song local registers, ontology and commands.",
     "Semantic correspondence itself: this profile and its checker establish specification consistency only.",
-    "Arbitrary-N Rust Rep preservation and admission completeness.",
+    "A physical PhysicalInv build postcondition and arbitrary-callback Rust Table<K,V,H,N> refinement.",
     "A checked Song-to-Lean refinement for any table primitive.",
     "Deletion: no deletion operation is selected by this subprofile.",
     "Song backing/nonaliasing and address extent beyond tableCapacityOk; those remain separate caller obligations."

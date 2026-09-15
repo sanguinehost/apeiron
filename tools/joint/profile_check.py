@@ -178,15 +178,21 @@ def _verify_corpus_identity(corpus: dict) -> None:
         jointlib.CORPUS_ROOT.is_dir(),
         f"pinned corpus root does not resolve: {jointlib.CORPUS_ROOT}",
     )
-    actual = jointlib._git_rev(jointlib.CORPUS_ROOT)
+    pin = jointlib._pinned_corpus_rev()
     _need(
-        actual is not None,
-        f"pinned corpus root is not a Git repository: {jointlib.CORPUS_ROOT}",
+        pin is not None,
+        "cannot resolve the corpus dependency revision from "
+        "proof/corpus/lake-manifest.json",
     )
     _need(
-        actual == corpus.get("git"),
-        f"corpus.git {corpus.get('git')!r} does not match the resolved corpus "
-        f"revision {actual!r}",
+        pin == corpus.get("git"),
+        f"corpus.git {corpus.get('git')!r} does not match the pinned corpus "
+        f"dependency {pin!r}",
+    )
+    _need(
+        jointlib._git_has_commit(jointlib.CORPUS_ROOT, pin),
+        f"pinned corpus dependency {pin!r} does not resolve in "
+        f"{jointlib.CORPUS_ROOT}",
     )
     resolved_mathlib = jointlib._mathlib_rev()
     _need(
@@ -198,7 +204,7 @@ def _verify_corpus_identity(corpus: dict) -> None:
         f"corpus.mathlib {corpus.get('mathlib')!r} does not match the resolved "
         f"Mathlib revision {resolved_mathlib!r}",
     )
-    jointlib._RESOLVED_CORPUS_GIT = actual
+    jointlib._RESOLVED_CORPUS_GIT = pin
 
 
 def _bind_source_to_revision(
