@@ -16,6 +16,23 @@ thesis, ownership, outcomes, primitive correspondence, migration and execution o
 canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/` with unchanged pins. The table
 claim's scope and trust boundary are in the [local boundary](../docs/kernel-boundary.md).
 
+## Purpose
+
+Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
+evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
+refusal, `N = 0` refusal, no probing). Every executing face refines the canonical object; anything
+not rooted in it is not accepted. The canonical object is
+`Apeiron.Table.{HMap,get,insertWith,build}` and
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+bodies (`word_mul_denote`, `word_norm_denote`).
+
+The O(1) qualifier is the parameter boundary. Fixed N, bounded callbacks and nonconstant key length
+bound the table; reading a whole source remains at least linear in its bytes at fixed N, so
+constant-time table operations at fixed N do not imply constant-time whole-source checking or
+constant-size proof terms.
+
 ## Stage 1: extraction (`proof/`, alias `apeironWordProof`)
 
 - `extract/lib.rs` includes the real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`,
@@ -309,6 +326,24 @@ control ran at the earlier pin. The current pin is verified by the 8881-job brid
 
 This is reproducible for a checkout with credentials for the configured private Git service. It is
 not an availability guarantee or an offline vendored release.
+
+## Evidence cones
+
+Two evidence cones are kept distinct.
+
+- The constructive Slang source-refinement chain requires an **empty** axiom cone. Every registered
+  declaration, instance, witness and headline audits with an empty axiom set under
+  `proof/corpus/Slang/Audit/Empty.lean` and `tools/slang/zero_axioms.py`; `propext`,
+  `Classical.choice`, `Quot.sound`, `noncomputable` and quotient-based representations such as
+  `Finset` and `ZMod` are rejected there. The source word ring is the constructive, locally supplied
+  `Slang.Refinement.WordRing` over `Slang.Word`.
+- The Rust/Aeneas bridge and the canonical corpus retain the closed cone
+  `{propext, Classical.choice, Quot.sound}`. The extracted `Cell<i64>` word theorems and the table
+  headlines depend only on those standard axioms.
+
+The two cones share no declarations. A `ZMod`-based bridge declaration is not importable into the
+empty-cone chain, so the constructive `Slang.Word` instance is used there instead of a bridge
+`ZMod` instance.
 
 ## Recorded digests
 
