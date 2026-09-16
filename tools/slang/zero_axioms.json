@@ -4160,6 +4160,109 @@
           "path": "proof/corpus/Slang/Source/ClosedBindingAudit.lean"
         }
       ]
+    },
+    "source-arena": {
+      "kind": "active",
+      "wave": "source-arena",
+      "title": "Source arena and checked references",
+      "note": "The first module of the canonical re-root: `slice`, `CheckedInterval` and its `contents`, the path-unique `SourceArena`/`ArenaFile`, `rebaseToken`, and the checked `SourceRef` whose `correspondence` field ties a byte interval to the token interval it owns. The `copiedTokens_rejected` fixture is the rejecting control for a copied token list. Every headline audits with an empty axiom set.",
+      "audit_module": "Slang/Source/ArenaAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Source/Arena.lean",
+        "proof/corpus/Slang/Source/ArenaAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Source.slice",
+          "expected_type": "type_of% @Slang.Source.slice",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.CheckedInterval",
+          "expected_type": "type_of% @Slang.Source.CheckedInterval",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.CheckedInterval.contents",
+          "expected_type": "type_of% @Slang.Source.CheckedInterval.contents",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ArenaFile",
+          "expected_type": "type_of% @Slang.Source.ArenaFile",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceArena",
+          "expected_type": "type_of% @Slang.Source.SourceArena",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.FileId",
+          "expected_type": "type_of% @Slang.Source.FileId",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceArena.file",
+          "expected_type": "type_of% @Slang.Source.SourceArena.file",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.rebaseToken",
+          "expected_type": "type_of% @Slang.Source.rebaseToken",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceRef",
+          "expected_type": "type_of% @Slang.Source.SourceRef",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceRef.byte_in_bounds",
+          "expected_type": "type_of% @Slang.Source.SourceRef.byte_in_bounds",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceRef.token_in_bounds",
+          "expected_type": "type_of% @Slang.Source.SourceRef.token_in_bounds",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.SourceRef.exact_tokens",
+          "expected_type": "type_of% @Slang.Source.SourceRef.exact_tokens",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.copiedTokens_rejected",
+          "expected_type": "type_of% @Slang.Source.copiedTokens_rejected",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.copiedTokens_not_a_ref",
+          "expected_type": "type_of% @Slang.Source.copiedTokens_not_a_ref",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ArenaAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.ArenaAudit",
+          "path": "proof/corpus/Slang/Source/ArenaAudit.lean"
+        }
+      ]
     }
   }
 }
