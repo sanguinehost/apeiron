@@ -4263,6 +4263,115 @@
           "path": "proof/corpus/Slang/Source/ArenaAudit.lean"
         }
       ]
+    },
+    "memo-key": {
+      "kind": "active",
+      "wave": "memo-key",
+      "title": "Memo key: the computation identity of the canonical re-root",
+      "note": "The complete memo key rooted in Slang.Source.SourceRef, Slang.Arena.StateHandle, Slang.Word and Apeiron.Trichotomy.AnyRing.RingCell. `FaceDomain` is the admission domain, `MemoKey.equal` compares every data field, and `MemoKey.equal_iff` proves the Bool comparison exact. The constructive DecidableEq is built by explicit case analysis with the proof field discharged by definitional proof irrelevance; the cone is empty. The rejecting fixtures change one data field and prove `MemoKey.equal` is false.",
+      "audit_module": "Slang/Memo/KeyAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Memo/Key.lean",
+        "proof/corpus/Slang/Memo/KeyAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Memo.Face",
+          "expected_type": "type_of% @Slang.Memo.Face",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.Limits",
+          "expected_type": "type_of% @Slang.Memo.Limits",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.FaceDomain",
+          "expected_type": "type_of% @Slang.Memo.FaceDomain",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoInput",
+          "expected_type": "type_of% @Slang.Memo.MemoInput",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.AdmittedInput",
+          "expected_type": "type_of% @Slang.Memo.AdmittedInput",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoKey",
+          "expected_type": "type_of% @Slang.Memo.MemoKey",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.mkMemoKey",
+          "expected_type": "type_of% @Slang.Memo.mkMemoKey",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.instDecidableEqCheckedInterval",
+          "expected_type": "type_of% @Slang.Memo.instDecidableEqCheckedInterval",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.instDecidableEqSourceRef",
+          "expected_type": "type_of% @Slang.Memo.instDecidableEqSourceRef",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoKey.instDecidableEq",
+          "expected_type": "type_of% @Slang.Memo.MemoKey.instDecidableEq",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoKey.equal",
+          "expected_type": "type_of% @Slang.Memo.MemoKey.equal",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoKey.equal_iff",
+          "expected_type": "type_of% @Slang.Memo.MemoKey.equal_iff",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Key.lean"
+        },
+        {
+          "name": "Slang.Memo.KeyAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Memo.KeyAudit",
+          "path": "proof/corpus/Slang/Memo/KeyAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.KeyAudit.equal_sigma_reject",
+          "expected_type": "type_of% @Slang.Memo.KeyAudit.equal_sigma_reject",
+          "module": "Slang.Memo.KeyAudit",
+          "path": "proof/corpus/Slang/Memo/KeyAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.KeyAudit.equal_limits_reject",
+          "expected_type": "type_of% @Slang.Memo.KeyAudit.equal_limits_reject",
+          "module": "Slang.Memo.KeyAudit",
+          "path": "proof/corpus/Slang/Memo/KeyAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.KeyAudit.equal_states_reject",
+          "expected_type": "type_of% @Slang.Memo.KeyAudit.equal_states_reject",
+          "module": "Slang.Memo.KeyAudit",
+          "path": "proof/corpus/Slang/Memo/KeyAudit.lean"
+        }
+      ]
     }
   }
 }
