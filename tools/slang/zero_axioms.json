@@ -3614,7 +3614,7 @@
       "kind": "active",
       "wave": "W24",
       "title": "Source binding integration",
-      "note": "The two public definitions and conditional source-binding theorem audit with an empty axiom cone. decodedSourceExact being true remains a compiled #guard test and is not a proved acceptance claim.",
+      "note": "The two public definitions and spec-frozen conditional ClosedBinding helper audit with an empty axiom cone. Whole-table kernel reduction exceeds the bounded elaboration limit, so no unconditional source-binding theorem is registered; decodedSourceExact remains a compiled #guard test.",
       "audit_module": "Slang/SourceAudit.lean",
       "source_files": [
         "proof/corpus/Slang/SourceAudit.lean"
@@ -3633,8 +3633,8 @@
           "path": "proof/corpus/Slang/SourceAudit.lean"
         },
         {
-          "name": "Slang.SourceAudit.source_binding",
-          "expected_type": "∀ {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value → Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true → Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program → Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧ value.val.certificate.Valid ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program",
+          "name": "Slang.SourceAudit.source_binding_of_closed_binding",
+          "expected_type": "∀ {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value → Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true → Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value → Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧ value.val.certificate.Valid ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value",
           "module": "Slang.SourceAudit",
           "path": "proof/corpus/Slang/SourceAudit.lean"
         },
