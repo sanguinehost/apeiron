@@ -35,6 +35,7 @@ lean_lib ApeironWordBridge where
     `Slang.Source.Bytes, `Slang.Source.BytesAudit,
     `Slang.Source.Lexing, `Slang.Source.LexingAudit, `Slang.Source.Grammar,
     `Slang.Source.GrammarAudit,     `Slang.Arena.Bounded, `Slang.Arena.StateResult, `Slang.Arena.HandleAudit,
+    `Slang.Address.Faces, `Slang.Address.FacesAudit,
     `Slang.Memo.Key, `Slang.Memo.KeyAudit,
     `Slang.Source.Arena, `Slang.Source.ArenaAudit,
     `Slang.Source.Closure, `Slang.Source.ClosureAudit, `Slang.Source.ClosedBinding,
