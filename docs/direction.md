@@ -7,6 +7,23 @@ trust and execution detail and link here: [local boundary](kernel-boundary.md) a
 does not dispatch an entire repository or replace its local gates. Routine work proceeds within
 the repository's scope; changing a programme boundary requires an explicit owner decision.
 
+## Purpose
+
+Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
+evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
+refusal, `N = 0` refusal, no probing). Every executing face must refine the canonical object;
+anything not rooted in it is not accepted. The canonical object is
+`Apeiron.Table.{HMap,get,insertWith,build}` and
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+bodies (`word_mul_denote`, `word_norm_denote`).
+
+The O(1) qualifier is the parameter boundary. Fixed N, bounded callbacks and nonconstant key length
+bound the table; reading a whole source remains at least linear in its bytes at fixed N, so
+constant-time table operations at fixed N do not imply constant-time whole-source checking or
+constant-size proof terms.
+
 ## Thesis
 
 The basis is `R[x]/(x^2 - sigma)`: one two-slot algebra, with elliptic, parabolic and hyperbolic
@@ -59,6 +76,19 @@ Terms are used precisely:
 - **Code, data and runtime cost vs actual computer work.** Bytes of source, bytes moved and
   wall-clock time are different quantities. A cost claim names the metric, the machine and the
   interval.
+
+## Lineage: the fold crossover
+
+The fold crosses from hashtrinity into apeiron, and that crossover is the lineage.
+`HashTrinity/Core.lean` (`insertWith`, `build`, `get_build_acc`) and `Song/Table.lean` (`put`,
+`run`, `merge_is_state_fold`) are the same total map, new-first update and ordered build fold as
+canonical `Apeiron.Table`; `hashtrinity/src/algebra.rs` supplies the predecessor
+`Coord`/`CoordInv`/`Stored`/`Regen`, folded multiplication and the four merges. Apeiron changes that
+lineage by separating exact packing from lossy coordinates, repairing the unguarded byte fold, and
+using bounded home-shard storage with explicit refusal; canonical
+`Table.Basic.build_gauge_invariance_mul`, `AnyRing.ringMul_comm` and `AnyRing.ringMul_assoc` close
+the algebraic side. An audited cross-revision equivalence artifact is still missing, so a
+byte-hash-equals-`ringMul` claim or an arbitrary-merge classification is not made.
 
 ## Ownership
 

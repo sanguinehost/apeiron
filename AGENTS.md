@@ -13,6 +13,21 @@ unchanged pins until a separately gated migration; no source has moved. Song is 
 assembly-up implementation: no Rust or Aeneas runtime dependency links it to Apeiron, and the
 required cross-repo result is a checked primitive correspondence, not runtime linkage.
 
+## Purpose
+
+Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
+evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
+refusal, `N = 0` refusal, no probing). Every executing face must refine the canonical object;
+anything not rooted in it is not accepted. The canonical object is
+`Apeiron.Table.{HMap,get,insertWith,build}` and
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+bodies (`word_mul_denote`, `word_norm_denote`).
+
+The fold crosses from hashtrinity into apeiron, and that crossover is the lineage; the precise
+statement is in [programme direction](docs/direction.md#lineage-the-fold-crossover).
+
 Reply with the result and the evidence. State a decision or a blocker; do not narrate tool calls.
 
 The sibling `song` tree is a different repository with its own ontology, registers and `./song`
