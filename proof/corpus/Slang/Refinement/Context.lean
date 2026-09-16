@@ -17,12 +17,19 @@ private def denoteBinary (operator : BinOp) (leftValue rightValue : Option Word)
       | _ => none
   | _, _ => none
 
+-- Temporal O(n) for n = the expression-node count: one constructor match per node, each `.binary`
+-- node evaluating both subexpressions. Spatial O(d) stack for tree depth d: `denoteExprImpl left`
+-- and `denoteExprImpl right` are evaluated before `denoteBinary`, so the recursion is not
+-- tail-recursive.
 private def denoteExprImpl : Expr → Option Word
   | .literal value => some (Word.ofNat value)
   | .binary operator left right =>
       denoteBinary operator (denoteExprImpl left) (denoteExprImpl right)
   | .name _ | .call _ _ | .memory _ | .conditional _ _ _ => none
 
+-- Temporal O(n) for n = the expression-node count: the `Expr.rec` fold inspects one node per step.
+-- Spatial O(d) stack for tree depth d: `.binary` evaluates both recursive results before returning,
+-- so the fold is not tail-recursive. At run time `@[implemented_by]` uses `denoteExprImpl`.
 /-- Evaluates the pure arithmetic fragment admitted for source constants. -/
 @[implemented_by denoteExprImpl]
 def denoteExpr (expression : Expr) : Option Word :=
@@ -49,6 +56,10 @@ def denoteExpr (expression : Expr) : Option Word :=
     (fun _ _ _ _ => Unit.unit)
     expression
 
+-- Temporal O(c + e) per call for c = |program.constants| and e = the matched declaration's
+-- expression-node count: one `List.find?` scan (one `String` equality per declaration) followed by
+-- one `denoteExpr`. Spatial O(d) for d = the matched expression's tree depth: the `find?` scan is
+-- tail-recursive (O(1) stack) and `denoteExpr` supplies the O(d) stack.
 /-- The first matching decoded declaration determines a constant value. -/
 def constantEnvironment (program : Program) : String → Option Word := fun name =>
   (program.constants.find? fun declaration => declaration.name == name).bind fun declaration =>

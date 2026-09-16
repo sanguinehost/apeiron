@@ -22,11 +22,15 @@ private instance wordCommRing : CommRing Word where
   zero_add := wordRing.add_zero_left
   add_zero := wordRing.add_zero_right
   add_comm := wordRing.add_comm
+  -- Temporal O(count) `Word.add` calls: `Nat.rec` applies one addition per decrement of `count`.
+  -- Spatial O(count) recursion depth for the `Nat.rec`.
   nsmul := fun count value => Nat.rec wordRing.zero (fun _ total => wordRing.add total value) count
   nsmul_zero := fun _ => rfl
   nsmul_succ := fun _ _ => rfl
   neg_add_cancel := fun value => Eq.trans (wordRing.add_comm _ _) (wordRing.add_neg_right value)
   sub_eq_add_neg := wordRing.sub_eq_add_neg
+  -- Temporal O(count) `Word.add` calls: `.ofNat count` adds `count` times and `.negSucc count` adds
+  -- `count + 1` times before negating. Spatial O(count) recursion depth for each `Nat.rec`.
   zsmul := fun integer value =>
     match integer with
     | .ofNat count => Nat.rec wordRing.zero (fun _ total => wordRing.add total value) count
