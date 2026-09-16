@@ -56,6 +56,57 @@ private theorem spansPairwise_sound (tokens : List Token) (valid : spansPairwise
             (and_left_true _ _ valid) next membership)
       · exact ih (and_right_true _ _ valid)
 
+macro "derive_take_while" : tactic =>
+  `(tactic| solve
+    | repeat first
+      | exact Tokenizer.TakeWhileScan.nil
+      | exact Tokenizer.TakeWhileScan.stop rfl
+      | apply Tokenizer.TakeWhileScan.next rfl)
+
+macro "derive_utf8_length" : tactic =>
+  `(tactic| solve
+    | repeat first
+      | exact Tokenizer.Utf8LengthFold.done
+      | apply Tokenizer.Utf8LengthFold.next)
+
+macro "derive_digits" : tactic =>
+  `(tactic| solve
+    | repeat first
+      | exact Tokenizer.DigitsFold.done
+      | apply Tokenizer.DigitsFold.next)
+
+macro "derive_ascii_utf8" : tactic =>
+  `(tactic| repeat first
+    | exact Tokenizer.Utf8Scan.done
+    | apply Tokenizer.Utf8Scan.next (Tokenizer.Utf8Head.one _ _ (by decide)))
+
+macro "derive_ascii_chars" : tactic =>
+  `(tactic| repeat first
+    | exact Tokenizer.CharsScan.done (Tokenizer.ReverseTokens.result _)
+    | apply Tokenizer.CharsScan.nextNone (Tokenizer.LexHead.space _ _ _ rfl)
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.ident <;>
+          first | rfl | decide | derive_take_while | derive_utf8_length
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.numeral <;>
+          first | rfl | decide | derive_take_while | derive_utf8_length | derive_digits
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.lt <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.lparen <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.rparen <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.lbrace <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.rbrace <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.semi <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.assign <;> first | rfl | decide
+    | apply Tokenizer.CharsScan.nextToken
+      · apply Tokenizer.LexHead.other <;> first | rfl | decide)
+
 def conditionalSource : SourceBytes :=
   sourceBytes
     [48, 32, 45, 32, 107, 32, 105, 102, 32, 107, 32, 60, 32, 48, 32, 101, 108,
@@ -77,7 +128,14 @@ def incorrectlyGroupedConditional : Expr :=
 
 theorem conditional_derivation :
     ParsesExpr conditionalSource conditionalTokens 21 groupedConditional :=
-  ⟨LexingDerivation.intro rfl ⟨rfl, spansPairwise_sound conditionalTokens rfl⟩ rfl, rfl⟩
+  ⟨LexingDerivation.intro (by
+      unfold conditionalSource conditionalTokens sourceBytes sourceByte
+      refine Tokenizer.TokenizeDerivation.intro
+        (chars := ['0', ' ', '-', ' ', 'k', ' ', 'i', 'f', ' ', 'k', ' ', '<', ' ', '0',
+          ' ', 'e', 'l', 's', 'e', ' ', 'k']) ?_ ?_
+      · derive_ascii_utf8
+      · derive_ascii_chars)
+    ⟨rfl, spansPairwise_sound conditionalTokens rfl⟩ rfl, rfl⟩
 
 theorem conditional_groups_after_subtraction :
     Decode.parseExprFuel (conditionalTokens.length * 4 + 16) 0 conditionalTokens =
@@ -118,7 +176,16 @@ def completeHeader : Token := ⟨.ident "tableSpread", ⟨0, 11⟩⟩
 theorem complete_selected_body_derivation :
     ParsesDecl completeSource completeTokens 59 completeHeader completeTokens.tail
       completeDecl :=
-  ⟨LexingDerivation.intro rfl ⟨rfl, spansPairwise_sound completeTokens rfl⟩ rfl,
+  ⟨LexingDerivation.intro (by
+      unfold completeSource completeTokens sourceBytes sourceByte
+      refine Tokenizer.TokenizeDerivation.intro
+        (chars := ['t', 'a', 'b', 'l', 'e', 'S', 'p', 'r', 'e', 'a', 'd', '(', 'k', ')',
+          ' ', '{', ' ', 'p', 'o', 's', ' ', '=', ' ', '0', ' ', '-', ' ', 'k', ' ', 'i',
+          'f', ' ', 'k', ' ', '<', ' ', '0', ' ', 'e', 'l', 's', 'e', ' ', 'k', ';', ' ',
+          'r', 'e', 't', 'u', 'r', 'n', ' ', 'p', 'o', 's', ';', ' ', '}']) ?_ ?_
+      · derive_ascii_utf8
+      · derive_ascii_chars)
+    ⟨rfl, spansPairwise_sound completeTokens rfl⟩ rfl,
     rfl, rfl, rfl, ⟨Nat.zero_lt_succ 58, Nat.le_refl 59⟩⟩
 
 theorem complete_selected_body_zero_leftover :
