@@ -44,6 +44,7 @@ lean_lib ApeironWordBridge where
     `Slang.Source.Closure, `Slang.Source.ClosureAudit, `Slang.Source.ClosedBinding,
     `Slang.Source.ClosedBindingAudit,
     `Slang.Source.DecodeProof, `Slang.Source.DecodeProofAudit, `Slang.SourceAudit,
+    `Slang.Source.Tokenizer.Utf8, `Slang.Source.Tokenizer.Utf8Audit,
     `Slang.Refinement.WordRing, `Slang.Refinement.WordRingAudit,
     `Slang.Refinement.WordCoreAudit, `Slang.Refinement.TableRepAudit,
     `Slang.Refinement.WordDenotation, `Slang.Refinement.WordDenotationAudit,
