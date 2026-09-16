@@ -56,6 +56,21 @@ Lean barrier on the recorded source/tool identity. S8 passed `tools/check-claims
 `tools/check-assurance.py`; the latter's 6/6 rejecting controls enforce the 5,000/1,500/12 perimeter.
 These storage results do not establish the separate Rust–Song correspondence.
 
+## Slang source-binding exit: all rows required
+
+The [bounded source-witness route](plan/slang-source-refinement.md#bounded-source-witness-route)
+extends the existing `tools/slang/export.py`; the memo-store refinement remains separate.
+
+| Required output | Gate / remaining work |
+|---|---|
+| Retirement before generation | `python3 tools/rooting/retire_check.py --check` and `--self-test`; R6 rejects producer references to the binned routes and emission of `maxHeartbeats 0` / `maxRecDepth 1000000`. |
+| Chunked table/std UTF-8 witness | Unrun; named bounded `Utf8Scan` witnesses over the exact `tableSource` and `stdSource`, composed by `Utf8Scan.continue` at default recursion depth, with shared data/index equations and empty axiom audits. Focused output module and gate command are MISSING pending bounded implementation dispatch. |
+| Unconditional `Slang.SourceAudit.source_binding` | Unrun: `python3 tools/slang/refine.py --stage source --controls` (root), exact type in `tools/slang/controls.json`; `proof/corpus/Slang/SourceAudit.lean` currently supplies only the conditional helper. Full-byte freshness and an empty cone remain required. |
+
+Lean-backed gates use the serialized, memory-capped, single-threaded, timed wrapper in `AGENTS.md`
+§6; no raised recursion depth or unbounded heartbeat setting. The supplied barrier-probe figures
+in the plan are reported measurements, not proof acceptance or a fresh feasibility run.
+
 ## Other owners
 
 - **Song A0–A6/B6** is owned by Song. Joint profiles exist, but readiness remains open until their
@@ -107,6 +122,9 @@ their retirement.
    `tools/slang/trace_check.py` is unrooted. They are binned and re-rooted, not extended. The
    retired `DecodeTrace.Run`/`Derives` trace representation, the retired named proof DAG and the
    retired segment lemma are historical and are not the active architecture.
+   Require `python3 tools/rooting/retire_check.py --check` and `--self-test`, including producer
+   rule R6, before extending `tools/slang/export.py` with bounded source witnesses. Proof-term
+   chunking over the existing structural source relations does not reinstate the retired evaluator.
 4. **Storage.** S1–S8 are closed at the explicit callback-law and no-performance-claim scope.
 5. **Integration.** S7 on one source/tool identity.
 6. **Correspondence.** Use the checked `Joint.WordBridge` carrier/map transport to close the Song

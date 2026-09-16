@@ -182,6 +182,62 @@ source-binding acceptance. The re-rooted memo-store contract is the active refin
 decoder traces are not an acceptance condition. Implementation acceptance is the exact-declaration
 probe on the unconditional existential, not a shape check of a working headline.
 
+### Bounded source-witness composition
+
+The existing `tools/slang/export.py` MUST emit named bounded derivations of the existing structural
+source relations, with shared data/index equations and kernel-checked composition. This is the
+selected generator contract, not current whole-source acceptance. The composition lemmas are in
+commit `37b95c385ae0e58d020346a0e697053199af5940`; names below are relative to
+`Slang.Source.Tokenizer` or `Slang.Source.Parsing`.
+
+| Source module | Composition interface |
+|---|---|
+| `proof/corpus/Slang/Source/Tokenizer/Utf8.lean` | `Utf8Scan.continue`: a bounded prefix implication applied to its tail witness. |
+| `proof/corpus/Slang/Source/Tokenizer/Scan.lean` | `CharsScan.continue`; `ReverseTokens.of_eq` takes the checked accumulator-reversal equality. |
+| `proof/corpus/Slang/Source/Tokenizer/Helpers.lean` | `DigitsFold.append`, `Utf8LengthFold.append`: the first output accumulator is the second input. |
+| `proof/corpus/Slang/Source/Parsing/Selection.lean` | `DropNewlinesScan.append`, `TakeLineScan.append`, `ScanSelected.continue`. |
+| `proof/corpus/Slang/Source/Parsing/Validation.lean` | `DelimitersBalancedDerivation.continue`, `SpansValidDerivation.append`, `DistinctDerivation.append`. |
+| `proof/corpus/Slang/Source/Parsing/Validation.lean` | `ExpressionsCallsResolveDerivation.append`, `StatementsCallsResolveDerivation.append`, `FunctionCallsResolveDerivation.append`, `CallsResolveDerivation.of_parts`. |
+| `proof/corpus/Slang/Source/Parsing/Validation.lean` | `ExpressionsNamesResolveDerivation.append`, `StatementsNamesResolveDerivation.continue`, `FunctionNamesResolveDerivation.append`, `NamesResolveDerivation.append`. |
+| `proof/corpus/Slang/Source/Parsing/Tokens.lean` | `DecodeTokensDerivation.assemble`: exact consumption, delimiters, selection, counts, distinctness, spans, calls, names and result equality. |
+
+Composition MUST preserve these premises; chunking does not weaken them:
+
+- `TakeWhileScan` and `SkipCommentScan` in the tokenizer helpers are maximal-prefix relations
+  with no cross-boundary append. Keep identifiers and comments within one lexer chunk.
+- Newline completeness means an empty first remainder, not a newline-terminated first chunk:
+  `DropNewlinesScan.append` requires `DropNewlinesScan a []` (all first-chunk tokens are newlines);
+  `TakeLineScan.append` requires `TakeLineScan a lineA []` (no terminating newline in the first
+  chunk). A retained newline belongs to the second scan's remainder.
+- `SpansValidDerivation.append` requires both directed cross guards, `crossAB` and `crossBA`,
+  in addition to validity of each chunk at the same byte size.
+- `DistinctDerivation.append` requires explicit `a.Nodup`, `b.Nodup` and
+  `∀ name ∈ a, name ∉ b`. The generator MUST produce `List.Nodup` proofs directly; the accepted
+  layer supplies `DistinctDerivation.of_nodup`, not a `DistinctDerivation → List.Nodup` converse.
+  The reported `eraseDups` converse uses rejected axioms and is not an admissible dependency;
+  this is a layer restriction, not a mathematical impossibility theorem.
+- Call- and name-resolution appends require no cross condition: both chunks use the same global
+  `available`/`constants`. `CallsResolveDerivation.of_parts` uses the full combined function-name
+  list. Statement-name continuation carries the changed environment and the `fuel0`/`fuel1`
+  recursion indices explicitly; these are not a combined source-resource budget.
+
+The retired `Slang/Derivation/` named proof DAG / segment-lemma evaluator and retired
+`Slang/Generated/Trace/` outputs remain binned. Shared data/index equations and bounded constructor
+proof terms over the existing structural relations are a different mechanism, not a replacement
+evaluator or revived trace acceptance. The generator is untrusted; Lean checks each witness and
+its empty axiom cone under default recursion depth and bounded heartbeat/time/memory limits.
+Neither compiled `#guard` checks nor a digest replaces those witnesses, and byte binding alone
+establishes no memo-store refinement, codegen or ABI claim.
+
+Retirement precedes generation. `tools/rooting/retire_check.py` rule R6, configured in
+`tools/rooting/retire_cases.json`, rejects producer references to the retired
+`Slang/Generated/Trace/` and retired `Slang/Derivation/` routes and emission of `maxHeartbeats 0`
+or `maxRecDepth 1000000`. It is a textual gate; the default-depth requirement is stronger than those
+two option checks. The current exporter emits `maxRecDepth 10000`; replacing that output with
+bounded shared data definitions remains required. The
+[barrier-probe measurements](../plan/slang-source-refinement.md#barrier-probe-measurements) motivate
+chunking but do not prove whole-source feasibility.
+
 ## Source arena and parsed records
 
 The binding input is an immutable source arena that owns the exact bytes and the bounded parsed

@@ -35,6 +35,76 @@ refining `Apeiron.Table.HMap MemoKey MemoValue`, an ordered fold of checked tran
 constructive algebraic link. The selected table body is decoded for source identity and is
 not the active refinement object.
 
+## Bounded source-witness route
+
+Decision: extend the existing `tools/slang/export.py` with a chunked witness generator that emits
+named bounded derivations over `proof/corpus/Slang/Source/Tokenizer/` and
+`proof/corpus/Slang/Source/Parsing/`. Compose them with the lemmas at
+`37b95c385ae0e58d020346a0e697053199af5940`, listed with their premises in the
+[specification](../spec/slang-source-semantics.md#bounded-source-witness-composition).
+This is a required implementation, not a claim that the exporter already emits these witnesses:
+its `render_derivation` currently emits source definitions and compiled `#guard` checks.
+
+The retired `Slang/Derivation/` named proof DAG / segment-lemma evaluator and the retired
+`Slang/Generated/Trace/` outputs are binned, not revived by this route. Proof-term chunking uses
+shared data/index equations and named bounded constructor derivations of the existing source
+relations; it introduces no replacement evaluator or trace-acceptance relation. Kernel checking
+and the empty axiom cone remain mandatory, at default recursion depth with bounded heartbeats,
+time and memory. Source witnesses discharge byte binding only; they do not establish the memo-store
+refinement or compiler/ABI correctness.
+
+### Barrier-probe measurements
+
+The supplied barrier probe reports flat-term infeasibility and motivates chunking:
+
+| Measured item | Barrier-probe result |
+|---|---|
+| Largest elaborated flat `Utf8Scan` term | 33 constructors over 16 bytes |
+| `tableSource` | 7,171 bytes / 1,457 tokens / 2,394 lexer steps |
+| `stdSource` | 27,160 bytes / 3,736 tokens / 6,097 lexer steps |
+| Smallest failing goal | `Utf8Scan (tableSource.length + 1) (tableSource.map UInt8.ofFin) tableChars` |
+
+These are reported measurements, not proofs or a universal maximum. The source inputs are bound by
+`tools/slang/export.py` and the source identities in the specification. Residual evidence: the
+barrier-probe command, raw log, machine and tool identity are not supplied here; these figures are
+not reproduced by this documentation gate. Chunked whole-source feasibility remains unmeasured.
+
+### Retirement before generation
+
+1. Retire the binned files, imports, Lake roots, registry entries and trace acceptance; require
+   `python3 tools/rooting/retire_check.py --check` and `--self-test` before generating witnesses.
+2. Retain producer rule R6 in `tools/rooting/retire_check.py` and
+   `tools/rooting/retire_cases.json`: reject an exporter that can reintroduce the retired
+   `Slang/Generated/Trace/` or retired `Slang/Derivation/` route, or emit `maxHeartbeats 0` or
+   `maxRecDepth 1000000`. R6 is a textual rejection gate, not proof of arbitrary Python behavior.
+3. Generate bounded table/std UTF-8 witnesses first, sharing data and index equations; keep
+   identifiers and comments within one lexer chunk and satisfy every composition premise in the
+   specification. Default recursion depth applies to data definitions as well as proofs; the
+   exporter's current `maxRecDepth 10000` output is not acceptance for this route.
+4. Compose lexer/parser witnesses and the closed binding, then run the unconditional source gate.
+   Each implementation dispatch owns at most three files and one focused gate/control; generated
+   output paths and the focused UTF-8 gate must be assigned before dispatch. No implementation
+   ownership or additional evaluator is allocated by this documentation decision.
+
+### Documentation boundary arc
+
+SCOPE: `docs/plan/slang-source-refinement.md`, `docs/spec/slang-source-semantics.md`,
+`docs/flash-handoff.md`, `docs/kernel-boundary.md`; explicitly assigned four-file Astra documentation
+pass in the supplied checkout, base `8fe3eb3d51b6d9ef6bccb80774372f31e90cd54a`; no Lean build lane.
+
+REGISTER: planning/specification; route and trust boundary only; no code, proof or measurement run.
+
+CORPUS: composition lemmas at `37b95c3`; `Utf8Scan.continue`, `DistinctDerivation.append` and
+`DecodeTokensDerivation.assemble`; source signatures, not fresh proof acceptance.
+
+REFERENCE: `/home/socol/Workspace/apeiron/proof/corpus/Slang/Source/Parsing/Validation.lean`,
+`DistinctDerivation.append`; companion modules listed in the specification.
+
+GATE: root `python3 tools/slang/spec_check.py --check`; baseline exit 0, no observed red;
+control: the same checker in `--self-test` mode.
+
+GRADE: specification consistency only; barrier-probe figures are reported, not rerun measurements.
+
 ## Re-rooted contract
 
 - **Source arena.** An immutable arena owns the exact bytes and bounded parsed records; `SourceRef`

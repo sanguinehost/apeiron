@@ -192,7 +192,9 @@ proved, but that does not prove thread memory semantics, panic propagation or li
 | Layer | Owner | Status |
 |---|---|---|
 | Canonical algebra and combinator definitions | Apeiron (Lean corpus) | proved at stated scope (`Apeiron.Combinator.Comb.reduceDeep_sound`, `Apeiron.Trichotomy.AnyRing.ringNormForm_mul`) |
-| Slang source refinement (Stream 0) | Apeiron | in zero-axiom migration; empty-cone gate `tools/slang/zero_axioms.py`; current W23/W25 evidence reopened |
+| Slang source refinement (Stream 0) | Apeiron | empty-cone gate `tools/slang/zero_axioms.py`; unconditional `Slang.SourceAudit.source_binding` remains absent from `proof/corpus/Slang/SourceAudit.lean`; no whole-source acceptance |
+| Bounded source-witness generator | Apeiron, existing `tools/slang/export.py` | untrusted producer; chunked generation remains required; retirement gate `tools/rooting/retire_check.py` R6 rejects reintroduction of the binned route and forbidden option strings |
+| Structural source witnesses | Lean source relations in `proof/corpus/Slang/Source/Tokenizer/` and `proof/corpus/Slang/Source/Parsing/` | kernel-checked witnesses and empty axiom audits required; composition lemmas at `37b95c3`, concrete chunked table/std UTF-8 witnesses still open; default recursion depth and bounded heartbeats/time/memory; no codegen/ABI claim |
 | Rust `Cell<i64>` kernels | Apeiron | refined to canonical definitions; axiom cone `{propext, Classical.choice, Quot.sound}` |
 | Rust `Table` bodies | Apeiron | extracted and elaborated; word-instance and arbitrary-callback constructor/insertion/admitted-build refinement proved under their explicit laws and domains |
 | Charon/Aeneas translation fidelity | pinned toolchain | external trust; patched for const `Repeat` to `Array.repeat` |
@@ -206,6 +208,13 @@ The executing table's generic callback proof assumes `CallbackLawsG`; it does no
 termination or purity for callbacks outside those laws. Neither a reference container nor a
 tested-only optimized container is an accepted substitute.
 Former storage proofs remain historical evidence about deleted source, not this table.
+
+The [bounded source-witness route](plan/slang-source-refinement.md#bounded-source-witness-route)
+shares data/index equations and composes proofs of existing structural relations; the retired
+named proof DAG / segment-lemma evaluator and retired generated traces remain binned. R6 checks
+producer text, not arbitrary Python behavior or default-depth compliance: `tools/slang/export.py`
+currently emits `maxRecDepth 10000`, which must be removed for this route. A compiled `#guard`, a
+generator result or the reported barrier-probe measurements are not kernel-checked source binding.
 
 ## Kernel scope and isolation
 
