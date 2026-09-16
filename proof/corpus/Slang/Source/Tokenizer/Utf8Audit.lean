@@ -34,3 +34,5 @@ end Slang.Source.Tokenizer.Utf8Audit
 #print axioms Slang.Source.Tokenizer.Utf8Scan.next
 #print axioms Slang.Source.Tokenizer.Utf8Scan.sound
 #print axioms Slang.Source.Tokenizer.Utf8Audit.nat_add_zero
+#audit_empty Slang.Source.Tokenizer.Utf8Scan.continue : type_of% @Slang.Source.Tokenizer.Utf8Scan.continue
+#print axioms Slang.Source.Tokenizer.Utf8Scan.continue

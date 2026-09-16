@@ -188,3 +188,47 @@ end Slang.Source.Parsing.ValidationAudit
 #print axioms Slang.Source.Parsing.NamesResolveDerivation.intro
 #print axioms Slang.Source.Parsing.NamesResolveDerivation.sound
 #print axioms Slang.Source.Parsing.ValidationAudit.nat_add_zero
+#audit_empty Slang.Source.Parsing.DelimitersBalancedDerivation.continue : type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.continue
+#audit_empty Slang.Source.Parsing.SpansValidDerivation.all_append : type_of% @Slang.Source.Parsing.SpansValidDerivation.all_append
+#audit_empty Slang.Source.Parsing.SpansValidDerivation.all_head : type_of% @Slang.Source.Parsing.SpansValidDerivation.all_head
+#audit_empty Slang.Source.Parsing.SpansValidDerivation.all_tail : type_of% @Slang.Source.Parsing.SpansValidDerivation.all_tail
+#audit_empty Slang.Source.Parsing.SpansValidDerivation.all_inner_append : type_of% @Slang.Source.Parsing.SpansValidDerivation.all_inner_append
+#audit_empty Slang.Source.Parsing.SpansValidDerivation.append : type_of% @Slang.Source.Parsing.SpansValidDerivation.append
+#audit_empty Slang.Source.Parsing.DistinctDerivation.reverseAux_length : type_of% @Slang.Source.Parsing.DistinctDerivation.reverseAux_length
+#audit_empty Slang.Source.Parsing.DistinctDerivation.any_beq_false_of_not_mem : type_of% @Slang.Source.Parsing.DistinctDerivation.any_beq_false_of_not_mem
+#audit_empty Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_le : type_of% @Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_le
+#audit_empty Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_of_nodup : type_of% @Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_of_nodup
+#audit_empty Slang.Source.Parsing.DistinctDerivation.of_nodup : type_of% @Slang.Source.Parsing.DistinctDerivation.of_nodup
+#audit_empty Slang.Source.Parsing.DistinctDerivation.mem_append_cases : type_of% @Slang.Source.Parsing.DistinctDerivation.mem_append_cases
+#audit_empty Slang.Source.Parsing.DistinctDerivation.nodup_append_of_cross : type_of% @Slang.Source.Parsing.DistinctDerivation.nodup_append_of_cross
+#audit_empty Slang.Source.Parsing.DistinctDerivation.append : type_of% @Slang.Source.Parsing.DistinctDerivation.append
+#audit_empty Slang.Source.Parsing.ExpressionsCallsResolveDerivation.append : type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.append
+#audit_empty Slang.Source.Parsing.StatementsCallsResolveDerivation.append : type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.append
+#audit_empty Slang.Source.Parsing.FunctionCallsResolveDerivation.append : type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.append
+#audit_empty Slang.Source.Parsing.CallsResolveDerivation.of_parts : type_of% @Slang.Source.Parsing.CallsResolveDerivation.of_parts
+#audit_empty Slang.Source.Parsing.ExpressionsNamesResolveDerivation.append : type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.append
+#audit_empty Slang.Source.Parsing.StatementsNamesResolveDerivation.continue : type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.continue
+#audit_empty Slang.Source.Parsing.FunctionNamesResolveDerivation.append : type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.append
+#audit_empty Slang.Source.Parsing.NamesResolveDerivation.append : type_of% @Slang.Source.Parsing.NamesResolveDerivation.append
+#print axioms Slang.Source.Parsing.DelimitersBalancedDerivation.continue
+#print axioms Slang.Source.Parsing.SpansValidDerivation.all_append
+#print axioms Slang.Source.Parsing.SpansValidDerivation.all_head
+#print axioms Slang.Source.Parsing.SpansValidDerivation.all_tail
+#print axioms Slang.Source.Parsing.SpansValidDerivation.all_inner_append
+#print axioms Slang.Source.Parsing.SpansValidDerivation.append
+#print axioms Slang.Source.Parsing.DistinctDerivation.reverseAux_length
+#print axioms Slang.Source.Parsing.DistinctDerivation.any_beq_false_of_not_mem
+#print axioms Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_le
+#print axioms Slang.Source.Parsing.DistinctDerivation.eraseDupsLoop_length_of_nodup
+#print axioms Slang.Source.Parsing.DistinctDerivation.of_nodup
+#print axioms Slang.Source.Parsing.DistinctDerivation.mem_append_cases
+#print axioms Slang.Source.Parsing.DistinctDerivation.nodup_append_of_cross
+#print axioms Slang.Source.Parsing.DistinctDerivation.append
+#print axioms Slang.Source.Parsing.ExpressionsCallsResolveDerivation.append
+#print axioms Slang.Source.Parsing.StatementsCallsResolveDerivation.append
+#print axioms Slang.Source.Parsing.FunctionCallsResolveDerivation.append
+#print axioms Slang.Source.Parsing.CallsResolveDerivation.of_parts
+#print axioms Slang.Source.Parsing.ExpressionsNamesResolveDerivation.append
+#print axioms Slang.Source.Parsing.StatementsNamesResolveDerivation.continue
+#print axioms Slang.Source.Parsing.FunctionNamesResolveDerivation.append
+#print axioms Slang.Source.Parsing.NamesResolveDerivation.append

@@ -94,6 +94,11 @@ inductive Utf8Scan : Nat → List UInt8 → List Char → Prop where
 
 namespace Utf8Scan
 
+theorem «continue» {fuel0 fuel1 : Nat} {bytes0 bytes1 : List UInt8} {chars0 chars1 : List Char}
+    («prefix» : Utf8Scan fuel1 bytes1 chars1 → Utf8Scan fuel0 bytes0 chars0)
+    (tail : Utf8Scan fuel1 bytes1 chars1) : Utf8Scan fuel0 bytes0 chars0 :=
+  «prefix» tail
+
 /-- A structural UTF-8 scan entails the result of the executable decoder recursion. -/
 theorem sound {n : Nat} {bytes : List UInt8} {chars : List Char}
     (scan : Utf8Scan n bytes chars) :

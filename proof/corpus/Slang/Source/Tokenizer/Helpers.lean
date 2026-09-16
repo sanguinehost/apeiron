@@ -72,6 +72,13 @@ theorem sound {acc value : Nat} {digits : List Char} (fold : DigitsFold acc digi
   | done => rfl
   | next _ tailSound => exact tailSound
 
+theorem append {acc mid value : Nat} {a b : List Char}
+    (first : DigitsFold acc a mid) (second : DigitsFold mid b value) :
+    DigitsFold acc (a ++ b) value := by
+  induction first with
+  | done => exact second
+  | next _ ih => exact DigitsFold.next (ih second)
+
 end DigitsFold
 
 /-- A left fold of UTF-8 character widths from an explicit accumulator. -/
@@ -89,6 +96,13 @@ theorem sound {acc size : Nat} {chars : List Char} (fold : Utf8LengthFold acc ch
   induction fold with
   | done => rfl
   | next _ tailSound => exact tailSound
+
+theorem append {acc mid size : Nat} {a b : List Char}
+    (first : Utf8LengthFold acc a mid) (second : Utf8LengthFold mid b size) :
+    Utf8LengthFold acc (a ++ b) size := by
+  induction first with
+  | done => exact second
+  | next _ ih => exact Utf8LengthFold.next (ih second)
 
 end Utf8LengthFold
 

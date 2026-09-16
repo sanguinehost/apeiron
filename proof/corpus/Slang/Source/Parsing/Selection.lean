@@ -18,6 +18,15 @@ inductive DropNewlinesScan : List Token → List Token → Prop where
 
 namespace DropNewlinesScan
 
+/-- Leading-newline scans compose when the first chunk is consumed completely. -/
+theorem append {a b tailB : List Token} (first : DropNewlinesScan a [])
+    (second : DropNewlinesScan b tailB) : DropNewlinesScan (a ++ b) tailB := by
+  generalize resultEq : ([] : List Token) = result at first
+  induction first with
+  | done => exact second
+  | newline guard _ tailAppend => exact .newline guard (tailAppend resultEq)
+  | stop _ => cases resultEq
+
 /-- A structural leading-newline scan entails the executable helper's result. -/
 theorem sound {tokens result : List Token} (scan : DropNewlinesScan tokens result) :
     Decode.dropNewlines tokens = result := by
@@ -43,6 +52,16 @@ inductive TakeLineScan : List Token → List Token → List Token → Prop where
       TakeLineScan (token :: rest) (token :: line) tail
 
 namespace TakeLineScan
+
+/-- Line scans compose when the first chunk contains no terminating newline. -/
+theorem append {a b lineA lineB tailB : List Token} (first : TakeLineScan a lineA [])
+    (second : TakeLineScan b lineB tailB) :
+    TakeLineScan (a ++ b) (lineA ++ lineB) tailB := by
+  generalize tailEq : ([] : List Token) = tail at first
+  induction first with
+  | done => exact second
+  | newline _ => cases tailEq
+  | next guard _ tailAppend => exact .next guard (tailAppend tailEq)
 
 /-- A structural line scan entails the executable helper's result. -/
 theorem sound {tokens line tail : List Token} (scan : TakeLineScan tokens line tail) :
@@ -190,6 +209,15 @@ inductive ScanSelected : Nat → List Token → List String → List String →
         constantNames functionNames constants (decl :: functions)
 
 namespace ScanSelected
+
+/-- A scan prefix represented as an implication composes with its tail derivation. -/
+theorem «continue» {fuel0 fuel1 : Nat} {tokens0 tokens1 : List Token}
+    {constantNames0 constantNames1 functionNames0 functionNames1 : List String}
+    {constants0 constants1 : List ConstantDecl} {functions0 functions1 : List FunctionDecl}
+    (prefixStep : ScanSelected fuel1 tokens1 constantNames1 functionNames1 constants1 functions1 →
+      ScanSelected fuel0 tokens0 constantNames0 functionNames0 constants0 functions0)
+    (tail : ScanSelected fuel1 tokens1 constantNames1 functionNames1 constants1 functions1) :
+    ScanSelected fuel0 tokens0 constantNames0 functionNames0 constants0 functions0 := prefixStep tail
 
 /-- A structural selected-declaration scan entails the executable scan result. -/
 theorem sound {fuel : Nat} {tokens : List Token} {constantNames functionNames : List String}

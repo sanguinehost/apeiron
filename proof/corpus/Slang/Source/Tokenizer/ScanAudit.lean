@@ -116,3 +116,11 @@ end Slang.Source.Tokenizer.ScanAudit
 #print axioms Slang.Source.Tokenizer.CharsScan.nextToken
 #print axioms Slang.Source.Tokenizer.CharsScan.sound
 #print axioms Slang.Source.Tokenizer.ScanAudit.nat_add_zero
+#audit_empty Slang.Source.Tokenizer.ReverseTokens.of_eq : type_of% @Slang.Source.Tokenizer.ReverseTokens.of_eq
+#audit_empty Slang.Source.Tokenizer.CharsScan.continue : type_of% @Slang.Source.Tokenizer.CharsScan.continue
+#audit_empty Slang.Source.Tokenizer.DigitsFold.append : type_of% @Slang.Source.Tokenizer.DigitsFold.append
+#audit_empty Slang.Source.Tokenizer.Utf8LengthFold.append : type_of% @Slang.Source.Tokenizer.Utf8LengthFold.append
+#print axioms Slang.Source.Tokenizer.ReverseTokens.of_eq
+#print axioms Slang.Source.Tokenizer.CharsScan.continue
+#print axioms Slang.Source.Tokenizer.DigitsFold.append
+#print axioms Slang.Source.Tokenizer.Utf8LengthFold.append
