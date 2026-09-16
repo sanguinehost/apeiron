@@ -4797,6 +4797,85 @@
           "path": "proof/corpus/Slang/Memo/ValueAudit.lean"
         }
       ]
-    }
+    },
+    "tokenizer-utf8": {
+    "kind": "active",
+    "wave": "W24",
+    "title": "Structural UTF-8 tokenizer",
+    "note": "Structural one-scalar and recursive UTF-8 success relations refining Decode.decodeUtf8CharsFuel under the empty axiom cone.",
+    "audit_module": "Slang/Source/Tokenizer/Utf8Audit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Tokenizer/Utf8.lean",
+      "proof/corpus/Slang/Source/Tokenizer/Utf8Audit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head",
+        "expected_type": "List UInt8 \u2192 Char \u2192 List UInt8 \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head.one",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Head.one",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head.two",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Head.two",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head.three",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Head.three",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head.four",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Head.four",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Head.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Head.sound",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Scan",
+        "expected_type": "Nat \u2192 List UInt8 \u2192 List Char \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Scan.done",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Scan.done",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Scan.next",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Scan.next",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Scan.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8Scan.sound",
+        "module": "Slang.Source.Tokenizer.Utf8",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8Audit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Tokenizer.Utf8Audit",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Utf8Audit.lean"
+      }
+    ]
+  }
   }
 }
