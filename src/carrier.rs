@@ -38,6 +38,10 @@ use crate::scalar::Ring;
 
 /// The density a phase cell carries, over any ring.
 ///
+/// Temporal and spatial O(1): no loop or recursion; one `Cell::mul` and one `Cell::norm_form`, each
+/// a fixed count of scalar `mul`/`add`/`sub` on the two slots. No allocation. The scalar operations
+/// are the only cost, so the constant is not visible from the signature.
+///
 /// `CarrierAnyRing.pointDensity`: the norm form of `(a, 0) * u`, the cell the amplitude `a`
 /// stretches the direction `u` into. The dial is an argument because the product and the norm form
 /// both consult it; at the unit direction the answer does not depend on it
@@ -49,6 +53,10 @@ pub fn point_density<R: Ring>(sigma: Sigma, amplitude: R, direction: Cell<R>) ->
 }
 
 /// The phase flux a cell carries across one forward step, over any ring.
+///
+/// Temporal and spatial O(1): no loop or recursion; one [`point_density`], then one scalar `sub`
+/// and one scalar `mul`. No allocation. The scalar operations are the only cost, so the constant is
+/// not visible from the signature.
 ///
 /// `CarrierAnyRing.pointFlux`: [`point_density`] at the amplitude and direction, times the forward
 /// phase difference `next - previous`. The single phase fixes the flux's direction; no independent

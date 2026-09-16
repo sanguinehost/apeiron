@@ -29,6 +29,11 @@ def add (left right : Word) : Word := ofNat (left.val + right.val)
 def sub (left right : Word) : Word := ofNat (left.val + wordModulus - right.val)
 def mul (left right : Word) : Word := ofNat (left.val * right.val)
 
+-- Temporal O(fuel): one recursive step per fuel decrement, each doing O(1) division/mod and one
+-- `operation` call, so fuel bounds the steps. Spatial O(fuel) stack: the recursive result is bound
+-- to `higher` before the conditional, so the recursion is not tail-recursive. Operations counted:
+-- fuel decrements / bit extractions (`left % 2`, `left / 2`), one `operation` call per bit. The
+-- callers `bitAnd`/`bitOr`/`bitXor` pass `wordBits = 64`, so each is O(1) with a 64-step constant.
 def bitwise (operation : Bool → Bool → Bool) : Nat → Nat → Nat → Nat
   | 0, _, _ => 0
   | fuel + 1, left, right =>

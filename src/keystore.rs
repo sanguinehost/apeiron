@@ -67,6 +67,10 @@ pub fn key_cell<R: Ring>(address: R, residue: R) -> Cell<R> {
 
 /// What is left of a key after storing it on this face, over any ring.
 ///
+/// Temporal and spatial O(1): no loop or recursion; a `Sigma` match, then on the hyperbolic branch
+/// one `Cell::mul` -- a fixed count of scalar `mul`/`add` on the two slots. No allocation. The
+/// scalar operations are the only cost, so the constant is not visible from the signature.
+///
 /// - Elliptic: the whole cell, because nothing was thrown away.
 /// - Parabolic: the whole cell, because both slots are carried.
 /// - Hyperbolic: the upper channel, scaled by two, with the lower lane destroyed.
@@ -86,6 +90,11 @@ pub fn after_storing<R: Ring>(face: Sigma, key: Cell<R>) -> Cell<R> {
 }
 
 /// [`after_storing`] over a scalar with halves: the genuine idempotent projection `e+ = (1/2, 1/2)`.
+///
+/// Temporal and spatial O(1): no loop or recursion; a `Sigma` match, then on the hyperbolic branch
+/// one `Cell::mul` against `idem_plus` (two scalar `halve`s), a fixed count of scalar `mul`/`add`.
+/// No allocation. The scalar operations are the only cost, so the constant is not visible from the
+/// signature.
 ///
 /// Unlike [`after_storing`], this **is** idempotent -- `e+ * e+ = e+` -- and it destroys the lower
 /// channel without the factor of two, so applying it more than once is safe. Over `Dyadic` it is
