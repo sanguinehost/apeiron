@@ -117,7 +117,7 @@ Aeneas reports `aeneas 505b6ca-dirty`. Existing const-repeat patches, not an unm
 | `tests/table.rs` | `177ff01a04bc731f2ff7ffe6a6e1845e156bfdd3a29de95dcbfd3ef5d7f1a207` |
 | `proof/extract/lib.rs` | `a2ecf3b1a01ca4b77fc575ff21254c0f1f3fe1e7fdc83532b110c996ab051f4e` |
 | `proof/regen.sh` | `1625b0147f458f709fd46f7504a0e41258d0660b79fd60fee00f7086e783dc2d` |
-| `proof/ApeironWord.lean` | `958b1ab563c6fe660fa60ebc91f36f0aa5fb87bad26c5643395f5f5a5404ec49` |
+| `proof/ApeironWord.lean` | `2237cf4040ce7ecafa5f528afab1e9539cc0b922d8043f31adfc2e56a8fb43dd` |
 | `target/aeneas/charon` | `747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e` |
 | `target/aeneas/charon-driver` | `207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297` |
 | `target/aeneas/aeneas` | `33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a` |

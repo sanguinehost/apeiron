@@ -357,7 +357,7 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/carrier.rs` | `4fcdbeba5c2d25d10e0a22f2f328e214d0e9884bd9f886a25abd4b6741a8a8e8` |
 | `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
 
-The generated `ApeironWord.lean` is `958b1ab563c6fe660fa60ebc91f36f0aa5fb87bad26c5643395f5f5a5404ec49`
+The generated `ApeironWord.lean` is `2237cf4040ce7ecafa5f528afab1e9539cc0b922d8043f31adfc2e56a8fb43dd`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. These are the digests
 of the working tree the evidence was taken from, committed with the bridge.
 
