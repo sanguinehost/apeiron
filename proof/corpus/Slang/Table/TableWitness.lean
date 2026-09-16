@@ -12,6 +12,11 @@ open Slang Slang.Decode Slang.Machine Slang.Source Slang.Refinement
 
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 
+-- Temporal O(1): `declaration.parameters == [...]` is a `List String` `BEq` bounded by the fixed
+-- 4-string literal (≤ 4 string comparisons), and `declaration.body == [...]` a `List Stmt` `BEq`
+-- bounded by the fixed 3-statement literal (≤ 3 structural `Stmt` comparisons, each bounded by the
+-- literal's fixed expression tree). Spatial O(1): both `BEq` stacks are bounded by the literal
+-- sizes. Operations counted: structural equality comparisons.
 def tableSlotSetShapeCheck (declaration : FunctionDecl) : Bool :=
   declaration.parameters == ["base", "slot", "key", "value"] &&
   declaration.body ==
@@ -19,6 +24,10 @@ def tableSlotSetShapeCheck (declaration : FunctionDecl) : Bool :=
      .store slotValueAddressExpr (.name "value"),
      .return_ (.name "value")]
 
+-- Temporal O(1): fixed 3-string and 3-statement literals bound the `List String` and `List Stmt`
+-- `BEq` comparisons (≤ 3 each, each `Stmt` comparison bounded by the literal's fixed expression
+-- tree). Spatial O(1): both `BEq` stacks are bounded by the literal sizes. Operations counted:
+-- structural equality comparisons.
 def tableInitGoShapeCheck (declaration : FunctionDecl) : Bool :=
   declaration.parameters == ["base", "cap", "i"] &&
   declaration.body ==
@@ -28,6 +37,10 @@ def tableInitGoShapeCheck (declaration : FunctionDecl) : Bool :=
      .return_ (.call "tableInitGo"
        [.name "base", .name "cap", .binary .add (.name "i") (.literal 1)])]
 
+-- Temporal O(1): fixed 2-string and 2-statement literals bound the `List String` and `List Stmt`
+-- `BEq` comparisons (≤ 2 each, each `Stmt` comparison bounded by the literal's fixed expression
+-- tree). Spatial O(1): both `BEq` stacks are bounded by the literal sizes. Operations counted:
+-- structural equality comparisons.
 def tableInitShapeCheck (declaration : FunctionDecl) : Bool :=
   declaration.parameters == ["base", "cap"] &&
   declaration.body ==
@@ -35,6 +48,10 @@ def tableInitShapeCheck (declaration : FunctionDecl) : Bool :=
       [.return_ (.name "TABLE_EMPTY")] none,
      .return_ (.call "tableInitGo" [.name "base", .name "cap", .literal 0])]
 
+-- Temporal O(1): a fixed 1-string literal and a fixed 2-statement literal bound the `List String`
+-- and `List Stmt` `BEq` comparisons (≤ 1 and ≤ 2, each `Stmt` comparison bounded by the literal's
+-- fixed expression tree). Spatial O(1): both `BEq` stacks are bounded by the literal sizes.
+-- Operations counted: structural equality comparisons.
 def tableCapacityOkShapeCheck (declaration : FunctionDecl) : Bool :=
   declaration.parameters == ["cap"] &&
   declaration.body ==
@@ -46,6 +63,13 @@ def tableCapacityOkShapeCheck (declaration : FunctionDecl) : Bool :=
          (.literal 0))
        (.literal 0))]
 
+-- Temporal O(n + m + d + c) for n, m the table/std source byte lengths, d the decoded declaration
+-- count and c the decoded constant count: `encodeBytes` and `Decode.decodeClosure` make two linear
+-- passes, the four `functions.find?` scans are linear in d with one `String` name equality per
+-- declaration, and the two `constantEnvironment` lookups scan `constants` linearly in c before one
+-- `denoteExpr` on the matched literal. Spatial O(n + m) for the decoded character, token and
+-- declaration lists. Operations counted: source bytes decoded, declarations and constants scanned,
+-- `String`/`Word` comparisons.
 def realConstructorShapes : Bool :=
   match Decode.decodeClosure
       (encodeBytes Slang.Generated.TableDerivation.tableSource)
