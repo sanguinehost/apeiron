@@ -1,0 +1,193 @@
+{
+  "schema": 1,
+  "note": "Data for tools/rooting/retire_check.py, the rejecting retirement gate for the binned Slang derivation route. binned_prefixes and binned_files name what must be absent; reference_surfaces name the forms that must not reference it (Lean imports, Lake roots, zero_axioms.json registrations, the trace_check.py Run/Derives acceptance). The self_test block carries a synthetic clean tree and one mutation per rule so --self-test and --controls need no Lean, Rust or network and never touch the repository tree.",
+  "binned_prefixes": [
+    "proof/corpus/Slang/Derivation/",
+    "proof/corpus/Slang/Generated/Trace/"
+  ],
+  "binned_files": {
+    "proof/corpus/Slang/Derivation/": [
+      "Audit.lean",
+      "Composition.lean",
+      "Decode.lean",
+      "Grammar.lean",
+      "Lexing.lean",
+      "Selection.lean",
+      "Statements.lean",
+      "Steps.lean",
+      "Utilities.lean",
+      "Validation.lean"
+    ],
+    "proof/corpus/Slang/Generated/Trace/": [
+      "Decoder.lean",
+      "Grammar.lean",
+      "Selection.lean",
+      "Statement.lean",
+      "Validation.lean",
+      "WholeSource.lean",
+      "decoder.json",
+      "grammar.json",
+      "selection.json",
+      "statement.json",
+      "validation.json",
+      "whole-source.json"
+    ]
+  },
+  "reference_surfaces": [
+    {
+      "id": "lean-import",
+      "rule": "R2",
+      "title": "Lean import of a binned module",
+      "kind": "glob",
+      "root": "proof",
+      "suffixes": [
+        ".lean"
+      ],
+      "exclude_dirs": [
+        ".lake",
+        "target",
+        ".git",
+        "__pycache__"
+      ],
+      "tokens": [
+        "import Slang.Derivation.",
+        "import Slang.Generated.Trace."
+      ],
+      "missing_is_violation": true
+    },
+    {
+      "id": "lake-root",
+      "rule": "R3",
+      "title": "Lake root in proof/corpus/lakefile.lean",
+      "kind": "file",
+      "path": "proof/corpus/lakefile.lean",
+      "tokens": [
+        "Slang.Derivation.",
+        "Slang.Generated.Trace"
+      ],
+      "missing_is_violation": true
+    },
+    {
+      "id": "registry",
+      "rule": "R4",
+      "title": "Registration in tools/slang/zero_axioms.json",
+      "kind": "file",
+      "path": "tools/slang/zero_axioms.json",
+      "tokens": [
+        "Slang.Derivation.",
+        "Slang/Derivation/",
+        "proof/corpus/Slang/Derivation/",
+        "Slang.Generated.Trace",
+        "Slang/Generated/Trace/",
+        "proof/corpus/Slang/Generated/Trace/"
+      ],
+      "missing_is_violation": true
+    },
+    {
+      "id": "trace-acceptance",
+      "rule": "R5",
+      "title": "Run/Derives acceptance in tools/slang/trace_check.py",
+      "kind": "file",
+      "path": "tools/slang/trace_check.py",
+      "tokens": [
+        "Slang.Derivation.",
+        "Slang.Generated.Trace",
+        "DecodeTrace.Run",
+        "Derives",
+        "PHASE_MODULES"
+      ],
+      "missing_is_violation": false
+    }
+  ],
+  "rules": [
+    {
+      "id": "R1",
+      "title": "Binned path present",
+      "description": "A file under proof/corpus/Slang/Derivation/ or proof/corpus/Slang/Generated/Trace/ exists in the tree."
+    },
+    {
+      "id": "R2",
+      "title": "Lean import of a binned module",
+      "description": "A .lean file under proof/ imports Slang.Derivation.* or Slang.Generated.Trace.*."
+    },
+    {
+      "id": "R3",
+      "title": "Lake root still registered",
+      "description": "proof/corpus/lakefile.lean still lists a Slang.Derivation.* or Slang.Generated.Trace.* Lake root."
+    },
+    {
+      "id": "R4",
+      "title": "Registry still registers the route",
+      "description": "tools/slang/zero_axioms.json still names a binned module or source path."
+    },
+    {
+      "id": "R5",
+      "title": "Run/Derives acceptance still active",
+      "description": "tools/slang/trace_check.py still carries the DecodeTrace.Run/Derives acceptance (PHASE_MODULES mapping and witness-type check)."
+    },
+    {
+      "id": "S",
+      "title": "Reference surface missing",
+      "description": "A reference surface the gate must read is absent, so retirement cannot be verified."
+    }
+  ],
+  "self_test": {
+    "clean": {
+      "files": {
+        "proof/corpus/lakefile.lean": "import Lake\nopen Lake DSL\n\npackage apeironWordBridge\n\nlean_lib ApeironWordBridge where\n  roots := #[`WordRefinement, `Slang.Syntax]\n",
+        "proof/corpus/Slang/Decode.lean": "import Slang.Syntax\n\nnamespace Slang.Decode\n\nend Slang.Decode\n",
+        "tools/slang/zero_axioms.json": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"harness\": {\n      \"kind\": \"active\",\n      \"declarations\": []\n    }\n  }\n}\n"
+      }
+    },
+    "cases": [
+      {
+        "name": "reintroduced owned file",
+        "rule": "R1",
+        "expect": "reject",
+        "action": "write",
+        "path": "proof/corpus/Slang/Derivation/Steps.lean",
+        "text": "import Slang.Syntax\n\nnamespace Slang.Derivation.Steps\n\nend Slang.Derivation.Steps\n"
+      },
+      {
+        "name": "reintroduced import",
+        "rule": "R2",
+        "expect": "reject",
+        "action": "append",
+        "path": "proof/corpus/Slang/Decode.lean",
+        "text": "import Slang.Derivation.Steps\n"
+      },
+      {
+        "name": "reintroduced lake root",
+        "rule": "R3",
+        "expect": "reject",
+        "action": "append",
+        "path": "proof/corpus/lakefile.lean",
+        "text": "  roots := #[`WordRefinement, `Slang.Derivation.Steps]\n"
+      },
+      {
+        "name": "reintroduced registry reference",
+        "rule": "R4",
+        "expect": "reject",
+        "action": "write",
+        "path": "tools/slang/zero_axioms.json",
+        "text": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"derivation\": {\n      \"kind\": \"active\",\n      \"audit_module\": \"Slang/Derivation/Audit.lean\",\n      \"declarations\": [\n        {\n          \"name\": \"Slang.Derivation.Steps.nat_add_zero\",\n          \"module\": \"Slang.Derivation.Steps\",\n          \"path\": \"proof/corpus/Slang/Derivation/Steps.lean\",\n          \"expected_type\": \"(0 : Nat) + 0 = 0\"\n        }\n      ]\n    }\n  }\n}\n"
+      },
+      {
+        "name": "reintroduced Run/Derives acceptance",
+        "rule": "R5",
+        "expect": "reject",
+        "action": "write",
+        "path": "tools/slang/trace_check.py",
+        "text": "PHASE_MODULES = {\"decoder\": \"Slang.Derivation.Decode\"}\n\n\ndef check_witness_types(node):\n    return \"DecodeTrace.Run\" in node or \"Derives\" in node\n"
+      },
+      {
+        "name": "clean tree accepted",
+        "rule": "",
+        "expect": "accept",
+        "action": "none",
+        "path": "",
+        "text": ""
+      }
+    ]
+  }
+}
