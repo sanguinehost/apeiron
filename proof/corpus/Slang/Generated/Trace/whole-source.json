@@ -5,7 +5,7 @@
   "artifacts": [
     {
       "path": "proof/corpus/Slang/Generated/Trace/WholeSource.lean",
-      "sha256": "ee2292d56c02de8715edbf99f42bbb8c7484295ba66eb964d0fbaf4a4b5da882",
+      "sha256": "84970932fe63d032f7ad88edbb445648e4b0295a537dc40c1e0edcf1921935a2",
       "kind": "generated"
     },
     {
@@ -53,6 +53,18 @@
     {
       "kind": "lemma",
       "name": "Slang.Derivation.Composition.lexing_chars_multibyte_wrong"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Generated.Trace.WholeSource.tokenize_prefix_run",
+      "witness": "Slang.Generated.Trace.WholeSource.tokenize_prefix_run",
+      "type": "Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes Slang.Generated.Trace.WholeSource.prefixSource)) Slang.Generated.Trace.WholeSource.prefixLexResult"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Generated.Trace.WholeSource.tokenize_prefix_sound",
+      "witness": "Slang.Generated.Trace.WholeSource.tokenize_prefix_sound",
+      "type": "Slang.Derivation.Lexing.evaluate (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes Slang.Generated.Trace.WholeSource.prefixSource)) = Slang.Generated.Trace.WholeSource.prefixLexResult"
     }
   ],
   "operations": [

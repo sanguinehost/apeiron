@@ -227,6 +227,16 @@ def render_derivation(paths: dict[str, str]) -> str:
 TRACE_DIR = REPO_ROOT / "proof/corpus/Slang/Generated/Trace"
 REGISTRY_PATH = REPO_ROOT / "tools/slang/zero_axioms.json"
 
+# Deepest concrete `Lexing.Run (.tokenize ...)` prefix of the real entry source
+# the flat `.ask` chain kernel-checks inside the 6 GiB lane.  The chain is
+# O(N^2) in the source length because every `Lexing.Request.lex` embeds the
+# remaining character suffix and the accumulated token list; measured, a
+# 1100-byte prefix kernel-checks and a 1150-byte prefix OOM-kills `lean` at the
+# 6 GiB cap, so 1100 is the deepest green bound.  `song/src/table/table.slang`
+# is 7171 bytes, so the full `Lexing.Request.tokenize` is not reachable in the
+# lane and the decoder requests above it are not reached.
+TRACE_PREFIX_BYTES = 1100
+
 # Phase id -> generated namespace suffix and the derivation module whose
 # registered declarations become the report's lemma nodes. Kept in sync with
 # `tools/slang/trace_check.py` `PHASE_MODULES` / `PHASE_REQUESTS`.
@@ -318,21 +328,25 @@ def _is_alnum(char: str) -> bool:
     return _is_alpha(char) or _is_digit(char)
 
 
-def lex_source(data: bytes) -> list[tuple[str, object, int, int]]:
+def lex_chars_sim(data: bytes) -> tuple[list[tuple[str, object, int, int]], int, int]:
     """The real tokenizer's token stream, mirrored from `Decode.lexChars`.
 
     This is the untrusted producer's candidate token list; the kernel rejects
     the generated derivation unless it matches the real `Decode.lexChars` on the
-    same literal bytes.
+    same literal bytes.  Returns the tokens, the consumed byte position and the
+    number of recursive `lexChars` steps, so the emitted derivation can name the
+    exact `.ask` chain the real `body` takes.
     """
     chars = list(data.decode("utf-8"))
     tokens: list[tuple[str, object, int, int]] = []
     index = 0
     position = 0
+    steps = 0
     total = len(chars)
     while index < total:
         char = chars[index]
         width = _utf8_length(char)
+        steps += 1
         if _is_space(char):
             index += 1
             position += width
@@ -402,7 +416,11 @@ def lex_source(data: bytes) -> list[tuple[str, object, int, int]]:
         tokens.append((singles.get(char, "other"), char, position, position + width))
         index += 1
         position += width
-    return tokens
+    return tokens, position, steps
+
+
+def lex_source(data: bytes) -> list[tuple[str, object, int, int]]:
+    return lex_chars_sim(data)[0]
 
 
 def _lean_char(char: str) -> str:
@@ -985,11 +1003,43 @@ def _decoder_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
     ]
 
 
-def _whole_source_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+def _flat_lex_chain(steps: int, answer: str) -> str:
+    """The nested `.ask`/`.done` term for a concrete `lexChars` run.
+
+    ``body (.lex fuel chars pos tokens)`` is an ``.ask`` for every step until
+    ``chars`` is empty, so the derivation is ``steps + 1`` nested ``Derives.ask``
+    nodes whose innermost child is the base-case ``Derives.done``.  Every
+    continuation is ``Derives.done answer`` because the accumulated tokens make
+    every level of the chain answer the same final ``(tokens, consumed)``.
+    """
+    text = f"Slang.Derivation.Derives.done {answer}"
+    for _ in range(steps + 1):
+        text = (
+            "Slang.Derivation.Derives.ask\n"
+            f"      ({text})\n"
+            f"      (Slang.Derivation.Derives.done {answer})"
+        )
+    return text
+
+
+def _prefix_source_literal(data: bytes) -> str:
+    values = [f"sourceByte {value}" for value in data]
+    width = 8
+    rows = [
+        "    " + ", ".join(values[index : index + width])
+        + ("," if index + width < len(values) else "")
+        for index in range(0, len(values), width)
+    ]
+    return "  [\n" + "\n".join(rows) + "\n  ]"
+
+
+def _whole_source_witnesses(
+    ns: str, entry_bytes: bytes
+) -> list[tuple[str, str, list[str], str]]:
     run = "Slang.Derivation.Lexing.Run"
     req = "Slang.Derivation.Lexing.Request"
     fixture = "Slang.Derivation.DecodeTrace.multibyteBytes"
-    return [
+    witnesses: list[tuple[str, str, list[str], str]] = [
         (
             "",
             "lexing_chars_multibyte_run",
@@ -1004,9 +1054,60 @@ def _whole_source_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
         )
     ]
 
+    prefix = entry_bytes[:TRACE_PREFIX_BYTES]
+    prefix_tokens, prefix_consumed, prefix_steps = lex_chars_sim(prefix)
+    full = f"Slang.Generated.Trace.{ns}"
+    prefix_type = (
+        f"{run} ({req}.tokenize (Slang.Source.encodeBytes {full}.prefixSource))"
+        f" {full}.prefixLexResult"
+    )
+    witnesses.append(
+        (
+            "",
+            "tokenize_prefix_run",
+            [
+                "-- Concrete derivation for the first "
+                f"{len(prefix)} bytes of the real entry source.  The untrusted producer"
+                " mirrors",
+                "-- `Decode.lexChars`; the kernel rejects the term unless it is the real"
+                " `body` chain.",
+                f"/-- The first {len(prefix)} bytes of the real entry source. -/",
+                "def prefixSource : Slang.Source.SourceBytes :=",
+                _prefix_source_literal(prefix),
+                "",
+                "/-- The tokenizer's real answer for `prefixSource`. -/",
+                "def prefixTokens : List Slang.Decode.Token :=",
+                _token_literal(prefix_tokens),
+                "",
+                "def prefixLexResult : Slang.Decode.Result (List Slang.Decode.Token \u00d7 Nat) :=",
+                f"  .ok (prefixTokens, {prefix_consumed})",
+                "",
+                "theorem tokenize_prefix_run :",
+                f"    {run}",
+                "      (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes prefixSource))",
+                "      prefixLexResult :=",
+                "  Slang.Derivation.Derives.ask",
+                "    (Slang.Derivation.Derives.done _)",
+                "    (" + _flat_lex_chain(prefix_steps, "prefixLexResult") + ")",
+                "",
+                "/-- The real tokenizer's equation for the concrete prefix. -/",
+                "theorem tokenize_prefix_sound :",
+                "    Slang.Derivation.Lexing.evaluate",
+                "      (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes prefixSource)) =",
+                "      prefixLexResult :=",
+                "  Slang.Derivation.Lexing.Run.sound tokenize_prefix_run",
+            ],
+            prefix_type,
+        )
+    )
+    return witnesses
+
 
 def _phase_body(
-    phase: str, ns: str, tokens: list[tuple[str, object, int, int]]
+    phase: str,
+    ns: str,
+    tokens: list[tuple[str, object, int, int]],
+    entry_bytes: bytes,
 ) -> tuple[list[str], list[tuple[str, str, str]]]:
     if phase == "grammar":
         witnesses = _grammar_witnesses(ns)
@@ -1039,10 +1140,15 @@ def _phase_body(
             "",
         ]
     elif phase == "whole-source":
-        witnesses = _whole_source_witnesses(ns)
-        imports = ["Slang.Derivation.Composition"]
+        witnesses = _whole_source_witnesses(ns, entry_bytes)
+        imports = ["Slang.Derivation.Composition", "Slang.Derivation.Lexing"]
         with_tokens = None
-        extra = []
+        extra = [
+            "-- The concrete `.lex` chain needs more than the default elaboration budget.",
+            "set_option maxHeartbeats 0",
+            "",
+            *SOURCE_BYTE_HELPER,
+        ]
     else:  # pragma: no cover - registry is closed
         raise ValueError(f"unknown trace phase {phase}")
 
@@ -1083,7 +1189,7 @@ def trace_outputs(
     for phase, spec in TRACE_PHASES.items():
         ns = spec["ns"]
         module_path = TRACE_DIR / f"{ns}.lean"
-        lines, nodes = _phase_body(phase, ns, tokens)
+        lines, nodes = _phase_body(phase, ns, tokens, entry_bytes)
         module_text = "\n".join(lines)
         module_rel = module_path.relative_to(REPO_ROOT).as_posix()
         module_digest = hashlib.sha256(module_text.encode("utf-8")).hexdigest()
@@ -1115,6 +1221,38 @@ def trace_outputs(
                         "Slang.Derivation.DecodeTrace.multibyteBytes) "
                         "(Except.ok ['\u00e9'])"
                     )
+            # The concrete real-byte witnesses are not registered declarations,
+            # so they are appended as extra checked lemma nodes.  The first
+            # `TRACE_PREFIX_BYTES` bytes of the entry are the deepest flat
+            # `Lexing.Run (.tokenize ...)` chain that fits the kernel lane.
+            prefix_type = (
+                "Slang.Derivation.Lexing.Run "
+                "(Slang.Derivation.Lexing.Request.tokenize "
+                f"(Slang.Source.encodeBytes Slang.Generated.Trace.{ns}.prefixSource)) "
+                f"Slang.Generated.Trace.{ns}.prefixLexResult"
+            )
+            sound_type = (
+                "Slang.Derivation.Lexing.evaluate "
+                "(Slang.Derivation.Lexing.Request.tokenize "
+                f"(Slang.Source.encodeBytes Slang.Generated.Trace.{ns}.prefixSource)) = "
+                f"Slang.Generated.Trace.{ns}.prefixLexResult"
+            )
+            report_nodes.append(
+                {
+                    "kind": "lemma",
+                    "name": f"Slang.Generated.Trace.{ns}.tokenize_prefix_run",
+                    "witness": f"Slang.Generated.Trace.{ns}.tokenize_prefix_run",
+                    "type": prefix_type,
+                }
+            )
+            report_nodes.append(
+                {
+                    "kind": "lemma",
+                    "name": f"Slang.Generated.Trace.{ns}.tokenize_prefix_sound",
+                    "witness": f"Slang.Generated.Trace.{ns}.tokenize_prefix_sound",
+                    "type": sound_type,
+                }
+            )
         report = {
             "schema": 1,
             "phase": phase,
