@@ -58,4 +58,17 @@ lean_lib ApeironWordBridge where
     `Slang.Table.WriteWitness, `Slang.Table.TableTermination, `Slang.Table.TableResources,
     `Slang.Table.ResourceWitness,
     `Slang.Joint.SongTable, `Slang.Joint.SongTableControl,
-    `Slang.Joint.AccumulatorProfile]
+    `Slang.Joint.AccumulatorProfile,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk01,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk02,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk03,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk04,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk05,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk06,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk07,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk08,
+    `Slang.Generated.SourceWitness.Parsing.Table.Chunk09,
+    `Slang.Generated.SourceWitness.Parsing.Cell.Chunk01,
+    `Slang.Generated.SourceWitness.Parsing.Cell.Chunk02,
+    `Slang.Generated.SourceWitness.Parsing.Cell.Chunk03,
+    `Slang.Generated.SourceWitness.Parsing.Audit]

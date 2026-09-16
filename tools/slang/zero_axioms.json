@@ -6735,6 +6735,852 @@
           "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
         }
       ]
+    },
+    "parsing-witness": {
+      "kind": "active",
+      "wave": "W25",
+      "title": "Structural ScanSelected source witness",
+      "note": "Structural witnesses for the real table and cell programs' selected-declaration scan. The table witness is the `ScanSelected` obligation of `DecodeTokensDerivation`; the cell witness is the same structural scan over the cell program's own selected names. Each headline is an `ExprScanTop`, `FunctionScan`, `SelectedFunctionParse`, `ConstantLineParse` or top-level `ScanSelected` derivation over the source token list, and `ScanSelected.sound` links the top-level witness to `Decode.scanSelected`. The audit module also carries the runner's `nat_add_zero` mutation anchor.",
+      "audit_module": "Slang/Generated/SourceWitness/Parsing/Audit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Audit.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk01.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk02.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk01.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk02.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk03.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk04.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk05.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Audit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Generated.SourceWitness.Parsing.Audit",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Audit.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC18_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC18_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_1",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_1",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC22_exprscantop_8",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC22_exprscantop_8",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_2",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_2",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC28_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC28_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_3",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_3",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk06",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk06.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC34_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC34_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC38_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC38_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_5",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_5",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC42_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC42_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_6",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_6",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC46_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC46_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_7",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_7",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.tableC52_exprscantop_4",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.tableC52_exprscantop_4",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_8",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_constantlineparse_8",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_27",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_27",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_43",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_43",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_48",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_48",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_49",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_49",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_66",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_66",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_70",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_70",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_71",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_71",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_92",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_92",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_96",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_96",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_97",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_97",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_113",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_113",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_117",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_117",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_134",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_134",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_138",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_138",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_143",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_143",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_149",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_149",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_150",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_150",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_169",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_169",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_173",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_173",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_178",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_178",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_183",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_183",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_184",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_184",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_195",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_195",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_199",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_199",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_223",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_223",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_244",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_244",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_250",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_250",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_251",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_251",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_265",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_265",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_269",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_269",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_289",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_289",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_294",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_294",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_295",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_295",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_304",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_304",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_308",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_308",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_340",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_340",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_345",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_345",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_346",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_346",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_360",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_360",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_368",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_368",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_387",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_387",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_400",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_400",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_409",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_409",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_413",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_413",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_425",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_425",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_429",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_429",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk07",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk07.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_465",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_465",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_474",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_474",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_475",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_475",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_489",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_489",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_497",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_497",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_516",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_516",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_529",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_529",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_538",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_538",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_546",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_546",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_558",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_558",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_562",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_562",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_598",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_598",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_607",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_607",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_608",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_608",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_623",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_623",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_627",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_627",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_639",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_639",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_643",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_643",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_655",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_655",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_668",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_668",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_697",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_697",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_705",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_705",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_706",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_706",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_725",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_725",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_734",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_734",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_738",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_738",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_754",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_754",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_760",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_760",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_761",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_761",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_778",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_778",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_782",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_782",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_794",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_794",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_798",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_798",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_824",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_824",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_828",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_828",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_840",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_840",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_853",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_853",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_882",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_882",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_891",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_891",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_899",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_899",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_915",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_915",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_928",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_928",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk08",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk08.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_937",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_937",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_951",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_951",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_972",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_972",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_977",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_977",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_997",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_997",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1006",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1006",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1014",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1014",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1034",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_exprscantop_1034",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_1050",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_functionscan_1050",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_1051",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_selectedfunctionparse_1051",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Table.table_scanselected_1073",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Table.table_scanselected_1073",
+          "module": "Slang.Generated.SourceWitness.Parsing.Table.Chunk09",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Table/Chunk09.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_28",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_28",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_32",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_32",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_33",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_33",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_59",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_59",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_63",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_63",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_68",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_68",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_73",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_73",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_74",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_74",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_100",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_100",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_104",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_104",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_130",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_130",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_135",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_135",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_136",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_136",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_162",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_162",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_191",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_191",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_217",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_exprscantop_217",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_222",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_functionscan_222",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_223",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_selectedfunctionparse_223",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cellC474_exprscantop_8",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cellC474_exprscantop_8",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_constantlineparse_224",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_constantlineparse_224",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Parsing.Cell.cell_scanselected_236",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Parsing.Cell.cell_scanselected_236",
+          "module": "Slang.Generated.SourceWitness.Parsing.Cell.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
+        }
+      ]
     }
   }
 }
