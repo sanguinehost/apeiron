@@ -1,10 +1,12 @@
 # Selected Slang Source Semantics
 
-This specification fixes the source language fragment and execution closure used to interpret the
-selected table bodies in `/home/socol/Workspace/song/src/table/table.slang`. It is an obligation for
-later checked artifacts, not an executable semantics, proof, source-to-Lean refinement, or primitive
-correspondence result. `tools/slang/spec_check.py` checks this document's consistency and rejects a
-conditional `Slang.SourceAudit.source_binding` artifact in place of the frozen unconditional shape.
+This specification fixes the source language fragment, the exact selected bytes, and the re-rooted
+refinement contract used to interpret the selected table bodies in
+`/home/socol/Workspace/song/src/table/table.slang`. It is an obligation for later checked artifacts,
+not an executable semantics, proof, source-to-Lean refinement, or primitive correspondence result.
+`tools/slang/spec_check.py` checks this document's consistency as text; it does not read the working
+implementation headline. Implementation acceptance is the `tools/slang/refine.py`
+exact-declaration probe on the unconditional existential.
 
 Authority: [`docs/direction.md`](../direction.md#primitive-correspondence),
 [`joint-primitives.md`](joint-primitives.md), [`joint-table.md`](joint-table.md), and
@@ -22,19 +24,19 @@ Every later definition and theorem MUST retain all rows. <!-- OBLIGATIONS -->
 | O02 | Operators | Signed comparisons; exact bitwise `and`, `or`, `xor`; strict arithmetic evaluation; and rejection of reachable shifts, division, and remainder. |
 | O03 | Binding and sequencing | Function-local binding/rebinding, statement order, calls, recursion, and early-return propagation. |
 | O04 | Conditional evaluation | Lazy inline and statement conditionals; eager bitwise `and`/`or` with both operands evaluated. |
-| O05 | Memory | Initialized raw `memory[...]`, valid extents, exact loads/stores, and unchanged surrounding memory. |
+| O05 | Memory | Initialized raw `memory[...]`, valid extents, exact loads/stores, and unchanged surrounding memory; raw memory is decoded-fragment state, not the active refinement object. |
 | O06 | Termination | Well-founded source derivations for initialization and both bounded probes. |
 | O07 | Resources | Separate source counts for operations, probes, memory actions, calls, and maximum call-stack entries. |
-| O08 | Exceptional boundaries | Invalid backing memory and machine-stack exhaustion are separate outcomes, never encoded as table `-1`. |
+| O08 | Exceptional boundaries | Invalid backing memory, machine-stack exhaustion, and arena-capacity refusal are separate outcomes, never encoded as table `-1`. |
 | O09 | Timeout | Interpreter or checker timeout is inconclusive and proves neither success nor refusal. |
 | O10 | Source identity | Exact bytes, repository identity, imports, constants, declaration boundaries, and reachable call closure. |
 | O11 | Parsing fidelity | Grammar-derived parsing consumes every selected body; unsupported reachable constructs reject the binding. |
 | O12 | Non-substitutes | A digest alone, ISA records, sampled agreement, or a handwritten Lean algorithm with a matching filename proves no source semantics. |
-| O13 | Representation relation | `RepSong(memory, base, cap, default, O, h)` retains occupied keys `O` as well as extensional map `h`. |
-| O14 | State-aware read | `observeRead` distinguishes absence from a present value equal to `-1` or `default`. |
+| O13 | Representation relation | `RepMemo(store, h)` relates the executing memo store to `Apeiron.Table.HMap MemoKey MemoValue` through the pointwise invariant; the retired `RepSong` relation is not the active refinement. |
+| O14 | State-aware lookup | A memo hit returns the checked evidence-bearing value; absence is distinguished from a present value equal to the default; the retired `observeRead` relation is not the active refinement. |
 | O15 | Classification | Success/refusal follows checked execution plus the operation admission predicate, never `return != -1`. |
-| O16 | State and result | Every theorem preserves both the raw return word and the resulting memory state. |
-| O17 | Table refinement shape | Constructor establishment, read correctness, replacement-write correctness, exact admission, and termination. |
+| O16 | State and result | Every theorem preserves both the raw return word and the resulting state. |
+| O17 | Memo refinement shape | Constructor establishment, read correctness, replacement-write correctness, exact admission, and termination over the memo store, including `N = 0`, `ShardFull`, and the non-storage refusals with joint witnesses. |
 | O18 | Non-vacuity | Joint hypotheses have checked constructor, success, and refusal witnesses at the claimed types. |
 
 ## Selected source and identity
@@ -58,7 +60,8 @@ is Git `aeaf3baac434b2e3c01154d275bea65fdadc69bf`.
 Apeiron subdirectory. The selected file imports `src/kernel/mem/cell.slang`, which imports
 `src/kernel/std.slang`; `COORD_CEILING = 8796093022208` resolves from that closure. The selected table
 bodies access raw `memory[...]` in `tableSlotKey`, `tableSlotVal`, `tableSlotSet`, and
-`tableSlotValSet`; they do **not** call `cellGet` or `cellSet`.
+`tableSlotValSet`; they do **not** call `cellGet` or `cellSet`. Raw memory is decoded-fragment state:
+it is parsed and checked for source identity, and it is not the active refinement object.
 
 ## Declaration closure
 
@@ -175,10 +178,84 @@ force the same constant-name list to contain respectively nine and eight entries
 
 The concrete theorem MUST be a named proof term whose transitive `Lean.collectAxioms` set is empty.
 Whole-source `#guard` checks remain compiled regression checks; they are neither a `tested` grade nor
-source-binding acceptance. The concrete producer MUST emit `DecodeTrace.Run` step derivations for
-each recursive decoder call and continuation. `Slang.Derivation.sound` and
-`Slang.Derivation.call_sound` connect those derivations to the real decoder without global kernel
-normalization.
+source-binding acceptance. The re-rooted memo-store contract is the active refinement; generated
+decoder traces are not an acceptance condition. Implementation acceptance is the exact-declaration
+probe on the unconditional existential, not a shape check of a working headline.
+
+## Source arena and parsed records
+
+The binding input is an immutable source arena that owns the exact bytes and the bounded parsed
+records derived from them. A `SourceRef` is a file identity with a checked byte interval and a checked token interval, together with in-bounds and correspondence proofs that the interval lies in
+the owned bytes and that the record's tokens are exactly the tokens of that byte interval. No copied text, filename-only identity, unchecked offset or prefix parse. A reference that omits the bytes it names, that names a file without an interval, or that parses a prefix of a selected body is rejected. Full-body consumption and unsupported-syntax rejection are properties of this arena.
+
+## State and result arenas
+
+Execution state and results live in arenas of bounded handles with checked membership. Every handle
+is a checked index into its arena; a handle outside the current capacity is rejected. Records in
+these arenas are immutable once allocated. Allocation returns a fresh handle or an explicit arena-capacity refusal; it never reuses a live handle and never returns a partial record. The
+arena-capacity refusal is a non-storage outcome distinct from `ShardFull` and from a memory or stack
+fault.
+
+## Memo key and memo value
+
+A memo key is the complete computation identity: the `SourceRef`, the operation, the
+context/environment, the precedence, every recursion, token, byte, stack and result limit, every
+input state handle, `Sigma`, and the selected addressing face. A digest or coordinate alone is not key equality. Two computations that differ in any component of that identity are different keys.
+
+A memo value is a bounded result handle together with the resulting state handles, the consumed
+source interval, and checked evidence that the result denotes the specified transition. A value without evidence is not a memo hit. Storing or returning a result handle whose transition is not checked is rejected.
+
+## Addressing faces and Sigma
+
+Every executing signature carries `Sigma`. The three faces are distinguished:
+
+- elliptic exact reversible packing on an explicit admitted domain;
+- parabolic carried complete key, where a coordinate never replaces key comparison;
+- hyperbolic scramble/discard only on an explicit observation domain.
+
+One home shard; no fallback probing. A coordinate that is not exact on the admitted domain is
+refused, not silently widened.
+
+## Memo storage and fold
+
+The memo store is fixed-shard storage: 256 shards, capacity `N` per shard, and full-key comparison.
+There is no growth, fallback container, silent eviction or unrelated-key replacement. The canonical
+type is `Apeiron.Table.HMap MemoKey MemoValue`; reads, updates and builds denote the canonical
+`get`, `insertWith` and `build` definitions named under the canonical algebraic link.
+
+Execution is an ordered fold of checked transitions. A successful execution denotes the same ordered
+update stream under the canonical `build`; reordering, skipping or synthesizing a transition is forbidden. The fold records each checked transition in source order and exposes the resulting state
+handles and consumed intervals.
+
+## Pointwise invariant, success and refusal
+
+`RepMemo(store, h)` is the pointwise invariant: every occupied handle resolves to its memo key and
+memo value, the store's canonical meaning is `h`, and every read denotes the canonical `get`. The
+obligations include `N = 0`: construction and total default reads are valid, every insertion refuses,
+an empty fold succeeds, and any storage-requiring fold refuses without a partial table. `ShardFull`
+and the non-storage refusals are distinct, and each carries joint witnesses at the claimed types.
+
+## Canonical algebraic link
+
+Canonical targets resolve in `Apeiron/Table/Basic.lean` as the axiom-free definitions
+`Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`; the
+memo store's reads, updates and builds denote those same canonical `get`, `insertWith` and `build`
+definitions. The canonical theorems `Apeiron.Table.get_insertWith_self`,
+`Apeiron.Table.get_insertWith_ne`, `Apeiron.Trichotomy.AnyRing.ringMul_comm`, `ringMul_assoc` and
+`ringNormForm_mul` are attribution references only; the specializations this chain needs are
+re-proved locally, because those theorems carry `propext`/`Quot.sound` and are inadmissible as
+dependencies.
+
+The constructive algebraic link is `Slang.Refinement.wordDenote`, `Slang.Refinement.cellDenote`,
+`Slang.Refinement.cellDenote_mul` and `Slang.Refinement.cellNormForm_denote`, which match
+`Apeiron.Trichotomy.AnyRing.ringMul` and `Apeiron.Trichotomy.AnyRing.ringNormForm`. The link is
+constructive and locally supplied. `word_mul_denote` and any `ZMod` declaration MUST NOT enter the empty-cone chain; `ZMod`, `Finset`, `Quot`, `noncomputable` and `classical` are rejected there.
+
+The Slang source-refinement chain requires an **empty** axiom cone: every registered declaration,
+instance, witness and headline audits with `Lean.collectAxioms` empty
+(`proof/corpus/Slang/Audit/Empty.lean`, `tools/slang/zero_axioms.py`). A `#guard` is a compiled
+evaluator test, not a proof term and not acceptance: an obligation is `proved` only when a named
+declaration audits empty.
 
 ## Word and expression semantics
 
@@ -222,16 +299,9 @@ paired with an owned valid-coordinate set. A load succeeds only at an owned init
 an uninitialized or unowned load is a memory fault. A store succeeds at any owned coordinate,
 replaces exactly that coordinate, initializes it, and leaves every other coordinate unchanged; an
 owned store MAY initialize a previously uninitialized coordinate and is not a fault. An unowned load
-or store produces a memory fault outcome with the pre-fault state; it is not a word return.
-
-For a table call, `ValidExtent(memory, base, cap)` requires signed `base >= 0`, signed `cap > 0`, no
-word or coordinate overflow in `base + TABLE_STRIDE * cap`, the explicit premise
-`base + 2*cap <= COORD_CEILING`, and ownership of every coordinate in the
-half-open interval `[base, base + 2*cap)`. Table slots are exactly key at `base + 2*slot` and value at
-`base + 2*slot + 1`. Valid table states initialize both cells of every slot. The caller's memory below
-`base` and at or above `base + 2*cap` is frame state and MUST remain bit-for-bit unchanged by every
-selected table operation. `tableCapacityOk` checks only positive power-of-two capacity; it does not
-establish backing validity.
+or store produces a memory fault outcome with the pre-fault state; it is not a word return. This
+decoded-fragment memory semantics supports source binding; the active refinement object is the memo
+store, not this machine.
 
 ## Checked execution outcomes and admission
 
@@ -247,86 +317,39 @@ restricted by any fixed call depth. A stack-limited checker's claim that it find
 outcome requires an explicit premise that its stack capacity suffices for that derivation, and its
 failure to find one is not by itself a refusal.
 
-For each operation `op`, `Admit_op(input, memory)` is defined independently of the raw return:
-
-- init admission: positive power-of-two `cap` and `ValidExtent`; invalid capacity is the explicit
-  source refusal and performs no write; valid capacity with invalid backing faults separately;
-- read admission: valid capacity, valid initialized extent, nonreserved key, and an occupied matching
-  key reached before the first empty slot; a checked miss is an explicit read refusal/miss;
-- write admission: valid initialized extent, positive power-of-two capacity, key not `TABLE_EMPTY`,
-  `MERGE_SET <= merge <= MERGE_ACC`, and a probe reaches that key or an empty slot in at most `cap`
-  probes. An absent key with no empty slot is the explicit full-table refusal.
-
-`Classify_op` first requires a checked `returned(raw, memory')` derivation, then reports success iff
-`Admit_op` held, and otherwise reports only the operation's specified explicit refusal/miss. It never
-tests `raw != TABLE_EMPTY`: a present read and successful MAP/ACC write may return `-1`. Every explicit
-init/read/write refusal leaves the refused call's memory unchanged. Earlier successful calls remain
-visible. A `returned` execution outside the initialized-extent or other table-domain hypotheses is
-not automatically an explicit refusal: classification requires the table-domain hypotheses to hold
-and the executed branch to be the actual refusing branch.
-
-## Representation and observation
-
-`RepSong(memory, base, cap, default, occupied, h)` relates a valid initialized table extent to
-`h : Word -> Word` and a duplicate-free `occupied : List Word` (computable membership; list order is
-bookkeeping, not semantic key order). It requires:
-
-1. positive power-of-two `cap`, valid owned extent, and unchanged outside-frame ownership;
-2. every slot key is `TABLE_EMPTY` or belongs to `O`; occupied keys are unique and never
-   `TABLE_EMPTY`;
-3. every `k in O` occurs in its `tableSpread(k) and (cap - 1)` linear-probe sequence before the first
-   empty slot, and no key outside `O` occurs;
-4. an occupied slot for `k` stores `h(k)`; for `k` outside `O`, `h(k) = default`.
-
-The occupied-key set is essential: an extensional map alone cannot distinguish an unwritten key from
-a written key whose value equals `default`.
-
-`observeRead(memory, base, cap, default, occupied, h, key, raw)` is state-aware. Under `RepSong`, it is
-`present(h(key), raw)` when `key in occupied`, requiring `raw = h(key)`; otherwise it is
-`absent(default, raw)`, requiring `raw = TABLE_EMPTY`. The constructor/read/write theorems preserve
-both the raw return and resulting state, even where the canonical observation ignores the raw word.
-
-Canonical targets resolve in `Apeiron/Table/Basic.lean` as the axiom-free definitions
-`Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith`, `Apeiron.Table.build`, and in
-`Apeiron/Trichotomy/AnyRing.lean` as `Apeiron.Trichotomy.AnyRing.RingCell`, `ringMul`,
-`ringNormForm`. The canonical theorems `Apeiron.Table.get_insertWith_self`,
-`Apeiron.Table.get_insertWith_ne`, `Apeiron.Trichotomy.AnyRing.ringMul_comm`, `ringMul_assoc` and
-`ringNormForm_mul` are attribution references only; the specializations this chain needs are
-re-proved locally, because those theorems carry `propext`/`Quot.sound` and are inadmissible as
-dependencies.
-
-The Slang source-refinement chain requires an **empty** axiom cone: every registered declaration,
-instance, witness and headline audits with `Lean.collectAxioms` empty
-(`proof/corpus/Slang/Audit/Empty.lean`, `tools/slang/zero_axioms.py`). The source word ring is a
-constructive, locally supplied ring (`Slang.Refinement.WordRing`); `ZMod`, `Finset`, `Quot`,
-`noncomputable` and `classical` are rejected. A `#guard` is a compiled evaluator test, not a proof
-term and not acceptance: an obligation is `proved` only when a named declaration audits empty.
+For each operation `op`, `Admit_op(input, memory)` is defined independently of the raw return. The
+memo-store admission adds the arena-capacity refusal and the `ShardFull` refusal as separate explicit
+outcomes. `Classify_op` first requires a checked `returned(raw, memory')` derivation, then reports
+success iff `Admit_op` held, and otherwise reports only the operation's specified explicit
+refusal/miss. It never tests `raw != TABLE_EMPTY`: a present read and successful MAP/ACC write may
+return `-1`. Every explicit refusal leaves the refused call's memory unchanged. Earlier successful
+calls remain visible. A `returned` execution outside the initialized-extent or other table-domain
+hypotheses is not automatically an explicit refusal: classification requires the table-domain
+hypotheses to hold and the executed branch to be the actual refusing branch.
 
 ## Required theorem shapes
 
-The later checked package MUST provide these theorem shapes over decoded selected bodies, not copied
-algorithms:
+The later checked package MUST provide these theorem shapes over decoded selected bodies and the
+memo store, not copied algorithms:
 
 | Theorem obligation | Required conclusion |
 |---|---|
-| constructor establishment | From joint valid-capacity/backing hypotheses, checked `tableInit` returns raw `0`, establishes `RepSong(memory', base, cap, default, empty, const default)`, and performs exactly `2*cap` stores, setting keys to `TABLE_EMPTY` and values to `0`, preserving other coordinates and ownership; already-correct cells need not change value. |
-| read correctness | From `RepSong`, checked `tableGet` preserves memory and `observeRead` agrees with occupied membership and `Apeiron.Table.get h key`. |
-| replacement write | On admitted `MERGE_MAP`, checked `tableInsertWith` preserves `RepSong` for `O insert key` and `Apeiron.Table.insertWith (fun new old => new) key value h`, with exact raw return and post-memory. |
-| exact admission | Checked init/read/write success is equivalent to its stated admission predicate; each explicit refusing branch returns its raw word and unchanged memory; memory/stack faults are excluded, not recoded. |
-| termination and resources | `tableInitGo`, `tableFindSlotGo`, and `tableLookupSlotGo` terminate under their joint hypotheses, with exact trace-derived bounds and maximum source call depth. |
-| success witness | One concrete initialized extent, present/empty layout, key/value/merge, checked execution, and `RepSong` jointly inhabit a successful read and write premise. |
-| refusal witness | One concrete initialized full layout with an absent nonreserved key jointly inhabits the write-refusal premises and returns raw `-1` with unchanged state. |
-
-Replacement is the first canonical link. Accumulator semantics remain a later, separate specification:
-the source fresh-key ACC path stores `value`, while canonical `insertWith (+)` combines with `default`.
-No theorem may hide that mismatch by reducing the domain silently.
+| constructor establishment | From joint valid-capacity/backing hypotheses, checked construction establishes `RepMemo(store, const default)`, and `N = 0` construction and total default reads are valid. |
+| read correctness | From `RepMemo`, checked lookup preserves state and agrees with the memo key's complete identity and the canonical `get h key`. |
+| replacement write | On an admitted update, checked insertion preserves `RepMemo` for the extended key set and the canonical `insertWith`, with exact raw result and post-state. |
+| exact admission | Checked success is equivalent to its stated admission predicate; `ShardFull`, `N = 0`, arena-capacity and non-storage refusals are distinct; faults are excluded, not recoded. |
+| fold denotation | The ordered fold of checked transitions denotes the same ordered update stream under `build`; reordering, skipping or synthesizing is excluded. |
+| termination and resources | The bounded transition measures terminate under their joint hypotheses, with exact transition-derived counts. |
+| success witness | One concrete initialized store, present/empty layout, key/value, checked execution, and `RepMemo` jointly inhabit a successful read and write premise. |
+| refusal witness | One concrete initialized full layout with an absent key jointly inhabits the write-refusal premises and refuses without a partial table. |
 
 ## Termination and source resources
 
 Termination uses natural measures derived from decoded arguments: `cap - i` for `tableInitGo` and
 `cap - step` for each probe function, under `0 <= i, step <= cap`. Each recursive edge increments its
 cursor exactly once and the guard exits at the bound. The proof MUST connect these facts to the
-decoded call edge and wrapping-word side conditions; source annotations alone are not premises.
+decoded call edge and wrapping-word side conditions; source annotations alone are not premises. The
+memo store adds a bounded transition measure over its checked fold.
 
 Every checked execution carries a trace. Resource projections separately count arithmetic
 operations (including the wrapping multiply before `tableSpread` masking), comparisons, bitwise
@@ -337,6 +360,16 @@ external stream consumption: the selected execution allocates no arena or heap n
 writes no stream other than its owned memory. Counts are not converted into one scalar budget and do
 not imply a native machine-stack bound. Machine-stack exhaustion remains the separate outcome above.
 
+## Retired route
+
+The `Slang/Derivation/` `Layer`/`Derives` tower is retired. The `Slang/Generated/Trace/` generated
+decoder traces are retired. The `DecodeTrace.Run` representation is retired, the named proof DAG is
+retired, and the segment lemma is retired; none MUST be presented as the active architecture, and
+their generation is not an acceptance condition. `RepSong`, `observeRead`, the raw `memory[]`
+relation and `MERGE_MAP` are retired as the primary refinement and are replaced by `RepMemo`,
+state-aware memo lookup, the source arena and the memo store. Historical references to a retired
+route carry a retirement marker and are not acceptance.
+
 ## Not covered
 
 - No correspondence, Song-to-Lean refinement, theorem, or source execution is established here.
@@ -344,17 +377,17 @@ not imply a native machine-stack bound. Machine-stack exhaustion remains the sep
   correctness is covered.
 - No Rust evaluator is introduced and no runtime linkage to Rust or Aeneas is permitted.
 - No semantics is claimed for unreachable Slang constructs or nonselected table wrappers/tests.
-- `tools/slang/spec_check.py` checks text, identities, references, and mutation rejection only; it is
-  not the decoder, source machine, or refinement checker.
+- `tools/slang/spec_check.py` checks text, identities, references, contract statements and mutation
+  rejection only; it is not the decoder, source machine, or refinement checker.
 
 ## Checker
 
-`python3 tools/slang/spec_check.py --check` verifies every obligation and section, the exact
-unconditional `Slang.SourceAudit.source_binding` headline shape, the
-harness-manifest source hashes, imports, selected constants/functions, canonical declarations, and
-all staged plan rows. The manifest gates the selected execution/import set and the listed grammar,
-AST, bridge, and ISA evidence files; `song/src/front/expr.slang` is recorded here as parsing
-provenance and is not yet digest-gated. `--controls`
-and `--self-test` mutate in-memory copies and require each removed obligation, row, stage, gate,
-control, digest, symbol, theorem, and boundary statement to be rejected. The working tree is not
-mutated.
+`python3 tools/slang/spec_check.py --check` verifies this specification's obligations, sections,
+source identities, canonical references, re-rooted contract statements, retired-route markers and
+staged plan rows as text. It does not read the working `proof/corpus/Slang/SourceAudit.lean`
+declaration; implementation acceptance is the `tools/slang/refine.py` exact-declaration probe on the
+unconditional existential. The manifest gates the selected execution/import set and the listed
+grammar, AST, bridge, and ISA evidence files; `song/src/front/expr.slang` is recorded here as parsing
+provenance and is not yet digest-gated. `--controls` and `--self-test` mutate in-memory copies and
+require each removed obligation, row, stage, gate, control, digest, symbol, theorem, contract
+statement and retired-route reintroduction to be rejected. The working tree is not mutated.

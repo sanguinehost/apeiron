@@ -4,14 +4,22 @@
 Two concerns are split:
 
 * specification consistency (`validate`, `--check`): the obligations, source
-  consumption, canonical pins, bounded tasks, runnable gates, controls, resolved
-  references, and the required unconditional headline **shape as specified text**.
+  consumption, canonical pins, the re-rooted memo-store contract statements,
+  bounded tasks, runnable gates, controls, resolved references, retired-route
+  markers, and the required unconditional headline **shape as specified text**.
   It does not require the working `proof/corpus/Slang/SourceAudit.lean` theorem.
 * implementation acceptance: `refine.py`'s exact-declaration probe binds
   `Slang.SourceAudit.source_binding` to the unconditional type (`tools/slang/controls.json`,
   stage `source`) and fails before the declared source mutation. The retained
   `check_source_binding_artifact` classifier and its synthetic fixtures are
   exercised by `--self-test`; they never read the repository artifact.
+
+The re-rooted contract is the active route: an immutable source arena, bounded
+state/result arenas, a memo key of complete computation identity, an
+evidence-bearing memo value, `Sigma`-carrying addressing faces, a fixed-shard
+memo store refining `Apeiron.Table.HMap MemoKey MemoValue`, an ordered fold of
+checked transitions, and a constructive algebraic link. The retired route is
+rejected when a document presents it as active.
 """
 
 from __future__ import annotations
@@ -49,13 +57,20 @@ SECTIONS = (
     "Selected source and identity",
     "Declaration closure",
     "Grammar and source binding",
+    "Source arena and parsed records",
+    "State and result arenas",
+    "Memo key and memo value",
+    "Addressing faces and Sigma",
+    "Memo storage and fold",
+    "Pointwise invariant, success and refusal",
+    "Canonical algebraic link",
     "Word and expression semantics",
     "Local state, calls, and control",
     "Memory and extents",
     "Checked execution outcomes and admission",
-    "Representation and observation",
     "Required theorem shapes",
     "Termination and source resources",
+    "Retired route",
     "Not covered",
     "Checker",
 )
@@ -77,7 +92,7 @@ SOURCE_BINDING_SPEC = (
     "ClosedBinding entryBundle value",
     "MUST be removed, not renamed",
     "Whole-source `#guard` checks remain compiled regression checks",
-    "`DecodeTrace.Run` step derivations",
+    "The re-rooted memo-store contract is the active refinement",
 )
 
 SOURCE_BINDING_PLAN = (
@@ -87,9 +102,78 @@ SOURCE_BINDING_PLAN = (
     "contradictory and MUST NOT remain under any",
     "The corrected helper remains only as `source_binding_of_closed_binding`",
     "Replacing the unconditional target with the conditional helper MUST fail",
-    "audit target naming `source_binding_of_closed_binding` instead of `source_binding` is red",
     "Acceptance requires the unconditional `Slang.SourceAudit.source_binding` theorem",
-    "generated `DecodeTrace.Run` derivations for every recursive call and continuation",
+    "The active refinement is the memo store",
+)
+
+# The re-rooted contract, as specification and plan text. `--check` requires the
+# documents to state each element; a removed or weakened element is rejected.
+REROOTED_SPEC = (
+    "`SourceRef` is a file identity with a checked byte interval and a checked token interval",
+    "No copied text, filename-only identity, unchecked offset or prefix parse.",
+    "returns a fresh handle or an explicit arena-capacity refusal",
+    "complete computation identity",
+    "A digest or coordinate alone is not key equality.",
+    "bounded result handle",
+    "value without evidence is not a memo hit",
+    "executing signature carries `Sigma`",
+    "elliptic exact reversible packing",
+    "parabolic carried complete key",
+    "hyperbolic scramble/discard",
+    "One home shard; no fallback probing.",
+    "256 shards",
+    "full-key comparison",
+    "no growth, fallback container, silent eviction or unrelated-key replacement",
+    "`Apeiron.Table.HMap MemoKey MemoValue`",
+    "ordered fold of checked transitions",
+    "reordering, skipping or synthesizing a transition is forbidden",
+    "the non-storage refusals are distinct",
+    "`Slang.Refinement.wordDenote`",
+    "`Slang.Refinement.cellDenote`",
+    "`Slang.Refinement.cellDenote_mul`",
+    "`Slang.Refinement.cellNormForm_denote`",
+    "`word_mul_denote` and any `ZMod` declaration MUST NOT enter the empty-cone chain",
+)
+
+REROOTED_PLAN = (
+    "active refinement is the memo store",
+    "`Apeiron.Table.HMap MemoKey MemoValue`",
+    "complete computation identity",
+    "State and result arenas",
+    "the `tools/slang/refine.py` exact-declaration probe",
+    "red until the theorem exists",
+    "baseline green, mutation red, restored green",
+)
+
+# Tokens of the retired route. A document line that names one is rejected as
+# active unless it also carries a retirement marker. `retired` and `rejected`
+# are markers, so a retirement statement is admissible.
+RETIRED_ROUTE_TOKENS = (
+    "DecodeTrace.Run",  # retired trace-acceptance token
+    "Derives",  # retired Layer/Derives token
+    "Slang.Derivation",  # retired derivation module family
+    "Slang/Derivation/",  # retired derivation directory
+    "Slang.Generated.Trace",  # retired generated-trace module family
+    "Slang/Generated/Trace/",  # retired generated-trace directory
+    "named proof DAG",  # retired representation
+    "proof DAG",  # retired representation
+    "segment lemma",  # retired method
+    "segment-lemma",  # retired method
+    "Layer/Derives",  # retired tower
+)
+RETIREMENT_MARKERS = (
+    "retired",
+    "retire ",
+    "rejected",
+    "reject ",
+    "superseded",
+    "removed",
+    "remove ",
+    "no longer",
+    "not the active",
+    "historical",
+    "sunset",
+    "binned",
 )
 
 FORBIDDEN_SOURCE_BINDING_ACCEPTANCE = (
@@ -262,19 +346,21 @@ CANONICAL = {
     "get_insertWith_self": "theorem",
     "get_insertWith_ne": "theorem",
 }
-PHRASES = (
+SPEC_PHRASES = (
     "64-bit wrapping multiplication",
     "do **not** call `cellGet` or `cellSet`",
     "**NO checked table refusal encoding**",
     "timeout is inconclusive",
     "never `return != -1`",
-    "RepSong(memory, base, cap, default, O, h)",
-    "observeRead",
-    "raw return and resulting state",
+    "complete computation identity",
+    "bounded result handle",
+    "raw return word and the resulting state",
     "digest establishes byte equality only",
     "handwritten Lean algorithm",
     "complete brace-delimited bodies",
     "unsupported reachable construct MUST reject",
+)
+PLAN_PHRASES = (
     "FORBIDDEN: prove all Slang",
     "FORBIDDEN: implement a Rust evaluator",
 )
@@ -532,10 +618,10 @@ def check_markdown(inputs: Inputs) -> None:
             fail(f"obligation {oid}: empty obligation text")
         if not meaningful_text(cells[2]):
             fail(f"obligation {oid}: empty required checked result")
-    for phrase in PHRASES[:12]:
+    for phrase in SPEC_PHRASES:
         if phrase not in inputs.spec:
             fail(f"required statement missing: {phrase}")
-    for phrase in PHRASES[12:]:
+    for phrase in PLAN_PHRASES:
         if phrase not in inputs.plan:
             fail(f"required plan boundary missing: {phrase}")
     for statement in SOURCE_BINDING_SPEC:
@@ -544,12 +630,36 @@ def check_markdown(inputs: Inputs) -> None:
     for statement in SOURCE_BINDING_PLAN:
         if statement not in inputs.plan:
             fail(f"source binding plan missing: {statement}")
+    for statement in REROOTED_SPEC:
+        if statement not in inputs.spec:
+            fail(f"re-rooted contract statement missing from spec: {statement}")
+    for statement in REROOTED_PLAN:
+        if statement not in inputs.plan:
+            fail(f"re-rooted contract statement missing from plan: {statement}")
     for stale in FORBIDDEN_SOURCE_BINDING_ACCEPTANCE:
         if stale in inputs.spec or stale in inputs.plan:
             fail(f"conditional-only source binding acceptance is forbidden: {stale}")
     forbidden_budget = "fu" + "el"
     if re.search(rf"\b{forbidden_budget}\b", inputs.spec + inputs.plan, re.IGNORECASE):
         fail("generic scalar execution budget is forbidden in this specification route")
+
+
+def check_retired_route(inputs: Inputs) -> None:
+    """Reject a retired route presented as active without a retirement marker.
+
+    A line that names a retired token is admissible only when it also carries a
+    retirement marker; the re-rooted contract is the active route.
+    """
+    for label, text in (("spec", inputs.spec), ("plan", inputs.plan)):
+        for index, line in enumerate(text.splitlines(), 1):
+            named = [token for token in RETIRED_ROUTE_TOKENS if token in line]
+            if not named:
+                continue
+            if not any(marker in line.lower() for marker in RETIREMENT_MARKERS):
+                fail(
+                    f"{label} presents a retired route as active: {named[0]}: "
+                    f"line {index}: {line.strip()[:120]}"
+                )
 
 
 def check_sources(inputs: Inputs) -> None:
@@ -998,6 +1108,7 @@ def check_headline_shape(inputs: Inputs) -> None:
 def validate(inputs: Inputs) -> None:
     check_document_bytes(inputs)
     check_markdown(inputs)
+    check_retired_route(inputs)
     check_headline_shape(inputs)
     check_sources(inputs)
     check_canonical(inputs)
@@ -1088,14 +1199,18 @@ def controls(inputs: Inputs) -> list[Mutation]:
     for stage in STAGES:
         row = stage_row(inputs.plan, stage)
         cases.append((f"remove stage {stage}", sub_plan(row + "\n")))
-    for phrase in PHRASES[:12]:
+    for phrase in SPEC_PHRASES:
         cases.append((f"remove statement {phrase[:24]}", sub_spec_all(phrase, "REMOVED")))
-    for phrase in PHRASES[12:]:
+    for phrase in PLAN_PHRASES:
         cases.append((f"remove boundary {phrase}", sub_plan(phrase, "REMOVED")))
     for statement in SOURCE_BINDING_SPEC:
         cases.append((f"remove source contract {statement[:24]}", sub_spec_all(statement, "REMOVED")))
     for statement in SOURCE_BINDING_PLAN:
         cases.append((f"remove source plan {statement[:24]}", sub_plan_all(statement, "REMOVED")))
+    for statement in REROOTED_SPEC:
+        cases.append((f"remove re-rooted spec {statement[:24]}", sub_spec_all(statement, "REMOVED")))
+    for statement in REROOTED_PLAN:
+        cases.append((f"remove re-rooted plan {statement[:24]}", sub_plan_all(statement, "REMOVED")))
     for statement in SPEC_HEADLINE_SHAPE:
         cases.append((f"remove headline shape {statement[:24]}", sub_spec_all(statement, "REMOVED")))
     cases.extend(
@@ -1112,14 +1227,28 @@ def controls(inputs: Inputs) -> list[Mutation]:
             ("remove selected constant", source_sub("src/table/table.slang", "TABLE_PHI =", "TABLE_GONE =")),
             ("remove canonical theorem", lambda i: replace(i, corpus=i.corpus.replace("theorem get_insertWith_ne", "theorem gone", 1))),
             ("remove canonical namespace", lambda i: replace(i, corpus=i.corpus.replace("namespace Table", "namespace Gone", 1))),
-            ("remove W21 gate", sub_plan("`python3 tools/slang/source_semantics_check.py --check harness`", "MISSING")),
-            ("remove W27 control", sub_plan("preservation/admission MUST fail", "control omitted")),
+            ("remove W21 gate", sub_plan("`python3 tools/slang/spec_check.py --self-test`", "MISSING")),
+            ("remove W27 control", sub_plan("the faces audit MUST fail", "control omitted")),
             ("introduce forbidden generic budget term", sub_spec("Counts are not converted", ("fu" + "el") + " is allowed. Counts are not converted")),
             (
                 "reinstate conditional-only source headline",
                 sub_plan(
                     "The source headline remains open until the unconditional theorem",
                     "`source_binding` is a proved conditional headline. The source headline remains open until the unconditional theorem",
+                ),
+            ),
+            (
+                "reintroduce a retired route as active in the spec",
+                sub_spec(
+                    "## Retired route",
+                    "## Retired route\n\nThe active architecture emits DecodeTrace.Run derivations.",
+                ),
+            ),
+            (
+                "reintroduce a retired route as active in the plan",
+                sub_plan(
+                    "## Retired route",
+                    "## Retired route\n\nThe active architecture is the named proof DAG.",
                 ),
             ),
         ]
