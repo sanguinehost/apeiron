@@ -28,6 +28,7 @@ lean_lib ApeironWordBridge where
     `Slang.Derivation.Steps, `Slang.Derivation.Decode, `Slang.Derivation.Audit,
     `Slang.Derivation.Lexing, `Slang.Derivation.Grammar, `Slang.Derivation.Statements,
     `Slang.Derivation.Composition, `Slang.Derivation.Selection, `Slang.Derivation.Validation,
+    `Slang.Derivation.Utilities,
     `Slang.Syntax, `Slang.Decode,
     `Slang.DecodeTest, `Slang.Word, `Slang.Machine, `Slang.MachineAudit,
     `Slang.Generated.Table, `Slang.Generated.TableDerivation,
