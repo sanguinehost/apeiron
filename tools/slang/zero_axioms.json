@@ -4646,7 +4646,17 @@
         { "name": "Slang.Memo.readEntry_key", "expected_type": "type_of% @Slang.Memo.readEntry_key", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
         { "name": "Slang.Memo.read_dial_consistent", "expected_type": "type_of% @Slang.Memo.read_dial_consistent", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
         { "name": "Slang.Memo.read_denotes_get", "expected_type": "type_of% @Slang.Memo.read_denotes_get", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
-        { "name": "Slang.Memo.empty_rep", "expected_type": "type_of% @Slang.Memo.empty_rep", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" }
+        { "name": "Slang.Memo.empty_rep", "expected_type": "type_of% @Slang.Memo.empty_rep", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.inserted_reads_self", "expected_type": "type_of% @Slang.Memo.inserted_reads_self", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.inserted_reads_other", "expected_type": "type_of% @Slang.Memo.inserted_reads_other", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.insert_preserves_wellFormed", "expected_type": "type_of% @Slang.Memo.insert_preserves_wellFormed", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.insert_ok_rep", "expected_type": "type_of% @Slang.Memo.insert_ok_rep", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.insert_shardFull_iff", "expected_type": "type_of% @Slang.Memo.insert_shardFull_iff", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.insert_zero", "expected_type": "type_of% @Slang.Memo.insert_zero", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.StoreAudit.singletonStore", "expected_type": "type_of% @Slang.Memo.StoreAudit.singletonStore", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" },
+        { "name": "Slang.Memo.StoreAudit.control_full_shard_refuses_second", "expected_type": "type_of% @Slang.Memo.StoreAudit.control_full_shard_refuses_second", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" },
+        { "name": "Slang.Memo.StoreAudit.control_zero_refuses", "expected_type": "type_of% @Slang.Memo.StoreAudit.control_zero_refuses", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" },
+        { "name": "Slang.Memo.StoreAudit.control_unrelated_never_replaced", "expected_type": "type_of% @Slang.Memo.StoreAudit.control_unrelated_never_replaced", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" }
       ]
     },
     "memo-value": {
