@@ -5540,6 +5540,223 @@
         "path": "proof/corpus/Slang/Source/Parsing/SelectionAudit.lean"
       }
     ]
+  },
+    "parsing-expression": {
+    "kind": "active",
+    "wave": "W25",
+    "title": "Structural expression parser",
+    "note": "Structural primary, argument, binary-precedence and expression scans refining the mutually recursive Decode expression parser under the empty axiom cone.",
+    "audit_module": "Slang/Source/Parsing/ExpressionAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Parsing/Expression.lean",
+      "proof/corpus/Slang/Source/Parsing/ExpressionAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Parsing.OrdinaryBinaryGuard",
+        "expected_type": "Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.OrdinaryBinaryGuard.notIs",
+        "expected_type": "type_of% @Slang.Source.Parsing.OrdinaryBinaryGuard.notIs",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.OrdinaryBinaryGuard.isEnd",
+        "expected_type": "type_of% @Slang.Source.Parsing.OrdinaryBinaryGuard.isEnd",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.OrdinaryBinaryGuard.isNext",
+        "expected_type": "type_of% @Slang.Source.Parsing.OrdinaryBinaryGuard.isNext",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScan",
+        "expected_type": "Nat \u2192 Nat \u2192 List Slang.Decode.Token \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScan.step",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExprScan.step",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExprScan.sound",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.numeral",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.numeral",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.nameEnd",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.nameEnd",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.nameNext",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.nameNext",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.call",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.call",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.memory",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.memory",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.parenthesized",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.parenthesized",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.PrimaryScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.PrimaryScan.sound",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ArgsScan",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 List Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ArgsScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.ArgsScan.done",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ArgsScan.comma",
+        "expected_type": "type_of% @Slang.Source.Parsing.ArgsScan.comma",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ArgsScan.last",
+        "expected_type": "type_of% @Slang.Source.Parsing.ArgsScan.last",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ArgsScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ArgsScan.sound",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan",
+        "expected_type": "Nat \u2192 Nat \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.done",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.belowPrec",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.belowPrec",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.operatorStep",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.operatorStep",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.conditionalStop",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.conditionalStop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.conditional",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.conditional",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.stop",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.stop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.isNotStop",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.isNotStop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.isNot",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.isNot",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BinaryScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.BinaryScan.sound",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScanTop",
+        "expected_type": "List Slang.Decode.Token \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScanTop.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExprScanTop.intro",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExprScanTop.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExprScanTop.sound",
+        "module": "Slang.Source.Parsing.Expression",
+        "path": "proof/corpus/Slang/Source/Parsing/Expression.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Parsing.ExpressionAudit",
+        "path": "proof/corpus/Slang/Source/Parsing/ExpressionAudit.lean"
+      }
+    ]
   }
   }
 }
