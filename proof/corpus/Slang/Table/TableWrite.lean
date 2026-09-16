@@ -1470,7 +1470,12 @@ theorem tableInsertWith_map_execution (context : Context)
           afterSlot hslotOwned hslotKeyStore hslotValueStore hslotOther⟩
 
 /-- Compiled test: the real exported source decodes to the concrete `insertWithDecl` (name,
-parameters, body and span). Not acceptance; a `#guard` runs the compiled evaluator. -/
+parameters, body and span). Not acceptance; a `#guard` runs the compiled evaluator.
+
+Temporal O(n + m) for the table/std source byte lengths: `Decode.decodeClosure` runs two linear
+decodes plus one constant comparison and append, and the `functions.find?` scan is linear in the
+decoded declaration count. Spatial O(n + m) for the decoded character, token and declaration lists.
+Operations counted: source bytes decoded, decoded declarations scanned. -/
 def realWriteShapes : Bool :=
   match Decode.decodeClosure
       (encodeBytes Slang.Generated.TableDerivation.tableSource)

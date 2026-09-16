@@ -14,6 +14,12 @@ def tableEmpty : Word := Word.ofNat (wordModulus - 1)
 
 def coordCeiling : Nat := 8796093022208
 
+/-- `2 ^ exponent`, by structural recursion on the exponent.
+
+Temporal O(exponent): one `Nat` multiplication per recursive step, `exponent` steps. Spatial
+O(exponent): the result `2 ^ exponent` occupies `exponent + 1` bits, and the step
+`2 * powTwo exponent` consumes the recursive result, so the recursion is not tail-recursive and
+retains one frame per step. Operations counted: `Nat` multiplications, recursion depth. -/
 def powTwo : Nat → Nat
   | 0 => 1
   | exponent + 1 => 2 * powTwo exponent
@@ -112,6 +118,11 @@ theorem valueCoordinate_below_signBit (base cap : Word) (slot : Nat)
 def probeSlot (cap key : Word) (step : Nat) : Nat :=
   ((Word.tableSpread key).val + step) % cap.val
 
+/-- List membership by `Word` equality, stopping at the first match.
+
+Temporal O(n) for n = `occupied.length`: one `Word.decidableEq` comparison per element until a
+match, then the scan stops. Spatial O(1) stack: the `isFalse` branch returns `member tail key`
+directly, so the recursion is tail-recursive. Operations counted: `Word` equality comparisons. -/
 def member : List Word → Word → Bool
   | [], _ => false
   | head :: tail, key =>
@@ -119,6 +130,11 @@ def member : List Word → Word → Bool
       | isTrue _ => true
       | isFalse _ => member tail key
 
+/-- Add `key` to `occupied` when absent, otherwise return `occupied` unchanged.
+
+Temporal O(n) for n = `occupied.length`: one `member` scan, stopping at the first match. Spatial
+O(1) extra: the result aliases `occupied` on a match and otherwise allocates one cons cell.
+Operations counted: `Word` equality comparisons, cons cells allocated. -/
 def insertOccupied (occupied : List Word) (key : Word) : List Word :=
   if member occupied key then occupied else key :: occupied
 
