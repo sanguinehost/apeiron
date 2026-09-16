@@ -355,7 +355,7 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/cell.rs` | `8cfc787aa0c6fcec6b039398f54fd7388f7dec8f047b98f8379e7165c0069404` |
 | `src/exchange.rs` | `f488773c798c649ff59d39f7b24c4c17b6ff350fa9f7a3b4ccc81cfc479b7621` |
 | `src/carrier.rs` | `4fcdbeba5c2d25d10e0a22f2f328e214d0e9884bd9f886a25abd4b6741a8a8e8` |
-| `src/table.rs` | `83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a` |
+| `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
 
 The generated `ApeironWord.lean` is `958b1ab563c6fe660fa60ebc91f36f0aa5fb87bad26c5643395f5f5a5404ec49`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. These are the digests
