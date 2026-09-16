@@ -5757,6 +5757,265 @@
         "path": "proof/corpus/Slang/Source/Parsing/ExpressionAudit.lean"
       }
     ]
+  },
+    "parsing-statement": {
+    "kind": "active",
+    "wave": "W25",
+    "title": "Structural statement and function parsers",
+    "note": "Structural parameter, statement, block and function scans refining the Decode parsers under the empty axiom cone.",
+    "audit_module": "Slang/Source/Parsing/StatementAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Parsing/Statement.lean",
+      "proof/corpus/Slang/Source/Parsing/StatementAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Parsing.ParameterScan",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 List String \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ParameterScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.ParameterScan.done",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ParameterScan.comma",
+        "expected_type": "type_of% @Slang.Source.Parsing.ParameterScan.comma",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ParameterScan.last",
+        "expected_type": "type_of% @Slang.Source.Parsing.ParameterScan.last",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ParameterScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ParameterScan.sound",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken",
+        "expected_type": "Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.numeral",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.numeral",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.lparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.lparen",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.rparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.rparen",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.lbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.lbrace",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.rbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.rbrace",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.lbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.lbracket",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.rbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.rbracket",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.comma",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.comma",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.semi",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.semi",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.newline",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.newline",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.assign",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.assign",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.lt",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.lt",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.le",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.le",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.gt",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.gt",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.ge",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.ge",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionStatementToken.other",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionStatementToken.other",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 Slang.Stmt \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.return_",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.return_",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.ifNoElseEnd",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.ifNoElseEnd",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.ifNoElseNext",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.ifNoElseNext",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.ifElse",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.ifElse",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.store",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.store",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.memoryExpression",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.memoryExpression",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.bind",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.bind",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.nameExpression",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.nameExpression",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.otherExpression",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.otherExpression",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StmtScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.StmtScan.sound",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BlockScan",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 List Slang.Stmt \u2192 Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BlockScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.BlockScan.done",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BlockScan.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.BlockScan.next",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.BlockScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.BlockScan.sound",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionScan",
+        "expected_type": "String \u2192 Nat \u2192 List Slang.Decode.Token \u2192 Slang.FunctionDecl \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionScan.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionScan.intro",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionScan.sound",
+        "module": "Slang.Source.Parsing.Statement",
+        "path": "proof/corpus/Slang/Source/Parsing/Statement.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Parsing.StatementAudit",
+        "path": "proof/corpus/Slang/Source/Parsing/StatementAudit.lean"
+      }
+    ]
   }
   }
 }
