@@ -6,6 +6,7 @@ import Slang.Derivation.Statements
 import Slang.Derivation.Composition
 import Slang.Derivation.Selection
 import Slang.Derivation.Validation
+import Slang.Derivation.Utilities
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -124,3 +125,14 @@ end Slang.Derivation.DecodeTrace
 #audit_empty Slang.Derivation.Validation.expressionsNames_run : type_of% @Slang.Derivation.Validation.expressionsNames_run
 #audit_empty Slang.Derivation.Validation.statementsNames_run : type_of% @Slang.Derivation.Validation.statementsNames_run
 #audit_empty Slang.Derivation.Validation.resolveNames_run : type_of% @Slang.Derivation.Validation.resolveNames_run
+
+-- The list-utility derivation family over the real `Slang.Decode` helpers
+-- `takeWhile`, `skipComment` and `dropNewlines`. Each request is a `.done`
+-- leaf or one `.ask` chain of the real recursive call; the `_run`
+-- completeness lemmas cover the recursive constructors.
+#audit_empty Slang.Derivation.Utilities.evaluate : type_of% @Slang.Derivation.Utilities.evaluate
+#audit_empty Slang.Derivation.Utilities.body_eq : type_of% @Slang.Derivation.Utilities.body_eq
+#audit_empty Slang.Derivation.Utilities.Run.sound : type_of% @Slang.Derivation.Utilities.Run.sound
+#audit_empty Slang.Derivation.Utilities.takeWhile_run : type_of% @Slang.Derivation.Utilities.takeWhile_run
+#audit_empty Slang.Derivation.Utilities.skipComment_run : type_of% @Slang.Derivation.Utilities.skipComment_run
+#audit_empty Slang.Derivation.Utilities.dropNewlines_run : type_of% @Slang.Derivation.Utilities.dropNewlines_run

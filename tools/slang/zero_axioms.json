@@ -2529,7 +2529,8 @@
         "proof/corpus/Slang/Derivation/Statements.lean",
         "proof/corpus/Slang/Derivation/Composition.lean",
         "proof/corpus/Slang/Derivation/Selection.lean",
-        "proof/corpus/Slang/Derivation/Validation.lean"
+        "proof/corpus/Slang/Derivation/Validation.lean",
+        "proof/corpus/Slang/Derivation/Utilities.lean"
       ],
       "declarations": [
         {
@@ -2915,6 +2916,42 @@
           "expected_type": "type_of% @Slang.Derivation.Validation.resolveNames_run",
           "module": "Slang.Derivation.Validation",
           "path": "proof/corpus/Slang/Derivation/Validation.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.evaluate",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.evaluate",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.body_eq",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.body_eq",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.Run.sound",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.Run.sound",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.takeWhile_run",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.takeWhile_run",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.skipComment_run",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.skipComment_run",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
+        },
+        {
+          "name": "Slang.Derivation.Utilities.dropNewlines_run",
+          "expected_type": "type_of% @Slang.Derivation.Utilities.dropNewlines_run",
+          "module": "Slang.Derivation.Utilities",
+          "path": "proof/corpus/Slang/Derivation/Utilities.lean"
         },
         {
           "name": "Slang.Derivation.DecodeTrace.lexing_of_run",
