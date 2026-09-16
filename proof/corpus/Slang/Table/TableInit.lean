@@ -55,6 +55,10 @@ def InitializedEmptyLayout (memory : Memory) (base cap : Word) : Prop :=
   (∀ slot < cap.val, keyAt memory base slot = some tableEmpty) ∧
   ∀ slot < cap.val, valueAt memory base slot = some (Word.ofNat 0)
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, taking the `.store` branch or
+-- skipping the event. Spatial O(n) stack: `address :: storeAddresses rest` conses onto the recursive
+-- result, so the recursion is not tail-recursive; the returned list holds one address per store
+-- event, at most n cells. Operations counted: trace events inspected, cons cells allocated.
 def storeAddresses : Trace → List Word
   | [] => []
   | event :: rest =>
@@ -63,15 +67,25 @@ def storeAddresses : Trace → List Word
       | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .call _ _ =>
           storeAddresses rest
 
+-- Temporal O(fuel): one recursive step per fuel decrement, each step emitting two addresses.
+-- Spatial O(fuel) stack: `... :: ... :: expectedInitStoresFuel ...` conses both addresses onto the
+-- recursive result, so the recursion is not tail-recursive; the returned list has 2 * fuel cells.
+-- Operations counted: `keyCoordinate`/`valueCoordinate` computations, cons cells allocated.
 def expectedInitStoresFuel (base : Word) : Nat → Nat → List Word
   | _, 0 => []
   | slot, fuel + 1 =>
       Word.ofNat (keyCoordinate base slot) ::
         Word.ofNat (valueCoordinate base slot) :: expectedInitStoresFuel base (slot + 1) fuel
 
+-- Temporal O(cap.val - i): delegates once to `expectedInitStoresFuel base i (cap.val - i)`, which
+-- takes `cap.val - i` steps. Spatial O(cap.val - i): that call's stack and its `2 * (cap.val - i)`
+-- cell result. Operations counted: as `expectedInitStoresFuel`.
 def expectedInitStoresFrom (base cap : Word) (i : Nat) : List Word :=
   expectedInitStoresFuel base i (cap.val - i)
 
+-- Temporal O(cap.val): delegates to `expectedInitStoresFrom base cap 0`, i.e. fuel `cap.val`.
+-- Spatial O(cap.val): that call's stack and its `2 * cap.val` cell result. Operations counted: as
+-- `expectedInitStoresFuel`.
 def expectedInitStores (base cap : Word) : List Word := expectedInitStoresFrom base cap 0
 
 def InInitSuffix (base cap : Word) (i coordinate : Nat) : Prop :=
