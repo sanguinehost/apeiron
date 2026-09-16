@@ -112,7 +112,7 @@ Aeneas reports `aeneas 505b6ca-dirty`. Existing const-repeat patches, not an unm
 
 | Artifact | SHA-256 |
 |---|---|
-| `src/table.rs` | `83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a` |
+| `src/table.rs` | `f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3` |
 | `src/merge.rs` | `7d4ce7656b38da200ba9c5265eca972e7cc475f133ae03efb6a1fa24c728c498` |
 | `tests/table.rs` | `177ff01a04bc731f2ff7ffe6a6e1845e156bfdd3a29de95dcbfd3ef5d7f1a207` |
 | `proof/extract/lib.rs` | `a2ecf3b1a01ca4b77fc575ff21254c0f1f3fe1e7fdc83532b110c996ab051f4e` |

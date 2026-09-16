@@ -5,7 +5,7 @@
     "root": "../sanguine-apeiron/proof",
     "git": "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f",
     "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f",
-    "apeiron_git": "2b5eda334e262f70f7c10ce567c8641c2396626d",
+    "apeiron_git": "9a805439640ff63b5a2028aeb887f50e31cf6351",
     "song_git": "47869e76f982cfa3085a8618a82b80463e22ef46",
     "sources": {
       "song/src/prover/ring/prover0.slang": "1a59bd3cb3417cce185c70926062d56b057618001a0f3eb8b3ecc867bc21fafb",
