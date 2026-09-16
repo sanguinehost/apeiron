@@ -6,6 +6,20 @@ representation and trust are in the [local boundary](kernel-boundary.md). Local 
 document owns the Apeiron execution sequence and its gates. It coordinates named cross-repo tasks
 but does not dispatch an entire repository, and those local gates stay owned there.
 
+## Canonical root and scope
+
+The canonical object is `Apeiron.Table.{HMap,get,insertWith,build}` and
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+bodies `word_mul_denote` and `word_norm_denote`; the dotted roots are `Apeiron.Table.HMap`,
+`Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`. Every executing face must
+refine the canonical `Apeiron.Table.insertWith` / `Apeiron.Table.build` object; anything not rooted
+in it is not accepted.
+
+The basis is O(1) at fixed N with bounded callbacks and nonconstant key length; reading a whole
+source stays at least linear in its bytes at fixed N. The rooting gate is
+`python3 tools/rooting/check.py --self-test`; `python3 tools/rooting/check.py --check` is red only
+on the binned routes until their retirement.
+
 ## Current status
 
 Extraction and the named word-kernel refinements are done at their stated scopes. `word_mul_denote`
@@ -67,33 +81,57 @@ cargo fmt --all -- --check
 cargo kani
 proof/regen.sh --check
 cd proof/corpus && lake build
+python3 tools/rooting/check.py --self-test
 ```
 
 `cargo kani` runs the bounded harnesses in `src/proofs.rs` (`cfg(kani)`); no feature is needed.
 `proof/regen.sh` requires the pinned Aeneas/Charon under `target/aeneas/` or `AENEAS_HOME`. Tool pins
 and the archive checksum are in [proof/README.md](../proof/README.md); record the versions a run
-actually used rather than citing a pin from memory.
+actually used rather than citing a pin from memory. `python3 tools/rooting/check.py --self-test`
+exercises the canonical-rooting rejection paths; `--check` is red only on the binned routes until
+their retirement.
 
 ## Barrier order
 
-1. Storage: S1–S8 are closed at the explicit callback-law and no-performance-claim scope.
-2. Integration: S7 on one source/tool identity.
-3. Correspondence: use the checked `Joint.WordBridge` carrier/map transport to close the Song source
-   binding and R2/T3 composite before
-   any larger vertical implementation.
-4. An Apeiron barrier is a necessary component of joint readiness, not sufficient: the Song
+1. **Gate repair.** Restore the rejecting gates and run the canonical-rooting gate
+   `python3 tools/rooting/check.py --self-test`. Gate repair and the canonical-root acceptance
+   below precede any producer, generator, source-translation, proof-producing generation or
+   derivation work.
+2. **Canonical-root acceptance.** Every executing face is accepted only when it is rooted in
+   `Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`,
+   and in `Apeiron.Trichotomy.AnyRing.RingCell`, `ringMul` and `ringNormForm`, with the extracted
+   `Cell<i64>` word bodies `word_mul_denote` and `word_norm_denote`. Anything not rooted in it is
+   not accepted.
+3. **Retire the rejected route.** The binned `proof/corpus/Slang/Derivation/` tower and the binned
+   `Slang/Generated/Trace/` outputs are unrooted; the `Run`/`Derives` acceptance in the binned
+   `tools/slang/trace_check.py` is unrooted. They are binned and re-rooted, not extended. The
+   retired `DecodeTrace.Run`/`Derives` trace representation, the retired named proof DAG and the
+   retired segment lemma are historical and are not the active architecture.
+4. **Storage.** S1–S8 are closed at the explicit callback-law and no-performance-claim scope.
+5. **Integration.** S7 on one source/tool identity.
+6. **Correspondence.** Use the checked `Joint.WordBridge` carrier/map transport to close the Song
+   source binding and R2/T3 composite before any larger vertical implementation.
+7. **Apeiron barrier** is a necessary component of joint readiness, not sufficient: the Song
    foundation, the joint primitive correspondence and the named profiles are also required before
    the next large implementation opens.
 
-## Storage next wave
+## Outstanding obligations
 
-The physical `PhysicalInv` postcondition for successful build and the zero-capacity build
-characterization are proved at `table_build_physicalInv_of_buildAdmissibleN` and
-`wordBuildN_zero_ok_iff_empty`. The next bounded storage wave states whether to carry the
-generic-callback `Table<K,V,H,N>` loop contract. The word-instance constructor, `insert_with`
-preservation and exact build admission already hold at every sufficiently large `N`. The old
-`SafeTableRefinement` and `word_safe_table4_*` rows are superseded. No storage performance claim is
-made.
+Each item is open, not a completed result:
+
+- **Stable `Sigma`/address interface.** The interface that carries `Sigma` in every executing
+  signature and fixes `Coord` addressing per face is open; it must root in `Apeiron.Table.get` and
+  `Apeiron.Table.insertWith`.
+- **Hyperbolic observation domain.** The hyperbolic regime's admitted observation domain is open.
+- **Fixed-shard capacity sufficient for the selected source.** The capacity `N` at which the
+  selected source is admitted under `BuildAdmissibleN` is open.
+- **Constructive canonical roots.** Canonical `Apeiron.Table.HMap`, `Apeiron.Table.get`,
+  `Apeiron.Table.insertWith`, `Apeiron.Table.build`, `RingCell`, `ringMul` and `ringNormForm` are
+  open as constructive roots for every executing face.
+- **Source-fold re-root.** Re-rooting the fold onto canonical `Apeiron.Table.insertWith` and
+  `Apeiron.Table.build` is open.
+- **Audited cross-revision equivalence artifact.** The audited cross-revision equivalence between
+  the fold lineage and canonical `ringMul` is missing.
 
 ## Evidence labels
 

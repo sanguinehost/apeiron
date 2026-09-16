@@ -6,6 +6,47 @@ them. Local authority: the fixed-shard `Table` representation, its canonical `Re
 translation/trust inventory and the kernel scope below are owned here. The programme authority is
 `docs/direction.md`; the execution sequence is in the [operator handoff](flash-handoff.md).
 
+## Canonical object and executing root
+
+The canonical object is `Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith` and
+`Apeiron.Table.build`, together with `Apeiron.Trichotomy.AnyRing.RingCell`,
+`Apeiron.Trichotomy.AnyRing.ringMul` and `Apeiron.Trichotomy.AnyRing.ringNormForm`. The extracted
+`Cell<i64>` word bodies are `word_mul_denote` and `word_norm_denote`.
+
+The basis is `R[x]/(x^2 - sigma)`: `Cell<R>` with `Sigma` as a value in every executing signature,
+`Coord` addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard,
+`ShardFull` refusal, `N = 0` refusal, no probing). Every executing face refines the canonical
+`Apeiron.Table.HMap` object; a face that names it only by path, namespace or import is not rooted.
+
+## Layer separation
+
+The following layers are distinct; none silently stands for another:
+
+- Canonical semantics: `HMap`, `get`, `insertWith`, `build`.
+- Face-specific key interpretation: elliptic exact packing, parabolic carried key, hyperbolic
+  scramble/discard, each addressed by `Coord` per face.
+- Fixed-shard admission: `ShardFull` and `N = 0` refusal, one home shard, no probing.
+- The source-checker's memo store.
+- Song's represented storage.
+
+A result at one layer does not transfer to another without its own refinement.
+
+## O(1) at fixed N
+
+The O(1) qualifier is the parameter boundary: fixed N, bounded callbacks and nonconstant key length
+bound the table. Reading a whole source remains at least linear in its bytes at fixed N, so
+constant-time table operations at fixed N do not imply constant-time whole-source checking or
+constant-size proof terms.
+
+## Fold crossover
+
+`HashTrinity/Core.lean` and `Song/Table.lean` carry the predecessor `insertWith`, `build` and
+ordered build fold; `hashtrinity/src/algebra.rs` supplies the predecessor `Coord`, `CoordInv`,
+`Stored` and `Regen`, folded multiplication and the four merges. That lineage crosses into the
+canonical `Apeiron.Table` and `Apeiron.Trichotomy.AnyRing.ringMul`. An audited cross-revision
+equivalence artifact is missing, so no byte-hash-equals-`ringMul` claim and no arbitrary-merge
+classification is made.
+
 ## The executing representation
 
 One type: `apeiron::Table<K, V, H, const N: usize = 16>`, defined in `src/table.rs`; no aliases or
