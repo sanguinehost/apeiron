@@ -954,6 +954,8 @@ mod harnesses {
     impl<K: Eq, V, H: Home<K>, const SHARDS: usize, const SLOTS: usize>
         MiniTable<K, V, H, SHARDS, SLOTS>
     {
+        // Temporal O(SLOTS): one shard lookup (O(1)) then `find_slots`'s scan of the shard's
+        // SLOTS slots. Spatial O(1): a borrow of the inline shard, no allocation.
         fn find(&self, shard: usize, key: &K) -> Option<usize> {
             if let Some(slots) = &self.shards[shard] {
                 return Self::find_slots(slots, key);
@@ -961,6 +963,9 @@ mod harnesses {
             None
         }
 
+        // Temporal O(SLOTS): at most SLOTS `Eq` comparisons, one per occupied slot, and O(1)
+        // other work; the `while` advances `i` by one until it reaches SLOTS or returns.
+        // Spatial O(1): index arithmetic on the borrowed slot array, no allocation.
         fn find_slots(slots: &[Option<(K, V)>; SLOTS], key: &K) -> Option<usize> {
             let mut i = 0;
             while i < SLOTS {
@@ -974,6 +979,8 @@ mod harnesses {
             None
         }
 
+        // Temporal O(SLOTS): one `shard_index` (O(1)) then a `find_slots` scan of the home
+        // shard. Spatial O(1): the result is a borrow, not a copy.
         fn get(&self, key: &K) -> &V {
             let shard = self.shard_index(key);
             if let Some(i) = self.find(shard, key) {
@@ -990,6 +997,9 @@ mod harnesses {
     impl<K: Eq, V: Clone, H: Home<K>, const SHARDS: usize, const SLOTS: usize>
         MiniTable<K, V, H, SHARDS, SLOTS>
     {
+        // Temporal O(SLOTS): one `find_slots` scan, then, on an absent key, one linear vacant-slot
+        // scan of the home shard (SLOTS slots), each step O(1) apart from the caller's
+        // `merge`/`clone`. Spatial O(1) of its own; the shard is stored inline, nothing allocated.
         fn insert_with<F: Merge<V>>(
             &mut self,
             merge: &F,
