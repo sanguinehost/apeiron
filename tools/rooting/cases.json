@@ -1,0 +1,375 @@
+{
+  "schema": 1,
+  "note": "Data for tools/rooting/check.py, the rejecting gate for the canonical-rooting directive. The rule vocabulary below parameterises every rejection; the self_test block carries in-repo-independent synthetic fixtures so --self-test and --controls need no network, Lean or Rust build. The governing_documents and source_roots are the --check scan surface. Retired routes are listed with the path prefixes and tokens that must not be presented as the active architecture.",
+  "governing_documents": [
+    "AGENTS.md",
+    "docs/direction.md",
+    "docs/kernel-boundary.md",
+    "docs/flash-handoff.md",
+    "README.md",
+    "proof/README.md"
+  ],
+  "source_roots": [
+    "src",
+    "tools",
+    "proof/corpus/Slang"
+  ],
+  "source_excludes": [
+    ".git",
+    ".lake",
+    "target",
+    "__pycache__",
+    "node_modules"
+  ],
+  "source_file_excludes": [
+    "tools/rooting/cases.json",
+    "tools/rooting/check.py"
+  ],
+  "text_suffixes": [
+    ".md",
+    ".py",
+    ".lean",
+    ".json",
+    ".rs",
+    ".toml",
+    ".txt",
+    ".slang",
+    ".sh",
+    ".tsv"
+  ],
+  "canonical_roots": [
+    "Apeiron.Table.HMap",
+    "Apeiron.Table.get",
+    "Apeiron.Table.insertWith",
+    "Apeiron.Table.build",
+    "Apeiron.TableRefinement",
+    "ringMul",
+    "ringNormForm",
+    "RingCell",
+    "PhysicalInv",
+    "ReadRep",
+    "word_mul_denote",
+    "word_norm_denote",
+    "word_table_insert_denote",
+    "word_table_new_rep",
+    "word_table_build_get_acc",
+    "emptyWordTableN_physicalInv",
+    "physicalInv_insert_with_all",
+    "table_build_physicalInv_of_buildAdmissibleN",
+    "wordBuildN_zero_ok_iff_empty"
+  ],
+  "claim_terms": [
+    "refined to",
+    "is refined",
+    "executes",
+    "executing",
+    "denotes",
+    "implements",
+    "realizes",
+    "is an instance of"
+  ],
+  "import_only_markers": [
+    "importing",
+    "import ",
+    "re-export",
+    "type alias",
+    "aliased to",
+    "alias for",
+    "abbreviates",
+    "wrapper over",
+    "shim over"
+  ],
+  "canonical_reference_markers": [
+    "apeiron.table",
+    "apeiron.trichotomy",
+    "apeironword.lean",
+    "canonical corpus",
+    "apeiron/table/basic.lean",
+    "proof/corpus"
+  ],
+  "claim_negation_markers": [
+    "no",
+    "not",
+    "missing",
+    "open",
+    "without a canonical",
+    "does not",
+    "remains",
+    "refuses"
+  ],
+  "retirement_markers": [
+    "binned",
+    "retired",
+    "retire ",
+    "removed",
+    "remove ",
+    "superseded",
+    "historical",
+    "no longer",
+    "must be removed",
+    "not the active",
+    "not active",
+    "sunset"
+  ],
+  "retired_routes": [
+    {
+      "id": "derivation-dir",
+      "title": "Binned Slang derivation family",
+      "path_prefixes": [
+        "proof/corpus/Slang/Derivation/"
+      ],
+      "tokens": [
+        "Slang.Derivation",
+        "Slang/Derivation/"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": "generated-trace-dir",
+      "title": "Binned generated derivation traces",
+      "path_prefixes": [
+        "proof/corpus/Slang/Generated/Trace/"
+      ],
+      "tokens": [
+        "Slang.Generated.Trace",
+        "Slang/Generated/Trace/"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": "trace-acceptance",
+      "title": "Retired Run/Derives trace acceptance",
+      "path_prefixes": [],
+      "tokens": [
+        "DecodeTrace.Run",
+        "Derives",
+        "trace_check.py"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": "named-proof-dag",
+      "title": "Retired named proof DAG representation",
+      "path_prefixes": [],
+      "tokens": [
+        "named proof DAG",
+        "proof DAG"
+      ],
+      "case_sensitive": false
+    },
+    {
+      "id": "segment-lemma",
+      "title": "Retired segment-lemma representation",
+      "path_prefixes": [],
+      "tokens": [
+        "segment lemma",
+        "segment-lemma"
+      ],
+      "case_sensitive": false
+    }
+  ],
+  "complexity_terms": [
+    "O(1)",
+    "O(n)",
+    "O(log",
+    "constant time",
+    "constant-time",
+    "amortized",
+    "linear time",
+    "complexity"
+  ],
+  "complexity_qualifiers": [
+    "fixed n",
+    "fixed shard",
+    "fixed-line",
+    "bounded callback",
+    "nonconstant key",
+    "no performance claim",
+    "no complexity claim",
+    "not a measurement",
+    "not claimed",
+    "anchor",
+    "measured"
+  ],
+  "declaration_markers": [
+    "new primitive",
+    "new refinement",
+    "new root",
+    "introduce a primitive",
+    "introduces a primitive",
+    "adds a primitive",
+    "new canonical primitive",
+    "new executing root"
+  ],
+  "task_id_pattern": "\\bAPEIRON-[A-Z0-9]+-W[0-9]+-T[0-9]+\\b",
+  "task_scope_markers": [
+    "SCOPE:",
+    "scope:"
+  ],
+  "owned_files_markers": [
+    "Owned files",
+    "owned files",
+    "Owns:",
+    "owns files"
+  ],
+  "gate_markers": [
+    "GATE:",
+    "Gate:",
+    "gate:",
+    "Gate (cwd)",
+    "gate (cwd)"
+  ],
+  "control_markers": [
+    "CONTROL",
+    "control:",
+    "negative control",
+    "mutation",
+    "must fail",
+    "must reject"
+  ],
+  "rules": [
+    {
+      "id": "A",
+      "title": "Unrooted refinement/execution claim",
+      "description": "A refinement or execution claim that is import-only or names the canonical material only by path/namespace, with no executing canonical root symbol on the claim line or the line after it."
+    },
+    {
+      "id": "B",
+      "title": "Active retired route",
+      "description": "A retired route (binned derivation family, generated trace, Run/Derives acceptance, named proof DAG, segment lemma) present in the tree or referenced as active architecture without a retirement marker."
+    },
+    {
+      "id": "C",
+      "title": "New primitive/refinement without a canonical link",
+      "description": "A declaration introducing a new primitive, refinement or root that names no canonical definition or canonical root symbol."
+    },
+    {
+      "id": "D",
+      "title": "Unqualified complexity claim",
+      "description": "An O(1)/O(n)/constant-time/amortized/complexity claim stated without its qualifier (fixed N, bounded callbacks, nonconstant key length, or an explicit no-claim disclaimer)."
+    },
+    {
+      "id": "E",
+      "title": "Task/ownership declaration over budget or ungated",
+      "description": "An ownership declaration listing more than three files, or a task declaration that lacks a gate or a negative control."
+    },
+    {
+      "id": "S",
+      "title": "Scan surface incomplete",
+      "description": "A configured governing document or scan root is missing."
+    }
+  ],
+  "self_test": {
+    "baseline": {
+      "path": "docs/synthetic/rooting-good.md",
+      "text": "# Synthetic rooting fixture\n\nThe word executor is refined to the canonical `Apeiron.Table.insertWith` through\nthe executing root `word_table_insert_denote` whose body is extracted from the\nreal source.\n\nThe fixed-shard lookup is O(1) at fixed N with bounded callbacks and a\nnonconstant key length.\n\nNew primitive `word_table_insert` is linked to canonical\n`Apeiron.Table.insertWith`.\n\nOwned files: `a.py`, `b.py`, `c.py`.\nGATE: `python3 tools/rooting/check.py --check`.\nCONTROL: the mutation MUST fail.\n"
+    },
+    "cases": [
+      {
+        "name": "import-only refinement claim",
+        "rule": "A",
+        "expect": "reject",
+        "path": "docs/synthetic/a-import-only.md",
+        "text": "# Note\nThe map is refined to the canonical object by importing Apeiron.Table.Basic.\n"
+      },
+      {
+        "name": "canonical-reference-only refinement claim",
+        "rule": "A",
+        "expect": "reject",
+        "path": "docs/synthetic/a-ref-only.md",
+        "text": "# Note\nThe executor is refined to `Apeiron/Table/Basic.lean` without naming its body.\n"
+      },
+      {
+        "name": "rooted refinement claim accepted",
+        "rule": "A",
+        "expect": "accept",
+        "path": "docs/synthetic/a-rooted.md",
+        "text": "# Note\nThe word executor is refined to the canonical `Apeiron.Table.insertWith` through\n`word_table_insert_denote`.\n"
+      },
+      {
+        "name": "retired derivation path present",
+        "rule": "B",
+        "expect": "reject",
+        "path": "proof/corpus/Slang/Derivation/Synthetic.lean",
+        "text": "theorem ok : True := trivial\n"
+      },
+      {
+        "name": "retired trace token active",
+        "rule": "B",
+        "expect": "reject",
+        "path": "docs/synthetic/b-token.md",
+        "text": "# Architecture\nThe active architecture emits DecodeTrace.Run derivations for every call.\n"
+      },
+      {
+        "name": "named proof DAG active",
+        "rule": "B",
+        "expect": "reject",
+        "path": "docs/synthetic/b-dag.md",
+        "text": "# Architecture\nThe active architecture is the named proof DAG.\n"
+      },
+      {
+        "name": "segment lemma active",
+        "rule": "B",
+        "expect": "reject",
+        "path": "docs/synthetic/b-segment.md",
+        "text": "# Architecture\nEach step is justified by a segment lemma.\n"
+      },
+      {
+        "name": "retired route named as retired accepted",
+        "rule": "B",
+        "expect": "accept",
+        "path": "docs/synthetic/b-sunset.md",
+        "text": "# Sunset\nThe DecodeTrace.Run route is retired and MUST be removed.\n"
+      },
+      {
+        "name": "new primitive without canonical link",
+        "rule": "C",
+        "expect": "reject",
+        "path": "docs/synthetic/c-unlinked.md",
+        "text": "# Change\nNew primitive `frobnicate` is added with no canonical link.\n"
+      },
+      {
+        "name": "new primitive with canonical link accepted",
+        "rule": "C",
+        "expect": "accept",
+        "path": "docs/synthetic/c-linked.md",
+        "text": "# Change\nNew primitive `word_table_insert` is linked to canonical\n`Apeiron.Table.insertWith`.\n"
+      },
+      {
+        "name": "unqualified O(1) claim",
+        "rule": "D",
+        "expect": "reject",
+        "path": "docs/synthetic/d-unqualified.md",
+        "text": "# Performance\nLookup is O(1) per key.\n"
+      },
+      {
+        "name": "qualified O(1) claim accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "docs/synthetic/d-qualified.md",
+        "text": "# Performance\nLookup is O(1) at fixed N with bounded callbacks.\n"
+      },
+      {
+        "name": "ownership exceeds three files",
+        "rule": "E",
+        "expect": "reject",
+        "path": "docs/synthetic/e-overbudget.md",
+        "text": "# Task\nOwned files: `a.py`, `b.py`, `c.py`, `d.py`.\nGATE: `python3 check.py`.\nCONTROL: mutation MUST fail.\n"
+      },
+      {
+        "name": "task lacks gate and control",
+        "rule": "E",
+        "expect": "reject",
+        "path": "docs/synthetic/e-ungated.md",
+        "text": "# Task\nAPEIRON-ROOT-W1-T2 SCOPE: owns the new root.\n"
+      },
+      {
+        "name": "task within budget accepted",
+        "rule": "E",
+        "expect": "accept",
+        "path": "docs/synthetic/e-gated.md",
+        "text": "# Task\nOwned files: `a.py`, `b.py`, `c.py`.\nGATE: `python3 tools/rooting/check.py --check`.\nCONTROL: mutation MUST fail.\n"
+      }
+    ]
+  }
+}
