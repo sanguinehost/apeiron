@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Fail-closed consistency checker for the selected Slang semantics specification."""
+"""Fail-closed consistency checker for the selected Slang semantics specification.
+
+Two concerns are split:
+
+* specification consistency (`validate`, `--check`): the obligations, source
+  consumption, canonical pins, bounded tasks, runnable gates, controls, resolved
+  references, and the required unconditional headline **shape as specified text**.
+  It does not require the working `proof/corpus/Slang/SourceAudit.lean` theorem.
+* implementation acceptance: `refine.py`'s exact-declaration probe binds
+  `Slang.SourceAudit.source_binding` to the unconditional type (`tools/slang/controls.json`,
+  stage `source`) and fails before the declared source mutation. The retained
+  `check_source_binding_artifact` classifier and its synthetic fixtures are
+  exercised by `--self-test`; they never read the repository artifact.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +33,6 @@ SONG = ROOT.parent / "song"
 CORPUS = ROOT.parent / "sanguine-apeiron" / "proof"
 SPEC_PATH = ROOT / "docs/spec/slang-source-semantics.md"
 PLAN_PATH = ROOT / "docs/plan/slang-source-refinement.md"
-SOURCE_AUDIT_PATH = ROOT / "proof/corpus/Slang/SourceAudit.lean"
 CANONICAL_MODULE = "Apeiron/Table/Basic.lean"
 SONG_REV = "aeaf3baac434b2e3c01154d275bea65fdadc69bf"
 CORPUS_REV = "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f"
@@ -83,6 +95,109 @@ SOURCE_BINDING_PLAN = (
 FORBIDDEN_SOURCE_BINDING_ACCEPTANCE = (
     "`source_binding` is a proved conditional headline",
     "The source stage is unblocked",
+)
+
+# The unconditional source-binding headline the specification freezes, as
+# specification text. `--check` requires the document to state this shape; it does
+# not require the working `proof/corpus/Slang/SourceAudit.lean` declaration.
+# Declaration acceptance is the `refine.py` exact-declaration probe: stage `source`
+# in `tools/slang/controls.json` binds `Slang.SourceAudit.source_binding` to the
+# unconditional type, so substituting the conditional
+# `source_binding_of_closed_binding` is rejected by that probe before the declared
+# TABLE_PHI source mutation (step 1) runs.
+SPEC_HEADLINE_SHAPE = (
+    "theorem source_binding :",
+    "∃ value : Decode.CertifiedDecoded",
+    "Decode.decodeClosure (encodeBytes tableSource) (encodeBytes stdSource) = .ok value",
+    "value.val.certificate.Valid",
+    "ExpectedSelectedSyntax value.val.program = true",
+    "ClosedBinding entryBundle value",
+)
+
+# Self-contained synthetic headline classifier. The full-name fixtures match the
+# frozen `Slang.SourceAudit.source_binding` type; `--self-test` classifies these and
+# never reads the repository artifact.
+UNCONDITIONAL_HEADLINE_FIXTURE = (
+    "theorem source_binding :\n"
+    "  ∃ value : Slang.Decode.CertifiedDecoded,\n"
+    "    Slang.Decode.decodeClosure "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value ∧\n"
+    "    Slang.Decode.Certificate.Valid value.val.certificate ∧\n"
+    "    Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧\n"
+    "    Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by\n"
+    "  exact ⟨decoded, certificate, selected, closed⟩\n"
+)
+CONDITIONAL_HELPER_FIXTURE = (
+    "theorem source_binding_of_closed_binding {value : Slang.Decode.CertifiedDecoded}\n"
+    "    (binding : Slang.Source.ClosedBinding "
+    "Slang.Generated.TableDerivation.entryBundle value)\n"
+    "    (selectedSyntax : Slang.SourceAudit.ExpectedSelectedSyntax "
+    "value.val.program = true) :\n"
+    "    Slang.Decode.decodeClosure "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value ∧\n"
+    "    Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by\n"
+    "  exact ⟨binding, selectedSyntax⟩\n"
+)
+PREFIX_WITNESS_FIXTURE = (
+    "theorem source_binding :\n"
+    "  ∃ value : Slang.Decode.CertifiedDecoded,\n"
+    "    Slang.Decode.decodeClosure "
+    "(Slang.Source.encodeBytes (List.take 4096 "
+    "Slang.Generated.TableDerivation.tableSource)) "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value ∧\n"
+    "    Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by\n"
+    "  exact witness\n"
+)
+EMPTY_WITNESS_FIXTURE = (
+    "theorem source_binding :\n"
+    "  ∃ value : Slang.Decode.CertifiedDecoded,\n"
+    "    Slang.Decode.decodeClosure (Slang.Source.encodeBytes []) "
+    "(Slang.Source.encodeBytes []) = Except.ok value ∧\n"
+    "    Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by\n"
+    "  exact witness\n"
+)
+FALLBACK_WITNESS_FIXTURE = (
+    "theorem source_binding :\n"
+    "  ∃ value : Slang.Decode.CertifiedDecoded,\n"
+    "    Slang.Decode.decodeClosure "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value ∧\n"
+    "    Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧\n"
+    "    value.val.program = Slang.Source.fallbackProgram ∧\n"
+    "    Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by\n"
+    "  exact witness\n"
+)
+GUARD_FIXTURE = (
+    "#guard Slang.Generated.TableDerivation.decodeAccepts "
+    "Slang.Generated.TableDerivation.tableSource\n"
+)
+UNCONDITIONAL_HEADLINE_REQUIRED = (
+    "∃ value : Slang.Decode.CertifiedDecoded",
+    "Slang.Decode.decodeClosure "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) "
+    "(Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = Except.ok value",
+    "Slang.Decode.Certificate.Valid value.val.certificate",
+    "Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true",
+    "Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value",
+)
+CONDITIONAL_HEADLINE_MARKERS = (
+    "source_binding_of_closed_binding",
+    "DecodeDerivation",
+    "ParsesClosure",
+    "→",
+    "->",
+)
+PREFIX_HEADLINE_WORDS = ("take", "drop")
+PREFIX_HEADLINE_SUBSTRINGS = ("prefix", "Prefix")
+EMPTY_FALLBACK_HEADLINE_MARKERS = (
+    "encodeBytes []",
+    "fallback",
+    "Fallback",
+    "defaultProgram",
+    "emptyProgram",
+    "emptySource",
 )
 
 # A gate is a shell command line. Every command segment after splitting on the
@@ -183,7 +298,6 @@ class Inputs:
     plan: str
     sources: dict[str, bytes]
     corpus: str
-    source_audit: str = ""
     corpus_rev: str = ""
     spec_bytes: bytes = b""
     plan_bytes: bytes = b""
@@ -265,7 +379,6 @@ def load() -> Inputs:
             plan=plan_bytes.decode("utf-8"),
             sources=raw,
             corpus=read_pinned_corpus_module(CANONICAL_MODULE),
-            source_audit=SOURCE_AUDIT_PATH.read_text(encoding="utf-8"),
             corpus_rev=corpus_dependency_revision(),
             spec_bytes=spec_bytes,
             plan_bytes=plan_bytes,
@@ -493,29 +606,71 @@ def check_sources(inputs: Inputs) -> None:
             fail(f"source identity row missing: song/{name}")
 
 
-def check_source_binding_artifact(inputs: Inputs) -> None:
-    """Reject the old implication even when its declaration and empty cone still check."""
-    match = re.search(
-        r"^theorem\s+source_binding\s*:\s*(.*?)\s*:=\s*by\b",
-        inputs.source_audit,
-        re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        fail("source binding artifact is not the unconditional headline")
-    headline = match.group(1)
-    required = (
-        "∃ value : Decode.CertifiedDecoded",
-        "Decode.decodeClosure",
-        "ExpectedSelectedSyntax value.val.program = true",
-        "Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value",
-    )
-    for statement in required:
-        if statement not in headline:
-            fail(f"source binding artifact missing unconditional conclusion: {statement}")
-    forbidden = ("DecodeDerivation", "Source.ParsesClosure", "→")
-    for statement in forbidden:
-        if statement in headline:
-            fail(f"source binding artifact retains a conditional premise: {statement}")
+HEADLINE_DECL = re.compile(
+    r"\btheorem\s+source_binding\b\s*:\s*(.*?)(?=:=\s*by\b|\btheorem\b|\Z)",
+    re.DOTALL,
+)
+
+
+def extract_source_binding_statement(text: str) -> str | None:
+    """The statement of an unconditional `theorem source_binding`, or None.
+
+    `theorem source_binding_of_closed_binding` is a different declaration: the
+    trailing `_` keeps `\\btheorem\\s+source_binding\\b` from matching it.
+    """
+    match = HEADLINE_DECL.search(strip_lean_comments(text))
+    return match.group(1) if match is not None else None
+
+
+def classify_source_binding_headline(text: str) -> str | None:
+    """Return a rejection reason for a candidate headline, or None to accept.
+
+    Self-contained: it classifies declaration text and reads no repository file.
+    It accepts only the unconditional existential over the full encoded table and
+    std sources and rejects a conditional helper, a prefix witness, an
+    empty-input or fallback-program witness, and a compiled `#guard`.
+    """
+    statement = extract_source_binding_statement(text)
+    if statement is None:
+        if re.search(r"\bsource_binding_of_closed_binding\b", text):
+            return (
+                "conditional helper `source_binding_of_closed_binding` is not the "
+                "unconditional headline"
+            )
+        return "no unconditional `theorem source_binding` declaration (a `#guard` is not a headline)"
+    normalized = re.sub(r"\s+", " ", statement).strip()
+    for marker in CONDITIONAL_HEADLINE_MARKERS:
+        if marker in normalized:
+            return f"conditional premise or helper in the headline: {marker}"
+    for marker in PREFIX_HEADLINE_WORDS:
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", normalized):
+            return f"witness covers a source prefix, not the full bytes: {marker}"
+    for marker in PREFIX_HEADLINE_SUBSTRINGS:
+        if marker in normalized:
+            return f"witness covers a source prefix, not the full bytes: {marker}"
+    for marker in EMPTY_FALLBACK_HEADLINE_MARKERS:
+        if marker in normalized:
+            return f"empty-input or fallback-program witness: {marker}"
+    for required in UNCONDITIONAL_HEADLINE_REQUIRED:
+        if required not in normalized:
+            return f"missing unconditional conclusion: {required}"
+    return None
+
+
+def check_source_binding_artifact(artifact: str) -> None:
+    """Reject a headline that is not the frozen unconditional existential shape.
+
+    Retained as the spec checker's artifact-shape check, but off the specification
+    consistency path: `validate`/`--check` validate the specification text only.
+    The implementation-acceptance gate is `refine.py`'s exact-declaration probe
+    (`tools/slang/controls.json`, stage `source`), which binds
+    `Slang.SourceAudit.source_binding` to the unconditional type and fails before
+    the declared TABLE_PHI source mutation (step 1) runs. `--self-test` exercises
+    this classifier on the synthetic fixtures above, never on the repository file.
+    """
+    reason = classify_source_binding_headline(artifact)
+    if reason is not None:
+        fail(f"source binding artifact is not the unconditional headline: {reason}")
 
 
 def canonical_references(text: str) -> set[str]:
@@ -826,11 +981,25 @@ def check_plan(inputs: Inputs) -> None:
         fail("stage integration order reversed")
 
 
+def check_headline_shape(inputs: Inputs) -> None:
+    """Require the specification to state the frozen unconditional headline shape.
+
+    This is specification consistency: the document must state the shape, and the
+    plan must declare the source-stage control (checked in `check_markdown` through
+    `SOURCE_BINDING_PLAN`). It does not require the working declaration in
+    `proof/corpus/Slang/SourceAudit.lean`; that is implementation acceptance, checked
+    by `refine.py`'s exact-declaration probe.
+    """
+    for statement in SPEC_HEADLINE_SHAPE:
+        if statement not in inputs.spec:
+            fail(f"unconditional source-binding headline shape missing from spec: {statement}")
+
+
 def validate(inputs: Inputs) -> None:
     check_document_bytes(inputs)
     check_markdown(inputs)
+    check_headline_shape(inputs)
     check_sources(inputs)
-    check_source_binding_artifact(inputs)
     check_canonical(inputs)
     check_plan(inputs)
     check_references(inputs)
@@ -924,9 +1093,11 @@ def controls(inputs: Inputs) -> list[Mutation]:
     for phrase in PHRASES[12:]:
         cases.append((f"remove boundary {phrase}", sub_plan(phrase, "REMOVED")))
     for statement in SOURCE_BINDING_SPEC:
-        cases.append((f"remove source contract {statement[:24]}", sub_spec(statement, "REMOVED")))
+        cases.append((f"remove source contract {statement[:24]}", sub_spec_all(statement, "REMOVED")))
     for statement in SOURCE_BINDING_PLAN:
         cases.append((f"remove source plan {statement[:24]}", sub_plan_all(statement, "REMOVED")))
+    for statement in SPEC_HEADLINE_SHAPE:
+        cases.append((f"remove headline shape {statement[:24]}", sub_spec_all(statement, "REMOVED")))
     cases.extend(
         [
             ("change selected source digest", sub_spec(next(iter(SOURCES.values())), "0" * 64)),
@@ -1190,6 +1361,42 @@ def run_controls(inputs: Inputs, verbose: bool) -> int:
     return len(cases)
 
 
+HEADLINE_SELF_TEST_REJECTIONS = (
+    ("substitute the conditional helper for the unconditional target", CONDITIONAL_HELPER_FIXTURE),
+    ("witness covering only a source prefix", PREFIX_WITNESS_FIXTURE),
+    ("empty-input witness", EMPTY_WITNESS_FIXTURE),
+    ("fallback-program witness", FALLBACK_WITNESS_FIXTURE),
+    ("compiled #guard with no theorem declaration", GUARD_FIXTURE),
+)
+
+
+def run_headline_self_test() -> int:
+    """Exercise the synthetic classifier without reading the repository artifact.
+
+    The source-stage control is `refine.py`'s exact-declaration probe over
+    `tools/slang/controls.json` stage `source`: it binds `Slang.SourceAudit.source_binding`
+    to the unconditional type, so a conditional `source_binding_of_closed_binding` is
+    rejected before the declared TABLE_PHI source mutation (step 1) runs. This
+    self-test demonstrates the same substitution is rejected at the headline-shape
+    gate, before any source mutation.
+    """
+    check_source_binding_artifact(UNCONDITIONAL_HEADLINE_FIXTURE)
+    rejected: list[str] = []
+    for label, fixture in HEADLINE_SELF_TEST_REJECTIONS:
+        try:
+            check_source_binding_artifact(fixture)
+        except CheckError:
+            rejected.append(label)
+        else:
+            fail(f"headline self-test fixture survived: {label}")
+    print(
+        "HEADLINE SELF-TEST PASS: accepted the unconditional existential; "
+        f"rejected {len(rejected)}/{len(HEADLINE_SELF_TEST_REJECTIONS)}: "
+        + "; ".join(rejected)
+    )
+    return len(rejected)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -1202,15 +1409,20 @@ def main() -> int:
         if args.check:
             validate(inputs)
             print(
-                f"CHECK PASS: {len(OBLIGATIONS)} obligations, {len(STAGES)} stages, "
-                f"{len(SOURCES)} sources, {len(CANONICAL)} canonical targets"
+                f"CHECK PASS: specification consistency only; {len(OBLIGATIONS)} obligations, "
+                f"{len(STAGES)} stages, {len(SOURCES)} sources, {len(CANONICAL)} canonical "
+                "targets, headline shape as specified text; the working theorem is not required"
             )
         elif args.controls:
             run_controls(inputs, True)
         else:
             count = run_controls(inputs, True)
             validate(inputs)
-            print(f"SELF-TEST PASS: baseline accepted; {count} mutations rejected")
+            rejected = run_headline_self_test()
+            print(
+                f"SELF-TEST PASS: baseline accepted; {count} mutations rejected; "
+                f"{rejected} headline fixtures rejected"
+            )
         return 0
     except CheckError as exc:
         print(f"SPEC CHECK FAIL: {exc}", file=sys.stderr)
