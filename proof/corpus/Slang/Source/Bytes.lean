@@ -13,6 +13,9 @@ abbrev SourceByte := Fin 256
 abbrev SourceBytes := List SourceByte
 
 /-- Pack source bytes without changing their values or order. -/
+-- Temporal O(n) for n = |bytes|: `List.map` applies `UInt8.ofFin` once per element and
+-- `List.toByteArray` pushes each mapped byte once; each step is O(1) and both loops close on the
+-- finite list. Spatial O(n): the n mapped cons cells plus the n-byte array.
 def encodeBytes (bytes : SourceBytes) : ByteArray :=
   (bytes.map UInt8.ofFin).toByteArray
 

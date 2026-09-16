@@ -77,6 +77,9 @@ theorem sound {source : SourceBytes} {tokens : List Token} {consumed : Nat}
 
 end ImportedCoordDerivation
 
+-- Temporal O(c) for c = |decoded.val.program.constants|: `Decode.appendImportedCoord` performs one
+-- `++ [coord]`, copying the c-cell constants list; `decoded.property` is reused. The `Valid`
+-- certificate bounds c, so the cost is O(1) on the decode path. Spatial O(c) for the copied list.
 def composeDecoded (decoded : CertifiedDecoded) (coord : ConstantDecl) : CertifiedDecoded :=
   Decode.appendImportedCoord decoded coord
 
@@ -95,6 +98,9 @@ theorem decodeDerivation_of_grammar {table std : SourceBytes} {tableTokens stdTo
     (composed : value = composeDecoded decoded coord) : DecodeDerivation table std value :=
   ⟨decoded, coord, tableDerivation.sound, stdDerivation.sound, coordValue, composed⟩
 
+-- Temporal O(c) for c = |decoded.val.program.constants| on the accepting branch: one `Nat.beq` test
+-- then `composeDecoded`'s O(c) list copy; the error branches return in O(1). Spatial O(c) for that
+-- copied constants list.
 private def composeImported (decoded : CertifiedDecoded) (coord : ConstantDecl) :
     Decode.Result CertifiedDecoded :=
   match coord.value with
