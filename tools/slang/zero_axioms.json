@@ -4659,6 +4659,31 @@
         { "name": "Slang.Memo.StoreAudit.control_unrelated_never_replaced", "expected_type": "type_of% @Slang.Memo.StoreAudit.control_unrelated_never_replaced", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" }
       ]
     },
+    "memo-witness": {
+      "kind": "active",
+      "wave": "memo-witness",
+      "title": "Joint memo-store non-vacuity witnesses",
+      "note": "Concrete constructor, default-read and zero-capacity refusal witnesses, plus successful insertion and present-read under an explicit checked transition premise.",
+      "audit_module": "Slang/Memo/WitnessAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Memo/Witness.lean",
+        "proof/corpus/Slang/Memo/WitnessAudit.lean"
+      ],
+      "declarations": [
+        { "name": "Slang.Memo.WitnessAudit.nat_add_zero", "expected_type": "(0 : Nat) + 0 = 0", "module": "Slang.Memo.WitnessAudit", "path": "proof/corpus/Slang/Memo/WitnessAudit.lean" },
+        { "name": "Slang.Memo.Witness.sources", "expected_type": "type_of% @Slang.Memo.Witness.sources", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.sourceRef", "expected_type": "type_of% @Slang.Memo.Witness.sourceRef", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.states", "expected_type": "type_of% @Slang.Memo.Witness.states", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.results", "expected_type": "type_of% @Slang.Memo.Witness.results", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.stateHandle", "expected_type": "type_of% @Slang.Memo.Witness.stateHandle", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.resultHandle", "expected_type": "type_of% @Slang.Memo.Witness.resultHandle", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.key", "expected_type": "type_of% @Slang.Memo.Witness.key", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.defaultValue", "expected_type": "type_of% @Slang.Memo.Witness.defaultValue", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.zeroStore", "expected_type": "type_of% @Slang.Memo.Witness.zeroStore", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.zero_constructor_read_refusal", "expected_type": "type_of% @Slang.Memo.Witness.zero_constructor_read_refusal", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" },
+        { "name": "Slang.Memo.Witness.success_of_transition", "expected_type": "type_of% @Slang.Memo.Witness.success_of_transition", "module": "Slang.Memo.Witness", "path": "proof/corpus/Slang/Memo/Witness.lean" }
+      ]
+    },
     "memo-value": {
       "kind": "active",
       "wave": "memo-value",
