@@ -4372,6 +4372,205 @@
           "path": "proof/corpus/Slang/Memo/KeyAudit.lean"
         }
       ]
+    },
+    "address": {
+      "kind": "active",
+      "wave": "address",
+      "title": "Face-correct addressing with sigma in every signature",
+      "note": "The address of a memo key by face: the elliptic packing `ellipticPack` with its inverse `ellipticUnpack` on the `.elliptic` domain, the parabolic linear coordinate `parabolicCoord`, the hyperbolic norm-form coordinate `hyperbolicCoord`, the face dispatcher `coord`, the fixed home shard `homeShard` and the admission check `checkInput`. The address is rooted in `Slang.Memo.MemoKey`, `Slang.Word` and the constructive `Slang.Refinement.{wordDenote,cellDenote,cellNormForm}` link to `Apeiron.Trichotomy.AnyRing.{ringMul,ringNormForm}`. The division and modulus facts are proved locally with an empty cone because the library's `Nat.div` and `Nat.mod` lemmas reach `propext`; `divGoFuelCongr` is the fuel-independence lemma. The rejecting fixtures refuse an out-of-domain elliptic cell and show that two hyperbolic keys with the same coordinate but different `limits` are unequal under `MemoKey.equal` and miss in a key-keyed lookup.",
+      "audit_module": "Slang/Address/FacesAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Address/Faces.lean",
+        "proof/corpus/Slang/Address/FacesAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Address.Coord",
+          "expected_type": "type_of% @Slang.Address.Coord",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.Shard",
+          "expected_type": "type_of% @Slang.Address.Shard",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.AddressRefusal",
+          "expected_type": "type_of% @Slang.Address.AddressRefusal",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.packBase",
+          "expected_type": "type_of% @Slang.Address.packBase",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.packBase_pos",
+          "expected_type": "type_of% @Slang.Address.packBase_pos",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.packBase_lt_wordModulus",
+          "expected_type": "type_of% @Slang.Address.packBase_lt_wordModulus",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.packLt",
+          "expected_type": "type_of% @Slang.Address.packLt",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.divGoFuelCongr",
+          "expected_type": "type_of% @Slang.Address.divGoFuelCongr",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.divEqSubDiv",
+          "expected_type": "type_of% @Slang.Address.divEqSubDiv",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.divSmall",
+          "expected_type": "type_of% @Slang.Address.divSmall",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.divMulAdd",
+          "expected_type": "type_of% @Slang.Address.divMulAdd",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.modMulAdd",
+          "expected_type": "type_of% @Slang.Address.modMulAdd",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.ellipticPack",
+          "expected_type": "type_of% @Slang.Address.ellipticPack",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.ellipticUnpack",
+          "expected_type": "type_of% @Slang.Address.ellipticUnpack",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.ellipticUnpack_pack",
+          "expected_type": "type_of% @Slang.Address.ellipticUnpack_pack",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.parabolicCoord",
+          "expected_type": "type_of% @Slang.Address.parabolicCoord",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.hyperbolicCoord",
+          "expected_type": "type_of% @Slang.Address.hyperbolicCoord",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.coord",
+          "expected_type": "type_of% @Slang.Address.coord",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.homeShard",
+          "expected_type": "type_of% @Slang.Address.homeShard",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.checkInput",
+          "expected_type": "type_of% @Slang.Address.checkInput",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.HyperbolicObservationDomain",
+          "expected_type": "type_of% @Slang.Address.HyperbolicObservationDomain",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.hyperbolic_observation_sound",
+          "expected_type": "type_of% @Slang.Address.hyperbolic_observation_sound",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.hyperbolicCoord_denotes_ringNormForm",
+          "expected_type": "type_of% @Slang.Address.hyperbolicCoord_denotes_ringNormForm",
+          "module": "Slang.Address",
+          "path": "proof/corpus/Slang/Address/Faces.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.checkInput_elliptic_out_of_domain",
+          "expected_type": "type_of% @Slang.Address.Audit.checkInput_elliptic_out_of_domain",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.lookupShape",
+          "expected_type": "type_of% @Slang.Address.Audit.lookupShape",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.lookupShape_singleton",
+          "expected_type": "type_of% @Slang.Address.Audit.lookupShape_singleton",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.hyperbolic_collision_same_coord",
+          "expected_type": "type_of% @Slang.Address.Audit.hyperbolic_collision_same_coord",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.hyperbolic_collision_equal_false",
+          "expected_type": "type_of% @Slang.Address.Audit.hyperbolic_collision_equal_false",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.hyperbolic_collision_lookup_miss",
+          "expected_type": "type_of% @Slang.Address.Audit.hyperbolic_collision_lookup_miss",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        },
+        {
+          "name": "Slang.Address.Audit.hyperbolic_collision_not_interchangeable",
+          "expected_type": "type_of% @Slang.Address.Audit.hyperbolic_collision_not_interchangeable",
+          "module": "Slang.Address.Audit",
+          "path": "proof/corpus/Slang/Address/FacesAudit.lean"
+        }
+      ]
     }
   }
 }
