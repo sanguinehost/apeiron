@@ -317,7 +317,17 @@ its grade (§5) and its command.
 - "The Rust set is green: `cargo test` 98, `cargo kani` 62/62, extraction fresh, `lake build` 1708
   jobs."
 - "The next unrun gate is `cd proof/corpus && lake build`."
-- "The evidence binds to the digests recorded in `proof/README.md`; the working tree matches them."
 - "Residual obligation: the bridge build, at grade `tested`."
 
-A finding resolves to a gate, a digest or a theorem. The evidence grades in §5 are the only ranking.
+An external or comparative claim ships with its source: retrieve the paper or repository locally
+first (arXiv, GitHub), read it, and cite the exact file, revision, section or theorem, left where the
+reader can open it.
+
+- "`lean-dojo/TorchLean@<rev>`, `NN/Proofs/<file>.lean`, `<theorem>`: the autograd statement this
+  refines."
+- "`Substrate/Ski/CombForcedSelector.lean:18` in the local corpus: the file's own caveat on the word
+  'forced'."
+- "Source not yet retrieved: the comparison is an `anchor`, not evidence."
+
+A citation is a pointer until the artifact is in hand and read (§5). A finding resolves to a gate, a
+digest, a theorem or a retrieved source.
