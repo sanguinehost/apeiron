@@ -307,3 +307,17 @@ first failed hypothesis, selects the model.
 - Do not commit, push, post externally, or modify another active workstream unless the user asks.
 - End every slice with: changed files, acceptance results (command and exit status), what is proved
   versus tested versus open, and the next bounded task.
+
+### 9.3 Assessing work
+
+Assess an artifact against its stated goal and its named gates. A limitation is an unrun gate with a
+path — a row in an exit table, a theorem not yet linked, a machine not yet measured — and it carries
+its grade (§5) and its command.
+
+- "The Rust set is green: `cargo test` 98, `cargo kani` 62/62, extraction fresh, `lake build` 1708
+  jobs."
+- "The next unrun gate is `cd proof/corpus && lake build`."
+- "The evidence binds to the digests recorded in `proof/README.md`; the working tree matches them."
+- "Residual obligation: the bridge build, at grade `tested`."
+
+A finding resolves to a gate, a digest or a theorem. The evidence grades in §5 are the only ranking.
