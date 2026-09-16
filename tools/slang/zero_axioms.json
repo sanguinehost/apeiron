@@ -4608,6 +4608,47 @@
         }
       ]
     },
+    "memo-store": {
+      "kind": "active",
+      "wave": "memo-store",
+      "title": "Fixed-home-shard memo store",
+      "note": "Bounded, fixed-home memo-store definitions audited with an empty axiom cone.",
+      "audit_module": "Slang/Memo/StoreAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Memo/Store.lean",
+        "proof/corpus/Slang/Memo/StoreAudit.lean"
+      ],
+      "declarations": [
+        { "name": "Slang.Memo.StoreAudit.nat_add_zero", "expected_type": "(0 : Nat) + 0 = 0", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" },
+        { "name": "Slang.Memo.MemoEntry", "expected_type": "type_of% @Slang.Memo.MemoEntry", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.MemoStore", "expected_type": "type_of% @Slang.Memo.MemoStore", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.empty", "expected_type": "type_of% @Slang.Memo.empty", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findKeySlot", "expected_type": "type_of% @Slang.Memo.findKeySlot", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findVacantSlot", "expected_type": "type_of% @Slang.Memo.findVacantSlot", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.writeSlot", "expected_type": "type_of% @Slang.Memo.writeSlot", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.readEntry?", "expected_type": "type_of% @Slang.Memo.readEntry?", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.readValue", "expected_type": "type_of% @Slang.Memo.readValue", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.denote", "expected_type": "type_of% @Slang.Memo.denote", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.WellFormed", "expected_type": "type_of% @Slang.Memo.WellFormed", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.RepMemo", "expected_type": "type_of% @Slang.Memo.RepMemo", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.InsertResult", "expected_type": "type_of% @Slang.Memo.InsertResult", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.insert", "expected_type": "type_of% @Slang.Memo.insert", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.HomeFull", "expected_type": "type_of% @Slang.Memo.HomeFull", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.update_same", "expected_type": "type_of% @Slang.Memo.update_same", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.update_other", "expected_type": "type_of% @Slang.Memo.update_other", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.writeSlot_same", "expected_type": "type_of% @Slang.Memo.writeSlot_same", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.writeSlot_other_slot", "expected_type": "type_of% @Slang.Memo.writeSlot_other_slot", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.writeSlot_other_shard", "expected_type": "type_of% @Slang.Memo.writeSlot_other_shard", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findKeySlot_some", "expected_type": "type_of% @Slang.Memo.findKeySlot_some", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findKeySlot_none_iff", "expected_type": "type_of% @Slang.Memo.findKeySlot_none_iff", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findVacantSlot_some", "expected_type": "type_of% @Slang.Memo.findVacantSlot_some", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.findVacantSlot_none_iff", "expected_type": "type_of% @Slang.Memo.findVacantSlot_none_iff", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.readEntry_key", "expected_type": "type_of% @Slang.Memo.readEntry_key", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.read_dial_consistent", "expected_type": "type_of% @Slang.Memo.read_dial_consistent", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.read_denotes_get", "expected_type": "type_of% @Slang.Memo.read_denotes_get", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" },
+        { "name": "Slang.Memo.empty_rep", "expected_type": "type_of% @Slang.Memo.empty_rep", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Store.lean" }
+      ]
+    },
     "memo-value": {
       "kind": "active",
       "wave": "memo-value",
