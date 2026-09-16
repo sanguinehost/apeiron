@@ -31,7 +31,13 @@ def probeLookupEmptyTrace (depth : Nat) (addr : Word) : Trace :=
 def probeMatchTrace (b : Bool) (depth : Nat) (addr : Word) : Trace :=
   probeBaseTrace b depth addr ++ [.comparison .eq]
 
-/-- The recursing probe: both tests fail and the cursor advances. -/
+/-- The recursing probe: both tests fail and the cursor advances.
+
+Temporal O(1): the appended head lists are fixed — `probeBaseTrace b depth addr` has 9 events and
+the two singleton lists have 1 each — so the three `List.append` recursions traverse 11 cons cells
+independent of `rest`; `rest` is the shared tail and is not traversed. Spatial O(|rest| + 11) for
+the returned trace: 11 new cons cells plus the shared `rest`, i.e. O(1) allocation beyond `rest`.
+Operations counted: list links traversed, cons cells allocated. -/
 def probeStepTrace (b : Bool) (depth : Nat) (addr : Word) (rest : Trace) : Trace :=
   probeBaseTrace b depth addr ++ ([.comparison .eq] ++ ([.arithmetic .add] ++ rest))
 
