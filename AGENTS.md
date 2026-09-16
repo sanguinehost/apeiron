@@ -235,6 +235,13 @@ python tools/call-census/audit_reports.py --raw-root /tmp/opencode/census-v2
 Tool pins and the archive checksum are in `proof/README.md`. Record the versions a run actually used;
 do not cite a pin from memory.
 
+Every Lean command runs bounded: under `systemd-run --user --scope -p MemoryMax=<cap>
+-p MemorySwapMax=0` with `LEAN_NUM_THREADS=1` and a `timeout`, serialized on
+`flock /tmp/opencode/apeiron-lane.lock`. `set_option maxHeartbeats 0`, `set_option maxRecDepth`
+raised past the package default, and any unbounded kernel reduction (for example `decide` over a whole
+source) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
+inconclusive, not a proof, and a job that exhausts the cap is a failure of the run, not a red gate.
+
 ## 7 · Metadata policy
 
 Some source files carry `//@ key: value` annotations inherited from the sibling tree. They are
@@ -258,6 +265,12 @@ descriptive only.
 - Do not narrate a plan code (`E1`, `Wave 2`) in a durable document. Describe the change in terms
   that resolve to the tree: paths, gate names, theorem names.
 - A number from a document is a hypothesis until the command is re-run.
+- **State per-function complexity where it is not O(1).** A function whose temporal cost or spatial
+  footprint is not O(1), or is not immediate from its type, carries a comment at its definition: the
+  temporal and spatial complexity, the measure they are counted in (comparisons, allocations, bytes,
+  words, bytes copied), and the derivation (the recurrence or loop and why it closes). A complexity
+  figure is a claim like any other: it names the recurrence or the command, never a bare big-O.
+  Trivial O(1) accessors, projections and constructors carry none.
 
 ## 9 · Agents and escalation
 
