@@ -9,15 +9,35 @@ open Slang Slang.Decode Slang.Source
 set_option autoImplicit false
 set_option warningAsError true
 
+private def sourceByte (value : Nat) : Slang.Source.SourceByte :=
+  ⟨value % 256, Nat.mod_lt value (Nat.zero_lt_succ 255)⟩
+
 /-- The exported bytes as source bytes, read by the compiled evaluator. -/
 def toSource (packed : ByteArray) : SourceBytes := packed.data.toList.map UInt8.toFin
 
-def tableSource : SourceBytes := toSource Slang.Generated.Table.tableBytes
-def cellSource : SourceBytes := toSource Slang.Generated.Table.cellBytes
-def stdSource : SourceBytes := toSource Slang.Generated.Table.stdBytes
+def tableSource : SourceBytes := Slang.Generated.Table.tableSource
+def cellSource : SourceBytes := Slang.Generated.Table.cellSource
+def stdSource : SourceBytes := Slang.Generated.Table.stdSource
 
-def entryPath : SourceBytes := toSource Slang.Generated.Table.entryPath.toUTF8
-def cellPath : SourceBytes := toSource Slang.Generated.Table.cellPath.toUTF8
+def entryPath : SourceBytes :=
+  [
+    sourceByte 115, sourceByte 114, sourceByte 99, sourceByte 47, sourceByte 116, sourceByte 97, sourceByte 98, sourceByte 108,
+    sourceByte 101, sourceByte 47, sourceByte 116, sourceByte 97, sourceByte 98, sourceByte 108, sourceByte 101, sourceByte 46,
+    sourceByte 115, sourceByte 108, sourceByte 97, sourceByte 110, sourceByte 103
+  ]
+def cellPath : SourceBytes :=
+  [
+    sourceByte 115, sourceByte 114, sourceByte 99, sourceByte 47, sourceByte 107, sourceByte 101, sourceByte 114, sourceByte 110,
+    sourceByte 101, sourceByte 108, sourceByte 47, sourceByte 109, sourceByte 101, sourceByte 109, sourceByte 47, sourceByte 99,
+    sourceByte 101, sourceByte 108, sourceByte 108, sourceByte 46, sourceByte 115, sourceByte 108, sourceByte 97, sourceByte 110,
+    sourceByte 103
+  ]
+def stdPath : SourceBytes :=
+  [
+    sourceByte 115, sourceByte 114, sourceByte 99, sourceByte 47, sourceByte 107, sourceByte 101, sourceByte 114, sourceByte 110,
+    sourceByte 101, sourceByte 108, sourceByte 47, sourceByte 115, sourceByte 116, sourceByte 100, sourceByte 46, sourceByte 115,
+    sourceByte 108, sourceByte 97, sourceByte 110, sourceByte 103
+  ]
 
 def entryBundle : SourceBundle :=
   { entry := entryPath
@@ -33,7 +53,7 @@ def decodeAccepts (source : SourceBytes) : Bool :=
 -- build, adds no declaration and no axiom. The real entry decodes, is selected-exact, has
 -- exactly its one declared import edge, and the bundle resolves cell and std.
 #guard importPaths tableSource == [cellPath]
-#guard importPaths cellSource == [toSource Slang.Generated.Table.stdPath.toUTF8]
+#guard importPaths cellSource == [stdPath]
 #guard decodeAccepts tableSource
 #guard selectedSourceExact tableSource
 #guard (entryBundle.fileBytes? cellPath).isSome
