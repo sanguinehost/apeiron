@@ -6546,6 +6546,84 @@
           "expected_type": "type_of% @Slang.Source.Parsing.NamesResolveDerivation.append",
           "module": "Slang.Source.Parsing.Validation",
           "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.append",
+          "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.append",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.DistinctDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.DistinctDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.ExpressionsCallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.StatementsCallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.FunctionCallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.CallsResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.CallsResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.ExpressionsNamesResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.NamesResolveDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.NamesResolveDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
         }
       ]
     },
