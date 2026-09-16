@@ -1,17 +1,36 @@
 {
   "profile": "APEIRON-PROGRAMME-W17-T1",
   "version": 2,
+  "canonical_object": {
+    "statement": "Every executing face in this profile roots in Apeiron.Table.HMap, Apeiron.Table.get, Apeiron.Table.insertWith and Apeiron.Table.build, together with Apeiron.Trichotomy.AnyRing.RingCell, Apeiron.Trichotomy.AnyRing.ringMul and Apeiron.Trichotomy.AnyRing.ringNormForm, with the extracted Cell<i64> word bodies word_mul_denote and word_norm_denote. A face that names the canonical object only by path, namespace or import is not rooted.",
+    "qualifier": "The O(1) qualifier is fixed N, bounded callbacks and nonconstant key length; reading a whole source remains at least linear in its bytes at fixed N, so constant-time table operations at fixed N do not imply constant-time whole-source checking or constant-size proof terms.",
+    "map_roots": [
+      {"name": "Apeiron.Table.HMap", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+      {"name": "Apeiron.Table.get", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+      {"name": "Apeiron.Table.insertWith", "module": "Apeiron/Table/Basic.lean", "root": "corpus"},
+      {"name": "Apeiron.Table.build", "module": "Apeiron/Table/Basic.lean", "root": "corpus"}
+    ],
+    "algebra_roots": [
+      {"name": "Apeiron.Trichotomy.AnyRing.RingCell", "module": "Apeiron/Trichotomy/AnyRing.lean", "root": "corpus"},
+      {"name": "Apeiron.Trichotomy.AnyRing.ringMul", "module": "Apeiron/Trichotomy/AnyRing.lean", "root": "corpus"},
+      {"name": "Apeiron.Trichotomy.AnyRing.ringNormForm", "module": "Apeiron/Trichotomy/AnyRing.lean", "root": "corpus"}
+    ],
+    "word_bodies": [
+      {"name": "apeiron_word.word_mul_denote", "module": "corpus/WordRefinement.lean", "root": "bridge"},
+      {"name": "apeiron_word.word_norm_denote", "module": "corpus/WordRefinement.lean", "root": "bridge"}
+    ]
+  },
   "corpus": {
     "root": "../sanguine-apeiron/proof",
     "git": "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f",
     "mathlib": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
   },
   "source_identity": {
-    "apeiron_revision": "2b5eda334e262f70f7c10ce567c8641c2396626d",
+    "apeiron_revision": "9a805439640ff63b5a2028aeb887f50e31cf6351",
     "song_revision": "47869e76f982cfa3085a8618a82b80463e22ef46",
     "files": [
       {"path": "src/scalar.rs", "sha256": "9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e"},
-      {"path": "src/table.rs", "sha256": "83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a"},
+      {"path": "src/table.rs", "sha256": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3"},
       {"path": "song/src/table/table.slang", "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"}
     ]
   },
@@ -138,7 +157,7 @@
       },
       "representation_invariant": {
         "constructor": "Rust Table::new(default, home) sets shards = [None; 256] and stores default; Song tableInit / tableInitGo writes key TABLE_EMPTY and value 0 into every slot.",
-        "statement": "Rust Rep(t, h): the fixed outer [Option<[Option<(K,V)>; N]>; 256], an untouched shard is None, globally unique keys, every entry in its home shard home(k) mod 256, and forall k, D(t)(k) = h(k) with D the matching override or the stored default. word_table_new_rep establishes the existing read-only extensional relation forall key, word_table_get t key (value => value = h key) at Table I64 I64 WordHome 16, with canonical map type HMap I64 I64. It does not establish the physical invariant listed here, nor a table-wide ZMod (2^64) representation theorem. Those require separately named refinements. The general-N clause is open. Required Song invariant: an owned, valid extent of 2*cap memory cells; representable address calculations; unique occupied keys distinct from TABLE_EMPTY; probe reachability before the first empty slot; and an explicit denotation of occupied and absent keys. tableInit initializes the empty layout on valid memory. Constructor establishment, preservation and canonical denotation remain proof obligations. Capacity validation alone does not validate the memory extent."
+        "statement": "Rust Rep(t, h): the fixed outer [Option<[Option<(K,V)>; N]>; 256], an untouched shard is None, globally unique keys, every entry in its home shard home(k) mod 256, and forall k, D(t)(k) = h(k) with D the matching override or the stored default. For the concrete I64 word instance the physical invariant is established at every fixed shard capacity N: emptyWordTableN_physicalInv establishes the real constructor and physicalInv_insert_with_all preserves it, including N = 0; get reads the represented total map; insert_with preserves PhysicalInv and canonical insertWith on success and returns the identical representative on ShardFull, with exact refusal at N = 0; for positive N, BuildAdmissibleN exactly characterizes build success versus ShardFull, table_build_physicalInv_of_buildAdmissibleN gives the successful-build PhysicalInv, and wordBuildN_zero_ok_iff_empty characterizes the zero-capacity build. The generic callback layer proves constructor, admitted insertion and admitted-build preservation under CallbackLawsG (insert_with_callback_admitted, table_build_physicalInv_of_buildAdmissibleG, table_build_zero_ok_iff_empty). word_table_new_rep remains the concrete read-only extensional relation forall key, word_table_get t key (value => value = h key) at Table I64 I64 WordHome 16, with canonical map type HMap I64 I64; it is the extensional component, not the physical invariant. A table-wide ZMod (2^64) representation theorem is not named here. Required Song invariant: an owned, valid extent of 2*cap memory cells; representable address calculations; unique occupied keys distinct from TABLE_EMPTY; probe reachability before the first empty slot; and an explicit denotation of occupied and absent keys. That invariant is over Song's represented storage, the caller memory[] extent, a different layer from the source-checker's memo store; no representation result transfers between the two without its own refinement. tableInit initializes the empty layout on valid memory. Constructor establishment, preservation and canonical denotation remain proof obligations for the Song side. Capacity validation alone does not validate the memory extent."
       },
       "admission": {
         "rust": {
@@ -174,7 +193,7 @@
         ]
       },
       "refinement": {
-        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance. The generated word-table refinement is now universal over fixed shard capacity N, not arbitrary callbacks: the real constructor establishes PhysicalInv at every N, insert_with preserves PhysicalInv and canonical insertWith at every N, and positive-N build admission is exact; a physical PhysicalInv build postcondition and arbitrary-callback refinement remain open. Song side: no checked Song-to-Lean refinement of tableInit, tableFind, tableGet or tableInsertWith exists. The joint row is OPEN and is the first joint storage target.",
+        "source_connected": "Rust side: proof/corpus/TableRefinement.lean proves word_table_new_rep, word_table_get_new_first, word_table_get_replaced, word_table_build_get_acc and word_table_shardFull_refusal against Apeiron.Table at the concrete N = 16 word instance. The concrete I64 word instance proves the physical invariant at every fixed shard capacity N (emptyWordTableN_physicalInv, physicalInv_insert_with_all, table_build_physicalInv_of_buildAdmissibleN, wordBuildN_zero_ok_iff_empty); the generic callback layer proves constructor, admitted insertion and admitted-build preservation under CallbackLawsG. Song side: Slang.Joint.songTable_replacement_link links the decoded MERGE_MAP tableInsertWith execution to Apeiron.Table.insertWith (fun new _old => new), preserving RepSong, the raw return and the read observations; it is not yet instantiated from the decoded source context, proof/corpus/Joint/WordBridge.lean checks the I64 <-> Slang.Word pointwise-map transport, and no combined Rust-Song table theorem exists. The joint row is OPEN and is the first joint storage target.",
         "artifacts": [
           {"name": "Apeiron.TableRefinement.word_table_new_rep", "module": "corpus/TableRefinement.lean", "root": "bridge"},
           {"name": "Apeiron.TableRefinement.word_table_shardFull_refusal", "module": "corpus/TableRefinement.lean", "root": "bridge"},
@@ -275,7 +294,8 @@
     "Runtime linkage between Apeiron and Song; the required result is a checked correspondence, not linkage.",
     "Song local registers, ontology and commands.",
     "Semantic correspondence itself: the checker establishes specification consistency only.",
-    "A physical PhysicalInv build postcondition and arbitrary-callback Rust Table<K,V,H,N> refinement.",
-    "Song-to-Lean refinement for R1 and R2."
+    "A physical PhysicalInv build postcondition and arbitrary-callback Rust Table<K,V,H,N> refinement outside CallbackLawsG.",
+    "Song-to-Lean refinement for R1 and R2.",
+    "The retired Slang/Derivation tower, the retired Slang/Generated/Trace outputs and the retired DecodeTrace.Run/Derives acceptance; they are historical and are not the active architecture."
   ]
 }

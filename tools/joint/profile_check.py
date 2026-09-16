@@ -83,11 +83,11 @@ PROFILE_ID = "APEIRON-PROGRAMME-W17-T1"
 # recorded value, is a rejected profile.
 EXPECTED_CORPUS_GIT = "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f"
 EXPECTED_MATHLIB = "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
-EXPECTED_APEIRON_REVISION = "2b5eda334e262f70f7c10ce567c8641c2396626d"
+EXPECTED_APEIRON_REVISION = "9a805439640ff63b5a2028aeb887f50e31cf6351"
 EXPECTED_SONG_REVISION = "47869e76f982cfa3085a8618a82b80463e22ef46"
 REQUIRED_SOURCE_FILES = {
     "src/scalar.rs": "9199e955304cb3d54fe973ac5881f219d4c6f71b4be001a0d32a6fb16ffde92e",
-    "src/table.rs": "83597ecf7eb60d28b4545353ec32a296d846bc6fca95b9f4f6dd20eee72b600a",
+    "src/table.rs": "f30e31e46c18680283d0333ff04a679d519e904cf0958e86763372a639b074e3",
     "song/src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
 }
 
@@ -100,6 +100,27 @@ SEVEN_FIELDS = [
     "resources",
     "refinement",
 ]
+
+# The profile-level canonical object. The profile must name these exact roots,
+# and every root must resolve as the named declaration in the pinned corpus or
+# the bridge. A root renamed to a nonexistent declaration is rejected.
+CANONICAL_MAP_ROOTS = [
+    "Apeiron.Table.HMap",
+    "Apeiron.Table.get",
+    "Apeiron.Table.insertWith",
+    "Apeiron.Table.build",
+]
+CANONICAL_ALGEBRA_ROOTS = [
+    "Apeiron.Trichotomy.AnyRing.RingCell",
+    "Apeiron.Trichotomy.AnyRing.ringMul",
+    "Apeiron.Trichotomy.AnyRing.ringNormForm",
+]
+CANONICAL_WORD_BODIES = [
+    "apeiron_word.word_mul_denote",
+    "apeiron_word.word_norm_denote",
+]
+# The profile's parameter-boundary qualifier is required on its claim.
+CANONICAL_QUALIFIER_TOKENS = ("fixed n", "bounded callback", "nonconstant key")
 
 # The seven numbered field records each Markdown row must carry.
 FIELD_LABELS = [
@@ -236,6 +257,41 @@ def _check_source_entry(entry: object, where: str) -> None:
     text = path.read_text(encoding="utf-8")
     found = _check_rust(text, symbol) if lang == "rust" else _check_slang(text, symbol)
     _need(found, f"{where}: {lang} entry {symbol} not found in {rel}")
+
+
+def _validate_canonical_object(data: object) -> None:
+    """Require the profile-level canonical object and its exact executing roots."""
+    canonical = data.get("canonical_object")
+    _need(isinstance(canonical, dict), "canonical_object metadata missing")
+    _nonempty(canonical.get("statement"), "canonical_object.statement")
+    qualifier = canonical.get("qualifier")
+    _nonempty(qualifier, "canonical_object.qualifier")
+    lowered = qualifier.lower()
+    for token in CANONICAL_QUALIFIER_TOKENS:
+        _need(
+            token in lowered,
+            f"canonical_object.qualifier omits the parameter-boundary token {token!r}",
+        )
+    for key, expected, root in (
+        ("map_roots", CANONICAL_MAP_ROOTS, "corpus"),
+        ("algebra_roots", CANONICAL_ALGEBRA_ROOTS, "corpus"),
+        ("word_bodies", CANONICAL_WORD_BODIES, "bridge"),
+    ):
+        entries = canonical.get(key)
+        _need(
+            isinstance(entries, list) and entries,
+            f"canonical_object.{key} must be a nonempty list",
+        )
+        names = [
+            entry.get("name") if isinstance(entry, dict) else None
+            for entry in entries
+        ]
+        _need(
+            names == expected,
+            f"canonical_object.{key} must name {expected}, got {names}",
+        )
+        for entry in entries:
+            _check_lean_ref(entry, f"canonical_object.{key}", require_root=root)
 
 
 def _validate_row(row: object, seen_ids: set[str]) -> None:
@@ -517,6 +573,8 @@ def validate(data: object, spec_text: str) -> None:
         f"seven_fields keys must be {SEVEN_FIELDS}, got {field_keys}",
     )
 
+    _validate_canonical_object(data)
+
     rows = data.get("rows")
     _need(isinstance(rows, list) and rows, "rows must be a nonempty list")
     seen_ids: set[str] = set()
@@ -656,6 +714,15 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     mutated = copy.deepcopy(data)
     mutated["source_identity"]["files"][0]["sha256"] = "0" * 64
     add("falsify a recorded source hash", mutated)
+
+    # Canonical object: a renamed root and a stripped qualifier are rejected.
+    mutated = copy.deepcopy(data)
+    mutated["canonical_object"]["map_roots"][0]["name"] = "Apeiron.Table.NotAThing"
+    add("falsify a canonical root", mutated)
+
+    mutated = copy.deepcopy(data)
+    mutated["canonical_object"]["qualifier"] = "The basis is quick."
+    add("strip the parameter-boundary qualifier from the canonical object", mutated)
 
     # Closed status.
     mutated = copy.deepcopy(data)
@@ -804,6 +871,8 @@ MANDATED_CONTROLS = [
     "remove one resource kind from one implementation",
     "falsify a corpus pin",
     "falsify a recorded source hash",
+    "falsify a canonical root",
+    "strip the parameter-boundary qualifier from the canonical object",
     "mark a selected row closed",
     "reverse a canonical namespace",
     "point a Song entry at a non-executing law/spec header",

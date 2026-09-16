@@ -12,6 +12,20 @@ boundary; [`proof/README.md`](../../proof/README.md) owns extraction and bridge 
 corpus remains at `../sanguine-apeiron/proof/` at Git
 `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`.
 
+## Canonical object and executing root
+
+The canonical object is `Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith` and
+`Apeiron.Table.build`, together with `Apeiron.Trichotomy.AnyRing.RingCell`,
+`Apeiron.Trichotomy.AnyRing.ringMul` and `Apeiron.Trichotomy.AnyRing.ringNormForm`. The extracted
+`Cell<i64>` word bodies are `word_mul_denote` and `word_norm_denote`. Every executing face in this
+profile roots in `Apeiron.Table.HMap` and the other canonical roots named here; a face that names
+the object only by path, namespace or import is not rooted.
+
+The O(1) qualifier is the parameter boundary: fixed N, bounded callbacks and nonconstant key length
+bound the table. Reading a whole source remains at least linear in its bytes at fixed N, so
+constant-time table operations at fixed N do not imply constant-time whole-source checking or
+constant-size proof terms.
+
 This document specifies obligations. It does not claim the correspondence exists. No row is closed:
 every row below is `selected-open` or `blocker`. The machine-readable form is
 [`tools/joint/profile_rows.json`](../../tools/joint/profile_rows.json); the checker
@@ -125,16 +139,28 @@ theorems: `Apeiron.Table.get_insertWith_self`, `Apeiron.Table.get_insertWith_ne`
 `shards = [None; 256]` and stores `default`. The invariant `Rep(t, h)` is the fixed outer
 `[Option<[Option<(K, V)>; N]>; 256]`, an untouched shard `None`, globally unique keys, every entry in
 its home shard `home(k) mod 256`, and `∀ k, D(t)(k) = h(k)` with `D` the matching override or the
-stored default. `word_table_new_rep` establishes the existing read-only extensional relation
-`∀ key, word_table_get t key ⦃ value => value = h key ⦄` at `Table I64 I64 WordHome 16`, with
-canonical map type `HMap I64 I64`. It does not establish the physical invariant listed here, nor a
-table-wide `ZMod (2^64)` representation theorem. Those require separately named refinements. The
-general-`N` clause is open. Required Song invariant: an owned, valid extent of `2*cap` memory cells;
-representable address calculations; unique occupied keys distinct from `TABLE_EMPTY`; probe
-reachability before the first empty slot; and an explicit denotation of occupied and absent keys.
-`tableInit` initializes the empty layout on valid memory. Constructor establishment, preservation
-and canonical denotation remain proof obligations. Capacity validation alone does not validate the
-memory extent.
+stored default. For the concrete `I64` word instance the physical invariant is established at every
+fixed shard capacity `N`: `emptyWordTableN_physicalInv` establishes the real constructor and
+`physicalInv_insert_with_all` preserves it, including `N = 0`; `get` reads the represented total
+map; `insert_with` preserves `PhysicalInv` and canonical `insertWith` on success and returns the
+identical representative on `ShardFull`, with exact refusal at `N = 0`; for positive `N`,
+`BuildAdmissibleN` exactly characterizes build success versus `ShardFull`,
+`table_build_physicalInv_of_buildAdmissibleN` gives the successful-build `PhysicalInv`, and
+`wordBuildN_zero_ok_iff_empty` characterizes the zero-capacity build. The generic callback layer
+proves constructor, admitted insertion and admitted-build preservation under `CallbackLawsG`
+(`insert_with_callback_admitted`, `table_build_physicalInv_of_buildAdmissibleG`,
+`table_build_zero_ok_iff_empty`). `word_table_new_rep` remains the concrete read-only extensional
+relation `∀ key, word_table_get t key ⦃ value => value = h key ⦄` at `Table I64 I64 WordHome 16`,
+with canonical map type `HMap I64 I64`; it is the extensional component, not the physical
+invariant. A table-wide `ZMod (2^64)` representation theorem is not named here. Required Song
+invariant: an owned, valid extent of `2*cap` memory cells; representable address calculations;
+unique occupied keys distinct from `TABLE_EMPTY`; probe reachability before the first empty slot;
+and an explicit denotation of occupied and absent keys. That invariant is over Song's represented
+storage, the caller `memory[]` extent, a different layer from the source-checker's memo store; no
+representation result transfers between the two without its own refinement. `tableInit` initializes
+the empty layout on valid memory. Constructor establishment, preservation and canonical denotation
+remain proof obligations for the Song side. Capacity validation alone does not validate the memory
+extent.
 
 **4 · Admission predicates.** On valid memory, Song `tableInit` returns `0` after initialization and
 returns `-1` without writes for invalid capacity. `tableFind` returns a slot index or `-1`;
@@ -176,13 +202,17 @@ are not converted to a common fuel.
 **7 · Source-connected refinement and rejecting control.** Rust:
 `proof/corpus/TableRefinement.lean` proves `word_table_new_rep`, `word_table_get_new_first`,
 `word_table_get_replaced`, `word_table_build_get_acc` and `word_table_shardFull_refusal` against
-`Apeiron.Table` at the concrete `N = 16` word instance. The generic callback layer proves physical
-constructor, admitted insertion and admitted-build preservation under `CallbackLawsG`, including
-the exact zero-capacity split. Song's empty-cone table modules prove `RepSong`, constructor/read/write
-witnesses, exact replacement admission/refusal, resource projections, and
-`Slang.Joint.songTable_replacement_link`. That headline is not yet instantiated from the decoded
-source context; no checked `I64 ↔ Slang.Word` map transport or combined Rust–Song theorem exists.
-The joint row is OPEN and T3 replacement write is the first joint storage target. Rejecting control:
+`Apeiron.Table` at the concrete `N = 16` word instance. The concrete `I64` word instance proves the
+physical invariant at every fixed shard capacity `N` (`emptyWordTableN_physicalInv`,
+`physicalInv_insert_with_all`, `table_build_physicalInv_of_buildAdmissibleN`,
+`wordBuildN_zero_ok_iff_empty`). The generic callback layer proves physical constructor, admitted
+insertion and admitted-build preservation under `CallbackLawsG`, including the exact zero-capacity
+split. Song's empty-cone table modules prove `RepSong`, constructor/read/write witnesses, exact
+replacement admission/refusal, resource projections, and `Slang.Joint.songTable_replacement_link`.
+That headline is not yet instantiated from the decoded source context;
+`proof/corpus/Joint/WordBridge.lean` checks the `I64 ↔ Slang.Word` pointwise-map transport, but no
+combined Rust–Song table theorem exists. The joint row is OPEN and T3 replacement write is the first
+joint storage target. Rejecting control:
 the same-filesystem throwaway generated-body mutation
 `merge value default` → `merge default value` fails `table_insert_empty_zero` (recorded in
 `proof/README.md`); restoring builds. This controls the Rust fresh-write denotation only and does
@@ -245,18 +275,22 @@ assumed, and the checker requires every one of them to be present.
 - The unconditional Song source binding, decoded-context instantiation and combined R2/T3
   replacement theorem. `Joint.WordBridge` already checks the `I64 ↔ Slang.Word` pointwise-map
   transport. R1 and the remaining R2 rows stay open.
+- The retired `Slang/Derivation` tower, the retired `Slang/Generated/Trace` outputs and the retired
+  `DecodeTrace.Run`/`Derives` acceptance. They are historical and are not the active architecture;
+  no row in this profile names them as a route.
 
 ## Checker
 
 `python3 tools/joint/profile_check.py --check` validates the seven populated fields in each Markdown
 row and JSON row; requires actual blocker/hazard table records rather than incidental ID mentions;
 requires all five resource kinds separately for every implementation of every row; requires the
-frozen selected rows to remain `selected-open`; verifies recorded source hashes and corpus/Mathlib
+frozen selected rows to remain `selected-open`; resolves the profile-level canonical object and its
+roots; requires the parameter-boundary qualifier; verifies recorded source hashes and corpus/Mathlib
 identities; and resolves fully qualified declarations and concrete executing entries. It checks every
 named reference, including blocker entries, rather than only selected structured references. It exits
 nonzero on a missing field, row, blocker, hazard, theorem or source entry. `--controls` and
 `--self-test` mutate a copy of the profile and the spec text in memory and require each mutation to be
 rejected, including deletion of a Markdown row record, deletion of a blocker/hazard table record,
 incomplete per-implementation resources, a false pin, a `closed` status, a reversed namespace, a
-non-executing Song entry and a blocker with no resolvable reference; the working tree is never
-touched. The checker establishes specification consistency only.
+non-executing Song entry, a falsified canonical root and a blocker with no resolvable reference; the
+working tree is never touched. The checker establishes specification consistency only.
