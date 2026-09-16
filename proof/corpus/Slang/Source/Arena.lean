@@ -1,5 +1,6 @@
 import Slang.Source.Bytes
 import Slang.Decode
+import Slang.Refinement.Context
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -112,6 +113,92 @@ theorem copiedTokens_not_a_ref {arena : SourceArena} (ref : SourceRef arena)
 
 #guard (match Slang.Decode.tokenize (encodeBytes sampleBytes) with
   | .ok (tokens, _) => tokens == copiedTokens
+  | .error _ => false) == false
+
+/-! ### Checked parsed source references
+
+A bare `SourceRef` checks that a byte interval tokenizes to a token interval, but it does not carry
+the decoded program. The memo value and the machine context need that program, and they must not
+fall back to a `default` or an `Option.getD`. `ParsedRef` adds the decoded program and the checked
+equation tying it to the referenced bytes, so the program is the decode of those bytes rather than a
+supplied value. -/
+
+/-- A checked reference together with the program its bytes decode to. The `decode_eq` field is the
+tie: the program is exactly the `decodeTable` result for the referenced byte interval, so a
+`ParsedRef` whose program disagrees with its bytes has no inhabitant. -/
+structure ParsedRef (arena : SourceArena) where
+  ref : SourceRef arena
+  program : Slang.Program
+  certificate : Slang.Decode.Certificate
+  certificateValid : certificate.Valid
+  decode_eq :
+    Slang.Decode.decodeTable (encodeBytes ref.byteInterval.contents) =
+      .ok ⟨Slang.Decode.Decoded.mk program certificate, certificateValid⟩
+
+/-- The program is the checked decode of the referenced bytes. -/
+theorem ParsedRef.exact_decode {arena : SourceArena} (parsed : ParsedRef arena) :
+    Slang.Decode.decodeTable (encodeBytes parsed.ref.byteInterval.contents) =
+      .ok ⟨Slang.Decode.Decoded.mk parsed.program parsed.certificate,
+        parsed.certificateValid⟩ :=
+  parsed.decode_eq
+
+/-- Project the program out of a decode result, so equality of results yields equality of programs.
+The `error` branch is unreachable in the uses below. -/
+private def resultProgram :
+    Slang.Decode.Result Slang.Decode.CertifiedDecoded → Slang.Program
+  | .ok decoded => decoded.val.program
+  | .error _ => ⟨[], [], 0, 0⟩
+
+/-- The bytes determine the program: two parsed references over equal byte contents carry equal
+programs. This is what forbids a `ParsedRef` from carrying a program that does not match its bytes. -/
+theorem ParsedRef.program_determined {arena : SourceArena} (left right : ParsedRef arena)
+    (hbytes : left.ref.byteInterval.contents = right.ref.byteInterval.contents) :
+    left.program = right.program := by
+  have hright : Slang.Decode.decodeTable (encodeBytes left.ref.byteInterval.contents) =
+      .ok ⟨Slang.Decode.Decoded.mk right.program right.certificate,
+        right.certificateValid⟩ := by
+    rw [hbytes]
+    exact right.decode_eq
+  have hsame : (Except.ok
+        ⟨Slang.Decode.Decoded.mk left.program left.certificate, left.certificateValid⟩ :
+        Slang.Decode.Result Slang.Decode.CertifiedDecoded) =
+      Except.ok ⟨Slang.Decode.Decoded.mk right.program right.certificate,
+        right.certificateValid⟩ :=
+    left.decode_eq.symm.trans hright
+  exact congrArg resultProgram hsame
+
+/-- A decode witness for the same bytes whose program differs from the checked program cannot
+inhabit `ParsedRef`: the `decode_eq` field pins the program. -/
+theorem ParsedRef.mismatched_program_rejected {arena : SourceArena} (parsed : ParsedRef arena)
+    (wrong : Slang.Program) (certificate : Slang.Decode.Certificate)
+    (valid : certificate.Valid)
+    (hwrong : Slang.Decode.decodeTable (encodeBytes parsed.ref.byteInterval.contents) =
+      .ok ⟨Slang.Decode.Decoded.mk wrong certificate, valid⟩)
+    (hne : wrong ≠ parsed.program) : False := by
+  have hsame : (Except.ok
+        ⟨Slang.Decode.Decoded.mk parsed.program parsed.certificate, parsed.certificateValid⟩ :
+        Slang.Decode.Result Slang.Decode.CertifiedDecoded) =
+      Except.ok ⟨Slang.Decode.Decoded.mk wrong certificate, valid⟩ :=
+    parsed.decode_eq.symm.trans hwrong
+  have hprog : parsed.program = wrong := congrArg resultProgram hsame
+  exact hne hprog.symm
+
+/-- The machine context of a parsed reference. Its constants come from the checked program's
+declarations and its functions from the checked program's functions; no `default` and no
+`Option.getD` are used. -/
+def ParsedRef.context {arena : SourceArena} (parsed : ParsedRef arena) : Slang.Machine.Context :=
+  Slang.Refinement.checkedContext parsed.program
+
+/-- The context's constant environment is the one derived from the checked program. -/
+theorem ParsedRef.context_constants {arena : SourceArena} (parsed : ParsedRef arena) :
+    parsed.context.constants = Slang.Refinement.constantEnvironment parsed.program :=
+  Slang.Refinement.checkedContext_constants parsed.program
+
+private def wrongProgram : Slang.Program :=
+  { constants := [], functions := [], sourceBytes := 0, consumedBytes := 0 }
+
+#guard (match Slang.Decode.decodeTable (encodeBytes sampleBytes) with
+  | .ok decoded => decoded.val.program == wrongProgram
   | .error _ => false) == false
 
 end Slang.Source

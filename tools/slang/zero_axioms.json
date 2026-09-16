@@ -4165,7 +4165,7 @@
       "kind": "active",
       "wave": "source-arena",
       "title": "Source arena and checked references",
-      "note": "The first module of the canonical re-root: `slice`, `CheckedInterval` and its `contents`, the path-unique `SourceArena`/`ArenaFile`, `rebaseToken`, and the checked `SourceRef` whose `correspondence` field ties a byte interval to the token interval it owns. The `copiedTokens_rejected` fixture is the rejecting control for a copied token list. Every headline audits with an empty axiom set.",
+      "note": "The first module of the canonical re-root: `slice`, `CheckedInterval` and its `contents`, the path-unique `SourceArena`/`ArenaFile`, `rebaseToken`, and the checked `SourceRef` whose `correspondence` field ties a byte interval to the token interval it owns. `ParsedRef` adds the checked decoded program: `decode_eq` pins it to `decodeTable` of the referenced bytes, `program_determined` makes the bytes determine the program, and `context` builds the machine context from the checked program with no `default` and no `Option.getD`. The `copiedTokens_rejected` fixture rejects a copied token list and `mismatched_program_rejected` rejects a program that disagrees with its bytes. Every headline audits with an empty axiom set.",
       "audit_module": "Slang/Source/ArenaAudit.lean",
       "source_files": [
         "proof/corpus/Slang/Source/Arena.lean",
@@ -4253,6 +4253,42 @@
         {
           "name": "Slang.Source.copiedTokens_not_a_ref",
           "expected_type": "type_of% @Slang.Source.copiedTokens_not_a_ref",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef",
+          "expected_type": "type_of% @Slang.Source.ParsedRef",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef.exact_decode",
+          "expected_type": "type_of% @Slang.Source.ParsedRef.exact_decode",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef.program_determined",
+          "expected_type": "type_of% @Slang.Source.ParsedRef.program_determined",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef.mismatched_program_rejected",
+          "expected_type": "type_of% @Slang.Source.ParsedRef.mismatched_program_rejected",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef.context",
+          "expected_type": "type_of% @Slang.Source.ParsedRef.context",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/Arena.lean"
+        },
+        {
+          "name": "Slang.Source.ParsedRef.context_constants",
+          "expected_type": "type_of% @Slang.Source.ParsedRef.context_constants",
           "module": "Slang.Source",
           "path": "proof/corpus/Slang/Source/Arena.lean"
         },

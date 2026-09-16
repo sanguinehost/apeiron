@@ -25,6 +25,13 @@ theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Source.copiedTokens_rejected : type_of% @Slang.Source.copiedTokens_rejected
 #audit_empty Slang.Source.copiedTokens_not_a_ref : type_of% @Slang.Source.copiedTokens_not_a_ref
 
+#audit_empty Slang.Source.ParsedRef : type_of% @Slang.Source.ParsedRef
+#audit_empty Slang.Source.ParsedRef.exact_decode : type_of% @Slang.Source.ParsedRef.exact_decode
+#audit_empty Slang.Source.ParsedRef.program_determined : type_of% @Slang.Source.ParsedRef.program_determined
+#audit_empty Slang.Source.ParsedRef.mismatched_program_rejected : type_of% @Slang.Source.ParsedRef.mismatched_program_rejected
+#audit_empty Slang.Source.ParsedRef.context : type_of% @Slang.Source.ParsedRef.context
+#audit_empty Slang.Source.ParsedRef.context_constants : type_of% @Slang.Source.ParsedRef.context_constants
+
 #audit_empty Slang.Source.ArenaAudit.nat_add_zero : (0 : Nat) + 0 = 0
 
 end Slang.Source.ArenaAudit
