@@ -1,6 +1,5 @@
 import Slang.Audit.Empty
 import Slang.Source.Lexing
-import Slang.Derivation.Lexing
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -21,24 +20,20 @@ def multibyteTokens : List Token :=
   [{ kind := .other 'é', span := ⟨0, 2⟩ }]
 
 /-- A checked derivation of the tokenizer's result for the U+00E9 fixture. -/
-theorem multibyte_steps : Slang.Derivation.Lexing.Run
-    (Slang.Derivation.Lexing.Request.tokenize (encodeBytes multibyteSource))
-    (Except.ok (multibyteTokens, 2)) := by
-  unfold Slang.Derivation.Lexing.Run Slang.Derivation.Lexing.body Slang.Derivation.Lexing.lexAsk
-  dsimp only []
-  rw [Slang.Source.ByteRep.encodeBytes_data]
-  exact
-    Slang.Derivation.Derives.ask
-      (Slang.Derivation.Derives.done (Except.ok ['é']))
-      (Slang.Derivation.Derives.ask
-        (Slang.Derivation.Derives.ask
-          (Slang.Derivation.Derives.done (Except.ok (multibyteTokens, 2)))
-          (Slang.Derivation.Derives.done (Except.ok (multibyteTokens, 2))))
-        (Slang.Derivation.Derives.done (Except.ok (multibyteTokens, 2))))
+theorem multibyte_steps :
+    Tokenizer.TokenizeDerivation multibyteSource multibyteTokens 2 := by
+  apply Tokenizer.TokenizeDerivation.intro
+  · exact Tokenizer.Utf8Scan.next
+      (Tokenizer.Utf8Head.two _ _ [] (by decide) (by decide) rfl)
+      Tokenizer.Utf8Scan.done
+  · exact Tokenizer.CharsScan.nextToken
+      (Tokenizer.LexHead.other 'é' [] 0 rfl (by decide) (by decide) rfl rfl rfl rfl rfl
+        rfl rfl rfl rfl rfl rfl rfl rfl)
+      (Tokenizer.CharsScan.done (Tokenizer.ReverseTokens.result _))
 
 /-- The literal fixture carries a checked byte-indexed derivation. -/
 theorem multibyte_derivation : LexingDerivation multibyteSource multibyteTokens 2 := by
-  refine ⟨multibyte_steps, ?_, rfl⟩
+  refine LexingDerivation.intro multibyte_steps ?_ rfl
   constructor
   · rfl
   · exact List.Pairwise.cons (fun _ membership => nomatch membership) List.Pairwise.nil
@@ -69,9 +64,9 @@ theorem unknown_not_trivia :
 #audit_empty Slang.Decode.tokenize : ByteArray → Slang.Decode.Result (List Slang.Decode.Token × Nat)
 #audit_empty Slang.Source.ByteIndexedSpans : Nat → List Slang.Decode.Token → Prop
 #audit_empty Slang.Source.LexingDerivation : Slang.Source.SourceBytes → List Slang.Decode.Token → Nat → Prop
-#audit_empty Slang.Source.LexingDerivation.mk : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed)) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed
-#audit_empty Slang.Source.LexingDerivation.steps : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed))
-#audit_empty Slang.Source.LexingDerivation.intro : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed
+#audit_empty Slang.Source.LexingDerivation.mk : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed
+#audit_empty Slang.Source.LexingDerivation.steps : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed
+#audit_empty Slang.Source.LexingDerivation.intro : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed
 #audit_empty Slang.Source.LexingDerivation.byteIndexed : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens
 #audit_empty Slang.Source.LexingDerivation.fullConsumption : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → consumed = source.length
 #audit_empty Slang.Source.LexingDerivation.sound : ∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed)
@@ -86,6 +81,12 @@ theorem unknown_not_trivia :
 #audit_empty Slang.Source.LexingAudit.multibyte_endpoint_not_char_count : Slang.Source.LexingAudit.multibyteTokens.head?.map (·.span.stop) ≠ some 1
 #audit_empty Slang.Source.LexingAudit.unknown_reachable_rejected : (match Slang.Decode.parseExprFuel 4 0 Slang.Source.LexingAudit.multibyteTokens with | .error _ => true | .ok _ => false) = true
 #audit_empty Slang.Source.LexingAudit.unknown_not_trivia : (Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.LexingAudit.multibyteSource)).map (fun result => result.1.map (·.kind)) = .ok [.other 'é']
+
+#print axioms Slang.Source.LexingDerivation
+#print axioms Slang.Source.LexingDerivation.mk
+#print axioms Slang.Source.LexingDerivation.steps
+#print axioms Slang.Source.LexingDerivation.intro
+#print axioms Slang.Source.LexingDerivation.sound
 
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Source.LexingAudit.nat_add_zero : (0 : Nat) + 0 = 0

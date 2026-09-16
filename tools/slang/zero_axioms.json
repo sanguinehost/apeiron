@@ -2406,13 +2406,13 @@
         },
         {
           "name": "Slang.Source.LexingDerivation.mk",
-          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed)) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
           "module": "Slang.Source.Lexing",
           "path": "proof/corpus/Slang/Source/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingDerivation.steps",
-          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Derivation.Lexing.Run (Slang.Derivation.Lexing.Request.tokenize (Slang.Source.encodeBytes source)) (Except.ok (tokens, consumed))",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed",
           "module": "Slang.Source.Lexing",
           "path": "proof/corpus/Slang/Source/Lexing.lean"
         },
@@ -2430,7 +2430,7 @@
         },
         {
           "name": "Slang.Source.LexingDerivation.sound",
-          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed → Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed)",
+          "expected_type": "\u2200 {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.LexingDerivation source tokens consumed \u2192 Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed)",
           "module": "Slang.Source.Lexing",
           "path": "proof/corpus/Slang/Source/Lexing.lean"
         },
@@ -2508,7 +2508,7 @@
         },
         {
           "name": "Slang.Source.LexingDerivation.intro",
-          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Decode.tokenize (Slang.Source.encodeBytes source) = .ok (tokens, consumed) → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
+          "expected_type": "∀ {source : Slang.Source.SourceBytes} {tokens : List Slang.Decode.Token} {consumed : Nat}, Slang.Source.Tokenizer.TokenizeDerivation source tokens consumed → Slang.Source.ByteIndexedSpans source.length tokens → consumed = source.length → Slang.Source.LexingDerivation source tokens consumed",
           "module": "Slang.Source.Lexing",
           "path": "proof/corpus/Slang/Source/Lexing.lean"
         }

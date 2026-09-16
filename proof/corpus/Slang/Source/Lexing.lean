@@ -1,6 +1,6 @@
 import Slang.Decode
 import Slang.Source.Bytes
-import Slang.Derivation.Lexing
+import Slang.Source.Tokenizer.Tokenize
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -16,26 +16,24 @@ def ByteIndexedSpans (size : Nat) (tokens : List Token) : Prop :=
 
 /-- A checked lexical result over the canonical source-byte view. -/
 structure LexingDerivation (source : SourceBytes) (tokens : List Token) (consumed : Nat) : Prop where
-  steps : Slang.Derivation.Lexing.Run
-    (Slang.Derivation.Lexing.Request.tokenize (encodeBytes source)) (.ok (tokens, consumed))
+  steps : Tokenizer.TokenizeDerivation source tokens consumed
   byteIndexed : ByteIndexedSpans source.length tokens
   fullConsumption : consumed = source.length
 
 namespace LexingDerivation
 
-/-- The tokenizer's output equation yields a checked derivation. -/
+/-- A structural tokenizer witness yields a checked lexical derivation. -/
 def intro {source : SourceBytes} {tokens : List Token} {consumed : Nat}
-    (stream : Decode.tokenize (encodeBytes source) = .ok (tokens, consumed))
+    (steps : Tokenizer.TokenizeDerivation source tokens consumed)
     (byteIndexed : ByteIndexedSpans source.length tokens)
     (fullConsumption : consumed = source.length) : LexingDerivation source tokens consumed :=
-  ⟨stream ▸ Slang.Derivation.Lexing.tokenize_run (encodeBytes source), byteIndexed,
-    fullConsumption⟩
+  ⟨steps, byteIndexed, fullConsumption⟩
 
 /-- A derivation returns exactly the repaired decoder token stream. -/
 theorem sound {source : SourceBytes} {tokens : List Token} {consumed : Nat}
     (derivation : LexingDerivation source tokens consumed) :
     Decode.tokenize (encodeBytes source) = .ok (tokens, consumed) :=
-  Slang.Derivation.Lexing.Run.sound derivation.steps
+  Tokenizer.TokenizeDerivation.sound derivation.steps
 
 /-- A derivation exposes the token kinds without changing their order. -/
 theorem kinds {source : SourceBytes} {tokens : List Token} {consumed : Nat}
