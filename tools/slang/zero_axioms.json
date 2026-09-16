@@ -6557,6 +6557,109 @@
         "path": "proof/corpus/Slang/Source/Parsing/ValidationAudit.lean"
       }
     ]
+  },
+    "parsing-tokens": {
+    "kind": "active",
+    "wave": "W25",
+    "title": "Token decoder composition",
+    "note": "Composes structural parsing, validation and resolution witnesses into Decode.decodeTokens under the empty axiom cone.",
+    "audit_module": "Slang/Source/Parsing/TokensAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Parsing/Tokens.lean",
+      "proof/corpus/Slang/Source/Parsing/TokensAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation",
+        "expected_type": "ByteArray \u2192 List Slang.Decode.Token \u2192 Nat \u2192 Slang.Decode.CertifiedDecoded \u2192 Prop",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.mk",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.mk",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.exactConsumption",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.exactConsumption",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.delimiters",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.delimiters",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.selected",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.selected",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.constantCount",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.constantCount",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.functionCount",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.functionCount",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.constantNames",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.constantNames",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.functionNames",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.functionNames",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.spans",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.spans",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.calls",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.calls",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.names",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.names",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.result",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.result",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DecodeTokensDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.DecodeTokensDerivation.sound",
+        "module": "Slang.Source.Parsing.Tokens",
+        "path": "proof/corpus/Slang/Source/Parsing/Tokens.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TokensAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Parsing.TokensAudit",
+        "path": "proof/corpus/Slang/Source/Parsing/TokensAudit.lean"
+      }
+    ]
   }
   }
 }
