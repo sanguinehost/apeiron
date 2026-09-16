@@ -350,9 +350,21 @@ theorem naive_absence_classifier_unsound : ¬ ReadClassifierSound naiveAbsenceCl
     rfl
   exact Bool.noConfusion (left.symm.trans (classified.trans right))
 
+-- Temporal O(|parameters| + |body|) element comparisons: `List.beq` scans the declaration's
+-- parameters against `parameters` and its body against `body`, one element per step, stopping at
+-- the first mismatch or the shorter list's end. Spatial O(1) auxiliary: the result is a `Bool` and
+-- nothing is allocated; the scans' recursion depth is at most the compared length. Operations
+-- counted: `String` equality comparisons, `Stmt` equality comparisons.
 def declarationShapeCheck (declaration : FunctionDecl) (parameters : List String)
     (body : List Stmt) : Bool := declaration.parameters == parameters && declaration.body == body
 
+-- Temporal O(|tableSource| + |stdSource| + F) for F = the number of decoded functions: one linear
+-- `decodeClosure` over the two source byte arrays, then eight `List.find?` scans of
+-- `value.val.program.functions` (each O(F)), then one `declarationShapeCheck` per found function.
+-- Spatial O(|tableSource| + |stdSource| + F) for the decoded closure and its program; the `Bool`
+-- result is O(1). Operations counted: source bytes decoded, function declarations scanned, and the
+-- `String`/`Stmt` comparisons inside `declarationShapeCheck`. Each `find?` closes at the
+-- function-list end and the decode closes at the input end.
 def realReadShapes : Bool :=
   match Decode.decodeClosure
       (encodeBytes Slang.Generated.TableDerivation.tableSource)
