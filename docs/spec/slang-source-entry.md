@@ -1,6 +1,6 @@
 # Slang Source-Entry Fidelity Specification
 
-This file is the frozen specification of the Slang source-entry fidelity mechanism for
+This file is the specification of the Slang source-entry fidelity mechanism for
 `APEIRON-PROGRAMME-W18-T1`. It fixes, for each selected Song Slang body, the exact source identity,
 the represented program, the observation relation, the consumed arguments and input grammar, the
 state and effects, the refusal behaviour and the rejecting control. It records that a copied
@@ -22,6 +22,26 @@ This document specifies obligations. It does not claim the correspondence exists
 [`tools/joint/source_entry_cases.json`](../../tools/joint/source_entry_cases.json); the checker
 [`tools/joint/source_entry_check.py`](../../tools/joint/source_entry_check.py) establishes
 specification consistency only and never reports correspondence.
+
+## Active route and acceptance
+
+The active source-refinement chain is: source arena → checked references → complete memo key →
+face-correct addressing → memo value → fixed-shard store → ordered fold → the unconditional
+`Slang.SourceAudit.source_binding`. The chain is rooted in the canonical map `Apeiron.Table.HMap`,
+`Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`, and in the canonical
+algebra `Apeiron.Trichotomy.AnyRing.RingCell`, `Apeiron.Trichotomy.AnyRing.ringMul` and
+`Apeiron.Trichotomy.AnyRing.ringNormForm`.
+
+The `Slang/Derivation` `Layer`/`Derives` tower is retired. The `Slang/Generated/Trace` generated
+decoder traces are retired. The `DecodeTrace.Run` representation is retired, the named proof DAG is
+retired, and the segment lemma is retired; none is the active mechanism and none is an acceptance
+condition. A reference to a retired route carries a retirement marker and is not acceptance.
+
+Specification consistency is this document with `tools/joint/source_entry_check.py`: the text,
+identities and records pass green, and no entry closes. Implementation acceptance is the
+`tools/slang/refine.py` exact-declaration probe on the unconditional
+`Slang.SourceAudit.source_binding`, red until that theorem exists. A green consistency run
+establishes neither the correspondence nor the source binding nor any entry's executing refinement.
 
 ## Required fields
 

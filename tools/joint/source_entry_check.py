@@ -35,6 +35,12 @@ never claims correspondence. A green run says the specification is well formed
 and source-connected by name; it says nothing about whether any entry's
 refinement has been proved or whether any control goes red.
 
+The specification states the active source-refinement chain and marks the
+retired route; this checker requires those statements and rejects a spec that
+drops them. Specification consistency is green. Implementation acceptance is the
+``tools/slang/refine.py`` exact-declaration probe on the unconditional
+``Slang.SourceAudit.source_binding``, red until that theorem exists.
+
 Usage::
 
     python3 tools/joint/source_entry_check.py --check
@@ -92,6 +98,7 @@ REQUIRED_ENTRIES = ["SE1", "SE2", "SE3", "SE4", "SE5", "SE6", "SE7", "SE8"]
 REQUIRED_CONTROLS = ["SC1", "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8"]
 REQUIRED_SECTIONS = [
     "Required fields",
+    "Active route and acceptance",
     "Selected entries",
     "Non-refinement",
     "Missing artifacts",
@@ -143,6 +150,45 @@ MISSING_PHRASES = [
     "checked slang source-semantics link",
     "executing refinement",
     "missing",
+]
+
+# The active source-refinement chain and its canonical roots. These phrases
+# must appear in the spec; a spec that drops one is rejected.
+ACTIVE_ROUTE_PHRASES = [
+    "source arena",
+    "checked references",
+    "complete memo key",
+    "face-correct addressing",
+    "memo value",
+    "fixed-shard store",
+    "ordered fold",
+    "slang.sourceaudit.source_binding",
+    "apeiron.table.hmap",
+    "apeiron.table.get",
+    "apeiron.table.insertwith",
+    "apeiron.table.build",
+    "apeiron.trichotomy.anyring.ringcell",
+    "apeiron.trichotomy.anyring.ringmul",
+    "apeiron.trichotomy.anyring.ringnormform",
+]
+
+# The retired route the spec must mark as retired, never as the active
+# mechanism. The tokens are stored lowercase; each line carries a retirement
+# marker so the checker never presents a retired route as active.
+RETIRED_ROUTE_PHRASES = [
+    "retired",  # the retirement marker the spec must carry
+    "decodetrace.run",  # retired, not active
+    "named proof dag",  # retired, not active
+    "segment lemma",  # retired, not active
+]
+
+# The acceptance distinction: consistency is green; implementation acceptance is
+# the refine.py probe, red until the unconditional theorem exists.
+ACCEPTANCE_PHRASES = [
+    "specification consistency",
+    "implementation acceptance",
+    "tools/slang/refine.py",
+    "slang.sourceaudit.source_binding",
 ]
 
 ROW_FIELD_LABELS = {
@@ -303,6 +349,12 @@ def _validate_spec(
         _need(phrase in plain, f"spec is missing the non-refinement statement: {phrase}")
     for phrase in MISSING_PHRASES:
         _need(phrase in plain, f"spec is missing the missing-artifact statement: {phrase}")
+    for phrase in ACTIVE_ROUTE_PHRASES:
+        _need(phrase in plain, f"spec is missing the active-route statement: {phrase}")
+    for phrase in RETIRED_ROUTE_PHRASES:
+        _need(phrase in plain, f"spec is missing the retired-route statement: {phrase}")
+    for phrase in ACCEPTANCE_PHRASES:
+        _need(phrase in plain, f"spec is missing the acceptance statement: {phrase}")
 
 
 def validate(data: object, spec_text: str) -> None:
@@ -576,6 +628,18 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
     mutated["missing_artifacts"] = []
     add("class 8: empty the missing_artifacts list", mutated)
 
+    add(
+        "class 8: drop the retired segment-lemma statement from the spec",
+        copy.deepcopy(data),
+        spec_text.replace("segment lemma", "the lemma", 1),
+    )
+
+    add(
+        "class 8: drop the implementation-acceptance statement from the spec",
+        copy.deepcopy(data),
+        spec_text.replace("Implementation acceptance", "The result", 1),
+    )
+
     # class 9: structural removals.
     mutated = copy.deepcopy(data)
     mutated["fields"] = mutated["fields"][:-1]
@@ -598,6 +662,16 @@ def _control_cases(data: dict, spec_text: str) -> list[tuple[str, dict, str]]:
             "",
             spec_text,
         ),
+    )
+    add(
+        "class 9: remove the Active route and acceptance section heading from the spec",
+        copy.deepcopy(data),
+        re.sub(r"(?m)^##\s+Active route and acceptance\s*$", "", spec_text, count=1),
+    )
+    add(
+        "class 9: drop the active-route complete-memo-key statement from the spec",
+        copy.deepcopy(data),
+        spec_text.replace("complete memo key", "the key", 1),
     )
 
     # class 10: the required canonical target set.
@@ -652,6 +726,10 @@ MANDATED_CONTROLS = [
     "class 9: drop a required field from the fields list",
     "class 9: remove required control SC1",
     "class 9: remove the Non-refinement section heading from the spec",
+    "class 9: remove the Active route and acceptance section heading from the spec",
+    "class 9: drop the active-route complete-memo-key statement from the spec",
+    "class 8: drop the retired segment-lemma statement from the spec",
+    "class 8: drop the implementation-acceptance statement from the spec",
     "class 10: drop the required get canonical target",
     "class 10: drop the required get_insertWith_ne canonical target",
 ]
