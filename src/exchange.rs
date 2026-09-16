@@ -47,6 +47,10 @@ pub struct Exchange<R> {
 
 /// The derived impulse, `p - q`.
 ///
+/// Temporal and spatial O(1): no loop or recursion; two scalar `sub` and one constructor. No
+/// allocation. The scalar subtraction is the only cost, so the constant is not visible from the
+/// signature.
+///
 /// This is the whole authority: no impulse parameter is supplied. The subtraction is the
 /// crate [`Ring`] subtraction, which wraps for the `i64` scalar.
 #[must_use]
@@ -55,6 +59,10 @@ pub fn exchange_impulse<R: Ring>(p: Cell<R>, q: Cell<R>) -> Cell<R> {
 }
 
 /// The equal-mass elastic exchange, computed through the derived impulse.
+///
+/// Temporal and spatial O(1): no loop or recursion; one [`exchange_impulse`] (two scalar `sub`),
+/// then two `sub` and two `add` on the two slots. No allocation. The scalar operations are the only
+/// cost, so the constant is not visible from the signature.
 ///
 /// The carrier ends at `q` and the body ends at `p`. See the module documentation for the
 /// scope and for the real-number versus wrapping distinction.
@@ -69,6 +77,10 @@ pub fn elastic_exchange<R: Ring>(p: Cell<R>, q: Cell<R>) -> Exchange<R> {
 }
 
 /// Accept a claimed impulse only when it is exactly the derived `p - q`.
+///
+/// Temporal and spatial O(1): no loop or recursion; one `Cell` equality (a fixed count of scalar
+/// comparisons) and, on acceptance, one [`elastic_exchange`]. No allocation. The scalar comparisons
+/// are the only cost, so the constant is not visible from the signature.
 ///
 /// On acceptance the returned [`Exchange`] is recomputed from the derived impulse, so the
 /// result cannot depend on the claim beyond its equality with the derived value. On rejection

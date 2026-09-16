@@ -54,6 +54,8 @@ def isAlpha (c : Char) : Bool :=
     ('A'.toNat ≤ c.toNat && c.toNat ≤ 'Z'.toNat) || c.toNat == '_'.toNat
 def isAlphaNum (c : Char) : Bool := isAlpha c || isDigit c
 
+-- Temporal O(n) for n input characters: at most one `p` application per character. Spatial O(n)
+-- stack: `c :: front` binds the recursive result, so one frame per character visited.
 def takeWhile (p : Char → Bool) : List Char → List Char × List Char
   | [] => ([], [])
   | c :: cs => if p c then
@@ -61,6 +63,8 @@ def takeWhile (p : Char → Bool) : List Char → List Char × List Char
       (c :: front, rest)
     else ([], c :: cs)
 
+-- Temporal O(d) for d digits: one fold step (multiply, add, subtract) per digit. Spatial O(1): a
+-- single Nat accumulator, `List.foldl` is tail-recursive.
 def digitsValue (digits : List Char) : Nat :=
   digits.foldl (fun value digit => value * 10 + (digit.toNat - '0'.toNat)) 0
 
@@ -71,13 +75,19 @@ def utf8ByteLength (c : Char) : Nat :=
   else if c.toNat < 0x10000 then 3
   else 4
 
-/-- Number of UTF-8 bytes occupied by a character list. -/
+/-- Number of UTF-8 bytes occupied by a character list.
+
+Temporal O(c) for c characters: one `utf8ByteLength` call per character. Spatial O(1): a single Nat
+accumulator. -/
 def utf8ByteLengthList (chars : List Char) : Nat :=
   chars.foldl (fun size c => size + utf8ByteLength c) 0
 
 def isContinuationByte (value : Nat) : Bool :=
   0x80 ≤ value && value < 0xc0
 
+-- Temporal O(fuel): each step decrements fuel by one and consumes 1–4 bytes, so fuel bounds the
+-- steps. Spatial O(fuel) stack: the recursive tail is bound and consed, so one frame per step.
+-- Operations counted: bytes read, continuation-byte tests.
 def decodeUtf8CharsFuel : Nat → List UInt8 → Result (List Char)
   | 0, _ => .error "source is not UTF-8"
   | _ + 1, [] => .ok []
@@ -134,14 +144,22 @@ def decodeUtf8CharsFuel : Nat → List UInt8 → Result (List Char)
                       .ok (Char.ofNat code :: tail)
       else .error "source is not UTF-8"
 
+-- Temporal O(|bytes|): the fuel is |bytes| + 1 and each step consumes at least one byte. Spatial
+-- O(|bytes|): the `decodeUtf8CharsFuel` stack plus the decoded character list.
 def decodeUtf8Chars (bytes : List UInt8) : Result (List Char) :=
   decodeUtf8CharsFuel (bytes.length + 1) bytes
 
+-- Temporal O(k) for the k characters before the next newline or end: one `utf8ByteLength` call per
+-- character. Spatial O(1) call stack: the recursion is tail-recursive and shares the input tail.
 def skipComment : List Char → Nat → List Char × Nat
   | [], pos => ([], pos)
   | '\n' :: cs, pos => ('\n' :: cs, pos)
   | c :: cs, pos => skipComment cs (pos + utf8ByteLength c)
 
+-- Temporal O(n) for n input characters: each character is visited once by `lexChars`, `takeWhile` or
+-- `skipComment`; one `utf8ByteLength` and one kind test per character. Spatial O(n): the token
+-- accumulator and final `.reverse` are O(#tokens) and `takeWhile` adds O(longest run) transient
+-- stack; the `lexChars` recursion itself is tail-recursive.
 def lexChars : Nat → List Char → Nat → List Token → Result (List Token × Nat)
   | 0, _, _, _ => .error "tokenizer limit reached"
   | _ + 1, [], pos, tokens => .ok (tokens.reverse, pos)
@@ -196,10 +214,14 @@ def lexChars : Nat → List Char → Nat → List Token → Result (List Token �
         else if c.toNat == '='.toNat then one .assign
         else one (.other c)
 
+-- Temporal O(n) for n source bytes: `decodeUtf8Chars` and `lexChars` (fuel n + 1) are each linear.
+-- Spatial O(n): the decoded character list and the token list.
 def tokenize (bytes : ByteArray) : Result (List Token × Nat) := do
   let chars ← decodeUtf8Chars bytes.data.toList
   lexChars (chars.length + 1) chars 0 []
 
+-- Temporal O(k) for k leading newline tokens: one kind comparison per dropped token. Spatial O(1)
+-- call stack: the recursion is tail-recursive and returns the original tail.
 def dropNewlines : List Token → List Token
   | [] => []
   | token :: rest => if token.kind = .newline then dropNewlines rest else token :: rest
@@ -229,12 +251,18 @@ def binOp (kind : TokenKind) : Option (BinOp × Nat) :=
   else none
 
 mutual
+  -- Temporal O(fuel): every recursive call passes a strictly smaller fuel and each descent consumes
+  -- tokens, so fuel bounds the number of steps; entry points set fuel linear in the token count.
+  -- Spatial O(fuel) stack: recursive results are bound (`let (left, rest) ← ...`), so one frame per
+  -- fuel level. Operations counted: tokens consumed, `dropNewlines`/`binOp` comparisons.
   def parseExprFuel : Nat → Nat → List Token → Result (Expr × List Token)
     | 0, _, _ => .error "expression nesting limit reached"
     | fuel + 1, minPrec, tokens => do
         let (left, rest) ← parsePrimaryFuel fuel tokens
         parseBinaryFuel fuel minPrec left rest
 
+  -- Temporal O(fuel) and spatial O(fuel) stack, as `parseExprFuel`: each branch consumes tokens and
+  -- descends with a smaller fuel; the `dropNewlines` scan is charged to the tokens it skips.
   def parsePrimaryFuel : Nat → List Token → Result (Expr × List Token)
     | 0, _ => .error "expression nesting limit reached"
     | fuel + 1, tokens =>
@@ -265,6 +293,8 @@ mutual
               .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
               .error "unsupported expression token"
 
+  -- Temporal O(fuel): each argument consumes at least one token and recurses with a smaller fuel.
+  -- Spatial O(fuel) stack: `arg :: args` binds the recursive result, so one frame per argument.
   def parseArgsFuel : Nat → List Token → Result (List Expr × List Token)
     | 0, _ => .error "call argument nesting limit reached"
     | fuel + 1, tokens =>
@@ -282,6 +312,9 @@ mutual
                 else .error "expected comma or closing parenthesis"
             | [] => .error "unterminated call arguments"
 
+  -- Temporal O(fuel): each operator consumes at least one token and recurses with a smaller fuel.
+  -- Spatial O(fuel) stack: the recursive result is bound before the next step, so one frame per
+  -- operator. Operations counted: tokens consumed, `binOp` comparisons.
   def parseBinaryFuel : Nat → Nat → Expr → List Token → Result (Expr × List Token)
     | 0, _, _, _ => .error "expression operator limit reached"
     | fuel + 1, minPrec, left, tokens =>
@@ -318,10 +351,15 @@ mutual
           else ordinary
 end
 
+-- Temporal O(t) for t = |tokens|: fuel is `t * 4 + 16` and bounds the parser steps. Spatial O(t)
+-- stack: one frame per fuel level in `parseExprFuel`.
 private def parseExpr (tokens : List Token) : Result (Expr × List Token) :=
   parseExprFuel (tokens.length * 4 + 16) 0 tokens
 
 mutual
+  -- Temporal O(fuel): each statement consumes tokens and recurses with a smaller fuel; the
+  -- `parseExpr` calls are charged to the tokens they consume. Spatial O(fuel) stack: the body list
+  -- is built from the bound recursive result, so one frame per statement.
   def parseBlockFuel : Nat → List Token → Result (List Stmt × Token × List Token)
     | 0, _ => .error "statement nesting limit reached"
     | fuel + 1, tokens =>
@@ -333,6 +371,8 @@ mutual
             let (body, close, rest) ← parseBlockFuel fuel rest
             .ok (stmt :: body, close, rest)
 
+  -- Temporal O(fuel): fuel bounds the statement count and each `parseExpr` consumes its own tokens.
+  -- Spatial O(fuel) stack: recursive results are bound, so one frame per nested block/statement.
   def parseStmtFuel : Nat → List Token → Result (Stmt × List Token)
     | 0, _ => .error "statement nesting limit reached"
     | fuel + 1, tokens =>
@@ -400,6 +440,8 @@ mutual
           .ok (.expression value, rest)
 end
 
+-- Temporal O(fuel): one token (and one fuel decrement) per parameter. Spatial O(fuel) stack:
+-- `name :: names` binds the recursive result, so one frame per parameter.
 def parseParameters : Nat → List Token → Result (List String × List Token)
   | 0, _ => .error "parameter limit reached"
   | _ + 1, [] => .error "expected name at end of input"
@@ -419,6 +461,8 @@ def parseParameters : Nat → List Token → Result (List String × List Token)
           .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
           .error "expected name"
 
+-- Temporal O(t) for t = |tokens|: `parseParameters` and `parseBlockFuel` are each run with fuel
+-- linear in the remaining token count. Spatial O(t) stack from those recursions.
 def parseFunction (name : String) (start : Nat) (tokens : List Token) : Result (FunctionDecl × List Token) := do
   let (_, tokens) ← expectKind .lparen tokens
   let (parameters, tokens) ← parseParameters (tokens.length + 1) tokens
@@ -435,6 +479,8 @@ def selectedFunctionNames : List String :=
    "tableInitGo", "tableInit", "tableCapacityOk", "tableFindSlotGo",
    "tableLookupSlotGo", "tableFind", "tableGet", "tableInsertWith"]
 
+-- Temporal O(k) for the k tokens before the next newline: one kind comparison per token. Spatial
+-- O(k) stack: `token :: line` binds the recursive result, so one frame per token.
 def takeLine : List Token → List Token × List Token
   | [] => ([], [])
   | token :: rest =>
@@ -442,6 +488,10 @@ def takeLine : List Token → List Token × List Token
         let (line, tail) := takeLine rest
         (token :: line, tail)
 
+-- Temporal O(fuel) for fuel = |tokens| + 1: each step consumes one token and recurses with a smaller
+-- fuel; `takeLine`/`parseExpr`/`parseFunction` work is charged to the tokens they consume, and
+-- `contains`/`erase` scan the bounded (≤13) selected-name lists, so O(1) each. Spatial O(fuel)
+-- stack: recursive results are bound, plus the `takeLine`/`parseFunction` stacks.
 def scanSelected : Nat → List Token → List String → List String →
     Result (List ConstantDecl × List FunctionDecl)
   | 0, _, _, _ => .error "declaration scan limit reached"
@@ -480,7 +530,12 @@ def scanSelected : Nat → List Token → List String → List String →
           .comma | .semi | .newline | .assign | .lt | .le | .gt | .ge | .other _ =>
           scanSelected fuel rest constants functions
 
+-- Temporal O(s²) for s = |names|: `List.eraseDups` is O(s²) BEq comparisons (its own doc) and both
+-- `.length` are O(s). Spatial O(s) for the erased list (the erase loop is tail-recursive).
 def distinct (names : List String) : Bool := names.eraseDups.length = names.length
+-- Temporal O(t) for t = |tokens|: one token visited per step with one TokenKind comparison on a
+-- closing delimiter. Spatial O(d) for the `stack` accumulator at nesting depth d (the recursion is
+-- tail-recursive, so O(1) call stack).
 def delimitersBalanced : List Token → List TokenKind → Bool
   | tokens, stack =>
       match tokens with
@@ -511,12 +566,17 @@ def delimitersBalanced : List Token → List TokenKind → Bool
           | .ident _ | .numeral _ | .comma | .semi | .newline | .assign | .lt | .le |
               .gt | .ge | .other _ => delimitersBalanced rest stack
 
+-- Temporal O(s²) for s = |spans|: the first `all` is O(s) endpoint checks and the nested `all` is
+-- O(s²) pairwise overlap comparisons. Spatial O(1) beyond the input: both `all`s are folds.
 def spansValid (size : Nat) (spans : List Span) : Bool :=
   spans.all (fun span => span.start < span.stop && span.stop ≤ size) &&
   spans.all fun first => spans.all fun second =>
     first == second || first.stop ≤ second.start || second.stop ≤ first.start
 
 mutual
+  -- Temporal O(e · |available|) for e expression nodes: one visit per node and one `List.contains`
+  -- scan of `available` at each `.call`. Spatial O(e) stack: each sub-result is bound before the
+  -- parent combines it.
   def expressionCallsResolve (available : List String) : Expr → Bool
     | .literal _ | .name _ => true
     | .call callee args =>
@@ -529,6 +589,8 @@ mutual
           expressionCallsResolve available condition &&
           expressionCallsResolve available elseValue
 
+  -- Temporal O(e · |available|) for e list elements, as `expressionCallsResolve`. Spatial O(e)
+  -- stack: `&&` binds the head result before the tail recursion.
   def expressionsCallsResolve (available : List String) : List Expr → Bool
     | [] => true
     | expression :: rest =>
@@ -536,6 +598,8 @@ mutual
 end
 
 mutual
+  -- Temporal O(s · |available|) for s statement nodes, as `expressionCallsResolve`. Spatial O(s)
+  -- stack: each sub-result is bound before the parent combines it.
   def statementCallsResolve (available : List String) : Stmt → Bool
     | .bind _ value => expressionCallsResolve available value
     | .store address value =>
@@ -549,17 +613,24 @@ mutual
           | none => true
           | some body => statementsCallsResolve available body
 
+  -- Temporal O(s · |available|) for s list elements, as `statementCallsResolve`. Spatial O(s)
+  -- stack: `&&` binds the head result before the tail recursion.
   def statementsCallsResolve (available : List String) : List Stmt → Bool
     | [] => true
     | stmt :: rest =>
         statementCallsResolve available stmt && statementsCallsResolve available rest
 end
 
+-- Temporal O(Σ |body| + |functions|): one `functions.map` over the names, then one
+-- `statementsCallsResolve` per body charged to its statement/expression nodes. Spatial O(|functions|
+-- + maximum body depth) for the name list and the recursion.
 def resolveCalls (functions : List FunctionDecl) : Bool :=
   let names := functions.map (·.name)
   functions.all fun decl => statementsCallsResolve names decl.body
 
 mutual
+  -- Temporal O(e · |available|) for e expression nodes: one visit per node and one `available.contains`
+  -- scan at each `.name`. Spatial O(e) stack: each sub-result is bound before the parent combines it.
   def expressionNamesResolve (available : List String) : Expr → Bool
     | .literal _ => true
     | .name name => available.contains name
@@ -572,12 +643,17 @@ mutual
           expressionNamesResolve available condition &&
           expressionNamesResolve available elseValue
 
+  -- Temporal O(e · |available|) for e list elements, as `expressionNamesResolve`. Spatial O(e)
+  -- stack: `&&` binds the head result before the tail recursion.
   def expressionsNamesResolve (available : List String) : List Expr → Bool
     | [] => true
     | expression :: rest =>
         expressionNamesResolve available expression && expressionsNamesResolve available rest
 end
 
+-- Temporal O(fuel · (|available| + fuel)): fuel bounds the statements visited, each `.name`/`.call`
+-- lookup scans `available`, and `.bind` grows `available` by at most fuel. Spatial O(fuel) stack:
+-- recursive results are bound and each `.bind` conses one name.
 def statementsNamesResolve : Nat → List String → List Stmt → Bool
   | 0, _, _ => false
   | _, _, [] => true
@@ -601,12 +677,19 @@ def statementsNamesResolve : Nat → List String → List Stmt → Bool
               | some body => statementsNamesResolve fuel available body) &&
             statementsNamesResolve fuel available rest
 
+-- Temporal O(Σ_functions (|params|² + |body|² + |body| · |available|)): `distinct` is quadratic in
+-- the parameter list and `statementsNamesResolve` is as above per body, with `available` the
+-- parameters plus all constants. Spatial O(maximum body depth + Σ |params|).
 def resolveNames (constants : List ConstantDecl) (functions : List FunctionDecl) : Bool :=
   let constantNames := constants.map (·.name)
   functions.all fun decl =>
     distinct decl.parameters &&
     statementsNamesResolve (decl.body.length * 4 + 64) (decl.parameters ++ constantNames) decl.body
 
+-- Temporal O(t + program size): linear scans over the t tokens (`delimitersBalanced`, `scanSelected`),
+-- then the call/name resolution over the selected declarations; `distinct`/`spansValid` run over the
+-- fixed ≤22 selected declarations, so their quadratic terms are a constant. Spatial O(t) for the
+-- token and declaration lists plus the resolution stacks.
 def decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat) : Result CertifiedDecoded := do
   if consumed != bytes.size then .error "tokenizer did not consume every source byte" else
   if !delimitersBalanced tokens [] then .error "unbalanced source declaration delimiter" else
@@ -628,10 +711,14 @@ def decodeTokens (bytes : ByteArray) (tokens : List Token) (consumed : Nat) : Re
   let certificate : Certificate := ⟨true, true, true, true, true⟩
   .ok ⟨{ program, certificate }, ⟨rfl, rfl, rfl, rfl, rfl⟩⟩
 
+-- Temporal O(n) for n source bytes: `tokenize` is linear and `decodeTokens` runs over the O(n)
+-- tokens. Spatial O(n): the decoded characters, token list and selected declarations.
 def decodeTable (bytes : ByteArray) : Result CertifiedDecoded := do
   let (tokens, consumed) ← tokenize bytes
   decodeTokens bytes tokens consumed
 
+-- Temporal O(n) for n source bytes: `tokenize` is linear and `scanSelected` visits the O(n) tokens
+-- once against the one-name target. Spatial O(n): the decoded characters and token list.
 def decodeImportedCoordCeiling (bytes : ByteArray) : Result ConstantDecl :=
   (tokenize bytes).bind fun result =>
     if result.2 = bytes.size then
@@ -642,11 +729,15 @@ def decodeImportedCoordCeiling (bytes : ByteArray) : Result ConstantDecl :=
         | _ :: _ :: _ => .error "COORD_CEILING is missing or duplicated"
     else .error "import tokenizer did not consume every source byte"
 
+-- Temporal O(c) for c = |program.constants|: one `++ [coord]`; the certificate bounds c to the 8
+-- selected constants, so O(1) on the decode path. Spatial O(c) for the appended list.
 def appendImportedCoord (decoded : CertifiedDecoded) (coord : ConstantDecl) : CertifiedDecoded :=
   ⟨{ decoded.val with
       program := { decoded.val.program with
         constants := decoded.val.program.constants ++ [coord] } }, decoded.property⟩
 
+-- Temporal O(n + m) for the table and std source byte lengths: two linear decodes plus one constant
+-- comparison and append. Spatial O(n + m) for the two decoded token/declaration sets.
 def decodeClosure (tableBytes stdBytes : ByteArray) : Result CertifiedDecoded := do
   let decoded ← decodeTable tableBytes
   let coord ← decodeImportedCoordCeiling stdBytes
