@@ -307,11 +307,11 @@ theorem tableGet_execution_of_certificate
       observeRead memory base cap default occupied h key raw ∧
       (member occupied key = true → raw = Apeiron.Table.get h key) := by
   subst program
-  have source := Slang.SourceAudit.source_binding derivation selectedSyntax closure
+  have source := Slang.Source.decodeDerivation_sound derivation
   rcases tableGet_read_correct (checkedContext value.val.program) slotKey slotVal capacityOk spread
     lookup find get hslotKey hslotVal hcapacityOk hspread hlookup hfind hget hslotKeyShape
     hslotValShape hcapacityShape hspreadShape hlookupShape hfindShape hgetShape hstride hempty hphi
     memory base cap default key occupied h rep hkey with ⟨raw, trace, execution, observation, link⟩
-  exact ⟨raw, trace, source.1, execution, observation, link⟩
+  exact ⟨raw, trace, source, execution, observation, link⟩
 
 end Slang.Table
