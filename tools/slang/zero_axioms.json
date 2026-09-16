@@ -5208,6 +5208,55 @@
         "path": "proof/corpus/Slang/Source/Tokenizer/ScanAudit.lean"
       }
     ]
+  },
+    "tokenizer-compose": {
+    "kind": "active",
+    "wave": "W24",
+    "title": "Structural tokenizer composition",
+    "note": "Composes structural UTF-8 and character scans into Decode.tokenize under the empty axiom cone.",
+    "audit_module": "Slang/Source/Tokenizer/TokenizeAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean",
+      "proof/corpus/Slang/Source/Tokenizer/TokenizeAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Tokenizer.sourceBytes_map_length",
+        "expected_type": "\u2200 (source : Slang.Source.SourceBytes), (source.map UInt8.ofFin).length = source.length",
+        "module": "Slang.Source.Tokenizer.Tokenize",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.encodeBytes_data_length",
+        "expected_type": "\u2200 (source : Slang.Source.SourceBytes), (Slang.Source.encodeBytes source).data.toList.length = source.length",
+        "module": "Slang.Source.Tokenizer.Tokenize",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TokenizeDerivation",
+        "expected_type": "Slang.Source.SourceBytes \u2192 List Slang.Decode.Token \u2192 Nat \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Tokenize",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TokenizeDerivation.intro",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TokenizeDerivation.intro",
+        "module": "Slang.Source.Tokenizer.Tokenize",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TokenizeDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TokenizeDerivation.sound",
+        "module": "Slang.Source.Tokenizer.Tokenize",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Tokenize.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TokenizeAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Tokenizer.TokenizeAudit",
+        "path": "proof/corpus/Slang/Source/Tokenizer/TokenizeAudit.lean"
+      }
+    ]
   }
   }
 }
