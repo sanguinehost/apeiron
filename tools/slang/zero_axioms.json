@@ -3639,6 +3639,12 @@
           "path": "proof/corpus/Slang/SourceAudit.lean"
         },
         {
+          "name": "Slang.SourceAudit.source_binding",
+          "expected_type": "\u2200 {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value \u2192 Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true \u2192 Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program \u2192 Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value \u2227 value.val.certificate.Valid \u2227 Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true \u2227 Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program",
+          "module": "Slang.SourceAudit",
+          "path": "proof/corpus/Slang/SourceAudit.lean"
+        },
+        {
           "name": "Slang.SourceAudit.nat_add_zero",
           "expected_type": "(0 : Nat) + 0 = 0",
           "module": "Slang.SourceAudit",
@@ -4874,6 +4880,332 @@
         "expected_type": "(0 : Nat) + 0 = 0",
         "module": "Slang.Source.Tokenizer.Utf8Audit",
         "path": "proof/corpus/Slang/Source/Tokenizer/Utf8Audit.lean"
+      }
+    ]
+  },
+    "tokenizer-scan": {
+    "kind": "active",
+    "wave": "W24",
+    "title": "Structural character tokenizer",
+    "note": "Structural maximal-helper and character-scan relations refining Decode.lexChars under the empty axiom cone.",
+    "audit_module": "Slang/Source/Tokenizer/ScanAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Tokenizer/Helpers.lean",
+      "proof/corpus/Slang/Source/Tokenizer/Scan.lean",
+      "proof/corpus/Slang/Source/Tokenizer/ScanAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Tokenizer.TakeWhileScan",
+        "expected_type": "(Char \u2192 Bool) \u2192 List Char \u2192 List Char \u2192 List Char \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TakeWhileScan.nil",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TakeWhileScan.nil",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TakeWhileScan.stop",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TakeWhileScan.stop",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TakeWhileScan.next",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TakeWhileScan.next",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.TakeWhileScan.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.TakeWhileScan.sound",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.SkipCommentScan",
+        "expected_type": "List Char \u2192 Nat \u2192 List Char \u2192 Nat \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.SkipCommentScan.done",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.SkipCommentScan.done",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.SkipCommentScan.newline",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.SkipCommentScan.newline",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.SkipCommentScan.next",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.SkipCommentScan.next",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.SkipCommentScan.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.SkipCommentScan.sound",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.DigitsFold",
+        "expected_type": "Nat \u2192 List Char \u2192 Nat \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.DigitsFold.done",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.DigitsFold.done",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.DigitsFold.next",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.DigitsFold.next",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.DigitsFold.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.DigitsFold.sound",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8LengthFold",
+        "expected_type": "Nat \u2192 List Char \u2192 Nat \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8LengthFold.done",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8LengthFold.done",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8LengthFold.next",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8LengthFold.next",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.Utf8LengthFold.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.Utf8LengthFold.sound",
+        "module": "Slang.Source.Tokenizer.Helpers",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Helpers.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead",
+        "expected_type": "List Char \u2192 Nat \u2192 List Char \u2192 Nat \u2192 Option Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.space",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.space",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.newline",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.newline",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.slashEnd",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.slashEnd",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.comment",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.comment",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.slash",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.slash",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.ident",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.ident",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.numeral",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.numeral",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.ltEnd",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.ltEnd",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.le",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.le",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.lt",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.lt",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.gtEnd",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.gtEnd",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.ge",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.ge",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.gt",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.gt",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.lparen",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.lparen",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.rparen",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.rparen",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.lbrace",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.lbrace",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.rbrace",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.rbrace",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.lbracket",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.lbracket",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.rbracket",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.rbracket",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.comma",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.comma",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.semi",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.semi",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.assign",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.assign",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.other",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.other",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.LexHead.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.LexHead.sound",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.ReverseTokens",
+        "expected_type": "List Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.ReverseTokens.result",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.ReverseTokens.result",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.ReverseTokens.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.ReverseTokens.sound",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.CharsScan",
+        "expected_type": "Nat \u2192 List Char \u2192 Nat \u2192 List Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Nat \u2192 Prop",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.CharsScan.done",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.CharsScan.done",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.CharsScan.nextNone",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.CharsScan.nextNone",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.CharsScan.nextToken",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.CharsScan.nextToken",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.CharsScan.sound",
+        "expected_type": "type_of% @Slang.Source.Tokenizer.CharsScan.sound",
+        "module": "Slang.Source.Tokenizer.Scan",
+        "path": "proof/corpus/Slang/Source/Tokenizer/Scan.lean"
+      },
+      {
+        "name": "Slang.Source.Tokenizer.ScanAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Tokenizer.ScanAudit",
+        "path": "proof/corpus/Slang/Source/Tokenizer/ScanAudit.lean"
       }
     ]
   }
