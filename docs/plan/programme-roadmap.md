@@ -1,4 +1,28 @@
-# Programme documentation consolidation
+# Programme roadmap
+
+This document records the programme's canonical-rooting directive and the earlier documentation
+consolidation pass. The canonical-rooting directive governs; the consolidation record below is
+historical.
+
+## Purpose and canonical root
+
+Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
+evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
+refusal, `N = 0` refusal, no probing).
+
+Every executing face roots in canonical `Apeiron.Table.HMap`, `Apeiron.Table.get`,
+`Apeiron.Table.insertWith` and `Apeiron.Table.build`, and in `Apeiron.Trichotomy.AnyRing.RingCell`,
+`ringMul` and `ringNormForm`, with the extracted `Cell<i64>` word bodies `word_mul_denote` and
+`word_norm_denote`. A face that names the canonical material only by path, namespace or import is
+not rooted; anything not rooted in it is not accepted.
+
+The rooting gate is `python3 tools/rooting/check.py --self-test`; `python3 tools/rooting/check.py
+--check` reports the binned routes until their retirement. The O(1) qualifier is fixed N with bounded
+callbacks and nonconstant key length: the parameter boundary. Reading a whole source remains at least
+linear in its bytes at fixed N, so constant-time table operations at fixed N do not imply constant-time
+whole-source checking at fixed N, nor constant-size proof terms.
 
 ## Intent
 
@@ -6,7 +30,9 @@ The user directs the programme; AI writes its code. Commit authors and optional 
 partition that direction. The approved decision retains Lean and consolidates canonical mathematics,
 reusable Rust primitives and implementation refinements in Apeiron. Song remains an adjacent,
 independent assembly-up implementation. Correspondence between implemented primitives is required;
-Rust linkage or replacing Lean is not the method.
+Rust linkage or replacing Lean is not the method. Song is not runtime-linked to Apeiron; the
+required cross-repo result is a checked primitive correspondence. Fold is not a consumer or
+requirements source; applications retain local policy.
 
 Reuse `docs/direction.md` as the programme authority. Do not create a second programme roadmap.
 Local roadmaps retain implementation detail, gates and release acceptance. A programme outcome may
@@ -33,12 +59,66 @@ recreates the current drift.
   Foundational verification precedes the next large AI implementation. The joint readiness profile
   is an explicit specification obligation, not satisfied by A0 alone.
 - Remove stale current-direction assertions, not mathematical source. Historical RFC publication
-  artifacts stay frozen; their entry page points to the current programme authority.
+  artifacts stay unchanged; their entry page points to the current programme authority.
 
 This is an approved documentation pass on the supplied checkouts. No task branch/worktree is
 created, no source/build lane is occupied, and no commit or push is authorized. Temporary checking
 code lives under `/tmp/opencode/programme-docs/`, not on a production acceptance path. This combined
 intent/spec/plan is the one retained lifecycle record for the pass.
+
+## Re-root integration order
+
+The re-root replaces the rejected route with a checked chain. Each stage opens only after the
+previous stage's gate and negative control pass; `docs/plan/slang-source-refinement.md` owns the
+per-stage files and controls.
+
+1. **Source arena.** An immutable arena owns the exact selected bytes and bounded parsed records;
+   `SourceRef` carries a checked byte interval and token interval. Owner: Apeiron corpus worker,
+   `proof/corpus/Slang/Source/`.
+2. **Bounded arenas.** State and result handles with checked membership; allocation returns a fresh
+   handle or an explicit arena-capacity refusal. Owner: Apeiron corpus worker,
+   `proof/corpus/Slang/Arena/`.
+3. **Complete memo key.** The full computation identity: source ref, operation, context/environment,
+   precedence, every recursion, token, byte, stack and result limit, every input state handle,
+   `Sigma` and the selected addressing face. A digest or coordinate alone is not key equality.
+   Owner: Apeiron corpus worker, `proof/corpus/Slang/Memo/Key.lean`.
+4. **Face-correct addressing.** Every executing signature roots in `Apeiron.Table.get` and
+   `Apeiron.Table.insertWith` and carries `Sigma`; elliptic exact packing, parabolic carried
+   complete key and hyperbolic scramble/discard on explicit domains; one home shard, no fallback
+   probing. Owner: Apeiron corpus worker, `proof/corpus/Slang/Address/`.
+5. **Memo value.** A bounded result handle, resulting state handles, the consumed source interval
+   and checked transition evidence that the result denotes the specified canonical
+   `Apeiron.Table.insertWith` transition. Owner: Apeiron corpus worker,
+   `proof/corpus/Slang/Memo/Value.lean`.
+6. **Fixed-shard store.** 256 shards, capacity `N`, full-key comparison, no growth, fallback
+   container, silent eviction or unrelated-key replacement; the canonical type is
+   `Apeiron.Table.HMap MemoKey MemoValue`, and reads, updates and builds denote canonical
+   `Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`. Owner: Apeiron corpus
+   worker, `proof/corpus/Slang/Memo/Store.lean`.
+7. **Ordered fold.** An ordered fold of checked transitions whose successful execution denotes the
+   same ordered update stream under `Apeiron.Table.build`; reordering, skipping or synthesizing a
+   transition is forbidden. Owner: Apeiron corpus worker, `proof/corpus/Slang/Memo/Fold.lean`.
+8. **Unconditional source binding.** `Slang.SourceAudit.source_binding` is accepted only as the
+   unconditional theorem with an empty axiom cone; the conditional helper
+   `source_binding_of_closed_binding` is not the acceptance target. Owner: Apeiron corpus worker,
+   `proof/corpus/Slang/SourceAudit.lean`.
+9. **Harness.** The rejecting gate harness and the exact-declaration probe:
+   `python3 tools/slang/spec_check.py --check` and `tools/slang/refine.py` bound to the
+   unconditional `Slang.SourceAudit.source_binding`. Owner: Apeiron tooling worker, `tools/slang/`.
+
+Owner boundaries: Apeiron owns the canonical definitions, the re-rooted stages and the harness.
+Song owns its assembly, Slang implementation, contracts and local build/runtime gates; Song is not
+runtime-linked to Apeiron, and the cross-repo result is a checked primitive correspondence. Fold is
+not a consumer or requirements source. Applications retain local policy.
+
+## Retired route
+
+The `Slang/Derivation/` `Layer`/`Derives` tower is retired. The `Slang/Generated/Trace/` generated
+decoder traces are retired. The `DecodeTrace.Run` representation is retired, the named proof DAG is
+retired, and the segment lemma is retired; none is the active architecture. The binned
+`tools/slang/trace_check.py` `Run`/`Derives` acceptance is retired. Historical references to a
+retired route carry a retirement marker and are not acceptance. The re-rooted chain above replaces
+them; they are not extended.
 
 ## Input identities
 
@@ -115,14 +195,17 @@ specification/gate, and completion conditions for each outcome. It is not a disp
 gates and profiles require bounded design tasks before software implementation.
 
 Sol reviews storage/benchmark scope, F2 delivery and stale combinator/evaluator statements before
-acceptance. No grade, premise, theorem or attribution is inferred from a title. Astra's frozen
+acceptance. No grade, premise, theorem or attribution is inferred from a title. Astra's recorded
 boundary retains all local gates. Runtime/Lean rebuilds are inapplicable to this documentation-only
 pass: no code, extraction, package, pin or theorem changes are allowed. A software change would
 require a separate task and its local barrier.
 
 ## Acceptance record
 
-- Architecture decision: frozen by `openai-astra`, session `ses_f66026973ffejJuS8pXwtdbGkM`.
+Historical record of the documentation-consolidation pass. The canonical-rooting directive in
+`docs/direction.md` and `docs/flash-handoff.md` now governs.
+
+- Architecture decision: recorded by `openai-astra`, session `ses_f66026973ffejJuS8pXwtdbGkM`.
 - Preparation: `git diff --check` exits 0. Checker unit checks exit 0; lead reran the
   pre-edit `--task all` baseline: exit 1, 50 documentary findings. Live controls were not ready
   until the relevant documents were green; synthetic detector tests are not acceptance controls.
@@ -170,7 +253,7 @@ require a separate task and its local barrier.
   checkbox lines, 34 A0 rows and four B6 rows.
 - Source/pin/generated-artifact preservation passes against the immutable baseline: all eight HEADs
   and every captured nonowned file remain unchanged, including the dirty Fold/Lyrium source and
-  frozen RFC/publication artifacts. The baseline records tracked and nonignored untracked files;
+  unchanged RFC/publication artifacts. The baseline records tracked and nonignored untracked files;
   it is not an inventory of ignored build caches. No build lane was used.
 - The baseline contained 100 unique pre-existing broken-link keys. No newly broken local Markdown
   link or anchor is introduced; this is not a claim that all historical links are repaired. Review
@@ -182,10 +265,14 @@ require a separate task and its local barrier.
 - Decision: documentation consolidation accepted, 26 documents across eight repositories. This is
   checked documentary consistency and a reviewed architecture decision, not a new `proved`,
   software-`tested` or performance-`measured` claim. Rust/Lean/Kani barriers are inapplicable to this
-  source-frozen documentation pass; implementation epics retain all their required gates.
+  source-preserving documentation pass; implementation epics retain all their required gates.
 - No commit, push or physical migration in this pass.
 
-## Remaining implementation
+## Remaining implementation (historical)
+
+Historical. This section records the state before the canonical-rooting directive. The active
+obligation is the re-root integration order above. The joint primitive/readiness profile, the
+canonical source migration and the joint correspondence below remain open, not closed.
 
 The next bounded design task specifies the joint primitive/readiness profile: selected executing
 primitives, their domains and representations, success/refusal/effects, resource bounds, exact

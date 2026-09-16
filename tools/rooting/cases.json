@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Data for tools/rooting/check.py, the rejecting gate for the canonical-rooting directive. The rule vocabulary below parameterises every rejection; the self_test block carries in-repo-independent synthetic fixtures so --self-test and --controls need no network, Lean or Rust build. The governing_documents and source_roots are the --check scan surface. Retired routes are listed with the path prefixes and tokens that must not be presented as the active architecture.",
+  "note": "Data for tools/rooting/check.py, the rejecting gate for the canonical-rooting directive. The rule vocabulary below parameterises every rejection; the self_test block carries in-repo-independent synthetic fixtures so --self-test and --controls need no network, Lean or Rust build. The governing_documents and source_roots are the --check scan surface. Retired routes are listed with the path prefixes and tokens that must not be presented as the active architecture. A coordinate or hash equality presented as source identity, or an executing address signature that omits Sigma, is a rejected policy and is listed as a retired route.",
   "governing_documents": [
     "AGENTS.md",
     "docs/direction.md",
@@ -166,6 +166,17 @@
       "tokens": [
         "segment lemma",
         "segment-lemma"
+      ],
+      "case_sensitive": false
+    },
+    {
+      "id": "coordinate-identity",
+      "title": "Rejected coordinate/hash identity and Sigma-free executing signature",
+      "path_prefixes": [],
+      "tokens": [
+        "coordinate equality establishes source identity",
+        "hash equality establishes source identity",
+        "omits Sigma from an executing signature"
       ],
       "case_sensitive": false
     }
@@ -371,6 +382,20 @@
         "expect": "accept",
         "path": "docs/synthetic/e-gated.md",
         "text": "# Task\nOwned files: `a.py`, `b.py`, `c.py`.\nGATE: `python3 tools/rooting/check.py --check`.\nCONTROL: mutation MUST fail.\n"
+      },
+      {
+        "name": "coordinate equality presented as source identity",
+        "rule": "B",
+        "expect": "reject",
+        "path": "docs/synthetic/b-coordinate-identity.md",
+        "text": "# Policy\nThe active identity rule is coordinate equality establishes source identity, so the stored key is not compared.\n"
+      },
+      {
+        "name": "executing signature omits Sigma",
+        "rule": "B",
+        "expect": "reject",
+        "path": "docs/synthetic/b-sigma-free.md",
+        "text": "# Policy\nAn executing signature omits Sigma from an executing signature, so no face is selected.\n"
       }
     ]
   }

@@ -32,6 +32,31 @@ GATE:       cargo build/test --workspace --all-features --locked; proof/regen.sh
 GRADE:      tested representation; clean extraction/elaboration, not proved table refinement
 ```
 
+### Open obligations: stable Sigma/address interface and the executing path
+
+The fixed-shard `Table<K, V, H, N>` and its word refinement are the current evidence. The following
+obligations are open; each names a gap to the O(1)-at-fixed-N canonical object, not a completed
+result.
+
+1. **Stable Sigma/address interface (open).** A read or write takes `(sigma, face, admittedInput)`.
+   The stored full key carries `sigma`. `Apeiron.Table.get` stays total: a missing key returns the
+   default, never a new refusal. No new refusal is introduced under `ShardFull`; the only refusals
+   remain the absent-key full-shard refusal and the `N = 0` write refusal. The present
+   `Table<K, V, H, N>` signatures take no `Sigma`, so this interface is not implemented.
+2. **Face-routing of `WordHome` (open).** `WordHome` routes by the word bit pattern only and selects
+   no face. Routing each face's admitted input to its home shard — elliptic pack, parabolic carried
+   complete key, hyperbolic observation domain — is not implemented.
+3. **Real `Cell` multiplication merge (open).** `WordMerge` is wrapping addition. A merge that calls
+   the real `Cell::mul` at the selected `sigma` and refines `Apeiron.Table.insertWith` is not wired
+   into the executing table.
+4. **Fixed-capacity cost model (open).** The cost boundary at fixed `N`, bounded callbacks and
+   nonconstant key length is stated in the spec. No cost model or measurement binds the executing
+   path.
+5. **Hyperbolic observation domain (open).** The discard face's observation domain, and its refusal
+   of identity outside that domain, are not defined in the executing path.
+
+Each obligation is named open; none is closed by the existing word-table refinement.
+
 ### Observed gates and extraction verdict
 
 | Command | Exit/result |
@@ -683,6 +708,9 @@ neither result authorizes removing `Map`.
 
 ## Optimized representation decision and remaining sequence
 
+**Historical (superseded by the fixed-shard representation above).** This section names the retired
+`SafeTable`/`Map` source; it is kept as the record of that decision, not as current acceptance.
+
 `APEIRON-STORAGE-W4-T1`, owner Astra; base `7d6100c450e5da1fa469ffe9adc16a65c7e720ba`.
 User-authorized supplied-checkout documentation exception; initially clean. No branch/worktree created.
 The frozen relation is in `docs/kernel-boundary.md` §4. `SafeTable` is the checked reference;
@@ -787,6 +815,9 @@ execution guarantee or ring-0 guarantee is added. A stored-state kernel consumer
 read/compute/write body and exact failure contract selected before composition work is dispatchable.
 
 ## S6 baseline/red/restore controls
+
+**Historical (superseded by the fixed-shard representation above).** These controls bind the retired
+`SafeTable` source and its generated bodies; they are the record of that checkpoint.
 
 Throwaway root `.mut-s6/` (btrfs reflink of `proof/`, `target/aeneas` symlink; same filesystem as the
 repository). Baseline `cd .mut-s6/proof/corpus && lake build` exit 0, 3351 jobs. Toolchain: the single
