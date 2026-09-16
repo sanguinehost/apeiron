@@ -5257,6 +5257,289 @@
         "path": "proof/corpus/Slang/Source/Tokenizer/TokenizeAudit.lean"
       }
     ]
+  },
+    "parsing-selection": {
+    "kind": "active",
+    "wave": "W25",
+    "title": "Structural declaration selection",
+    "note": "Structural newline, line, parser-boundary and selected-declaration scans refining Decode.scanSelected under the empty axiom cone.",
+    "audit_module": "Slang/Source/Parsing/SelectionAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Parsing/Selection.lean",
+      "proof/corpus/Slang/Source/Parsing/SelectionAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Parsing.DropNewlinesScan",
+        "expected_type": "List Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DropNewlinesScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.DropNewlinesScan.done",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DropNewlinesScan.newline",
+        "expected_type": "type_of% @Slang.Source.Parsing.DropNewlinesScan.newline",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DropNewlinesScan.stop",
+        "expected_type": "type_of% @Slang.Source.Parsing.DropNewlinesScan.stop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DropNewlinesScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.DropNewlinesScan.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TakeLineScan",
+        "expected_type": "List Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TakeLineScan.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.TakeLineScan.done",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TakeLineScan.newline",
+        "expected_type": "type_of% @Slang.Source.Parsing.TakeLineScan.newline",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TakeLineScan.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.TakeLineScan.next",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.TakeLineScan.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.TakeLineScan.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ConstantLineParse",
+        "expected_type": "List Slang.Decode.Token \u2192 Slang.Expr \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ConstantLineParse.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.ConstantLineParse.intro",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ConstantLineParse.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ConstantLineParse.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SelectedFunctionParse",
+        "expected_type": "String \u2192 Nat \u2192 List Slang.Decode.Token \u2192 Slang.FunctionDecl \u2192 List Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SelectedFunctionParse.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.SelectedFunctionParse.intro",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SelectedFunctionParse.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.SelectedFunctionParse.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken",
+        "expected_type": "Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.numeral",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.numeral",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.lparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.lparen",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.rparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.rparen",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.lbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.lbrace",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.rbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.rbrace",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.lbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.lbracket",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.rbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.rbracket",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.comma",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.comma",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.semi",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.semi",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.newline",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.newline",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.assign",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.assign",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.lt",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.lt",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.le",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.le",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.gt",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.gt",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.ge",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.ge",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.other",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.other",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonIdentifierToken.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonIdentifierToken.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected",
+        "expected_type": "Nat \u2192 List Slang.Decode.Token \u2192 List String \u2192 List String \u2192 List Slang.ConstantDecl \u2192 List Slang.FunctionDecl \u2192 Prop",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.done",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.skipNonIdentifier",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.skipNonIdentifier",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.identEnd",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.identEnd",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.skipOther",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.skipOther",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.skipConstant",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.skipConstant",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.constant",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.constant",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.skipFunction",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.skipFunction",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.function",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.function",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ScanSelected.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ScanSelected.sound",
+        "module": "Slang.Source.Parsing.Selection",
+        "path": "proof/corpus/Slang/Source/Parsing/Selection.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SelectionAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Parsing.SelectionAudit",
+        "path": "proof/corpus/Slang/Source/Parsing/SelectionAudit.lean"
+      }
+    ]
   }
   }
 }

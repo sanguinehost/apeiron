@@ -48,6 +48,7 @@ lean_lib ApeironWordBridge where
     `Slang.Source.Tokenizer.Helpers, `Slang.Source.Tokenizer.Scan,
     `Slang.Source.Tokenizer.ScanAudit, `Slang.Source.Tokenizer.Tokenize,
     `Slang.Source.Tokenizer.TokenizeAudit,
+    `Slang.Source.Parsing.Selection, `Slang.Source.Parsing.SelectionAudit,
     `Slang.Refinement.WordRing, `Slang.Refinement.WordRingAudit,
     `Slang.Refinement.WordCoreAudit, `Slang.Refinement.TableRepAudit,
     `Slang.Refinement.WordDenotation, `Slang.Refinement.WordDenotationAudit,
