@@ -47,6 +47,8 @@ private instance wordCommRing : CommRing Word where
   zero_add := Slang.Refinement.wordRing.add_zero_left
   add_zero := Slang.Refinement.wordRing.add_zero_right
   add_comm := Slang.Refinement.wordRing.add_comm
+  -- Temporal O(count) `Word.add` calls: `Nat.rec` applies one addition per decrement of `count`.
+  -- Spatial O(count) recursion depth for the `Nat.rec`.
   nsmul := fun count value =>
     Nat.rec Slang.Refinement.wordRing.zero
       (fun _ total => Slang.Refinement.wordRing.add total value) count
@@ -56,6 +58,8 @@ private instance wordCommRing : CommRing Word where
     Eq.trans (Slang.Refinement.wordRing.add_comm _ _)
       (Slang.Refinement.wordRing.add_neg_right value)
   sub_eq_add_neg := Slang.Refinement.wordRing.sub_eq_add_neg
+  -- Temporal O(count) `Word.add` calls: `.ofNat count` adds `count` times and `.negSucc count` adds
+  -- `count + 1` times before negating. Spatial O(count) recursion depth for each `Nat.rec`.
   zsmul := fun integer value =>
     match integer with
     | .ofNat count =>
@@ -196,7 +200,11 @@ instance instDecidableEqSourceRef (arena : Slang.Source.SourceArena) :
             exact isFalse (fun h => hf' (congrArg Slang.Source.SourceRef.file h))
 
 /-- Decidable equality on a memo key: case over every data field in turn, then the structure is
-equal by definitional proof irrelevance of `addressAdmitted`. -/
+equal by definitional proof irrelevance of `addressAdmitted`.
+
+Temporal O(|operation| + |context| + |inputStates|) element comparisons: `operation` is a `String`
+and the two list fields compare element by element; the remaining fields are O(1) comparisons.
+Spatial O(|context| + |inputStates|) from the recursive list equalities. -/
 instance MemoKey.instDecidableEq {sources : Slang.Source.SourceArena} {stateCapacity : Nat}
     {states : Slang.Arena.StateArena stateCapacity} : DecidableEq (MemoKey sources states) :=
   fun left right => by
@@ -254,7 +262,10 @@ instance MemoKey.instDecidableEq {sources : Slang.Source.SourceArena} {stateCapa
         | isFalse e1 =>
             exact isFalse (fun h => e1 (congrArg MemoKey.source h))
 
-/-- The Bool comparison: `true` exactly when the two keys are equal. -/
+/-- The Bool comparison: `true` exactly when the two keys are equal.
+
+Temporal and spatial complexity are those of `MemoKey.instDecidableEq`, which it calls: O(|operation|
++ |context| + |inputStates|) element comparisons and O(|context| + |inputStates|) stack. -/
 def MemoKey.equal {sources : Slang.Source.SourceArena} {stateCapacity : Nat}
     {states : Slang.Arena.StateArena stateCapacity} (left right : MemoKey sources states) : Bool :=
   match decEq left right with

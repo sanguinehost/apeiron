@@ -49,6 +49,10 @@ const COMMITTED: u8 = 3;
 
 /// Set the pepper every later `Map::new` will use.
 ///
+/// Temporal and spatial O(1): one [`try_set_process_pepper`], which is one `compare_exchange` and
+/// two atomic stores on the winning path; a loss panics rather than retrying, and the `PepperInUse`
+/// it formats carries one `u64`. No allocation of its own.
+///
 /// # Panics
 ///
 /// If a table has already read it. See the module docs: a pepper that changes mid-process splits
@@ -62,6 +66,11 @@ pub fn set_process_pepper(pepper: u64) {
 }
 
 /// Set the pepper, reporting rather than panicking if it is already too late.
+///
+/// Temporal O(1) expected: one `compare_exchange` and, for the winner, two atomic stores; a loser
+/// builds [`PepperInUse`] through [`peek_process_pepper`], which spins only while another thread
+/// holds `SETTING` for one store, so the worst case is bounded by that store and not by the number
+/// of contenders. Spatial O(1): one `u64` in the error value, no allocation.
 ///
 /// Succeeds for exactly one caller. A second setter loses whether or not a table has read yet,
 /// which is stricter than the old behaviour and is the right rule: two calls disagreeing about the
@@ -87,6 +96,11 @@ pub fn try_set_process_pepper(pepper: u64) -> Result<(), PepperInUse> {
 }
 
 /// The pepper, and a note that it is now committed.
+///
+/// Temporal O(1) expected: one atomic load, then on `UNSET` one `compare_exchange`, on `READY` one
+/// `compare_exchange` and one load, and one load on `COMMITTED`. The `loop` spins only on `SETTING`,
+/// which a setter holds for exactly one store, so a pass is bounded by that store and occurs only
+/// during startup. Spatial O(1): no allocation.
 ///
 /// Called by `Map::new`. Reading is what freezes it -- after this, `set_process_pepper` fails.
 #[must_use]
@@ -117,6 +131,9 @@ pub fn process_pepper() -> u64 {
 }
 
 /// The pepper, without committing to it. For diagnostics and for logging at startup.
+///
+/// Temporal O(1) expected: one atomic load; the `loop` spins only while a setter holds `SETTING` for
+/// one store, so a pass is bounded by that store. Spatial O(1): no allocation.
 #[must_use]
 pub fn peek_process_pepper() -> u64 {
     loop {
