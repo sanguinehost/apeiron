@@ -61,7 +61,12 @@ def insertWithBodyAddition : List Stmt :=
    .return_ (.call "tableSlotValSet"
      [.name "base", .name "slot", .name "newVal"])]
 
-/-- The throwaway addition variant is not the decoded replacement body. -/
+/-- The throwaway addition variant is not the decoded replacement body.
+
+Temporal O(1): both operands are fixed `List Stmt` literals, so the derived `List Stmt` `BEq` runs a
+constant number of structural comparisons (list spines, `Stmt` tags and fields, each nested `Expr`
+tree) before the first mismatch. Spatial O(1): the `BEq` stack is bounded by the literals' fixed
+nesting depth. Operations counted: structural equality comparisons. -/
 def additionVariantDiffers : Bool := insertWithBodyAddition != insertWithBody
 
 #guard additionVariantDiffers

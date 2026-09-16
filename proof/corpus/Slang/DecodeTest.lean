@@ -4,6 +4,9 @@ namespace Slang.DecodeTest
 
 open Slang Slang.Decode
 
+-- Temporal O(b) for b = byte length of the resolved file: `IO.FS.readBinFile` reads the whole file,
+-- while the `pathExists` probe and path concatenation are O(|relative|). Spatial O(b): the returned
+-- ByteArray plus the read buffer. Operations counted: filesystem probes, bytes read.
 def readSongFile (relative : String) : IO ByteArray := do
   let nearby := "../../song/" ++ relative
   if ← System.FilePath.pathExists nearby then IO.FS.readBinFile nearby
@@ -12,6 +15,10 @@ def readSongFile (relative : String) : IO ByteArray := do
 def require (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw (IO.userError message)
 
+-- Temporal O(t + s) for the table and std source byte lengths: `readSongFile` reads both files and
+-- `decodeClosure` is linear in them, while the membership/equality checks scan the O(1) selected
+-- constant and function name lists. Spatial O(t + s): the two ByteArrays plus the decoded
+-- token/declaration sets. Operations counted: bytes read, decoded tokens, `require` comparisons.
 def main : IO Unit := do
   let table ← readSongFile "src/table/table.slang"
   let std ← readSongFile "src/kernel/std.slang"

@@ -95,7 +95,13 @@ def rejectedRow : Row :=
 /-- The W30 profile population. -/
 def profile : List Row := [presentRow, freshRow, rejectedRow]
 
-/-- The profile check: every row's stated verdict agrees with its witness. -/
+/-- The profile check: every row's stated verdict agrees with its witness.
+
+Temporal O(n) for n = |rows|: `List.all` visits each element once, evaluating one `Row.consistent`
+(a `Verdict` match and one `Word` equality) and one `&&` per element, stopping at the first `false`.
+Spatial O(n) call stack in the reference `List.all` recursion, whose recursive call is the second
+argument of `&&` and so is not a tail call; the input list is not auxiliary. Operations counted:
+`Row.consistent` evaluations and `Word` comparisons. -/
 def profileCheck (rows : List Row) : Bool := rows.all (fun row => Row.consistent row)
 
 -- The compiled profile admits the two positive rows and rejects the equating row.
