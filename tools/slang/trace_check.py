@@ -35,12 +35,16 @@ names registered for that module. No generator is required to register them;
 
 Isolation
 =========
-The real kernel check writes its probe under the system temporary directory and
-runs `lake build` plus `lake env lean` under
+The real kernel check writes its probe under the system temporary directory,
+compiles the generated module onto the shared `proof/corpus/.lake/` lane with
+`lake env lean -o <olean>` (the generated modules are not Lake roots, so
+`lake build <module>` reports `unknown target`), then runs `lake env lean` on the
+probe. Both steps run under
 `systemd-run --user --scope -p MemoryMax=6G -p MemorySwapMax=0` with
 `LEAN_NUM_THREADS=1` and a `timeout`, holding one serialized lock for the shared
-`proof/corpus/.lake/` lane. `ulimit -v` is never used. The repository working
-tree is never mutated; `--self-test` and the synthetic controls need no Lean.
+lane. `ulimit -v` is never used. The repository source tree is never mutated (the
+`.olean` lands under `.lake/build/`, the normal build artifact directory);
+`--self-test` and the synthetic controls need no Lean.
 
 Usage::
 
@@ -582,6 +586,36 @@ def _run_lean(argv: list[str], timeout: int) -> tuple[int, str]:
     return completed.returncode, completed.stdout or ""
 
 
+def module_source_path(import_name: str) -> Path:
+    return CORPUS / (import_name.replace(".", "/") + ".lean")
+
+
+def module_olean_path(import_name: str) -> Path:
+    return CORPUS / ".lake/build/lib/lean" / (import_name.replace(".", "/") + ".olean")
+
+
+def build_generated_module(import_name: str, timeout: int) -> tuple[int, str]:
+    """Compile one generated module onto the shared `proof/corpus/.lake` lane.
+
+    The generated trace modules are not Lake roots (the lakefile is outside the
+    producer task's ownership), so `lake build <module>` reports
+    `unknown target`. The module is compiled directly with
+    `lake env lean -o <olean>` so its `.olean` lands on `LEAN_PATH`; the probe's
+    `import <module>` then resolves. A missing source is a build failure, never a
+    silent pass.
+    """
+    source = module_source_path(import_name)
+    if not source.is_file():
+        return 1, f"generated module source missing: {source}"
+    olean = module_olean_path(import_name)
+    olean.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        relative = source.relative_to(CORPUS)
+    except ValueError:
+        relative = source
+    return _run_lean(["lake", "env", "lean", "-o", str(olean), str(relative)], timeout)
+
+
 def real_runner(probe_text: str, import_name: str, timeout: int) -> tuple[int, str]:
     """Write the probe under the system temp dir and run it on the shared lane."""
     WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -590,7 +624,7 @@ def real_runner(probe_text: str, import_name: str, timeout: int) -> tuple[int, s
     probe.write_text(probe_text, encoding="utf-8")
     try:
         with lane_lock():
-            build_rc, build_out = _run_lean(["lake", "build", import_name], timeout)
+            build_rc, build_out = build_generated_module(import_name, timeout)
             if build_rc != 0:
                 return build_rc, "BUILD\n" + build_out
             return _run_lean(["lake", "env", "lean", str(probe)], timeout)
