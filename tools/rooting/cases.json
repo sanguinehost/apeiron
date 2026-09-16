@@ -23,7 +23,9 @@
   ],
   "source_file_excludes": [
     "tools/rooting/cases.json",
-    "tools/rooting/check.py"
+    "tools/rooting/check.py",
+    "tools/rooting/retire_cases.json",
+    "tools/rooting/retire_check.py"
   ],
   "text_suffixes": [
     ".md",
