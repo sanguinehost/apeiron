@@ -7,6 +7,14 @@ namespace Slang.Source.Parsing
 
 open Slang Slang.Decode
 
+/-- `List.append` is associative. Structural induction; no axiom is used (in particular not
+`List.append_assoc`, whose proof carries `propext`). -/
+theorem append_assoc_empty {α : Type} (a b c : List α) :
+    (a ++ b) ++ c = a ++ (b ++ c) := by
+  induction a with
+  | nil => rfl
+  | cons x xs ih => exact congrArg (List.cons x) ih
+
 /-- A token that leaves the delimiter stack unchanged. -/
 inductive NonDelimiterToken : Token → Prop where
   | ident (name : String) (span : Span) : NonDelimiterToken { kind := .ident name, span }
@@ -70,6 +78,71 @@ theorem sound {tokens : List Token} {stack : List TokenKind}
   | rbracket _ tailSound => exact tailSound
   | other head _ tailSound =>
       cases head <;> exact tailSound
+
+/-- The completeness direction: executable delimiter acceptance yields the structural traversal.
+Dual to `sound`; the empty-cone substitute for the missing committed completeness lemma. -/
+theorem of_bool (tokens : List Token) :
+    ∀ stack : List TokenKind,
+      Decode.delimitersBalanced tokens stack = true →
+      DelimitersBalancedDerivation tokens stack := by
+  induction tokens with
+  | nil =>
+      intro stack h
+      cases stack with
+      | nil => exact .done
+      | cons top tail => cases h
+  | cons token rest ih =>
+      intro stack h
+      cases token with
+      | mk kind span =>
+        cases kind with
+        | lparen => exact .lparen (ih (.lparen :: stack) h)
+        | lbrace => exact .lbrace (ih (.lbrace :: stack) h)
+        | lbracket => exact .lbracket (ih (.lbracket :: stack) h)
+        | rparen =>
+            cases stack with
+            | nil => cases h
+            | cons top tail =>
+                rw [Decode.delimitersBalanced] at h
+                by_cases ht : top = .lparen
+                · rw [if_pos ht] at h
+                  cases ht
+                  exact .rparen (ih tail h)
+                · rw [if_neg ht] at h
+                  cases h
+        | rbrace =>
+            cases stack with
+            | nil => cases h
+            | cons top tail =>
+                rw [Decode.delimitersBalanced] at h
+                by_cases ht : top = .lbrace
+                · rw [if_pos ht] at h
+                  cases ht
+                  exact .rbrace (ih tail h)
+                · rw [if_neg ht] at h
+                  cases h
+        | rbracket =>
+            cases stack with
+            | nil => cases h
+            | cons top tail =>
+                rw [Decode.delimitersBalanced] at h
+                by_cases ht : top = .lbracket
+                · rw [if_pos ht] at h
+                  cases ht
+                  exact .rbracket (ih tail h)
+                · rw [if_neg ht] at h
+                  cases h
+        | ident name => exact .other (.ident name span) (ih stack h)
+        | numeral value => exact .other (.numeral value span) (ih stack h)
+        | comma => exact .other (.comma span) (ih stack h)
+        | semi => exact .other (.semi span) (ih stack h)
+        | newline => exact .other (.newline span) (ih stack h)
+        | assign => exact .other (.assign span) (ih stack h)
+        | lt => exact .other (.lt span) (ih stack h)
+        | le => exact .other (.le span) (ih stack h)
+        | gt => exact .other (.gt span) (ih stack h)
+        | ge => exact .other (.ge span) (ih stack h)
+        | other value => exact .other (.other value span) (ih stack h)
 
 /-- A balanced chunk that empties the stack composes after a chunk that leaves the empty stack. -/
 theorem append {tokens0 tokens1 : List Token} {stack : List TokenKind}
