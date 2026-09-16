@@ -4607,6 +4607,97 @@
           "path": "proof/corpus/Slang/Address/FacesAudit.lean"
         }
       ]
+    },
+    "memo-value": {
+      "kind": "active",
+      "wave": "memo-value",
+      "title": "Memo value and its transition denotation",
+      "note": "The checked memo value rooted in Slang.Arena.ResultHandle, Slang.Arena.StateHandle and Slang.Source.SourceRef, and the TransitionDenotes relation on a MemoKey and a MemoValue. The machine context is Slang.Source.ParsedRef.context of a checked ParsedRef, so the program is the checked decode of the referenced bytes with no default and no Option.getD. `before` is drawn from the key's inputStates and `after` from the value's resultingStates. MemoHit is exactly a TransitionDenotes witness. The rejecting fixtures show that an empty inputStates or resultingStates list admits no transition and therefore no hit. Every headline audits with an empty axiom set.",
+      "audit_module": "Slang/Memo/ValueAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Memo/Value.lean",
+        "proof/corpus/Slang/Memo/ValueAudit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Memo.MemoValue",
+          "expected_type": "type_of% @Slang.Memo.MemoValue",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoValue.result",
+          "expected_type": "type_of% @Slang.Memo.MemoValue.result",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoValue.resultingStates",
+          "expected_type": "type_of% @Slang.Memo.MemoValue.resultingStates",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoValue.consumed",
+          "expected_type": "type_of% @Slang.Memo.MemoValue.consumed",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.TransitionDenotes",
+          "expected_type": "type_of% @Slang.Memo.TransitionDenotes",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.TransitionDenotes.returned",
+          "expected_type": "type_of% @Slang.Memo.TransitionDenotes.returned",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.TransitionDenotes.before_in_key",
+          "expected_type": "type_of% @Slang.Memo.TransitionDenotes.before_in_key",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.TransitionDenotes.after_in_value",
+          "expected_type": "type_of% @Slang.Memo.TransitionDenotes.after_in_value",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.MemoHit",
+          "expected_type": "type_of% @Slang.Memo.MemoHit",
+          "module": "Slang.Memo",
+          "path": "proof/corpus/Slang/Memo/Value.lean"
+        },
+        {
+          "name": "Slang.Memo.ValueAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Memo.ValueAudit",
+          "path": "proof/corpus/Slang/Memo/ValueAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.ValueAudit.no_transition_of_empty_inputStates",
+          "expected_type": "type_of% @Slang.Memo.ValueAudit.no_transition_of_empty_inputStates",
+          "module": "Slang.Memo.ValueAudit",
+          "path": "proof/corpus/Slang/Memo/ValueAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.ValueAudit.no_transition_of_empty_resultingStates",
+          "expected_type": "type_of% @Slang.Memo.ValueAudit.no_transition_of_empty_resultingStates",
+          "module": "Slang.Memo.ValueAudit",
+          "path": "proof/corpus/Slang/Memo/ValueAudit.lean"
+        },
+        {
+          "name": "Slang.Memo.ValueAudit.no_hit_of_empty_resultingStates",
+          "expected_type": "type_of% @Slang.Memo.ValueAudit.no_hit_of_empty_resultingStates",
+          "module": "Slang.Memo.ValueAudit",
+          "path": "proof/corpus/Slang/Memo/ValueAudit.lean"
+        }
+      ]
     }
   }
 }
