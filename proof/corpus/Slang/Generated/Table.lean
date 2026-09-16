@@ -4,7 +4,7 @@ namespace Slang.Generated.Table
 
 -- Literal byte lists of tens of thousands of elements need a deeper elaborator recursion
 -- budget; the kernel still reduces each `sourceByte` to its `Fin` value.
-set_option maxRecDepth 1000000
+set_option maxRecDepth 10000
 
 private def sourceByte (value : Nat) : Slang.Source.SourceByte :=
   ⟨value % 256, Nat.mod_lt value (Nat.zero_lt_succ 255)⟩
@@ -14,7 +14,7 @@ def entryPath : String := "src/table/table.slang"
 
 def tablePath : String := "src/table/table.slang"
 def tableSha256 : String := "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d"
-def tableSource : Slang.Source.SourceBytes :=
+private def tableSourcePart0 : Slang.Source.SourceBytes :=
   [
     sourceByte 47, sourceByte 47, sourceByte 64, sourceByte 32, sourceByte 102, sourceByte 105, sourceByte 108, sourceByte 101,
     sourceByte 58, sourceByte 32, sourceByte 116, sourceByte 97, sourceByte 98, sourceByte 108, sourceByte 101, sourceByte 10,
@@ -515,7 +515,11 @@ def tableSource : Slang.Source.SourceBytes :=
     sourceByte 108, sourceByte 111, sourceByte 116, sourceByte 32, sourceByte 61, sourceByte 32, sourceByte 40, sourceByte 115,
     sourceByte 108, sourceByte 111, sourceByte 116, sourceByte 32, sourceByte 43, sourceByte 32, sourceByte 115, sourceByte 116,
     sourceByte 101, sourceByte 112, sourceByte 41, sourceByte 32, sourceByte 97, sourceByte 110, sourceByte 100, sourceByte 32,
-    sourceByte 109, sourceByte 97, sourceByte 115, sourceByte 107, sourceByte 59, sourceByte 10, sourceByte 32, sourceByte 32,
+    sourceByte 109, sourceByte 97, sourceByte 115, sourceByte 107, sourceByte 59, sourceByte 10, sourceByte 32, sourceByte 32
+  ]
+
+private def tableSourcePart1 : Slang.Source.SourceBytes :=
+  [
     sourceByte 115, sourceByte 108, sourceByte 111, sourceByte 116, sourceByte 75, sourceByte 101, sourceByte 121, sourceByte 32,
     sourceByte 61, sourceByte 32, sourceByte 116, sourceByte 97, sourceByte 98, sourceByte 108, sourceByte 101, sourceByte 83,
     sourceByte 108, sourceByte 111, sourceByte 116, sourceByte 75, sourceByte 101, sourceByte 121, sourceByte 40, sourceByte 98,
@@ -914,6 +918,9 @@ def tableSource : Slang.Source.SourceBytes :=
     sourceByte 117, sourceByte 112, sourceByte 40, sourceByte 41, sourceByte 32, sourceByte 61, sourceByte 32, sourceByte 54,
     sourceByte 32, sourceByte 125, sourceByte 10
   ]
+
+def tableSource : Slang.Source.SourceBytes :=
+  tableSourcePart0 ++ tableSourcePart1
 def tableBytes : ByteArray := Slang.Source.encodeBytes tableSource
 
 def cellPath : String := "src/kernel/mem/cell.slang"
@@ -1424,7 +1431,7 @@ def cellBytes : ByteArray := Slang.Source.encodeBytes cellSource
 
 def stdPath : String := "src/kernel/std.slang"
 def stdSha256 : String := "e24b0e360f26794fab0fe1332c32455143d22d2059e871b8c012b4e8a89a6cae"
-def stdSource : Slang.Source.SourceBytes :=
+private def stdSourcePart0 : Slang.Source.SourceBytes :=
   [
     sourceByte 47, sourceByte 47, sourceByte 64, sourceByte 32, sourceByte 102, sourceByte 105, sourceByte 108, sourceByte 101,
     sourceByte 58, sourceByte 32, sourceByte 32, sourceByte 115, sourceByte 116, sourceByte 100, sourceByte 10, sourceByte 47,
@@ -1925,7 +1932,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 108, sourceByte 108, sourceByte 95, sourceByte 97, sourceByte 100, sourceByte 100, sourceByte 114, sourceByte 32,
     sourceByte 102, sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 114, sourceByte 101, sourceByte 97, sourceByte 100,
     sourceByte 65, sourceByte 108, sourceByte 108, sourceByte 58, sourceByte 10, sourceByte 32, sourceByte 32, sourceByte 103,
-    sourceByte 105, sourceByte 118, sourceByte 101, sourceByte 110, sourceByte 32, sourceByte 98, sourceByte 97, sourceByte 115,
+    sourceByte 105, sourceByte 118, sourceByte 101, sourceByte 110, sourceByte 32, sourceByte 98, sourceByte 97, sourceByte 115
+  ]
+
+private def stdSourcePart1 : Slang.Source.SourceBytes :=
+  [
     sourceByte 101, sourceByte 32, sourceByte 62, sourceByte 61, sourceByte 32, sourceByte 48, sourceByte 10, sourceByte 32,
     sourceByte 32, sourceByte 103, sourceByte 105, sourceByte 118, sourceByte 101, sourceByte 110, sourceByte 32, sourceByte 48,
     sourceByte 32, sourceByte 60, sourceByte 61, sourceByte 32, sourceByte 105, sourceByte 32, sourceByte 60, sourceByte 61,
@@ -2425,7 +2436,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 41, sourceByte 32, sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 40, sourceByte 98, sourceByte 121,
     sourceByte 116, sourceByte 101, sourceByte 32, sourceByte 105, sourceByte 115, sourceByte 32, sourceByte 66, sourceByte 89,
     sourceByte 84, sourceByte 69, sourceByte 95, sourceByte 84, sourceByte 65, sourceByte 66, sourceByte 41, sourceByte 32,
-    sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 40, sourceByte 98, sourceByte 121, sourceByte 116, sourceByte 101,
+    sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 40, sourceByte 98, sourceByte 121, sourceByte 116, sourceByte 101
+  ]
+
+private def stdSourcePart2 : Slang.Source.SourceBytes :=
+  [
     sourceByte 32, sourceByte 105, sourceByte 115, sourceByte 32, sourceByte 66, sourceByte 89, sourceByte 84, sourceByte 69,
     sourceByte 95, sourceByte 78, sourceByte 69, sourceByte 87, sourceByte 76, sourceByte 73, sourceByte 78, sourceByte 69,
     sourceByte 41, sourceByte 32, sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 40, sourceByte 98, sourceByte 121,
@@ -2925,7 +2940,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 97, sourceByte 100, sourceByte 100, sourceByte 114, sourceByte 32, sourceByte 97, sourceByte 115, sourceByte 32,
     sourceByte 116, sourceByte 104, sourceByte 101, sourceByte 10, sourceByte 47, sourceByte 47, sourceByte 32, sourceByte 76,
     sourceByte 65, sourceByte 89, sourceByte 79, sourceByte 85, sourceByte 84, sourceByte 32, sourceByte 97, sourceByte 100,
-    sourceByte 100, sourceByte 114, sourceByte 101, sourceByte 115, sourceByte 115, sourceByte 44, sourceByte 32, sourceByte 115,
+    sourceByte 100, sourceByte 114, sourceByte 101, sourceByte 115, sourceByte 115, sourceByte 44, sourceByte 32, sourceByte 115
+  ]
+
+private def stdSourcePart3 : Slang.Source.SourceBytes :=
+  [
     sourceByte 111, sourceByte 32, sourceByte 96, sourceByte 48, sourceByte 32, sourceByte 60, sourceByte 61, sourceByte 32,
     sourceByte 97, sourceByte 100, sourceByte 100, sourceByte 114, sourceByte 32, sourceByte 60, sourceByte 61, sourceByte 32,
     sourceByte 48, sourceByte 96, sourceByte 32, sourceByte 119, sourceByte 111, sourceByte 117, sourceByte 108, sourceByte 100,
@@ -3425,7 +3444,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 110, sourceByte 32, sourceByte 99, sourceByte 101, sourceByte 108, sourceByte 108, sourceByte 32, sourceByte 99,
     sourceByte 111, sourceByte 117, sourceByte 110, sourceByte 116, sourceByte 32, sourceByte 45, sourceByte 45, sourceByte 32,
     sourceByte 110, sourceByte 117, sourceByte 109, sourceByte 84, sourceByte 111, sourceByte 83, sourceByte 112, sourceByte 97,
-    sourceByte 110, sourceByte 71, sourceByte 111, sourceByte 47, sourceByte 110, sourceByte 117, sourceByte 109, sourceByte 84,
+    sourceByte 110, sourceByte 71, sourceByte 111, sourceByte 47, sourceByte 110, sourceByte 117, sourceByte 109, sourceByte 84
+  ]
+
+private def stdSourcePart4 : Slang.Source.SourceBytes :=
+  [
     sourceByte 111, sourceByte 83, sourceByte 112, sourceByte 97, sourceByte 110, sourceByte 78, sourceByte 101, sourceByte 103,
     sourceByte 71, sourceByte 111, sourceByte 32, sourceByte 99, sourceByte 104, sourceByte 101, sourceByte 99, sourceByte 107,
     sourceByte 32, sourceByte 116, sourceByte 104, sourceByte 101, sourceByte 32, sourceByte 119, sourceByte 114, sourceByte 105,
@@ -3925,7 +3948,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 73, sourceByte 78, sourceByte 71, sourceByte 32, sourceByte 40, sourceByte 61, sourceByte 32, sourceByte 82,
     sourceByte 73, sourceByte 78, sourceByte 71, sourceByte 95, sourceByte 66, sourceByte 65, sourceByte 78, sourceByte 68,
     sourceByte 95, sourceByte 76, sourceByte 79, sourceByte 87, sourceByte 44, sourceByte 32, sourceByte 49, sourceByte 54,
-    sourceByte 55, sourceByte 48, sourceByte 54, sourceByte 48, sourceByte 48, sourceByte 48, sourceByte 41, sourceByte 10,
+    sourceByte 55, sourceByte 48, sourceByte 54, sourceByte 48, sourceByte 48, sourceByte 48, sourceByte 41, sourceByte 10
+  ]
+
+private def stdSourcePart5 : Slang.Source.SourceBytes :=
+  [
     sourceByte 47, sourceByte 47, sourceByte 32, sourceByte 97, sourceByte 32, sourceByte 102, sourceByte 117, sourceByte 108,
     sourceByte 108, sourceByte 32, sourceByte 100, sourceByte 114, sourceByte 97, sourceByte 105, sourceByte 110, sourceByte 32,
     sourceByte 102, sourceByte 114, sourceByte 111, sourceByte 109, sourceByte 32, sourceByte 112, sourceByte 108, sourceByte 97,
@@ -4425,7 +4452,11 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 105, sourceByte 102, sourceByte 32, sourceByte 120, sourceByte 32, sourceByte 102, sourceByte 97, sourceByte 105,
     sourceByte 108, sourceByte 115, sourceByte 96, sourceByte 32, sourceByte 114, sourceByte 101, sourceByte 97, sourceByte 100,
     sourceByte 115, sourceByte 32, sourceByte 116, sourceByte 104, sourceByte 101, sourceByte 32, sourceByte 99, sourceByte 101,
-    sourceByte 108, sourceByte 108, sourceByte 44, sourceByte 32, sourceByte 110, sourceByte 101, sourceByte 118, sourceByte 101,
+    sourceByte 108, sourceByte 108, sourceByte 44, sourceByte 32, sourceByte 110, sourceByte 101, sourceByte 118, sourceByte 101
+  ]
+
+private def stdSourcePart6 : Slang.Source.SourceBytes :=
+  [
     sourceByte 114, sourceByte 32, sourceByte 116, sourceByte 104, sourceByte 105, sourceByte 115, sourceByte 10, sourceByte 115,
     sourceByte 112, sourceByte 101, sourceByte 99, sourceByte 32, sourceByte 102, sourceByte 97, sourceByte 105, sourceByte 108,
     sourceByte 95, sourceByte 105, sourceByte 115, sourceByte 95, sourceByte 122, sourceByte 101, sourceByte 114, sourceByte 111,
@@ -4822,6 +4853,9 @@ def stdSource : Slang.Source.SourceBytes :=
     sourceByte 105, sourceByte 118, sourceByte 105, sourceByte 115, sourceByte 111, sourceByte 114, sourceByte 32, sourceByte 47,
     sourceByte 32, sourceByte 49, sourceByte 48, sourceByte 41, sourceByte 59, sourceByte 10, sourceByte 125, sourceByte 10
   ]
+
+def stdSource : Slang.Source.SourceBytes :=
+  stdSourcePart0 ++ stdSourcePart1 ++ stdSourcePart2 ++ stdSourcePart3 ++ stdSourcePart4 ++ stdSourcePart5 ++ stdSourcePart6
 def stdBytes : ByteArray := Slang.Source.encodeBytes stdSource
 
 def closurePaths : List String := [tablePath, cellPath, stdPath]
