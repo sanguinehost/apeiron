@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -213,6 +214,934 @@ def render_derivation(paths: dict[str, str]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# W24 trace witnesses
+#
+# The untrusted producer emits one generated Lean module per phase containing
+# concrete `DecodeTrace.Run` / `Derives` derivations over the real literal
+# source bytes, plus the `<phase>.json` manifest `tools/slang/trace_check.py`
+# validates. No generic `_run` completeness lemma is used: each `.ask` names a
+# checked child witness and each `.done` is a concrete local result.
+# ---------------------------------------------------------------------------
+
+TRACE_DIR = REPO_ROOT / "proof/corpus/Slang/Generated/Trace"
+REGISTRY_PATH = REPO_ROOT / "tools/slang/zero_axioms.json"
+
+# Phase id -> generated namespace suffix and the derivation module whose
+# registered declarations become the report's lemma nodes. Kept in sync with
+# `tools/slang/trace_check.py` `PHASE_MODULES` / `PHASE_REQUESTS`.
+TRACE_PHASES: dict[str, dict[str, str]] = {
+    "grammar": {"ns": "Grammar", "module": "Slang.Derivation.Grammar"},
+    "statement": {"ns": "Statement", "module": "Slang.Derivation.Statements"},
+    "selection": {"ns": "Selection", "module": "Slang.Derivation.Selection"},
+    "validation": {"ns": "Validation", "module": "Slang.Derivation.Validation"},
+    "decoder": {"ns": "Decoder", "module": "Slang.Derivation.Decode"},
+    "whole-source": {"ns": "WholeSource", "module": "Slang.Derivation.Composition"},
+}
+TRACE_OPERATIONS = ("ask", "done")
+REQUEST_NAMES: dict[str, tuple[str, ...]] = {
+    "grammar": ("expr", "primary", "args", "binary"),
+    "statement": ("block", "stmt", "expr"),
+    "selection": ("parameters", "line", "function", "scan", "expr", "block"),
+    "validation": (
+        "delimiters",
+        "distinct",
+        "spans",
+        "expressionCalls",
+        "expressionsCalls",
+        "statementCalls",
+        "statementsCalls",
+        "resolveCalls",
+        "expressionNames",
+        "expressionsNames",
+        "statementsNames",
+        "resolveNames",
+    ),
+    "decoder": (
+        "utf8Fuel",
+        "lexing",
+        "selection",
+        "validation",
+        "decodeTokens",
+        "decodeTable",
+        "importedCoord",
+        "closure",
+    ),
+    "whole-source": (),
+}
+
+_TOKEN_KINDS = (
+    "ident",
+    "numeral",
+    "lparen",
+    "rparen",
+    "lbrace",
+    "rbrace",
+    "lbracket",
+    "rbracket",
+    "comma",
+    "semi",
+    "newline",
+    "assign",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "other",
+)
+
+
+def _utf8_length(char: str) -> int:
+    code = ord(char)
+    if code < 0x80:
+        return 1
+    if code < 0x800:
+        return 2
+    if code < 0x10000:
+        return 3
+    return 4
+
+
+def _is_space(char: str) -> bool:
+    return char in (" ", "\t", "\r")
+
+
+def _is_digit(char: str) -> bool:
+    return "0" <= char <= "9"
+
+
+def _is_alpha(char: str) -> bool:
+    return ("a" <= char <= "z") or ("A" <= char <= "Z") or char == "_"
+
+
+def _is_alnum(char: str) -> bool:
+    return _is_alpha(char) or _is_digit(char)
+
+
+def lex_source(data: bytes) -> list[tuple[str, object, int, int]]:
+    """The real tokenizer's token stream, mirrored from `Decode.lexChars`.
+
+    This is the untrusted producer's candidate token list; the kernel rejects
+    the generated derivation unless it matches the real `Decode.lexChars` on the
+    same literal bytes.
+    """
+    chars = list(data.decode("utf-8"))
+    tokens: list[tuple[str, object, int, int]] = []
+    index = 0
+    position = 0
+    total = len(chars)
+    while index < total:
+        char = chars[index]
+        width = _utf8_length(char)
+        if _is_space(char):
+            index += 1
+            position += width
+            continue
+        if char == "\n":
+            tokens.append(("newline", None, position, position + width))
+            index += 1
+            position += width
+            continue
+        if char == "/":
+            if index + 1 < total and chars[index + 1] == "/":
+                scan = index + 2
+                offset = position + 2
+                while scan < total and chars[scan] != "\n":
+                    offset += _utf8_length(chars[scan])
+                    scan += 1
+                index = scan
+                position = offset
+                continue
+            tokens.append(("other", char, position, position + width))
+            index += 1
+            position += width
+            continue
+        if _is_alpha(char):
+            scan = index + 1
+            while scan < total and _is_alnum(chars[scan]):
+                scan += 1
+            scanned = chars[index:scan]
+            stop = position + sum(_utf8_length(item) for item in scanned)
+            tokens.append(("ident", "".join(scanned), position, stop))
+            index = scan
+            position = stop
+            continue
+        if _is_digit(char):
+            scan = index + 1
+            while scan < total and _is_digit(chars[scan]):
+                scan += 1
+            scanned = chars[index:scan]
+            stop = position + sum(_utf8_length(item) for item in scanned)
+            tokens.append(("numeral", int("".join(scanned)), position, stop))
+            index = scan
+            position = stop
+            continue
+        if char == "<" and index + 1 < total and chars[index + 1] == "=":
+            tokens.append(("le", None, position, position + 2))
+            index += 2
+            position += 2
+            continue
+        if char == ">" and index + 1 < total and chars[index + 1] == "=":
+            tokens.append(("ge", None, position, position + 2))
+            index += 2
+            position += 2
+            continue
+        singles = {
+            "(": "lparen",
+            ")": "rparen",
+            "{": "lbrace",
+            "}": "rbrace",
+            "[": "lbracket",
+            "]": "rbracket",
+            ",": "comma",
+            ";": "semi",
+            "=": "assign",
+            "<": "lt",
+            ">": "gt",
+        }
+        tokens.append((singles.get(char, "other"), char, position, position + width))
+        index += 1
+        position += width
+    return tokens
+
+
+def _lean_char(char: str) -> str:
+    escapes = {"\\": "\\\\", "'": "\\'", "\n": "\\n", "\t": "\\t", "\r": "\\r"}
+    return "'" + escapes.get(char, char) + "'"
+
+
+def _lean_token(token: tuple[str, object, int, int]) -> str:
+    kind, payload, start, stop = token
+    span = f"\u27e8{start}, {stop}\u27e9"
+    if kind == "ident":
+        return f"\u27e8.ident {json.dumps(payload)}, {span}\u27e9"
+    if kind == "numeral":
+        return f"\u27e8.numeral {payload}, {span}\u27e9"
+    if kind == "other":
+        return f"\u27e8.other {_lean_char(str(payload))}, {span}\u27e9"
+    return f"\u27e8.{kind}, {span}\u27e9"
+
+
+def _token_literal(tokens: list[tuple[str, object, int, int]]) -> str:
+    width = 4
+    rows = []
+    for index in range(0, len(tokens), width):
+        chunk = ", ".join(_lean_token(token) for token in tokens[index : index + width])
+        rows.append("    " + chunk + ("," if index + width < len(tokens) else ""))
+    return "  [\n" + "\n".join(rows) + "\n  ]"
+
+
+def _header(ns: str, imports: list[str], tokens: list[tuple[str, object, int, int]] | None) -> list[str]:
+    lines = [
+        "-- Generated by tools/slang/export.py; do not edit.",
+        *[f"import {name}" for name in imports],
+        "",
+        "set_option autoImplicit false",
+        "set_option maxRecDepth 1000000",
+        "",
+        f"namespace Slang.Generated.Trace.{ns}",
+        "",
+        "open Slang Slang.Decode Slang.Derivation",
+        "",
+    ]
+    if tokens is not None:
+        lines += [
+            "/-- The real entry-source token stream, from the literal bytes. -/",
+            "def entryTokens : List Token :=",
+            _token_literal(tokens),
+            "",
+        ]
+    return lines
+
+
+def _theorem(decl: str, type_head: str, type_args: list[str], proof: list[str]) -> list[str]:
+    return [
+        f"theorem {decl} :",
+        f"    {type_head}",
+        *[f"      ({arg})" for arg in type_args],
+        "    := by",
+        *[f"  {line}" for line in proof],
+    ]
+
+
+def _done_proof(run: str, body: str, message: str) -> list[str]:
+    return [
+        f"unfold {run} {body}",
+        "dsimp only []",
+        f"exact Slang.Derivation.Derives.done ({message})",
+    ]
+
+
+def _grammar_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.Grammar.Run"
+    body = "Slang.Derivation.Grammar.body"
+    req = "Slang.Derivation.Grammar.Request"
+    full = f"Slang.Generated.Trace.{ns}"
+    nesting = 'Except.error "expression nesting limit reached"'
+    return [
+        (
+            "expr",
+            "expr_run",
+            _theorem(
+                "expr_run",
+                run,
+                [f"({req}.expr 1 0 entryTokens)", nesting],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    "exact Slang.Derivation.Derives.ask",
+                    f"  (Slang.Derivation.Derives.done ({nesting}))",
+                    f"  (Slang.Derivation.Derives.done ({nesting}))",
+                ],
+            ),
+            f'{run} ({req}.expr 1 0 {full}.entryTokens) ({nesting})',
+        ),
+        (
+            "primary",
+            "primary_run",
+            _theorem(
+                "primary_run",
+                run,
+                [f"({req}.primary 0 entryTokens)", nesting],
+                _done_proof(run, body, nesting),
+            ),
+            f'{run} ({req}.primary 0 {full}.entryTokens) ({nesting})',
+        ),
+        (
+            "args",
+            "args_run",
+            _theorem(
+                "args_run",
+                run,
+                [
+                    f"({req}.args 0 entryTokens)",
+                    'Except.error "call argument nesting limit reached"',
+                ],
+                _done_proof(
+                    run, body, 'Except.error "call argument nesting limit reached"'
+                ),
+            ),
+            f'{run} ({req}.args 0 {full}.entryTokens) (Except.error "call argument nesting limit reached")',
+        ),
+        (
+            "binary",
+            "binary_run",
+            _theorem(
+                "binary_run",
+                run,
+                [
+                    f"({req}.binary 0 0 (Expr.literal 0) entryTokens)",
+                    'Except.error "expression operator limit reached"',
+                ],
+                _done_proof(
+                    run, body, 'Except.error "expression operator limit reached"'
+                ),
+            ),
+            f'{run} ({req}.binary 0 0 (Slang.Expr.literal 0) {full}.entryTokens) (Except.error "expression operator limit reached")',
+        ),
+    ]
+
+
+def _statement_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.Statements.Run"
+    body = "Slang.Derivation.Statements.body"
+    req = "Slang.Derivation.Statements.Request"
+    full = f"Slang.Generated.Trace.{ns}"
+    nesting = 'Except.error "statement nesting limit reached"'
+    return [
+        (
+            "block",
+            "block_run",
+            _theorem(
+                "block_run",
+                run,
+                [f"({req}.block 0 entryTokens)", nesting],
+                _done_proof(run, body, nesting),
+            ),
+            f'{run} ({req}.block 0 {full}.entryTokens) ({nesting})',
+        ),
+        (
+            "stmt",
+            "stmt_run",
+            _theorem(
+                "stmt_run",
+                run,
+                [f"({req}.stmt 0 entryTokens)", nesting],
+                _done_proof(run, body, nesting),
+            ),
+            f'{run} ({req}.stmt 0 {full}.entryTokens) ({nesting})',
+        ),
+        (
+            "expr",
+            "expr_run",
+            _theorem(
+                "expr_run",
+                run,
+                [
+                    f"({req}.expr 0 entryTokens)",
+                    "Decode.parseExprFuel 0 0 entryTokens",
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    "exact Slang.Derivation.Derives.done _",
+                ],
+            ),
+            f'{run} ({req}.expr 0 {full}.entryTokens) (Slang.Decode.parseExprFuel 0 0 {full}.entryTokens)',
+        ),
+    ]
+
+
+
+def _selection_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.Selection.Run"
+    body = "Slang.Derivation.Selection.body"
+    req = "Slang.Derivation.Selection.Request"
+    full = f"Slang.Generated.Trace.{ns}"
+    empty_tokens = "([] : List Slang.Decode.Token)"
+    empty_strings = "([] : List String)"
+    return [
+        (
+            "parameters",
+            "parameters_run",
+            _theorem(
+                "parameters_run",
+                run,
+                [f"({req}.parameters 0 entryTokens)", 'Except.error "parameter limit reached"'],
+                _done_proof(run, body, 'Except.error "parameter limit reached"'),
+            ),
+            f'{run} ({req}.parameters 0 {full}.entryTokens) (Except.error "parameter limit reached")',
+        ),
+        (
+            "line",
+            "line_run",
+            _theorem(
+                "line_run",
+                run,
+                [f"({req}.line {empty_tokens})", "([], [])"],
+                _done_proof(run, body, "([], [])"),
+            ),
+            f'{run} ({req}.line {empty_tokens}) ([], [])',
+        ),
+        (
+            "function",
+            "function_run",
+            _theorem(
+                "function_run",
+                run,
+                [
+                    f'({req}.function "f" 0 {empty_tokens})',
+                    'Except.error "expected token at end of input"',
+                ],
+                _done_proof(run, body, 'Except.error "expected token at end of input"'),
+            ),
+            f'{run} ({req}.function "f" 0 {empty_tokens}) (Except.error "expected token at end of input")',
+        ),
+        (
+            "scan",
+            "scan_run",
+            _theorem(
+                "scan_run",
+                run,
+                [
+                    f"({req}.scan 0 entryTokens {empty_strings} {empty_strings})",
+                    'Except.error "declaration scan limit reached"',
+                ],
+                _done_proof(run, body, 'Except.error "declaration scan limit reached"'),
+            ),
+            f'{run} ({req}.scan 0 {full}.entryTokens {empty_strings} {empty_strings}) (Except.error "declaration scan limit reached")',
+        ),
+        (
+            "expr",
+            "expr_run",
+            _theorem(
+                "expr_run",
+                run,
+                [
+                    f"({req}.expr 0 0 entryTokens)",
+                    "Decode.parseExprFuel 0 0 entryTokens",
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    "exact Slang.Derivation.Derives.done _",
+                ],
+            ),
+            f'{run} ({req}.expr 0 0 {full}.entryTokens) (Slang.Decode.parseExprFuel 0 0 {full}.entryTokens)',
+        ),
+        (
+            "block",
+            "block_run",
+            _theorem(
+                "block_run",
+                run,
+                [f"({req}.block 0 entryTokens)", "Decode.parseBlockFuel 0 entryTokens"],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    "exact Slang.Derivation.Derives.done _",
+                ],
+            ),
+            f'{run} ({req}.block 0 {full}.entryTokens) (Slang.Decode.parseBlockFuel 0 {full}.entryTokens)',
+        ),
+    ]
+
+
+def _validation_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.Validation.Run"
+    body = "Slang.Derivation.Validation.body"
+    req = "Slang.Derivation.Validation.Request"
+    # Fully qualified request/answer terms: the same text is valid in the
+    # generated module (which opens the namespaces) and in the probe's recorded
+    # `type` string (which opens nothing).
+    t_tokens = "([] : List Slang.Decode.Token)"
+    t_kinds = "([] : List Slang.Decode.TokenKind)"
+    t_strings = "([] : List String)"
+    t_exprs = "([] : List Slang.Expr)"
+    t_stmts = "([] : List Slang.Stmt)"
+    t_spans = "([] : List Slang.Span)"
+    t_constants = "([] : List Slang.ConstantDecl)"
+    t_functions = "([] : List Slang.FunctionDecl)"
+    literal0 = "(Slang.Expr.literal 0)"
+    ret = f"(Slang.Stmt.return_ {literal0})"
+    entries = [
+        (
+            "delimiters",
+            "delimiters_run",
+            f"({req}.delimiters {t_tokens} {t_kinds})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "distinct",
+            "distinct_run",
+            f"({req}.distinct {t_strings})",
+            f"Slang.Decode.distinct {t_strings}",
+            f"Slang.Decode.distinct {t_strings}",
+            "done",
+        ),
+        (
+            "spans",
+            "spans_run",
+            f"({req}.spans 0 {t_spans})",
+            f"Slang.Decode.spansValid 0 {t_spans}",
+            f"Slang.Decode.spansValid 0 {t_spans}",
+            "done",
+        ),
+        (
+            "expressionCalls",
+            "expressionCalls_run",
+            f"({req}.expressionCalls {t_strings} {literal0})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "expressionsCalls",
+            "expressionsCalls_run",
+            f"({req}.expressionsCalls {t_strings} {t_exprs})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "statementCalls",
+            "statementCalls_run",
+            f"({req}.statementCalls {t_strings} {ret})",
+            "true",
+            "true",
+            "ask",
+        ),
+        (
+            "statementsCalls",
+            "statementsCalls_run",
+            f"({req}.statementsCalls {t_strings} {t_stmts})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "resolveCalls",
+            "resolveCalls_run",
+            f"({req}.resolveCalls {t_functions})",
+            f"Slang.Decode.resolveCalls {t_functions}",
+            f"Slang.Decode.resolveCalls {t_functions}",
+            "done",
+        ),
+        (
+            "expressionNames",
+            "expressionNames_run",
+            f"({req}.expressionNames {t_strings} {literal0})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "expressionsNames",
+            "expressionsNames_run",
+            f"({req}.expressionsNames {t_strings} {t_exprs})",
+            "true",
+            "true",
+            "done",
+        ),
+        (
+            "statementsNames",
+            "statementsNames_run",
+            f"({req}.statementsNames 0 {t_strings} {t_stmts})",
+            "false",
+            "false",
+            "done",
+        ),
+        (
+            "resolveNames",
+            "resolveNames_run",
+            f"({req}.resolveNames {t_constants} {t_functions})",
+            f"Slang.Decode.resolveNames {t_constants} {t_functions}",
+            f"Slang.Decode.resolveNames {t_constants} {t_functions}",
+            "done",
+        ),
+    ]
+    witnesses = []
+    for name, decl, request_term, answer_term, answer_type, kind in entries:
+        if kind == "ask":
+            proof = [
+                f"unfold {run} {body}",
+                "dsimp only []",
+                "exact Slang.Derivation.Derives.ask (Slang.Derivation.Derives.done true)",
+                "  (Slang.Derivation.Derives.done true)",
+            ]
+        else:
+            proof = [
+                f"unfold {run} {body}",
+                "dsimp only []",
+                f"exact Slang.Derivation.Derives.done ({answer_term})",
+            ]
+        witnesses.append(
+            (
+                name,
+                decl,
+                _theorem(decl, run, [request_term, answer_term], proof),
+                f"{run} {request_term} ({answer_type})",
+            )
+        )
+    return witnesses
+
+
+def _decoder_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.DecodeTrace.Run"
+    body = "Slang.Derivation.DecodeTrace.body"
+    req = "Slang.Derivation.DecodeTrace.Request"
+    lex = "Slang.Derivation.Lexing"
+    sel = "Slang.Derivation.Selection"
+    val = "Slang.Derivation.Validation"
+    full = f"Slang.Generated.Trace.{ns}"
+    empty = "ByteArray.empty"
+    bytes_list = f"{full}.entryBytes.data.toList"
+    done = "Slang.Derivation.Derives.done"
+    ask = "Slang.Derivation.Derives.ask"
+    return [
+        (
+            "utf8Fuel",
+            "utf8Fuel_run",
+            _theorem(
+                "utf8Fuel_run",
+                run,
+                [f"({req}.utf8Fuel 0 {bytes_list})", 'Except.error "source is not UTF-8"'],
+                _done_proof(run, body, 'Except.error "source is not UTF-8"'),
+            ),
+            f'{run} ({req}.utf8Fuel 0 {bytes_list}) (Except.error "source is not UTF-8")',
+        ),
+        (
+            "lexing",
+            "lexing_run",
+            _theorem(
+                "lexing_run",
+                run,
+                [
+                    f"({req}.lexing ({lex}.Request.chars ([] : List UInt8)))",
+                    f"{lex}.evaluate ({lex}.Request.chars ([] : List UInt8))",
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {done} _",
+                ],
+            ),
+            f"{run} ({req}.lexing ({lex}.Request.chars ([] : List UInt8))) ({lex}.evaluate ({lex}.Request.chars ([] : List UInt8)))",
+        ),
+        (
+            "selection",
+            "selection_run",
+            _theorem(
+                "selection_run",
+                run,
+                [
+                    f"({req}.selection ({sel}.Request.line ([] : List Slang.Decode.Token)))",
+                    f"{sel}.evaluate ({sel}.Request.line ([] : List Slang.Decode.Token))",
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {done} _",
+                ],
+            ),
+            f"{run} ({req}.selection ({sel}.Request.line ([] : List Slang.Decode.Token))) ({sel}.evaluate ({sel}.Request.line ([] : List Slang.Decode.Token)))",
+        ),
+        (
+            "validation",
+            "validation_run",
+            _theorem(
+                "validation_run",
+                run,
+                [
+                    f"({req}.validation ({val}.Request.distinct ([] : List String)))",
+                    f"{val}.evaluate ({val}.Request.distinct ([] : List String))",
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {done} _",
+                ],
+            ),
+            f"{run} ({req}.validation ({val}.Request.distinct ([] : List String))) ({val}.evaluate ({val}.Request.distinct ([] : List String)))",
+        ),
+        (
+            "decodeTokens",
+            "decodeTokens_run",
+            _theorem(
+                "decodeTokens_run",
+                run,
+                [
+                    f"({req}.decodeTokens {empty} ([] : List Slang.Decode.Token) 1)",
+                    'Except.error "tokenizer did not consume every source byte"',
+                ],
+                _done_proof(
+                    run, body, 'Except.error "tokenizer did not consume every source byte"'
+                ),
+            ),
+            f'{run} ({req}.decodeTokens {empty} ([] : List Slang.Decode.Token) 1) (Except.error "tokenizer did not consume every source byte")',
+        ),
+        (
+            "decodeTable",
+            "decodeTable_run",
+            _theorem(
+                "decodeTable_run",
+                run,
+                [
+                    f"({req}.decodeTable {empty})",
+                    'Except.error "selected table constants are missing or duplicated"',
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {ask} ({done} _)",
+                    f"  ({ask}",
+                    f"    ({ask} ({done} _)",
+                    f"      ({ask} ({done} _)",
+                    f"        ({done} _)))",
+                    f"    ({done} _))",
+                ],
+            ),
+            f'{run} ({req}.decodeTable {empty}) (Except.error "selected table constants are missing or duplicated")',
+        ),
+        (
+            "importedCoord",
+            "importedCoord_run",
+            _theorem(
+                "importedCoord_run",
+                run,
+                [
+                    f"({req}.importedCoord {empty})",
+                    'Except.error "COORD_CEILING is missing or duplicated"',
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {ask} ({done} _)",
+                    f"  ({ask} ({done} _) ({done} _))",
+                ],
+            ),
+            f'{run} ({req}.importedCoord {empty}) (Except.error "COORD_CEILING is missing or duplicated")',
+        ),
+        (
+            "closure",
+            "closure_run",
+            _theorem(
+                "closure_run",
+                run,
+                [
+                    f"({req}.closure {empty} {empty})",
+                    'Except.error "selected table constants are missing or duplicated"',
+                ],
+                [
+                    f"unfold {run} {body}",
+                    "dsimp only []",
+                    f"exact {ask} decodeTable_run ({done} _)",
+                ],
+            ),
+            f'{run} ({req}.closure {empty} {empty}) (Except.error "selected table constants are missing or duplicated")',
+        ),
+    ]
+
+
+def _whole_source_witnesses(ns: str) -> list[tuple[str, str, list[str], str]]:
+    run = "Slang.Derivation.Lexing.Run"
+    req = "Slang.Derivation.Lexing.Request"
+    fixture = "Slang.Derivation.DecodeTrace.multibyteBytes"
+    return [
+        (
+            "",
+            "lexing_chars_multibyte_run",
+            [
+                "theorem lexing_chars_multibyte_run :",
+                f"    {run}",
+                f"      ({req}.chars {fixture})",
+                "      (Except.ok ['\u00e9']) :=",
+                "  Slang.Derivation.Composition.lexing_chars_multibyte_run",
+            ],
+            f"{run} ({req}.chars {fixture}) (Except.ok ['\u00e9'])",
+        )
+    ]
+
+
+def _phase_body(
+    phase: str, ns: str, tokens: list[tuple[str, object, int, int]]
+) -> tuple[list[str], list[tuple[str, str, str]]]:
+    if phase == "grammar":
+        witnesses = _grammar_witnesses(ns)
+        imports = ["Slang.Derivation.Grammar", "Slang.Generated.Table"]
+        with_tokens = tokens
+        extra: list[str] = []
+    elif phase == "statement":
+        witnesses = _statement_witnesses(ns)
+        imports = ["Slang.Derivation.Statements", "Slang.Generated.Table"]
+        with_tokens = tokens
+        extra = []
+    elif phase == "selection":
+        witnesses = _selection_witnesses(ns)
+        imports = ["Slang.Derivation.Selection", "Slang.Generated.Table"]
+        with_tokens = tokens
+        extra = []
+    elif phase == "validation":
+        witnesses = _validation_witnesses(ns)
+        imports = ["Slang.Derivation.Validation", "Slang.Generated.Table"]
+        with_tokens = tokens
+        extra = []
+    elif phase == "decoder":
+        witnesses = _decoder_witnesses(ns)
+        imports = ["Slang.Derivation.Decode", "Slang.Generated.Table"]
+        with_tokens = None
+        extra = [
+            "/-- The real entry-source bytes, read through the literal byte module. -/",
+            "def entryBytes : ByteArray :=",
+            "  Slang.Source.encodeBytes Slang.Generated.Table.tableSource",
+            "",
+        ]
+    elif phase == "whole-source":
+        witnesses = _whole_source_witnesses(ns)
+        imports = ["Slang.Derivation.Composition"]
+        with_tokens = None
+        extra = []
+    else:  # pragma: no cover - registry is closed
+        raise ValueError(f"unknown trace phase {phase}")
+
+    lines = _header(ns, imports, with_tokens)
+    lines += extra
+    nodes: list[tuple[str, str, str, str]] = []
+    for request_name, decl, theorem_lines, type_str in witnesses:
+        lines += theorem_lines
+        lines += [""]
+        if request_name:
+            nodes.append(("request", request_name, decl, type_str))
+    lines += [f"end Slang.Generated.Trace.{ns}", ""]
+    return lines, nodes
+
+
+def _registered_declarations(module: str) -> list[str]:
+    data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    return [
+        item["name"]
+        for item in data["stages"]["derivation"]["declarations"]
+        if item["module"] == module
+    ]
+
+
+def trace_outputs(
+    song_root: Path, table_text: str
+) -> dict[Path, str]:
+    closure = resolve_closure(song_root)
+    entry_bytes = closure[0][1]
+    tokens = lex_source(entry_bytes)
+    table_digest = hashlib.sha256(table_text.encode("utf-8")).hexdigest()
+    source_digest = hashlib.sha256(
+        (song_root.resolve() / "src/table/table.slang").read_bytes()
+    ).hexdigest()
+    revision = song_revision(song_root)
+
+    outputs: dict[Path, str] = {}
+    for phase, spec in TRACE_PHASES.items():
+        ns = spec["ns"]
+        module_path = TRACE_DIR / f"{ns}.lean"
+        lines, nodes = _phase_body(phase, ns, tokens)
+        module_text = "\n".join(lines)
+        module_rel = module_path.relative_to(REPO_ROOT).as_posix()
+        module_digest = hashlib.sha256(module_text.encode("utf-8")).hexdigest()
+
+        report_nodes: list[dict[str, object]] = []
+        for kind, name, decl, type_str in nodes:
+            if kind == "request":
+                report_nodes.append(
+                    {
+                        "kind": "request",
+                        "name": name,
+                        "witness": f"Slang.Generated.Trace.{ns}.{decl}",
+                        "type": type_str,
+                    }
+                )
+        for declaration in _registered_declarations(spec["module"]):
+            report_nodes.append({"kind": "lemma", "name": declaration})
+        if phase == "whole-source":
+            # A phase with no request constructors still needs a checked
+            # witness; the composed multibyte fixture is the generated one.
+            for node in report_nodes:
+                if node["name"] == "Slang.Derivation.Composition.lexing_chars_multibyte_run":
+                    node["witness"] = (
+                        f"Slang.Generated.Trace.{ns}.lexing_chars_multibyte_run"
+                    )
+                    node["type"] = (
+                        "Slang.Derivation.Lexing.Run "
+                        "(Slang.Derivation.Lexing.Request.chars "
+                        "Slang.Derivation.DecodeTrace.multibyteBytes) "
+                        "(Except.ok ['\u00e9'])"
+                    )
+        report = {
+            "schema": 1,
+            "phase": phase,
+            "song_revision": revision,
+            "artifacts": [
+                {"path": module_rel, "sha256": module_digest, "kind": "generated"},
+                {
+                    "path": "proof/corpus/Slang/Generated/Table.lean",
+                    "sha256": table_digest,
+                    "kind": "bytes",
+                },
+                {
+                    "path": "song/src/table/table.slang",
+                    "sha256": source_digest,
+                    "kind": "source",
+                },
+            ],
+            "nodes": report_nodes,
+            "operations": list(TRACE_OPERATIONS),
+        }
+        outputs[module_path] = module_text
+        outputs[TRACE_DIR / f"{phase}.json"] = (
+            json.dumps(report, indent=2) + "\n"
+        )
+    return outputs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--song-root", type=Path, default=DEFAULT_SONG_ROOT)
@@ -220,14 +1149,21 @@ def main() -> int:
     parser.add_argument("--derivation-output", type=Path, default=DEFAULT_DERIVATION_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    generated, paths = render(args.song_root.resolve())
+    song_root = args.song_root.resolve()
+    generated, paths = render(song_root)
     derivation = render_derivation(paths)
+    trace = trace_outputs(song_root, generated)
+    outputs: list[tuple[Path, str]] = [
+        (args.output, generated),
+        (args.derivation_output, derivation),
+        *sorted(trace.items(), key=lambda item: str(item[0])),
+    ]
     if args.check:
-        for path, text in ((args.output, generated), (args.derivation_output, derivation)):
+        for path, text in outputs:
             if not path.is_file() or path.read_text(encoding="utf-8") != text:
                 raise SystemExit(f"generated source binding differs: {path}")
     else:
-        for path, text in ((args.output, generated), (args.derivation_output, derivation)):
+        for path, text in outputs:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
     return 0

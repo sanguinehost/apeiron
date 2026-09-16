@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "phase": "validation",
+  "song_revision": "aeaf3baac434b2e3c01154d275bea65fdadc69bf",
+  "artifacts": [
+    {
+      "path": "proof/corpus/Slang/Generated/Trace/Validation.lean",
+      "sha256": "06b695646d533f481ee8e985219849768cc4f07b1dccfa8e49ea6355241303de",
+      "kind": "generated"
+    },
+    {
+      "path": "proof/corpus/Slang/Generated/Table.lean",
+      "sha256": "225801a0887b18bc8f675fc476b87896303f626f5815eb2cbbc2c30925870441",
+      "kind": "bytes"
+    },
+    {
+      "path": "song/src/table/table.slang",
+      "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
+      "kind": "source"
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "request",
+      "name": "delimiters",
+      "witness": "Slang.Generated.Trace.Validation.delimiters_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.delimiters ([] : List Slang.Decode.Token) ([] : List Slang.Decode.TokenKind)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "distinct",
+      "witness": "Slang.Generated.Trace.Validation.distinct_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.distinct ([] : List String)) (Slang.Decode.distinct ([] : List String))"
+    },
+    {
+      "kind": "request",
+      "name": "spans",
+      "witness": "Slang.Generated.Trace.Validation.spans_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.spans 0 ([] : List Slang.Span)) (Slang.Decode.spansValid 0 ([] : List Slang.Span))"
+    },
+    {
+      "kind": "request",
+      "name": "expressionCalls",
+      "witness": "Slang.Generated.Trace.Validation.expressionCalls_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.expressionCalls ([] : List String) (Slang.Expr.literal 0)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "expressionsCalls",
+      "witness": "Slang.Generated.Trace.Validation.expressionsCalls_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.expressionsCalls ([] : List String) ([] : List Slang.Expr)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "statementCalls",
+      "witness": "Slang.Generated.Trace.Validation.statementCalls_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.statementCalls ([] : List String) (Slang.Stmt.return_ (Slang.Expr.literal 0))) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "statementsCalls",
+      "witness": "Slang.Generated.Trace.Validation.statementsCalls_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.statementsCalls ([] : List String) ([] : List Slang.Stmt)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "resolveCalls",
+      "witness": "Slang.Generated.Trace.Validation.resolveCalls_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.resolveCalls ([] : List Slang.FunctionDecl)) (Slang.Decode.resolveCalls ([] : List Slang.FunctionDecl))"
+    },
+    {
+      "kind": "request",
+      "name": "expressionNames",
+      "witness": "Slang.Generated.Trace.Validation.expressionNames_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.expressionNames ([] : List String) (Slang.Expr.literal 0)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "expressionsNames",
+      "witness": "Slang.Generated.Trace.Validation.expressionsNames_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.expressionsNames ([] : List String) ([] : List Slang.Expr)) (true)"
+    },
+    {
+      "kind": "request",
+      "name": "statementsNames",
+      "witness": "Slang.Generated.Trace.Validation.statementsNames_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.statementsNames 0 ([] : List String) ([] : List Slang.Stmt)) (false)"
+    },
+    {
+      "kind": "request",
+      "name": "resolveNames",
+      "witness": "Slang.Generated.Trace.Validation.resolveNames_run",
+      "type": "Slang.Derivation.Validation.Run (Slang.Derivation.Validation.Request.resolveNames ([] : List Slang.ConstantDecl) ([] : List Slang.FunctionDecl)) (Slang.Decode.resolveNames ([] : List Slang.ConstantDecl) ([] : List Slang.FunctionDecl))"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.evaluate"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.body_eq"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.Run.sound"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.delimiters_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.distinct_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.spans_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.expressionCalls_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.expressionsCalls_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.statementCalls_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.statementsCalls_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.resolveCalls_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.expressionNames_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.expressionsNames_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.statementsNames_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Validation.resolveNames_run"
+    }
+  ],
+  "operations": [
+    "ask",
+    "done"
+  ]
+}

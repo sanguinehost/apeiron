@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "phase": "statement",
+  "song_revision": "aeaf3baac434b2e3c01154d275bea65fdadc69bf",
+  "artifacts": [
+    {
+      "path": "proof/corpus/Slang/Generated/Trace/Statement.lean",
+      "sha256": "9d5ea7c042fc639433cd19499791149d78bfb1e6b104a3316f2ccfeefc01b328",
+      "kind": "generated"
+    },
+    {
+      "path": "proof/corpus/Slang/Generated/Table.lean",
+      "sha256": "225801a0887b18bc8f675fc476b87896303f626f5815eb2cbbc2c30925870441",
+      "kind": "bytes"
+    },
+    {
+      "path": "song/src/table/table.slang",
+      "sha256": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
+      "kind": "source"
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "request",
+      "name": "block",
+      "witness": "Slang.Generated.Trace.Statement.block_run",
+      "type": "Slang.Derivation.Statements.Run (Slang.Derivation.Statements.Request.block 0 Slang.Generated.Trace.Statement.entryTokens) (Except.error \"statement nesting limit reached\")"
+    },
+    {
+      "kind": "request",
+      "name": "stmt",
+      "witness": "Slang.Generated.Trace.Statement.stmt_run",
+      "type": "Slang.Derivation.Statements.Run (Slang.Derivation.Statements.Request.stmt 0 Slang.Generated.Trace.Statement.entryTokens) (Except.error \"statement nesting limit reached\")"
+    },
+    {
+      "kind": "request",
+      "name": "expr",
+      "witness": "Slang.Generated.Trace.Statement.expr_run",
+      "type": "Slang.Derivation.Statements.Run (Slang.Derivation.Statements.Request.expr 0 Slang.Generated.Trace.Statement.entryTokens) (Slang.Decode.parseExprFuel 0 0 Slang.Generated.Trace.Statement.entryTokens)"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Statements.evaluate"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Statements.body_eq"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Statements.Run.sound"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Statements.block_run"
+    },
+    {
+      "kind": "lemma",
+      "name": "Slang.Derivation.Statements.stmt_run"
+    }
+  ],
+  "operations": [
+    "ask",
+    "done"
+  ]
+}
