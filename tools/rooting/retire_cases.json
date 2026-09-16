@@ -97,6 +97,22 @@
         "PHASE_MODULES"
       ],
       "missing_is_violation": false
+    },
+    {
+      "id": "producer",
+      "rule": "R6",
+      "title": "Generator cannot resurrect the binned route (tools/slang/export.py)",
+      "kind": "file",
+      "path": "tools/slang/export.py",
+      "tokens": [
+        "Slang/Generated/Trace",
+        "Slang.Generated.Trace",
+        "Slang.Derivation",
+        "Slang.Derivation.",
+        "maxHeartbeats 0",
+        "maxRecDepth 1000000"
+      ],
+      "missing_is_violation": true
     }
   ],
   "rules": [
@@ -126,6 +142,11 @@
       "description": "tools/slang/trace_check.py still carries the DecodeTrace.Run/Derives acceptance (PHASE_MODULES mapping and witness-type check)."
     },
     {
+      "id": "R6",
+      "title": "Generator can resurrect the binned route",
+      "description": "tools/slang/export.py still names the binned Slang.Derivation / Slang.Generated.Trace route, or emits an unbounded recursion/heartbeat option (maxHeartbeats 0, maxRecDepth 1000000)."
+    },
+    {
       "id": "S",
       "title": "Reference surface missing",
       "description": "A reference surface the gate must read is absent, so retirement cannot be verified."
@@ -136,7 +157,8 @@
       "files": {
         "proof/corpus/lakefile.lean": "import Lake\nopen Lake DSL\n\npackage apeironWordBridge\n\nlean_lib ApeironWordBridge where\n  roots := #[`WordRefinement, `Slang.Syntax]\n",
         "proof/corpus/Slang/Decode.lean": "import Slang.Syntax\n\nnamespace Slang.Decode\n\nend Slang.Decode\n",
-        "tools/slang/zero_axioms.json": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"harness\": {\n      \"kind\": \"active\",\n      \"declarations\": []\n    }\n  }\n}\n"
+        "tools/slang/zero_axioms.json": "{\n  \"schema\": 1,\n  \"stages\": {\n    \"harness\": {\n      \"kind\": \"active\",\n      \"declarations\": []\n    }\n  }\n}\n",
+        "tools/slang/export.py": "#!/usr/bin/env python3\n# Clean synthetic exporter: writes only the live table binding.\n\nfrom pathlib import Path\n\nDEFAULT_OUTPUT = Path('proof/corpus/Slang/Generated/Table.lean')\n\n\ndef render():\n    return 'import Slang.Source.Bytes'\n\n\ndef main():\n    DEFAULT_OUTPUT.write_text(render(), encoding='utf-8')\n    return 0\n\n\nif __name__ == '__main__':\n    main()\n"
       }
     },
     "cases": [
@@ -179,6 +201,22 @@
         "action": "write",
         "path": "tools/slang/trace_check.py",
         "text": "PHASE_MODULES = {\"decoder\": \"Slang.Derivation.Decode\"}\n\n\ndef check_witness_types(node):\n    return \"DecodeTrace.Run\" in node or \"Derives\" in node\n"
+      },
+      {
+        "name": "resurrected trace route in producer",
+        "rule": "R6",
+        "expect": "reject",
+        "action": "append",
+        "path": "tools/slang/export.py",
+        "text": "\nTRACE_ROOT = 'Slang.Generated.Trace'\n"
+      },
+      {
+        "name": "deleted producer exporter",
+        "rule": "S",
+        "expect": "reject",
+        "action": "delete",
+        "path": "tools/slang/export.py",
+        "text": ""
       },
       {
         "name": "clean tree accepted",

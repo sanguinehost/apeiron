@@ -26,6 +26,10 @@ What is checked
 * ``R5`` acceptance: ``tools/slang/trace_check.py`` still carries the
   ``DecodeTrace.Run``/``Derives`` acceptance (``PHASE_MODULES`` and the
   witness-type check);
+* ``R6`` producer: ``tools/slang/export.py`` can resurrect the binned route
+  (``Slang/Generated/Trace``, ``Slang.Generated.Trace``, ``Slang.Derivation``)
+  or emits an unbounded recursion/heartbeat option (``maxHeartbeats 0``,
+  ``maxRecDepth 1000000``);
 * ``S`` surface: a reference surface the gate must read is missing.
 
 Isolation
