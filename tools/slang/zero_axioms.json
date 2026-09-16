@@ -4659,6 +4659,29 @@
         { "name": "Slang.Memo.StoreAudit.control_unrelated_never_replaced", "expected_type": "type_of% @Slang.Memo.StoreAudit.control_unrelated_never_replaced", "module": "Slang.Memo.StoreAudit", "path": "proof/corpus/Slang/Memo/StoreAudit.lean" }
       ]
     },
+    "memo-fold": {
+      "kind": "active",
+      "wave": "memo-fold",
+      "title": "Ordered memo transition fold",
+      "note": "First-refusal physical fold and pointwise denotation to canonical ordered Apeiron.Table.build, with a concrete order-sensitivity control.",
+      "audit_module": "Slang/Memo/FoldAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Memo/Fold.lean",
+        "proof/corpus/Slang/Memo/FoldAudit.lean"
+      ],
+      "declarations": [
+        { "name": "Slang.Memo.FoldAudit.nat_add_zero", "expected_type": "(0 : Nat) + 0 = 0", "module": "Slang.Memo.FoldAudit", "path": "proof/corpus/Slang/Memo/FoldAudit.lean" },
+        { "name": "Slang.Memo.fold", "expected_type": "type_of% @Slang.Memo.fold", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.canonical_fold_preserves_point", "expected_type": "type_of% @Slang.Memo.canonical_fold_preserves_point", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.entry_fold_stream_pointwise", "expected_type": "type_of% @Slang.Memo.entry_fold_stream_pointwise", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.canonical_fold_denotes_build_at", "expected_type": "type_of% @Slang.Memo.canonical_fold_denotes_build_at", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.fold_success_rep_acc", "expected_type": "type_of% @Slang.Memo.fold_success_rep_acc", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.empty_fold_denotes_build", "expected_type": "type_of% @Slang.Memo.empty_fold_denotes_build", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.fold_success_denotes_build_at", "expected_type": "type_of% @Slang.Memo.fold_success_denotes_build_at", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.fold_success_rep", "expected_type": "type_of% @Slang.Memo.fold_success_rep", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" },
+        { "name": "Slang.Memo.control_reversal_changes_build", "expected_type": "type_of% @Slang.Memo.control_reversal_changes_build", "module": "Slang.Memo", "path": "proof/corpus/Slang/Memo/Fold.lean" }
+      ]
+    },
     "memo-witness": {
       "kind": "active",
       "wave": "memo-witness",
