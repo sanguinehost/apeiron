@@ -237,9 +237,9 @@ do not cite a pin from memory.
 
 Every Lean command runs bounded: under `systemd-run --user --scope -p MemoryMax=<cap>
 -p MemorySwapMax=0` with `LEAN_NUM_THREADS=1` and a `timeout`, serialized on
-`flock /tmp/opencode/apeiron-lane.lock`. `set_option maxHeartbeats 0`, `set_option maxRecDepth`
-raised past the package default, and any unbounded kernel reduction (for example `decide` over a whole
-source) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
+`flock /tmp/opencode/apeiron-lane.lock`. `set_option maxHeartbeats 0` and any unbounded kernel
+reduction (for example `decide` or `rfl` over a whole source, or `maxRecDepth` raised to defeat the
+guard) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
 inconclusive, not a proof, and a job that exhausts the cap is a failure of the run, not a red gate.
 
 ## 7 · Metadata policy
