@@ -73,19 +73,16 @@ theorem closed_bundle_edges_resolved :
   | head => rfl
   | tail _ impossible => exact nomatch impossible
 
-/-- A producer-supplied derivation inhabits `ParsesClosure`. -/
+/-- A producer-supplied derivation inhabits the entry-only `ParsesClosure`. -/
 theorem parsesClosure_of {bundle : SourceBundle} {program : Program} {entryBytes : SourceBytes}
     (entryLookup : bundle.fileBytes? bundle.entry = some entryBytes) {decoded : CertifiedDecoded}
     (entryDecodes : Decode.decodeTable (encodeBytes entryBytes) = .ok decoded)
     (programEq : decoded.val.program = program) (selectedSource : SelectedSourceExact entryBytes)
     (selectedProgram : SelectedProgramExact program)
-    (importsResolved : ∀ path, path ∈ importPaths entryBytes → (bundle.fileBytes? path).isSome = true)
-    {stdBytes : SourceBytes} (stdLookup : bundle.fileBytes? stdPath = some stdBytes)
-    {coord : ConstantDecl}
-    (coordDecodes : Decode.decodeImportedCoordCeiling (encodeBytes stdBytes) = .ok coord)
-    (coordValue : coord.value = .literal 8796093022208) : ParsesClosure bundle program :=
+    (importsResolved : ∀ path, path ∈ importPaths entryBytes → (bundle.fileBytes? path).isSome = true) :
+    ParsesClosure bundle program :=
   .intro entryBytes entryLookup decoded entryDecodes programEq selectedSource selectedProgram
-    importsResolved stdBytes stdLookup coord coordDecodes coordValue
+    importsResolved
 
 /-- A complete selected entry: eight table constants and thirteen functions, importing `cell`. -/
 def completeEntry : SourceBytes := asciiBytes
@@ -133,9 +130,8 @@ private def decodeAccepts (source : SourceBytes) : Bool :=
 #audit_empty Slang.Source.SelectedProgramExact : Slang.Program → Prop
 #audit_empty Slang.Decode.decodeImportedCoordCeiling : ByteArray → Slang.Decode.Result Slang.ConstantDecl
 #audit_empty Slang.Source.ParsesClosure : Slang.Source.SourceBundle → Slang.Program → Prop
-#audit_empty Slang.Source.ParsesClosure.intro : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} (entryBytes : Slang.Source.SourceBytes), bundle.fileBytes? bundle.entry = some entryBytes → (decoded : Slang.Decode.CertifiedDecoded) → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → (stdBytes : Slang.Source.SourceBytes) → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → (coord : Slang.ConstantDecl) → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program
+#audit_empty Slang.Source.ParsesClosure.intro : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} (entryBytes : Slang.Source.SourceBytes), bundle.fileBytes? bundle.entry = some entryBytes → (entryDecoded : Slang.Decode.CertifiedDecoded) → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok entryDecoded → entryDecoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → Slang.Source.ParsesClosure bundle program
 #audit_empty Slang.Source.ParsesClosure.entry_decodes : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes decoded, bundle.fileBytes? bundle.entry = some entryBytes ∧ Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded ∧ decoded.val.program = program
-#audit_empty Slang.Source.ParsesClosure.coord_bound : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ stdBytes coord, bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord ∧ coord.value = .literal 8796093022208
 #audit_empty Slang.Source.unresolved_import_not_parses : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes path : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → path ∈ Slang.Source.importPaths entryBytes → bundle.fileBytes? path = none → ¬Slang.Source.ParsesClosure bundle program
 #audit_empty Slang.Source.DuplicateOrSkippedSelected : Slang.Source.SourceBytes → Prop
 #audit_empty Slang.Source.duplicate_or_skipped_selected_not_parses : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → Slang.Source.DuplicateOrSkippedSelected entryBytes → ¬Slang.Source.ParsesClosure bundle program
@@ -145,7 +141,7 @@ private def decodeAccepts (source : SourceBytes) : Bool :=
 #audit_empty Slang.Source.ClosureAudit.open_bundle_missing_cell : openBundle.fileBytes? cellPath = none
 #audit_empty Slang.Source.ClosureAudit.missing_cell_rejected : ∀ {program : Slang.Program}, ¬Slang.Source.ParsesClosure openBundle program
 #audit_empty Slang.Source.ClosureAudit.closed_bundle_edges_resolved : ∀ path, path ∈ Slang.Source.importPaths useCellSource → (closedBundle.fileBytes? path).isSome = true
-#audit_empty Slang.Source.ClosureAudit.parsesClosure_of : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → {decoded : Slang.Decode.CertifiedDecoded} → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → {stdBytes : Slang.Source.SourceBytes} → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → {coord : Slang.ConstantDecl} → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program
+#audit_empty Slang.Source.ClosureAudit.parsesClosure_of : ∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → {decoded : Slang.Decode.CertifiedDecoded} → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → Slang.Source.ParsesClosure bundle program
 
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.Source.ClosureAudit.nat_add_zero : (0 : Nat) + 0 = 0
