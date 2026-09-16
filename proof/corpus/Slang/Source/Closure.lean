@@ -21,15 +21,25 @@ private def sourceByte (value : Nat) : SourceByte :=
 
 def stdPath : SourceBytes := [sourceByte 115, sourceByte 116, sourceByte 100]
 
+-- Temporal O(f·p) for f = |bundle.files| and p = |path|: `List.find?` tests `file.path == path`
+-- once per file until the first hit, each `BEq (List SourceByte)` walking at most p bytes.
+-- Spatial O(1): `find?` returns a subterm and its recursion is tail; `.map` allocates one `Option`.
 def SourceBundle.fileBytes? (bundle : SourceBundle) (path : SourceBytes) : Option SourceBytes :=
   (bundle.files.find? fun file => file.path == path).map (·.bytes)
 
+-- Temporal O(n) for n = |bytes|: one `::` step per input byte, closing on the finite list.
+-- Spatial O(n) for the n-cell reversed result; the recursion is tail-recursive, so O(1) call stack.
 private def reverseAux : SourceBytes → SourceBytes → SourceBytes
   | [], reversed => reversed
   | byte :: rest, reversed => reverseAux rest (byte :: reversed)
 
+-- Temporal O(n) and spatial O(n) as `reverseAux bytes []`: one cons per byte and an n-cell result,
+-- with O(1) call stack.
 private def reverse (bytes : SourceBytes) : SourceBytes := reverseAux bytes []
 
+-- Temporal O(k) for k bytes scanned to the first `"` (or to the end): one value comparison per
+-- byte. Spatial O(k): the returned prefix path holds k cons cells and the recursion binds its
+-- result, so k stack frames.
 private def untilQuote : SourceBytes → Option SourceBytes
   | [] => none
   | byte :: rest =>
@@ -43,6 +53,8 @@ private def usePrefix (first second third space quote : SourceByte) : Bool :=
   first.val == 117 && second.val == 115 && third.val == 101 &&
     space.val == 32 && quote.val == 34
 
+-- Temporal O(k) for k = |source|: the five-byte prefix match is O(1), then `untilQuote` scans the
+-- remainder once. Spatial O(k) for the returned path and the `untilQuote` stack.
 private def quotedPath (source : SourceBytes) : Option SourceBytes :=
   match source with
   | [] => none
@@ -66,6 +78,10 @@ private def prependPath (path : Option SourceBytes) (rest : List SourceBytes) : 
   | none => rest
   | some value => value :: rest
 
+-- Temporal O(n) for n = |source|: each byte is consed onto `reversedLine` once, and each completed
+-- line is reversed and scanned once, so every byte is charged O(1) across the recursion, which
+-- closes on the finite input. Spatial O(n) for the line accumulator, the result paths and the
+-- non-tail frames, one per line.
 private def importPathsGo : SourceBytes → SourceBytes → List SourceBytes
   | [], reversedLine => prependPath (quotedPath (reverse reversedLine)) []
   | byte :: rest, reversedLine =>
@@ -73,8 +89,13 @@ private def importPathsGo : SourceBytes → SourceBytes → List SourceBytes
         prependPath (quotedPath (reverse reversedLine)) (importPathsGo rest [])
       else importPathsGo rest (byte :: reversedLine)
 
+-- Temporal O(n) and spatial O(n) as `importPathsGo source []`: one linear pass over the source and
+-- the accumulated paths.
 def importPaths (source : SourceBytes) : List SourceBytes := importPathsGo source []
 
+-- Temporal O(n) for n = |source|: `encodeBytes` and `Decode.tokenize` each make one linear pass,
+-- and `Decode.scanSelected` takes `tokens.length + 1` steps, one per token. Spatial O(n) for the
+-- packed bytes, decoded characters, token list and scan stack.
 def scanSourceSelected (source : SourceBytes) :
     Decode.Result (List ConstantDecl × List FunctionDecl) := do
   let (tokens, _) ← Decode.tokenize (encodeBytes source)
@@ -84,6 +105,9 @@ def scanSourceSelected (source : SourceBytes) :
 def selectedTableConstantNames : List String :=
   Decode.selectedConstantNames.erase "COORD_CEILING"
 
+-- Temporal O(n) for n = |source|: `scanSourceSelected` is linear, then the two `map`/`==`
+-- comparisons walk the selected constants and functions (at most one per token). Spatial O(n),
+-- dominated by `scanSourceSelected`, plus the mapped name lists.
 def selectedSourceExact (source : SourceBytes) : Bool :=
   match scanSourceSelected source with
   | .ok (constants, functions) =>
