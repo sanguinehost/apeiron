@@ -7581,6 +7581,60 @@
           "path": "proof/corpus/Slang/Generated/SourceWitness/Parsing/Cell/Chunk03.lean"
         }
       ]
+    },
+    "tokenizer-witness": {
+      "kind": "active",
+      "wave": "W25",
+      "title": "Whole-source structural UTF-8 witnesses",
+      "note": "Balanced depth-two composition of codepoint-aligned source parts. Named part reads replace whole-list drop/take searches; Utf8Scan.continue threads each part into the exact generated cell, table and std source values.",
+      "audit_module": "Slang/Generated/SourceWitness/Tokenizer/Audit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Generated/Table.lean",
+        "proof/corpus/Slang/Generated/TableSupport.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Audit.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Cell/Chunk01.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Cell/Chunk02.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Table/Chunk01.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Table/Chunk02.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Table/Chunk03.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk01.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk02.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk03.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk04.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk05.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk06.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk07.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk08.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk09.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk10.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk11.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Generated.SourceWitness.Tokenizer.Audit.nat_add_zero",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Tokenizer.Audit.nat_add_zero",
+          "module": "Slang.Generated.SourceWitness.Tokenizer.Audit",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Audit.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Tokenizer.Cell.cellUtf8Witness",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Tokenizer.Cell.cellUtf8Witness",
+          "module": "Slang.Generated.SourceWitness.Tokenizer.Cell.Chunk02",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Cell/Chunk02.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Tokenizer.Table.tableUtf8Witness",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Tokenizer.Table.tableUtf8Witness",
+          "module": "Slang.Generated.SourceWitness.Tokenizer.Table.Chunk03",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Table/Chunk03.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Tokenizer.Std.stdUtf8Witness",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Tokenizer.Std.stdUtf8Witness",
+          "module": "Slang.Generated.SourceWitness.Tokenizer.Std.Chunk11",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk11.lean"
+        }
+      ]
     }
   }
 }

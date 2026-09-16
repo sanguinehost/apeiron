@@ -35,12 +35,9 @@ def lean_string(text: str) -> str:
     return '"' + "".join(escaped) + '"'
 
 
-# A single definition whose term holds more than this many `sourceByte`
-# applications exceeds the 10000 recursion budget the Slang modules use, so a
-# source longer than this is bound in parts of this many bytes and concatenated:
-# each definition stays inside the budget and the final `<stem>Source` denotes
-# the same list.
-SOURCE_DEF_ELEMENTS = 4000
+# Source parts are also the leaves of the structural UTF-8 witness.  The bound
+# is measured in bytes, and a part boundary never splits one UTF-8 code point.
+SOURCE_PART_BYTES = 32
 
 
 def source_bytes_literal(data: bytes) -> str:
@@ -64,35 +61,90 @@ def source_bytes_literal(data: bytes) -> str:
     return "  [\n" + "\n".join(rows) + "\n  ]"
 
 
+def source_parts(data: bytes) -> list[bytes]:
+    """Split UTF-8 at code-point boundaries into parts of at most 32 bytes.
+
+    Time is linear in decoded code points and space is linear in input bytes:
+    each code point is encoded once and each byte is copied into one part.
+    """
+    parts: list[bytes] = []
+    current = bytearray()
+    for char in data.decode("utf-8"):
+        encoded = char.encode("utf-8")
+        if current and len(current) + len(encoded) > SOURCE_PART_BYTES:
+            parts.append(bytes(current))
+            current.clear()
+        current.extend(encoded)
+    if current or not parts:
+        parts.append(bytes(current))
+    return parts
+
+
+def balanced_expr(names: list[str]) -> str:
+    """Build a logarithmic-depth append tree, preserving left-to-right order."""
+    level = list(names)
+    while len(level) > 1:
+        level = [
+            (f"({level[index]} ++ {level[index + 1]})"
+             if index + 1 < len(level) else level[index])
+            for index in range(0, len(level), 2)
+        ]
+    return level[0]
+
+
 def source_defs(stem: str, data: bytes) -> list[str]:
     """The definitions binding ``{stem}Source`` to ``data``.
 
-    A definition's recursion demand scales with the size of its term, so the
-    27 KiB `std` source cannot be one literal under the 10000 budget even when
-    the literal is nested.  Sources longer than `SOURCE_DEF_ELEMENTS` are bound
-    in ``private`` part definitions and concatenated; ``{stem}Source`` is the
-    same list.
+    Every named part is one code-point-aligned UTF-8 witness leaf.  The source
+    is a balanced append tree, so structural map/length lemmas traverse a tree
+    of logarithmic depth instead of searching a whole literal list.
     """
-    parts = [
-        data[start : start + SOURCE_DEF_ELEMENTS]
-        for start in range(0, len(data), SOURCE_DEF_ELEMENTS)
-    ] or [b""]
-    if len(parts) == 1:
-        return [
-            f"def {stem}Source : Slang.Source.SourceBytes :=",
-            source_bytes_literal(data),
-        ]
-    names = [f"{stem}SourcePart{index}" for index in range(len(parts))]
+    parts = source_parts(data)
+    names = [f"{stem}Part{index}" for index in range(len(parts))]
     lines: list[str] = []
     for name, part in zip(names, parts):
         lines += [
-            f"private def {name} : Slang.Source.SourceBytes :=",
+            f"def {name} : Slang.Source.SourceBytes :=",
             source_bytes_literal(part),
+            f"theorem {name}Length : {name}.length = {len(part)} := rfl",
             "",
         ]
+    nodes = [
+        {"name": name, "length": len(part)}
+        for name, part in zip(names, parts)
+    ]
+    level = 0
+    while len(nodes) > 1:
+        next_nodes: list[dict[str, object]] = []
+        for index in range(0, len(nodes), 2):
+            if index + 1 == len(nodes):
+                next_nodes.append(nodes[index])
+                continue
+            left = nodes[index]
+            right = nodes[index + 1]
+            name = f"{stem}PartNode{level}_{index // 2}"
+            length = int(left["length"]) + int(right["length"])
+            lines += [
+                f"def {name} : Slang.Source.SourceBytes := "
+                f"{left['name']} ++ {right['name']}",
+                f"theorem {name}Length : {name}.length = {length} := by "
+                f"change ({left['name']} ++ {right['name']}).length = {length}; exact "
+                f"Eq.trans (@Slang.Generated.Table.sourceLengthAppend _ {left['name']} "
+                f"{right['name']}) "
+                f"(Eq.trans (congrArg (fun value => value + {right['name']}.length) "
+                f"{left['name']}Length) (congrArg (fun value => {left['length']} + value) "
+                f"{right['name']}Length))",
+                "",
+            ]
+            next_nodes.append({"name": name, "length": length})
+        nodes = next_nodes
+        level += 1
+    root = str(nodes[0]["name"])
     lines += [
         f"def {stem}Source : Slang.Source.SourceBytes :=",
-        "  " + " ++ ".join(names),
+        f"  {root}",
+        f"theorem {stem}SourceLength : {stem}Source.length = {len(data)} := by",
+        f"  exact {root}Length",
     ]
     return lines
 
@@ -162,11 +214,8 @@ def render(song_root: Path) -> tuple[str, dict[str, str]]:
     lines = [
         "-- Generated by tools/slang/export.py; do not edit.",
         "import Slang.Source.Bytes",
+        "import Slang.Generated.TableSupport",
         "namespace Slang.Generated.Table",
-        "",
-        "-- Literal byte lists of tens of thousands of elements need a deeper elaborator recursion",
-        "-- budget; the kernel still reduces each `sourceByte` to its `Fin` value.",
-        "set_option maxRecDepth 10000",
         "",
         *SOURCE_BYTE_HELPER,
         f"def songRevision : String := {lean_string(song_revision(song_root))}",
@@ -1870,6 +1919,338 @@ def render_source_witness(song_root: Path) -> tuple[
     return outputs, declarations, module_roots
 
 
+# ---------------------------------------------------------------------------
+# Structural whole-source UTF-8 witnesses
+# ---------------------------------------------------------------------------
+
+_UTF8_NAMESPACE = "Slang.Generated.SourceWitness.Tokenizer"
+_UTF8_AUDIT_NAMESPACE = f"{_UTF8_NAMESPACE}.Audit"
+_UTF8_AUDIT_PATH = "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Audit.lean"
+
+# The generic structural lemmas the whole-source witnesses cite.  They live in
+# the `Slang.Generated.Table` namespace because the parts they are applied to do,
+# but in their own module so `Generated/Table.lean` keeps only the part
+# presentation.  Each is a `List` fact proved without an axiom.
+TABLE_SUPPORT_PATH = REPO_ROOT / "proof/corpus/Slang/Generated/TableSupport.lean"
+
+
+def render_table_support() -> str:
+    """Render the append/map/fuel lemmas the part witnesses use.
+
+    These are presentation helpers: `sourceMapAppend` is `List.map_append` with
+    the mapped list explicit, `sourceAppendAssoc`/`sourceAppendNil` are the
+    `List` associativity and right-identity lemmas, and `sourceFuel` counts the
+    code points one codepoint-aligned part adds.  None reduces a whole source
+    list; each is a single structural step over `List`.
+    """
+    return "\n".join([
+        "-- Generated by tools/slang/export.py; do not edit.",
+        "import Slang.Source.Bytes",
+        "",
+        "set_option autoImplicit false",
+        "set_option warningAsError true",
+        "",
+        "namespace Slang.Generated.Table",
+        "",
+        "/-- Fuel one codepoint-aligned part adds: its code-point count after `tail`. -/",
+        "def sourceFuel (count tail : Nat) : Nat := tail + count",
+        "",
+        "theorem sourceFuel_eq (count tail : Nat) : sourceFuel count tail = tail + count :=",
+        "  rfl",
+        "",
+        "/-- `List.map_append` with the mapped list and both operands explicit. -/",
+        "theorem sourceMapAppend {α β : Type} (f : α → β) (left right : List α) :",
+        "    (left ++ right).map f = left.map f ++ right.map f := by",
+        "  induction left with",
+        "  | nil => rfl",
+        "  | cons head tail ih => exact congrArg (fun rest => f head :: rest) ih",
+        "",
+        "/-- `List.length_append`, hand-proved: the Init proof uses `simp` and",
+        "carries `propext`, which the empty Slang cone rejects. -/",
+        "theorem sourceLengthAppend {α : Type} (left right : List α) :",
+        "    (left ++ right).length = left.length + right.length := by",
+        "  induction left with",
+        "  | nil => exact (Nat.zero_add right.length).symm",
+        "  | cons head tail ih =>",
+        "      exact Eq.trans (congrArg Nat.succ ih)",
+        "        (Nat.succ_add tail.length right.length).symm",
+        "",
+        "/-- `List.append_assoc`, hand-proved to stay inside the empty cone. -/",
+        "theorem sourceAppendAssoc {α : Type} (left middle right : List α) :",
+        "    (left ++ middle) ++ right = left ++ (middle ++ right) := by",
+        "  induction left with",
+        "  | nil => rfl",
+        "  | cons head tail ih => exact congrArg (fun rest => head :: rest) ih",
+        "",
+        "/-- `List.append_nil`, hand-proved to stay inside the empty cone. -/",
+        "theorem sourceAppendNil {α : Type} (bytes : List α) : bytes ++ [] = bytes := by",
+        "  induction bytes with",
+        "  | nil => rfl",
+        "  | cons head tail ih => exact congrArg (fun rest => head :: rest) ih",
+        "",
+        "end Slang.Generated.Table",
+        "",
+    ])
+
+
+def _uint8(value: int) -> str:
+    return f"(UInt8.ofFin ⟨{value}, by decide⟩)"
+
+
+def _char(value: int) -> str:
+    return f"Char.ofNat {value}"
+
+
+def _utf8_char(char: str) -> str:
+    encoded = char.encode("utf-8")
+    values = [_uint8(value) for value in encoded]
+    if len(values) == 1:
+        return f"Char.ofNat {values[0]}.toNat"
+    if len(values) == 2:
+        return (f"Char.ofNat (({values[0]}.toNat - 0xc0) * 0x40 + "
+                f"({values[1]}.toNat - 0x80))")
+    if len(values) == 3:
+        return (f"Char.ofNat (({values[0]}.toNat - 0xe0) * 0x1000 + "
+                f"({values[1]}.toNat - 0x80) * 0x40 + ({values[2]}.toNat - 0x80))")
+    return (f"Char.ofNat (({values[0]}.toNat - 0xf0) * 0x40000 + "
+            f"({values[1]}.toNat - 0x80) * 0x1000 + "
+            f"({values[2]}.toNat - 0x80) * 0x40 + ({values[3]}.toNat - 0x80))")
+
+
+def _utf8_head(encoded: bytes, codepoint: int) -> str:
+    values = " ".join(_uint8(value) for value in encoded)
+    if len(encoded) == 1:
+        return f"Utf8Head.one {values} _ (by decide)"
+    if len(encoded) == 2:
+        return f"Utf8Head.two {values} _ (by decide) (by decide) (by decide)"
+    if len(encoded) == 3:
+        return (f"Utf8Head.three {values} _ (by decide) (by decide) "
+                f"(by decide) (by decide)")
+    if len(encoded) == 4:
+        return (f"Utf8Head.four {values} _ (by decide) (by decide) "
+                f"(by decide) (by decide) (by decide)")
+    raise ValueError(f"invalid UTF-8 width for U+{codepoint:04X}")
+
+
+def _utf8_leaf_term(text: str) -> str:
+    term = "tail"
+    for char in reversed(text):
+        term = f"Utf8Scan.next ({_utf8_head(char.encode('utf-8'), ord(char))}) ({term})"
+    return term
+
+
+def _utf8_module(namespace: str, imports: list[str], blocks: list[list[str]]) -> str:
+    lines = [
+        "-- Generated by tools/slang/export.py; do not edit.",
+        *[f"import {name}" for name in imports],
+        "",
+        "open Slang.Source.Tokenizer",
+        "",
+        "set_option autoImplicit false",
+        "set_option linter.missingDocs false",
+        "",
+        f"namespace {namespace}",
+        "",
+    ]
+    for position, block in enumerate(blocks):
+        if position:
+            lines.append("")
+        lines.extend(block)
+    lines.extend(["", f"end {namespace}", ""])
+    return "\n".join(lines)
+
+
+def _render_utf8_program(stem: str, data: bytes) -> tuple[list[list[str]], str]:
+    parts = source_parts(data)
+    namespace_stem = stem[0].upper() + stem[1:]
+    nodes: list[dict[str, object]] = []
+    blocks: list[list[str]] = []
+    for index, part in enumerate(parts):
+        text = part.decode("utf-8")
+        name = f"{stem}Leaf{index}"
+        bytes_name = f"{name}Bytes"
+        chars_name = f"{name}Chars"
+        fuel_name = f"{name}Fuel"
+        prefix_name = f"{name}Prefix"
+        chars = ", ".join(_utf8_char(char) for char in text)
+        blocks.append([
+            f"def {bytes_name} (tail : List UInt8) : List UInt8 := "
+            f"Slang.Generated.Table.{stem}Part{index}.map UInt8.ofFin ++ tail",
+            f"def {chars_name} (tail : List Char) : List Char := [{chars}] ++ tail",
+            f"def {fuel_name} (tail : Nat) : Nat := "
+            f"Slang.Generated.Table.sourceFuel {len(text)} tail",
+            f"theorem {prefix_name} (fuel : Nat) (tailBytes : List UInt8) "
+            f"(tailChars : List Char) (tail : Utf8Scan fuel tailBytes tailChars) : "
+            f"Utf8Scan ({fuel_name} fuel) ({bytes_name} tailBytes) "
+            f"({chars_name} tailChars) := by",
+            f"  exact {_utf8_leaf_term(text)}",
+            f"theorem {name}FuelEq (tail : Nat) : {fuel_name} tail = "
+            f"tail + {len(text)} := Slang.Generated.Table.sourceFuel_eq _ _",
+            f"theorem {name}Binding (tail : List UInt8) : "
+            f"Slang.Generated.Table.{stem}Part{index}.map UInt8.ofFin ++ tail = "
+            f"{bytes_name} tail := rfl",
+        ])
+        nodes.append({
+            "name": name, "bytes": bytes_name, "chars": chars_name,
+            "fuel": fuel_name, "prefix": prefix_name,
+            "binding": f"{name}Binding",
+            "fuel_eq": f"{name}FuelEq",
+            "count": len(text),
+            "table": f"Slang.Generated.Table.{stem}Part{index}",
+        })
+
+    level = 0
+    while len(nodes) > 1:
+        next_nodes: list[dict[str, object]] = []
+        for index in range(0, len(nodes), 2):
+            if index + 1 == len(nodes):
+                next_nodes.append(nodes[index])
+                continue
+            left = nodes[index]
+            right = nodes[index + 1]
+            name = f"{stem}Node{level}_{index // 2}"
+            bytes_name = f"{name}Bytes"
+            chars_name = f"{name}Chars"
+            fuel_name = f"{name}Fuel"
+            prefix_name = f"{name}Prefix"
+            binding_name = f"{name}Binding"
+            fuel_eq_name = f"{name}FuelEq"
+            count = int(left["count"]) + int(right["count"])
+            table_node = f"Slang.Generated.Table.{stem}PartNode{level}_{index // 2}"
+            blocks.append([
+                f"def {bytes_name} (tail : List UInt8) : List UInt8 := "
+                f"{left['bytes']} ({right['bytes']} tail)",
+                f"def {chars_name} (tail : List Char) : List Char := "
+                f"{left['chars']} ({right['chars']} tail)",
+                f"def {fuel_name} (tail : Nat) : Nat := {left['fuel']} ({right['fuel']} tail)",
+                f"theorem {prefix_name} (fuel : Nat) (tailBytes : List UInt8) "
+                f"(tailChars : List Char) (tail : Utf8Scan fuel tailBytes tailChars) : "
+                f"Utf8Scan ({fuel_name} fuel) ({bytes_name} tailBytes) "
+                f"({chars_name} tailChars) := by",
+                "  exact Utf8Scan.continue",
+                f"    (fuel0 := {fuel_name} fuel) (fuel1 := {right['fuel']} fuel) "
+                f"(bytes0 := {bytes_name} tailBytes) (bytes1 := {right['bytes']} tailBytes) "
+                f"(chars0 := {chars_name} tailChars) (chars1 := {right['chars']} tailChars)",
+                f"    ({left['prefix']} ({right['fuel']} fuel) "
+                f"({right['bytes']} tailBytes) ({right['chars']} tailChars))",
+                f"    ({right['prefix']} fuel tailBytes tailChars tail)",
+                f"theorem {fuel_eq_name} (tail : Nat) : {fuel_name} tail = "
+                f"tail + {count} := by change {left['fuel']} ({right['fuel']} tail) = "
+                f"tail + {count}; exact Eq.trans (congrArg {left['fuel']} "
+                f"({right['fuel_eq']} tail)) (Eq.trans ({left['fuel_eq']} _) "
+                f"(Eq.trans (Nat.add_assoc tail {right['count']} {left['count']}) "
+                f"(congrArg (Nat.add tail) rfl)))",
+                f"theorem {binding_name} (tail : List UInt8) : "
+                f"{table_node}.map UInt8.ofFin ++ tail = {bytes_name} tail := by "
+                f"exact Eq.trans (congrArg (fun value => value ++ tail) "
+                f"(Slang.Generated.Table.sourceMapAppend UInt8.ofFin "
+                f"{left['table']} {right['table']})) "
+                f"(Eq.trans (Slang.Generated.Table.sourceAppendAssoc _ _ _) (Eq.trans "
+                f"(congrArg (fun value => {left['table']}.map UInt8.ofFin ++ value) "
+                f"({right['binding']} tail)) ({left['binding']} ({right['bytes']} tail))))",
+            ])
+            next_nodes.append({
+                "name": name, "bytes": bytes_name, "chars": chars_name,
+                "fuel": fuel_name, "prefix": prefix_name, "binding": binding_name,
+                "fuel_eq": fuel_eq_name, "count": count, "table": table_node,
+            })
+        nodes = next_nodes
+        level += 1
+
+    root = nodes[0]
+    source_name = f"Slang.Generated.Table.{stem}Source"
+    byte_count = len(data)
+    char_count = len(data.decode("utf-8"))
+    base_fuel = byte_count - char_count + 1
+    chars_name = f"{stem}Chars"
+    witness_name = f"{stem}Utf8Witness"
+    blocks.append([
+        f"def {chars_name} : List Char := {root['chars']} []",
+        f"theorem {stem}FuelValue : {root['fuel']} {base_fuel} = "
+        f"{byte_count + 1} := Eq.trans ({root['fuel_eq']} {base_fuel}) rfl",
+        f"theorem {stem}SourceLength : {source_name}.length = {byte_count} := by",
+        f"  exact Slang.Generated.Table.{stem}SourceLength",
+        f"theorem {stem}SourceMap : {source_name}.map UInt8.ofFin = {root['bytes']} [] := by",
+        f"  change {root['table']}.map UInt8.ofFin = {root['bytes']} []",
+        f"  exact Eq.trans (Slang.Generated.Table.sourceAppendNil _).symm "
+        f"({root['binding']} [])",
+        f"theorem {witness_name} :",
+        f"    Utf8Scan ({source_name}.length + 1) ({source_name}.map UInt8.ofFin) "
+        f"{chars_name} := by",
+        f"  rw [{stem}SourceLength, {stem}SourceMap]",
+        f"  have scan := {root['prefix']} {base_fuel} [] [] "
+        f"(Utf8Scan.done (n := {base_fuel - 1}))",
+        f"  have scan' : Utf8Scan {byte_count + 1} ({root['bytes']} []) "
+        f"{chars_name} := {stem}FuelValue ▸ scan",
+        "  exact scan'",
+    ])
+    return blocks, witness_name
+
+
+def render_utf8_witness(song_root: Path) -> tuple[
+        dict[Path, str], list[dict[str, str]], list[str]]:
+    """Render balanced source-connected UTF-8 scans for cell, table and std."""
+    outputs: dict[Path, str] = {}
+    declarations: list[dict[str, str]] = []
+    roots: list[str] = []
+    audit_imports: list[str] = []
+    sources = _source_bytes(song_root)
+    for stem in ("cell", "table", "std"):
+        blocks, witness = _render_utf8_program(stem, sources[stem][1])
+        chunks = _pack_witness_blocks(blocks)
+        namespace = f"{_UTF8_NAMESPACE}.{stem[0].upper() + stem[1:]}"
+        previous = "Slang.Generated.Table"
+        final_path = ""
+        for index, chunk in enumerate(chunks, 1):
+            module = f"{namespace}.Chunk{index:02d}"
+            relative = ("proof/corpus/Slang/Generated/SourceWitness/Tokenizer/"
+                        f"{stem[0].upper() + stem[1:]}/Chunk{index:02d}.lean")
+            outputs[REPO_ROOT / relative] = _utf8_module(
+                namespace,
+                [previous, "Slang.Generated.TableSupport", "Slang.Source.Tokenizer.Utf8"],
+                [blocks[item] for item in chunk],
+            )
+            roots.append(module)
+            previous = module
+            final_path = relative
+        audit_imports.append(previous)
+        full = f"{namespace}.{witness}"
+        declarations.append({
+            "name": full,
+            "expected_type": f"type_of% @{full}",
+            "module": previous,
+            "path": final_path,
+        })
+
+    audit_lines = [
+        "-- Generated by tools/slang/export.py; do not edit.",
+        *[f"import {name}" for name in [*audit_imports, "Slang.Audit.Empty"]],
+        "",
+        "set_option autoImplicit false",
+        "set_option linter.missingDocs false",
+        "",
+        f"namespace {_UTF8_AUDIT_NAMESPACE}",
+        "",
+        "theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl",
+        "",
+        f"#audit_empty {_UTF8_AUDIT_NAMESPACE}.nat_add_zero : "
+        "type_of% @Slang.Generated.SourceWitness.Tokenizer.Audit.nat_add_zero",
+    ]
+    for entry in declarations:
+        audit_lines.append(f"#audit_empty {entry['name']} : {entry['expected_type']}")
+    audit_lines.extend(["", f"end {_UTF8_AUDIT_NAMESPACE}", ""])
+    outputs[REPO_ROOT / _UTF8_AUDIT_PATH] = "\n".join(audit_lines)
+    roots.append(_UTF8_AUDIT_NAMESPACE)
+    anchor = f"{_UTF8_AUDIT_NAMESPACE}.nat_add_zero"
+    declarations.insert(0, {
+        "name": anchor,
+        "expected_type": f"type_of% @{anchor}",
+        "module": _UTF8_AUDIT_NAMESPACE,
+        "path": _UTF8_AUDIT_PATH,
+    })
+    return outputs, declarations, roots
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--song-root", type=Path, default=DEFAULT_SONG_ROOT)
@@ -1897,9 +2278,12 @@ def main() -> int:
     outputs: list[tuple[Path, str]] = [
         (args.output, generated),
         (args.derivation_output, derivation),
+        (TABLE_SUPPORT_PATH, render_table_support()),
     ]
     witness_outputs, _witness_declarations, _witness_roots = render_source_witness(song_root)
     outputs.extend(sorted(witness_outputs.items()))
+    utf8_outputs, _utf8_declarations, _utf8_roots = render_utf8_witness(song_root)
+    outputs.extend(sorted(utf8_outputs.items()))
     if args.check:
         for path, text in outputs:
             if not path.is_file() or path.read_text(encoding="utf-8") != text:
