@@ -102,3 +102,9 @@ end Slang.Source.Parsing.SelectionAudit
 #print axioms Slang.Source.Parsing.ScanSelected.function
 #print axioms Slang.Source.Parsing.ScanSelected.sound
 #print axioms Slang.Source.Parsing.SelectionAudit.nat_add_zero
+#audit_empty Slang.Source.Parsing.DropNewlinesScan.append : type_of% @Slang.Source.Parsing.DropNewlinesScan.append
+#audit_empty Slang.Source.Parsing.TakeLineScan.append : type_of% @Slang.Source.Parsing.TakeLineScan.append
+#audit_empty Slang.Source.Parsing.ScanSelected.continue : type_of% @Slang.Source.Parsing.ScanSelected.continue
+#print axioms Slang.Source.Parsing.DropNewlinesScan.append
+#print axioms Slang.Source.Parsing.TakeLineScan.append
+#print axioms Slang.Source.Parsing.ScanSelected.continue

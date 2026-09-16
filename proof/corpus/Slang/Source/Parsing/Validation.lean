@@ -49,6 +49,13 @@ inductive DelimitersBalancedDerivation : List Token → List TokenKind → Prop 
 
 namespace DelimitersBalancedDerivation
 
+/-- A delimiter prefix represented as an implication composes with its tail derivation. -/
+theorem «continue» {stack0 stack1 : List TokenKind} {tokens0 tokens1 : List Token}
+    (prefixStep : DelimitersBalancedDerivation tokens1 stack1 →
+      DelimitersBalancedDerivation tokens0 stack0)
+    (tail : DelimitersBalancedDerivation tokens1 stack1) :
+    DelimitersBalancedDerivation tokens0 stack0 := prefixStep tail
+
 /-- A successful delimiter traversal entails acceptance by the executable validator. -/
 theorem sound {tokens : List Token} {stack : List TokenKind}
     (derivation : DelimitersBalancedDerivation tokens stack) :
@@ -76,6 +83,75 @@ inductive SpansValidDerivation : Nat → List Span → Prop where
 
 namespace SpansValidDerivation
 
+/-- Boolean universal guards compose over list append. -/
+theorem all_append (predicate : Span → Bool) {a b : List Span} (first : a.all predicate = true)
+    (second : b.all predicate = true) : (a ++ b).all predicate = true := by
+  induction a with
+  | nil => exact second
+  | cons value rest inductionHypothesis =>
+      unfold List.all at first ⊢
+      change (predicate value && (rest ++ b).all predicate) = true
+      cases head : predicate value with
+      | false =>
+          rw [head] at first
+          cases first
+      | true =>
+          rw [head] at first
+          exact inductionHypothesis first
+
+/-- A successful nonempty universal guard includes its head guard. -/
+theorem all_head (predicate : Span → Bool) {value : Span} {rest : List Span}
+    (guard : (value :: rest).all predicate = true) : predicate value = true := by
+  unfold List.all at guard
+  cases head : predicate value with
+  | false => rw [head] at guard; cases guard
+  | true => rfl
+
+/-- A successful nonempty universal guard includes its tail guard. -/
+theorem all_tail (predicate : Span → Bool) {value : Span} {rest : List Span}
+    (guard : (value :: rest).all predicate = true) : rest.all predicate = true := by
+  unfold List.all at guard
+  cases head : predicate value with
+  | false => rw [head] at guard; cases guard
+  | true => rw [head] at guard; exact guard
+
+/-- Nested universal guards combine when their inner lists append. -/
+theorem all_inner_append (relation : Span → Span → Bool) {outer a b : List Span}
+    (first : outer.all (fun value => a.all (relation value)) = true)
+    (second : outer.all (fun value => b.all (relation value)) = true) :
+    outer.all (fun value => (a ++ b).all (relation value)) = true := by
+  induction outer with
+  | nil => rfl
+  | cons value rest inductionHypothesis =>
+      have headCombined := all_append (relation value)
+        (all_head (fun item => a.all (relation item)) first)
+        (all_head (fun item => b.all (relation item)) second)
+      have tailCombined := inductionHypothesis
+        (all_tail (fun item => a.all (relation item)) first)
+        (all_tail (fun item => b.all (relation item)) second)
+      unfold List.all
+      change ((a ++ b).all (relation value) &&
+        rest.all (fun item => (a ++ b).all (relation item))) = true
+      rw [headCombined, tailCombined]
+      rfl
+
+/-- Valid span chunks compose when both directed cross-chunk separation guards hold. -/
+theorem append {size : Nat} {a b : List Span} (first : SpansValidDerivation size a)
+    (second : SpansValidDerivation size b)
+    (crossAB : a.all (fun first => b.all fun second =>
+      first == second || first.stop ≤ second.start || second.stop ≤ first.start) = true)
+    (crossBA : b.all (fun first => a.all fun second =>
+      first == second || first.stop ≤ second.start || second.stop ≤ first.start) = true) :
+    SpansValidDerivation size (a ++ b) := by
+  cases first with
+  | intro boundsA separatedA =>
+      cases second with
+      | intro boundsB separatedB =>
+          apply SpansValidDerivation.intro
+          · exact all_append _ boundsA boundsB
+          · exact all_append _ (all_inner_append _ separatedA crossAB)
+              (all_inner_append _ crossBA separatedB)
+
 /-- Successful span guards entail acceptance by the executable validator. -/
 theorem sound {size : Nat} {spans : List Span} (derivation : SpansValidDerivation size spans) :
     Decode.spansValid size spans = true := by
@@ -93,6 +169,119 @@ inductive DistinctDerivation : List String → Prop where
       DistinctDerivation names
 
 namespace DistinctDerivation
+
+/-- Reversing into an accumulator preserves the combined list length. -/
+theorem reverseAux_length (values accumulator : List String) :
+    (List.reverseAux values accumulator).length = values.length + accumulator.length := by
+  induction values generalizing accumulator with
+  | nil =>
+      unfold List.reverseAux
+      exact (Nat.zero_add _).symm
+  | cons value rest inductionHypothesis =>
+      unfold List.reverseAux
+      simpa only [List.length, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        inductionHypothesis (value :: accumulator)
+
+/-- Absence from a string list makes its equality search fail. -/
+theorem any_beq_false_of_not_mem {name : String} (values : List String) (absent : name ∉ values) :
+    values.any (fun value => name == value) = false := by
+  induction values with
+  | nil => rfl
+  | cons value rest inductionHypothesis =>
+      unfold List.any
+      change ((name == value) || rest.any fun item => name == item) = false
+      cases equal : name == value with
+      | false =>
+          exact inductionHypothesis (fun membership => absent (.tail value membership))
+      | true =>
+          have same : name = value := LawfulBEq.eq_of_beq equal
+          exact False.elim (absent (same ▸ .head rest))
+
+/-- The deduplication loop cannot exceed its remaining-input and accumulator lengths. -/
+theorem eraseDupsLoop_length_le (values accumulator : List String) :
+    (List.eraseDupsBy.loop (fun left right : String => left == right) values accumulator).length ≤
+      values.length + accumulator.length := by
+  induction values generalizing accumulator with
+  | nil =>
+      unfold List.eraseDupsBy.loop List.reverse
+      have reversed := reverseAux_length accumulator []
+      exact Nat.le_of_eq (by simpa only [List.length, Nat.add_zero, Nat.zero_add] using reversed)
+  | cons value rest inductionHypothesis =>
+      unfold List.eraseDupsBy.loop
+      split
+      · exact Nat.le_trans (inductionHypothesis accumulator)
+          (Nat.add_le_add_right (Nat.le.step (Nat.le_refl rest.length)) accumulator.length)
+      · simpa only [List.length, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+          inductionHypothesis (value :: accumulator)
+
+/-- A duplicate-free remainder makes the deduplication loop retain every element. -/
+theorem eraseDupsLoop_length_of_nodup {values accumulator : List String}
+    (unique : values.Nodup) (cross : ∀ value, value ∈ values → value ∉ accumulator) :
+    (List.eraseDupsBy.loop (fun left right : String => left == right) values accumulator).length =
+      values.length + accumulator.length := by
+  induction values generalizing accumulator with
+  | nil =>
+      unfold List.eraseDupsBy.loop List.reverse
+      have reversed := reverseAux_length accumulator []
+      simpa only [List.length, Nat.add_zero, Nat.zero_add] using reversed
+  | cons value rest inductionHypothesis =>
+      cases unique with
+      | cons headUnique tailUnique =>
+          have absent : value ∉ accumulator := cross value (.head rest)
+          have anyFalse := any_beq_false_of_not_mem accumulator absent
+          unfold List.eraseDupsBy.loop
+          rw [anyFalse]
+          have tailCross : ∀ item, item ∈ rest → item ∉ value :: accumulator := by
+            intro item membership combinedMembership
+            cases combinedMembership with
+            | head => exact headUnique value membership rfl
+            | tail _ accumulatorMembership =>
+                exact cross item (.tail value membership) accumulatorMembership
+          have := inductionHypothesis tailUnique tailCross
+          simpa only [List.length, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+
+/-- Propositional no-duplicates entails the executable distinctness guard. -/
+theorem of_nodup {names : List String} (guard : names.Nodup) : DistinctDerivation names := by
+  apply DistinctDerivation.intro
+  unfold List.eraseDups List.eraseDupsBy
+  exact eraseDupsLoop_length_of_nodup guard
+    (fun value membership accumulatorMembership => nomatch accumulatorMembership)
+
+/-- Membership in an appended list originates in one of its two inputs. -/
+theorem mem_append_cases {name : String} (a b : List String) : name ∈ a ++ b → name ∈ a ∨ name ∈ b := by
+  induction a with
+  | nil => exact fun membership => .inr membership
+  | cons value rest inductionHypothesis =>
+      intro membership
+      cases membership with
+      | head => exact .inl (.head rest)
+      | tail _ tailMembership =>
+          cases inductionHypothesis tailMembership with
+          | inl inRest => exact .inl (.tail value inRest)
+          | inr inB => exact .inr inB
+
+/-- Duplicate-free string lists append under a directed disjointness hypothesis. -/
+theorem nodup_append_of_cross {a b : List String} (first : a.Nodup) (second : b.Nodup)
+    (cross : ∀ name, name ∈ a → name ∉ b) : (a ++ b).Nodup := by
+  induction a with
+  | nil => exact second
+  | cons value rest inductionHypothesis =>
+      cases first with
+      | cons headUnique tailUnique =>
+          apply List.Pairwise.cons
+          · intro item membership equal
+            cases mem_append_cases rest b membership with
+            | inl inRest => exact headUnique item inRest equal
+            | inr inB => exact cross value (.head rest) (equal ▸ inB)
+          · exact inductionHypothesis tailUnique
+              (fun item membership => cross item (.tail value membership))
+
+/-- Distinct name chunks compose when no name in the first occurs in the second. -/
+theorem append {a b : List String} (_first : DistinctDerivation a)
+    (_second : DistinctDerivation b) (firstNodup : a.Nodup) (secondNodup : b.Nodup)
+    (cross : ∀ name ∈ a, name ∉ b) :
+    DistinctDerivation (a ++ b) := by
+  exact of_nodup (nodup_append_of_cross firstNodup secondNodup cross)
 
 /-- A successful length guard entails acceptance by the executable validator. -/
 theorem sound {names : List String} (derivation : DistinctDerivation names) :
@@ -132,6 +321,21 @@ mutual
         (tail : ExpressionsCallsResolveDerivation available rest) :
         ExpressionsCallsResolveDerivation available (expression :: rest)
 end
+
+namespace ExpressionsCallsResolveDerivation
+
+/-- Expression-list call derivations compose under one global available-name list. -/
+theorem append {available : List String} {a b : List Expr}
+    (first : ExpressionsCallsResolveDerivation available a)
+    (second : ExpressionsCallsResolveDerivation available b) :
+    ExpressionsCallsResolveDerivation available (a ++ b) := by
+  induction a with
+  | nil => exact second
+  | cons expression rest tailAppend =>
+      cases first with
+      | next head tail => exact .next head (tailAppend tail)
+
+end ExpressionsCallsResolveDerivation
 
 mutual
   /-- Structural expression call success entails the executable result. -/
@@ -198,6 +402,21 @@ mutual
         StatementsCallsResolveDerivation available (statement :: rest)
 end
 
+namespace StatementsCallsResolveDerivation
+
+/-- Statement-list call derivations compose under one global available-name list. -/
+theorem append {available : List String} {a b : List Stmt}
+    (first : StatementsCallsResolveDerivation available a)
+    (second : StatementsCallsResolveDerivation available b) :
+    StatementsCallsResolveDerivation available (a ++ b) := by
+  induction a with
+  | nil => exact second
+  | cons statement rest tailAppend =>
+      cases first with
+      | next head tail => exact .next head (tailAppend tail)
+
+end StatementsCallsResolveDerivation
+
 mutual
   /-- Structural statement call success entails the executable result. -/
   theorem StatementCallsResolveDerivation.sound {available : List String} {statement : Stmt}
@@ -239,6 +458,17 @@ inductive FunctionCallsResolveDerivation (available : List String) : List Functi
 
 namespace FunctionCallsResolveDerivation
 
+/-- Function-list call derivations compose under one global available-name list. -/
+theorem append {available : List String} {a b : List FunctionDecl}
+    (first : FunctionCallsResolveDerivation available a)
+    (second : FunctionCallsResolveDerivation available b) :
+    FunctionCallsResolveDerivation available (a ++ b) := by
+  induction a with
+  | nil => exact second
+  | cons function rest tailAppend =>
+      cases first with
+      | next body tail => exact .next body (tailAppend tail)
+
 /-- Structural function-list call success entails the `List.all` result. -/
 theorem sound {available : List String} {functions : List FunctionDecl}
     (derivation : FunctionCallsResolveDerivation available functions) :
@@ -258,6 +488,12 @@ inductive CallsResolveDerivation : List FunctionDecl → Prop where
       CallsResolveDerivation functions
 
 namespace CallsResolveDerivation
+
+/-- Globally checked function chunks assemble when both use the full combined name list. -/
+theorem of_parts {a b : List FunctionDecl}
+    (first : FunctionCallsResolveDerivation ((a ++ b).map (·.name)) a)
+    (second : FunctionCallsResolveDerivation ((a ++ b).map (·.name)) b) :
+    CallsResolveDerivation (a ++ b) := .intro (first.append second)
 
 /-- Complete structural call success entails `Decode.resolveCalls = true`. -/
 theorem sound {functions : List FunctionDecl} (derivation : CallsResolveDerivation functions) :
@@ -298,6 +534,22 @@ mutual
         (tail : ExpressionsNamesResolveDerivation available rest) :
         ExpressionsNamesResolveDerivation available (expression :: rest)
 end
+
+
+namespace ExpressionsNamesResolveDerivation
+
+/-- Expression-list name derivations compose under one available-name list. -/
+theorem append {available : List String} {a b : List Expr}
+    (first : ExpressionsNamesResolveDerivation available a)
+    (second : ExpressionsNamesResolveDerivation available b) :
+    ExpressionsNamesResolveDerivation available (a ++ b) := by
+  induction a with
+  | nil => exact second
+  | cons expression rest tailAppend =>
+      cases first with
+      | next head tail => exact .next head (tailAppend tail)
+
+end ExpressionsNamesResolveDerivation
 
 mutual
   /-- Structural expression-name success entails the executable result. -/
@@ -367,6 +619,14 @@ inductive StatementsNamesResolveDerivation : Nat → List String → List Stmt �
 
 namespace StatementsNamesResolveDerivation
 
+/-- A statement-name prefix represented as an implication composes with its tail derivation. -/
+theorem «continue» {fuel0 fuel1 : Nat} {available0 available1 : List String}
+    {statements0 statements1 : List Stmt}
+    (prefixStep : StatementsNamesResolveDerivation fuel1 available1 statements1 →
+      StatementsNamesResolveDerivation fuel0 available0 statements0)
+    (tail : StatementsNamesResolveDerivation fuel1 available1 statements1) :
+    StatementsNamesResolveDerivation fuel0 available0 statements0 := prefixStep tail
+
 /-- Structural statement-name success entails the executable fuel-bounded result. -/
 theorem sound {fuel : Nat} {available : List String} {statements : List Stmt}
     (derivation : StatementsNamesResolveDerivation fuel available statements) :
@@ -407,6 +667,17 @@ inductive FunctionNamesResolveDerivation (constantNames : List String) : List Fu
 
 namespace FunctionNamesResolveDerivation
 
+/-- Function-list name derivations compose under one constant-name list. -/
+theorem append {constantNames : List String} {a b : List FunctionDecl}
+    (first : FunctionNamesResolveDerivation constantNames a)
+    (second : FunctionNamesResolveDerivation constantNames b) :
+    FunctionNamesResolveDerivation constantNames (a ++ b) := by
+  induction a with
+  | nil => exact second
+  | cons function rest tailAppend =>
+      cases first with
+      | next parameters body tail => exact .next parameters body (tailAppend tail)
+
 /-- Structural function-list name success entails the `List.all` result. -/
 theorem sound {constantNames : List String} {functions : List FunctionDecl}
     (derivation : FunctionNamesResolveDerivation constantNames functions) :
@@ -428,6 +699,15 @@ inductive NamesResolveDerivation : List ConstantDecl → List FunctionDecl → P
       NamesResolveDerivation constants functions
 
 namespace NamesResolveDerivation
+
+/-- Complete name-resolution derivations compose for function chunks sharing all constants. -/
+theorem append {constants : List ConstantDecl} {a b : List FunctionDecl}
+    (first : NamesResolveDerivation constants a) (second : NamesResolveDerivation constants b) :
+    NamesResolveDerivation constants (a ++ b) := by
+  cases first with
+  | intro firstFunctions =>
+      cases second with
+      | intro secondFunctions => exact .intro (firstFunctions.append secondFunctions)
 
 /-- Complete structural name success entails `Decode.resolveNames = true`. -/
 theorem sound {constants : List ConstantDecl} {functions : List FunctionDecl}

@@ -367,6 +367,11 @@ inductive ReverseTokens : List Token → List Token → Prop where
 
 namespace ReverseTokens
 
+theorem of_eq {reversed tokens : List Token} (h : reversed.reverse = tokens) :
+    ReverseTokens reversed tokens := by
+  rw [← h]
+  exact ReverseTokens.result reversed
+
 /-- A structural accumulator reversal entails `List.reverse`. -/
 theorem sound {reversed tokens : List Token} (scan : ReverseTokens reversed tokens) :
     reversed.reverse = tokens := by
@@ -390,6 +395,14 @@ inductive CharsScan : Nat → List Char → Nat → List Token → List Token �
       CharsScan (n + 1) chars pos reversed tokens consumed
 
 namespace CharsScan
+
+theorem «continue» {fuel0 fuel1 pos0 pos1 consumed : Nat} {chars0 chars1 : List Char}
+    {reversed0 reversed1 tokens : List Token}
+    («prefix» : CharsScan fuel1 chars1 pos1 reversed1 tokens consumed →
+      CharsScan fuel0 chars0 pos0 reversed0 tokens consumed)
+    (tail : CharsScan fuel1 chars1 pos1 reversed1 tokens consumed) :
+    CharsScan fuel0 chars0 pos0 reversed0 tokens consumed :=
+  «prefix» tail
 
 /-- A structural character scan entails the successful executable lexer result. -/
 theorem sound {n pos consumed : Nat} {chars : List Char} {reversed tokens : List Token}

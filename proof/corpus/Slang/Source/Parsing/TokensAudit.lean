@@ -42,3 +42,5 @@ end Slang.Source.Parsing.TokensAudit
 #print axioms Slang.Source.Parsing.DecodeTokensDerivation.result
 #print axioms Slang.Source.Parsing.DecodeTokensDerivation.sound
 #print axioms Slang.Source.Parsing.TokensAudit.nat_add_zero
+#audit_empty Slang.Source.Parsing.DecodeTokensDerivation.assemble : type_of% @Slang.Source.Parsing.DecodeTokensDerivation.assemble
+#print axioms Slang.Source.Parsing.DecodeTokensDerivation.assemble
