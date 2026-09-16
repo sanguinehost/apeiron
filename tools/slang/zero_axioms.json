@@ -3639,12 +3639,6 @@
           "path": "proof/corpus/Slang/SourceAudit.lean"
         },
         {
-          "name": "Slang.SourceAudit.source_binding",
-          "expected_type": "\u2200 {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value \u2192 Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true \u2192 Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program \u2192 Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value \u2227 value.val.certificate.Valid \u2227 Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true \u2227 Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program",
-          "module": "Slang.SourceAudit",
-          "path": "proof/corpus/Slang/SourceAudit.lean"
-        },
-        {
           "name": "Slang.SourceAudit.nat_add_zero",
           "expected_type": "(0 : Nat) + 0 = 0",
           "module": "Slang.SourceAudit",

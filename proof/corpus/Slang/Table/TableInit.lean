@@ -1254,12 +1254,12 @@ theorem constructor_execution_of_certificate
       InitializedEmptyLayout memory' base cap ∧
       PreservesOutside memory memory' base cap := by
   subst program
-  have source := Slang.SourceAudit.source_binding derivation selectedSyntax closure
+  have source := Slang.Source.decodeDerivation_sound derivation
   rcases constructor_execution_of_shapes (checkedContext value.val.program) slotSet initGo init
     capacityOk hslotSet hinitGo hinit hcapacityOk hslotSetShape hinitGoShape hinitShape
     hcapacityOkShape hstride hempty memory base cap hcapacity hbacking with
     ⟨memory', trace, execution, rep⟩
-  exact ⟨memory', trace, source.1, execution.call, rep, execution.exactStores,
+  exact ⟨memory', trace, source, execution.call, rep, execution.exactStores,
     execution.storeCount, execution.layout, execution.frame⟩
 
 end Slang.Table

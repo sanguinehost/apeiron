@@ -50,27 +50,9 @@ theorem source_binding_of_closed_binding {value : Decode.CertifiedDecoded}
       Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value := by
   exact ⟨Source.decodeDerivation_sound derivation, value.property, selectedSyntax, binding⟩
 
-/-- The entry-indexed conditional headline the Table modules consume: a checked producer derivation,
-syntax check, and entry closure imply the decode equation and the composed certificate. -/
-theorem source_binding {value : Decode.CertifiedDecoded}
-    (derivation : Source.DecodeDerivation
-      Slang.Generated.TableDerivation.tableSource
-      Slang.Generated.TableDerivation.stdSource value)
-    (selectedSyntax : ExpectedSelectedSyntax value.val.program = true)
-    (closure : Source.ParsesClosure
-      Slang.Generated.TableDerivation.entryBundle value.val.program) :
-    Decode.decodeClosure
-        (Source.encodeBytes Slang.Generated.TableDerivation.tableSource)
-        (Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧
-      value.val.certificate.Valid ∧
-      ExpectedSelectedSyntax value.val.program = true ∧
-      Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program := by
-  exact ⟨Source.decodeDerivation_sound derivation, value.property, selectedSyntax, closure⟩
-
 #audit_empty Slang.SourceAudit.ExpectedSelectedSyntax : Slang.Program → Bool
 #audit_empty Slang.SourceAudit.decodedSourceExact : Bool
 #audit_empty Slang.SourceAudit.source_binding_of_closed_binding : ∀ {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value → Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true → Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value → Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧ value.val.certificate.Valid ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ClosedBinding Slang.Generated.TableDerivation.entryBundle value
-#audit_empty Slang.SourceAudit.source_binding : ∀ {value : Slang.Decode.CertifiedDecoded}, Slang.Source.DecodeDerivation Slang.Generated.TableDerivation.tableSource Slang.Generated.TableDerivation.stdSource value → Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true → Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program → Slang.Decode.decodeClosure (Slang.Source.encodeBytes Slang.Generated.TableDerivation.tableSource) (Slang.Source.encodeBytes Slang.Generated.TableDerivation.stdSource) = .ok value ∧ value.val.certificate.Valid ∧ Slang.SourceAudit.ExpectedSelectedSyntax value.val.program = true ∧ Slang.Source.ParsesClosure Slang.Generated.TableDerivation.entryBundle value.val.program
 
 theorem nat_add_zero : (0 : Nat) + 0 = 0 := rfl
 #audit_empty Slang.SourceAudit.nat_add_zero : (0 : Nat) + 0 = 0
