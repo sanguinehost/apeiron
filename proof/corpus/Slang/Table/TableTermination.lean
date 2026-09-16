@@ -315,6 +315,15 @@ theorem callStackMaximum_append (left right : Trace) :
 def initGoBaseTrace (depth : Nat) : Trace :=
   [.call "tableInitGo" (depth + 1), .comparison .ge]
 
+/-- The initialization step trace: the fixed guard/`tableSlotSet` prefix, the cursor-advance event,
+and the recursive call's trace as the shared tail.
+
+Temporal O(1): the appended head lists are fixed — the head `.call`, `[.comparison .ge]`, the
+8-event `slotSetTrace (depth + 1) base (Word.ofNat i)`, and `[.arithmetic .add]` — so the three
+`List.append` recursions traverse 11 cons cells independent of `rest`; `rest` is the shared tail and
+is not traversed. Spatial O(|rest| + 11) for the returned trace: 11 new cons cells plus the shared
+`rest`, i.e. O(1) allocation beyond `rest`. Operations counted: list links traversed, cons cells
+allocated. -/
 def initGoStepTrace (depth : Nat) (base : Word) (i : Nat) (rest : Trace) : Trace :=
   .call "tableInitGo" (depth + 1) ::
     ([.comparison .ge] ++ (slotSetTrace (depth + 1) base (Word.ofNat i) ++
