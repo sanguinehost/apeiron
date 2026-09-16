@@ -71,6 +71,21 @@ theorem sound {tokens : List Token} {stack : List TokenKind}
   | other head _ tailSound =>
       cases head <;> exact tailSound
 
+/-- A balanced chunk that empties the stack composes after a chunk that leaves the empty stack. -/
+theorem append {tokens0 tokens1 : List Token} {stack : List TokenKind}
+    (first : DelimitersBalancedDerivation tokens0 stack)
+    (second : DelimitersBalancedDerivation tokens1 []) :
+    DelimitersBalancedDerivation (tokens0 ++ tokens1) stack := by
+  induction first with
+  | done => exact second
+  | lparen _ tailAppend => exact .lparen tailAppend
+  | lbrace _ tailAppend => exact .lbrace tailAppend
+  | lbracket _ tailAppend => exact .lbracket tailAppend
+  | rparen _ tailAppend => exact .rparen tailAppend
+  | rbrace _ tailAppend => exact .rbrace tailAppend
+  | rbracket _ tailAppend => exact .rbracket tailAppend
+  | other head _ tailAppend => exact .other head tailAppend
+
 end DelimitersBalancedDerivation
 
 /-- The two successful guards of `Decode.spansValid`. -/
@@ -719,5 +734,266 @@ theorem sound {constants : List ConstantDecl} {functions : List FunctionDecl}
       exact functionsDerivation.sound
 
 end NamesResolveDerivation
+
+namespace DistinctDerivation
+
+/-- Executable distinctness entails the structural distinctness derivation. -/
+theorem of_bool {names : List String} (guard : Decode.distinct names = true) :
+    DistinctDerivation names := by
+  apply DistinctDerivation.intro
+  unfold Decode.distinct at guard
+  exact of_decide_eq_true guard
+
+end DistinctDerivation
+
+/-- Left projection of a successful `Bool.and`. -/
+private theorem andL {left right : Bool} (guard : (left && right) = true) : left = true := by
+  cases left with
+  | false => cases guard
+  | true => rfl
+
+/-- Right projection of a successful `Bool.and`. -/
+private theorem andR {left right : Bool} (guard : (left && right) = true) : right = true := by
+  cases left with
+  | false => cases guard
+  | true => exact guard
+
+mutual
+  /-- Executable call resolution of an expression yields its structural derivation. -/
+  theorem ExpressionCallsResolveDerivation.of_bool {available : List String} {expression : Expr}
+      (guard : Decode.expressionCallsResolve available expression = true) :
+      ExpressionCallsResolveDerivation available expression := by
+    cases expression with
+    | literal value => exact .literal value
+    | name name => exact .name name
+    | call callee args =>
+        change (available.contains callee &&
+          Decode.expressionsCallsResolve available args) = true at guard
+        exact .call (andL guard) (ExpressionsCallsResolveDerivation.of_bool (andR guard))
+    | memory address =>
+        change Decode.expressionCallsResolve available address = true at guard
+        exact .memory (ExpressionCallsResolveDerivation.of_bool guard)
+    | binary op left right =>
+        change (Decode.expressionCallsResolve available left &&
+          Decode.expressionCallsResolve available right) = true at guard
+        exact .binary (ExpressionCallsResolveDerivation.of_bool (andL guard))
+          (ExpressionCallsResolveDerivation.of_bool (andR guard))
+    | conditional thenValue condition elseValue =>
+        change (Decode.expressionCallsResolve available thenValue &&
+          Decode.expressionCallsResolve available condition &&
+          Decode.expressionCallsResolve available elseValue) = true at guard
+        exact .conditional (ExpressionCallsResolveDerivation.of_bool (andL (andL guard)))
+          (ExpressionCallsResolveDerivation.of_bool (andR (andL guard)))
+          (ExpressionCallsResolveDerivation.of_bool (andR guard))
+
+  /-- Executable call resolution of an expression list yields its structural derivation. -/
+  theorem ExpressionsCallsResolveDerivation.of_bool {available : List String}
+      {expressions : List Expr}
+      (guard : Decode.expressionsCallsResolve available expressions = true) :
+      ExpressionsCallsResolveDerivation available expressions := by
+    cases expressions with
+    | nil => exact .done
+    | cons expression rest =>
+        change (Decode.expressionCallsResolve available expression &&
+          Decode.expressionsCallsResolve available rest) = true at guard
+        exact .next (ExpressionCallsResolveDerivation.of_bool (andL guard))
+          (ExpressionsCallsResolveDerivation.of_bool (andR guard))
+
+  /-- Executable call resolution of a statement yields its structural derivation. -/
+  theorem StatementCallsResolveDerivation.of_bool {available : List String} {statement : Stmt}
+      (guard : Decode.statementCallsResolve available statement = true) :
+      StatementCallsResolveDerivation available statement := by
+    cases statement with
+    | bind name value =>
+        change Decode.expressionCallsResolve available value = true at guard
+        exact .bind (ExpressionCallsResolveDerivation.of_bool guard)
+    | store address value =>
+        change (Decode.expressionCallsResolve available address &&
+          Decode.expressionCallsResolve available value) = true at guard
+        exact .store (ExpressionCallsResolveDerivation.of_bool (andL guard))
+          (ExpressionCallsResolveDerivation.of_bool (andR guard))
+    | return_ value =>
+        change Decode.expressionCallsResolve available value = true at guard
+        exact .return_ (ExpressionCallsResolveDerivation.of_bool guard)
+    | expression value =>
+        change Decode.expressionCallsResolve available value = true at guard
+        exact .expression (ExpressionCallsResolveDerivation.of_bool guard)
+    | if_ condition thenBody elseBody =>
+        cases elseBody with
+        | none =>
+            change (Decode.expressionCallsResolve available condition &&
+              Decode.statementsCallsResolve available thenBody && true) = true at guard
+            exact .ifNone (ExpressionCallsResolveDerivation.of_bool (andL (andL guard)))
+              (StatementsCallsResolveDerivation.of_bool (andR (andL guard)))
+        | some elseBody =>
+            change (Decode.expressionCallsResolve available condition &&
+              Decode.statementsCallsResolve available thenBody &&
+              Decode.statementsCallsResolve available elseBody) = true at guard
+            exact .ifSome (ExpressionCallsResolveDerivation.of_bool (andL (andL guard)))
+              (StatementsCallsResolveDerivation.of_bool (andR (andL guard)))
+              (StatementsCallsResolveDerivation.of_bool (andR guard))
+
+  /-- Executable call resolution of a statement list yields its structural derivation. -/
+  theorem StatementsCallsResolveDerivation.of_bool {available : List String}
+      {statements : List Stmt}
+      (guard : Decode.statementsCallsResolve available statements = true) :
+      StatementsCallsResolveDerivation available statements := by
+    cases statements with
+    | nil => exact .done
+    | cons statement rest =>
+        change (Decode.statementCallsResolve available statement &&
+          Decode.statementsCallsResolve available rest) = true at guard
+        exact .next (StatementCallsResolveDerivation.of_bool (andL guard))
+          (StatementsCallsResolveDerivation.of_bool (andR guard))
+end
+
+/-- Executable per-function call resolution yields the structural function-list derivation. -/
+theorem FunctionCallsResolveDerivation.of_bool {available : List String}
+    {functions : List FunctionDecl}
+    (guard : functions.all (fun function =>
+      Decode.statementsCallsResolve available function.body) = true) :
+    FunctionCallsResolveDerivation available functions := by
+  induction functions with
+  | nil => exact .done
+  | cons function rest inductionHypothesis =>
+      rw [List.all_cons] at guard
+      exact .next (StatementsCallsResolveDerivation.of_bool (andL guard))
+        (inductionHypothesis (andR guard))
+
+/-- `Decode.resolveCalls = true` yields the complete structural call derivation. -/
+theorem CallsResolveDerivation.of_bool {functions : List FunctionDecl}
+    (guard : Decode.resolveCalls functions = true) : CallsResolveDerivation functions := by
+  change (functions.all fun function =>
+    Decode.statementsCallsResolve (functions.map (·.name)) function.body) = true at guard
+  exact .intro (FunctionCallsResolveDerivation.of_bool guard)
+
+mutual
+  /-- Executable name resolution of an expression yields its structural derivation. -/
+  theorem ExpressionNamesResolveDerivation.of_bool {available : List String} {expression : Expr}
+      (guard : Decode.expressionNamesResolve available expression = true) :
+      ExpressionNamesResolveDerivation available expression := by
+    cases expression with
+    | literal value => exact .literal value
+    | name name =>
+        change available.contains name = true at guard
+        exact .name guard
+    | call callee args =>
+        change Decode.expressionsNamesResolve available args = true at guard
+        exact .call (ExpressionsNamesResolveDerivation.of_bool guard)
+    | memory address =>
+        change Decode.expressionNamesResolve available address = true at guard
+        exact .memory (ExpressionNamesResolveDerivation.of_bool guard)
+    | binary op left right =>
+        change (Decode.expressionNamesResolve available left &&
+          Decode.expressionNamesResolve available right) = true at guard
+        exact .binary (ExpressionNamesResolveDerivation.of_bool (andL guard))
+          (ExpressionNamesResolveDerivation.of_bool (andR guard))
+    | conditional thenValue condition elseValue =>
+        change (Decode.expressionNamesResolve available thenValue &&
+          Decode.expressionNamesResolve available condition &&
+          Decode.expressionNamesResolve available elseValue) = true at guard
+        exact .conditional (ExpressionNamesResolveDerivation.of_bool (andL (andL guard)))
+          (ExpressionNamesResolveDerivation.of_bool (andR (andL guard)))
+          (ExpressionNamesResolveDerivation.of_bool (andR guard))
+
+  /-- Executable name resolution of an expression list yields its structural derivation. -/
+  theorem ExpressionsNamesResolveDerivation.of_bool {available : List String}
+      {expressions : List Expr}
+      (guard : Decode.expressionsNamesResolve available expressions = true) :
+      ExpressionsNamesResolveDerivation available expressions := by
+    cases expressions with
+    | nil => exact .done
+    | cons expression rest =>
+        change (Decode.expressionNamesResolve available expression &&
+          Decode.expressionsNamesResolve available rest) = true at guard
+        exact .next (ExpressionNamesResolveDerivation.of_bool (andL guard))
+          (ExpressionsNamesResolveDerivation.of_bool (andR guard))
+end
+
+/-- Executable fuel-bounded statement name resolution yields its structural derivation. -/
+theorem StatementsNamesResolveDerivation.of_bool :
+    ∀ (fuel : Nat) (available : List String) (statements : List Stmt),
+      Decode.statementsNamesResolve fuel available statements = true →
+      StatementsNamesResolveDerivation fuel available statements := by
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro available statements guard
+      change false = true at guard
+      cases guard
+  | succ predecessor inductionHypothesis =>
+      intro available statements guard
+      cases statements with
+      | nil => exact .done
+      | cons statement rest =>
+          cases statement with
+          | bind name value =>
+              change (Decode.expressionNamesResolve available value &&
+                Decode.statementsNamesResolve predecessor (name :: available) rest) = true
+                at guard
+              exact .bind (ExpressionNamesResolveDerivation.of_bool (andL guard))
+                (inductionHypothesis (name :: available) rest (andR guard))
+          | store address value =>
+              change (Decode.expressionNamesResolve available address &&
+                Decode.expressionNamesResolve available value &&
+                Decode.statementsNamesResolve predecessor available rest) = true at guard
+              exact .store (ExpressionNamesResolveDerivation.of_bool (andL (andL guard)))
+                (ExpressionNamesResolveDerivation.of_bool (andR (andL guard)))
+                (inductionHypothesis available rest (andR guard))
+          | return_ value =>
+              change (Decode.expressionNamesResolve available value &&
+                Decode.statementsNamesResolve predecessor available rest) = true at guard
+              exact .return_ (ExpressionNamesResolveDerivation.of_bool (andL guard))
+                (inductionHypothesis available rest (andR guard))
+          | expression value =>
+              change (Decode.expressionNamesResolve available value &&
+                Decode.statementsNamesResolve predecessor available rest) = true at guard
+              exact .expression (ExpressionNamesResolveDerivation.of_bool (andL guard))
+                (inductionHypothesis available rest (andR guard))
+          | if_ condition thenBody elseBody =>
+              cases elseBody with
+              | none =>
+                  change (Decode.expressionNamesResolve available condition &&
+                    Decode.statementsNamesResolve predecessor available thenBody && true &&
+                    Decode.statementsNamesResolve predecessor available rest) = true at guard
+                  exact .ifNone
+                    (ExpressionNamesResolveDerivation.of_bool (andL (andL (andL guard))))
+                    (inductionHypothesis available thenBody (andR (andL (andL guard))))
+                    (inductionHypothesis available rest (andR guard))
+              | some elseBody =>
+                  change (Decode.expressionNamesResolve available condition &&
+                    Decode.statementsNamesResolve predecessor available thenBody &&
+                    Decode.statementsNamesResolve predecessor available elseBody &&
+                    Decode.statementsNamesResolve predecessor available rest) = true at guard
+                  exact .ifSome
+                    (ExpressionNamesResolveDerivation.of_bool (andL (andL (andL guard))))
+                    (inductionHypothesis available thenBody (andR (andL (andL guard))))
+                    (inductionHypothesis available elseBody (andR (andL guard)))
+                    (inductionHypothesis available rest (andR guard))
+
+/-- Executable per-function name resolution yields the structural function-list derivation. -/
+theorem FunctionNamesResolveDerivation.of_bool {constantNames : List String}
+    {functions : List FunctionDecl}
+    (guard : functions.all (fun function => Decode.distinct function.parameters &&
+      Decode.statementsNamesResolve (function.body.length * 4 + 64)
+        (function.parameters ++ constantNames) function.body) = true) :
+    FunctionNamesResolveDerivation constantNames functions := by
+  induction functions with
+  | nil => exact .done
+  | cons function rest inductionHypothesis =>
+      rw [List.all_cons] at guard
+      exact .next (DistinctDerivation.of_bool (andL (andL guard)))
+        (StatementsNamesResolveDerivation.of_bool (function.body.length * 4 + 64)
+          (function.parameters ++ constantNames) function.body (andR (andL guard)))
+        (inductionHypothesis (andR guard))
+
+/-- `Decode.resolveNames = true` yields the complete structural name derivation. -/
+theorem NamesResolveDerivation.of_bool {constants : List ConstantDecl}
+    {functions : List FunctionDecl} (guard : Decode.resolveNames constants functions = true) :
+    NamesResolveDerivation constants functions := by
+  change (functions.all fun function => Decode.distinct function.parameters &&
+    Decode.statementsNamesResolve (function.body.length * 4 + 64)
+      (function.parameters ++ constants.map (·.name)) function.body) = true at guard
+  exact .intro (FunctionNamesResolveDerivation.of_bool guard)
 
 end Slang.Source.Parsing

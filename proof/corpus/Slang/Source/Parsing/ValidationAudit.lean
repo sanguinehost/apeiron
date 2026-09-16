@@ -232,3 +232,17 @@ end Slang.Source.Parsing.ValidationAudit
 #print axioms Slang.Source.Parsing.StatementsNamesResolveDerivation.continue
 #print axioms Slang.Source.Parsing.FunctionNamesResolveDerivation.append
 #print axioms Slang.Source.Parsing.NamesResolveDerivation.append
+
+#audit_empty Slang.Source.Parsing.DelimitersBalancedDerivation.append : type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.append
+#audit_empty Slang.Source.Parsing.DistinctDerivation.of_bool : type_of% @Slang.Source.Parsing.DistinctDerivation.of_bool
+#audit_empty Slang.Source.Parsing.ExpressionCallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.ExpressionsCallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.StatementCallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.StatementsCallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.FunctionCallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.CallsResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.CallsResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.ExpressionNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.ExpressionsNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.NamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.NamesResolveDerivation.of_bool
