@@ -97,21 +97,16 @@ def SelectedProgramExact (program : Program) : Prop :=
   program.constants.map (·.name) = selectedTableConstantNames ∧
   program.functions.map (·.name) = Decode.selectedFunctionNames
 
-inductive ParsesClosure (bundle : SourceBundle) (program : Program) : Prop where
+inductive ParsesClosure (bundle : SourceBundle) (entryProgram : Program) : Prop where
   | intro (entryBytes : SourceBytes)
       (entryLookup : bundle.fileBytes? bundle.entry = some entryBytes)
-      (decoded : CertifiedDecoded)
-      (entryDecodes : Decode.decodeTable (encodeBytes entryBytes) = .ok decoded)
-      (programEq : decoded.val.program = program)
+      (entryDecoded : CertifiedDecoded)
+      (entryDecodes : Decode.decodeTable (encodeBytes entryBytes) = .ok entryDecoded)
+      (programEq : entryDecoded.val.program = entryProgram)
       (selectedSource : SelectedSourceExact entryBytes)
-      (selectedProgram : SelectedProgramExact program)
+      (selectedProgram : SelectedProgramExact entryProgram)
       (importsResolved : ∀ path, path ∈ importPaths entryBytes →
-        (bundle.fileBytes? path).isSome = true)
-      (stdBytes : SourceBytes)
-      (stdLookup : bundle.fileBytes? stdPath = some stdBytes)
-      (coord : ConstantDecl)
-      (coordDecodes : Decode.decodeImportedCoordCeiling (encodeBytes stdBytes) = .ok coord)
-      (coordValue : coord.value = .literal 8796093022208) : ParsesClosure bundle program
+        (bundle.fileBytes? path).isSome = true) : ParsesClosure bundle entryProgram
 
 namespace ParsesClosure
 
@@ -122,18 +117,8 @@ theorem entry_decodes {bundle : SourceBundle} {program : Program}
       Decode.decodeTable (encodeBytes entryBytes) = .ok decoded ∧
       decoded.val.program = program := by
   cases closure with
-  | intro entryBytes entryLookup decoded entryDecodes programEq _ _ _ _ _ _ _ _ =>
+  | intro entryBytes entryLookup decoded entryDecodes programEq _ _ _ =>
       exact ⟨entryBytes, decoded, entryLookup, entryDecodes, programEq⟩
-
-theorem coord_bound {bundle : SourceBundle} {program : Program}
-    (closure : ParsesClosure bundle program) :
-    ∃ stdBytes coord,
-      bundle.fileBytes? stdPath = some stdBytes ∧
-      Decode.decodeImportedCoordCeiling (encodeBytes stdBytes) = .ok coord ∧
-      coord.value = .literal 8796093022208 := by
-  cases closure with
-  | intro _ _ _ _ _ _ _ _ stdBytes stdLookup coord coordDecodes coordValue =>
-      exact ⟨stdBytes, coord, stdLookup, coordDecodes, coordValue⟩
 
 end ParsesClosure
 
@@ -145,7 +130,7 @@ theorem unresolved_import_not_parses {bundle : SourceBundle} {program : Program}
     ¬ParsesClosure bundle program := by
   intro closure
   cases closure with
-  | intro closureBytes closureLookup _ _ _ _ _ importsResolved _ _ _ _ _ =>
+  | intro closureBytes closureLookup _ _ _ _ _ importsResolved =>
       have lookupEq : some closureBytes = some entryBytes := closureLookup.symm.trans entry
       have bytesEq : closureBytes = entryBytes := Option.some.inj lookupEq
       have resolved := importsResolved path (bytesEq ▸ edge)
@@ -163,7 +148,7 @@ theorem duplicate_or_skipped_selected_not_parses {bundle : SourceBundle} {progra
     ¬ParsesClosure bundle program := by
   intro closure
   cases closure with
-  | intro closureBytes closureLookup _ _ _ selectedSource _ _ _ _ _ _ _ =>
+  | intro closureBytes closureLookup _ _ _ selectedSource _ _ =>
       have lookupEq : some closureBytes = some entryBytes := closureLookup.symm.trans entry
       have bytesEq : closureBytes = entryBytes := Option.some.inj lookupEq
       have selectedEntry : selectedSourceExact entryBytes = true :=

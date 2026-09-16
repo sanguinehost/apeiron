@@ -3415,19 +3415,13 @@
         },
         {
           "name": "Slang.Source.ParsesClosure.intro",
-          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} (entryBytes : Slang.Source.SourceBytes), bundle.fileBytes? bundle.entry = some entryBytes → (decoded : Slang.Decode.CertifiedDecoded) → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → (stdBytes : Slang.Source.SourceBytes) → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → (coord : Slang.ConstantDecl) → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} (entryBytes : Slang.Source.SourceBytes), bundle.fileBytes? bundle.entry = some entryBytes → (entryDecoded : Slang.Decode.CertifiedDecoded) → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok entryDecoded → entryDecoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → Slang.Source.ParsesClosure bundle program",
           "module": "Slang.Source.Closure",
           "path": "proof/corpus/Slang/Source/Closure.lean"
         },
         {
           "name": "Slang.Source.ParsesClosure.entry_decodes",
           "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes decoded, bundle.fileBytes? bundle.entry = some entryBytes ∧ Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded ∧ decoded.val.program = program",
-          "module": "Slang.Source.Closure",
-          "path": "proof/corpus/Slang/Source/Closure.lean"
-        },
-        {
-          "name": "Slang.Source.ParsesClosure.coord_bound",
-          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ stdBytes coord, bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord ∧ coord.value = .literal 8796093022208",
           "module": "Slang.Source.Closure",
           "path": "proof/corpus/Slang/Source/Closure.lean"
         },
@@ -3487,7 +3481,7 @@
         },
         {
           "name": "Slang.Source.ClosureAudit.parsesClosure_of",
-          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → {decoded : Slang.Decode.CertifiedDecoded} → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → {stdBytes : Slang.Source.SourceBytes} → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → {coord : Slang.ConstantDecl} → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → Slang.Source.ParsesClosure bundle program",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program} {entryBytes : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → {decoded : Slang.Decode.CertifiedDecoded} → Slang.Decode.decodeTable (Slang.Source.encodeBytes entryBytes) = .ok decoded → decoded.val.program = program → Slang.Source.SelectedSourceExact entryBytes → Slang.Source.SelectedProgramExact program → (∀ path, path ∈ Slang.Source.importPaths entryBytes → (bundle.fileBytes? path).isSome = true) → Slang.Source.ParsesClosure bundle program",
           "module": "Slang.Source.ClosureAudit",
           "path": "proof/corpus/Slang/Source/ClosureAudit.lean"
         },
@@ -3585,13 +3579,13 @@
         },
         {
           "name": "Slang.Source.ParsesClosure.decodeDerivation",
-          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes stdBytes coord value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ coord.value = .literal 8796093022208 ∧ Slang.Source.DecodeDerivation entryBytes stdBytes value ∧ value.val.program = { program with constants := program.constants ++ [coord] }",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → {stdBytes : Slang.Source.SourceBytes} → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → {coord : Slang.ConstantDecl} → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → ∃ entryBytes stdBytesOut coordOut value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytesOut ∧ coordOut.value = .literal 8796093022208 ∧ Slang.Source.DecodeDerivation entryBytes stdBytesOut value ∧ value.val.program = { program with constants := program.constants ++ [coordOut] }",
           "module": "Slang.Source.DecodeProof",
           "path": "proof/corpus/Slang/Source/DecodeProof.lean"
         },
         {
           "name": "Slang.Source.ParsesClosure.decodeClosure_ok",
-          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → ∃ entryBytes stdBytes value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytes ∧ Slang.Decode.decodeClosure (Slang.Source.encodeBytes entryBytes) (Slang.Source.encodeBytes stdBytes) = .ok value",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {program : Slang.Program}, Slang.Source.ParsesClosure bundle program → {stdBytes : Slang.Source.SourceBytes} → bundle.fileBytes? Slang.Source.stdPath = some stdBytes → {coord : Slang.ConstantDecl} → Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord → coord.value = .literal 8796093022208 → ∃ entryBytes stdBytesOut value, bundle.fileBytes? bundle.entry = some entryBytes ∧ bundle.fileBytes? Slang.Source.stdPath = some stdBytesOut ∧ Slang.Decode.decodeClosure (Slang.Source.encodeBytes entryBytes) (Slang.Source.encodeBytes stdBytesOut) = .ok value",
           "module": "Slang.Source.DecodeProof",
           "path": "proof/corpus/Slang/Source/DecodeProof.lean"
         },

@@ -164,17 +164,23 @@ theorem decodeDerivation_sound {table std : SourceBytes} {value : CertifiedDecod
 
 namespace ParsesClosure
 
+/-- The entry decode of a `ParsesClosure` binding, composed with the imported coordinate. The `std`
+lookup, the coordinate decode and the coordinate value are hypotheses: the entry-only `ParsesClosure`
+no longer stores them, `ClosedBinding` is where they now live. -/
 theorem decodeDerivation {bundle : SourceBundle} {program : Program}
-    (closure : ParsesClosure bundle program) :
-    ∃ entryBytes stdBytes coord value,
+    (closure : ParsesClosure bundle program)
+    {stdBytes : SourceBytes} (stdLookup : bundle.fileBytes? stdPath = some stdBytes)
+    {coord : ConstantDecl}
+    (coordDecodes : Decode.decodeImportedCoordCeiling (encodeBytes stdBytes) = .ok coord)
+    (coordValue : coord.value = .literal 8796093022208) :
+    ∃ entryBytes stdBytesOut coordOut value,
       bundle.fileBytes? bundle.entry = some entryBytes ∧
-      bundle.fileBytes? stdPath = some stdBytes ∧
-      coord.value = .literal 8796093022208 ∧
-      DecodeDerivation entryBytes stdBytes value ∧
-      value.val.program = { program with constants := program.constants ++ [coord] } := by
+      bundle.fileBytes? stdPath = some stdBytesOut ∧
+      coordOut.value = .literal 8796093022208 ∧
+      DecodeDerivation entryBytes stdBytesOut value ∧
+      value.val.program = { program with constants := program.constants ++ [coordOut] } := by
   cases closure with
-  | intro entryBytes entryLookup decoded entryDecodes programEq _ _ _ stdBytes stdLookup coord
-      coordDecodes coordValue =>
+  | intro entryBytes entryLookup decoded entryDecodes programEq _ _ _ =>
       refine ⟨entryBytes, stdBytes, coord, composeDecoded decoded coord, entryLookup, stdLookup,
         coordValue, ?_, ?_⟩
       · exact ⟨decoded, coord, entryDecodes, coordDecodes, coordValue, rfl⟩
@@ -182,14 +188,18 @@ theorem decodeDerivation {bundle : SourceBundle} {program : Program}
         rw [programEq]
 
 theorem decodeClosure_ok {bundle : SourceBundle} {program : Program}
-    (closure : ParsesClosure bundle program) :
-    ∃ entryBytes stdBytes value,
+    (closure : ParsesClosure bundle program)
+    {stdBytes : SourceBytes} (stdLookup : bundle.fileBytes? stdPath = some stdBytes)
+    {coord : ConstantDecl}
+    (coordDecodes : Decode.decodeImportedCoordCeiling (encodeBytes stdBytes) = .ok coord)
+    (coordValue : coord.value = .literal 8796093022208) :
+    ∃ entryBytes stdBytesOut value,
       bundle.fileBytes? bundle.entry = some entryBytes ∧
-      bundle.fileBytes? stdPath = some stdBytes ∧
-      Decode.decodeClosure (encodeBytes entryBytes) (encodeBytes stdBytes) = .ok value := by
-  obtain ⟨entryBytes, stdBytes, _, value, entryLookup, stdLookup, _, derivation, _⟩ :=
-    closure.decodeDerivation
-  exact ⟨entryBytes, stdBytes, value, entryLookup, stdLookup,
+      bundle.fileBytes? stdPath = some stdBytesOut ∧
+      Decode.decodeClosure (encodeBytes entryBytes) (encodeBytes stdBytesOut) = .ok value := by
+  obtain ⟨entryBytes, stdBytes, _, value, entryLookup, stdLookupOut, _, derivation, _⟩ :=
+    closure.decodeDerivation stdLookup coordDecodes coordValue
+  exact ⟨entryBytes, stdBytes, value, entryLookup, stdLookupOut,
     decodeDerivation_sound derivation⟩
 
 end ParsesClosure
