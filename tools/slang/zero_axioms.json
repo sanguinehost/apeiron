@@ -6016,6 +6016,547 @@
         "path": "proof/corpus/Slang/Source/Parsing/StatementAudit.lean"
       }
     ]
+  },
+    "parsing-validation": {
+    "kind": "active",
+    "wave": "W25",
+    "title": "Structural decoder validation and resolution",
+    "note": "Structural success relations refining Decode validation and resolution passes under the empty axiom cone.",
+    "audit_module": "Slang/Source/Parsing/ValidationAudit.lean",
+    "source_files": [
+      "proof/corpus/Slang/Source/Parsing/Validation.lean",
+      "proof/corpus/Slang/Source/Parsing/ValidationAudit.lean"
+    ],
+    "declarations": [
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken",
+        "expected_type": "Slang.Decode.Token \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.ident",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.ident",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.numeral",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.numeral",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.comma",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.comma",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.semi",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.semi",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.newline",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.newline",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.assign",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.assign",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.lt",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.lt",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.le",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.le",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.gt",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.gt",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.ge",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.ge",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NonDelimiterToken.other",
+        "expected_type": "type_of% @Slang.Source.Parsing.NonDelimiterToken.other",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation",
+        "expected_type": "List Slang.Decode.Token \u2192 List Slang.Decode.TokenKind \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.lparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.lparen",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.lbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.lbrace",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.lbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.lbracket",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.rparen",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.rparen",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.rbrace",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.rbrace",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.rbracket",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.rbracket",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.other",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.other",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SpansValidDerivation",
+        "expected_type": "Nat \u2192 List Slang.Span \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SpansValidDerivation.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.SpansValidDerivation.intro",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.SpansValidDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.SpansValidDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DistinctDerivation",
+        "expected_type": "List String \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DistinctDerivation.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.DistinctDerivation.intro",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.DistinctDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.DistinctDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation",
+        "expected_type": "List String \u2192 Slang.Expr \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.literal",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.literal",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.name",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.name",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.call",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.call",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.memory",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.memory",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.binary",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.binary",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.conditional",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.conditional",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionCallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionCallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsCallsResolveDerivation",
+        "expected_type": "List String \u2192 List Slang.Expr \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsCallsResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsCallsResolveDerivation.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.next",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsCallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsCallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation",
+        "expected_type": "List String \u2192 Slang.Stmt \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.bind",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.bind",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.store",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.store",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.return_",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.return_",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.expression",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.expression",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.ifNone",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.ifNone",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.ifSome",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.ifSome",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementCallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementCallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsCallsResolveDerivation",
+        "expected_type": "List String \u2192 List Slang.Stmt \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsCallsResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsCallsResolveDerivation.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.next",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsCallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsCallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionCallsResolveDerivation",
+        "expected_type": "List String \u2192 List Slang.FunctionDecl \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionCallsResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionCallsResolveDerivation.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.next",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionCallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionCallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.CallsResolveDerivation",
+        "expected_type": "List Slang.FunctionDecl \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.CallsResolveDerivation.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.CallsResolveDerivation.intro",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.CallsResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.CallsResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation",
+        "expected_type": "List String \u2192 Slang.Expr \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.literal",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.literal",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.name",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.name",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.call",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.call",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.memory",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.memory",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.binary",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.binary",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.conditional",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.conditional",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionNamesResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionNamesResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsNamesResolveDerivation",
+        "expected_type": "List String \u2192 List Slang.Expr \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsNamesResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsNamesResolveDerivation.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.next",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ExpressionsNamesResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.ExpressionsNamesResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation",
+        "expected_type": "Nat \u2192 List String \u2192 List Slang.Stmt \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.bind",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.bind",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.store",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.store",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.return_",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.return_",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.expression",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.expression",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.ifNone",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.ifNone",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.ifSome",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.ifSome",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.StatementsNamesResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionNamesResolveDerivation",
+        "expected_type": "List String \u2192 List Slang.FunctionDecl \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionNamesResolveDerivation.done",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.done",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionNamesResolveDerivation.next",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.next",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.FunctionNamesResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NamesResolveDerivation",
+        "expected_type": "List Slang.ConstantDecl \u2192 List Slang.FunctionDecl \u2192 Prop",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NamesResolveDerivation.intro",
+        "expected_type": "type_of% @Slang.Source.Parsing.NamesResolveDerivation.intro",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.NamesResolveDerivation.sound",
+        "expected_type": "type_of% @Slang.Source.Parsing.NamesResolveDerivation.sound",
+        "module": "Slang.Source.Parsing.Validation",
+        "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+      },
+      {
+        "name": "Slang.Source.Parsing.ValidationAudit.nat_add_zero",
+        "expected_type": "(0 : Nat) + 0 = 0",
+        "module": "Slang.Source.Parsing.ValidationAudit",
+        "path": "proof/corpus/Slang/Source/Parsing/ValidationAudit.lean"
+      }
+    ]
   }
   }
 }
