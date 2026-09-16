@@ -14,6 +14,23 @@ The canonical mathematics is Lean, physically at `../sanguine-apeiron/proof/Apei
 pins; theorem names in the source doc comments resolve there. Rust representation theorems live in
 `proof/corpus/`.
 
+## Purpose
+
+Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
+evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
+addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
+refusal, `N = 0` refusal, no probing). Every executing face refines the canonical object; anything
+not rooted in it is not accepted. The canonical object is
+`Apeiron.Table.{HMap,get,insertWith,build}` and
+`Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
+bodies (`word_mul_denote`, `word_norm_denote`).
+
+The O(1) qualifier is the parameter boundary. Fixed N, bounded callbacks and nonconstant key length
+bound the table; reading a whole source remains at least linear in its bytes at fixed N, so
+constant-time table operations at fixed N do not imply constant-time whole-source checking or
+constant-size proof terms.
+
 ## The scalar is a choice, not a limit
 
 `Cell<R>` is generic over the ring its slots live in, because which ring you pick decides what the
