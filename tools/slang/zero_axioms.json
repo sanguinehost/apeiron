@@ -4104,6 +4104,62 @@
           "path": "proof/corpus/Slang/Joint/AccumulatorProfile.lean"
         }
       ]
+    },
+    "closed-binding": {
+      "kind": "active",
+      "wave": "W24",
+      "title": "Closed source binding",
+      "note": "Migrated to the empty cone; the entry-only ParsesClosure composed with the checked table-to-cell-to-std import path and the imported coordinate. Declarations registered from Slang/Source/ClosedBinding.lean and Slang/Source/ClosedBindingAudit.lean.",
+      "audit_module": "Slang/Source/ClosedBindingAudit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Source/ClosedBinding.lean",
+        "proof/corpus/Slang/Source/ClosedBindingAudit.lean",
+        "proof/corpus/Slang/Source/Closure.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Source.ClosedBinding",
+          "expected_type": "Slang.Source.SourceBundle → Slang.Decode.CertifiedDecoded → Prop",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBinding.intro",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {value : Slang.Decode.CertifiedDecoded} (entryBytes cellPath cellBytes stdImportPath stdBytes : Slang.Source.SourceBytes) (entryDecoded : Slang.Decode.CertifiedDecoded) (stdTokens : List Slang.Decode.Token) (stdConsumed : Nat) (coord : Slang.ConstantDecl), bundle.fileBytes? bundle.entry = some entryBytes → Slang.Source.ParsesClosure bundle entryDecoded.val.program → Slang.Source.importPaths entryBytes = [cellPath] → bundle.fileBytes? cellPath = some cellBytes → Slang.Source.importPaths cellBytes = [stdImportPath] → bundle.fileBytes? stdImportPath = some stdBytes → Slang.Source.ImportedCoordDerivation stdBytes stdTokens stdConsumed coord → coord.value = .literal 8796093022208 → value = Slang.Decode.appendImportedCoord entryDecoded coord → Slang.Source.ClosedBinding bundle value",
+          "module": "Slang.Source",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBinding.sound",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {value : Slang.Decode.CertifiedDecoded}, Slang.Source.ClosedBinding bundle value → ∃ (entryBytes cellPath cellBytes stdImportPath stdBytes : Slang.Source.SourceBytes) (entryDecoded : Slang.Decode.CertifiedDecoded) (stdTokens : List Slang.Decode.Token) (stdConsumed : Nat) (coord : Slang.ConstantDecl), bundle.fileBytes? bundle.entry = some entryBytes ∧ Slang.Source.ParsesClosure bundle entryDecoded.val.program ∧ Slang.Source.importPaths entryBytes = [cellPath] ∧ bundle.fileBytes? cellPath = some cellBytes ∧ Slang.Source.importPaths cellBytes = [stdImportPath] ∧ bundle.fileBytes? stdImportPath = some stdBytes ∧ Slang.Source.ImportedCoordDerivation stdBytes stdTokens stdConsumed coord ∧ coord.value = .literal 8796093022208 ∧ value = Slang.Decode.appendImportedCoord entryDecoded coord",
+          "module": "Slang.Source.ClosedBinding",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBinding.coordDecodes",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {value : Slang.Decode.CertifiedDecoded}, Slang.Source.ClosedBinding bundle value → ∃ (stdImportPath stdBytes : Slang.Source.SourceBytes) (coord : Slang.ConstantDecl), bundle.fileBytes? stdImportPath = some stdBytes ∧ Slang.Decode.decodeImportedCoordCeiling (Slang.Source.encodeBytes stdBytes) = .ok coord ∧ coord.value = .literal 8796093022208",
+          "module": "Slang.Source.ClosedBinding",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBinding.missing_lookup_not_closed",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {value : Slang.Decode.CertifiedDecoded} {entryBytes path : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → path ∈ Slang.Source.importPaths entryBytes → bundle.fileBytes? path = none → ¬Slang.Source.ClosedBinding bundle value",
+          "module": "Slang.Source.ClosedBinding",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBinding.missing_cell_import_not_closed",
+          "expected_type": "∀ {bundle : Slang.Source.SourceBundle} {value : Slang.Decode.CertifiedDecoded} {entryBytes cellPath cellBytes path : Slang.Source.SourceBytes}, bundle.fileBytes? bundle.entry = some entryBytes → Slang.Source.importPaths entryBytes = [cellPath] → bundle.fileBytes? cellPath = some cellBytes → path ∈ Slang.Source.importPaths cellBytes → bundle.fileBytes? path = none → ¬Slang.Source.ClosedBinding bundle value",
+          "module": "Slang.Source.ClosedBinding",
+          "path": "proof/corpus/Slang/Source/ClosedBinding.lean"
+        },
+        {
+          "name": "Slang.Source.ClosedBindingAudit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Source.ClosedBindingAudit",
+          "path": "proof/corpus/Slang/Source/ClosedBindingAudit.lean"
+        }
+      ]
     }
   }
 }
