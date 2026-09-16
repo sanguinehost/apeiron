@@ -123,6 +123,13 @@ pub fn approx_count<V: OrderedMonoid>(new: V, old: V) -> V {
 }
 
 /// Graph: newest first.
+///
+/// Temporal `O(old.len())` amortized element moves: `extend` pushes each element of `old` once, and
+/// the `Vec` grows geometrically, so a reallocation copies the prefix already present at most a
+/// constant number of times per element; the count is in elements moved, not comparisons. Spatial
+/// `O(new.len() + old.len())` elements owned by the returned `Vec`, plus the slack the geometric
+/// growth leaves in its capacity. `new` is consumed, so the input's allocation is reused when it
+/// has room.
 #[inline]
 #[must_use]
 pub fn link<T>(mut new: Vec<T>, old: Vec<T>) -> Vec<T> {
@@ -167,6 +174,11 @@ pub fn approx_count_into<V: OrderedMonoid>(slot: &mut V, new: V) {
 
 /// [`link`], applied in place: `new` is spliced onto the front, newest first, without rebuilding
 /// the tail.
+///
+/// Temporal `O(slot.len() + new.len())` element moves: `splice(0..0, new)` inserts every element of
+/// `new` at the front and shifts the existing `slot.len()` elements up by that many, so each element
+/// of the result is moved at most once; the count is in elements moved, not comparisons. Spatial
+/// `O(new.len())` additional elements held by `slot`, plus any capacity reserved for the insertion.
 #[inline]
 pub fn link_into<T>(slot: &mut Vec<T>, new: Vec<T>) {
     slot.splice(0..0, new);

@@ -11,6 +11,9 @@ abbrev Environment := List (String × Word)
 
 namespace Environment
 
+-- Temporal O(n) for n = |environment|: one `String.decEq` comparison per entry, stopping at the
+-- first match. Spatial O(1) call stack: the recursive call is the whole `isFalse` branch, so the
+-- recursion is tail-recursive.
 def lookup : Environment → String → Option Word
   | [], _ => none
   | (entryName, value) :: rest, name =>
@@ -21,6 +24,9 @@ def lookup : Environment → String → Option Word
 def bind (environment : Environment) (name : String) (value : Word) : Environment :=
   (name, value) :: environment
 
+-- Temporal O(min(|names|, |values|)): the two lists are consumed in lockstep, one pattern match per
+-- pair. Spatial O(min(|names|, |values|)) stack: `(name, value) :: environment` binds the recursive
+-- result, so the recursion is not tail-recursive.
 def ofParameters : List String → List Word → Option Environment
   | [], values => match values with | [] => some [] | _ :: _ => none
   | name :: names, values =>
@@ -170,6 +176,9 @@ structure Context where
   constants : String → Option Word
   functions : String → Option FunctionDecl
 
+-- Constructing the context is O(1). Each `functions name` lookup is a `List.find?` scan of
+-- `program.functions`: temporal O(f) for f = |program.functions|, one `String` equality per
+-- declaration, spatial O(1) (the scan is tail-recursive).
 def Context.ofProgram (program : Program) (constants : String → Option Word) : Context where
   constants := constants
   functions := fun name => program.functions.find? (fun decl => decl.name == name)
@@ -187,6 +196,8 @@ def binOpTag : BinOp → Nat
   | .bitAnd => 3 | .bitOr => 4 | .bitXor => 5
   | .eq => 6 | .ne => 7 | .lt => 8 | .le => 9 | .gt => 10 | .ge => 11
 
+-- Temporal O(|left| + |right|) bytes: one `String.decEq`, which compares the two UTF-8 byte arrays.
+-- Spatial O(1).
 def stringBeq (left right : String) : Bool :=
   match String.decEq left right with
   | isTrue _ => true
@@ -236,52 +247,76 @@ def account (result : Resources) (event : Event) : Resources :=
         probeIterations := result.probeIterations + if isProbe callee then 1 else 0
         maxCallStack := max result.maxCallStack depth }
 
+-- Temporal O(n) for n = |trace|: one `account` call per event. Spatial O(n) stack: `resources rest`
+-- is bound before `account` is applied, so the recursion is not tail-recursive.
 def resources : Trace → Resources
   | [] => emptyResources
   | event :: rest => account (resources rest) event
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.arithmetic` events.
+-- Spatial O(n) stack: `arithmeticCount rest + 1` binds the recursive count, so the recursion is not
+-- tail-recursive.
 def arithmeticCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .arithmetic _ => arithmeticCount rest + 1
       | .comparison _ | .bitwise _ | .load _ | .store _ | .call _ _ => arithmeticCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.comparison` events.
+-- Spatial O(n) stack: `comparisonCount rest + 1` binds the recursive count, so the recursion is not
+-- tail-recursive.
 def comparisonCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .comparison _ => comparisonCount rest + 1
       | .arithmetic _ | .bitwise _ | .load _ | .store _ | .call _ _ => comparisonCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.bitwise` events.
+-- Spatial O(n) stack: `bitwiseCount rest + 1` binds the recursive count, so the recursion is not
+-- tail-recursive.
 def bitwiseCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .bitwise _ => bitwiseCount rest + 1
       | .arithmetic _ | .comparison _ | .load _ | .store _ | .call _ _ => bitwiseCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.load` events. Spatial
+-- O(n) stack: `loadCount rest + 1` binds the recursive count, so the recursion is not tail-recursive.
 def loadCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .load _ => loadCount rest + 1
       | .arithmetic _ | .comparison _ | .bitwise _ | .store _ | .call _ _ => loadCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.store` events.
+-- Spatial O(n) stack: `storeCount rest + 1` binds the recursive count, so the recursion is not
+-- tail-recursive.
 def storeCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .store _ => storeCount rest + 1
       | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .call _ _ => storeCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step, counting the `.call` events. Spatial
+-- O(n) stack: `callCount rest + 1` binds the recursive count, so the recursion is not tail-recursive.
 def callCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .call _ _ => callCount rest + 1
       | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .store _ => callCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step; a `.call` adds one `isProbe callee`
+-- test. Spatial O(n) stack: `probeIterationCount rest + ...` binds the recursive count, so the
+-- recursion is not tail-recursive.
 def probeIterationCount : Trace → Nat
   | [] => 0
   | event :: rest => match event with
       | .call callee _ => probeIterationCount rest + if isProbe callee then 1 else 0
       | .arithmetic _ | .comparison _ | .bitwise _ | .load _ | .store _ => probeIterationCount rest
 
+-- Temporal O(n) for n = |trace|: one event inspected per step; a `.call` adds one `max`. Spatial
+-- O(n) stack: `max (callStackMaximum rest) depth` binds the recursive maximum, so the recursion is
+-- not tail-recursive.
 def callStackMaximum : Trace → Nat
   | [] => 0
   | event :: rest => match event with

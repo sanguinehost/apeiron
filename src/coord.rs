@@ -398,6 +398,12 @@ pub const PSI_INV: u64 = 0x3196_42B2_D24D_8EC3;
 /// [`crate::map`]'s pepper becomes the multiplier of its address bijection, and a bijection the
 /// table cannot run backwards is not one the elliptic face can regenerate a key through.
 ///
+/// Temporal and spatial O(1): the `while` loop is a fixed five iterations, independent of `a`, and
+/// each iteration is three word operations (two `wrapping_mul` and one `wrapping_sub`), so the count
+/// does not grow with the input. Spatial O(1): two `u64` locals, no allocation. The five is the
+/// derivation and not a guess -- Newton's step doubles the number of correct low bits and the seed
+/// is already correct to five, so five steps carry that past the 64 bits of the word.
+///
 /// Undefined for even `a`, which has no inverse. Callers force the low bit.
 #[must_use]
 pub const fn inverse_odd(a: u64) -> u64 {
@@ -610,10 +616,16 @@ impl Coord for i21 {
 impl<A: Coord, B: Coord> Coord for (A, B) {
     /// A composite is cheap to compare exactly when every component is.
     const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ;
+    /// Temporal O(1) of its own -- one [`mix`] then one [`finish`], a fixed count of word
+    /// operations -- plus the components' own `coord`, which is O(1) for fixed-width components and
+    /// O(key length) for the byte folds, so the composite's cost is inherited and not visible from
+    /// `(A, B)`. Spatial O(1): two word temporaries, no allocation.
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(self.0.coord(), self.1.coord()))
     }
+    /// As [`Coord::coord`]: one [`mix`] and one [`finish`], plus the components' `coord_with`.
+    /// Spatial O(1).
     #[inline]
     fn coord_with(&self, pepper: u64) -> u64 {
         finish(mix(self.0.coord_with(pepper), self.1.coord_with(pepper)))
@@ -622,10 +634,15 @@ impl<A: Coord, B: Coord> Coord for (A, B) {
 
 impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
     const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ && C::CHEAP_EQ;
+    /// Temporal O(1) of its own -- two [`mix`] calls then one [`finish`], one `mix` per extra
+    /// component, a fixed count of word operations -- plus the components' own `coord`, which is
+    /// O(1) for fixed-width components and O(key length) for the byte folds. Spatial O(1): word
+    /// temporaries, no allocation.
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(mix(self.0.coord(), self.1.coord()), self.2.coord()))
     }
+    /// As [`Coord::coord`], through the components' `coord_with`. Spatial O(1).
     #[inline]
     fn coord_with(&self, p: u64) -> u64 {
         finish(mix(
@@ -637,6 +654,10 @@ impl<A: Coord, B: Coord, C: Coord> Coord for (A, B, C) {
 
 impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
     const CHEAP_EQ: bool = A::CHEAP_EQ && B::CHEAP_EQ && C::CHEAP_EQ && D::CHEAP_EQ;
+    /// Temporal O(1) of its own -- three [`mix`] calls then one [`finish`], one `mix` per extra
+    /// component, a fixed count of word operations -- plus the components' own `coord`, which is
+    /// O(1) for fixed-width components and O(key length) for the byte folds. Spatial O(1): word
+    /// temporaries, no allocation.
     #[inline]
     fn coord(&self) -> u64 {
         finish(mix(
@@ -644,6 +665,7 @@ impl<A: Coord, B: Coord, C: Coord, D: Coord> Coord for (A, B, C, D) {
             self.3.coord(),
         ))
     }
+    /// As [`Coord::coord`], through the components' `coord_with`. Spatial O(1).
     #[inline]
     fn coord_with(&self, p: u64) -> u64 {
         finish(mix(
