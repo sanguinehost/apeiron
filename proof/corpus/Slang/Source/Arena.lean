@@ -8,6 +8,9 @@ set_option warningAsError true
 namespace Slang.Source
 
 /-- The sublist `values[start..stop)`. -/
+-- Temporal O(stop) element visits: `List.drop start` walks `start` cons cells and `List.take
+-- (stop - start)` walks the next `stop - start`, one O(1) step per cell; the recursion closes on the
+-- finite list. Spatial O(stop - start) cons cells copied by `take`; `drop` shares the tail.
 def slice {α : Type} (values : List α) (start stop : Nat) : List α :=
   (values.drop start).take (stop - start)
 
@@ -19,6 +22,9 @@ structure CheckedInterval (bound : Nat) where
   bounded : stop ≤ bound
 
 /-- The elements of `values` selected by a checked interval. -/
+-- Cost is that of `slice values interval.start interval.stop`: temporal O(interval.stop) element
+-- visits and spatial O(interval.stop - interval.start) copied cons cells, since `bounded` gives
+-- `interval.stop ≤ values.length`.
 def CheckedInterval.contents {α : Type} {values : List α}
     (interval : CheckedInterval values.length) : List α :=
   slice values interval.start interval.stop
@@ -38,6 +44,8 @@ structure SourceArena where
 abbrev FileId (arena : SourceArena) := Fin arena.files.length
 
 /-- The file at `id`. -/
+-- Temporal O(id.val) cons-cell steps: `List.get` recurses down `arena.files` to position `id.val`,
+-- one step per cell, closing at the `Fin` bound. Spatial O(1): the recursion is tail-recursive.
 def SourceArena.file (arena : SourceArena) (id : FileId arena) : ArenaFile :=
   arena.files.get id
 

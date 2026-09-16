@@ -29,7 +29,11 @@ structure Arena (α : Type) (capacity : Nat) where
 /-- A handle into a specific arena: an index below the arena's current length. -/
 abbrev Handle {α : Type} {capacity : Nat} (arena : Arena α capacity) := Fin arena.entries.length
 
-/-- Resolve a handle to the value stored at its index. -/
+/-- Resolve a handle to the value stored at its index.
+
+Temporal O(i) for i = `handle.val`: `List.get` walks the list from the head to index i, one
+cons-cell step per index. Spatial O(1): the walk is tail-recursive and returns the stored value.
+Operations counted: list links traversed. The handle type bounds i by `capacity`. -/
 def resolve {α : Type} {capacity : Nat} (arena : Arena α capacity) (handle : Handle arena) : α :=
   arena.entries.get handle
 
@@ -73,7 +77,12 @@ inductive AllocationResult {α : Type} {capacity : Nat} (before : Arena α capac
   /-- The arena was full; the proof records that the length equals the capacity. -/
   | capacity (full : before.entries.length = capacity)
 
-/-- Append `value` once when there is room, otherwise refuse with the full proof. -/
+/-- Append `value` once when there is room, otherwise refuse with the full proof.
+
+Temporal O(n) for n = `before.entries.length`: the capacity test computes `List.length` (one walk of
+n cells), and the allocated branch's `List.append` copies those n cells, one cons per cell. Spatial
+O(n): the append allocates a fresh list of n+1 cells; the `Fin` handle and the erased proof fields
+add O(1). Operations counted: list links traversed, cons cells allocated. n ≤ `capacity`. -/
 def allocate {α : Type} {capacity : Nat} (before : Arena α capacity) (value : α) :
     AllocationResult before value :=
   if hfull : before.entries.length = capacity then
