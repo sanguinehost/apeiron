@@ -68,6 +68,8 @@ private def findKeySlotGo {sources : Slang.Source.SourceArena} {stateCapacity re
           | none => none
 termination_by structural N
 
+-- Temporal O(N): `findKeySlotGo` visits the shard's N slots once, one `MemoKey.equal` per occupied
+-- slot. Spatial O(N) stack: one recursion frame per slot index, plus each `MemoKey.equal` frame.
 def findKeySlot {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity}
     (slots : Fin N → Option (MemoEntry sources states results)) (key : MemoKey sources states) : Option (Fin N) :=
@@ -87,6 +89,8 @@ private def findVacantSlotGo {sources : Slang.Source.SourceArena} {stateCapacity
           | none => none
 termination_by structural N
 
+-- Temporal O(N): `findVacantSlotGo` visits the shard's N slots once. Spatial O(N) stack: one
+-- recursion frame per slot index.
 def findVacantSlot {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity}
     (slots : Fin N → Option (MemoEntry sources states results)) : Option (Fin N) :=
@@ -397,6 +401,8 @@ theorem writeSlot_other_shard {sources : Slang.Source.SourceArena} {stateCapacit
   dsimp only [writeSlot]
   rw [if_neg different]
 
+-- Temporal O(N): one `findKeySlot` scan of the home shard (N slots) then one O(1) slot read. Spatial
+-- O(N) from that scan; the returned entry is a reference, not a copy.
 def readEntry? {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity}
     (store : MemoStore sources states results N) (key : MemoKey sources states) :
@@ -405,6 +411,7 @@ def readEntry? {sources : Slang.Source.SourceArena} {stateCapacity resultCapacit
   | some slot => store.slots (Slang.Address.homeShard key) slot
   | none => none
 
+-- Temporal O(N) (the `readEntry?` scan), O(1) extra. Spatial O(N) from that scan.
 def readValue {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity}
     (store : MemoStore sources states results N) (key : MemoKey sources states) : MemoValue sources states results :=
@@ -491,6 +498,9 @@ inductive InsertResult {sources : Slang.Source.SourceArena} {stateCapacity resul
   | inserted (after : MemoStore sources states results N) : InsertResult store
   | shardFull : InsertResult store
 
+-- Temporal O(N): one `findKeySlot` scan of the home shard, and on a miss one `findVacantSlot` scan,
+-- then one O(1) `writeSlot` update. Spatial O(N) from the scans; the update is a lazily extended
+-- function, not a copy of the shard.
 def insert {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity}
     (store : MemoStore sources states results N) (entry : MemoEntry sources states results) : InsertResult store :=

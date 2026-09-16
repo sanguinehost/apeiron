@@ -10,7 +10,11 @@ set_option linter.apeiron.citation false
 
 namespace Slang.Memo
 
-/-- Apply transition-checked entries in list order, stopping at the first full shard. -/
+/-- Apply transition-checked entries in list order, stopping at the first full shard.
+
+Temporal O(m · N) for m updates: each step calls `insert` (one `findKeySlot` scan of the home
+shard's N slots, then at most one `findVacantSlot` scan), all other work O(1). Spatial O(m) stack
+from the list recursion (one frame per update) on top of each `insert`'s O(N). -/
 def fold {sources : Slang.Source.SourceArena} {stateCapacity resultCapacity N : Nat}
     {states : Slang.Arena.StateArena stateCapacity} {results : Slang.Arena.ResultArena resultCapacity} :
     MemoStore sources states results N → List (MemoEntry sources states results) →

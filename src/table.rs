@@ -111,6 +111,8 @@ impl<K: Eq, V, H: Home<K>, const N: usize> Table<K, V, H, N> {
         None
     }
 
+    // Temporal O(N): at most N `Eq` comparisons, one per occupied slot, and O(1) other work.
+    // Spatial O(1): index arithmetic on the borrowed shard, no allocation.
     fn find_slots(slots: &[Option<(K, V)>; N], key: &K) -> Option<usize> {
         let mut i = 0;
         while i < N {
@@ -125,6 +127,9 @@ impl<K: Eq, V, H: Home<K>, const N: usize> Table<K, V, H, N> {
     }
 
     /// Returns the stored override, or the total default for an unwritten key.
+    ///
+    /// Temporal O(N): one `shard_index` (O(1)) then a `find_slots` scan of the home shard's N
+    /// slots. Spatial O(1); the result is a borrow, not a copy.
     #[must_use]
     pub fn get(&self, key: &K) -> &V {
         let shard = self.shard_index(key);
@@ -141,6 +146,10 @@ impl<K: Eq, V, H: Home<K>, const N: usize> Table<K, V, H, N> {
 
 impl<K: Eq, V: Clone, H: Home<K>, const N: usize> Table<K, V, H, N> {
     /// Applies `merge(new, old)`, including the default on the first write.
+    ///
+    /// Temporal O(N): one `find_slots` scan, then, on an absent key, one linear vacant-slot scan of
+    /// the home shard (N slots), each step O(1) apart from the caller's `merge`/`clone`. Spatial
+    /// O(1) of its own; the shard is stored inline and nothing is allocated.
     ///
     /// # Errors
     /// Returns [`StorageError::ShardFull`] exactly when the key is absent and its
@@ -185,6 +194,9 @@ impl<K: Eq, V: Clone, H: Home<K>, const N: usize> Table<K, V, H, N> {
     }
 
     /// Builds from a borrowed stream, preserving per-key order without allocating table storage.
+    ///
+    /// Temporal O(m · N) for m pairs: one `insert_with` (O(N)) per pair. Spatial O(1) beyond the
+    /// table itself and any allocation inside the caller's `merge`/`clone`.
     ///
     /// # Errors
     /// Returns [`StorageError::ShardFull`] at the first refused insertion; no partial table is

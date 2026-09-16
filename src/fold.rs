@@ -162,6 +162,10 @@ fn settle(h: u64) -> u64 {
 }
 
 /// The fold proper, before [`settle`].
+///
+/// Temporal O(len): the length ladder is O(1) branches and [`fold_long`] consumes 32 bytes a round,
+/// so the whole fold is O(len) with a small constant. Spatial O(1): overlapping in-place reads, no
+/// buffer.
 #[expect(clippy::inline_always, reason = "as `settle`")]
 #[inline(always)]
 fn absorb(pepper: u64, b: &[u8]) -> u64 {

@@ -119,6 +119,8 @@ impl<R: Ring> Cell<R> {
 
     /// `(a1 a2 + sigma b1 b2, a1 b2 + b1 a2)`.
     ///
+    /// Temporal and spatial O(1): a fixed count of scalar `mul`/`add` on the two slots.
+    ///
     /// `Trichotomy.Basic.mul`, and it is commutative and associative on every face
     /// (`mul_comm`, `mul_assoc`) -- which is what licenses folding a list of these in any order.
     #[must_use]
@@ -147,6 +149,8 @@ impl<R: Ring> Cell<R> {
     }
 
     /// `a^2 - sigma b^2`. `Trichotomy.Basic.normForm`.
+    ///
+    /// Temporal and spatial O(1): a fixed count of scalar `mul`/`sub` on the two slots.
     ///
     /// Multiplicative (`normForm_mul`), so it is zero exactly on the non-invertible cells. Above
     /// zero it factors as the product of the two channels
@@ -192,6 +196,9 @@ impl<R: Ring> Cell<R> {
 }
 
 /// Fold a list of cells into one.
+///
+/// Temporal O(cells.len()): one `mul` per element, each a fixed number of scalar operations
+/// (O(1)). Spatial O(1): a single accumulator, no allocation.
 ///
 /// Permutation-invariant on **every** face, which is the licence for accumulating from many
 /// threads and combining at a sync point with no ordering.
