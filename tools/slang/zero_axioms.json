@@ -6624,6 +6624,18 @@
           "expected_type": "type_of% @Slang.Source.Parsing.NamesResolveDerivation.of_bool",
           "module": "Slang.Source.Parsing.Validation",
           "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.append_assoc_empty",
+          "expected_type": "type_of% @Slang.Source.Parsing.append_assoc_empty",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
+        },
+        {
+          "name": "Slang.Source.Parsing.DelimitersBalancedDerivation.of_bool",
+          "expected_type": "type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.of_bool",
+          "module": "Slang.Source.Parsing.Validation",
+          "path": "proof/corpus/Slang/Source/Parsing/Validation.lean"
         }
       ]
     },
@@ -7633,6 +7645,39 @@
           "expected_type": "type_of% @Slang.Generated.SourceWitness.Tokenizer.Std.stdUtf8Witness",
           "module": "Slang.Generated.SourceWitness.Tokenizer.Std.Chunk11",
           "path": "proof/corpus/Slang/Generated/SourceWitness/Tokenizer/Std/Chunk11.lean"
+        }
+      ]
+    },
+    "parsing-decoder": {
+      "kind": "active",
+      "wave": "W25",
+      "title": "Assembled table token-decoder derivation",
+      "note": "The full DecodeTokensDerivation for the real table source and its Decode.decodeTokens soundness equation, assembled from the committed generated ScanSelected witness, the empty-cone delimiter completeness bridge and literal chunks; empty axiom cone.",
+      "audit_module": "Slang/Generated/SourceWitness/Decoder/Audit.lean",
+      "source_files": [
+        "proof/corpus/Slang/Generated/SourceWitness/Decoder/ChunksA.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Decoder/ChunksB.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Decoder/Assembly.lean",
+        "proof/corpus/Slang/Generated/SourceWitness/Decoder/Audit.lean"
+      ],
+      "declarations": [
+        {
+          "name": "Slang.Generated.SourceWitness.Decoder.Audit.nat_add_zero",
+          "expected_type": "(0 : Nat) + 0 = 0",
+          "module": "Slang.Generated.SourceWitness.Decoder.Audit",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Decoder/Audit.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Decoder.tableDerivation",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Decoder.tableDerivation",
+          "module": "Slang.Generated.SourceWitness.Decoder.Assembly",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Decoder/Assembly.lean"
+        },
+        {
+          "name": "Slang.Generated.SourceWitness.Decoder.table_decodeTokens",
+          "expected_type": "type_of% @Slang.Generated.SourceWitness.Decoder.table_decodeTokens",
+          "module": "Slang.Generated.SourceWitness.Decoder.Assembly",
+          "path": "proof/corpus/Slang/Generated/SourceWitness/Decoder/Assembly.lean"
         }
       ]
     }

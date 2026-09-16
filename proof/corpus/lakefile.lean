@@ -89,4 +89,8 @@ lean_lib ApeironWordBridge where
     `Slang.Generated.SourceWitness.Tokenizer.Std.Chunk09,
     `Slang.Generated.SourceWitness.Tokenizer.Std.Chunk10,
     `Slang.Generated.SourceWitness.Tokenizer.Std.Chunk11,
-    `Slang.Generated.SourceWitness.Tokenizer.Audit]
+    `Slang.Generated.SourceWitness.Tokenizer.Audit,
+    `Slang.Generated.SourceWitness.Decoder.ChunksA,
+    `Slang.Generated.SourceWitness.Decoder.ChunksB,
+    `Slang.Generated.SourceWitness.Decoder.Assembly,
+    `Slang.Generated.SourceWitness.Decoder.Audit]

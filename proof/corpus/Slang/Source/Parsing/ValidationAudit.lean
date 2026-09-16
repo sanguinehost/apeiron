@@ -246,3 +246,8 @@ end Slang.Source.Parsing.ValidationAudit
 #audit_empty Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.StatementsNamesResolveDerivation.of_bool
 #audit_empty Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.FunctionNamesResolveDerivation.of_bool
 #audit_empty Slang.Source.Parsing.NamesResolveDerivation.of_bool : type_of% @Slang.Source.Parsing.NamesResolveDerivation.of_bool
+#audit_empty Slang.Source.Parsing.append_assoc_empty : type_of% @Slang.Source.Parsing.append_assoc_empty
+#audit_empty Slang.Source.Parsing.DelimitersBalancedDerivation.of_bool : type_of% @Slang.Source.Parsing.DelimitersBalancedDerivation.of_bool
+
+#print axioms Slang.Source.Parsing.append_assoc_empty
+#print axioms Slang.Source.Parsing.DelimitersBalancedDerivation.of_bool
