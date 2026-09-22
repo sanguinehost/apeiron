@@ -59,12 +59,46 @@ fi
 tool_sha256 "$AENEAS"
 
 echo "== source =="
-sha256sum "$REPO_DIR/src/scalar.rs" "$REPO_DIR/src/cell.rs" "$REPO_DIR/src/exchange.rs" \
-    "$REPO_DIR/src/carrier.rs" "$REPO_DIR/src/table.rs" "$EXTRACT_DIR/lib.rs"
+# Every listed source must exist: a missing live source fails the digest stage instead of being
+# skipped, so a stale path (for example a deleted module) cannot pass silently.
+# `src/table.rs` textually `include!`s `src/table/state.rs` and `src/table/locator.rs`; `src/coord.rs`
+# pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
+# pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. `src/table/tests.rs`
+# is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
+SOURCE_FILES="
+$REPO_DIR/src/scalar.rs
+$REPO_DIR/src/cell.rs
+$REPO_DIR/src/exchange.rs
+$REPO_DIR/src/carrier.rs
+$REPO_DIR/src/table.rs
+$REPO_DIR/src/table/state.rs
+$REPO_DIR/src/table/locator.rs
+$REPO_DIR/src/table/probe.rs
+$REPO_DIR/src/coord.rs
+$REPO_DIR/src/coord/address.rs
+$REPO_DIR/src/coord/locator.rs
+$REPO_DIR/src/coord/locator_core.rs
+$REPO_DIR/src/table/keyrep.rs
+$REPO_DIR/src/table/partition.rs
+$REPO_DIR/src/table/resources.rs
+$REPO_DIR/src/table/scan.rs
+$REPO_DIR/src/table/parallel.rs
+$EXTRACT_DIR/lib.rs
+"
+for f in $SOURCE_FILES; do
+    [ -f "$f" ] || { echo "missing extraction source: $f" >&2; exit 2; }
+done
+# shellcheck disable=SC2086
+sha256sum $SOURCE_FILES
 
 run_extract() {
     dest_dir=$1
     llbc=$2
+    # The reproducible historical configuration. The explicit
+    # monomorphizing candidate is withdrawn: it omits `--ops-to-function-calls` and
+    # `--index-to-function-calls`, which lower every array/slice index and repeat in the tree, so
+    # it rejects on `core::array::repeat` and `TArray`/`TSlice`. The preset translates the current
+    # source; see the anative-extraction-preset-probe note.
     "$CHARON" rustc \
         --preset aeneas \
         --dest-file "$llbc" \
@@ -78,11 +112,39 @@ run_extract() {
         --start-from crate::word_exchange_impulse \
         --start-from crate::word_elastic_exchange \
         --start-from crate::word_accept_derived_impulse \
-        --start-from crate::word_table_new \
-        --start-from crate::word_table_get \
-        --start-from crate::word_table_insert \
-        --start-from crate::word_table_insert_replacement \
-        --start-from crate::word_table_build \
+        --start-from crate::word_i64_codec_encode \
+        --start-from crate::word_i64_codec_decode \
+        --start-from crate::word_regen_hold \
+        --start-from crate::word_regen_matches \
+        --start-from crate::word_regen_key_owned \
+        --start-from crate::word_regen_address_held \
+        --start-from crate::word_stored_table_get_at \
+        --start-from crate::word_regen_table_get_at \
+        --start-from crate::word_stored_table_build_at \
+        --start-from crate::word_regen_table_build_at \
+        --start-from crate::word_stored_prepared_shard_get \
+        --start-from crate::word_stored_prepared_shard_apply \
+        --start-from crate::word_regen_prepared_shard_get \
+        --start-from crate::word_regen_prepared_shard_apply \
+        --start-from crate::word_stored_apply_get \
+        --start-from crate::word_stored_apply_insert \
+        --start-from crate::word_regen_apply_get \
+        --start-from crate::word_regen_apply_insert \
+        --start-from crate::word_schedule_is_complete \
+        --start-from crate::word_coord_finish \
+        --start-from crate::word_coord_spread \
+        --start-from crate::word_coord_unspread \
+        --start-from crate::word_coord_id \
+        --start-from crate::word_coord_place \
+        --start-from crate::word_stored_relocate_entry \
+        --start-from crate::word_regen_relocate_entry \
+        --start-from crate::word_stored_relocate_all \
+        --start-from crate::word_regen_relocate_all \
+        --start-from crate::word_stored_apply_pending_and_commit \
+        --start-from crate::word_regen_apply_pending_and_commit \
+        --start-from crate::word_stored_publish_prepared \
+        --start-from crate::word_regen_publish_prepared \
+        --start-from crate::word_capacity_bound_holds \
         -- \
         --edition 2021 \
         --crate-type lib \
@@ -91,6 +153,9 @@ run_extract() {
     "$AENEAS" -backend lean -dest "$dest_dir" -warnings-as-errors -no-progress-bar "$llbc"
     # Aeneas may leave blanks at line ends; normalize both regeneration and freshness output.
     sed -i 's/[[:blank:]]*$//' "$dest_dir/$GENERATED"
+    # The patched model defines the externals in `strip-modeled-axioms.py`; drop their stubs so the
+    # generated bodies resolve to the model. Any other axiom stays for `audit` to reject.
+    python3 "$PROOF_DIR/strip-modeled-axioms.py" "$dest_dir/$GENERATED"
 }
 
 audit() {

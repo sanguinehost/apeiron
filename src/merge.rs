@@ -41,9 +41,67 @@
 //! define the table's mutation or panic contract.
 //!
 //! ```
+//! use apeiron::coord::address::{
+//!     EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue,
+//!     WordFaceHome, H3_40,
+//! };
+//! use apeiron::table::{Home, TableAddress};
 //! use apeiron::Table;
+//! use apeiron::Sigma;
 //!
-//! let mut counts = Table::<u64, u32, _>::new(0, |k: &u64| *k);
+//! /// The named explicit home: physical placement plus the word semantic capability. The face
+//! /// map is derived from the key, never from the placement.
+//! #[derive(Clone, Copy)]
+//! struct WordKeyHome;
+//!
+//! impl Home<u64> for WordKeyHome {
+//!     fn home(&self, key: &u64) -> u64 {
+//!         *key
+//!     }
+//!
+//!     fn address(&self, _sigma: Sigma, key: &u64) -> TableAddress {
+//!         TableAddress {
+//!             place: self.home(key),
+//!             direct_word: None,
+//!         }
+//!     }
+//! }
+//!
+//! impl FaceResidueCapability<u64> for WordKeyHome {
+//!     fn parabolic_dual(&self, key: &u64) -> ParabolicDual {
+//!         WordFaceHome.parabolic_dual(key)
+//!     }
+//!
+//!     fn hyperbolic_scalar(&self, profile: H3_40, key: &u64) -> Residue {
+//!         WordFaceHome.hyperbolic_scalar(profile, key)
+//!     }
+//! }
+//!
+//! impl EllipticPacking<u64> for WordKeyHome {
+//!     fn elliptic_pack(&self, key: &u64) -> u64 {
+//!         WordFaceHome.elliptic_pack(key)
+//!     }
+//!
+//!     fn elliptic_unpack(&self, word: u64) -> Option<u64> {
+//!         WordFaceHome.elliptic_unpack(word)
+//!     }
+//! }
+//!
+//! impl FaceCoord<u64> for WordKeyHome {
+//!     type Faces = Sigma;
+//! }
+//!
+//! impl FaceHome<u64> for WordKeyHome {}
+//!
+//! // The explicit placement must be the home word, which is what makes the removal of the trait
+//! // default observable.
+//! for k in [7u64, 9] {
+//!     let address = Home::address(&WordKeyHome, Sigma::default(), &k);
+//!     assert_eq!(address.place, WordKeyHome.home(&k));
+//!     assert_eq!(address.direct_word, None);
+//! }
+//!
+//! let mut counts = Table::<u64, u32, WordKeyHome>::new(0, WordKeyHome);
 //! for k in [7, 7, 9] {
 //!     counts.insert_with(&apeiron::merge::count, k, 1).unwrap();
 //! }

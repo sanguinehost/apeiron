@@ -12,7 +12,7 @@ require apeironWordProof from ".."
 
 -- The canonical mathematical corpus at the exact revision refined by this bridge.
 require «apeiron» from git "git@github.com:sanguinehost/sanguine.git" @
-  "8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f" / "proof"
+  "3d66ea3aa2fe1de5997b6b757247454a2f771358" / "proof"
 
 -- Pin the same Mathlib revision as the corpus, last so this package's choice wins any transitive
 -- resolution. The corpus is no longer on a 4.30.0-rc2-era Mathlib.
@@ -20,11 +20,15 @@ require mathlib from git "https://github.com/leanprover-community/mathlib4.git" 
 
 @[default_target]
 lean_lib ApeironWordBridge where
-  roots := #[`WordRefinement, `TableRefinement, `TableRefinementGeneric,
-    `TableRefinementBuild, `TableRefinementAdmission, `TableRefinementBuildGeneric,
-    `TableRefinementReachablePrefixExactN, `TableRefinementAdmissionGeneric,
-    `TableRefinementPhysical, `TableRefinementPhysicalBuild, `AxiomAudit,
-    `Joint.TableInstance, `Joint.TableInstanceAudit, `Joint.WordBridge, `Slang.Audit.Empty,
+  -- The `TableRefinement*`, `TableRefinement/*`, and `Joint.TableInstance*` modules prove the
+  -- revision-bound fixed-shard layout. They remain on disk as historical evidence but are not
+  -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
+  roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
+    `Growable.Geometry, `Growable.Identity, `Growable.Scan, `Growable.Search,
+    `Growable.Relocation, `Growable.Refinement, `Growable.Resources, `Growable.Representation,
+    `Growable.Rebuild,
+    `AxiomAudit, `Joint.WordBridge,
+    `Slang.Audit.Empty,
     `Slang.Syntax, `Slang.Decode,
     `Slang.DecodeTest, `Slang.Word, `Slang.Machine, `Slang.MachineAudit,
     `Slang.Generated.Table, `Slang.Generated.TableDerivation,

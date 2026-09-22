@@ -21,9 +21,12 @@ claim's scope and trust boundary are in the [local boundary](../the design notes
 Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
 evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
 `R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
-addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
-refusal, `N = 0` refusal, no probing). Every executing face refines the canonical object; anything
-not rooted in it is not accepted. The canonical object is
+addressing correct per face, and the executing growable `Table`: a flat certified-coordinate
+resident area plus grouped spill regions, keyed by `(Sigma, K)` with `Stored`/`Regen` carriers. The
+historical fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull` refusal, `N = 0` refusal)
+and its bounded-admission proofs are revision-bound historical evidence, not proofs of the executing
+layout. Every executing face refines the canonical object; anything not rooted in it is not
+accepted. The canonical object is
 `Apeiron.Table.{HMap,get,insertWith,build}` and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
 bodies (`word_mul_denote`, `word_norm_denote`).
@@ -282,34 +285,101 @@ admission theorem. All headlines are `#audit`ed in
 `proof/corpus/AxiomAudit.lean`. The older concrete witnesses in `proof/corpus/TableRefinement.lean`
 remain at their stated scope.
 
+### Open obligations for the selected representation
+
+The growable flat/spill representation executes; its extraction and refinement integration wave is
+open. The fixed-shard word refinement above is revision-bound historical evidence. The revised
+dispatch order and the open lead decision are in the
+[local boundary](../the design notes). Open proof
+obligations retained here:
+
+- **Flat resident plus spill representation.** The the reviewer contract specifies a shard-major `256 × L`
+  flat area (`live` is the sole occupancy authority) beside independently load-sized grouped spill
+  regions (tags are the sole occupancy authority). Checked density and budget select flat residency;
+  exclusion spills rather than refusing. Extent growth reclassifies newly admitted spill keys by a
+  transactional rebuild. Composite `DirectCover`, unique representation and
+  `Site = FlatFound | FlatVacant | SpillFound | SpillVacant | NeedSpillGrowth` are open.
+- **Key representation.** `Stored<K>` retains `K`; sealed `Regen<C>` retains `u64`. Both preserve
+  `Sigma` separately. Regeneration requires the exact admitted-domain codec round trip and the
+  verified inverse of `Addr.id`, never `Addr.place`; `direct_word = Some(w)` alone cannot justify
+  dropping a key. These are open premises, not extracted facts.
+
+- **Extraction freshness.** The real `spread`/`finish` identity-word bodies, the `Stored`/`Regen`
+  carriers and the prepared/apply roots are on the extracted path; `proof/regen.sh --check`
+  re-extracts and fails on drift. Freshness must be re-established on one recorded source/tool
+  identity after a source change.
+- **Identity-injectivity integration.** Canonical odd-multiply injectivity at
+  `Apeiron/Table/WordIdentity.lean` (registered in `Audit.lean`) and the Rust refinement at
+  `proof/corpus/TableRefinement/CoordIdentity.lean` (`coord_spread_id_injective`) are present and
+  registered for audit; binding that chain to the selected source and the growable
+  search/relocation refinements remains open, and this chain must not enter `Slang.*`.
+- **Unextracted threading boundary.** `std::thread::scope` sits behind an unextracted orchestration
+  boundary; the extracted roots are the sequential partition, worker and assembly bodies. The
+  schedule obligation composes the implementation-specific per-key subsequence equation with
+  `Apeiron.Table.build_eq_of_key_streams_eq` and covers sequential worker semantics and schedule
+  preservation only. Rust thread memory semantics, exclusive-borrow realization, spawn/join failure,
+  panic propagation, liveness, allocator behaviour and rustc/LLVM codegen remain open.
+- **Resource/refusal contract.** Checked reservation/allocation failure is selected. Locate precedes
+  a complete checked plan and reservation of all fallible storage; initialization/relocation runs
+  without merge, merge runs exactly once, then commit occurs. `Err` changes no committed state and
+  runs no clone, merge or relocation. Allocator simulation and refusing witnesses remain open.
+- **Complete bridge set.** `Growable{Geometry,Directory,Identity,Scan,Search,Relocation,Refinement,
+  Witnesses,Schedule,Batch}` must carry the headlines, premises and canonical roots in the
+  [the reviewer contract](../docs/spec/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
+  Every implementation headline is an `anchor` until the real bodies are extracted, the bounded
+  bridge build passes, and `AxiomAudit.lean` accepts it under
+  `{propext, Classical.choice, Quot.sound}`. Stable partition and assembly must provide the exact
+  per-key value-subsequence premise of canonical `Apeiron.Table.build_eq_of_key_streams_eq`; grouped
+  readback and any partial reduction need their own order or merge law.
+- **Slang empty-cone separation.** The constructive Slang source-refinement chain requires an empty
+  axiom cone; the Rust/Aeneas bridge and the canonical corpus retain
+  `{propext, Classical.choice, Quot.sound}`. The two cones share no declarations, and a `ZMod`-based
+  bridge declaration is not importable into the empty-cone chain.
+
+Pending separate the reviewer adjudication: flat geometry and constructor joint witnesses; composite
+`DirectCover`, extent expansion, relocation and removal preservation; exact codec identity and
+`Sigma` separation; reachable first-empty-group certification and any change between historical
+variable-width and current seven-bit descent; stable partition/assembly; grouped readback and
+reduction laws; and allocation simulation, refusing branches, grades and audit coverage.
+
+“Formally verified end to end” for this table requires the real performance-bearing bodies from
+`src/` included by `#[path]`, generated-body refinement to
+`Apeiron.Table.{HMap,get,insertWith,build}`, a bounded `lake build`, fail-closed `AxiomAudit` under
+the Rust/canonical cone, `proof/regen.sh --check` freshness and mutation controls that fail before
+restore. It excludes allocator/global-allocator realization, thread/executor realization including
+`std::thread::scope`, rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The
+Slang chain remains separate under its empty-cone gate. the reviewer's verdict and this the reviewer record are
+`anchor`, not `proved`; REG-1/G1 remains **OPEN**, and this documentation task adds no `proved`,
+`tested` or `measured` claim.
+
 ```sh
 cd proof/corpus && lake build
 ```
 
 ### Corpus / toolchain compatibility
 
-The corpus is at Git `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`; the corpus and the bridge both pin
+The corpus is at Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`; the corpus and the bridge both pin
 Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`), the same backend the pinned Aeneas extraction uses.
 `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0`, so the bridge and the corpus resolve one
 revision.
 
 `proof/corpus/lakefile.lean` requires the corpus by Git at
-`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` with subdirectory `proof`; the generated manifest
+`3d66ea3aa2fe1de5997b6b757247454a2f771358` with subdirectory `proof`; the generated manifest
 records the same full input and resolved revisions. The bridge no longer reads the sibling corpus
 worktree. This revision retains the carrier results from `d9aefc93` and adds the table authorities
 read for this slice. The earlier commit adds
 `Apeiron.Physics.diffusiveUpdate_half_three_anyRing` (the any-ring three-cell half step, no energy
 claim), the real exact quarter-energy identity `dirichletEnergy_halfStep_three` and its strict form
 `dirichletEnergy_halfStep_three_lt`, and the audit registration for both. The scalar-kernel links
-the bridge composes (`CarrierScalarKernelAnyRing.lean` and its `Audit.lean` registration) landed
+the bridge composes (`Carrier/Derived/ScalarKernelAnyRing.lean` and its `Audit.lean` registration) landed
 earlier in `33bc96f6`. The bridge's generic authorities retained at `88866412` are:
 
 | corpus module | sha256 |
 | --- | --- |
 | `Apeiron/Physics/CarrierAnyRing.lean` | `bee50d1df59be11d7a41536e4c56ff284235cb32c16265e55ba0cfd4e7df2b79` |
 | `Apeiron/Physics/CarrierBodyWorkAnyRing.lean` | `ea3155611c61b7e4edcc26461ccbb9d238b0e8c24c74d921d39d3e1e8c3b34ac` |
-| `Apeiron/Physics/CarrierScalarKernelAnyRing.lean` | `4545466793c6fcc367e5d8367784c9cd9f0f0cbb8bdbc952e6aaac00d2853b29` |
+| `Apeiron/Physics/Carrier/Derived/ScalarKernelAnyRing.lean` | `4545466793c6fcc367e5d8367784c9cd9f0f0cbb8bdbc952e6aaac00d2853b29` |
 | `Apeiron/Physics/CarrierDissipation.lean` | `8d027a7c673af7f3bb0f7b3d56ad8b63ff94485caaa52e71d07fa152b816177d` |
 | `Apeiron/Trichotomy/AnyRing.lean` | `51cf1ceecd283771a4a5ae52be39150cc3d3e2ff3419906822a10a121eafffca` |
 
@@ -317,11 +387,11 @@ earlier in `33bc96f6`. The bridge's generic authorities retained at `88866412` a
 import it (it imports the `AnyRing` closure and the scalar-step links), so that row is provenance
 for the energy scope, not a bridge authority.
 
-The pin was checked with `lake build` in `proof/corpus`: it resolves corpus Git
+The prior pin was checked with `lake build` in `proof/corpus`: it resolves corpus Git
 `8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f` and completes 8881 jobs. A throwaway package with the
 same Git source and subdirectory but revision `0000000000000000000000000000000000000000` reaches
 checkout and exits 128, so an unresolvable corpus identity cannot fall back to local source; that
-control ran at the earlier pin. The current pin is verified by the 8881-job bridge build and the
+control ran at the earlier pin. That prior pin was verified by the 8881-job bridge build and the
 3503-job corpus audit on one source/tool identity.
 
 This is reproducible for a checkout with credentials for the configured private Git service. It is
@@ -456,7 +526,7 @@ the committed generated file are not modified for the control.
 
 For the shared-face orientation, swapping the two face arguments in the statement of
 `Apeiron.Physics.sum_scalarCarrierStep_eq` (outgoing at `i + 1` to incoming at `i`) in a throwaway
-copy of `CarrierScalarKernelAnyRing.lean` and elaborating it **fails** (the telescoping proof no
+copy of `Carrier/Derived/ScalarKernelAnyRing.lean` and elaborating it **fails** (the telescoping proof no
 longer matches), and the same swap breaks the downstream `scalarCarrierStep_total_mass`; the
 working file is not modified for the control.
 

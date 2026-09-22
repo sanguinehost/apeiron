@@ -21,10 +21,17 @@
 mod harnesses {
     use crate::carrier::{conservative_density_step, diffusive_flux_half};
     use crate::cell::{Cell, Sigma};
-    use crate::coord::{bucket, i21, Packed};
+    use crate::coord::address::{
+        EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue,
+        WordFaceHome, H3_40,
+    };
+    use crate::coord::{bucket, i21, spread, Packed};
     use crate::exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse};
     use crate::scalar::{Dyadic, Halve, Ring};
-    use crate::table::{Home, Merge, StorageError, Table, WordHome, WordMerge};
+    use crate::table::{
+        Home, Merge, SearchClass, SearchLocation, StorageError, Table, TableAddress, WordHome,
+        WordMerge,
+    };
 
     const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 
@@ -784,8 +791,9 @@ mod harnesses {
     // makes CBMC build a 256-way mux per access (718s and 1072s in the solver for two earlier
     // harnesses). The symbolic-key coverage is therefore split by what each layer can decide:
     //
-    // - `the_word_home_route_is_the_low_byte` states the real routing arithmetic over a symbolic
-    //   `i64` key, sharing the expression `WordHome::home` with the kernel.
+    // - `the_shard_selector_reads_the_direct_word_or_the_place` states the real routing selector,
+    //   `state::shard(&address)`, over a symbolic address and concrete keys on both sides of
+    //   `u32::MAX`.
     // - `a_reduced_shard_table_searches_symbolic_keys` runs the access path -- `home % SHARDS`,
     //   first-match slot scan, full-key equality, new-first merge -- in `MiniTable`, a reduced-width
     //   replica of the kernel. It is a model: a `table.rs` mutation is not observed there.
@@ -812,24 +820,76 @@ mod harnesses {
         assert!(((home % 256) as usize) < 256);
     }
 
-    /// The real `WordHome` route is the low byte of the key word, for every key.
+    /// The kernel's shard selector is `state::shard(&address)`, not `WordHome::home`.
     ///
-    /// `Table::shard_index` is `home(key) % 256`, and `WordHome::home` is the key's bit pattern.
-    /// Over two symbolic `i64` keys this states the routing arithmetic the real kernel performs:
-    /// the residue is the low byte, it is below the shard count, and two keys route together
-    /// exactly when their low bytes agree. It is the `% 256` expression that `MiniTable`'s
-    /// `% SHARDS` reduces and that the concrete-key table harnesses exercise end to end.
+    /// `shard` reads `address.direct_word` when the placement produced one (a key at most
+    /// `u32::MAX`, so the raw word's low shard bits) and `address.place` otherwise
+    /// (`src/table/state.rs:325-329`). `WordHome.home` is `spread(word).place` and is consumed only
+    /// on the `place` branch, so a `home == address.place` check states the wrong selector. The
+    /// symbolic address bounds the selector; the concrete keys straddle `u32::MAX` so both branches
+    /// are taken; the result is face-independent for the current `WordHome`.
     #[kani::proof]
-    fn the_word_home_route_is_the_low_byte() {
-        let a: i64 = kani::any();
-        let b: i64 = kani::any();
-        assert_eq!(WordHome.home(&a) % 256, (a as u64) & 0xff);
-        assert!((WordHome.home(&a) % 256) < 256);
-        assert_eq!(
-            WordHome.home(&a) % 256 == WordHome.home(&b) % 256,
-            (a as u64) & 0xff == (b as u64) & 0xff,
-            "two keys route together exactly when their low bytes agree"
+    fn the_shard_selector_reads_the_direct_word_or_the_place() {
+        let place: u64 = kani::any();
+        let direct_word: Option<u32> = kani::any();
+        let symbolic = TableAddress { place, direct_word };
+        let shards = crate::table::partition::SHARDS;
+        assert!(
+            crate::table::shard(&symbolic) < shards,
+            "the selector is a residue below the shard count"
         );
+        assert_eq!(
+            crate::table::shard(&symbolic),
+            (direct_word.map_or(place, u64::from) as usize) & (shards - 1),
+            "the selector is the direct word when present, else the place, masked"
+        );
+
+        for key in [
+            0i64,
+            1,
+            7,
+            65535,
+            (1i64 << 32) - 1,
+            1i64 << 32,
+            -1,
+            i64::MAX,
+            i64::MIN,
+        ] {
+            let bits = key.cast_unsigned();
+            let parabolic = Home::address(&WordHome, Sigma::Parabolic, &key);
+            let hyperbolic = Home::address(&WordHome, Sigma::Hyperbolic, &key);
+            assert_eq!(
+                parabolic, hyperbolic,
+                "the address is face-independent for {key}"
+            );
+            assert_eq!(
+                parabolic.place,
+                spread(bits).place,
+                "the place is the spread word for {key}"
+            );
+            if bits <= u64::from(u32::MAX) {
+                assert_eq!(
+                    parabolic.direct_word,
+                    Some(bits as u32),
+                    "a key at most u32::MAX carries its direct word, {key}"
+                );
+                assert_eq!(
+                    crate::table::shard(&parabolic),
+                    (bits as usize) & (shards - 1),
+                    "the direct branch selects the raw low shard bits for {key}"
+                );
+            } else {
+                assert_eq!(
+                    parabolic.direct_word, None,
+                    "a key above u32::MAX carries no direct word, {key}"
+                );
+                assert_eq!(
+                    crate::table::shard(&parabolic),
+                    (spread(bits).place as usize) & (shards - 1),
+                    "the place branch selects the placement's low shard bits for {key}"
+                );
+            }
+        }
     }
 
     /// A constant home: every key routes to shard `0`.
@@ -843,7 +903,49 @@ mod harnesses {
         fn home(&self, _key: &i64) -> u64 {
             0
         }
+
+        fn address(&self, _sigma: Sigma, key: &i64) -> TableAddress {
+            TableAddress {
+                place: self.home(key),
+                direct_word: None,
+            }
+        }
     }
+
+    // The explicit I3-A capability: the semantic face is the word encoding derived from the key,
+    // never the constant physical placement. `Faces = Sigma`, so exact packing is supplied too.
+    //
+    // These are fixtures for the access path, not the kernel: they must be total for the trait
+    // bounds, and they must not do a 64-bit multiply on a symbolic key. CBMC does not decide the
+    // face/residue arithmetic over a symbolic `i64` in bounded time (`spread`'s widening multiply,
+    // measured: a symbolic-key call alone exceeds 200s), so the capability is key-independent here
+    // and the arithmetic is the kernel's `word_mul`/`word_norm`, proved in Lean. `home`/`address`
+    // are the only methods the table access path consumes.
+    impl FaceResidueCapability<i64> for ConstZeroHome {
+        fn parabolic_dual(&self, _key: &i64) -> ParabolicDual {
+            WordFaceHome.parabolic_dual(&0i64)
+        }
+
+        fn hyperbolic_scalar(&self, profile: H3_40, _key: &i64) -> Residue {
+            WordFaceHome.hyperbolic_scalar(profile, &0i64)
+        }
+    }
+
+    impl EllipticPacking<i64> for ConstZeroHome {
+        fn elliptic_pack(&self, _key: &i64) -> u64 {
+            0
+        }
+
+        fn elliptic_unpack(&self, _word: u64) -> Option<i64> {
+            Some(0)
+        }
+    }
+
+    impl FaceCoord<i64> for ConstZeroHome {
+        type Faces = Sigma;
+    }
+
+    impl FaceHome<i64> for ConstZeroHome {}
 
     /// A real-table read/write round-trip over a **symbolic** key in one concrete shard.
     ///
@@ -857,9 +959,10 @@ mod harnesses {
     ///
     /// **Not covered:** the routing from a symbolic key to its shard, which needs a symbolic index
     /// into the real 256-entry array. It is stated arithmetically by
-    /// `the_word_home_route_is_the_low_byte` and modelled by
+    /// `the_shard_selector_reads_the_direct_word_or_the_place` and modelled by
     /// `a_reduced_shard_table_searches_symbolic_keys`.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_symbolic_key_round_trips_a_present_key() {
         let key: i64 = kani::any();
         kani::assume(key != 0);
@@ -880,7 +983,42 @@ mod harnesses {
         fn home(&self, _key: &i8) -> u64 {
             0
         }
+
+        fn address(&self, _sigma: Sigma, key: &i8) -> TableAddress {
+            TableAddress {
+                place: self.home(key),
+                direct_word: None,
+            }
+        }
     }
+
+    // The byte-width explicit I3-A capability. `WordFaceHome` has no `i8` instance, so the word
+    // map is written out on the key's two's-complement bit pattern.
+    impl FaceResidueCapability<i8> for ConstZeroHomeI8 {
+        fn parabolic_dual(&self, key: &i8) -> ParabolicDual {
+            ParabolicDual::new(spread(u64::from(key.cast_unsigned())).place, 0)
+        }
+
+        fn hyperbolic_scalar(&self, profile: H3_40, key: &i8) -> Residue {
+            Residue::reduce(profile, u64::from(key.cast_unsigned()))
+        }
+    }
+
+    impl EllipticPacking<i8> for ConstZeroHomeI8 {
+        fn elliptic_pack(&self, key: &i8) -> u64 {
+            <i8 as Packed>::packed(key)
+        }
+
+        fn elliptic_unpack(&self, word: u64) -> Option<i8> {
+            Some(<i8 as Packed>::unpack(word))
+        }
+    }
+
+    impl FaceCoord<i8> for ConstZeroHomeI8 {
+        type Faces = Sigma;
+    }
+
+    impl FaceHome<i8> for ConstZeroHomeI8 {}
 
     struct ByteMerge;
 
@@ -902,6 +1040,7 @@ mod harnesses {
     /// **Not covered:** the routing from a symbolic key to its shard, and any key wider than a
     /// byte; the `i64` path is `table_symbolic_key_round_trips_a_present_key` (one symbolic key).
     #[kani::proof]
+    #[kani::unwind(1025)]
     fn table_symbolic_byte_keys_fill_one_shard() {
         let (k0, k1, k2, k3): (i8, i8, i8, i8) =
             (kani::any(), kani::any(), kani::any(), kani::any());
@@ -1091,8 +1230,9 @@ mod harnesses {
     /// so this is a bounded check of the access path rather than a universal one; the universal
     /// statement is `the_shard_index_is_a_residue_below_the_shard_count`.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_fresh_read_is_the_default_for_every_key() {
-        let table = Table::<i64, i64, WordHome, 4>::new(7, WordHome);
+        let table = Table::<i64, i64, WordHome, 1>::new(7, WordHome);
         for key in [0i64, 1, 255, 256, 299, -1, i64::MAX, i64::MIN] {
             assert_eq!(*table.get(&key), 7, "fresh read at {key}");
         }
@@ -1105,18 +1245,20 @@ mod harnesses {
     /// with a symbolic value: a loop of keys multiplies the symbolic table state and the solver
     /// cost with it, and the same-shard read is `table_default_is_returned_for_a_key_never_written`.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_insert_then_get_round_trips_a_present_key() {
         let value: i64 = kani::any();
-        let mut table = Table::<i64, i64, WordHome, 4>::new(0, WordHome);
+        let mut table = Table::<i64, i64, WordHome, 1>::new(0, WordHome);
         table.insert_with(&WordMerge, 7, value).unwrap();
         assert_eq!(*table.get(&7), value);
     }
 
     /// A second write to the same key is `merge(new, stored)`, including the default on the first.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_update_merges_new_with_the_stored_value() {
         let (first, second): (i64, i64) = (kani::any(), kani::any());
-        let mut table = Table::<i64, i64, WordHome, 4>::new(0, WordHome);
+        let mut table = Table::<i64, i64, WordHome, 1>::new(0, WordHome);
         table.insert_with(&WordMerge, 7, first).unwrap();
         table.insert_with(&WordMerge, 7, second).unwrap();
         assert_eq!(*table.get(&7), second.wrapping_add(first));
@@ -1127,8 +1269,9 @@ mod harnesses {
     /// Full-key equality, not shard equality, is the decision; a table that answered from the shard
     /// alone would return the wrong value here. `0` and `256` share shard 0.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_default_is_returned_for_a_key_never_written() {
-        let mut table = Table::<i64, i64, WordHome, 4>::new(9, WordHome);
+        let mut table = Table::<i64, i64, WordHome, 1>::new(9, WordHome);
         table.insert_with(&WordMerge, 0, 1).unwrap();
         assert_eq!(
             *table.get(&0),
@@ -1139,27 +1282,33 @@ mod harnesses {
         assert_eq!(*table.get(&1), 9, "a key on another shard");
     }
 
-    /// A refusal changes nothing: the resident key keeps its value and the refused key reads the
-    /// default.
+    /// An invalid group width is refused transactionally; nothing is published.
     ///
-    /// `0` and `256` have the same low eight bits, hence the same shard; with one slot per shard
-    /// the second insert is refused.
+    /// `valid_n` requires a nonzero power of two at most `MAX_GROUP` (64), so `N = 3` is rejected
+    /// before addressing or merging (`src/table.rs:1435`). The growable shard does not return
+    /// `ShardFull` (that variant is compatibility-only); the cheap real refusal at this width is
+    /// `SizeOverflow`, and the panicking merge proves none ran.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_refusal_leaves_the_table_unchanged() {
-        let mut table = Table::<i64, i64, WordHome, 1>::new(5, WordHome);
-        table.insert_with(&WordMerge, 0, 2).unwrap();
-        let result = table.insert_with(&WordMerge, 256, 3);
-        assert_eq!(result, Err(StorageError::ShardFull));
-        assert_eq!(*table.get(&0), 7);
-        assert_eq!(*table.get(&256), 5);
+        let mut table = Table::<i64, i64, WordHome, 3>::new(5, WordHome);
+        let result = table.insert_with(&|_, _| panic!("merge on refusal"), 0, 2);
+        assert_eq!(result, Err(StorageError::SizeOverflow));
+        assert_eq!(*table.get(&0), 5, "the refused insert published nothing");
     }
 
-    /// Zero capacity refuses every insertion, without invoking the merge.
+    /// An invalid group width refuses every insertion, without invoking the merge.
+    ///
+    /// `N = 0` is not a valid group width (`valid_n` requires a nonzero power of two), so
+    /// `insert_with_at` returns `SizeOverflow` before it addresses the key (`src/table.rs:1435`).
+    /// `ShardFull` is compatibility-only (`src/table.rs:89`); the growable shard expands rather
+    /// than filling. The merge is never called, which the panicking closure would show.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_zero_capacity_refuses_without_merging() {
         let mut table = Table::<i64, i64, WordHome, 0>::new(4, WordHome);
         let result = table.insert_with(&|_, _| panic!("merge on refusal"), 0, 1);
-        assert_eq!(result, Err(StorageError::ShardFull));
+        assert_eq!(result, Err(StorageError::SizeOverflow));
         assert_eq!(*table.get(&0), 4);
     }
 
@@ -1189,11 +1338,12 @@ mod harnesses {
     /// **Not covered:** a symbolic key, a symbolic shard count or a refusal inside `build`; the
     /// two-shard layout and the stream are concrete so the ordered fold is checked exactly.
     #[kani::proof]
+    #[kani::unwind(257)]
     fn table_build_folds_a_multi_key_stream_in_order() {
         let (a, b, c): (i64, i64, i64) = (kani::any(), kani::any(), kani::any());
         let stream = [(0i64, a), (1i64, b), (0i64, c)];
         let table =
-            Table::<i64, i64, _, 2>::build(&NewFirstDifference, 10, &stream, WordHome).unwrap();
+            Table::<i64, i64, _, 1>::build(&NewFirstDifference, 10, &stream, WordHome).unwrap();
         assert_eq!(
             *table.get(&0),
             c.wrapping_sub(a.wrapping_sub(10)),
@@ -1204,6 +1354,72 @@ mod harnesses {
             b.wrapping_sub(10),
             "the distinct key must fold once against the default"
         );
+    }
+
+    /// The real decision loop classifies every query in a two-lane, one-shard spill state.
+    ///
+    /// `ConstZeroHome` is placement-only, so there is no direct candidate and every key uses shard
+    /// zero with the same tag and probe order. At `N = 1`, the first growth creates exactly two
+    /// lanes. The first absent query selects lane one; after that lane is filled, a symbolic query
+    /// from `{7, 8, 9}` must identify the exact stored lane or report well-formed exhaustion.
+    /// This checks the production `search_decision`/`spill_locate` body, not a search model.
+    ///
+    /// The total default is `-1` and `WordMerge` is new-first wrapping addition, so a first write of
+    /// value `v` stores `merge(v, -1) = v.wrapping_sub(1)`; the reads expect that, not `v`.
+    ///
+    /// `#[kani::unwind]` sets one global bound for every loop in the harness, so the bound is not
+    /// the scan width alone. `spill_locate` calls `scan::match_tag`/`scan::match_empty` with the
+    /// per-group width `n = N = 1` (two lanes total at `N = 1`), so a scan loop runs at most two
+    /// iterations. The floor is the fixed `Table::new` construction loop over `SHARDS = 256`
+    /// (`src/table/partition.rs`), which every table constructor runs: `N = 256 + 1 = 257`. The
+    /// `+ 1` is the unwinding assertion's extra unrolling after the last body iteration. The table
+    /// geometry is unchanged at `N = 1`.
+    #[kani::proof]
+    #[kani::unwind(257)]
+    fn search_decision_classifies_a_bounded_two_lane_spill() {
+        let first: i64 = kani::any();
+        let second: i64 = kani::any();
+        let mut table = Table::<i64, i64, ConstZeroHome, 1>::new(-1, ConstZeroHome);
+
+        let empty = table.search_decision_at(Sigma::Parabolic, &7);
+        assert_eq!(empty.class, SearchClass::Exhausted);
+        assert_eq!(empty.location, SearchLocation::NoIndex);
+
+        table.insert_with(&WordMerge, 7, first).unwrap();
+        let found_first = table.search_decision_at(Sigma::Parabolic, &7);
+        assert_eq!(found_first.class, SearchClass::Found);
+        assert_eq!(found_first.location, SearchLocation::Spill(0, 0));
+        let first_vacancy = table.search_decision_at(Sigma::Parabolic, &8);
+        assert_eq!(first_vacancy.class, SearchClass::Vacant);
+        assert_eq!(first_vacancy.location, SearchLocation::Spill(0, 1));
+
+        table.insert_with(&WordMerge, 8, second).unwrap();
+        let query: i64 = kani::any();
+        kani::assume((7..=9).contains(&query));
+        let decision = table.search_decision_at(Sigma::Parabolic, &query);
+        match query {
+            7 => {
+                assert_eq!(decision.class, SearchClass::Found);
+                assert_eq!(decision.location, SearchLocation::Spill(0, 0));
+                assert_eq!(
+                    *table.get_at(Sigma::Parabolic, &query),
+                    first.wrapping_sub(1)
+                );
+            }
+            8 => {
+                assert_eq!(decision.class, SearchClass::Found);
+                assert_eq!(decision.location, SearchLocation::Spill(0, 1));
+                assert_eq!(
+                    *table.get_at(Sigma::Parabolic, &query),
+                    second.wrapping_sub(1)
+                );
+            }
+            _ => {
+                assert_eq!(decision.class, SearchClass::Exhausted);
+                assert_eq!(decision.location, SearchLocation::NoIndex);
+                assert_eq!(*table.get_at(Sigma::Parabolic, &query), -1);
+            }
+        }
     }
 
     // ── the exchange and the carrier step ─────────────────────────────────────────────────────

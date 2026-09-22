@@ -1,7 +1,8 @@
 # apeiron
 
-`R[x]/(x^2 - sigma)`: one two-slot algebra over a commutative ring, and one corpus-specified
-fixed-shard table.
+`R[x]/(x^2 - sigma)`: one two-slot algebra over a commutative ring, and one corpus-specified table
+whose executing representation is the growable flat/spill `Table`; its earlier fixed-shard form is
+revision-bound historical evidence.
 
 Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
 programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
@@ -19,9 +20,11 @@ pins; theorem names in the source doc comments resolve there. Rust representatio
 Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
 evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
 `R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
-addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
-refusal, `N = 0` refusal, no probing). Every executing face refines the canonical object; anything
-not rooted in it is not accepted. The canonical object is
+addressing correct per face, and the executing growable `Table`: a flat certified-coordinate resident
+area plus grouped spill regions, keyed by `(Sigma, K)` with `Stored`/`Regen` carriers. The historical
+fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull` refusal, `N = 0` refusal, no probing)
+and its bounded-admission proofs are revision-bound historical evidence, not proofs of the executing
+layout. Every executing face refines the canonical object; anything not rooted in it is not accepted. The canonical object is
 `Apeiron.Table.{HMap,get,insertWith,build}` and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
 bodies (`word_mul_denote`, `word_norm_denote`).
@@ -76,13 +79,18 @@ idempotent constructions `idem_plus`, `idem_minus` and `of_halves` require `R: H
 
 ## The table
 
-`Table<K, V, H, const N: usize = 16>` (`src/table.rs`) is the sole storage type. Storage is inline:
-an outer `[Option<[Option<(K, V)>; N]>; 256]`, 256 fixed shards each an optional length-`N` array.
-An outer `None` is an untouched empty shard; the table owns no `Vec` or heap-backed storage. Generic
-`Home`/`Eq`/`Clone`/`Merge`/drop operations may allocate, panic or diverge, and stack availability
-for the inline object is not proved.
-`H: Home<K>` selects placement (`WordHome` uses the word bit pattern) and `F: Merge<V>` combines
-new-first (`WordMerge` is wrapping addition).
+The executing representation is the growable `Table<K, V, H, const N: usize = 16, R = Stored<K>>`
+(`src/table.rs`): a flat certified-coordinate resident area plus grouped spill regions, keyed by
+`(Sigma, K)` with `Stored`/`Regen` carriers. `H: Home<K>` selects placement and an optional certified
+coordinate (`WordHome` uses the word bit pattern) and `F: Merge<V>` combines new-first (`WordMerge` is
+wrapping addition). `get`/`insert_with`/`build` use the default face; `get_at`/`insert_with_at`/
+`build_at` take `Sigma` explicitly. Generic `Home`/`Eq`/`Clone`/`Merge`/drop operations may allocate,
+panic or diverge.
+
+The historical fixed-shard `Table<K, V, H, const N: usize = 16>` stored an inline
+`[Option<[Option<(K, V)>; N]>; 256]` — 256 fixed shards, each an optional length-`N` array, with no
+`Vec` — and its `Rep` invariant and bounded-admission proofs are revision-bound historical evidence.
+Stack availability for that inline object was not proved.
 
 Public API:
 
@@ -91,17 +99,22 @@ Public API:
 | `new(default, home)` | empty table; every key reads the default |
 | `get(&K) -> &V` | the stored override, or the default; total for every key |
 | `insert_with(&F, k, v) -> Result<(), StorageError>` | applies `merge(v, old)`, including the default on the first write |
-| `build(&F, default, kvs, home) -> Result<Self, StorageError>` | applies the stream in order; no partial table on refusal |
+| `build(&F, default, kvs, home) -> Result<Self, StorageError>` | applies each key's stream in order; no partial table on refusal |
 
-Admission and refusal are explicit. `insert_with` returns `Err(StorageError::ShardFull)` exactly
-when the key is absent and its home shard has no vacant slot; refusal invokes neither clone nor merge
-and changes no field, while an existing key still updates in a full shard. `N = 0` is valid: reads
-return the default and every insertion refuses. `build` returns no partial table on refusal and
-preserves per-key stream order. `tests/table.rs` covers the total default read, new-first
-replacement and build order; the `src/table.rs` unit tests cover full-shard refusal with an unchanged
-table, existing-key update, `N = 0`, and that refusal does not invoke merge.
+Admission and refusal are explicit. The growable table returns
+`Err(StorageError::SizeOverflow)` on a checked-sizing failure and
+`Err(StorageError::AllocationFailed)` when reservation fails; `Err` changes no committed field and
+runs no clone or merge, and `build` returns no partial table. `StorageError::ShardFull` is a
+compatibility variant the growable table does not return. The historical fixed-shard table refused
+with `ShardFull` exactly when the key was absent and its home shard had no vacant slot; refusal
+invoked neither clone nor merge and changed no field, while an existing key still updated in a full
+shard, and `N = 0` kept reads total and refused every write. `tests/table.rs` covers the total
+default read, new-first replacement, per-key stream order, checked group-width refusal with an
+unchanged table, growth past the historical fixed ceiling, `Sigma` separation and the
+`Stored`/`Regen` round trips.
 
-The table is tested. The generated generic refinement covers arbitrary `Table<K,V,H,N>` instances
+The historical fixed-shard table is tested and refined at its revision. The generated generic
+refinement covers arbitrary `Table<K,V,H,N>` instances
 whose equality, clone, home and merge callbacks satisfy `CallbackLawsG`; the laws state their total,
 stable denotations rather than assuming them from Rust trait names. For the concrete `I64` word instance (`EqI64`, `CloneI64`,
 `WordHome`, wrapping-add `WordMerge`) the real constructor establishes `PhysicalInv` at every `N`;
@@ -114,7 +127,8 @@ and success establishes canonical ordered `ReadRep` and `PhysicalInv` through
 (`wordBuildN_zero_ok_iff_empty`). Generic insertion preserves `PhysicalInvG` under
 `CallbackInsertPostG`; admitted builds preserve `PhysicalInvG`, with exact zero-capacity behavior
 and an all-`N` sufficient routed-key admission theorem. The joint replacement-map profile remains the concrete `N = 16`
-instance. Evidence and the open obligations are in
+instance. These results are revision-bound historical evidence about the fixed-shard layout, not
+proofs of the executing growable table. Evidence and the open obligations are in
 [proof/README.md](proof/README.md) and the [local boundary](the design notes). No current
 table benchmark or performance claim is made; the removed `Map`/`CountTable`/`Set` measurements and
 their benches concerned source that no longer exists, and the deletions are recorded at the
