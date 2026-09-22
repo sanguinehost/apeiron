@@ -1,6 +1,6 @@
 import TableRefinementAdmissionGeneric
 
-/-! # Replacement-map instance of the executing word table -/
+/-! # Replacement-map instance of the historical fixed-shard word table -/
 
 namespace Apeiron.Joint.TableInstance
 
@@ -20,7 +20,7 @@ def replacementMerge : table.Merge Unit I64 :=
     table.ReplacementMerge.Insts.Apeiron_wordTableMergeI64.merge () new old = ok new := by
   rfl
 
-/-- The executing callback computes the selected new-first replacement function. -/
+/-- The historical fixed-shard callback computes the selected new-first replacement function. -/
 theorem replacementMerge_spec (new old : I64) :
     replacementMerge.merge () new old = ok new := by
   rfl
@@ -28,14 +28,14 @@ theorem replacementMerge_spec (new old : I64) :
 /-- The canonical merge selected by the replacement-map profile. -/
 def replacement (new _old : I64) : I64 := new
 
-/-- The executing instance remains the generated fixed-shard word table at `N = 16`. -/
+/-- The historical fixed-shard instance is the generated word table at `N = 16`. -/
 abbrev ReplacementTable := WordTable
 
-/-- Read/representation relation at the executing replacement-map instance. -/
+/-- Read/representation relation at the historical replacement-map instance. -/
 def ReplacementReadRep (t : ReplacementTable) (h : HMap I64 I64) : Prop :=
   ReadRepG core.cmp.EqI64 table.WordHome.Insts.Apeiron_wordTableHomeI64 t h
 
-/-- The instance relation is the established executing-read relation, not the open physical `Rep`. -/
+/-- The instance relation is the established read relation, not the open physical `Rep`. -/
 theorem replacementReadRep_iff_readRep (t : ReplacementTable) (h : HMap I64 I64) :
     ReplacementReadRep t h ↔ ReadRep t h := by
   rfl

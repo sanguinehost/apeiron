@@ -40,11 +40,20 @@
 //! |---|---|---|
 //! | elliptic (*regenerated*) | the address *determines* the key -- nothing is degenerate | a bijection: [`pack`], and it refuses keys too wide to fit |
 //! | parabolic (*carried*) | the address need not determine the key, which is carried beside it | any spreading fold; misses are caught by comparing the stored key |
-//! | hyperbolic (*discarded*) | the address is a discard, and the key is gone | a scrambler, judged on *distribution*, never on injectivity |
+//! | hyperbolic (*discarded*) | the address is a discard; the key is retained, or replaced by an independently lossless codec | a scrambler, judged on *distribution*, never on injectivity |
 //!
 //! So injectivity is a requirement on one face, a non-requirement on the second, and impossible
 //! on the third. A single fold cannot be right for all three, and measuring "the" collision rate
 //! is measuring three different things at once.
+
+// The explicit path makes this file's child resolve from `src/coord/` both for the crate and when
+// Charon includes `src/coord.rs` through `proof/extract/lib.rs`, matching `src/table.rs`.
+#[path = "coord/address.rs"]
+pub mod address;
+// The explicit path keeps the child resolving from `src/coord/` both for the crate and when
+// Charon includes `src/coord.rs`, matching `address`.
+#[path = "coord/locator.rs"]
+pub mod locator;
 
 /// The golden-ratio odd multiplier. Odd, so multiplication by it is a bijection on `Z/2^64`.
 pub const PHI: u64 = 0x9E37_79B9_7F4A_7C15;

@@ -8,6 +8,10 @@ but does not dispatch an entire repository, and those local gates stay owned the
 
 ## Canonical root and scope
 
+The [single R0 chain](direction.md#thesis) governs: historical hashtrinity/fold, spinor/affine
+collapse law, Table ordered fold, SKI/derived-Iota translation and Rust/Song/Slang execution are
+layers of one admitted primitive. Local proofs do not establish the missing connecting theorem.
+
 The canonical object is `Apeiron.Table.{HMap,get,insertWith,build}` and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
 bodies `word_mul_denote` and `word_norm_denote`; the dotted roots are `Apeiron.Table.HMap`,
@@ -25,8 +29,9 @@ on the binned routes until their retirement.
 Extraction and the named word-kernel refinements are done at their stated scopes. `word_mul_denote`
 and `word_norm_denote` quantify over every `Cell<I64>` input and dial under the `ZMod (2^64)`
 denotation; partial carrier kernels retain their named success and refusal premises. The fixed-line
-carrier refinement is closed at its stated scope. The real `Table` bodies are extracted, and the
-generated table refinement covers arbitrary callbacks satisfying `CallbackLawsG`: the constructor
+carrier refinement is closed at its stated scope. The historical fixed-shard `Table` bodies are
+extracted, and its generated table refinement covers arbitrary callbacks satisfying `CallbackLawsG`:
+the constructor
 establishes `PhysicalInvG`; admitted `insert_with` and build preserve it; the concrete word instance preserves
 `PhysicalInv` and canonical `insertWith` on success and returns the identical representative on
 `ShardFull`, with exact refusal at `N = 0`; for positive `N`, `BuildAdmissibleN` exactly
@@ -36,6 +41,206 @@ zero-capacity build. The release identity is in
 [proof/README.md](../proof/README.md); the run narrative is in
 [autonomous-run-log.md](autonomous-run-log.md). A source-proof run log is historical evidence, not
 fresh acceptance.
+
+The executing representation is the growable flat/spill `Table` in `src/table.rs`: one kernel with
+two concrete storage faces (`Stored<K>`, `Regen<C>`), a flat certified-coordinate resident area and
+grouped spill regions, keyed by `(Sigma, K)`. The fixed-shard `Table<K, V, H, N>` and its
+bounded-admission proofs are revision-bound historical evidence; the growable extraction/refinement
+integration wave remains open. The fixed-shard table fails performance-preserving
+consolidation on the measured full16/direct-index-resident boundary; it is not accepted as the final
+migrated primitive solely because proofs exist. This is not a universal slowdown claim: offset
+coordinates give different results. G1/REG-1 remains OPEN on the fresh strict full-profile run
+([receipt](evidence/perf-remeasure-2026-09-19.md), sha256 `e164f808…`, superseding the stale
+figures): the HEADLINE is `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572
+missing=0 concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`, exit 1. The
+pathological cells are the spill absent-miss distributions (worst `apeiron_table`/`hashbrown_fxhash`
+`occ16-seeded-random-absent-miss-replacement`, median ratio 373.8538, interval max 375.1818) and the
+resident growth-insert cells (worst `apeiron_table`/`hashtrinity_table`
+`occ16-direct-index-resident-growth-insert-replacement`, median ratio 231.8779); the resident
+direct-index healthy cells are not pathological (present-hit 3.3860x and absent-miss 4.6780x versus
+serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band). No speed recovery is
+claimed. That receipt binds `examples/reg1/acceptance.rs` sha256 `f0f9aff0…` and `src/table.rs`
+sha256 `a89e9ec7…`; the current tree carries the T1 registry (`examples/reg1/acceptance.rs` sha256
+`d2f8c034…`) and a post-receipt spill/growth fix (`src/table.rs` sha256 `79621926…`), so the receipt
+is the last strict full-profile result but not a measurement of the current identity. The
+re-anchored performance workstream in the barrier section continues: comparison coverage is repaired
+(T1) and the combined `get_each` arm is now `concurrency_unmatched`; serial direct-path overhead and
+spatial recovery on disjoint paths remain — with `W7-SearchCommitBoundary` frozen.
+
+The per-entry relocation step is extracted and proved for both carriers and both destinations:
+`word_stored_relocate_entry` and `word_regen_relocate_entry` are rooted in the fresh
+`proof/ApeironWord.lean`, and `proof/corpus/Growable/Relocation.lean` proves
+`word_stored_relocate_entry_flat_preserves`, `word_regen_relocate_entry_flat_preserves`,
+`word_stored_relocate_entry_spill_preserves` and `word_regen_relocate_entry_spill_preserves` under the
+closed cone, with `nested_region_set_readback`/`nested_region_payload_set_readback` carrying the
+nested spill `Vec::set` readback, all registered in `proof/corpus/AxiomAudit.lean`; the spill-tag
+mutation `tag(address.place) -> 0` is red and the restored source green. The traversal skeleton and
+the commit equation are now proved in the same closed cone:
+`proof/corpus/Growable/Relocation.lean` proves `word_stored_relocate_all_preserves` and
+`word_regen_relocate_all_preserves` (the rooted traversal preserves any initially-established,
+per-entry-preserved invariant; no callback argument), and `proof/corpus/Growable/Refinement.lean`
+(now a `lakefile.lean` root) proves `word_stored_apply_pending_and_commit_eq_apply_insert` and
+`word_regen_apply_pending_and_commit_eq_apply_insert` (the commit root equals the ordinary extracted
+`apply_insert` on `rebuiltView` under the input-side carrier equation `hhold`), all registered in
+`proof/corpus/AxiomAudit.lean` and building under the closed cone (`lake build` 3471 jobs;
+`Growable/Relocation.lean` sha256 `0604166a…`, `Growable/Refinement.lean` sha256 `3e21b9de…`). The
+rejecting control runner
+`proof/controls/relocation.sh` (receipt `docs/evidence/relocation-controls.md`) exercises that
+mutation: step 2 reddens the four spill headlines and the restored source rebuilds green; the default
+baseline and restored freshness steps are green on the landed `proof/ApeironWord.lean`. Run the
+control standalone (`bash proof/controls/relocation.sh`): it acquires `/tmp/opencode/apeiron-lane.lock`
+itself, so do not wrap it in `flock`. The runner is hardened
+(`APEIRON-EXTRACT-REP-RELOCATION-CONTROL-T2`): the whole-repo `rsync` is replaced by a bounded
+`cp -a` (`T_COPY=120`s), every step carries a timeout, the lane lock is an inherited file descriptor
+rather than a child `flock` process, the default run is the freshness step only, and
+`RELOCATION_CONTROL_HEAVY=1` adds the semantic corpus build; the recorded root cause is whole-repo
+`rsync` under `btrfs-cleaner` I/O pressure leaving an orphan lock holder. `Table::relocate_all` and
+`Table::apply_pending_and_commit` are production-factored and production-called by
+`Table::apply_prepared_rebuild` (`relocate_entry` unchanged). Option (b) is implemented in
+`src/table.rs` sha256 `2a60a19d…`: `Table::apply_pending_and_commit<F: Merge<V>>` consumes the
+precomputed `SearchDecision`, `Table::locate_rebuilt` returns the value-only `SearchDecision`, the
+private `enum Site` is removed, and `locate_rebuilt`/`Flat::index` remain in the unextracted
+`apply_prepared_rebuild` orchestration. The two `apply_pending_and_commit` extraction roots are
+present and rooted in the landed `proof/ApeironWord.lean` sha256
+`c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2` (fresh for `src/table.rs`
+sha256 `2a60a19d…`, audit clean, `proof/` `lake build` 1708 jobs; all six
+`relocate_entry`/`relocate_all`/`apply_pending_and_commit` wrappers). W6-T2 landed:
+`Growable/Rebuild.lean` (sha256 `8db24388…`) proves `word_stored_rebuild_preserves` and
+`word_regen_rebuild_preserves` over the traversal, closed cone, `lake build` 3474 jobs,
+relocation-write mutation red then green. Still open and frozen: the W7 retry `prepared_rebuild_refines_insertWith`
+(needs `SearchDecisionCorrect` + `CallbackLaws`), suspended under `W7-SearchCommitBoundary` because the
+reachable publication witness is conditional on the explicit unproved `ResourceAdapterSimulates`
+premise; the W6-T1 disjoint-write frames are landed. W6-T4 interface repair landed: `Growable/Representation.lean` (sha256
+`4dc7df700d8fc9eb50a88755934f5e632c702f77b7de0992114611a70c3139c1`) adds
+`reservedRepR_of_components` and the
+`reservedRepR_{liveSet,unique,coverage,directCover,directory,length}` projections, and
+`Growable/Resources.lean` (sha256
+`687c0e6d381e18481017f9dac92535bb77cf4010473f9d89743a148bf00a089e`) strengthens
+`ReceiptMatchesStorage` with the target lanes, flat extent `256 × plan.lanes`, the 256-entry
+storage/receipt directories and per-region tag/payload lengths, and adds `TargetGeometryCertificate`
+with the `receiptMatches_*`/`rebuildPlan_target*` projections; the bounded gates are green in the
+closed cone (`lake build` 3473 jobs) and the flat-extent `256 × lanes + 1` mutation is red then green.
+W6-T5 landed: `RebuildPlanClauses` binds `cloneHeld`/`addressHeld`/`locateHeld` to the generated
+carrier clone, `address_held state.home` and `table.spill_locate_held … 16#usize`
+(`cloneHeld_eq`/`addressHeld_eq`/`locateHeld_eq`); `RebuildPlanCorrect_R` requires the production
+`keyRep` dictionary (`planCertificate.keyRep = ProductionRelocationKeyRep.keyRep`);
+`ResourceAdapterSimulates.prepared` carries the same equality; and the
+`rebuildPlan_stored_operations_binding`/`rebuildPlan_regen_operations_binding` projections expose the
+three bindings for both carriers. `Growable/Resources.lean` sha256
+`31d17cca7bc25707be6d96628ab4730f65e67da8bbdbb741adf368611dacc576`, closed cone
+`{propext, Classical.choice, Quot.sound}`, `lake build` 3473 jobs; the `locateHeld := Vacant 1`
+mutation is red on the mutated source and green on the restored source. W6-T2 landed:
+`Growable/Rebuild.lean` (sha256
+`8db24388133248ef29ab483c740e1b0462e10d826bc31cdbdc1d2c1238c19e9a`) proves
+`word_stored_rebuild_preserves`/`word_regen_rebuild_preserves` over
+`word_{stored,regen}_relocate_all` from source `RepR`, the publication equality,
+`PreparedResources_R` and `RebuildPlanCorrect_R`, with no merge or callback parameter; registered in
+`proof/corpus/AxiomAudit.lean` (sha256
+`56d73dbe2bebda144f2d7a13a46fbb7b5fb471a6e28a03c46b6084472e69fa85`) with `lakefile.lean` sha256
+`bdd14f9fa9fdbd79ce72b02d2c52da320c9950f103847a7ceb1361056899600a`, closed cone, `lake build` 3474
+jobs, relocation-write mutation red then green. The W7-T2 premise interface is landed:
+`Growable/Search.lean` (sha256
+`d349cd481bdc2a33d68c7b1487b64e72ff8bfc98be89f17d3029e585382c7600`) defines `QueryAddressCorrect`
+(`queryAddressCorrect_vacant_firstFit`), `FreshLengthBound` (`freshLengthBound_vacant`),
+`GrowableCallbackLaws` (`growableCallbackLaws_identity`, `growableCallbackLaws_generated_once`) and
+`wordMerge_newFirst`; `Growable/Resources.lean` (sha256
+`3708d69cbdc85616ac69a35b58e81915844ba91961cbfa99f95416f98a812461`) defines
+`DecisionSymbolicCorrespondence` (`decisionSymbolic_{found,vacant,vacant_valid}`) and proves
+`resourceAdapter_refusal_stutter`. All are registered in `proof/corpus/AxiomAudit.lean`, build in the
+closed cone `{propext, Classical.choice, Quot.sound}` (`lake build` 3474 jobs), and the spill-shard
+mutation is red on the mutated source and green on the restored source. Per Sol, `FreshLengthBound`
+and the arbitrary-merge semantic identity are input-side; `DecisionSymbolicCorrespondence`,
+`QueryAddressCorrect` and `GrowableCallbackLaws.exactlyOnce` require source binding/extraction; and
+`ResourceAdapterSimulates.refused` carries no-clone-on-`Err`. Astra approved all four as explicit
+conditional trust-boundary premises with discharge paths in
+[`kernel-boundary.md`](kernel-boundary.md#pending-composition-premise-boundary); no existing headline
+or grade changed. The W7 retry `prepared_rebuild_refines_insertWith` is suspended under
+`W7-SearchCommitBoundary` and not asserted.
+Whole-table
+`RepR`/`ReservedRepR`/`PendingCommittedR`
+landed in `proof/corpus/Growable/Representation.lean` (W5); payload-initialization placement and Kani
+at `tested` also remain open.
+
+### Joint prepared-resource boundary (Astra verdict; Sol contract W0; W1 landed; W2 landed; W3 landed; W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen)
+
+Astra approved the adjusted extraction boundary (`kernel-boundary.md` Joint prepared-resource
+boundary): extract the joint resource handoff, not reservation or initialization. `R::hold`,
+`Flat::initialize` and `Region::initialize` move out of `Table::apply_prepared_rebuild` into the
+unextracted adapter after reserve-all, so prepared storage is materialized and vacant; add a
+nonallocating publication helper and a separately rooted scalar capacity comparison; the
+decision-consuming commit interface is unchanged. `plan_rebuild`, `reserve_rebuild`, every
+`try_reserve*`, capacity reads, initialization, composite search and the executor stay unextracted.
+The eight existing proved headlines keep their statements and premises and must be revalidated by
+regeneration, bounded audit/build and the existing controls on the new source identity.
+
+Sol reconciled the contract in `docs/spec/storage-refinement.md` (W0): `CapacityBound`,
+`ReservationReceipt`, `PreparedOutcome` and `PreparedResult`, with the only admitted order
+`checked plan -> reserve all -> observe/check capacities -> hold and initialize -> publish ->
+relocate -> pending decision -> merge once/commit`. Whole-table `RepR`/`ReservedRepR`/`PendingCommittedR`
+are landed in `proof/corpus/Growable/Representation.lean` (W5, extended by W6-T4; current sha256
+`4dc7df70…`; focused gate bounded
+`lake build Growable.Representation AxiomAudit` in `proof/corpus/`). The resource
+predicates and conditional publication transport are landed in
+`proof/corpus/Growable/Resources.lean` (task `APEIRON-EXTRACT-REP-RESOURCE-W3-T1`/`W4-T1`); its
+focused gate is bounded `lake build Growable.Resources AxiomAudit`.
+
+Implementation W1 landed: `CapacityBound`, `RegionReservation`, `ReservationReceipt`,
+`PreparedOutcome<R>` and `PreparedResult<R, V>` are in `src/table/resources.rs` (sha256
+`5b04be96131a360d8245ee3061c58dba85059f39a3efeeb0261442a7051368bf`) with `capacity_bound_holds`
+and `publish_prepared`; `observe_receipt`, `materialize_rebuild` and `prepare_rebuild` are in
+`src/table.rs` (sha256 `a89e9ec743405ac7d80183e431f6e932ba90353bc777f142865f44005261d09a`);
+`apply_prepared_rebuild` consumes `PreparedResult` and returns `Result<(), StorageError>`, returning
+the refusal without touching `self`; hold and initialize run in the adapter after reserve-all; the
+`apply_pending_and_commit` signature is unchanged. Focused gate `cargo test --locked --lib --test
+table` is green (36 lib + 42 table); both mutation controls red then green; `tests/table.rs` is
+unchanged (the handoff types are `pub(crate)` and the tests live in the lib unit module). This phase
+changes no claim grade. W2 landed: `word_stored_publish_prepared`, `word_regen_publish_prepared` and
+`word_capacity_bound_holds` are added to `proof/extract/lib.rs` (sha256 `1e4fa586…`) and
+`proof/regen.sh` (sha256 `7df851dc…`); `proof/ApeironWord.lean` is regenerated to sha256
+`95766c650fd94da6546d21ef6dff115db22d55cac90b1949f96352217055d1e5` (audit clean, `proof/` `lake
+build` 1708 jobs), `proof/regen.sh --check` is fresh on `src/table.rs` sha256 `a89e9ec7…` /
+`src/table/resources.rs` sha256 `5b04be96…`, the relocation control default path passes, and the
+bounded `proof/corpus` build (3471 jobs) revalidates the eight existing headlines. W3/W4 landed
+(`APEIRON-EXTRACT-REP-RESOURCE-W3-T1`/`W4-T1`): `proof/corpus/Growable/Resources.lean` (sha256
+`db14c8ae…`) defines `CapacityBound_R`, `EveryScalarCapacityCheck_R`, `PreparedResources_R`,
+`RebuildPlanCorrect_R` and `ResourceAdapterSimulates`, and proves `word_capacity_bound_holds_iff`,
+`word_stored_publish_prepared_carries`, `word_regen_publish_prepared_carries`,
+`preparedResources_of_publication` and the two `word_{stored,regen}_reachable_publication_witness`
+headlines, all registered in `proof/corpus/AxiomAudit.lean`. The supplied W3/W4 receipt is closed
+cone `{propext, Classical.choice, Quot.sound}`, `lake build` 3472 jobs and a red-then-green mutation
+control; this documentation record does not rerun it. The two reachable-publication headlines are
+`proved` only as implications conditional on `ResourceAdapterSimulates`, an explicit unproved named
+trust-boundary premise (local boundary `Resource adapter simulation premise`); they establish no
+actual adapter reachability. Current derivation order (Astra, roadmap): W5 whole-table
+`RepR`/`ReservedRepR` landed → W6-T1 disjoint-write frames landed → W6-T3 certificate redesign landed
+→ W6-T4 interface repair landed (reserved construction/projections; strengthened receipt and target
+geometry) → W6-T5 landed (production `keyRep` dictionary plus clone/address/locate bindings and the
+two operations-binding projections; `Growable/Resources.lean` sha256 `31d17cca…`) → W6-T2
+`rebuild_preserves` landed in `Growable/Rebuild.lean` (`word_{stored,regen}_rebuild_preserves`;
+sha256 `8db24388…`) → W7-T2 premise interface landed (Search/Resources interfaces, see above) → W7
+retry composition `prepared_rebuild_refines_insertWith` suspended under `W7-SearchCommitBoundary`.
+W7 composes `rebuild_preserves`
+with the commit equality, `SearchDecisionCorrect` and `CallbackLaws` to canonical
+`Apeiron.Table.insertWith`; it is not asserted here.
+
+### Supplied measurement receipts (REG-1, Kani and historical figures not rerun; the relocation control was rerun, receipt `docs/evidence/relocation-controls.md`)
+
+| Evidence / grade | Result and limit |
+|---|---|
+| REG-1 runtime, `measured` (fresh receipt `docs/evidence/perf-remeasure-2026-09-19.md`, sha256 `e164f808…`, supersedes the stale figures) | Fresh strict full-profile run on `src/table.rs` sha256 `a89e9ec7…`: HEADLINE `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0 concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`, exit 1. Pathological: spill absent-miss 373.85x (interval max 375.18) and resident growth-insert 231.9x; resident direct-index healthy about 2.7–4.7x behind the serial load-bearing incumbents. Sole full16 workload is an extreme boundary, not a representative aggregate. |
+| Spill/growth micro, `measured` (diagnostic; not a pair-gate result) | `cargo run --release --locked --example micro_spill` on the post-receipt spill/growth fix, same 4096-op schedules: `occ16-seeded-random-absent-miss-replacement` median `1314468`/`1328764` → `78758` ns (`320.92`/`324.41` → `19.23` ns/op) and `occ16-direct-index-resident-growth-insert-replacement` median `7294013`/`6805921` → `93218` ns (`1780.76`/`1661.60` → `22.76` ns/op); before logs `/tmp/opencode/diag.out`/`diag2.out`, after `/tmp/opencode/micro-final.out`. The two cells remain the strict receipt's worst; no post-fix full-profile receipt exists and the pair-gate grade is unchanged. |
+| Cached-placement experiment, reported `measured` | Candidate/hashtrinity 2.65–2.69 on the measured boundary; rejected, benchmark-only, not production or proof-covered. |
+| Historical spatial reproduction, archival pending identity registration | `71942db` parallel CountTable: historical 3.16 ms versus packed hashtrinity 10.27 ms; supplied temporary-worktree rerun 2.494 ms versus 8.976 ms (~3.6x win), i9-14900KF / rustc 1.97 nightly. No CountTable refinement is established. |
+| Kani verification latency, reported bounded-check result and `measured` elapsed time | `cargo kani`: 448.58 s, 62/62 green, one unreachable; `the_norm_factors_into_the_channels` about 94.23 s, largest. This is verification latency, not table runtime or a Lean proof. |
+| Extraction freshness, landed at the recorded revision | `proof/regen.sh --check` fresh on `src/table.rs` sha256 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`; `proof/ApeironWord.lean` sha256 `c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2`, `lake build` 1708 jobs, generated audit clean, all six `relocate_entry`/`relocate_all`/`apply_pending_and_commit` roots present for both carriers. The fresh standalone control receipt `docs/evidence/relocation-controls.md` records the same baseline green and restored freshness green (exit 0). The earlier red was source-line comment drift, not semantic drift. |
+
+No production `src/` changes belong to the supplied measurement session. Preserve uncommitted
+`examples/reg1/` evidence and unrelated spinor work. The existing performance entry point is
+`cargo run --release --locked --example reg1 -- --check performance --profile full --controls`;
+its exit 0 validates a boundary report, not G1. Offset and historical rerun command/log/digest
+receipts and full machine/sample attribution remain **MISSING** from the durable register; bind
+them before promoting these supplied figures to acceptance. See the
+[lifecycle annex](plan/storage-refinement.md#performance-preserving-consolidation-lifecycle-annex).
 
 ## Apeiron storage exit: all rows required
 
@@ -48,18 +253,71 @@ fresh acceptance.
 | S5 | Actual extraction audit | `proof/regen.sh --check`; `proof/corpus/AxiomAudit.lean` `#audit`s every headline inside `{propext, Classical.choice, Quot.sound}`. |
 | S6 | Baseline / red / restore control on the real source | Same-filesystem generated-body mutation `merge value default` -> `merge default value` fails `table_insert_empty_zero`; the restored copy builds. |
 | S7 | Full Rust and proof integration on one source/tool identity | `cargo test --workspace --all-features --locked`; `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings`; `cargo fmt --all -- --check`; `cargo kani`; `proof/regen.sh --check`; `lake build` in `proof/` and `proof/corpus/`. All are required for epic closure. |
-| S8 | Audited cone, source/tool identity, bounded perimeter, size and performance | New headlines audited inside the standard cone. TCB <= 5000 physical lines, owned source files <= 1500 lines, <= 12 immediate source files per directory. Required performance is not waived; no table performance claim is made. |
+| S8 | Cone, identity, perimeter, size and G1/REG-1 | OPEN; details below. |
 
 Grades at actual scope: S2–S4 are proved at their named theorems; S1 is test evidence; S5 is an
 extraction audit; S6 is a mutation control, not a proof. S7 passed the full Rust/Kani/extraction and
-Lean barrier on the recorded source/tool identity. S8 passed `tools/check-claims.py` and
-`tools/check-assurance.py`; the latter's 6/6 rejecting controls enforce the 5,000/1,500/12 perimeter.
-These storage results do not establish the separate Rust–Song correspondence.
+Lean barrier on the recorded source/tool identity. S8's partial evidence passed
+`tools/check-claims.py` and `tools/check-assurance.py`; the latter's 6/6 rejecting controls enforce
+TCB <= 5000 physical lines, owned files <= 1500 lines and <= 12 source files directly per directory.
+New headlines are audited inside the standard cone. S8/G1 remains **OPEN** until required REG-1
+acceptance is recorded; perimeter checks do not close it. These storage results do not establish
+the Rust-Song correspondence for the same primitive.
+
+**Owner definition of done (apeiron core).** A face is done only when all four hold jointly:
+formally verified end to end (real-source extraction, refinement to canonical
+`Apeiron.Table`/`AnyRing`, closed cone `{propext, Classical.choice, Quot.sound}` with an empty cone
+for the Slang chain, mutation controls); competitive-or-SOTA speed; not HashDOS-vulnerable; and
+cryptographic strength not mandatory but achievable as a face. Proof without performance,
+performance without canonical refinement, or verified speed an adversary can collapse does not
+pass. The full statement is in
+[direction](direction.md#owner-definition-of-done-for-the-apeiron-core).
+
+**Exact all-row matrix acceptance command (root).** The strict acceptance command is
+`cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`.
+It exits nonzero when any applicable strata speed cell is `fail`/`rejected`/`missing` or when a
+`pass` cell's ratio interval max is above `1.0`; `not-applicable` speed cells and the separate
+resource rows are excluded. Without `--accept` the same run is diagnostic, exits 0 and reports the
+axis `boundary`. The command currently exits 1: the fresh strict full-profile run
+([receipt](evidence/perf-remeasure-2026-09-19.md), sha256 `e164f808…`) gives
+`registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0
+concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`; the 6 address-face
+unmatched pairs fail regardless of ratio and the other 566 are ratio failures, dominated by the
+spill absent-miss distributions (373.85x) and the resident growth-insert cells (231.9x), while the
+resident direct-index healthy cells are about 2.7–4.7x behind the serial load-bearing incumbents;
+`reg1_pass=false` and `report_complete=false`. No speed recovery is claimed. The remaining
+[RFC rows](direction.md#required-r0-acceptance-g1--reg-1) — identity, round-trip, cross-process
+determinism, growth/merge with refusal and coverage — are not all closed by it: `quality ∧ speed ∧
+baseline` requires identity, round-trip, cross-process determinism, growth/merge with refusal, speed
+and coverage.
+The acceptance threshold is the owner decision: for every applicable cell,
+`selected/incumbent <= 1.0` against **every** named incumbent, never behind and ideally ahead.
+Named incumbents: `hashtrinity::{Table,CoordMap,FreqMap}` serial and packed-parallel
+(`count_par`/`get_each`), `hashbrown+foldhash`, `hashbrown+fxhash`, `hashbrown+rayon`, `std`
+SipHash, `foldhash`/`fxhash` par16, and — per the landed `docs/hash-comparison.md` and
+`examples/reg1/acceptance.rs` — `xxHash` XXH3/XXH64, `wyhash`, `ahash` and `fnv`, each now
+load-bearing on the opaque-key exact map face. Applicability is registered per cell/incumbent pair before
+timing with a semantic or API reason; no family-wide exemption; missing, duplicate, invalid or
+inconclusive pairs reject. `--accept --profile smoke` is diagnostic only; full acceptance requires
+all registered pairs. This supersedes the RFC elapsed-median floor `selected/hashtrinity <= 1.25`;
+there is no historical-envelope tolerance. Require the
+[matrix](direction.md#required-r0-acceptance-g1--reg-1): spatial parallel CountTable, serial cost,
+occupancy 1/2/4/8/16, direct-index/offset/skewed/random coordinates and separated operations, with
+hashtrinity, hashbrown/foldhash, hashbrown/fxhash, hashbrown/rayon and std baselines where
+applicable. The landed `docs/hash-comparison.md` carries the comparison axes (crypto versus
+non-crypto, throughput small/large, latency, collisions/avalanche, HashDOS resistance, determinism,
+`no_std`, licensing, verification) and the per-domain "good enough" reading for OS, languages,
+provers, games, servers and aerospace. A named failing boundary keeps
+G1 open. Absent remove/growth/codec
+operations require explicit contract-boundary reporting, not silent exclusion or fabricated success.
+No performance number is rerun here; partial measurements do not pass REG-1. Canonical refinement
+through actual Aeneas extraction and the performance matrix must bind the same selected source.
 
 ## Slang source-binding exit: all rows required
 
+Source binding is a later refinement leg of the same R0 primitive, not a separate semantic project.
 The [bounded source-witness route](plan/slang-source-refinement.md#bounded-source-witness-route)
-extends the existing `tools/slang/export.py`; the memo-store refinement remains separate.
+extends the existing `tools/slang/export.py`; memo-store evidence retains its own refinement scope.
 
 | Required output | Gate / remaining work |
 |---|---|
@@ -108,16 +366,78 @@ their retirement.
 
 ## Barrier order
 
-1. **Gate repair.** Restore the rejecting gates and run the canonical-rooting gate
+**Terminal goal:** the admitted single R0 collapse/fold chain in
+[direction](direction.md#execution-order), with checked execution refinements and G1/REG-1
+acceptance, supporting the secure OS-language-proof system.
+
+The current extraction/refinement leg continues on the real growable implementation; its dispatch
+order is recorded in the
+[storage plan](plan/storage-refinement.md#extraction-shaped-representation-dispatch-order-apeiron-extract-rep).
+The earlier `APEIRON-PERF-RESTORE-W4-T1`–`W8-T1` chain is historical. The resource/refusal contract
+is ratified in the
+[local boundary](kernel-boundary.md#resourcerefusal-contract-for-the-growable-table)
+(option (b), checked reservation/allocation failure, transactional); the representation wave is
+unblocked, subject to separate authorization of the canonical release/commit.
+
+**Current strategy decision (`APEIRON-STRATEGY-DECISION-T1`; Astra;
+[direction](direction.md#current-strategy-decision-freeze-composition-restore-performance),
+[boundary](kernel-boundary.md#w7-searchcommitboundary)).** Freeze the pending search/commit
+composition as `W7-SearchCommitBoundary`: suspend repeated W7 `prepared_rebuild_refines_insertWith`
+attempts and new extraction undertaken solely to unblock them. The freeze changes priority, not
+joint acceptance; every theorem requirement, gate, control and trust statement is retained. The
+boundary is trusted/unproved, with only individually evidenced Rust tests or bounded Kani checks
+labelled `tested`; it is not test-accepted as a whole. Reopen W7 only when the lead receives a
+Sol-ratified, source-pinned task for full `apply_insert` `RepR` preservation (both carriers, joint
+found/fresh flat/spill witnesses, rejecting controls), an acyclic composition target and a finite
+discharge map for every boundary premise; each map entry must name its real body, exact statement,
+gate, owner and checked primitive/tool dependency, and a missing primitive needs a separately
+accepted feasibility result first. A new premise, assumed postcondition or another unchanged retry
+is not progress through this condition. Performance parity does not itself reopen or discharge W7;
+once the measured production mechanism is selected, restoring this proof route is mandatory before
+G1 closure, and freezing it indefinitely leaves the epic incomplete.
+
+**Performance workstream order.** Consume the fresh full-profile receipt before changing timed
+source or harness. Then, in order: (1) comparison coverage repaired — `APEIRON-REANCHOR-W1-T1`
+made the five named hashers (`xxHash` XXH3/XXH64, `wyhash`, `ahash`, `fnv`) load-bearing in
+`examples/reg1/acceptance.rs` with rejecting omission/demotion controls and recorded the combined
+`get_each` arm as `concurrency_unmatched`; (2) size-only factoring of `src/table.rs` before hot-path
+changes; (3) reduce serial direct-path overhead; (4) restore spatial partition/build/probe recovery
+on disjoint paths; (5) publish a matched before/after full-profile receipt. The
+[roadmap dispatch table](plan/programme-roadmap.md#performance-re-anchor-and-bounded-dispatch) owns
+the task IDs, files and gates. No aggregate, std-only win, historical envelope, reduced matrix or
+trusted-boundary grade closes G1.
+
+**Revised representation boundary (Astra verdict).** The selected structure becomes a table-level
+flat resident area (shard-major `256 x L`, admission `direct_word = Some(w) ∧ lane < L`, checked
+sizing, a stated byte budget, a density test; failures spill rather than refuse) beside
+independently load-sized grouped spill regions. One representative per key is held under a composite
+`DirectCover`; extent growth must reclassify newly eligible spills. Key-dropping uses a compile-time
+`KeyRep` policy (`Stored<K>` or `Regen` with an exact codec law), not a sibling count table and not a
+lossy `FreqMap`. Restoration also includes the key-partitioned load-sized shard build, deterministic
+schedule, grouped probe and key-dropping count/dedup; proof, extraction, Kani, registration and
+measurement work follows on the same source identity. This is a recorded plan, not a built,
+extracted or measured result, and no speed recovery is claimed.
+
+1. **The immediate task:** reduce the measured serial direct-path overhead, then restore the spatial
+   partition/build/probe recovery, per the performance workstream order above (comparison coverage is
+   repaired under T1). The per-entry relocation roots for both carriers are bound and their flat
+   and spill headlines are proved; the prepared-resource and search-decision/apply roots remain bound
+   at their audited scopes, but the W7 composition that would close them is frozen under
+   `W7-SearchCommitBoundary` until its reopening condition is met. The fixed-shard table is not
+   optimized from one workload. S8/G1 stays OPEN until every required row passes jointly with
+   canonical refinement.
+2. **Connect the canonical collapse/fold chain.** Close the audited cross-revision equivalence and
+   admitted normal-form/translation links. Local proofs and old speed anchors do not close it.
+3. **Gate repair before source refinement.** Restore rejecting gates and run the rooting gate
    `python3 tools/rooting/check.py --self-test`. Gate repair and the canonical-root acceptance
    below precede any producer, generator, source-translation, proof-producing generation or
    derivation work.
-2. **Canonical-root acceptance.** Every executing face is accepted only when it is rooted in
+4. **Canonical-root acceptance.** Every executing face is accepted only when it is rooted in
    `Apeiron.Table.HMap`, `Apeiron.Table.get`, `Apeiron.Table.insertWith` and `Apeiron.Table.build`,
    and in `Apeiron.Trichotomy.AnyRing.RingCell`, `ringMul` and `ringNormForm`, with the extracted
    `Cell<i64>` word bodies `word_mul_denote` and `word_norm_denote`. Anything not rooted in it is
    not accepted.
-3. **Retire the rejected route.** The binned `proof/corpus/Slang/Derivation/` tower and the binned
+5. **Retire the rejected route.** The binned `proof/corpus/Slang/Derivation/` tower and the binned
    `Slang/Generated/Trace/` outputs are unrooted; the `Run`/`Derives` acceptance in the binned
    `tools/slang/trace_check.py` is unrooted. They are binned and re-rooted, not extended. The
    retired `DecodeTrace.Run`/`Derives` trace representation, the retired named proof DAG and the
@@ -125,11 +445,12 @@ their retirement.
    Require `python3 tools/rooting/retire_check.py --check` and `--self-test`, including producer
    rule R6, before extending `tools/slang/export.py` with bounded source witnesses. Proof-term
    chunking over the existing structural source relations does not reinstate the retired evaluator.
-4. **Storage.** S1–S8 are closed at the explicit callback-law and no-performance-claim scope.
-5. **Integration.** S7 on one source/tool identity.
-6. **Correspondence.** Use the checked `Joint.WordBridge` carrier/map transport to close the Song
-   source binding and R2/T3 composite before any larger vertical implementation.
-7. **Apeiron barrier** is a necessary component of joint readiness, not sufficient: the Song
+6. **Storage and integration.** Retain S1-S7 at their explicit scopes; rerun S7 on one source/tool
+   identity for closure. S8/G1 remains OPEN pending REG-1, not closed by a narrower claim.
+7. **Execution correspondence.** Close Song source binding, then compose source-connected
+   refinements through `Joint.WordBridge` with the decoded-context witness and R2/T3 composite.
+   This is the later execution leg of the same primitive, before any larger vertical implementation.
+8. **Apeiron barrier** is a necessary component of joint readiness, not sufficient: the Song
    foundation, the joint primitive correspondence and the named profiles are also required before
    the next large implementation opens.
 
@@ -137,12 +458,115 @@ their retirement.
 
 Each item is open, not a completed result:
 
+- **G1/REG-1.** The strict all-row acceptance command
+  `cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`
+  exists and currently exits 1: the fresh strict full-profile run
+  ([receipt](evidence/perf-remeasure-2026-09-19.md), sha256 `e164f808…`) gives
+  `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0
+  concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false` at
+  `selected/incumbent <= 1.0`; the 6 address-face unmatched pairs fail regardless of ratio and the
+  other 566 are ratio failures, dominated by the spill absent-miss distributions (373.85x) and the
+  resident growth-insert cells (231.9x), while the resident direct-index healthy cells are about
+  2.7–4.7x behind the serial load-bearing incumbents. The
+  non-strict diagnostic mode exits 0 and reports the axis `boundary`. `reg1_pass=false`,
+  `report_complete=false`; S8/G1 remains OPEN pending joint performance/refinement evidence. The two
+  missing rows are the `10^8` identity row and the coverage census. No speed recovery is claimed.
+- **Resource/refusal contract (ratified).** The growable table uses a checked
+  reservation/allocation-failure result (option (b), transactional): `insert`/`build` return
+  `Result`, `Err` leaves the table unchanged and returns no partial table, `ShardFull` and positive-`N`
+  `BuildAdmissibleN` are retired from the growable production contract, and the fixed-shard Lean
+  modules remain revision-bound historical evidence. Allocator success/failure correspondence is an
+  unextracted trust boundary with a simulation statement and must not enter the `Slang.*` empty-cone
+  chain. The canonical release/commit remains separately authorized.
+- **Resource-handoff extraction (W1 landed; W2 landed; W3/W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen).** The joint
+  handoff is landed at
+  `src/table.rs` sha256 `a89e9ec743405ac7d80183e431f6e932ba90353bc777f142865f44005261d09a` and
+  `src/table/resources.rs` sha256
+  `5b04be96131a360d8245ee3061c58dba85059f39a3efeeb0261442a7051368bf`: `CapacityBound`,
+  `RegionReservation`, `ReservationReceipt`, `PreparedOutcome<R>` and `PreparedResult<R, V>`,
+  `capacity_bound_holds` and `publish_prepared` in `src/table/resources.rs`;
+  `observe_receipt`/`materialize_rebuild`/`prepare_rebuild` in `src/table.rs`; `apply_prepared_rebuild`
+  consumes `PreparedResult` and returns `Result<(), StorageError>` without touching `self` on
+  `Refused`; `R::hold`/`Flat::initialize`/`Region::initialize` run in the adapter after reserve-all;
+  `apply_pending_and_commit` keeps its signature. The focused gate `cargo test --locked --lib --test
+  table` is green (36 lib + 42 table), both mutation controls are red then green, and `tests/table.rs`
+  is unchanged. W2 landed: `word_stored_publish_prepared`, `word_regen_publish_prepared` and
+  `word_capacity_bound_holds` are rooted in `proof/extract/lib.rs` (sha256 `1e4fa586…`) and
+  `proof/regen.sh` (sha256 `7df851dc…`); `proof/ApeironWord.lean` is regenerated to sha256
+  `95766c650fd94da6546d21ef6dff115db22d55cac90b1949f96352217055d1e5` (audit clean, 1708 jobs),
+  `proof/regen.sh --check` is fresh, the relocation control default path passes, and the bounded
+  `proof/corpus` build (3471 jobs) revalidates the eight existing headlines. W3/W4 landed:
+  `proof/corpus/Growable/Resources.lean` (sha256 `db14c8ae…`) defines `CapacityBound_R`,
+  `EveryScalarCapacityCheck_R`, `PreparedResources_R`, `RebuildPlanCorrect_R` and
+  `ResourceAdapterSimulates`, proves the scalar-check, both publication-carry, publication-transport
+  and both conditional reachable-publication headlines, all registered in
+  `proof/corpus/AxiomAudit.lean`; the supplied receipt is closed cone, `lake build` 3472 jobs and a
+  red-then-green mutation control, not rerun here. The two reachable-publication headlines are
+  `proved` only as implications conditional on `ResourceAdapterSimulates`, an explicit unproved named
+  trust-boundary premise. `PreparedResources_R`/`RebuildPlanCorrect_R` are therefore Lean predicates
+  and premises, not discharged obligations. Whole-table `RepR`/`ReservedRepR`/`PendingCommittedR`
+  landed in `proof/corpus/Growable/Representation.lean` (W5; W6-T4 extended it, current sha256
+  `4dc7df70…`; bounded gate `lake build Growable.Representation AxiomAudit`), registered in
+  `AxiomAudit.lean` and closed cone with `lake build` 3473 jobs and a red-then-green uniqueness
+  mutation control. W6-T1 landed: the
+  disjoint-write frame lemmas `writeFlat_frame_flat`, `writeFlat_frame_spill`, `writeSpill_frame_flat`,
+  `writeSpill_frame_other_shard` and `writeSpill_frame_same_shard` are proved in
+  `proof/corpus/Growable/Relocation.lean` and audited in `proof/corpus/AxiomAudit.lean`; the supplied
+  W6-T1 receipt records the closed cone, `lake build` 3473 jobs and an index-zero mutation control red
+  then green, not rerun here. W6-T4 interface repair landed: `reservedRepR_of_components` and the
+  `reservedRepR_{liveSet,unique,coverage,directCover,directory,length}` projections are in
+  `Growable/Representation.lean`; `ReceiptMatchesStorage` now carries the target lanes, flat extent
+  `256 × plan.lanes`, the 256-entry storage/receipt directories and per-region tag/payload lengths;
+  `TargetGeometryCertificate` carries the target `committedLive`, uniqueness, coverage, addressing,
+  `directAfter` with `DirectIndexCorrect`/`DirectCover`, directory consistency and length, exposed by
+  the `receiptMatches_*`/`rebuildPlan_target*` projections in `Growable/Resources.lean` (current sha256
+  `31d17cca7bc25707be6d96628ab4730f65e67da8bbdbb741adf368611dacc576`); the bounded gates are green in the
+  closed cone (`lake build` 3473 jobs) and the flat-extent `256 × lanes + 1` mutation is red then green.
+  W6-T5 landed: `RebuildPlanClauses` binds `cloneHeld`/`addressHeld`/`locateHeld` to the generated
+  carrier clone, `address_held state.home` and `table.spill_locate_held … 16#usize`;
+  `RebuildPlanCorrect_R` requires the production `keyRep` dictionary;
+  `ResourceAdapterSimulates.prepared` carries the same equality; the
+  `rebuildPlan_stored_operations_binding`/`rebuildPlan_regen_operations_binding` projections expose the
+  bindings for both carriers; closed cone, `lake build` 3473 jobs, and the `locateHeld := Vacant 1`
+  mutation is red then green. W6-T2 `rebuild_preserves` landed in `Growable/Rebuild.lean` (sha256
+  `8db24388133248ef29ab483c740e1b0462e10d826bc31cdbdc1d2c1238c19e9a`) as
+  `word_stored_rebuild_preserves`/`word_regen_rebuild_preserves`, registered in
+`proof/corpus/AxiomAudit.lean`, closed cone, `lake build` 3474 jobs, relocation-write mutation red
+then green. The W7-T2 premise interface is landed (`Growable/Search.lean` sha256 `d349cd48…`,
+`Growable/Resources.lean` sha256 `3708d69c…`; `QueryAddressCorrect`, `FreshLengthBound`,
+`GrowableCallbackLaws`, `DecisionSymbolicCorrespondence`, `resourceAdapter_refusal_stutter`), and the
+W7 retry `prepared_rebuild_refines_insertWith` is suspended under `W7-SearchCommitBoundary` and not
+asserted.
+- **Identity-injectivity integration.** Canonical odd-multiply injectivity at
+  `Table/WordIdentity.lean`, the extracted `coord` roots and `TableRefinement/CoordIdentity.lean`
+  (`coord_spread_id_injective`) are present and registered for audit; binding that chain to the
+  selected source and the growable search/relocation refinements remains open.
+- **Unextracted threading boundary.** `std::thread::scope` sits behind an unextracted orchestration
+  boundary; Rust thread memory semantics, exclusive-borrow realization, spawn/join failure, panic
+  propagation, liveness, allocator behaviour and rustc/LLVM codegen remain open and are not covered
+  by the sequential schedule obligation.
+- **Extraction freshness.** The current source is `src/table.rs` sha256
+  `a89e9ec743405ac7d80183e431f6e932ba90353bc777f142865f44005261d09a` with `src/table/resources.rs`
+  sha256 `5b04be96131a360d8245ee3061c58dba85059f39a3efeeb0261442a7051368bf` (W1 landed).
+  `proof/ApeironWord.lean` sha256
+  `95766c650fd94da6546d21ef6dff115db22d55cac90b1949f96352217055d1e5` is the landed W2 regeneration
+  for that source (audit clean, `proof/` `lake build` 1708 jobs), rooting both
+  `apply_pending_and_commit` wrappers, all six
+  `relocate_entry`/`relocate_all`/`apply_pending_and_commit` roots, and the W2
+  `word_stored_publish_prepared`/`word_regen_publish_prepared`/`word_capacity_bound_holds` roots.
+  `proof/regen.sh --check` is fresh on this identity. The earlier recorded green (`src/table.rs`
+  sha256 `2a60a19d…` / `proof/ApeironWord.lean` sha256 `c8de66e3…`; and `src/table.rs` sha256
+  `0fcbd99e…` / `proof/ApeironWord.lean` sha256 `58d0ba3e…`) is a historical receipt bound to its
+  revision. A further source change still requires re-running extraction on one recorded source/tool
+  identity.
+- **Slang empty-cone separation.** The constructive Slang source-refinement chain requires an empty
+  axiom set and rejects `propext`, `Classical.choice`, `Quot.sound`, `noncomputable` and
+  quotient-based representations; the Rust/Aeneas bridge retains the closed cone. The two cones
+  share no declarations.
 - **Stable `Sigma`/address interface.** The interface that carries `Sigma` in every executing
   signature and fixes `Coord` addressing per face is open; it must root in `Apeiron.Table.get` and
   `Apeiron.Table.insertWith`.
 - **Hyperbolic observation domain.** The hyperbolic regime's admitted observation domain is open.
-- **Fixed-shard capacity sufficient for the selected source.** The capacity `N` at which the
-  selected source is admitted under `BuildAdmissibleN` is open.
 - **Constructive canonical roots.** Canonical `Apeiron.Table.HMap`, `Apeiron.Table.get`,
   `Apeiron.Table.insertWith`, `Apeiron.Table.build`, `RingCell`, `ringMul` and `ringNormForm` are
   open as constructive roots for every executing face.
@@ -170,6 +594,11 @@ These are pointed to, not copied. Their contents bind to the revisions they reco
 
 ## Stop points and evidence
 
+- No production representation migration until the same-run matrix identifies the
+  performance-bearing implementation/mechanism. No deletion of performance harnesses without a
+  replacement gate retaining their useful tested surfaces, identities and controls.
+- Extraction convenience does not select a slower replacement. Historical CountTable/Map source
+  can supply measurement inputs, not accepted production without its own canonical refinement.
 - A documentation pass does not require the full software barrier. A source, extraction, package or
   pin change needs a separate task and its own local barrier.
 - Each task owns at most three files and one gate with one negative control; the next wave opens

@@ -7,22 +7,83 @@ trust and execution detail and link here: [local boundary](kernel-boundary.md) a
 does not dispatch an entire repository or replace its local gates. Routine work proceeds within
 the repository's scope; changing a programme boundary requires an explicit owner decision.
 
+## Programme destination
+
+The roadmap is organised toward a system that **supersedes monolithic Linux**, built from the
+unifying `R[x]/(x²−σ)` foundation. These are forward-looking plans (design/`anchor` status), not
+present-tense implementation claims. Evidence grades below describe existing artifacts, not the
+aspiration or the importance of a milestone.
+
+| First-class programme thread | Destination and ownership | Engineering route |
+|---|---|---|
+| Physics and prediction; the Null cell | Develop the descent/ascent programme in [Paper I](../../sanguine/release/paper1/INDEX.md) and test the [registered physical predictions](../../sanguine/theory/PREDICTIONS_REGISTRATION.md) against their own falsifiers. The Null cell is the real hyperbolic specialization, not a replacement for the full sigma family. | Canonical algebra, explicit physical interpretation, numerical refinement and scientific conformance; empirical prediction acceptance stays independent of software/game acceptance. |
+| **Whispering Tides** | A playable, scientifically constrained generated world, owned by its [application roadmap](../../whispering-tides/ROADMAP.md). | Song A5 services and A6's pinned planet-generation/interactive slice; full game/science scope remains first-class programme work beyond that release slice. |
+| Video games | Playable systems and reusable engine machinery; Penglai owns game policy and host integration, Lyrium later extracts engine machinery. | Checked readouts, rendering/input, assets and bounded simulation through application-owned gates; no game policy in the canonical core. |
+| World simulation / universe generation | Generate and evolve worlds from the common basis, from planetary terrain/fluids to wider physical models. | Song research C4–C6/G7 and application conformance, with seeded state, units, tolerances and independent references; not merely a graphics benchmark. |
+| Verified execution and OS capabilities | Secure OS-language-proof composition with independent Song execution, universal translation/lifting, structural resonance and direct hardware projection. | Retain A0–A6/B6 and Apeiron G1/REG-1; post-A4 [Song A7](../../song/docs/ROADMAP.md#a7--universal-algorithm-bridge-and-projection) owns imported-program lift/adapt/resonate/cancel/project. |
+
+These threads inform the engineering interfaces; their priority does not move application or
+protocol policy into the protected core. Scientific work and bounded interface probes continue
+alongside foundational verification. The next large AI implementation retains its readiness gate.
+
 ## Purpose
 
-Apeiron is the O(1)-primitive basis at fixed N with bounded callbacks and nonconstant key length,
-evolved from hashtrinity; `fold/hashtrinity` is the naive predecessor. The basis is
-`R[x]/(x^2 - sigma)`, `Cell<R>` with `Sigma` as a value in every executing signature, `Coord`
-addressing correct per face, and the fixed-shard `Table<K, V, H, N>` (one home shard, `ShardFull`
-refusal, `N = 0` refusal, no probing). Every executing face must refine the canonical object;
-anything not rooted in it is not accepted. The canonical object is
+Apeiron is one R0 mathematical/computational foundation: canonical Lean and reusable Rust in one
+target repository, with Song/Slang as independent execution sharing the mathematics.
+Hashtrinity/fold is its historical implementation; the two-slot spinor and affine recursion collapse
+are its semantic law; the Table ordered fold is its state/fold form; SKI/derived-Iota supplies its
+normal form/translation; Rust and Song/Slang are concrete realizations of that primitive.
+These are layers/views of one primitive, not separate foundations or programme tracks. This is the
+architecture requirement, not a claim that the complete connecting theorem already exists.
+
+Apeiron evolves from hashtrinity; `fold/hashtrinity` is the predecessor. The basis is
+`R[x]/(x^2 - sigma)`, `Cell<R>` with explicit `Sigma`, and face-correct `Coord` addressing.
+The executing [src/table.rs](../src/table.rs) is already growable: a flat certified-coordinate
+resident area plus grouped spill regions, keyed by `(Sigma,K)`, with `Stored`/`Regen` carriers.
+`SizeOverflow` and `AllocationFailed` are resource outcomes; `ShardFull` is compatibility-only.
+Implementation presence does not close the extraction/refinement integration wave. The earlier
+fixed-shard layout and its bounded-admission proofs are historical, not proofs of this layout.
+Every executing face must refine the
+canonical object; anything not rooted in it is not accepted. The canonical object is
 `Apeiron.Table.{HMap,get,insertWith,build}` and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
 bodies (`word_mul_denote`, `word_norm_denote`).
 
-The O(1) qualifier is the parameter boundary. Fixed N, bounded callbacks and nonconstant key length
-bound the table; reading a whole source remains at least linear in its bytes at fixed N, so
-constant-time table operations at fixed N do not imply constant-time whole-source checking or
-constant-size proof terms.
+Fold/hashtrinity -> Apeiron consolidation must be **performance-preserving**: it carries forward
+the high-performance implementation's useful tested surfaces, not merely its names or formulas.
+The selected production primitive must both refine canonical `Apeiron.Table` / `AnyRing` and meet
+the performance restoration gate below. Extraction convenience cannot justify replacing a
+materially faster implementation with a slower structure. The central proof obligation is the
+canonical denotation of the performance-bearing executing implementation; empirical confidence of
+the SwissTable/hashbrown kind alone is insufficient. Proof and performance are joint G1 acceptance:
+neither proof without performance nor speed without canonical refinement passes.
+
+The earlier O(1)-at-fixed-N qualifier belongs to fixed-capacity primitives with bounded callbacks,
+not to the growable table: a fixed probe-group width does not bound the number of groups searched.
+Reading a whole source remains at least linear in its bytes; no constant-time whole-source checking
+or constant-size proof term follows. Resource accounting remains implementation-specific; this qualification
+does not replace the required collapse/fold correspondence or the G1/REG-1 performance gate below,
+including restoration of historical performance.
+
+## Owner definition of done for the apeiron core
+
+The owner sets one bar for the apeiron core. A face is done only when all four hold jointly:
+
+1. **Formally verified end to end.** Real-source extraction; refinement to the canonical
+   `Apeiron.Table.{HMap,get,insertWith,build}` and
+   `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` objects; the closed axiom cone
+   `{propext, Classical.choice, Quot.sound}` for the Rust/Aeneas bridge, with an **empty** cone for
+   the Slang source-refinement chain; and mutation controls on the real source or generated kernel
+   that turn the named proof or test red and pass restored.
+2. **Competitive-or-SOTA speed.** The global acceptance contract under
+   [G1/REG-1](#required-r0-acceptance-g1--reg-1).
+3. **Not HashDOS-vulnerable.** Adversarial key populations must not collapse the structure to
+   quadratic behaviour; collision resistance is a required property, not an optional face.
+4. **Cryptographic strength not mandatory but achievable as a face.** A cryptographic-strength hash
+   is not required for admission and is a realizable face with its own cost and gate.
+
+Proof without performance, performance without canonical refinement, or verified speed that an
+adversary can collapse does not pass.
 
 ## Thesis
 
@@ -51,15 +112,21 @@ A table state denotes a function; an update denotes a function update; a carrier
 operation. Those denotations are stated per implementation against the canonical definitions, and
 the representation and admission relation of each implementation is proved separately.
 
-The programme goal is a chain:
+The programme goal is a single R0 chain through the same canonical collapse/fold object:
 
 ```text
 lift (source / LLVM)
-  -> canonical semantics
-  -> checked reduction / subsumption
-  -> actual realization
+  -> canonical collapse / ordered fold (two-slot algebra and spinor law)
+  -> SKI / derived-Iota normal form / translation and checked reduction / subsumption
+  -> actual realization (Rust and independent Song / Slang execution)
   -> safe and useful programmes
 ```
+
+Local algebra, matrix, Cayley, online-chart, table and evaluator proofs close only their named
+layer until a checked theorem connects the complete hashtrinity/fold/spinor/SKI/Slang chain.
+Historical recurrence-to-constant-loop and evaluator-speed anchors remain anchors, not proofs or
+measurements. An admitted normal-form/translation outcome does not assert that every SKI term
+normalizes or that every implementation runs in constant time.
 
 Terms are used precisely:
 
@@ -98,9 +165,11 @@ byte-hash-equals-`ringMul` claim or an arbitrary-merge classification is not mad
   sibling tree. Source preservation targets a canonical package that is independent of any single
   Aeneas extraction link.
 - **Song** remains an independent, adjacent assembly-up implementation: its own assembly, Slang
-  implementation, contracts and local build/runtime acceptance. There is no Rust or Aeneas runtime
-  linkage between Apeiron and Song, and Lean is not deleted. Song's local gates stay owned by Song.
-  The required cross-repo result is a proof of primitive correspondence, not runtime linkage.
+  implementation, contracts and local build/runtime acceptance. Where Song is slower, it derives its
+  approaches from Apeiron; Apeiron's proven core is the reference. There is no Rust or Aeneas
+  runtime linkage between Apeiron and Song, and Lean is not deleted. Song's local gates stay owned
+  by Song. The required cross-repo result is a proof of primitive correspondence, not runtime
+  linkage.
 - **Applications** retain local policy. Penglai owns fiction, materials' physical interpretation,
   gameplay policy and host integration; Lyrium extracts engine machinery later; Fold is not a
   consumer or requirements source; Whispering Tides owns game and scientific conformance, not
@@ -128,30 +197,139 @@ implementation; a missing gate is named, never replaced by a fictional command.
 The readiness profiles are the gate between the foundation and the next large implementation.
 `docs/spec/joint-primitives.md`, `joint-table.md` and `joint-evaluator.md` name the selected
 primitives, domains and obligations, and their checkers establish specification consistency only.
+Their table R1/R2, unmatched B1 algebra and fuel-evaluator profiles are layer-local evidence/spec
+artifacts, not separate foundational authorities. The algebra/combinator, correspondence, lift,
+reduction and realization outcomes below all depend on the same canonical collapse/fold object and
+its checked connecting theorem. A fuel evaluator, table refinement or source binding alone cannot
+close that dependency; the rows' local prerequisites do not replace it.
 They do not establish joint readiness: the Rust–Song word/map transport is checked, while Song
-source binding and the checked primitive composite remain open. Song A0 alone does not satisfy readiness, and the
-existing Song milestones are retained, not replaced by it.
+source binding and the checked primitive composite remain open. Song A0 alone does not satisfy
+readiness, and the existing Song milestones are retained, not replaced by it.
 
 | Outcome | Owner | Consumer | Dependencies | Current evidence vs open gate | Closure condition |
 |---|---|---|---|---|---|
-| Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | Both source trees and recorded successful builds exist. Open: the canonical corpus is still at `../sanguine-apeiron/proof` (Git `88866412`), not in the Apeiron tree. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
+| Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | The canonical source location remains `../sanguine-apeiron/proof`; the bridge manifest resolves Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`, not the older `88866412` pin. Migration into Apeiron remains open. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
 | Literal algebra, combinator and evaluator foundation | corpus lead (Apeiron) | Song, Rust, physics | retained Lean | `Apeiron.Combinator.routes_are_a_combinatory_algebra` and `Apeiron.Combinator.denote_reduces` are checked theorems. `Apeiron.Combinator.Comb.normalize` is a fuel-bounded evaluator definition; `Apeiron.Combinator.Comb.verdict_decided_exact` proves exactness when the verdict is not `.fuel`. `Omega.lean` proves non-normalization for a named term; that is a boundary, not an unfinished theorem. Open: selected finite-machine representations and executing evaluator refinement. | The selected executing evaluator refines the canonical semantics on an explicit domain and reports resource exhaustion without a false verdict. |
 | Independent Rust–Slang primitive correspondence | cross-repo lead (Apeiron + Song) | both executing implementations | retained Lean; combinator evaluator | Profiles exist, separate Rust and Song replacement refinements are checked, and `Joint.WordBridge` proves the `I64 ↔ Slang.Word` pointwise-map transport. Open: unconditional Song source binding, decoded-context instantiation and the combined theorem on a matched domain. | A checked joint primitive theorem relates both executing implementations to the same canonical definition on a matched domain, including representation, state/effects, admission/refusal and resources. |
-| Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles | Real Rust extraction and selected canonical refinements exist; historical LLVM/Lean lifting supplies transfer input. Open: an admitted source population, effects/undefined-behaviour contract and complete lift-to-realization gate. | Supported source interpretations and target realizations compose through canonical semantics, with unsupported inputs refused explicitly. |
-| Checked reduction / subsumption | Apeiron lead | realization, transformation | lift | `Apeiron.Combinator.Comb.hoist_preserves_semantics`, `Apeiron.Combinator.denote_reduces` and `Apeiron.Combinator.Comb.verdict_decided_exact` establish a scoped hoist reduction, route-denotation preservation under reduction and exactness on the decided fragment, not a general subsumption or translation theorem. Open: the source-level checked reduction/subsumption relation. | Lossless reconstruction or observable relative subsumption is checked, with the observation set, refusal and resources stated. |
+| Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles; Song A0–A4 before bulk ingestion | Plan: Universal Algorithm Bridge, `song lift` and `song adapt` (A7), with modality-blind `universalLiftCons` ingestion and SSA cons-list state vectors. Historical Lean authorities and their real scopes are recorded in the [transfer analysis](plan/programme-roadmap.md#translation-authorities-and-missing-links). Missing links: LLVM domain/effects/undefined behaviour, list→Church state, opcode interpretation, historical→canonical term transport and Song source binding. | Supported source interpretations and target realizations compose through canonical semantics, refusing unsupported inputs; imported-program claims require A7, not every A0–A6 release. |
+| Checked reduction / subsumption | Apeiron lead; Song transformation owner | realization, transformation | lift; canonical term transport | Plan: structural resonance (`song resonate`) and harmonic cancellation (`song cancel`), with collision-confirmed structural sharing, checked hoist/rewrite certificates and explicit observations. `Apeiron.Combinator.Comb.hoist_preserves_semantics`, `Apeiron.Combinator.denote_reduces` and `Comb.verdict_decided_exact` cover their named term relations, not a source-level subsumption pipeline. | Lossless reconstruction or observable relative subsumption is checked, including effects, refusal and resources; distinguish source compression from runtime benefit. |
 | CPU / Slang / GPU realization | Apeiron + Song leads | applications, measurement | subsumption | Named `Cell<i64>` source kernels are refined. The programme-wide joint refinement is not established; existing Slang contracts and model bridges, and GPU experiments, have their own scope. | Each realization refines the same supported semantics, with target features, reduction order and numerical tolerance specified. |
-| Secure OS-language-proof-kernel composition | cross-repo lead (Apeiron semantics/refinement + Song execution) | literal-machine and application tracks | retained Lean; Song A0-A6/B6; primitive correspondence; lift/subsumption; realization | Song retains its local security/runtime gates, and historical kernel, language and prover artifacts exist. Open: checked end-to-end composition relating OS isolation, language semantics, proof checking and executing primitives to the canonical algebra and SKI/derived-Iota semantics. | A revision-pinned vertical system passes Song's local gates; checked composing refinements cover the admitted language, proof kernel, OS/ABI boundary and executing primitives, with threat model, trust boundary, refusal and resources explicit. |
+| Secure OS-language-proof-kernel composition | cross-repo lead (Apeiron semantics/refinement + Song execution) | literal-machine, games and world-simulation tracks | retained Lean; Song A0–A6/B6; primitive correspondence; lift/subsumption; realization | Plan: supersede monolithic Linux with the capability OS, coupled language/proof core, Universal Algorithm Bridge, resonance/cancellation and direct hardware/native ELF projection (`song project`, A7). Hosted ELF output is not native isolation. Open: end-to-end composition through source semantics, authority, boot/ABI and hardware. | A revision-pinned vertical system passes Song's local gates; composing refinements cover the admitted language, proof kernel, OS/ABI and executing primitives with explicit threat model, refusal and resources. A7 additionally gates imported-program claims, not every local release. |
 | Measured transformation benefit and productivity | lead | programme | realization | Historical Fold numbers exist; no benchmark was rerun in this pass. | A named machine, metric and interval measure before/after transformation cost and developer productivity. |
 | Active test-time learning and lower-cost useful AI | AI-track lead | applications | joint foundation readiness; realization | Historical formal and executable records exist: [paper1](../../sanguine/release/paper1/INDEX.md) and [spinor-ttl](../../spinor-ttl/README.md). Existing work is not new acceptance. Open: a joint learning/update profile and its executing correspondence. | Streaming updates and retained knowledge satisfy the selected contracts; adaptation quality, learning/inference cost and resource bounds meet a pinned comparison profile. The research target is order-of-magnitude cost improvement at matched useful capability, not an established result. Inference or quantization alone does not close learning. |
 | Physics: classical/quantum correspondence and neutrino prediction | Apeiron physics lead | scientific and application tracks | algebra foundation | Conditional model theorems exist in `Apeiron/Physics/Madelung.lean`, `Apeiron/Physics/Flavour.lean` and `Apeiron/Cosmology/NeutrinoSum.lean`. Real-valued carrier conservation and scoped kinetic-energy results are proved under their stated hypotheses; ring-generic theorems establish conservation and norm-form-ledger identities, not kinetic energy or nonnegativity. The word ring carries no energy claim. Open: joint scientific conformance profiles separating model theorems from empirical confirmation. | Named model predictions are checked against their test profiles under stated domains and tolerances, independently of game integration. |
 | Application and game integration | Penglai + Whispering Tides leads | players, scientific users | physics foundation; realization | Historical toy, game and scientific examples exist; this pass establishes neither current integration testing nor refinement. Open: a playable or scientific loop consuming checked model readouts. | A playable or scientific loop consumes checked model readouts with its own integration gate. |
-| Federation / distributed | Song network lead or an assigned distributed-service lead | applications, including Whispering Tides if the profile calls for it | primitive correspondence | The historical Sanguine federation transfer lineage is recorded in the [song network roadmap](../../song/docs/network/ROADMAP.md) (C3/G5) as design input. Open: a joint current protocol profile; existing network experiments are historical. | Distributed peers exchange checked, revision-pinned state with explicit delivery, identity, partition and duplicate semantics. |
+| Federation / distributed | Song network lead or an assigned distributed-service lead | applications, including Whispering Tides if the profile calls for it | primitive correspondence | The historical Sanguine federation transfer lineage is recorded in the [song network roadmap](../../song/docs/network/ROADMAP.md) (C3/G5) as design input, and the old corpus's decentralised core (`Navigation/Federation.lean`: `federation_algebra`, `federation_defense`, `federation_reseeds_the_genome`, `conflict_floor`, `scheduler_floor`) is captured for rebase in [security-algebra-rebase](intent/security-algebra-rebase.md). Open: a joint current protocol profile; existing network experiments are historical. | Distributed peers exchange checked, revision-pinned state with explicit delivery, identity, partition and duplicate semantics. |
+| Security / cryptography rebase | lead; Sol for grades; corpus lead (Apeiron) for transport | every executing face and the federation layer | retained Lean; canonical trichotomy | The old Sanguine security module (`../sanguine/proof/Substrate/Algebra/Security/`, 17 files) is largely proved pre-trichotomy: cost-based secrecy rejected (`cipher_secrecy_is_only_cost`), OTP-grade dropped-window secrecy (`sanguine_encryption_information_theoretic_security`, `otp_perfect_secrecy`), the cipher/hash fork (`EncryptionProjection`), and the systems-security results (`MandalaMemory`, `RaceFreedom`, `CapProvenance`). Captured, **not actioned**, in [intent](intent/security-algebra-rebase.md) and [plan](plan/security-algebra-rebase.md). Open: the rebase onto the trichotomy faces, the per-theorem grade transport, and the deeper-review spikes (SHA-256d reading, message-schedule localisation, the AES/RSA bridge named but not re-proven). | Every security theorem is rebound to a face at its declared grade in the canonical corpus, and the corpus's minimum-encryption standard is a claim with a confirm/refute pair; grades are frozen and neither direction is presupposed. The end state is an end-to-end proved Rust implementation per target standard (primitives in Apeiron's core, implementations in a secondary crypto repository), each answering the three questions: stated goals (formal + empirical), structural/algebraic weaknesses, and implementation weaknesses from the empirical hacks. |
+
+The following G1/REG-1 requirements are unchanged. Its recorded ratios, exits and fixed-shard API
+references are historical receipts, not measurements or API descriptions of the growable source
+read in this review. Current acceptance requires rerunning its exact gate on the integrated identity.
+
+## Required R0 acceptance: G1 / REG-1
+
+<!-- APEIRON-STRATEGY-DECISION-T3-STATUS BEGIN -->
+**Current performance status.** The [post-correctness receipt](evidence/perf-remeasure-2026-09-19-post-correctness.md)
+supersedes the older performance checkpoints below: strict exit 1, `pass=421 fail=1029`,
+`applicable=1450`, `full_acceptance=false`; every spatial pair fails. The worst serial pair is
+spill absent-miss, 20.4682x against `hashbrown_fxhash` (interval [20.0871,20.5922], 16.161 ns/op).
+Offset misses cost 18.8–18.9 ns/op; occ16 spill hits improve from about 30.7x to 12.3x, not parity.
+Growth-insert remains about 1.5x. The supplied resident 2.7–4.7x band is not a new measurement;
+the receipt's named resident miss is 4.9286x against `hashtrinity_table`, 2.645 ns/op.
+These are receipt-bound measurements on `leviathan`, not reruns or measurements of subsequent edits.
+The reported extraction (`ApeironWord.lean` SHA-256 prefix `b590a393`, 1708 jobs) is green;
+Sol's bridge re-proof is in flight, not accepted by that extraction result. G1 remains **OPEN**.
+<!-- APEIRON-STRATEGY-DECISION-T3-STATUS END -->
+
+RFC 0001's [G1/REG-1](rfcs/0001-core-architecture/RFC.md), lines 196-209,
+is restored here as a REQUIRED current gate: `quality ∧ speed ∧ baseline`, not an optional
+performance claim. The RFC package remains historical; this correction asserts no new RFC
+publication or joint architecture acceptance. G1 and storage S8 remain OPEN until REG-1 runs and
+every required row meets its stated acceptance criterion on one recorded source/tool identity.
+The owner's performance-preserving requirement strengthens the current migration gate without
+rewriting the historical RFC: recording a failing ratio as a boundary is evidence, not acceptance.
+
+- Identity: zero mismatches over `10^8` adversarially coordinate-colliding keys against the
+  reference map's key set. An identity failure is a different correctness contract, not a slowdown.
+- Round-trip: `{0, 1, 2^63-1, 2^63, u64::MAX}` and packed-coordinate boundaries survive
+  insert -> encode -> decode -> get as identical keys.
+- Determinism: identical key/value results across separate processes.
+- Growth/merge: get, insert, remove, growth and ordered versus commutative merges agree with the
+  reference, including refusal. Missing operations in the current fixed-shard API must be reported
+  as explicit contract boundaries, not silently omitted or counted as passes.
+- Performance: match or beat **every** named applicable incumbent on every applicable cell,
+  `selected/incumbent <= 1.0`, never behind and ideally ahead. The named incumbents are
+  `hashtrinity::{Table,CoordMap,FreqMap}` in serial and packed-parallel forms
+  (`count_par`/`get_each`), `hashbrown+foldhash`, `hashbrown+fxhash`, `hashbrown+rayon`, `std`
+  SipHash, `foldhash`/`fxhash` par16, and — per the [hash comparison](hash-comparison.md) registry —
+  `xxHash` XXH3/XXH64, `wyhash`, `ahash` and `fnv`. This supersedes the RFC elapsed-median floor
+  `selected/hashtrinity <= 1.25` and replaces the historical-envelope question: there is no
+  separate envelope tolerance and no family-wide exemption. An inconclusive or failed required cell
+  keeps G1 open.
+- Coverage: report the fraction of the admitted operation surface inside Aeneas/Kani; the container
+  stays outside reported coverage until evidence includes it.
+
+The required comparison matrix carries the historical tested surfaces, not just one full16 case:
+
+| Surface | Required matched comparison |
+|---|---|
+| Original spatial parallel workload | `71942db` CountTable and replacement versus the original packed hashtrinity baseline; preserve input, packing, partitioning, threads and timed region. |
+| Serial operations and lookup cost | `3a95bb5` Map and replacement versus hashbrown/foldhash and std where historically applicable; report elapsed cost and instructions/lookup separately. Those historical Map results are not hashtrinity comparisons. |
+| Executing fixed-shard surface | Occupancy 1/2/4/8/16 at fixed `N = 16`; direct-index-resident, offset, skewed and seeded-random coordinates; hashtrinity, hashbrown/foldhash, std and the other named incumbents where applicable. |
+| Operation strata | Hit, miss, update, fresh insert and refusal timed separately; replacement and wrapping-add merges separate; retain growth/remove and ordered/commutative merge correctness requirements. |
+
+An independent full-key correctness oracle must pass before timing; an injective timing population
+does not replace the adversarial identity row. Register every matrix cell, baseline applicability,
+admission and missing operation explicitly. No silent workload reduction or aggregate that hides a
+failed required cell; full16/direct-index-resident is an extreme boundary, not a representative
+aggregate. Historical numbers are hypotheses until rerun with durable harness/source identity.
+
+### Global acceptance contract
+
+For every applicable cell, `selected/incumbent <= 1.0` against every named incumbent; a cell is
+never behind and ideally ahead. Applicability is registered per cell/incumbent pair before timing,
+with a semantic or API reason; there is no family-wide exemption. Missing, duplicate, invalid or
+inconclusive pairs reject. `cargo run --release --locked --example reg1 -- --check performance
+--profile full --accept --controls` is the strict acceptance command; `--accept --profile smoke` is
+diagnostic only and does not close G1. Full acceptance requires every registered pair measured on
+one source/tool identity. `docs/hash-comparison.md` records the comparison axes —
+cryptographic versus non-cryptographic, throughput at small and large sizes, latency, collisions
+and avalanche, HashDOS resistance, determinism, `no_std`, licensing and verification — and the
+per-domain "good enough" reading for operating systems, languages, provers, games, servers and
+aerospace.
+
+Each claim requires matched before/after on the real build path: source/harness/input SHA-256,
+dependency and tool identities, named command, machine, target/features, compiler, thread/cache
+conditions, metric, timed interval, raw samples and uncertainty. Pre-register repetitions and the
+uncertainty decision rule; inconclusive intervals do not pass. Use same-run relative comparisons,
+not copied absolute milliseconds. Require rejecting oracle/digest, workload-identity and
+slowed-path or selected-implementation-mismatch controls, then an unchanged restored baseline.
+The [lifecycle annex](plan/storage-refinement.md#performance-preserving-consolidation-lifecycle-annex)
+registers the history and bounded implementation sequence. The existing `examples/reg1/` harness
+carries the strict all-row acceptance command
+`cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`.
+Strict mode exits nonzero when any applicable strata speed cell is `fail`/`rejected`/`missing`, or
+when a `pass` cell's ratio interval max is above `1.0` (each applicable cell must satisfy
+`selected/incumbent <= 1.0`); `not-applicable` speed cells and the separate resource rows are
+excluded. The same run without `--accept` is diagnostic, exits 0 and reports the axis `boundary`. The
+command currently exits 1. The fresh strict full-profile receipt
+([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-remeasure-2026-09-19-post-spill.md), sha256
+`946b5d40…`) gives HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387 fail=1063
+missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`. The spill
+absent-miss cells fell ~15–21x (for example `occ16-seeded-random-absent-miss-replacement`
+373.85x/314.62 ns/op to 23.59x/19.68 ns/op) and growth-insert fell ~145–152x (231.88x/1653.21 ns/op
+to 1.53x/13.31 ns/op); the worst cell moved to the spill present-hit path (~30.9x, ~24.7 ns/op).
+`load_bearing` rose 1458 to 2268 because the five named hashers are now load-bearing, so raw
+pass/fail counts are not directly comparable to the prior receipt. Every compared cell still fails
+the `<= 1.0` interval contract. No benchmark is rerun in this documentation task, and no speed
+recovery is claimed. Local proofs and perimeter checks do not pass REG-1.
 
 ## Evidence status
 
 Claims are stated at the grade the artifact supports.
 
-- **Table.** The generated table refinement covers arbitrary callback instances satisfying
+- **Historical fixed-shard Table.** The following statements concern the earlier extracted layout,
+  not the executing growable flat/spill body. The generated table refinement covers arbitrary callback instances satisfying
   `CallbackLawsG`. For the concrete `I64` word instance the constructor establishes `PhysicalInv`
   at every `N`; `get` reads the represented total map; `insert_with` preserves `PhysicalInv` and
   canonical `insertWith` on success and returns the identical representative on `ShardFull`, with
@@ -207,9 +385,10 @@ same canonical definition on a matched domain. The obligations are joint, not se
    identified across layouts.
 
 Equal names, worked examples, citations or identical layouts are not that proof. Rust and Slang have
-different physical layouts: the Rust `Table<K, V, H, N>` is fixed-shard inline storage; Song's
-Slang/assembly representation is its own. Different layouts can correspond, but only under a
-matched admission relation and the four obligations above. A differential test or a shared example
+different physical layouts: Rust executes the growable flat/spill `Table`; Song's Slang/assembly
+representation is its own. The historical fixed-shard proof does not discharge the new Rust layout.
+Different layouts can correspond, but only under a matched admission relation and the four
+obligations above. A differential test or a shared example
 is supporting evidence, not a substitute for the correspondence theorem.
 
 This correspondence is a required programme outcome and is not established today. See the
@@ -224,8 +403,9 @@ equivalence. The artifacts remain distinct; their canonical semantic authority i
 
 ## Migration
 
-The physical canonical corpus remains at `../sanguine-apeiron/proof/Apeiron/`, Git
-`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, Mathlib
+The physical canonical source remains at `../sanguine-apeiron/proof/Apeiron/`. The bridge's
+`proof/corpus/lake-manifest.json` resolves corpus Git
+`3d66ea3aa2fe1de5997b6b757247454a2f771358`, Mathlib
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. Apeiron is the approved destination; the sources have
 not moved, and no extraction, package or pin change is authorized by this document. A migration is
 a separately gated task with its own lifecycle artifacts.
@@ -243,25 +423,209 @@ at Git `1403767e671c81737525702946a3eb1eae4f0b0b` is retained: the storage lifec
 the [corpus release pin plan](plan/corpus-release-pin.md). The combined
 [programme plan](plan/programme-roadmap.md) records this documentation pass.
 
+## Revised representation boundary
+
+The Astra verdict revises the selected representation from a single growable key-partitioned
+structure to two coupled regions:
+
+- A **table-level flat resident area**: shard-major `256 x L`, admission
+  `direct_word = Some(w) ∧ lane < L`, checked sizing, a stated byte budget and a density test.
+  Failures spill to the grouped regions rather than refuse.
+- **Independently load-sized grouped spill regions** beside the flat area.
+
+One representative per key is held under a composite `DirectCover`; extent growth must reclassify
+newly eligible spills. Key-dropping uses the concrete compile-time carrier `Stored<K>` or `Regen`
+under `KeyRep` and an exact codec law, not a sibling count table or a lossy `FreqMap`. Restoration also
+includes the key-partitioned load-sized shard build, deterministic schedule, grouped probe and
+key-dropping count/dedup; the proof, extraction, Kani, registration and measurement work follows on
+the same source identity. The flat/spill structure is present in executing Rust; completion of
+these extraction, refinement and measurement obligations is separate. No speed recovery is claimed.
+
 ## Execution order
+
+<!-- APEIRON-STRATEGY-DECISION-T3 BEGIN -->
+### Serial read specialization and stable parallel scatter
+
+`APEIRON-STRATEGY-DECISION-T3` supersedes T1/T2's current status and next dispatch, not their gates,
+requirements or trust exclusions. **Keep the all-pair interval ceiling `selected/incumbent <= 1.0`.
+Authorize size-only factoring, then measured read-path specialization; do not accept the current
+performance or promise parity from local tuning.**
+
+**Attainability verdict: unestablished, not structurally impossible.** No read scans 256 shard
+descriptors: an admitted resident match/empty returns before spill access; a spill read selects one
+region. Neither 256 shards nor asymptotic O(1) establishes a lower bound in ns/op or a relative-speed
+bound against another implementation. The 4096 independent-query schedule measures amortized elapsed
+cost, not a dependent-load latency floor. A categorical promise of 20x recovery or proof that parity
+is impossible would exceed the evidence. This is a decision to test a specific mechanism, not to
+weaken “never behind” or turn an inconclusive cell into a pass.
+
+The selected mechanism removes insertion-only work from reads: a sound spill-summary negative needs
+no first-vacancy search; a read-only positive path needs matching/coverage, not vacancy bookkeeping.
+Inline the existing resident classification/apply path and compute the address/index once, preserving
+`live`, full `(Sigma,K)` identity and spill fallback. The existing resident lane already bypasses
+region summaries; adding that bypass again cannot explain or close its gap. Summary indexing also
+recomputes a shift/count width on every lookup; optimize it only with extracted equivalence or a
+separately ratified cached-state invariant. These remove named work but have **no established 20x or
+3–5x speedup**. No special case for the benchmark's `RawStrataHome` type or key population is allowed.
+
+After the bounded mechanism campaign, any still-red pair blocks acceptance. If metadata indirection
+or summary-positive coverage dominates, the next architecture task must design a compact hot lookup
+directory/control lane and a source-proved absence certificate within the same `Table`; cold 256-way
+build ownership need not dictate serial lookup layout. Changed flat geometry, cached summaries,
+first-empty termination or payload layout require a new Astra/Sol contract/refinement decision,
+not an exemption or a second container. Smaller/lazier descriptors alone do not remove the selected
+region's dependent loads. The payload-initialization removal rejected in T2 remains rejected.
+
+**Spatial selection:** stable parallel scatter, retaining `Parts` validation and query-order
+readback. The supplied build split (kernel 46–55%, partition+validate about 28%) is diagnostic,
+not a fresh phase receipt. Even eliminating that whole 28% would yield only `1 / 0.72 ≈ 1.39x`
+under an unchanged additive build model; scatter alone saves less and cannot establish spatial parity.
+Removing `is_intact` requires replacing its production assurance with a source-linked constructor
+argument, not merely calling a tested, unextracted validator unnecessary. Grouped readback already
+exists; eliminating its copies/reducing locally is deferred behind an order/effect contract.
+
+The [serialized owner plan](plan/programme-roadmap.md#serialized-table-owner-and-spatial-plan)
+and [read/scatter boundary](kernel-boundary.md#read-specialization-and-scatter-boundary) govern these
+tasks. The active Sol owner finishes on its frozen source before factoring changes generated paths.
+W7 composition remains frozen under its unchanged reopening condition; regression re-proof continues.
+All named incumbents, coverage gaps, HashDOS, source-linked proofs, controls, complete Rust/proof
+barriers, both axiom cones and realization exclusions remain required. No runtime or proof gate is
+run by this documentation decision.
+<!-- APEIRON-STRATEGY-DECISION-T3 END -->
+
+<!-- APEIRON-STRATEGY-DECISION-T2 BEGIN -->
+### Current cut: partition validation before payload-layout replacement
+
+`APEIRON-STRATEGY-DECISION-T2` supersedes the performance priorities/status in the older checkpoints
+below, not their requirements. **Authorize the partition-validation cost cut; reject removal of the
+region payload initialization in this dispatch.** `Region::reserve` materializes every payload before
+indexed writes; deleting that pass is not a redundant-write elimination on the present representation.
+The [bounded dispatch](plan/programme-roadmap.md#partition-cut-and-frozen-bridge-maintenance) requires
+intent/spec ratification before changing the fail-closed validator. A safe replacement payload layout
+requires a separate Astra/Sol decision with initialization, drop, refusal and extraction obligations.
+
+The last read strict receipt remains [post-spill](evidence/perf-remeasure-2026-09-19-post-spill.md):
+exit 1, `full_acceptance=false`, 387 passing and 1063 failing applicable pairs; all spatial pairs
+fail, including concurrency/address-face rejection independent of speed. Its measured examples are
+absent-miss 373.85x → 23.59x and growth-insert 231.88x → 1.53x. The supplied later fingerprint
+diagnostic reports present-hit about 24.7 → 9.9 ns/op; it is not a new strict campaign or evidence of
+parity. The supplied phase split selects partition/validation and the per-shard kernel for investigation;
+its percentages have different build/probe denominators and are not additive. No runtime command runs
+in this decision. Resident serial and spill present-hit remain priorities without dropping other red
+cells. “No speed recovery” in older checkpoints means no accepted global restoration, not denial of
+the scoped improvements recorded in the receipt. That receipt's identity is not the later source.
+
+`Region.summary`, the shifted tag fingerprint, contiguous partition and phased parallel API require
+fresh extraction and regression checking. Add the explicit open obligations
+`SpillSummaryShape`, `SpillSummaryRecorded`, `SpillSummaryMissSound` and `SpillFingerprintExact`
+to [W7's ledger](kernel-boundary.md#spill-filter-obligations-and-partition-cut). Sol owns their exact
+bridge contracts and eventual source-linked proofs for both carriers; Flash owns bounded source tests
+and extraction. They are temporary named premises at grade `anchor`, not axioms, established `RepR`
+fields or replacements for preservation. Local arithmetic/generated-body repairs continue while
+`W7-SearchCommitBoundary` and whole-state composition remain frozen. No existing theorem is silently
+weakened to accommodate the new state. All premises must be discharged before end-to-end acceptance.
+
+The all-pair `<= 1.0` interval ceiling, named incumbents, controls, HashDOS requirement, complete
+Rust/proof barrier, both axiom cones and realization exclusions remain unchanged. G1/REG-1 stays
+**OPEN**, `report_complete=false`; no performance improvement closes a proof or coverage obligation.
+<!-- APEIRON-STRATEGY-DECISION-T2 END -->
+
+### Current strategy decision: freeze composition, restore performance
+
+`APEIRON-STRATEGY-DECISION-T1` changes work priority, **not joint acceptance**. Suspend repeated W7
+`prepared_rebuild_refines_insertWith` attempts and new extraction undertaken solely to unblock them.
+Name the pending search/commit perimeter `W7-SearchCommitBoundary`, with the explicit premises and
+rejecting-test obligations in the [local boundary](kernel-boundary.md#w7-searchcommitboundary).
+It is trusted/unproved, with only individually evidenced Rust tests or bounded Kani checks labelled
+`tested`; the boundary as a whole is not yet test-accepted. Existing audited core implications keep
+their exact scopes. Whole-state `apply_insert` preservation and the pending composition remain open.
+Tests, more assumptions and a green build of existing modules do not establish either theorem.
+
+This scheduling decision supersedes the immediate W7 retry instructions below and in earlier
+handoff/roadmap checkpoints; their theorem requirements, gates and controls remain required.
+G1/REG-1 and the owner definition of done remain **OPEN**, `report_complete=false`. A tested/trusted
+search/commit boundary is not an accepted replacement for real-Rust canonical refinement. The
+allocator/executor exclusions do not permit moving sequential search or commit out of eventual
+end-to-end acceptance. The next large AI implementation remains gated; bounded physics/prediction,
+Null-cell, Whispering Tides, game and world-simulation interface work retains its independent gates.
+
+Reopen W7 only when the lead receives a Sol-ratified, source-pinned task for full `apply_insert`
+`RepR` preservation (both carriers, joint found/fresh flat/spill witnesses, rejecting controls), an
+acyclic composition target, and a finite discharge map for every boundary premise. Each map entry
+must name its real body, exact statement, gate, owner and checked primitive/tool dependency; a
+missing primitive needs a separately accepted feasibility result first. A new premise, assumed
+postcondition or another unchanged retry is not progress through this condition. Performance parity
+does not itself reopen or discharge W7. Once the measured production mechanism is selected, restoring
+this proof route is mandatory before G1 closure; freezing it indefinitely leaves the epic incomplete.
+
+**Performance workstream.** The fresh strict full-profile receipt
+([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-remeasure-2026-09-19-post-spill.md), sha256
+`946b5d40…`) supersedes the prior full-profile receipt. The supplied 84-pass/566-fail run, serial
+direct ratios 1.75–3.94 versus hashtrinity/hashbrown (about 0.50 versus std), and spatial ratios 2–25
+are stale diagnostics, not measurements of the selected identity here. Earlier receipts below remain
+historical. Comparison coverage is repaired: the five named hashers are load-bearing. Next reduce
+serial direct-path overhead while preparing the spatial partition/build/probe recovery on disjoint
+paths. The [decision matrix and tasks](plan/programme-roadmap.md#performance-re-anchor-and-bounded-dispatch)
+choose mechanisms from fresh per-operation evidence, not the old ratios alone.
+
+`examples/reg1/acceptance.rs` and the [hash comparison](hash-comparison.md) registry now classify
+XXH3/XXH64, wyhash, ahash and FNV as load-bearing on the opaque-key exact map face; each is the same
+`hashbrown::HashMap` surface with a different `BuildHasher`, so each is subject to
+`selected/incumbent <= 1.0`. `blake3` and `sha256` remain informational cryptographic comparators
+with no named authentication/integrity contract. Missing adapters or semantic/API applicability
+decisions still block complete acceptance. Independently check coverage of hashtrinity `Table`,
+`CoordMap`, `FreqMap` and the historical serial/spatial surfaces. Do not turn mismatched concurrency
+or a different timed operation into a speed pass.
+
+Keep the exact full-profile strict command and every-pair interval ceiling `<= 1.0` above. Additional
+stretch target (`anchor`, not another acceptance floor): interval maximum `<= 0.8` versus the fastest
+named applicable incumbent on both dense-coordinate serial lookup and packed spatial build+probe,
+with unchanged correctness, workload and worker budgets. This supports a scoped lead over those
+comparators only, not a universal SOTA claim. No aggregate, std-only win, historical envelope, reduced
+matrix or trusted-boundary grade closes G1. Cryptographic-face implementation, GPU/ISA work, a new
+container, lossy identity and universal O(1)/WCET claims are non-goals of this performance leg;
+HashDOS resistance, remove/growth obligations and every named comparison remain required.
 
 Foundational verification precedes the next large AI implementation. A joint readiness profile is an
 explicit specification obligation and is currently MISSING; it is not satisfied by Song A0 alone,
 and the existing Song A0–A6/B6 milestones are not dropped. Verification that is not complete keeps
 the next large implementation gated.
 
-Priorities, in order, as prerequisites admit:
+**Terminal goal:** one admitted R0 collapse/fold primitive, connected by checked refinements from
+its historical implementation and semantic law through normal form/translation to Rust and
+Song/Slang execution, satisfying G1/REG-1 and supporting the secure OS-language-proof system.
 
-1. **Current Apeiron work.** Compose the checked Rust and Song replacement-write refinements through
-   the checked `Joint.WordBridge` relation after the unconditional Song source binding and
-   decoded-context witness exist. The Rust callback-parametric storage refinement and its
-   Rust/Kani, extraction, bridge and perimeter barriers are complete at their stated scope.
-2. **Independent Song A0–A6/B6**, owned by Song, with its local gates unchanged, progressing in
-   parallel with Apeiron work. Cross-repo coordination assigns bounded tasks, not whole repositories.
-3. **A cross-repo matched primitive profile and executing evaluator refinement**, the prerequisite
-   for the correspondence outcome above. Profile design can proceed alongside the local foundations.
-4. **A bounded vertical lift/reduction demonstration**, only as the prerequisites admit. No giant AI
-   port now.
+The current extraction/refinement leg continues on the real growable implementation. Older
+fixed-shard execution statements and the repeated W4–W8 dispatch chain in the handoff are stale;
+the [consolidation report](plan/programme-roadmap.md#conflicts-and-follow-on-documentation) records
+the exact reconciliation tasks. The resource/refusal contract remains transactional checked
+reservation (option (b)); allocator realization remains outside the extracted core.
+
+1. **Resume the existing extraction/refinement leg.** Bind prepared-resource and search-decision/apply
+   roots for both carriers to the production path, verify extraction freshness and close the growable
+   bridge under its explicit premises. Retain the identity-injectivity, constructor, relocation,
+   schedule and refusal obligations. Source/pin presence is not acceptance. G1/REG-1 stays **OPEN**
+   under the unchanged all-row contract above; historical benchmark receipts are not reruns of this
+   growable source. No restored historical source is automatically admitted.
+2. **Connect the same primitive.** Close the audited cross-revision collapse/fold correspondence
+   and the admitted SKI/derived-Iota translation links without promoting historical anchors.
+3. **Complete the execution refinements.** Song source binding is a later refinement leg of that
+   primitive, not a separate semantic project. Compose the checked `Joint.WordBridge` transport
+   with source-connected refinements and a decoded-context witness on a matched domain, retaining
+   the local source-binding, evaluator, axiom-cone and integration gates.
+4. **Compose the Universal Algorithm Bridge and realization demonstration.** Song A7 follows the
+   A0–A4 core for bulk ingestion; lift/adapt, resonate/cancel and project compose on one admitted
+   source/target profile. Independent A5/A6 application slices inform core interfaces in parallel.
+   A0–A6/B6 release conditions stay unchanged. This assigns bounded cross-repo tasks, not an entire
+   repository; no giant AI port now.
+
+Open acceptance obligations retained by the revised boundary: the `10^8` identity row and the coverage
+census; the unextracted `std::thread::scope` orchestration boundary and its trust statement; integration
+of the canonical/bridge identity-injectivity chain on the selected source; allocator success/failure correspondence of the
+ratified resource/refusal contract as an unextracted trust boundary; and the Slang empty-axiom-cone
+separation from the Rust/Aeneas bridge cone. None of these is closed by this documentation pass.
+Extraction freshness must bind the selected source and generated roots through `proof/regen.sh --check`.
+Earlier green receipts remain historical; this documentation task does not rerun that gate.
 
 Scientific concurrency is preserved: independent tracks continue in parallel, and small bounded
 interface probes are permitted and expected. A probe answers one interface question and ends in

@@ -1,5 +1,243 @@
 # Plan - Single Table Refinement
 
+## Performance-preserving consolidation: lifecycle annex
+
+Owner Astra; task `APEIRON-PERF-RESTORE-PLAN-W1-T1`; base
+`c450c222905c050f793a23332708c230c658f82c`. Lead-authorized documentation exception in the supplied
+checkout; no build lane, commit or production edit. Preserve existing dirty REG-1/spinor artifacts.
+This annex governs current performance restoration and dispatch; earlier implementation sequences
+below are historical checkpoints, not instructions to restart proofs of the current scan table.
+
+```text
+SCOPE: direction.md, flash-handoff.md, storage-refinement.md; performance-preserving consolidation
+REGISTER: planning/measurement/refinement; no production implementation or speed claim
+CORPUS: canonical Apeiron.Table/AnyRing; historical CountTable/Map at named revisions
+REFERENCE: 71942db, 3a95bb5, 00a3629, dde9d58, f6db050; RFC 0001 A2/A7/G1
+GATE: git diff --check; RFC renderer; performance/refinement requirement consistency search
+GRADE: owner-approved requirement; historical numbers remain historical until rerun
+```
+
+### Intent
+
+Fold/hashtrinity -> Apeiron consolidation must preserve performance as well as canonical meaning.
+The proof subject is the high-performance executing implementation, not a slower proof-only
+replacement or a reference alongside unproved production. Extraction convenience, sampled
+SwissTable/hashbrown-style confidence and historical speed alone cannot select an accepted
+primitive. Recover historical performance; do not resurrect deleted source as accepted production.
+Fixed N, bounded callbacks and linear whole-source reading remain qualifications, not exemptions.
+Non-goals: production changes in this task, new roadmap, identity/admission reduction, proof-time
+claims presented as runtime, or a universal slowdown claim about fixed shards.
+
+### Spec and evidence register
+
+Owner definition of done (apeiron core): formally verified end to end (real-source extraction,
+refinement to canonical `Apeiron.Table`/`AnyRing`, closed cone `{propext, Classical.choice,
+Quot.sound}` with an empty cone for the Slang chain, mutation controls); competitive-or-SOTA speed;
+not HashDOS-vulnerable; cryptographic strength not mandatory but achievable as a face. Full statement
+in [direction](../direction.md#owner-definition-of-done-for-the-apeiron-core).
+
+The [G1 matrix](../direction.md#required-r0-acceptance-g1--reg-1) is the contract: original spatial
+parallel CountTable; serial operation/lookup cost; occupancy 1/2/4/8/16 at fixed `N = 16` with
+direct-index-resident, offset, skewed and seeded-random coordinates; separate hit/miss/update/
+insert/refusal; hashtrinity, hashbrown/foldhash and std baselines where historically applicable.
+Keep identity (`10^8` colliding keys), round-trip sentinels, cross-process determinism, growth/remove,
+ordered/commutative merge and Aeneas/Kani coverage. Missing operations and unmatched admission are
+explicit open rows, not passes or silently narrowed populations. Timing requires full-key oracle
+agreement first; default/new-first semantics, overflow, callbacks, effects and refusal remain explicit.
+
+| Source / artifact | Registered role; grade and limits |
+|---|---|
+| `71942db` | Original spatial parallel CountTable versus packed hashtrinity: archival 3.16/10.27 ms. `--check history` reproduces `cargo bench --bench spatial_binning --offline` in an isolated `71942db` worktree with a pinned `4cc14471` Fold worktree and the 15 registered source digests; all 10 arms are oracle-checked before timing and 9 arms (18 cells at both sizes) are promoted to `measured` with the exact correctness-line digest. `hashtrinity_tuple` reproduces WRONG (off by 92 at 100k, 8236 at 1e6) and stays historical. i9-14900KF (32 threads) / rustc 1.97.0-nightly (17584a181 2026-04-13). No CountTable proof. |
+| `3a95bb5` | Serial Map campaign, machine as above. `map_sweep` ns/key reproduced in an isolated `3a95bb5` worktree; it asserts no oracle, so those 16 rows stay historical. `probe_cost` instructions/lookup reproduced under `taskset -c 2 perf stat -e instructions:u -- target/release/examples/probe_cost`, three reps; presence oracle is the printed hit count `138800000` (every key found). Reproduced u64: apeiron 34.82, hashbrown+foldhash 35.14, hashbrown+fxhash 34.17, std 128.27; String: apeiron 93.35, hashbrown+foldhash 84.43, hashbrown+fxhash 92.34 (intervals in `matrix.json` `fresh.result`). The 7 probe cells are promoted; `fold_instr` has no independent oracle and stays historical. Not hashtrinity comparisons. |
+| `00a3629`, `dde9d58`, `f6db050` | Supplied history: Map/Set/SafeTable deletion; CountTable plus 25 benchmark/example targets deletion; current fixed-shard scan Table installation, respectively. These revisions are retrieval inputs, not proof/performance acceptance. |
+| `examples/reg1/{main,workload,correctness,performance,coverage}.rs`, `examples/reg1/coverage.json` | Existing uncommitted partial gate: identity/operation boundaries, correctness, determinism, full16 timing and coverage. Preserve and adapt, not replace with a one-workload optimization. |
+| `examples/reg1/candidate.rs` | Benchmark-only cached-placement candidate; supplied 2.65–2.69x hashtrinity result is rejected. No production/refinement status. |
+| Current REG-1 and verification receipts | Fresh strict full-profile receipt [`perf-remeasure-2026-09-19-post-spill.md`](../evidence/perf-remeasure-2026-09-19-post-spill.md), sha256 `946b5d40…`: HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387 fail=1063 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, exit 1; spill absent-miss and growth-insert cells fixed (lifecycle annex below). Kani 448.58 s, 62/62 green, one unreachable, largest harness ~94.23 s; freshness red in 3.28 s on line-comment drift. Reported measurements, not rerun here; details and missing receipts in `docs/flash-handoff.md`. |
+
+Historical numbers are hypotheses for a registered rerun, never copied absolute thresholds.
+Acceptance threshold (owner decision): for every applicable cell, `selected/incumbent <= 1.0` against
+**every** named incumbent, never behind and ideally ahead. Named incumbents:
+`hashtrinity::{Table,CoordMap,FreqMap}` serial and packed-parallel (`count_par`/`get_each`),
+`hashbrown+foldhash`, `hashbrown+fxhash`, `hashbrown+rayon`, `std` SipHash, `foldhash`/`fxhash`
+par16, and — per [hash-comparison.md](../hash-comparison.md) — `xxHash` XXH3/XXH64, `wyhash`, `ahash`
+and `fnv`. The five named hashers are load-bearing on the opaque-key exact map face in
+`examples/reg1/acceptance.rs`; demotion to informational or omission rejects. Applicability is
+registered per cell/incumbent pair before timing with a semantic or API reason; no family-wide
+exemption; missing, duplicate, invalid or inconclusive pairs reject.
+`--accept --profile smoke` is diagnostic only; full acceptance requires all registered pairs. This
+supersedes and is stricter than the RFC elapsed-median floor `selected/hashtrinity <= 1.25`, and
+replaces the former historical-envelope question: there is no separate envelope tolerance. Cells
+where the incumbent has no corresponding path (for example refusal) are reported without the bound.
+`docs/hash-comparison.md` carries the axes (crypto versus non-crypto, throughput
+small/large, latency, collisions/avalanche, HashDOS resistance, determinism, `no_std`, licensing,
+verification) and the per-domain "good enough" reading for OS, languages, provers, games, servers
+and aerospace. Historical Apeiron values are direction evidence, not a second gate.
+
+Current strict result: the fresh post-spill full-profile receipt
+([`perf-remeasure-2026-09-19-post-spill.md`](../evidence/perf-remeasure-2026-09-19-post-spill.md),
+sha256 `946b5d40…`) gives HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387
+fail=1063 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, exit 1.
+Spill absent-miss cells fell ~15–21x and growth-insert ~145–152x; the worst cell moved to the spill
+present-hit path (~30.9x). No speed recovery is claimed; G1/REG-1 remains OPEN. The current
+performance dispatch is the re-anchored bounded order in
+[programme-roadmap.md#performance-re-anchor-and-bounded-dispatch](programme-roadmap.md#performance-re-anchor-and-bounded-dispatch);
+its W1-T1 (five hashers load-bearing) has landed.
+Pre-register sample/repetition counts, timed region, thread/cache conditions and uncertainty rule;
+report raw samples and relative intervals. Inconclusive or failed required cells keep G1 open, even
+if an aggregate is fast. Use matched before/after machine, compiler/features, inputs and baseline;
+record every unavoidable mismatch rather than pooling incompatible samples.
+
+### Lineage: the performant structure against the algebra
+
+The canonical denotation is `Apeiron.Table.build f d kvs = kvs.foldl (insertWith f) (fun _ => d)` with
+`insertWith f k v m x = if x = k then f v (m x) else m x` (`proof/Apeiron/Table/Basic.lean:80,121`).
+`get_build_acc` (`:134`) reads a key as the stream-order fold of `f` over that key's values.
+`build_eq_of_key_streams_eq` (`:169`) licenses any regrouping that preserves each key's value
+subsequence, for **every** merge; `build_gauge_invariance` (`:191`) licenses permutation only when
+`f` is commutative and associative, and `build_gauge_invariance_mul` (`:224`) instantiates the
+algebra's own `mul σ`.
+
+The historical `CountTable` (`71942db:src/table.rs:91`, `3a95bb5:src/table.rs:103`) computes
+`get a = |{i · addresses[i] = a}|`, which is exactly `build (fun new old => new + old) 0
+(addresses.map (·, 1))` under the additive `i64` merge with default `0` (`src/merge.rs:110`). Its
+shard-and-chunk schedule is `build_eq_of_key_streams_eq`: chunking is contiguous and regrouping is
+by key, so each key's value subsequence is preserved and no commutativity is used. Region sizing,
+the window descent and the tag line are placement, not semantics. The historical header's citation
+is therefore correct, and the performant parallel structure is an instance of the canonical build.
+
+The load-bearing premise is identity: the slot stores the *identity* word (`3a95bb5:src/table.rs:726`)
+so slot equality equals key equality; `finish`/`spread` must be injective. That premise is asserted at
+grade tested/bounded — `tests/the_counts_are_exact.rs` and the Kani lemmas cited at
+`71942db:src/table.rs:36` — not `proved` in Lean.
+
+Divergence: the current `Table` (`src/table.rs:6,74`) is a *bounded* 256xN fixed inline-shard
+structure with `ShardFull`, total at most `256·N` keys (N=16 -> 4096). It neither holds the historical
+1M-key workload nor shares the growable, load-sized structure. The general performant form
+(`map`/`Map`) was deleted at `00a3629`; `CountTable` at `dde9d58`. No checked Lean refinement exists
+for the counting/growable structure, for `spread`/`finish` injectivity, or for `locate` termination
+(`region_slots_for`, `group_at` at `3a95bb5:src/table.rs:780,791` are exposed "for proof" but unproved
+here); `proof/corpus/TableRefinement*.lean` refines the bounded fixed-shard Table only, and
+`src/lib.rs:10` states that refinement pending.
+
+Consequence: the equally-good solution is a growable, key-partitioned, cache-resident table generic
+in `V` and merge `f`, whose `get` is proved equal to `get (build f d kvs)` under the injectivity
+premise — the general `map` lineage generalized over `V`/`f`, not the bounded fixed-shard Table. It
+is simultaneously the semantic refinement and the performance-bearing mechanism, so the choice does
+not trade proof for speed. Selecting it replaces the current representation/ownership contract and
+is a separately approved boundary decision.
+
+### Selection: Astra boundary and Sol contract
+
+Target: one growable, key-partitioned `Table` with load-sized home regions, tag-line scan and
+window-descent probe, generic over `V` and `f`, superseding the bounded fixed-shard representation;
+no second production mode. Every operation carries `Sigma`; `N` becomes the lanes examined by one
+tag-group primitive, not keys per home, so no positive `N` imposes a `256·N` ceiling. The canonical
+schedule licence `build_eq_of_key_streams_eq` is `proved` and sufficient; no canonical theorem or
+attribution changes, and an implementation-specific scheduling lemma must supply its per-key
+subsequence premise. The Rust representation-to-canonical refinement is open, grade `tested`/bounded.
+
+Qualifications that must survive: cache residency is a workload-dependent target, not an invariant;
+a fixed probe-group width does not establish constant time, so the current universal O(1)-at-fixed-`N`
+claim does not transfer to the growable representation and must not be renamed onto it. Load-bearing
+open obligations: extracted `finish`/`spread` identity-word injectivity, `locate` termination and
+first-fit specification, allocation/ownership semantics, SIMD/SWAR scan equivalence, and thread/join
+simulation are unproved; the real widened multiply `id = ((x as u128).wrapping_mul(PHI as u128)) as u64`
+has no corpus link yet. `build_gauge_invariance` is unnecessary unless same-key values are reordered
+or partial worker accumulators are recombined. The bridge `proof/corpus/lakefile.lean` pins canonical
+`8886641278c45dc0b2fe4ca5cc3a3d80ae19c46f`, not the dirty sibling base; no sibling theorem enters
+without a separately gated pin update. Aeneas/Charon translation of allocation, ownership, SIMD and
+threads is a feasibility barrier to probe before implementation expands. The acceptance threshold is
+match-or-beat the applicable incumbent per cell (`selected/incumbent <= 1.0`, owner decision), not a
+historical-envelope tolerance.
+
+Measured mechanism (first-cut diagnostic, superseded by the spill/bitmap rework and the fresh
+receipt): the fixed-16 loss was the conjunction of direct-index-resident coordinates, `absent-miss`
+and high-occupancy `present-hit`, and the fixed 16-slot linear scan. Under clustered probing the
+first-cut Table was faster than hashtrinity (0.10-0.53x); under seeded-random it was at parity
+(1.0-1.46x); the direct-path `absent-miss` cell was the worst at 5.16-6.76x. The selected mechanism
+resolves a direct-index coordinate in O(1) while retaining bounded probes on clustered input: the
+historical `coord::Addr` identity/placement split plus window descent, not a linear scan. Current
+strict run (post-spill receipt, sha256 `946b5d40…`): HEADLINE `registered=2592 load_bearing=2268
+applicable=1450 pass=387 fail=1063 missing=0 concurrency_unmatched=2 address_face_unmatched=4
+full_acceptance=false`, exit 1; spill absent-miss fell ~15–21x and growth-insert ~145–152x, and the
+worst cell is now spill present-hit (~30.9x, ~24.7 ns/op). No speed recovery is claimed.
+
+Extraction feasibility (spike, Charon `0.1.254` / Aeneas `505b6ca-dirty`): the `coord.spread`/`finish`
+body translates to Lean with no `axiom`/`sorry` — the identity-word arithmetic is extractable, so a
+proved descendant is reachable for that premise. Unsupported as written: `std::thread::scope` (HRTB
+lifetime constraint in `scoped.rs`), `return` inside nested loops in `locate` (`71942db:src/table.rs`
+709-738), and the `Held::Ref<'a>` GAT (`3a95bb5:src/map.rs:394`); `Vec` allocation/push translates.
+Identity injectivity is not derivable from the extracted model (Aeneas/Std has no odd-multiply lemma):
+it needs a hand-proved `ZMod 2^64`/`BitVec` odd-multiply injectivity theorem plus a refinement link
+unfolding `coord.spread`. Consequence: extract the sequential per-worker bodies, hoist threading behind
+an unextracted execution boundary, restructure `locate` for extraction, and avoid GATs in the interface.
+
+Extraction readiness (spike, same tools): the rendered growable core is structurally extractable.
+Extractable as-is: `Vec` region allocation/zero-init/indexing, the explicit-search-state `locate`
+with no `return` inside nested loops, the SWAR tag scan, sequential `insert_into`/`build`, and the
+real `coord::spread`/`finish`/`unspread`. Rewrite required: `usize::next_power_of_two` and
+`{u64,u16,usize}::trailing_zeros` surface as `axiom`; replaced by bounded loops the restructured
+`build` extracts with **zero axioms**. Boundary: the SSE2 intrinsics and raw-pointer ops
+(`_mm_loadu_si128`, `_mm_cmpeq_epi8`, `_mm_set1_epi8`, `_mm_movemask_epi8`, `Slice::as_ptr`,
+`const_ptr::cast`) surface as axioms; keep the axiom-free SWAR kernel as the extracted implementation
+and carry SSE2 as an unextracted optimization with an equivalence obligation anchored at
+`tests/both_tag_paths_agree.rs`. `std::thread::scope` and the `Held::Ref<'a>` GAT stay outside the
+sequential core. Aeneas already lowers scalar `+ - *` to checked monadic operations, so no
+unchecked-arithmetic rewrite is needed. Verdict: in a position to reimplement with proper Aeneas
+integration.
+
+Every performance claim carries source/harness/input SHA-256, resolved revisions/dependencies,
+actual rustc/Charon/Aeneas/Lean/Mathlib identities, machine, command, metric and interval. Register
+the actual selected implementation symbol/build profile, not just HEAD on a dirty tree. For each
+claim run baseline/red/restored controls: wrong oracle/result digest; wrong workload identity
+(including occupancy/threads); deliberately slowed executing path or selected-implementation
+mismatch. Each must reject for the intended reason; corrupted sample metadata alone does not
+establish sensitivity to runtime regression. Controls mutate throwaway copies, never production.
+
+### Plan: serialized waves, not a new roadmap
+
+Lead records integrated base and transfers file ownership before each dispatch; REG-1 paths remain
+with their current owner until transfer. Use `worktree-agent-<task-id>` and exclusive R/E/B lanes
+defined below. Routine harness/measurement tasks belong to Flash; Sol reviews proof/contract
+sufficiency. A representation boundary exceeding three files requires Astra architecture
+decomposition before implementation; routine measurement does not. Other AGENTS escalation
+triggers, including governing-boundary changes, remain in force.
+
+The existing Rust `reg1` executable remains the single aggregate gate: no Python/shell runner or
+second gate executable. Its Rust history module invokes child `cargo`/git commands for historical
+builds in isolated `/tmp/opencode` directories, never mutates the current or Fold working trees,
+and removes every temporary worktree, including on failure. Source-file line limits remain binding.
+
+| Wave / task | Owner; owned files (at most three per task) | Completion, one focused gate and control |
+|---|---|---|
+| `APEIRON-PERF-RESTORE-W1-T1` — first gate-first dispatch | Flash; edit `examples/reg1/main.rs`, create `examples/reg1/history.rs` and `examples/reg1/matrix.json` (exactly three files); isolated benchmark outputs | Restore/adapt the original spatial benchmark from `71942db` in temporary revision-pinned builds; register original serial targets from `3a95bb5` and every required matrix cell. No production optimization. Implement the history mode (currently MISSING) in the existing Rust gate: `cargo run --release --locked --example reg1 -- --check history --controls`; oracle-checked original spatial reproduction, exact source/command/digest receipts, matrix inventory and wrong-oracle/digest/workload controls. Exit 0 means framework valid; omitted matrix results remain MISSING and G1 false. |
+| `APEIRON-PERF-RESTORE-W2-T1` — matrix module split | Flash; edit `examples/reg1/main.rs` and `examples/reg1/performance.rs`, create `examples/reg1/matrix.rs`; R | Move shared workload, measurement and matrix-cell machinery into `matrix.rs`; preserve every existing performance result and control while bringing `performance.rs` below 1,500 lines. Gate: the existing full performance command with controls. No matrix cell changes in this task. |
+| `APEIRON-PERF-RESTORE-W2-T2` — current matrix adapter | Flash; `examples/reg1/matrix.rs`, `examples/reg1/performance.rs`, `examples/reg1/matrix.json`; R, after W2-T1 | Measure occupancy, coordinate and separated-operation strata; preserve correctness/coverage modules. Extend the existing full performance gate to enumerate registered cells and reject workload/digest mismatch. Every owned source file remains below 1,500 lines. Done as W2-T2 (160 strata cells measured in `strata.rs`) and W2-T3 (registration and enforcement, 3 new rejecting controls; `matrix.rs`, `performance.rs`, `matrix.json`). |
+| `APEIRON-PERF-RESTORE-W2-T4` — threshold enforcement | Flash; `examples/reg1/matrix.rs`, `examples/reg1/performance.rs`, `examples/reg1/strata.rs` | Apply the owner threshold: each applicable cell passes only when `selected/incumbent <= 1.0`; report per-cell pass/fail and keep `reg1_pass=false` until every applicable cell passes. Gate: `--check performance --profile full --controls`. |
+| `APEIRON-PERF-RESTORE-W3-T1` — historical/baseline campaign | Flash; `examples/reg1/history.rs`, `examples/reg1/matrix.json`, this plan, only after W2 releases `matrix.json`; isolated R | Complete historical serial and applicable hashbrown/foldhash/std adapters and matched before/after receipts. Extend W1's Rust history mode; gate `cargo run --release --locked --example reg1 -- --check history --controls`; run real slowed-path or implementation-mismatch control per claim. If dependency edits are needed, stop for a separate at-most-three-file manifest task. Full matrix acceptance mode is MISSING until implemented; measurement completion is not G1. Done: the gate exits 0 with 25 promoted cells (18 spatial, 7 serial probe), 20 historical, 2 missing, 26 boundary; 7 controls red at `child_exit=2`, two of them targeting promoted receipts; `history.rs` 1,498 lines, under the 1,500-line bound. `fold_instr` and the 16 `map_sweep` rows remain historical; the current `performance`/`correctness` boundary cells are unchanged. |
+| Selection barrier | Lead selects from same-run matrix; Sol reviews domains, callbacks, admission and proposed canonical relation; no production edits | **Threshold (owner decision): match or beat every named applicable incumbent on every applicable cell, `selected/incumbent <= 1.0` (see the lifecycle annex for the incumbent list and per-pair applicability); no family-wide exemption, no historical-envelope tolerance.** Registered comparisons identify the mechanism (direct-index O(1) plus bounded clustered probes) and the selection is the growable key-partitioned structure above, with the Astra boundary and Sol contract recorded. Blocking G1: the 2 missing rows (identity 10^8, coverage census) and the current applicable cells above 1.0. No representation migration before this evidence. |
+| Production recovery, then extraction/refinement | Flash implementation; Sol proof/contract review; separate serialized tasks each at most three named files, assigned after selection | Selected real build path, then `proof/regen.sh --check`, then `lake build` in the bridge as separate focused tasks. Real constructor witnesses, invariant preservation, successful/refusing branches and canonical `Apeiron.Table`/`AnyRing` denotation; fail-closed axiom audits and source/generated mutation controls. Unsupported Aeneas constructs require a bounded tool/refinement task, not a slower substitute. |
+| Joint terminal barrier | Lead; no new implementation ownership | Same selected source identity passes the complete performance matrix, canonical extraction/refinement, S1–S8 and all AGENTS §6 integration gates and controls. No proof-only or speed-only closure. |
+
+Existing partial commands (root) remain evidence inputs, not all-row acceptance:
+`cargo run --release --locked --example reg1 -- --check correctness --profile smoke --controls`,
+`cargo run --release --locked --example reg1 -- --check performance --profile full --controls`,
+and `cargo run --release --locked --example reg1 -- --check coverage --controls`.
+The all-row matrix acceptance command remains **MISSING**; the threshold is the owner's match-or-beat
+rule above, not a historical-envelope tolerance.
+No performance harness deletion without a replacement gate retaining its useful tested surface.
+
+**Terminal acceptance:** the selected implementation is on the real build path; its actual Aeneas
+extraction and canonical refinement close under the allowed axiom cone; the performance matrix is
+green on that same source identity with matched before/after and rejecting controls. An unsupported
+operation/admission row cannot disappear into a faster workload. Historical proofs stay attributed
+to historical bodies. The current boundary document describes the executing fixed-shard layout;
+changing its representation/ownership contract requires a separately approved boundary task.
+Source refinement does not cover rustc/LLVM codegen, allocator/unsafe/SIMD/thread realization,
+kernel ABI or GPU merely by association. Any selected implementation using them needs explicit
+simulation obligations and external trust inventory; no desired simulation may be assumed.
+All Lean gates use AGENTS §6's serialized, bounded wrapper; Kani/Lean latency is not runtime speed.
+
 ## Fixed-shard representation: current boundary and evidence
 
 Owner Astra; base `d3423b2ec3dea6ddd0a8a668381d7749ecfdfff4`, initially clean main.
@@ -832,3 +1070,223 @@ patched `target/aeneas` symlink, no parallel toolchain directory.
 
 Restored repository gate: `cd proof/corpus && lake build` exit 0, 3351 jobs; `proof/regen.sh --check`
 exit 0, fresh extraction, `ApeironWord` 1708 jobs.
+
+## Revised production boundary and dispatch order
+
+Owner: lead; recorded by `APEIRON-PERF-RESTORE-W4-T1`; base
+`c450c222905c050f793a23332708c230c658f82c`. Documentation only; gate `git diff --check` and
+`python3 tools/check-assurance.py --check`. This section records the Astra architecture decision that
+replaces the earlier production decomposition and the lead-ratified resource/refusal contract
+(`APEIRON-PERF-RESTORE-W4-T2`). It supersedes the
+"Production recovery, then extraction/refinement" row and the fixed-shard "Remaining serial waves"
+above as the dispatch sequence; those sections remain the historical record, not current
+instructions.
+
+### Acceptance threshold (owner decision)
+
+The selected implementation must match or beat **every** named applicable incumbent on every
+applicable cell, `selected/incumbent <= 1.0`, never behind and ideally ahead. The named incumbents
+and the per-cell/incumbent applicability registration are in the
+[lifecycle annex](#performance-preserving-consolidation-lifecycle-annex) above; there is no
+family-wide exemption and missing, duplicate, invalid or inconclusive pairs reject. There is no
+historical-envelope tolerance. This supersedes the RFC elapsed-median floor
+`selected/hashtrinity <= 1.25`. The superseded 1.25 floor and historical-envelope language still
+appears in `docs/direction.md` and `docs/flash-handoff.md`; it is reconciled in
+`APEIRON-PERF-RESTORE-W5-T1`, not here. Within this plan the threshold above is the only acceptance
+rule.
+
+### Staging: serialized representation integration wave
+
+The growable-representation change is a multi-task serialized integration wave, not a three-file
+edit. Each task owns at most three files and keeps `cargo test`, `cargo clippy` and `cargo fmt`
+green plus its focused gate; the wave closes only when extraction, refinement, Kani, the REG-1
+harness and the shared gates pass on the integrated identity. An intermediate proof failure is not
+an accepted wave result. Reason: changing the representation simultaneously changes admission
+(`src/table.rs` positive-`N` `ShardFull`), the extracted array representation
+(`proof/ApeironWord.lean`), the bounded-admission refinements, `src/proofs.rs` Kani predicates and
+the REG-1 workloads/oracles.
+
+### Revised dispatch order prefix
+
+| Order | Task | Owned scope |
+|---|---|---|
+| 1 | `APEIRON-PERF-RESTORE-W4-T1` | this documentation task: revised production boundary |
+| 2 | `APEIRON-PERF-RESTORE-W5-T1` | reconcile `docs/direction.md`, `docs/flash-handoff.md`, `proof/README.md` |
+| 3 | `APEIRON-PERF-RESTORE-W6-T1` | root real `spread`/`finish`: `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` |
+| 4 | canonical corpus task (separately assigned) | `Table/WordIdentity.lean`, registered in `Audit.lean` |
+| 5 | `APEIRON-PERF-RESTORE-W7-T1` | bridge pin transport |
+| 6 | `APEIRON-PERF-RESTORE-W8-T1` | `proof/corpus/TableRefinement/CoordIdentity.lean` plus `AxiomAudit` |
+| 7 | interface expand / migrate / contract batches | separately scoped tasks, at most three files each |
+| 8 | representation integration wave | the serialized wave above |
+
+The resource/refusal contract is ratified in `docs/kernel-boundary.md` (option (b), checked
+reservation/allocation failure, transactional); the identity theorem, bridge pin transport and
+representation wave are unblocked. The canonical release/commit remains separately authorized; the
+exact remaining proof/task inventory is no longer blocked on the resource decision.
+
+## Rework dispatch order
+
+Owner Astra; recorded by the rework contract; base
+`c450c222905c050f793a23332708c230c658f82c`. Documentation only; gate `git diff --check` and
+`python3 tools/check-assurance.py --check`. This order supersedes the "Revised dispatch order
+prefix" above. The first growable `Table` at `src/table.rs` sha256
+`c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected; its measured red
+and defect list are in the
+[local boundary](../kernel-boundary.md#reworked-growable-representation-astra-decision-first-cut-rejected).
+The bounded fixed-shard table is not restored and `examples/reg1/candidate.rs` is not promoted.
+
+```text
+SCOPE:      docs/kernel-boundary.md, docs/spec/storage-refinement.md, docs/plan/storage-refinement.md;
+            adjudicate address, Sigma, search and refinement premises
+REGISTER:   refinement/state/planning; no source, proof, benchmark or extraction change
+CORPUS:     Apeiron.Table.{get_insertWith_self,get_insertWith_ne,get_build_acc,
+            build_eq_of_key_streams_eq}, Basic.lean:87-174; native proved
+REFERENCE:  src/{table.rs,table/scan.rs,coord.rs}; 3a95bb5:src/{table.rs,coord.rs}; baseline receipt
+GATE:       git diff --check, repository root; no task-specific red for this documentation gate
+GRADE:      specification/anchor; downstream tested/proved grades require their named gates
+```
+
+### Revised representation boundary: flat resident area and spills
+
+The Astra verdict revises the selected structure from a single growable key-partitioned `Table` to
+two coupled regions:
+
+- A **table-level flat resident area**: shard-major `256 x L`, admission
+  `direct_word = Some(w) ∧ lane < L`, checked sizing, a stated byte budget and a density test.
+  Failures spill to the grouped regions rather than refuse.
+- **Independently load-sized grouped spill regions** beside the flat area.
+
+One representative per key is held under a composite `DirectCover`; extent growth must reclassify
+newly eligible spills. Key-dropping uses a compile-time `KeyRep` policy (`Stored<K>` or `Regen`
+with an exact codec law), not a sibling count table and not a lossy `FreqMap`. Restoration also
+includes the key-partitioned load-sized shard build, deterministic schedule, grouped probe and
+key-dropping count/dedup; the proof, extraction, Kani, registration and measurement work follows on
+the same source identity. The boundary is a recorded plan, not a built, extracted or measured
+result, and no speed recovery is claimed. REG-1/G1 stays OPEN.
+
+### Sol contract adjudication (`APEIRON-PERF-REWORK-W5-T2`)
+
+The Astra boundary is accepted with these proof premises:
+
+1. One generic `Table` uses `TableAddress { place: u64, direct_word: Option<u32> }` and
+   `Home::address(sigma,key)`. `WordHome` supplies `Some(x as u32)` exactly below `2^32`; all
+   placement-only adapters supply `None`. The direct lane is `u64::from(x) >> 8`, not
+   `place >> 8`, and full `(Sigma,K)` equality decides identity.
+2. The logical key and payload key are `(Sigma,K)`; reads/writes receive `sigma`; build consumes
+   `&[((Sigma,K),V)]`. Equal `K` at unequal `Sigma` remains two keys through every transition.
+3. Direct-empty early absence is admitted only from reachable `DirectCover`, monotone occupancy and
+   tag authority. A first window vacancy may stop the prefix, not the coverage sweep. Every absence
+   without an earlier proved certificate requires finite all-group coverage. Window extraction masks
+   each seven-bit value by `0x7f` before group reduction; `gmask` never extracts a window.
+4. `GrowableGeometry`, `GrowableDirectory`, `GrowableScan`, `GrowableSearch`,
+   `GrowableRefinement` and `GrowableSchedule` carry the theorem set in the spec and boundary.
+   `GrowableSchedule` composes its per-key subsequence equation with
+   `Apeiron.Table.build_eq_of_key_streams_eq` (`Basic.lean:167-174`).
+
+This is a contract change. Relative to `Home::home(&K) -> u64`, refinement adds `Sigma`-indexed
+address laws, an optional exact-word certificate and its routing equation, full-pair identity,
+reachable search certificates and relocation preservation. These are anchors until the named
+real-source bridge gates pass.
+
+The strict 126/160 failures at that adjudication are against the serial `hashtrinity::Table`
+incumbent at `4cc14471`; the current strict run is the fresh post-spill full-profile receipt
+(lifecycle annex above; sha256 `946b5d40…`), which still reports `full_acceptance=false`. Serial
+recovery remains open and no speed recovery is claimed. Partitioned/parallel build plus grouped probe for the spatial packed
+family is distinct production work, not evidence supplied by serial recovery. REG-1/G1 remains OPEN.
+
+### Gate-first tasks
+
+`APEIRON-PERF-REWORK-W1-T1` and `W2-T1` are gate-first and must land before the storage rework;
+`W3-T1` captures the unchanged first-cut baseline before any rework edit.
+
+| Task | Owned files (at most three) | Completion, one focused gate and control |
+|---|---|---|
+| `APEIRON-PERF-REWORK-W1-T1` | `examples/reg1/strata.rs`, `examples/reg1/matrix.rs`, `examples/reg1/matrix.json` | Focused registration tests; re-register refusal/resource cells and archive the old fixed-shard receipts. Control: the old `ShardFull` digest rejects. |
+| `APEIRON-PERF-REWORK-W2-T1` | `examples/reg1/performance.rs`, `examples/reg1/strata.rs`, `examples/reg1/main.rs` | Strict performance-acceptance mode: a per-cell failure makes the command exit nonzero. Control: a valid report with one failing cell exits nonzero. |
+| `APEIRON-PERF-REWORK-W3-T1` | new `docs/evidence/` receipt | Capture the unchanged first-cut before-receipt under `docs/evidence/` before rework. |
+| `APEIRON-PERF-REWORK-W4-T1` | `src/table.rs`, new `src/table/scan.rs`, `tests/table.rs` | Geometry, exact SWAR, bounded first-fit, non-optional slots. |
+| `APEIRON-PERF-REWORK-W5-T1` | `src/table.rs`, `tests/table.rs` | Direct candidate/directory and transactional relocation. |
+| `APEIRON-PERF-REWORK-W6-T1` | `src/table.rs`, `tests/table.rs` | Implement `TableAddress`, `Home::address`, full `(Sigma,K)` identity/build input and direct-word routing; test unequal-`Sigma`/equal-`K` separation and placement-only `None`. Consumer migrations are separate at-most-three-file tasks. |
+| `APEIRON-PERF-REWORK-W7-T1` | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | Root the real address, search, relocation and sequential build bodies and regenerate. |
+| `APEIRON-PERF-REWORK-W8-T1` | `proof/corpus` bridge theorems (serialized) | `GrowableGeometry`, `GrowableDirectory`, `GrowableScan`, including the seven-bit mask and direct routing. |
+| `APEIRON-PERF-REWORK-W9-T1` | `proof/corpus` bridge theorems plus `AxiomAudit.lean` (serialized) | `GrowableSearch`, `GrowableRefinement`, audited under `{propext, Classical.choice, Quot.sound}`. |
+| `APEIRON-PERF-REWORK-W10-T1` | sequential partition/worker/assembly source plus tests, separately decomposed | Restore partitioned/parallel build and grouped probe as spatial production work; preserve per-key subsequences. |
+| `APEIRON-PERF-REWORK-W11-T1` | `proof/corpus` schedule bridge plus `AxiomAudit.lean` (serialized) | `GrowableSchedule` and composition with `build_eq_of_key_streams_eq`; thread realization remains outside the extracted claim. |
+| `APEIRON-PERF-REWORK-W12-T1` | `src/proofs.rs`, `examples/reg1/coverage.rs`, `examples/reg1/coverage.json` | Kani harnesses for the reworked geometry and locate. |
+| `APEIRON-PERF-REWORK-W13-T1` | `examples/reg1/workload.rs`, `examples/reg1/correctness.rs`, `examples/reg1/matrix.rs` | Workload and correctness re-registration. |
+| `APEIRON-PERF-REWORK-W14-T1` | `examples/reg1/matrix.json` plus serial and spatial before/after receipts | Every applicable cell `selected/incumbent <= 1.0`; serial and spatial incumbent families remain distinct. |
+
+### Refusal-cell re-registration
+
+Do not merely mark the 8 rejected cells not-applicable. Archive the old fixed-shard refusal receipts;
+register successful growable insertion and update traces with fresh oracle digests and explicit
+operation names; add genuine zero-width, sizing-overflow and injected-reservation-failure rows with
+unchanged-state and no-callback observations. The strict performance-acceptance mode from `W2-T1` is
+the per-cell authority; the aggregate exit status is not.
+
+## Extraction-shaped representation dispatch order (APEIRON-EXTRACT-REP)
+
+Owner Astra; recorded by `APEIRON-EXTRACT-REP-W1-T1`; documentation only; gate `git diff --check`.
+This order supersedes the "Rework dispatch order" and "Gate-first tasks" above as the dispatch
+sequence; those remain the historical record. The representation boundary is in the
+[local boundary](../kernel-boundary.md#extraction-shaped-representation-boundary-astra-apeiron-extract-rep);
+the contract is in the
+[spec](../spec/storage-refinement.md#extraction-shaped-representation-contract-astra-apeiron-extract-rep).
+
+| Wave | Obligation |
+|---|---|
+| `W1` | Projection-free carrier on both faces: `Stored<K>{key}`, `Regen<C>{identity,codec}` with manual `Clone`, `FlatSlot<R,V>` and spill `(Sigma,R,V)`, no `R::Held`; preserve `Table<…,Stored<K>>` and `Table<…,Regen<I64WordCodec>>`. |
+| `W2` | Digest fix: `proof/regen.sh` drops the deleted `src/table/resident.rs` from the hashed source list. |
+| `W3` | Resource interface decision: keep planning, reservation and allocation unextracted; allocating public methods stay unrooted until a checked allocator primitive/tool model exists. Decision recorded by `APEIRON-EXTRACT-REP-W5-T1`. |
+| `W4` | Prepared resource adapter in production: `Prepared { plan, storage, outcome } | Refused(StorageError)`; checked-plan, reserve-all, then apply/commit; pending insertion inside the transaction; refusal stutters. This remains unextracted. |
+| `W5`–`W10` | Prepared-spill extraction checkpoint: `proof/ApeironWord.lean` sha256 `faa257a8720c71ee7a08497621ddecd40495cf3729ee10c56f18119f5778113a` contains the real spill-only roots. It does not contain composite `Table::locate`, `Site` or `DirectCover`; no composite-search refinement follows. |
+| `W11` | Search boundary decision, `APEIRON-EXTRACT-REP-W11-T2`: keep the probe-order decision unextracted under `PinnedJoinBoundary`; root the real straight-line apply under `SearchDecisionCorrect`. Contract grade `anchor`; supplied context-join evidence `tested`. |
+| `W12` | **Next bounded task:** factor the production search in `src/table.rs` into a decision returning `(Found|Vacant|Exhausted, Flat(i)|Spill(shard,i)|NoIndex)` and a straight-line read/insert apply; keep direct, seven-window and mandatory-sweep order unchanged. Add focused cases in `tests/table.rs`. Gate and a late-hit/sweep mutation control must be assigned in the source task. |
+| `W13` | Root both carrier specializations of the real apply in `proof/extract/lib.rs`, add only those roots to `proof/regen.sh`, and regenerate `proof/ApeironWord.lean`. Gate `proof/regen.sh --check`; control mutates an apply branch in a throwaway generated copy. |
+| `W14` | Prove `GrowableSearch` over the extracted apply under `SearchDecisionCorrect`, with `search_decision_simulates` targeting total-by-default `Apeiron.Table.get`, `get_insertWith_self` and `get_insertWith_ne`; register the headline and rejecting control under the closed cone. |
+| `W15`–`W17` | Prove, in order, `GrowableRelocation`, `GrowableRefinement` and `GrowableWitnesses`, each carrying `SearchDecisionCorrect`, `RepR` and `PreparedResources` and each with its own rejecting control. |
+| `W18` onward | `GrowableDirectory`, `GrowableSchedule` and `GrowableBatch` retain their existing routing, per-key-subsequence and grouped-assembly contracts; then controls, Kani, coverage, matched correctness and performance. An allocator primitive-model task is added only if allocating public methods are later required as roots. |
+
+**W3 Sol contract.** Premise `PreparedResources` requires checked arithmetic, exact old/pending entry
+classification, in-bounds destinations, sufficient initialized reserved storage and no further
+fallible allocation in the core. The simulation obligation `resource_adapter_simulates` has two
+branches: prepared core success preserves `RepR` and denotes canonical
+`Apeiron.Table.{get,insertWith,build}`; refusal supplies no core input, leaves insert state unchanged
+with no clone/merge/relocation, and returns no build table. Allocator/global-allocator realization is
+outside the claim. Grade: contract `anchor`; supplied refusal observations and context-join spike
+`tested`; no proof.
+
+**W11 Sol contract.** Premise `SearchDecisionCorrect` requires `Found` iff the queried full
+`(Sigma,K)` key is present at the returned in-bounds unique representative; `Vacant` only for an
+absent key at the first-fit lane; and `Exhausted` iff absent with no vacancy. Direct-empty absence
+requires `DirectCover`; a window vacancy may stop the prefix but never the mandatory all-group match
+sweep; every other absence requires complete finite coverage. `GrowableSearch` refines the real apply
+under this premise. `GrowableRelocation`, `GrowableRefinement` and `GrowableWitnesses` carry it;
+`GrowableDirectory`, `GrowableSchedule` and `GrowableBatch` are unchanged. Rust/Kani can support only
+`tested`/bounded evidence for the decision; the apply becomes `proved` only after real-source
+extraction, canonical refinement, bounded bridge build, audit and rejecting control.
+
+`GrowableSchedule` still proves the implementation-specific per-key value-subsequence equation and
+composes it with canonical `Apeiron.Table.build_eq_of_key_streams_eq`
+(`Table/Basic.lean:167-174`). `Song/kernel/Web.lean`
+`preduce_schedule_free`/`preduce_append`, read at
+`/home/socol/Workspace/song-ref/lean/Song/kernel/Web.lean` revision `ae688f66`, is the external Song
+twin only; no Song declaration enters the Apeiron Rust/canonical cone.
+
+**Prerequisites and open gates.**
+
+- `W2` removed the deleted `src/table/resident.rs` digest path. The current generated artifact remains
+  bound to the live source list and is spill-only.
+- `proof/corpus/lakefile.lean` still lists the fixed-shard and joint consumers; a separate archival
+  manifest is required before a full corpus build.
+- Supplied spike evidence, grade `tested`: Aeneas `505b6ca-dirty` / Charon `0.1.254` fails
+  `Could not match the contexts` at `Table::plan_rebuild` (`src/table.rs:678:16-680:17`). The generic
+  borrowed-carrier/live-guard/computed-classification shape reproduces; scalar and tested
+  straight-line/accumulated-`Option`/cast variants pass; `-loops-to-rec`, `-loops-no-rec` and
+  `-strict-joins` do not remove it. Classification is pinned Aeneas limitation (b), not allocator
+  case (c); further planner reshaping is not scheduled.
+- Reachable `try_reserve_exact` is independently unmodeled. The planner/reserver, allocator/global
+  allocator, executor/`thread::scope`, rustc/LLVM, ABI, GPU and `unsafe` container stay outside the
+  proved claim. Slang's empty cone remains separate.
+- The current generated artifact is spill-only. Composite search, the decision contract and its real
+  apply root remain open. No proof or speed is claimed. REG-1/G1 remains **OPEN**.

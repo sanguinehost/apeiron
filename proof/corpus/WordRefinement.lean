@@ -3,7 +3,7 @@ import Denotation
 import Apeiron.Trichotomy.AnyRing
 import Apeiron.Physics.CarrierAnyRing
 import Apeiron.Physics.CarrierBodyWorkAnyRing
-import Apeiron.Physics.CarrierScalarKernelAnyRing
+import Apeiron.Physics.Carrier.Derived.ScalarKernelAnyRing
 
 /-!
 # The extracted word kernels refine the canonical algebra

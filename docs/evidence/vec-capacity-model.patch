@@ -1,0 +1,246 @@
+--- /home/socol/Workspace/penglai/target/aeneas/backends/lean/Aeneas/Std/Vec.lean	2026-09-09 14:15:26.000000000 +1000
++++ target/vecspike/lean/Aeneas/Std/Vec.lean	2026-09-21 09:46:41.866800757 +1000
+@@ -17,6 +17,13 @@
+ local macro_rules
+ | `(tactic| get_elem_tactic) => `(tactic| grind)
+ 
++namespace alloc.collections
++/-- SPIKE: the reservation error type. -/
++@[rust_type "alloc::collections::TryReserveError"]
++structure TryReserveError where
++  deriving Inhabited
++end alloc.collections
++
+ namespace alloc.vec
+ 
+ -- Note that `Vec` has to be a `structure` wrapping a `Slice`: defining it as an alias
+@@ -27,6 +34,8 @@
+ @[rust_type "alloc::vec::Vec"]
+ structure Vec (α : Type u) where
+   slice : Slice α
++  /-- SPIKE: reservation capacity, a field the stock model does not have. -/
++  cap : Usize
+ deriving BEq, ReflBEq, LawfulBEq, DecidableEq
+ 
+ @[coe]
+@@ -38,15 +47,20 @@
+ instance (α : Type u) : CoeOut (Vec α) (List α) where
+   coe := λ v => v.val
+ 
+-def Vec.from {α} (l : List α) (h : l.length ≤ Usize.max) : Vec α := {slice := Slice.from l h}
++/-- SPIKE: wrap a slice with capacity equal to its length. -/
++def Vec.ofSlice {α : Type u} (s : Slice α) : Vec α :=
++  {slice := s, cap := Usize.ofNatCore s.val.length (by have := Slice.length_ineq s; grind)}
++
++def Vec.from {α} (l : List α) (h : l.length ≤ Usize.max) : Vec α :=
++  {slice := Slice.from l h, cap := Usize.ofNatCore l.length (by grind)}
+ 
+ @[simp, simp_lists_safe, grind =, agrind =]
+ theorem Vec.from_val {α} (l : List α) (h : l.length ≤ Usize.max)
+   : (Vec.from l h).val = l := by simp [Vec.from, Vec.val]
+ 
+ @[simp, simp_lists_safe, grind =, agrind =]
+-theorem Vec.val_from {α} (s : Vec α) h
+-  : Vec.from s.val h = s := by simp [Vec.from, Vec.val]
++theorem Vec.from_slice {α} (s : Vec α) h
++  : (Vec.from s.val h).slice = s.slice := by simp [Vec.from, Vec.val]
+ 
+ @[simp, scalar_tac s.val]
+ theorem Vec.property {α} (s : Vec α) : s.val.length ≤ Usize.max := by
+@@ -58,13 +72,14 @@
+ theorem Vec.len_ineq {α : Type u} (v : Vec α) : v.val.length ≤ Usize.max := by
+   cases v; simp[*]
+ 
+-theorem Vec.eq_iff {α} (s0 s1 : Vec α) : s0 = s1 ↔ s0.val = s1.val := by
++theorem Vec.eq_iff {α} (s0 s1 : Vec α)
++  : s0 = s1 ↔ s0.val = s1.val ∧ s0.cap = s1.cap := by
+   cases s0; cases s1
+   simp [Vec.val, Slice.eq_iff]
+ 
+ @[ext, grind ext, agrind ext]
+-theorem Vec.ext {α} (s0 s1 : Vec α) (h : s0.val = s1.val) : s0 = s1 :=
+-  (Vec.eq_iff s0 s1).mpr h
++theorem Vec.ext {α} (s0 s1 : Vec α) (h : s0.val = s1.val) (hc : s0.cap = s1.cap) : s0 = s1 :=
++  (Vec.eq_iff s0 s1).mpr ⟨h, hc⟩
+ 
+ @[simp, scalar_tac_simps, simp_scalar_safe, simp_lists_safe, grind, agrind]
+ abbrev Vec.length {α : Type u} (v : Vec α) : Nat := v.val.length
+@@ -82,6 +97,41 @@
+   constructor
+   apply Vec.new
+ 
++/-- SPIKE: capacity model. -/
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::capacity"]
++def Vec.capacity {T : Type} (_A : Type) (v : Vec T) : Result Std.Usize := ok v.cap
++
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::try_reserve"]
++def Vec.try_reserve {T : Type} (_A : Type) (v : Vec T) (additional : Usize) :
++    Result ((core.result.Result Unit alloc.collections.TryReserveError) × Vec T) :=
++  let need : Nat := v.val.length + additional.val
++  if h : need ≤ Usize.max then
++    ok (.Ok (), { v with cap := Usize.ofNatCore (max v.cap.val need) (by scalar_tac) })
++  else
++    ok (.Err (default : alloc.collections.TryReserveError), v)
++
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::try_reserve_exact"]
++def Vec.try_reserve_exact {T : Type} (A : Type) (v : Vec T) (additional : Usize) :
++    Result ((core.result.Result Unit alloc.collections.TryReserveError) × Vec T) :=
++  v.try_reserve A additional
++
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::truncate"]
++def Vec.truncate {T : Type} (_A : Type) (v : Vec T) (n : Usize) : Result (Vec T) :=
++  if h : n.val < v.val.length then
++    ok { slice := Slice.from (v.val.take n.val)
++           (by have hp := v.property; simp only [List.length_take]; scalar_tac)
++       , cap := v.cap }
++  else
++    ok v
++
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::clear"]
++def Vec.clear {T : Type} (_A : Type) (v : Vec T) : Result (Vec T) :=
++  ok { v with slice := Slice.new T }
++
++@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::is_empty"]
++def Vec.is_empty {T : Type} (_A : Type) (v : Vec T) : Result Bool :=
++  ok (v.val.length = 0)
++
+ @[simp, rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::len" -canFail -lift (keepParams := [true,false])]
+ abbrev Vec.len {α : Type u} (v : Vec α) : Usize :=
+   Usize.ofNatCore v.val.length (by grind)
+@@ -134,20 +184,20 @@
+ abbrev Vec.get! {α : Type u} [Inhabited α] (v : Vec α) (i : Nat) : α := getElem! v i
+ 
+ def Vec.set {α : Type u} (v: Vec α) (i: Usize) (x: α) : Vec α :=
+-  .from (v.val.set i.val x) (by have := v.property; simp [*])
++  { slice := Slice.from (v.val.set i.val x) (by have := v.property; simp [*]), cap := v.cap }
+ 
+ def Vec.set_opt {α : Type u} (v: Vec α) (i: Usize) (x: Option α) : Vec α :=
+-  .from (v.val.set_opt i.val x) (by have := v.property; simp [*])
++  { slice := Slice.from (v.val.set_opt i.val x) (by have := v.property; simp [*]), cap := v.cap }
+ 
+ @[simp, scalar_tac_simps, simp_lists_hyps_simps, grind =, agrind =]
+ theorem Vec.set_val_eq {α : Type u} (v: Vec α) (i: Usize) (x: α) :
+   v.set i x = v.val.set i.val x := by
+-  simp [set]
++  simp [Vec.set, Vec.val, Slice.from_val]
+ 
+ @[simp, scalar_tac_simps, simp_lists_hyps_simps, grind =, agrind =]
+ theorem Vec.set_opt_val_eq {α : Type u} (v: Vec α) (i: Usize) (x: Option α) :
+   (v.set_opt i x) = v.val.set_opt i.val x := by
+-  simp [set_opt]
++  simp [Vec.set_opt, Vec.val, Slice.from_val]
+ 
+ @[irreducible, rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::push" (keepParams := [true,false])]
+ def Vec.push {α : Type u} (v : Vec α) (x : α) : Result (Vec α)
+@@ -194,7 +244,7 @@
+   match v.val[i.val]? with
+   | none => fail .arrayOutOfBounds
+   | some _ =>
+-    ok (.from (v.val.set i x) (by have := v.property; simp [*] ))
++    ok { slice := Slice.from (v.val.set i x) (by have := v.property; simp [*]), cap := v.cap }
+ 
+ @[step]
+ theorem Vec.update_spec {α : Type u} (v: Vec α) (i: Usize) (x : α)
+@@ -233,7 +283,7 @@
+   (self : Vec T) (i : I) :
+   Result (Output × (Output → Vec T)) := do
+   let ⟨o, back⟩ ← inst.index_mut i self.slice
+-  pure ⟨o, fun o' => {slice := back o'}⟩
++  pure ⟨o, fun o' => {slice := back o', cap := self.cap}⟩
+ 
+ @[reducible,
+   rust_trait_impl "core::ops::index::Index<alloc::vec::Vec<@T>, @T, @O>" (keepParams := [true, true, false, true])]
+@@ -269,8 +319,8 @@
+   simp [Functor.map]
+   funext x'
+   apply Vec.ext
+-  simp [Vec.set, Vec.from, Slice.set, Slice.setAtNat]
+-  rfl
++  · simp [Vec.set, Vec.from, Slice.set, Slice.setAtNat]; rfl
++  · rfl
+ 
+ -- Vec index/index_mut with RangeTo
+ 
+@@ -342,7 +392,7 @@
+   exact this
+ 
+ def Vec.setSlice! {α : Type u} (s : Vec α) (i : ℕ) (s' : List α) : Vec α :=
+-  {slice := Slice.setSlice! s.slice i s'}
++  {slice := Slice.setSlice! s.slice i s', cap := s.cap}
+ 
+ @[step]
+ theorem Vec.index_mut_Range_spec {α : Type} (v : Vec α) (r : core.ops.range.Range Usize)
+@@ -365,7 +415,7 @@
+ def alloc.slice.Slice.to_vec
+   {T : Type} (cloneInst : core.clone.Clone T) (s : Slice T) : Result (alloc.vec.Vec T) := do
+   let s ← Slice.clone cloneInst.clone s
+-  ok {slice := s}
++  ok (alloc.vec.Vec.ofSlice s)
+ 
+ @[step]
+ theorem alloc.slice.Slice.to_vec_spec {T : Type} (cloneInst : core.clone.Clone T) (s : Slice T)
+@@ -373,11 +423,11 @@
+   alloc.slice.Slice.to_vec cloneInst s ⦃ s' => s = s'.slice ⦄ := by
+   simp only [to_vec]
+   apply Std.WP.spec_bind (Slice.clone_spec h)
+-  grind
++  grind [alloc.vec.Vec.ofSlice]
+ 
+ @[rust_fun "alloc::slice::{[@T]}::into_vec" -canFail -lift (keepParams := [true, false])]
+ def alloc.slice.Slice.into_vec
+-  {T : Type} (s: Slice T) : (alloc.vec.Vec T) := {slice := s}
++  {T : Type} (s: Slice T) : (alloc.vec.Vec T) := alloc.vec.Vec.ofSlice s
+ 
+ @[rust_fun "alloc::vec::from_elem"]
+ def alloc.vec.from_elem
+@@ -397,7 +447,8 @@
+   simp [h]
+ 
+ @[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::with_capacity" -canFail -lift]
+-def alloc.vec.Vec.with_capacity (T : Type) (_ : Usize) : alloc.vec.Vec T := Vec.new T
++def alloc.vec.Vec.with_capacity (T : Type) (n : Usize) : alloc.vec.Vec T :=
++  { slice := Slice.new T, cap := n }
+ 
+ @[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::extend_from_slice" (keepParams := [true, false])]
+ def alloc.vec.Vec.extend_from_slice {T : Type} (cloneInst : core.clone.Clone T)
+@@ -427,7 +478,7 @@
+            -canFail (keepParams := [true, false])]
+ def alloc.vec.Vec.deref_mut {T : Type} (v :  alloc.vec.Vec T) :
+    (Slice T) × (Slice T → alloc.vec.Vec T) :=
+-   (v.slice, λ s => {slice := s})
++   (v.slice, λ s => alloc.vec.Vec.ofSlice s)
+ 
+ @[reducible, rust_trait_impl "core::ops::deref::DerefMut<alloc::vec::Vec<@T>, [@T]>" (keepParams := [true, false])]
+ def core.ops.deref.DerefMutVec {T : Type} :
+@@ -459,8 +510,10 @@
+ @[simp↓, scalar_tac_simps↓, grind =, agrind =]
+ theorem alloc.vec.Vec.set_getElem!_eq α [Inhabited α] (x : alloc.vec.Vec α) (i : Usize) :
+   x.set i x[i]! = x := by
++  rw [Vec.eq_iff]
++  refine ⟨?_, rfl⟩
+   simp only [getElem!_Usize_eq]
+-  simp only [set_val_eq, Vec.eq_iff, List.set_getElem!]
++  simp only [set_val_eq, List.set_getElem!]
+ 
+ @[simp↓, scalar_tac_simps, simp_lists_safe, grind =, agrind =]
+ theorem alloc.vec.Vec.set_getElem_eq α (x : alloc.vec.Vec α) (i : Usize) (h : i.val < x.length) :
+@@ -469,7 +522,9 @@
+     simpa using h
+   have hself : x.val.set i.val x.val[i.val] = x.val :=
+     List.set_getElem_self (as := x.val) (i := i.val) (h := h')
+-  simp only [Vec.eq_iff, set_val_eq] at hself ⊢
++  rw [Vec.eq_iff]
++  refine ⟨?_, rfl⟩
++  simp only [set_val_eq] at hself ⊢
+   exact hself
+ 
+ @[simp_lists_safe↓]
+@@ -599,7 +654,7 @@
+ def alloc.vec.CloneVec.clone {T : Type} (cloneInst : core.clone.Clone T)
+   (v : alloc.vec.Vec T) : Result (alloc.vec.Vec T) := do
+   let s ← Slice.clone cloneInst.clone v.slice
+-  ok {slice := s}
++  ok {slice := s, cap := v.cap}
+ 
+ @[reducible, rust_trait_impl "core::clone::Clone<alloc::vec::Vec<@T>>"
+     (keepParams := [true, false]) (keepTraitClauses := [true, false])]
