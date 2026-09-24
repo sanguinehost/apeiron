@@ -958,3 +958,123 @@ fn kepler_plan_split_slack_matches_the_domination_argument() {
         check_split_slack(e);
     }
 }
+
+/// W8-T3 escalation witness: the six head-band rows at e = 0.95 that the
+/// strict policy either refused (m = +/-0x1.b534ac0f1986p-4) or served at the
+/// full 8-construction budget through the cubic arm must now certify on the
+/// bounded escalation at 5 constructions, with both service ceilings and the
+/// exact-real invariant intact.
+#[test]
+fn w8t3_escalation_serves_the_former_head_band_rows() {
+    let e = SERVICE_ECC;
+    let kappa = 1.0 / (1.0 - e);
+    for bits in [
+        0xBFB3_A28C_59D5_4340u64,
+        0xBFB2_106C_A491_0060,
+        0xBFB5_34AC_0F19_8600,
+        0x3FB5_34AC_0F19_8600,
+        0x3FB2_106C_A491_0060,
+        0x3FB3_A28C_59D5_4340,
+    ] {
+        let m = f64::from_bits(bits);
+        let sol = solve_kepler(Sigma::Elliptic, m, e)
+            .expect("W8-T3 escalation must serve the former head-band rows");
+        assert_eq!(
+            sol.rounds, 5,
+            "one starter + 3 scheduled + 1 escalation construction at m={m:?}"
+        );
+        assert!(
+            sol.defect_bound <= 4.0 * EPS,
+            "defect above 4 eps at m={m:?}: {:e}",
+            sol.defect_bound
+        );
+        assert!(
+            sol.error_bound <= 4.0 * kappa * EPS + 1e-31,
+            "error above 4 kappa eps at m={m:?}: {:e}",
+            sol.error_bound
+        );
+        assert!(
+            error_bound_covers_exact(sol.defect_bound, e, sol.error_bound),
+            "exact-real invariant at m={m:?}"
+        );
+    }
+}
+
+/// W8-T5 load-bearing control target: the reported `defect_bound`/
+/// `error_bound` must equal the certificate construction re-derived here with
+/// an afresh `candidate.sin()`, bit for bit, on every sampled row. The kernel
+/// reuses the refinement's cached sine only at an identical candidate bit
+/// pattern; an unguarded reuse at a different iterate changes the sine word
+/// (measured on 11,369 of 12,466 sampled rows) and turns this test red.
+#[test]
+fn reported_bounds_match_the_fresh_sin_certificate_bit_for_bit() {
+    let m_values = grid_mean_anomalies();
+    for &e in &GRID_E {
+        for &m in &m_values {
+            let sol = solve_kepler(Sigma::Elliptic, m, e).expect("sampled row admitted");
+            let (d_bits, r_bits) = fresh_sin_certificate(m, e, sol.anomaly);
+            assert_eq!(
+                sol.defect_bound.to_bits(),
+                d_bits,
+                "defect-bound bits diverge from the fresh-sine construction at m={m:?} e={e:?}"
+            );
+            assert_eq!(
+                sol.error_bound.to_bits(),
+                r_bits,
+                "error-bound bits diverge from the fresh-sine construction at m={m:?} e={e:?}"
+            );
+        }
+    }
+}
+
+/// Absolute allowance floor for subnormal gaps (mirror of the kernel's).
+const SUBNORMAL_FLOOR: f64 = f64::from_bits(1);
+/// Absolute guard of the error-bound quotient chain (mirror of the kernel's).
+const QUOTIENT_SUBNORMAL_GUARD: f64 = f64::from_bits(8);
+
+/// Outward product of nonnegative bounds (mirror of the kernel's).
+fn outward_product(a: f64, b: f64) -> f64 {
+    (a * b).next_up()
+}
+
+/// Outward sum of nonnegative bounds (mirror of the kernel's).
+fn outward_sum(a: f64, b: f64) -> f64 {
+    (a + b).next_up()
+}
+
+/// One-ulp allowance (mirror of the kernel's `ulp_allowance`).
+fn ulp_allowance(v: f64) -> f64 {
+    outward_sum(outward_product(EPS, v.abs()), SUBNORMAL_FLOOR)
+}
+
+/// Half-ulp allowance (mirror of the kernel's `half_ulp_allowance`).
+fn half_ulp_allowance(v: f64) -> f64 {
+    outward_sum(outward_product(0.5 * EPS, v.abs()), SUBNORMAL_FLOOR)
+}
+
+/// The kernel's certificate construction re-derived with an afresh sine in
+/// the same operation order (W8-T5 control): exact-error-free residual
+/// decomposition, the three combination allowances, the `ASSUMPTION-SIN`
+/// allowance, one outward escalation and the folded-quotient error bound.
+/// Returns the two reported words as bit patterns.
+fn fresh_sin_certificate(m: f64, e: f64, x: f64) -> (u64, u64) {
+    let s = x.sin();
+    let (sm, tail_m) = two_sum(x, -m);
+    let (prod, tail_sin) = two_prod(e, s);
+    let (lead, tail_lead) = two_sum(sm, -prod);
+    let combine = tail_m - tail_sin;
+    let tail = combine + tail_lead;
+    let residual_word = lead + tail;
+    let residual_allowance = outward_sum(
+        outward_sum(half_ulp_allowance(combine), half_ulp_allowance(tail)),
+        half_ulp_allowance(residual_word),
+    );
+    let sine_allowance = outward_product(e, ulp_allowance(s));
+    let margin = outward_sum(sine_allowance, residual_allowance);
+    let defect_bound = (residual_word.abs() + margin).next_up();
+    let (denom, _split_tail) = two_sum(1.0, -e);
+    let quotient = defect_bound / denom;
+    let scaled = quotient * (1.0 + 4.0 * EPS);
+    let error_bound = (scaled + QUOTIENT_SUBNORMAL_GUARD).next_up().next_up();
+    (defect_bound.to_bits(), error_bound.to_bits())
+}
