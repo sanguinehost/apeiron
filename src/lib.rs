@@ -14,6 +14,7 @@ pub mod cell;
 pub mod coord;
 pub mod exchange;
 pub mod fold;
+pub mod kepler;
 pub mod keystore;
 pub mod merge;
 pub mod pepper;
