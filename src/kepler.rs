@@ -101,18 +101,35 @@
 //!    refuses candidates outside that domain rather than extrapolating the
 //!    assumption. Compiler, ABI, hardware and libm are external trust; this
 //!    source provides no f64 refinement of them.
+//! 3. The sine reuse additionally assumes `f64::sin` is a pure function
+//!    of its argument pattern within one platform (same pattern, same word);
+//!    the reuse guard demands an identical candidate bit pattern before
+//!    consuming the cached word, and `tests/kepler.rs` re-derives every
+//!    reported bound with an afresh sine and demands bit equality on the
+//!    sampled grid.
 //!
 //! # Refusal policy above the service ceiling
 //!
 //! Successful service delivers `d <= 4 eps` and `r <= 4 kappa eps` with
 //! `eps = 2^-52` and `kappa = 1 / (1 - e)` from the exact denoted `e`. The
-//! kernel first runs the scheduled series arm, then the safeguarded cubic
-//! fallback arm within the remaining global count cap (5 candidate
-//! constructions for `e <= 0.45_f64`, 8 above). If neither arm meets both
-//! ceilings at the count cap, the input is refused `CertificateFailure`: a
-//! sound-but-oversized bound is never returned silently (it would exceed the
-//! contract's success criterion), never clamped, and the candidate is never
-//! returned uncertified. The SLA row for the refused population stays OPEN.
+//! kernel first runs the scheduled series arm, then one bounded
+//! escalation correction on a stalled series iterate, then the safeguarded
+//! cubic fallback arm within the remaining global count cap (5 candidate
+//! constructions for `e <= 0.45_f64`, 8 above). Every stage's candidate is
+//! accepted only through the same certificate and both service ceilings. If
+//! no stage meets both ceilings at the count cap, the input is refused
+//! `CertificateFailure`: a sound-but-oversized bound is never returned
+//! silently (it would exceed the contract's success criterion), never
+//! clamped, and the candidate is never returned uncertified. The SLA row for
+//! the refused population stays OPEN.
+//!
+//! The escalation is one complete candidate construction inside the
+//! unchanged cap and schedules (`rounds + 1 <= cap` on every admitted band);
+//! it replaces no schedule row and weakens no bound. Its measured effect on
+//! the sampled population: the two strict-policy refusals at e = 0.95 (a
+//! mid-cascade stall ~4e-15 from the root, tens of ulp) now certify at 5
+//! constructions, and the four rows previously saved by the cubic arm switch
+//! to the continued iterate at 5 instead of 8 constructions.
 //!
 //! No Aeneas f64 refinement is claimed for this kernel: none exists for this
 //! path, and the bridge theorem's supplied-premise hypothesis is not a Rust
@@ -173,6 +190,11 @@ const QUOTIENT_SUBNORMAL_GUARD: f64 = f64::from_bits(8);
 /// certified. Every candidate the kernel forms on admitted input stays inside
 /// `|x| <= pi + 4 * 0.95 < SIN_ASSUMPTION_DOMAIN`.
 const SIN_ASSUMPTION_DOMAIN: f64 = 8.0;
+
+/// The cached sine witness: `(iterate, f64::sin(iterate))` as evaluated
+/// by a refinement correction, consumed only at an identical candidate bit
+/// pattern (see [`KeplerPlan::certificate`]).
+type SinCache = Option<(f64, f64)>;
 
 /// Typed refusals, in the contract's deterministic precedence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -421,11 +443,32 @@ impl KeplerPlan {
     /// `sine_allowance = e * ulp_allowance(s)` under `ASSUMPTION-SIN`, one
     /// outward escalation into `defect_bound`, and
     /// [`KeplerPlan::outward_error_bound`] for the absolute-error enclosure.
-    fn certificate(&self, mean_anomaly: f64, candidate: f64) -> Result<(f64, f64), KeplerError> {
+    ///
+    /// `cached` is the refinement sin reuse: the last refinement
+    /// correction evaluated `f64::sin` at its input iterate and returned that
+    /// word beside the candidate. The cached word is consumed only when the
+    /// input iterate IS the candidate (identical bit pattern, identical
+    /// platform function, therefore identical value); when the correction
+    /// moved the iterate the cached sine belongs to a different point and the
+    /// sine is evaluated afresh here, never reused. Either way `s` is exactly
+    /// `candidate.sin()`, so the reported bounds are bit-identical to the
+    /// fresh-evaluation construction (checked on the sampled grid by
+    /// `tests/kepler.rs`).
+    fn certificate(
+        &self,
+        mean_anomaly: f64,
+        candidate: f64,
+        cached: SinCache,
+    ) -> Result<(f64, f64), KeplerError> {
         if candidate.abs() > SIN_ASSUMPTION_DOMAIN {
             return Err(KeplerError::CertificateFailure);
         }
-        let s = candidate.sin();
+        let s = match cached {
+            Some((cached_at, cached_sin)) if cached_at.to_bits() == candidate.to_bits() => {
+                cached_sin
+            }
+            _ => candidate.sin(),
+        };
         if !s.is_finite() {
             return Err(KeplerError::CertificateFailure);
         }
@@ -458,8 +501,13 @@ impl KeplerPlan {
     /// over the exact reals and folded once per plan, so acceptance implies
     /// both exact-real inequalities. A ceiling miss yields `None` (escalate or
     /// refuse), never a silently oversized success.
-    fn certified_service(&self, mean_anomaly: f64, candidate: f64) -> Option<(f64, f64)> {
-        let (defect_bound, error_bound) = self.certificate(mean_anomaly, candidate).ok()?;
+    fn certified_service(
+        &self,
+        mean_anomaly: f64,
+        candidate: f64,
+        cached: SinCache,
+    ) -> Option<(f64, f64)> {
+        let (defect_bound, error_bound) = self.certificate(mean_anomaly, candidate, cached).ok()?;
         if defect_bound <= SERVICE_DEFECT_LIMIT && error_bound <= self.service_error_ceiling() {
             Some((defect_bound, error_bound))
         } else {
@@ -543,13 +591,15 @@ pub fn solve_with_plan(
         });
     }
 
-    let (candidate, rounds) = refine(
+    let (candidate, mut rounds, cache) = refine(
         plan.series_starter(mean_anomaly),
         mean_anomaly,
         plan.eccentricity,
         plan.series_corrections,
     )?;
-    if let Some((defect_bound, error_bound)) = plan.certified_service(mean_anomaly, candidate) {
+    if let Some((defect_bound, error_bound)) =
+        plan.certified_service(mean_anomaly, candidate, cache)
+    {
         return Ok(KeplerSolution {
             face,
             anomaly: candidate,
@@ -559,19 +609,48 @@ pub fn solve_with_plan(
         });
     }
 
+    // bounded escalation: the scheduled series arm can stall
+    // mid-cascade (measured at e = 0.95: the last scheduled correction still
+    // moved ~3e-5 and left |x - E*| ~ 4e-15, so the certificate missed the
+    // service ceilings while one more cubic-convergent correction drives the
+    // error below 2^-53). Spend ONE further complete candidate construction
+    // on that iterate; `rounds + 1 <= plan.round_cap` on every admitted band,
+    // so the count caps and both schedules are unchanged. The candidate is
+    // accepted only through the same certificate and both service ceilings;
+    // on failure the safeguarded cubic fallback runs with the remaining
+    // budget, and if that also misses, the strict refusal stands.
+    if plan.round_cap - rounds >= 1 {
+        let (escalated, sin_at_candidate) =
+            halley_correction(candidate, mean_anomaly, plan.eccentricity);
+        rounds += 1;
+        if escalated.is_finite() {
+            if let Some((defect_bound, error_bound)) =
+                plan.certified_service(mean_anomaly, escalated, Some((candidate, sin_at_candidate)))
+            {
+                return Ok(KeplerSolution {
+                    face,
+                    anomaly: escalated,
+                    defect_bound,
+                    error_bound,
+                    rounds,
+                });
+            }
+        }
+    }
+
     // Safeguarded fallback: a second starter on the same map, spending the
     // remaining global construction budget only.
     let remaining = plan.round_cap - rounds;
     if remaining >= 1 {
         let fallback_corrections = plan.cubic_corrections.min(remaining - 1);
-        if let Ok((fallback, used)) = refine(
+        if let Ok((fallback, used, fallback_cache)) = refine(
             cubic_starter(mean_anomaly, plan.eccentricity),
             mean_anomaly,
             plan.eccentricity,
             fallback_corrections,
         ) {
             if let Some((defect_bound, error_bound)) =
-                plan.certified_service(mean_anomaly, fallback)
+                plan.certified_service(mean_anomaly, fallback, fallback_cache)
             {
                 return Ok(KeplerSolution {
                     face,
@@ -623,38 +702,44 @@ fn cubic_starter(mean_anomaly: f64, eccentricity: f64) -> f64 {
 }
 
 /// One Halley correction on `F(x) = x - m - e sin(x)`:
-/// `x - 2 f f' / (2 f'^2 - f f'')`.
-fn halley_correction(anomaly: f64, mean_anomaly: f64, eccentricity: f64) -> f64 {
+/// `x - 2 f f' / (2 f'^2 - f f'')`. Returns the corrected iterate beside the
+/// exact `f64::sin` word evaluated at the INPUT iterate (the cache).
+fn halley_correction(anomaly: f64, mean_anomaly: f64, eccentricity: f64) -> (f64, f64) {
     let s = anomaly.sin();
     let c = anomaly.cos();
     let f = anomaly - mean_anomaly - eccentricity * s;
     let fp = 1.0 - eccentricity * c;
     let fpp = eccentricity * s;
-    anomaly - 2.0 * f * fp / (2.0 * fp * fp - f * fpp)
+    (anomaly - 2.0 * f * fp / (2.0 * fp * fp - f * fpp), s)
 }
 
 /// Starter plus `corrections` complete Halley corrections on the same map.
 /// The returned count covers every complete candidate construction, the
 /// starter included; certificate evaluation is separate cost and not counted.
+/// The cached pair `(x, f64::sin(x))` is the last correction's input iterate
+/// and its sine word (; consumed only when the iterate did not move).
 fn refine(
     starter: f64,
     mean_anomaly: f64,
     eccentricity: f64,
     corrections: u8,
-) -> Result<(f64, u8), KeplerError> {
+) -> Result<(f64, u8, SinCache), KeplerError> {
     let mut anomaly = starter;
     let mut rounds = 1u8;
+    let mut cached: SinCache = None;
     if !anomaly.is_finite() {
         return Err(KeplerError::IterationExhaustion);
     }
     for _ in 0..corrections {
-        anomaly = halley_correction(anomaly, mean_anomaly, eccentricity);
+        let (next, sin_at_input) = halley_correction(anomaly, mean_anomaly, eccentricity);
+        cached = Some((anomaly, sin_at_input));
+        anomaly = next;
         rounds += 1;
         if !anomaly.is_finite() {
             return Err(KeplerError::IterationExhaustion);
         }
     }
-    Ok((anomaly, rounds))
+    Ok((anomaly, rounds, cached))
 }
 
 /// Knuth two-sum: `(s, err)` with `a + b = s + err` exactly.
@@ -725,7 +810,7 @@ mod tests {
         eccentricity: f64,
         candidate: f64,
     ) -> Result<(f64, f64), KeplerError> {
-        KeplerPlan::fold(eccentricity).certificate(mean_anomaly, candidate)
+        KeplerPlan::fold(eccentricity).certificate(mean_anomaly, candidate, None)
     }
 
     /// Exact sign test: `true` iff `sum(vals) >= 0` over the reals.
