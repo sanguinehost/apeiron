@@ -9,6 +9,14 @@
 //! solution, the defect bound, the error bound and the round count; host
 //! readouts and caches are not authorities.
 //!
+//! The additive per-orbit entry point of `APEIRON-KEPLER-W8-T2` is
+//! [`solve_with_plan`] over a [`KeplerPlan`]: one plan per eccentricity folds
+//! the schedule band, the e-powers, the exact denominator split of `1 - e` and
+//! the e-dependent constant allowances once, and every solve of the orbit
+//! shares them. [`solve_kepler`] constructs one plan per call and delegates;
+//! the two entries return bit-identical solutions (tested on the sampled
+//! population).
+//!
 //! # Admitted domain (contract: `docs/spec/kepler-canonical.md`)
 //!
 //! Only `face == Sigma::Elliptic` executes. `Sigma::default()` is Parabolic and
@@ -24,7 +32,9 @@
 //! Everything else is a typed refusal (`KeplerError`), never a clamp and never
 //! a default substitute. Refusals have the deterministic precedence
 //! `NonFiniteInput`, `UnsupportedFace`, `InvalidEccentricity`,
-//! `UnsupportedDomain`, then execution/certificate.
+//! `UnsupportedDomain`, then execution/certificate; [`solve_kepler`] enforces
+//! that precedence across its three arguments, while [`KeplerPlan::new`] and
+//! [`solve_with_plan`] check the arguments each receives.
 //!
 //! At `e == 0.0` the returned anomaly is the input mean anomaly with its exact
 //! bit pattern, `rounds: 0`, `defect_bound: 0.0`, `error_bound: 0.0`, and no
@@ -69,13 +79,17 @@
 //! <= error_bound` over the exact reals, which is exactly the denoted `Sound`
 //! premise the conditional bridge theorem consumes. The quotient is NOT taken
 //! over the rounded `1.0 - e` denominator (that subtraction is inexact for
-//! `e < 0.5`): [`outward_error_bound`] splits `1 - e` exactly as
-//! `two_sum(1.0, -e) = (denom, denom_tail)` with `denom + denom_tail = 1 - e`
-//! and escalates past the split's `|denom_tail| <= 2^-53 denom` slack and
-//! every rounding on the way; [`service_error_ceiling`] mirrors the argument
-//! downward so acceptance implies `r <= 4 kappa eps` exactly. Both carry their
-//! bound argument, and the `#[cfg(test)]` regression checks the conclusions by
-//! exact cross-multiplication (no rounded division) on adversarial pairs.
+//! `e < 0.5`): the exact `two_sum(1.0, -e) = (denom, denom_tail)` split of
+//! `1 - e` is folded **once** per [`KeplerPlan`] (once per solve, and once per
+//! orbit under [`solve_with_plan`]) and shared by
+//! [`KeplerPlan::outward_error_bound`], which escalates past the split's
+//! `|denom_tail| <= 2^-53 denom` slack and every rounding on the way, and by
+//! [`KeplerPlan::service_error_ceiling`], which mirrors the argument downward
+//! so acceptance implies `r <= 4 kappa eps` exactly. Both carry their bound
+//! argument, no allowance is smaller than before the folding (the folded
+//! constants are the same values computed in the same order), and the
+//! `#[cfg(test)]` regression checks the conclusions by exact
+//! cross-multiplication (no rounded division) on adversarial pairs.
 //!
 //! # Platform assumptions (external trust, spec line 101)
 //!
@@ -150,9 +164,9 @@ const HALF_ULP_FACTOR: f64 = 0.5 * f64::EPSILON;
 /// smallest subnormal).
 const SUBNORMAL_FLOOR: f64 = f64::from_bits(1);
 
-/// Absolute guard of [`outward_error_bound`], `8 * 2^-1074`: it dominates the
-/// subnormal-regime quotient deficit (bounded by `6.5 * 2^-1074` there; the
-/// function comment carries the accounting).
+/// Absolute guard of [`KeplerPlan::outward_error_bound`], `8 * 2^-1074`: it
+/// dominates the subnormal-regime quotient deficit (bounded by
+/// `6.5 * 2^-1074` there; the method comment carries the accounting).
 const QUOTIENT_SUBNORMAL_GUARD: f64 = f64::from_bits(8);
 
 /// Domain of `ASSUMPTION-SIN`; a candidate beyond it is refused instead of
@@ -204,10 +218,272 @@ pub struct KeplerSolution {
     pub rounds: u8,
 }
 
+/// The per-orbit solve plan of `APEIRON-KEPLER-W8-T2`: everything the schedule
+/// and the certificate need that depends only on the eccentricity, folded once
+/// by [`KeplerPlan::new`] and shared by every solve over the orbit.
+///
+/// Folded contents (all private; the constructor is the only authority):
+///
+/// - the schedule band: series and cubic correction counts plus the global
+///   construction cap (from [`SCHEDULE_SERIES`], [`SCHEDULE_CUBIC`],
+///   [`ROUND_SPLIT_ECC`]);
+/// - the e-powers `e^2, e^3, e^4` of the series starter;
+/// - the exact denominator split `1 - e = denom + denom_tail` (Knuth two-sum,
+///   read out by [`KeplerPlan::denominator_split`]);
+/// - the e-dependent constant allowance: the conservative service error
+///   ceiling used by [`KeplerPlan::service_error_ceiling`].
+///
+/// The fields cannot be forged (private, validated construction only), so a
+/// plan cannot manufacture a defect or error bound: every reported bound is
+/// still constructed by [`KeplerPlan::certificate`] from the exact-real
+/// residual decomposition and the allowances above.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeplerPlan {
+    /// The admitted eccentricity (finite, `0 <= e <= SERVICE_ECCENTRICITY`);
+    /// the exact denoted value the bounds talk about.
+    eccentricity: f64,
+    /// `e^2` for the series starter (folded once).
+    e2: f64,
+    /// `e^3` for the series starter (folded once).
+    e3: f64,
+    /// `e^4` for the series starter (folded once).
+    e4: f64,
+    /// Lead of the exact split `1 - e = denom + denom_tail`.
+    denom: f64,
+    /// Tail of the exact split; `|denom_tail| <= 2^-53 denom` is the slack the
+    /// [`KeplerPlan::outward_error_bound`] domination argument escalates past.
+    denom_tail: f64,
+    /// Conservative service error ceiling `<= 4 eps / (1 - e)` over the exact
+    /// reals, folded once (see [`KeplerPlan::service_error_ceiling`]).
+    error_ceiling: f64,
+    /// Series-arm Halley corrections of the schedule band (starter included,
+    /// the complete construction count is `series_corrections + 1`).
+    series_corrections: u8,
+    /// Cubic-arm corrections of the schedule band.
+    cubic_corrections: u8,
+    /// Global construction cap of one solve for this band.
+    round_cap: u8,
+}
+
+impl KeplerPlan {
+    /// Fold one plan from an eccentricity; the validated constructor.
+    ///
+    /// The eccentricity checks are `NonFiniteInput` (NaN or infinity),
+    /// `InvalidEccentricity` (finite `e < 0` or `e >= 1` over the exact denoted
+    /// reals) and `UnsupportedDomain` (above `SERVICE_ECCENTRICITY`). Together
+    /// with [`solve_with_plan`]'s checks on the face and mean anomaly this is
+    /// the frozen precedence of [`solve_kepler`]; a plan outlives many solves,
+    /// so face and mean anomaly are re-checked per solve, not per plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeplerError::NonFiniteInput` for a non-finite eccentricity,
+    /// `KeplerError::InvalidEccentricity` for `e < 0` or `e >= 1`, and
+    /// `KeplerError::UnsupportedDomain` above the service endpoint. No
+    /// substitution or clamping happens on any refusal.
+    pub fn new(eccentricity: f64) -> Result<KeplerPlan, KeplerError> {
+        if !eccentricity.is_finite() {
+            return Err(KeplerError::NonFiniteInput);
+        }
+        if !(0.0..1.0).contains(&eccentricity) {
+            return Err(KeplerError::InvalidEccentricity);
+        }
+        if eccentricity > SERVICE_ECCENTRICITY {
+            return Err(KeplerError::UnsupportedDomain);
+        }
+        Ok(KeplerPlan::fold(eccentricity))
+    }
+
+    /// Fold every eccentricity-dependent constant once. The caller's contract
+    /// is the admitted eccentricity (finite, `0 <= e <= SERVICE_ECCENTRICITY`);
+    /// [`KeplerPlan::new`] validates it.
+    fn fold(eccentricity: f64) -> KeplerPlan {
+        let e2 = eccentricity * eccentricity;
+        let e3 = e2 * eccentricity;
+        let e4 = e3 * eccentricity;
+        // Exact split: `denom + denom_tail = 1 - e` (Knuth two-sum), computed
+        // once here and shared by both folded bounds below.
+        let (denom, denom_tail) = two_sum(1.0, -eccentricity);
+        // Conservative ceiling, folded once per plan (its bound argument is on
+        // `service_error_ceiling`).
+        let error_ceiling = {
+            let scaled = (4.0 * f64::EPSILON) / denom;
+            (scaled * (1.0 - 4.0 * f64::EPSILON)).next_down()
+        };
+        KeplerPlan {
+            eccentricity,
+            e2,
+            e3,
+            e4,
+            denom,
+            denom_tail,
+            error_ceiling,
+            series_corrections: scheduled_corrections(eccentricity, &SCHEDULE_SERIES),
+            cubic_corrections: scheduled_corrections(eccentricity, &SCHEDULE_CUBIC),
+            round_cap: round_cap(eccentricity),
+        }
+    }
+
+    /// The exact denoted eccentricity this plan was folded from.
+    #[must_use]
+    pub fn eccentricity(&self) -> f64 {
+        self.eccentricity
+    }
+
+    /// The exact denominator split `(denom, denom_tail)` with `denom +
+    /// denom_tail = 1 - e` over the exact reals and `|denom_tail| <= 2^-53
+    /// denom`. A pure readout: it manufactures no bound.
+    #[must_use]
+    pub fn denominator_split(&self) -> (f64, f64) {
+        (self.denom, self.denom_tail)
+    }
+
+    /// The circular monad flag: `e == 0.0` (either zero sign).
+    fn is_circular(&self) -> bool {
+        self.eccentricity == 0.0
+    }
+
+    /// Fitzpatrick (1970) fixed-point series starter through `e^4`
+    /// (`M + e S + e^2 C S + e^3 S (3 C^2 - 1) / 2 + e^4 C S (8 C^2 - 5) / 3`,
+    /// `S = sin M`, `C = cos M`) from the plan's folded e-powers: one complete
+    /// first candidate.
+    fn series_starter(&self, mean_anomaly: f64) -> f64 {
+        let s = mean_anomaly.sin();
+        let c = mean_anomaly.cos();
+        let c2 = c * c;
+        mean_anomaly
+            + self.eccentricity * s
+            + self.e2 * c * s
+            + self.e3 * s * (3.0 * c2 - 1.0) * 0.5
+            + self.e4 * c * s * (8.0 * c2 - 5.0) / 3.0
+    }
+
+    /// Outward absolute-error enclosure: `error_bound >= defect_bound / (1 - e)`
+    /// over the exact reals, for `d = defect_bound >= 0` and admitted
+    /// `0 < e < 1`.
+    ///
+    /// Bound argument (all comparisons over `R`): `1.0 - e` is NOT an exact
+    /// subtraction for `e < 0.5`, so [`KeplerPlan::fold`] splits the
+    /// denominator exactly with `two_sum(1.0, -e) = (denom, denom_tail)`,
+    /// giving `denom + denom_tail = 1 - e` with `|denom_tail| <= 2^-53 denom`
+    /// (half an ulp of the rounded lead; `denom >= 2^-6 > 0` on the admitted
+    /// domain). Put `Q = d / denom`, so `d / (1 - e) = Q / (1 + x)` with
+    /// `x = denom_tail / denom`, `|x| <= 2^-53`:
+    ///
+    /// 1. `denom_tail <= 0` needs no denominator inflation (`d / (1 - e) <= Q`);
+    ///    `denom_tail > 0` needs at most `1 / (1 - 2^-53) <= 1 + 2^-52`.
+    /// 2. Normal regime `Q >= 2^-1021`: `quotient`, `scaled = quotient * (1 +
+    ///    4eps)` and `w = scaled + guard` each round at relative `<= 2^-53`, so
+    ///    `w >= Q (1 - 2^-53)^3 (1 + 2^-50) >= Q (1 + 5 * 2^-53)` while
+    ///    `d / (1 - e) <= Q (1 + 2^-52)`; the exact factor `1 + 4eps = 1 + 2^-50`
+    ///    covers the `2^-52 + 3 * 2^-53 = 5 * 2^-53` deficit with 1.6x headroom.
+    /// 3. Subnormal regime `Q < 2^-1021` (every intermediate `< 2^-1020`): each
+    ///    step rounds at absolute `<= 2^-53 * 2^-1020 + 2^-1075 < 1.5 * 2^-1074`,
+    ///    the denominator case adds `< 2 * 2^-1074`, so the total deficit is
+    ///    `< 6.5 * 2^-1074`; `QUOTIENT_SUBNORMAL_GUARD = 8 * 2^-1074` plus the two
+    ///    `next_up` steps (`>= 2^-1074` each here) dominate it.
+    /// 4. The two `next_up` steps are pure headroom in the normal regime, the
+    ///    guard is negligible there.
+    ///
+    /// The `#[cfg(test)]` regression re-checks the conclusion `r (1 - e) >= d` by
+    /// exact cross-multiplication (no rounded division) on adversarial pairs,
+    /// including the known counterexample against the single-`next_up` quotient.
+    fn outward_error_bound(&self, defect_bound: f64) -> f64 {
+        // The exact split `denom + denom_tail = 1 - e` is folded once in
+        // [`KeplerPlan::fold`]; only the quotient chain runs per candidate.
+        let quotient = defect_bound / self.denom;
+        let scaled = quotient * (1.0 + 4.0 * f64::EPSILON);
+        (scaled + QUOTIENT_SUBNORMAL_GUARD).next_up().next_up()
+    }
+
+    /// Conservative service ceiling `C <= 4 eps / (1 - e)` over the exact reals,
+    /// so `error_bound <= C` implies `r <= 4 kappa eps` exactly.
+    ///
+    /// Bound argument (same exact split `1 - e = denom + denom_tail`,
+    /// `|denom_tail| <= 2^-53 denom`): `4eps / (1 - e) = (4eps / denom) / (1 + x)`
+    /// with `|x| <= 2^-53`, hence `4eps / (1 - e) >= (4eps / denom) * (1 - 2^-53)`.
+    /// The computed `fl(4eps / denom)` is at most `(4eps / denom) * (1 + 2^-53)`,
+    /// so `4eps / (1 - e) >= q_c (1 - 2^-53)^2 >= q_c (1 - 2^-52)`. Down-scaling
+    /// by the exact `1 - 4eps` and taking `next_down` gives at worst
+    /// `q_c (1 - 2^-50)(1 + 2^-53) <= q_c (1 - 7 * 2^-53)`, strictly below that
+    /// bound. All values here are normal (`2^-50 <= 4eps / (1 - e) <= 2^-45` for
+    /// `e <= SERVICE_ECCENTRICITY`), so no subnormal regime arises. The whole
+    /// chain is folded once per plan in [`KeplerPlan::fold`].
+    fn service_error_ceiling(&self) -> f64 {
+        self.error_ceiling
+    }
+
+    /// Construct the outward certificate `(defect_bound, error_bound)` for the
+    /// returned candidate, or refuse `CertificateFailure`.
+    ///
+    /// The construction is the module-level formula: exact-error-free residual
+    /// decomposition, `residual_allowance` over the three combination roundings,
+    /// `sine_allowance = e * ulp_allowance(s)` under `ASSUMPTION-SIN`, one
+    /// outward escalation into `defect_bound`, and
+    /// [`KeplerPlan::outward_error_bound`] for the absolute-error enclosure.
+    fn certificate(&self, mean_anomaly: f64, candidate: f64) -> Result<(f64, f64), KeplerError> {
+        if candidate.abs() > SIN_ASSUMPTION_DOMAIN {
+            return Err(KeplerError::CertificateFailure);
+        }
+        let s = candidate.sin();
+        if !s.is_finite() {
+            return Err(KeplerError::CertificateFailure);
+        }
+        let (sm, tail_m) = two_sum(candidate, -mean_anomaly);
+        let (prod, tail_sin) = two_prod(self.eccentricity, s);
+        let (lead, tail_lead) = two_sum(sm, -prod);
+        // Exact: candidate - eccentricity * s - mean_anomaly
+        //      = lead + (tail_m - tail_sin + tail_lead).
+        let combine = tail_m - tail_sin;
+        let tail = combine + tail_lead;
+        let residual_word = lead + tail;
+        let residual_allowance = outward_sum(
+            outward_sum(half_ulp_allowance(combine), half_ulp_allowance(tail)),
+            half_ulp_allowance(residual_word),
+        );
+        let sine_allowance = outward_product(self.eccentricity, ulp_allowance(s));
+        let margin = outward_sum(sine_allowance, residual_allowance);
+        let defect_bound = (residual_word.abs() + margin).next_up();
+        let error_bound = self.outward_error_bound(defect_bound);
+        if !defect_bound.is_finite() || !error_bound.is_finite() {
+            return Err(KeplerError::CertificateFailure);
+        }
+        Ok((defect_bound, error_bound))
+    }
+
+    /// Certificate plus the service ceilings `d <= 4 eps` and `r <= 4 kappa eps`.
+    ///
+    /// `kappa = 1 / (1 - e)` comes from the exact denoted eccentricity. The
+    /// error ceiling is [`KeplerPlan::service_error_ceiling`], conservative
+    /// over the exact reals and folded once per plan, so acceptance implies
+    /// both exact-real inequalities. A ceiling miss yields `None` (escalate or
+    /// refuse), never a silently oversized success.
+    fn certified_service(&self, mean_anomaly: f64, candidate: f64) -> Option<(f64, f64)> {
+        let (defect_bound, error_bound) = self.certificate(mean_anomaly, candidate).ok()?;
+        if defect_bound <= SERVICE_DEFECT_LIMIT && error_bound <= self.service_error_ceiling() {
+            Some((defect_bound, error_bound))
+        } else {
+            None
+        }
+    }
+}
+
 /// Solve the normalized Kepler equation on the elliptic face.
 ///
 /// See the module documentation for the admitted domain, the certificate
-/// construction, the platform assumptions and the refusal policy.
+/// construction, the platform assumptions and the refusal policy. This entry
+/// folds one [`KeplerPlan`] per call and delegates to [`solve_with_plan`];
+/// per-orbit callers construct the plan once and call [`solve_with_plan`]
+/// directly (bit-identical results, tested).
+///
+/// # Errors
+///
+/// Returns the typed refusals in the frozen precedence: `NonFiniteInput` for
+/// NaN or infinity in either numerical input, `UnsupportedFace` for a face
+/// other than `Sigma::Elliptic`, `InvalidEccentricity` for finite `e < 0` or
+/// `e >= 1`, `UnsupportedDomain` for `m` outside `[-pi, pi]` or `e` above the
+/// service endpoint, then the execution refusals `IterationExhaustion` and
+/// `CertificateFailure`. No partial result is ever returned on `Err`.
 pub fn solve_kepler(
     face: Sigma,
     mean_anomaly: f64,
@@ -219,13 +495,42 @@ pub fn solve_kepler(
     if face != Sigma::Elliptic {
         return Err(KeplerError::UnsupportedFace);
     }
-    if eccentricity < 0.0 || eccentricity >= 1.0 {
-        return Err(KeplerError::InvalidEccentricity);
+    let plan = KeplerPlan::new(eccentricity)?;
+    solve_with_plan(face, mean_anomaly, &plan)
+}
+
+/// Solve the normalized Kepler equation against a shared [`KeplerPlan`]: the
+/// per-orbit entry point of `APEIRON-KEPLER-W8-T2`.
+///
+/// The plan already carries the validated eccentricity and every folded
+/// constant; this function re-checks what it receives (`NonFiniteInput` for a
+/// non-finite mean anomaly, `UnsupportedFace`, `UnsupportedDomain` for `m`
+/// outside `[-pi, pi]`) and then runs the same monad, arms, certificate and
+/// refusal semantics as [`solve_kepler`]. For every `(face, m, e)` the result
+/// is bit-identical to `solve_kepler(face, m, e)` (tested on the sampled
+/// population).
+///
+/// # Errors
+///
+/// Returns `KeplerError::NonFiniteInput`, `KeplerError::UnsupportedFace` or
+/// `KeplerError::UnsupportedDomain` for the checks above and, during
+/// execution, `KeplerError::IterationExhaustion` or
+/// `KeplerError::CertificateFailure` exactly where [`solve_kepler`] does.
+pub fn solve_with_plan(
+    face: Sigma,
+    mean_anomaly: f64,
+    plan: &KeplerPlan,
+) -> Result<KeplerSolution, KeplerError> {
+    if !mean_anomaly.is_finite() {
+        return Err(KeplerError::NonFiniteInput);
     }
-    if mean_anomaly.abs() > PI || eccentricity > SERVICE_ECCENTRICITY {
+    if face != Sigma::Elliptic {
+        return Err(KeplerError::UnsupportedFace);
+    }
+    if mean_anomaly.abs() > PI {
         return Err(KeplerError::UnsupportedDomain);
     }
-    if eccentricity == 0.0 {
+    if plan.is_circular() {
         // Circular monad: F(x) = x - m has the denoted input as its exact
         // root, so the bit pattern (including -0.0) is returned untouched and
         // the certificate is the exact zero.
@@ -238,17 +543,13 @@ pub fn solve_kepler(
         });
     }
 
-    let cap = round_cap(eccentricity);
-    let corrections = scheduled_corrections(eccentricity, &SCHEDULE_SERIES);
     let (candidate, rounds) = refine(
-        series_starter(mean_anomaly, eccentricity),
+        plan.series_starter(mean_anomaly),
         mean_anomaly,
-        eccentricity,
-        corrections,
+        plan.eccentricity,
+        plan.series_corrections,
     )?;
-    if let Some((defect_bound, error_bound)) =
-        certified_service(mean_anomaly, eccentricity, candidate)
-    {
+    if let Some((defect_bound, error_bound)) = plan.certified_service(mean_anomaly, candidate) {
         return Ok(KeplerSolution {
             face,
             anomaly: candidate,
@@ -260,18 +561,17 @@ pub fn solve_kepler(
 
     // Safeguarded fallback: a second starter on the same map, spending the
     // remaining global construction budget only.
-    let remaining = cap - rounds;
+    let remaining = plan.round_cap - rounds;
     if remaining >= 1 {
-        let fallback_corrections =
-            scheduled_corrections(eccentricity, &SCHEDULE_CUBIC).min(remaining - 1);
+        let fallback_corrections = plan.cubic_corrections.min(remaining - 1);
         if let Ok((fallback, used)) = refine(
-            cubic_starter(mean_anomaly, eccentricity),
+            cubic_starter(mean_anomaly, plan.eccentricity),
             mean_anomaly,
-            eccentricity,
+            plan.eccentricity,
             fallback_corrections,
         ) {
             if let Some((defect_bound, error_bound)) =
-                certified_service(mean_anomaly, eccentricity, fallback)
+                plan.certified_service(mean_anomaly, fallback)
             {
                 return Ok(KeplerSolution {
                     face,
@@ -306,37 +606,20 @@ fn scheduled_corrections(eccentricity: f64, schedule: &[(f64, u8)]) -> u8 {
     schedule[schedule.len() - 1].1
 }
 
-/// Fitzpatrick (1970) fixed-point series starter through `e^4`
-/// (`M + e S + e^2 C S + e^3 S (3 C^2 - 1) / 2 + e^4 C S (8 C^2 - 5) / 3`,
-/// `S = sin M`, `C = cos M`): one complete first candidate.
-fn series_starter(mean_anomaly: f64, eccentricity: f64) -> f64 {
-    let s = mean_anomaly.sin();
-    let c = mean_anomaly.cos();
-    let e2 = eccentricity * eccentricity;
-    let e3 = e2 * eccentricity;
-    let e4 = e3 * eccentricity;
-    let c2 = c * c;
-    mean_anomaly
-        + eccentricity * s
-        + e2 * c * s
-        + e3 * s * (3.0 * c2 - 1.0) * 0.5
-        + e4 * c * s * (8.0 * c2 - 5.0) / 3.0
-}
-
 /// Safeguarded fallback starter: the truncated Kepler cubic in `x = E - M`
 /// (`(e C / 6) x^3 + (e S / 2) x^2 + (1 - e C) x - e S = 0`) with one
 /// polynomial Newton step (no trigonometry in the step).
 fn cubic_starter(mean_anomaly: f64, eccentricity: f64) -> f64 {
-    let s = mean_anomaly.sin();
-    let c = mean_anomaly.cos();
-    let a = eccentricity * c / 6.0;
-    let b = eccentricity * s * 0.5;
-    let cc = 1.0 - eccentricity * c;
-    let d = eccentricity * s;
-    let x1 = d / cc;
-    let p = ((a * x1 + b) * x1 + cc) * x1 - d;
-    let pp = (3.0 * a * x1 + 2.0 * b) * x1 + cc;
-    mean_anomaly + x1 - p / pp
+    let sin_m = mean_anomaly.sin();
+    let cos_m = mean_anomaly.cos();
+    let cubic = eccentricity * cos_m / 6.0;
+    let quadratic = eccentricity * sin_m * 0.5;
+    let linear = 1.0 - eccentricity * cos_m;
+    let constant = eccentricity * sin_m;
+    let x1 = constant / linear;
+    let poly = ((cubic * x1 + quadratic) * x1 + linear) * x1 - constant;
+    let dpoly = (3.0 * cubic * x1 + 2.0 * quadratic) * x1 + linear;
+    mean_anomaly + x1 - poly / dpoly
 }
 
 /// One Halley correction on `F(x) = x - m - e sin(x)`:
@@ -413,121 +696,6 @@ fn half_ulp_allowance(v: f64) -> f64 {
     outward_sum(outward_product(HALF_ULP_FACTOR, v.abs()), SUBNORMAL_FLOOR)
 }
 
-/// Outward absolute-error enclosure: `error_bound >= defect_bound / (1 - e)`
-/// over the exact reals, for `d = defect_bound >= 0` and admitted `0 < e < 1`.
-///
-/// Bound argument (all comparisons over `R`): `1.0 - e` is NOT an exact
-/// subtraction for `e < 0.5`, so the denominator is split exactly with
-/// `two_sum(1.0, -e) = (denom, denom_tail)`, giving `denom + denom_tail
-/// = 1 - e` with `|denom_tail| <= 2^-53 denom` (half an ulp of the rounded
-/// lead; `denom >= 2^-6 > 0` on the admitted domain). Put `Q = d / denom`,
-/// so `d / (1 - e) = Q / (1 + x)` with `x = denom_tail / denom`,
-/// `|x| <= 2^-53`:
-///
-/// 1. `denom_tail <= 0` needs no denominator inflation (`d / (1 - e) <= Q`);
-///    `denom_tail > 0` needs at most `1 / (1 - 2^-53) <= 1 + 2^-52`.
-/// 2. Normal regime `Q >= 2^-1021`: `quotient`, `scaled = quotient * (1 +
-///    4eps)` and `w = scaled + guard` each round at relative `<= 2^-53`, so
-///    `w >= Q (1 - 2^-53)^3 (1 + 2^-50) >= Q (1 + 5 * 2^-53)` while
-///    `d / (1 - e) <= Q (1 + 2^-52)`; the exact factor `1 + 4eps = 1 + 2^-50`
-///    covers the `2^-52 + 3 * 2^-53 = 5 * 2^-53` deficit with 1.6x headroom.
-/// 3. Subnormal regime `Q < 2^-1021` (every intermediate `< 2^-1020`): each
-///    step rounds at absolute `<= 2^-53 * 2^-1020 + 2^-1075 < 1.5 * 2^-1074`,
-///    the denominator case adds `< 2 * 2^-1074`, so the total deficit is
-///    `< 6.5 * 2^-1074`; `QUOTIENT_SUBNORMAL_GUARD = 8 * 2^-1074` plus the two
-///    `next_up` steps (`>= 2^-1074` each here) dominate it.
-/// 4. The two `next_up` steps are pure headroom in the normal regime, the
-///    guard is negligible there.
-///
-/// The `#[cfg(test)]` regression re-checks the conclusion `r (1 - e) >= d` by
-/// exact cross-multiplication (no rounded division) on adversarial pairs,
-/// including the known counterexample against the single-`next_up` quotient.
-fn outward_error_bound(defect_bound: f64, eccentricity: f64) -> f64 {
-    // Exact split: `denom + denom_tail = 1 - e` (Knuth two-sum).
-    let (denom, denom_tail) = two_sum(1.0, -eccentricity);
-    let _one_minus_e_exact = denom + denom_tail;
-    let quotient = defect_bound / denom;
-    let scaled = quotient * (1.0 + 4.0 * f64::EPSILON);
-    (scaled + QUOTIENT_SUBNORMAL_GUARD).next_up().next_up()
-}
-
-/// Conservative service ceiling `C <= 4 eps / (1 - e)` over the exact reals,
-/// so `error_bound <= C` implies `r <= 4 kappa eps` exactly.
-///
-/// Bound argument (same exact split `1 - e = denom + denom_tail`,
-/// `|denom_tail| <= 2^-53 denom`): `4eps / (1 - e) = (4eps / denom) / (1 + x)`
-/// with `|x| <= 2^-53`, hence `4eps / (1 - e) >= (4eps / denom) * (1 - 2^-53)`.
-/// The computed `fl(4eps / denom)` is at most `(4eps / denom) * (1 + 2^-53)`,
-/// so `4eps / (1 - e) >= q_c (1 - 2^-53)^2 >= q_c (1 - 2^-52)`. Down-scaling
-/// by the exact `1 - 4eps` and taking `next_down` gives at worst
-/// `q_c (1 - 2^-50)(1 + 2^-53) <= q_c (1 - 7 * 2^-53)`, strictly below that
-/// bound. All values here are normal (`2^-50 <= 4eps / (1 - e) <= 2^-45` for
-/// `e <= SERVICE_ECCENTRICITY`), so no subnormal regime arises.
-fn service_error_ceiling(eccentricity: f64) -> f64 {
-    let (denom, denom_tail) = two_sum(1.0, -eccentricity);
-    let _one_minus_e_exact = denom + denom_tail;
-    let scaled = (4.0 * f64::EPSILON) / denom;
-    (scaled * (1.0 - 4.0 * f64::EPSILON)).next_down()
-}
-
-/// Construct the outward certificate `(defect_bound, error_bound)` for the
-/// returned candidate, or refuse `CertificateFailure`.
-///
-/// The construction is the module-level formula: exact-error-free residual
-/// decomposition, `residual_allowance` over the three combination roundings,
-/// `sine_allowance = e * ulp_allowance(s)` under `ASSUMPTION-SIN`, one outward
-/// escalation into `defect_bound`, and [`outward_error_bound`] for the
-/// absolute-error enclosure.
-fn certificate(
-    mean_anomaly: f64,
-    eccentricity: f64,
-    candidate: f64,
-) -> Result<(f64, f64), KeplerError> {
-    if candidate.abs() > SIN_ASSUMPTION_DOMAIN {
-        return Err(KeplerError::CertificateFailure);
-    }
-    let s = candidate.sin();
-    if !s.is_finite() {
-        return Err(KeplerError::CertificateFailure);
-    }
-    let (sm, tail_m) = two_sum(candidate, -mean_anomaly);
-    let (prod, tail_sin) = two_prod(eccentricity, s);
-    let (lead, tail_lead) = two_sum(sm, -prod);
-    // Exact: candidate - eccentricity * s - mean_anomaly
-    //      = lead + (tail_m - tail_sin + tail_lead).
-    let combine = tail_m - tail_sin;
-    let tail = combine + tail_lead;
-    let residual_word = lead + tail;
-    let residual_allowance = outward_sum(
-        outward_sum(half_ulp_allowance(combine), half_ulp_allowance(tail)),
-        half_ulp_allowance(residual_word),
-    );
-    let sine_allowance = outward_product(eccentricity, ulp_allowance(s));
-    let margin = outward_sum(sine_allowance, residual_allowance);
-    let defect_bound = (residual_word.abs() + margin).next_up();
-    let error_bound = outward_error_bound(defect_bound, eccentricity);
-    if !defect_bound.is_finite() || !error_bound.is_finite() {
-        return Err(KeplerError::CertificateFailure);
-    }
-    Ok((defect_bound, error_bound))
-}
-
-/// Certificate plus the service ceilings `d <= 4 eps` and `r <= 4 kappa eps`.
-///
-/// `kappa = 1 / (1 - e)` comes from the exact denoted eccentricity. The error
-/// ceiling is [`service_error_ceiling`], conservative over the exact reals, so
-/// acceptance implies both exact-real inequalities. A ceiling miss yields
-/// `None` (escalate or refuse), never a silently oversized success.
-fn certified_service(mean_anomaly: f64, eccentricity: f64, candidate: f64) -> Option<(f64, f64)> {
-    let (defect_bound, error_bound) = certificate(mean_anomaly, eccentricity, candidate).ok()?;
-    let error_ceiling = service_error_ceiling(eccentricity);
-    if defect_bound <= SERVICE_DEFECT_LIMIT && error_bound <= error_ceiling {
-        Some((defect_bound, error_bound))
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Exact-real regression for the error-bound and ceiling construction
@@ -537,6 +705,28 @@ mod tests {
     // sign test for the resulting sums of binary64 values.
 
     use super::*;
+
+    // Raw-input shims over the folded `KeplerPlan` (W8-T1): the exact-real
+    // sweeps below pass `(d, e)` pairs, while the kernel shares one plan per
+    // solve. Each shim folds one plan per call and delegates to the same
+    // methods the solve path runs, so the construction under test is the
+    // shipped one; the plan folding itself is exercised end to end by
+    // `tests/kepler.rs` (`solve_with_plan` over the sampled population).
+    fn outward_error_bound(defect_bound: f64, eccentricity: f64) -> f64 {
+        KeplerPlan::fold(eccentricity).outward_error_bound(defect_bound)
+    }
+
+    fn service_error_ceiling(eccentricity: f64) -> f64 {
+        KeplerPlan::fold(eccentricity).service_error_ceiling()
+    }
+
+    fn certificate(
+        mean_anomaly: f64,
+        eccentricity: f64,
+        candidate: f64,
+    ) -> Result<(f64, f64), KeplerError> {
+        KeplerPlan::fold(eccentricity).certificate(mean_anomaly, candidate)
+    }
 
     /// Exact sign test: `true` iff `sum(vals) >= 0` over the reals.
     ///
@@ -607,7 +797,7 @@ mod tests {
     fn error_bound_covers_the_exact_real_quotient() {
         let counterexample_d = f64::from_bits(0x3BE5_1D14_EAEF_C25D);
         let eccentricities = [
-            0.34019998659089296,
+            0.340_199_986_590_892_96,
             0.1,
             0.2,
             0.45,
@@ -630,7 +820,7 @@ mod tests {
             f64::from_bits(14),
             f64::MIN_POSITIVE,
             f64::MIN_POSITIVE * 2.0,
-            7.888609052210118e-31,
+            7.888_609_052_210_118e-31,
             3.6e-20,
             SERVICE_DEFECT_LIMIT,
             SERVICE_DEFECT_LIMIT * 0.75,
@@ -652,9 +842,9 @@ mod tests {
         // exact conclusion (subnormal defect at the circular fixed point).
         for (m, e, x) in [
             (0.0, 0.45, 0.0),
-            (0.0, 0.34019998659089296, 0.0),
+            (0.0, 0.340_199_986_590_892_96, 0.0),
             (1e-300, 0.9, 1e-299),
-            (1.0, 0.34019998659089296, 1.2),
+            (1.0, 0.340_199_986_590_892_96, 1.2),
             (-2.5, 0.15, -2.4),
         ] {
             let (d, r) = certificate(m, e, x).expect("bounded candidate certifies");
@@ -679,7 +869,7 @@ mod tests {
                 "ceiling exceeds 4 kappa eps at e={e:?}"
             );
         }
-        let base = 0.34019998659089296_f64.to_bits();
+        let base = 0.340_199_986_590_892_96_f64.to_bits();
         for bits in base..base + 0x1_0000 {
             // mantissa sweep around the lead-review counterexample's e
             let e = f64::from_bits(bits);
@@ -692,7 +882,7 @@ mod tests {
         for e in [
             0.1,
             0.2,
-            0.34019998659089296,
+            0.340_199_986_590_892_96,
             0.45,
             0.9,
             SERVICE_ECCENTRICITY,
