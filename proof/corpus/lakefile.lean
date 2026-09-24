@@ -12,7 +12,7 @@ require apeironWordProof from ".."
 
 -- The canonical mathematical corpus at the exact revision refined by this bridge.
 require «apeiron» from git "git@github.com:sanguinehost/sanguine.git" @
-  "3d66ea3aa2fe1de5997b6b757247454a2f771358" / "proof"
+  "880aa57e47e782ed7a9d9ee1974cfc87360b446b" / "proof"
 
 -- Pin the same Mathlib revision as the corpus, last so this package's choice wins any transitive
 -- resolution. The corpus is no longer on a 4.30.0-rc2-era Mathlib.
@@ -24,7 +24,7 @@ lean_lib ApeironWordBridge where
   -- revision-bound fixed-shard layout. They remain on disk as historical evidence but are not
   -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
   roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
-    `Growable.Geometry, `Growable.Identity, `Growable.Scan, `Growable.Search,
+    `Growable.Geometry, `Growable.Identity, `Growable.Scan, `Kepler.Certificate, `Growable.Search,
     `Growable.Relocation, `Growable.Refinement, `Growable.Resources, `Growable.Representation,
     `Growable.Rebuild,
     `AxiomAudit, `Joint.WordBridge,
