@@ -13,6 +13,7 @@
 
 use apeiron::cell::Sigma;
 use apeiron::kepler::{solve_kepler, KeplerError};
+use apeiron::kepler::{solve_with_plan, KeplerPlan};
 
 /// `eps = 2^-52`.
 const EPS: f64 = f64::EPSILON;
@@ -98,268 +99,307 @@ fn error_bound_covers_exact(defect_bound: f64, eccentricity: f64, error_bound: f
 /// is `E*` to 25 significant digits (provenance: `golden.tsv` `E_hi`). At
 /// `e == 0` the root is exactly the denoted `m`: `hi = m`, `lo = +0.0`.
 const GOLDEN: &[(f64, f64, &str, u64, u64)] = &[
-    (0.0, 0.0, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.0,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.0,
         "1.000000000000000020816682E-3",
-        0x3F50624DD2F1A9FC,
-        0x0000000000000000,
+        0x3F50_624D_D2F1_A9FC,
+        0x0000_0000_0000_0000,
     ),
     (
         -0.001,
         0.0,
         "-1.000000000000000020816682E-3",
-        0xBF50624DD2F1A9FC,
-        0x0000000000000000,
+        0xBF50_624D_D2F1_A9FC,
+        0x0000_0000_0000_0000,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.0,
         "1.570796326794896557998982E+0",
-        0x3FF921FB54442D18,
-        0x0000000000000000,
+        0x3FF9_21FB_5444_2D18,
+        0x0000_0000_0000_0000,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.0,
         "-1.570796326794896557998982E+0",
-        0xBFF921FB54442D18,
-        0x0000000000000000,
+        0xBFF9_21FB_5444_2D18,
+        0x0000_0000_0000_0000,
     ),
     (
-        3.141592653589793,
+        PI,
         0.0,
         "3.141592653589793115997963E+0",
-        0x400921FB54442D18,
-        0x0000000000000000,
+        0x4009_21FB_5444_2D18,
+        0x0000_0000_0000_0000,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.0,
         "-3.141592653589793115997963E+0",
-        0xC00921FB54442D18,
-        0x0000000000000000,
+        0xC009_21FB_5444_2D18,
+        0x0000_0000_0000_0000,
     ),
-    (0.0, 0.0167, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.0167,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.0167,
         "1.016983623586323038216657E-3",
-        0x3F50A989D9D9050B,
-        0x3BFE1F532C1EAC1B,
+        0x3F50_A989_D9D9_050B,
+        0x3BFE_1F53_2C1E_AC1B,
     ),
     (
         -0.001,
         0.0167,
         "-1.016983623586323038216657E-3",
-        0xBF50A989D9D9050B,
-        0xBBFE1F532C1EAC1B,
+        0xBF50_A989_D9D9_050B,
+        0xBBFE_1F53_2C1E_AC1B,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.0167,
         "1.587493998766706070412846E+0",
-        0x3FF966601B74C9CC,
-        0x3C786562540BA935,
+        0x3FF9_6660_1B74_C9CC,
+        0x3C78_6562_540B_A935,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.0167,
         "-1.587493998766706070412846E+0",
-        0xBFF966601B74C9CC,
-        0xBC786562540BA935,
+        0xBFF9_6660_1B74_C9CC,
+        0xBC78_6562_540B_A935,
     ),
     (
-        3.141592653589793,
+        PI,
         0.0167,
         "3.141592653589793118009530E+0",
-        0x400921FB54442D18,
-        0x3C428DADA2320E9B,
+        0x4009_21FB_5444_2D18,
+        0x3C42_8DAD_A232_0E9B,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.0167,
         "-3.141592653589793118009530E+0",
-        0xC00921FB54442D18,
-        0xBC428DADA2320E9B,
+        0xC009_21FB_5444_2D18,
+        0xBC42_8DAD_A232_0E9B,
     ),
-    (0.0, 0.15, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.15,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.15,
         "1.176470540343156412400075E-3",
-        0x3F5346799FB5F739,
-        0xBBF7D88E50689917,
+        0x3F53_4679_9FB5_F739,
+        0xBBF7_D88E_5068_9917,
     ),
     (
         -0.001,
         0.15,
         "-1.176470540343156412400075E-3",
-        0xBF5346799FB5F739,
-        0x3BF7D88E50689917,
+        0xBF53_4679_9FB5_F739,
+        0x3BF7_D88E_5068_9917,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.15,
         "1.719148719463454884604401E+0",
-        0x3FFB81A21670E4A1,
-        0xBC8BDA3FF8469EF3,
+        0x3FFB_81A2_1670_E4A1,
+        0xBC8B_DA3F_F846_9EF3,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.15,
         "-1.719148719463454884604401E+0",
-        0xBFFB81A21670E4A1,
-        0x3C8BDA3FF8469EF3,
+        0xBFFB_81A2_1670_E4A1,
+        0x3C8B_DA3F_F846_9EF3,
     ),
     (
-        3.141592653589793,
+        PI,
         0.15,
         "3.141592653589793131971617E+0",
-        0x400921FB54442D18,
-        0x3C726A972A2B816B,
+        0x4009_21FB_5444_2D18,
+        0x3C72_6A97_2A2B_816B,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.15,
         "-3.141592653589793131971617E+0",
-        0xC00921FB54442D18,
-        0xBC726A972A2B816B,
+        0xC009_21FB_5444_2D18,
+        0xBC72_6A97_2A2B_816B,
     ),
-    (0.0, 0.45, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.45,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.45,
         "1.818180998566915711064031E-3",
-        0x3F5DCA00FB54D850,
-        0xBBEB1D4A12BA5F77,
+        0x3F5D_CA00_FB54_D850,
+        0xBBEB_1D4A_12BA_5F77,
     ),
     (
         -0.001,
         0.45,
         "-1.818180998566915711064031E-3",
-        0xBF5DCA00FB54D850,
-        0x3BEB1D4A12BA5F77,
+        0xBF5D_CA00_FB54_D850,
+        0x3BEB_1D4A_12BA_5F77,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.45,
         "1.983088463151614627662594E+0",
-        0x3FFFBABAF7E4FA35,
-        0x3C8CC7526A0FA219,
+        0x3FFF_BABA_F7E4_FA35,
+        0x3C8C_C752_6A0F_A219,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.45,
         "-1.983088463151614627662594E+0",
-        0xBFFFBABAF7E4FA35,
-        0xBC8CC7526A0FA219,
+        0xBFFF_BABA_F7E4_FA35,
+        0xBC8C_C752_6A0F_A219,
     ),
     (
-        3.141592653589793,
+        PI,
         0.45,
         "3.141592653589793154004243E+0",
-        0x400921FB54442D18,
-        0x3C85E8BCA9571123,
+        0x4009_21FB_5444_2D18,
+        0x3C85_E8BC_A957_1123,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.45,
         "-3.141592653589793154004243E+0",
-        0xC00921FB54442D18,
-        0xBC85E8BCA9571123,
+        0xC009_21FB_5444_2D18,
+        0xBC85_E8BC_A957_1123,
     ),
-    (0.0, 0.9, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.9,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.9,
         "9.998500682086272127244950E-3",
-        0x3F847A180B823DB1,
-        0x3C23E8B0979413E6,
+        0x3F84_7A18_0B82_3DB1,
+        0x3C23_E8B0_9794_13E6,
     ),
     (
         -0.001,
         0.9,
         "-9.998500682086272127244950E-3",
-        0xBF847A180B823DB1,
-        0xBC23E8B0979413E6,
+        0xBF84_7A18_0B82_3DB1,
+        0xBC23_E8B0_9794_13E6,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.9,
         "2.263415106356942807861636E+0",
-        0x40021B7961189A7C,
-        0xBCA98C9169240D73,
+        0x4002_1B79_6118_9A7C,
+        0xBCA9_8C91_6924_0D73,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.9,
         "-2.263415106356942807861636E+0",
-        0xC0021B7961189A7C,
-        0x3CA98C9169240D73,
+        0xC002_1B79_6118_9A7C,
+        0x3CA9_8C91_6924_0D73,
     ),
     (
-        3.141592653589793,
+        PI,
         0.9,
         "3.141592653589793174007549E+0",
-        0x400921FB54442D18,
-        0x3C90B85A15719A8D,
+        0x4009_21FB_5444_2D18,
+        0x3C90_B85A_1571_9A8D,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.9,
         "-3.141592653589793174007549E+0",
-        0xC00921FB54442D18,
-        0xBC90B85A15719A8D,
+        0xC009_21FB_5444_2D18,
+        0xBC90_B85A_1571_9A8D,
     ),
-    (0.0, 0.95, "0E0", 0x0000000000000000, 0x0000000000000000),
+    (
+        0.0,
+        0.95,
+        "0E0",
+        0x0000_0000_0000_0000,
+        0x0000_0000_0000_0000,
+    ),
     (
         0.001,
         0.95,
         "1.997476294996826614348796E-2",
-        0x3F947443A6763CC5,
-        0xBC35A62F595EED2C,
+        0x3F94_7443_A676_3CC5,
+        0xBC35_A62F_595E_ED2C,
     ),
     (
         -0.001,
         0.95,
         "-1.997476294996826614348796E-2",
-        0xBF947443A6763CC5,
-        0x3C35A62F595EED2C,
+        0xBF94_7443_A676_3CC5,
+        0x3C35_A62F_595E_ED2C,
     ),
     (
-        1.5707963267948966,
+        std::f64::consts::FRAC_PI_2,
         0.95,
         "2.287236912493829973222568E+0",
-        0x40024C42DDCAEB8C,
-        0x3C9BCC3128C0B95A,
+        0x4002_4C42_DDCA_EB8C,
+        0x3C9B_CC31_28C0_B95A,
     ),
     (
-        -1.5707963267948966,
+        -std::f64::consts::FRAC_PI_2,
         0.95,
         "-2.287236912493829973222568E+0",
-        0xC0024C42DDCAEB8C,
-        0xBC9BCC3128C0B95A,
+        0xC002_4C42_DDCA_EB8C,
+        0xBC9B_CC31_28C0_B95A,
     ),
     (
-        3.141592653589793,
+        PI,
         0.95,
         "3.141592653589793175660243E+0",
-        0x400921FB54442D18,
-        0x3C91324C9ACBA1DF,
+        0x4009_21FB_5444_2D18,
+        0x3C91_324C_9ACB_A1DF,
     ),
     (
-        -3.141592653589793,
+        -PI,
         0.95,
         "-3.141592653589793175660243E+0",
-        0xC00921FB54442D18,
-        0xBC91324C9ACBA1DF,
+        0xC009_21FB_5444_2D18,
+        0xBC91_324C_9ACB_A1DF,
     ),
 ];
 
 /// Accepted/refused boundary matrix at the exact-real service boundary, all
 /// six typed refusals and their deterministic precedence.
+// One boundary matrix over the frozen coverage; splitting it would fragment
+// the matrix. The `_execution_refusals` binding is the typed no-value witness.
+#[allow(clippy::too_many_lines, clippy::no_effect_underscore_binding)]
 #[test]
 fn accepted_refused_boundary_matrix() {
     // Refused: NonFiniteInput on either numerical input, checked first.
@@ -500,6 +540,9 @@ fn accepted_refused_boundary_matrix() {
 
 /// The circular monad is bit-exact: `e == 0` returns the input anomaly bits
 /// (including `-0.0`), zero rounds and an exact zero certificate.
+// Exact `f64` equality is the witness (bit-exact zero certificate and its
+// sign); an epsilon comparison would weaken it.
+#[allow(clippy::float_cmp)]
 #[test]
 fn circular_monad_is_bit_exact() {
     let cases = [
@@ -540,6 +583,9 @@ fn circular_monad_is_bit_exact() {
 /// Independent oracle: every golden row must land within a few kappa-scaled
 /// ulp of the reference root, and the reported error bound must cover the
 /// golden distance (the certificate reads sound from outside the kernel).
+// Exact `f64` equality is the decimal-to-hi-word round-trip witness; an
+// epsilon comparison would weaken it.
+#[allow(clippy::float_cmp)]
 #[test]
 fn golden_oracle_rows_certify() {
     let mut max_scaled = 0.0f64;
@@ -585,7 +631,7 @@ fn golden_oracle_rows_certify() {
 fn grid_mean_anomalies() -> Vec<f64> {
     let mut out = Vec::with_capacity(1039);
     for i in 0..1024 {
-        out.push(-PI + 2.0 * PI * ((i as f64) + 0.5) / 1024.0);
+        out.push(-PI + 2.0 * PI * (f64::from(i) + 0.5) / 1024.0);
     }
     out.extend_from_slice(&[
         0.0,
@@ -615,7 +661,7 @@ const GRID_E: [f64; 12] = [
     0.15,
     0.2,
     0.3,
-    0.34019998659089296,
+    0.340_199_986_590_892_96,
     0.45,
     0.5,
     0.65,
@@ -744,7 +790,7 @@ fn naive_placeholder_fixed_point_is_not_the_operating_kernel() {
     let mut max_kernel_high = 0u8;
     let mut max_kernel_low = 0u8;
     for i in 0..64 {
-        let m = -PI + 2.0 * PI * ((i as f64) + 0.5) / 64.0;
+        let m = -PI + 2.0 * PI * (f64::from(i) + 0.5) / 64.0;
         max_placeholder = max_placeholder.max(placeholder_fixed_point(m, 0.9));
         let high = solve_kepler(Sigma::Elliptic, m, 0.9).expect("admitted grid row");
         max_kernel_high = max_kernel_high.max(high.rounds);
@@ -768,6 +814,8 @@ fn naive_placeholder_fixed_point_is_not_the_operating_kernel() {
 /// Naive accumulation falsifier: naive `M += dt` phase accumulation drifts
 /// against the compensated (Kahan) form; a horizon-stable upstream reducer
 /// must not use it (`SLOT-SPIKE-PHASE` context).
+// Exact `f64` equality is the compensated-accumulation witness.
+#[allow(clippy::float_cmp)]
 #[test]
 fn naive_phase_accumulation_drifts_against_compensated() {
     let mut naive = 0.0f64;
@@ -787,4 +835,126 @@ fn naive_phase_accumulation_drifts_against_compensated() {
         (naive - 1000.0).abs() > (kahan - 1000.0).abs(),
         "naive accumulation {naive:?} did not drift above compensated {kahan:?}"
     );
+}
+
+/// Per-orbit plan: one `KeplerPlan` per eccentricity,
+/// reused across the whole sampled band, must reproduce `solve_kepler` bit for
+/// bit (anomaly, defect and error bound patterns, rounds and refusal
+/// variants), because the folding of the denominator split and the
+/// e-dependent constants must change no reported value.
+#[test]
+fn solve_with_plan_is_bit_identical_to_solve_kepler() {
+    let m_values = grid_mean_anomalies();
+    for &e in &GRID_E {
+        let plan = KeplerPlan::new(e).expect("band eccentricity admitted");
+        assert_eq!(plan.eccentricity().to_bits(), e.to_bits(), "plan echoes e");
+        for &m in &m_values {
+            let planned = solve_with_plan(Sigma::Elliptic, m, &plan);
+            let direct = solve_kepler(Sigma::Elliptic, m, e);
+            match (&planned, &direct) {
+                (Ok(a), Ok(b)) => {
+                    assert_eq!(a.face, b.face, "face at m={m} e={e}");
+                    assert_eq!(
+                        a.anomaly.to_bits(),
+                        b.anomaly.to_bits(),
+                        "anomaly bits at m={m} e={e}"
+                    );
+                    assert_eq!(
+                        a.defect_bound.to_bits(),
+                        b.defect_bound.to_bits(),
+                        "defect bits at m={m} e={e}"
+                    );
+                    assert_eq!(
+                        a.error_bound.to_bits(),
+                        b.error_bound.to_bits(),
+                        "error bits at m={m} e={e}"
+                    );
+                    assert_eq!(a.rounds, b.rounds, "rounds at m={m} e={e}");
+                }
+                (Err(a), Err(b)) => {
+                    assert_eq!(a, b, "refusal variant at m={m} e={e}");
+                }
+                _ => panic!("planned {planned:?} vs direct {direct:?} at m={m} e={e}"),
+            }
+        }
+    }
+}
+
+/// T2 validation: `KeplerPlan::new` refuses exactly the eccentricity inputs
+/// `solve_kepler` refuses, with the same typed variants and precedence, and
+/// `solve_with_plan` re-checks the face and mean anomaly it receives.
+#[test]
+fn kepler_plan_refuses_exactly_the_unadmitted_inputs() {
+    for e in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(KeplerPlan::new(e), Err(KeplerError::NonFiniteInput));
+        assert_eq!(
+            solve_kepler(Sigma::Elliptic, 0.0, e),
+            Err(KeplerError::NonFiniteInput)
+        );
+    }
+    // The m below is out of range too: InvalidEccentricity keeps its
+    // precedence ahead of the m domain refusal.
+    for e in [-f64::MIN_POSITIVE, -0.5, -1.0, 1.0, 4.0] {
+        assert_eq!(KeplerPlan::new(e), Err(KeplerError::InvalidEccentricity));
+        assert_eq!(
+            solve_kepler(Sigma::Elliptic, 1e9, e),
+            Err(KeplerError::InvalidEccentricity)
+        );
+    }
+    for e in [SERVICE_ECC.next_up(), 0.99] {
+        assert_eq!(KeplerPlan::new(e), Err(KeplerError::UnsupportedDomain));
+    }
+    for e in [0.0, -0.0, 0.0167, SERVICE_ECC] {
+        assert!(KeplerPlan::new(e).is_ok(), "admitted e={e}");
+    }
+    let plan = KeplerPlan::new(0.45).expect("admitted eccentricity");
+    assert_eq!(
+        solve_with_plan(Sigma::Elliptic, f64::NAN, &plan),
+        Err(KeplerError::NonFiniteInput)
+    );
+    assert_eq!(
+        solve_with_plan(Sigma::Parabolic, 0.0, &plan),
+        Err(KeplerError::UnsupportedFace)
+    );
+    assert_eq!(
+        solve_with_plan(Sigma::Hyperbolic, 0.0, &plan),
+        Err(KeplerError::UnsupportedFace)
+    );
+    assert_eq!(
+        solve_with_plan(Sigma::Elliptic, PI.next_up(), &plan),
+        Err(KeplerError::UnsupportedDomain)
+    );
+    assert_eq!(
+        solve_with_plan(Sigma::Elliptic, -PI.next_up(), &plan),
+        Err(KeplerError::UnsupportedDomain)
+    );
+    assert!(solve_with_plan(Sigma::Elliptic, PI, &plan).is_ok());
+}
+
+/// The folded split must satisfy the documented domination-argument
+/// hypothesis exactly: `1 - e = denom + denom_tail` with `denom > 0` and
+/// `|denom_tail| <= 2^-53 denom`. Both sides of the slack comparison are
+/// exact `f64` values (`denom * 2^-53` is a power-of-two scaling of a normal
+/// number, `tail.abs()` is exact), so this is the exact-real comparison.
+#[test]
+fn kepler_plan_split_slack_matches_the_domination_argument() {
+    fn check_split_slack(e: f64) {
+        let plan = KeplerPlan::new(e).expect("admitted eccentricity");
+        let (denom, tail) = plan.denominator_split();
+        assert!(denom > 0.0, "positive split lead at e={e}");
+        assert!(
+            tail.abs() <= denom * (0.5 * EPS),
+            "split slack |denom_tail| <= 2^-53 denom violated at e={e}: denom {denom:?}, tail {tail:?}"
+        );
+    }
+    let base = 0.340_199_986_590_892_96_f64.to_bits();
+    for bits in base..base + 0x1_0000 {
+        check_split_slack(f64::from_bits(bits));
+    }
+    for &e in &GRID_E {
+        check_split_slack(e);
+    }
+    for e in [0.0, -0.0, 0.001, 0.45, SERVICE_ECC] {
+        check_split_slack(e);
+    }
 }
