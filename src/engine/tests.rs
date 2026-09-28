@@ -1753,6 +1753,94 @@ fn qwen35_two_columns_equal_two_single_steps() {
     }
 }
 
+/// One block pass's per-column output-normed states with the exact-scan attention flag forced `on`
+/// or `off`; the warm-up runs under the same override, so the two blocks start from equal state.
+fn exact_scan_block_states(engine: &Engine, tokens: &[u32], on: bool) -> Vec<Vec<i64>> {
+    super::attn::set_exact_scan_override(Some(on));
+    let mut st = engine.state(64).expect("state");
+    for &t in &[1u32, 2, 3] {
+        engine
+            .next_token_state(&mut st, t, KernelMode::Q8Act)
+            .expect("warm");
+    }
+    let states = engine
+        .compose_cols(
+            &mut st.kv,
+            st.affine.as_mut(),
+            tokens,
+            super::step::Sched::Resident,
+            KernelMode::Q8Act,
+            true,
+            None,
+        )
+        .expect("cols");
+    super::attn::set_exact_scan_override(None);
+    states
+}
+
+/// The greedy token `state` selects through the engine's bit-plane head, which returns exactly
+/// `argmax_fixed` of the dense logits (`qwen35_bitplane_head_equals_dense_head_in_lockstep`).
+fn bitplane_greedy(engine: &Engine, state: &[i64]) -> u32 {
+    let q = super::chart::ffn::quant_act_pooled(state).expect("quant");
+    assert!(super::chart::q8act_fast_bound_ok(
+        state.len(),
+        128,
+        &q,
+        true
+    ));
+    engine
+        .bitplane_head()
+        .expect("bit planes")
+        .argmax(&q)
+        .expect("bitplane")
+        .0
+}
+
+/// The exact-scan fused softmax read (`APEIRON_EXACT_SCAN=1`) changes no greedy token and keeps
+/// the logits within the epic's 256 LSB bound: a 40-column block with the flag forced on vs off.
+/// Greedy is checked at every column through the exact bit-plane argmax; the dense logit deviation
+/// is measured on sampled columns (the full 40 dense reads exceed the test's wall-clock budget).
+#[test]
+fn qwen35_exact_scan_attention_block_matches_baseline_within_bound() {
+    if !std::path::Path::new(QWEN35_08B_PATH).exists() {
+        eprintln!("skip exact-scan attention block: {QWEN35_08B_PATH} absent");
+        return;
+    }
+    let engine = Engine::open(QWEN35_08B_PATH).expect("load qwen35");
+    assert!(
+        engine.bitplane_head().is_some(),
+        "Q8_0 head gets bit planes"
+    );
+    let block: Vec<u32> = (0..40u32).map(|i| 100 + 37 * i).collect();
+    let off = exact_scan_block_states(&engine, &block, false);
+    let on = exact_scan_block_states(&engine, &block, true);
+    for c in 0..block.len() {
+        assert_eq!(
+            bitplane_greedy(&engine, &off[c]),
+            bitplane_greedy(&engine, &on[c]),
+            "column {c}"
+        );
+    }
+    let mut max_dev = 0u64;
+    for &c in &[0usize, 13, 26, 39] {
+        let a = engine.lm_head_fixed(&off[c]).expect("baseline logits");
+        let b = engine.lm_head_fixed(&on[c]).expect("fused logits");
+        assert_eq!(
+            argmax_fixed(&a).expect("argmax baseline"),
+            argmax_fixed(&b).expect("argmax fused"),
+            "column {c}"
+        );
+        for (x, y) in a.iter().zip(&b) {
+            max_dev = max_dev.max(x.abs_diff(*y));
+        }
+    }
+    eprintln!("exact-scan attention block: max sampled logit deviation {max_dev} LSB");
+    assert!(
+        max_dev <= 256,
+        "max logit deviation {max_dev} LSB exceeds the epic's 256 LSB bound"
+    );
+}
+
 #[test]
 fn qwen25_two_columns_equal_two_single_steps() {
     if std::path::Path::new(QWEN05B_PATH).exists() {

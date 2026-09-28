@@ -25,6 +25,22 @@ use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
 use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
 use crate::format::quant;
+use std::sync::OnceLock;
+
+/// The `APEIRON_EXACT_SCAN` flag: the per-thread test override, else the process value parsed once
+/// (`OnceLock`) and defaulting to off. [`Engine::softmax_core_block`] reads it on the calling
+/// thread before any pool dispatch, so every worker in a dispatch sees one value.
+fn exact_scan_enabled() -> bool {
+    crate::engine::attn::exact_scan_override().unwrap_or_else(|| {
+        static FLAG: OnceLock<bool> = OnceLock::new();
+        *FLAG.get_or_init(|| std::env::var("APEIRON_EXACT_SCAN").is_ok_and(|v| v == "1"))
+    })
+}
+
+/// The key-tile width of the fused exact-scan attention read. The fold's tile boundaries only
+/// re-parenthesise the exact `i128` `den`/`num` sums, so the value changes no result; 32 keys keep
+/// the `head_dim`-wide numerator hot through a tile.
+const EXACT_SCAN_TILE: usize = 32;
 
 impl Engine {
     /// `k = tokens.len()` consecutive decode steps through the trunk, in one pass over the weights
@@ -416,8 +432,11 @@ impl Engine {
     ///    that head's slice of the sigmoid output gate.
     ///
     /// Column `c` sees exactly the keys the per-column loop had appended when it attended, so the
-    /// block is causal and bit-identical (`qwen35_block_prefill_equals_single_steps`). A refusal
-    /// leaves the cache unspecified.
+    /// block is causal and bit-identical (`qwen35_two_columns_equal_two_single_steps`). With
+    /// `APEIRON_EXACT_SCAN=1` stage 3 reads each head through [`KvState::attn_head_fused`]
+    /// instead of [`KvState::attn_head`]; that read is not bit-identical to the per-position path,
+    /// and the deviation is bounded (`qwen35_exact_scan_attention_block_matches_baseline_within_bound`).
+    /// A refusal leaves the cache unspecified.
     ///
     /// # Complexity
     ///
@@ -489,16 +508,25 @@ impl Engine {
             let value = &prep[base + q_out + kv_out..base + q_out + 2 * kv_out];
             last.push(kv.append(slot, key, value).map_err(StepError::Kv)?);
         }
-        // Stage 3: per (column, head) attention and gate.
+        // Stage 3: per (column, head) attention and gate. With `APEIRON_EXACT_SCAN=1` the read is
+        // the fused `(m, den, num)` fold; the flag is resolved here, on the calling thread, so the
+        // pool workers run one path for the whole dispatch.
+        let fused = exact_scan_enabled();
         let mut att = vec![0i64; k * q_out];
         let kv_ro: &KvState = kv;
         let head = |t: usize, dst: &mut [i64]| -> Result<(), StepError> {
             let (c, h) = (t / n_head, t % n_head);
             let base = c * stride;
             let q = &prep[base + h * hd..base + (h + 1) * hd];
-            kv_ro
-                .attn_head(slot, h, q, last[c], dst)
-                .map_err(StepError::Kv)?;
+            if fused {
+                kv_ro
+                    .attn_head_fused(slot, h, q, last[c], EXACT_SCAN_TILE, dst)
+                    .map_err(StepError::Kv)?;
+            } else {
+                kv_ro
+                    .attn_head(slot, h, q, last[c], dst)
+                    .map_err(StepError::Kv)?;
+            }
             if gated {
                 let g0 = base + 2 * kv_out + q_out + h * hd;
                 apply_sigmoid_gate(dst, &prep[g0..g0 + hd])?;
