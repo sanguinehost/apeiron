@@ -46,11 +46,12 @@ pub fn act_scale(absmax: u64) -> Option<u64> {
 #[must_use]
 #[allow(
     clippy::many_single_char_names,
-    reason = "h/e/f/m/k are the standard half-word, exponent, fraction, significand and scale fields"
+    clippy::cast_lossless,
+    reason = "h/e/f/m/k are the standard half-word fields; the masked fraction is at most 1023, so the u16-to-i32 cast is exact and avoids Aeneas's unmodeled FromU16 external"
 )]
 pub fn f16_split(h: u16) -> Option<(i32, u32)> {
     let e = u32::from((h >> 10) & 0x1f);
-    let f = i32::from(h & 0x3ff);
+    let f = (h & 0x3ff) as i32;
     if e == 31 {
         return None;
     }
