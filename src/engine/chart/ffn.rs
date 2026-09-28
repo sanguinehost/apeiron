@@ -109,6 +109,84 @@ pub(crate) fn quant_act_pooled(x: &[i64]) -> Option<QuantAct> {
     Some(QuantAct { scales, codes })
 }
 
+/// Disjoint output ranges of one pooled multi-column quantization: task `c` writes only column
+/// `c`'s two reservations.
+#[derive(Clone, Copy)]
+struct ColActPtr {
+    scales: *mut i64,
+    codes: *mut i8,
+}
+// SAFETY: task `c` writes column `c`'s reserved capacity only, no task reads another column, and
+// the two allocations outlive the dispatch and are not moved while it runs.
+unsafe impl Send for ColActPtr {}
+// SAFETY: as above.
+unsafe impl Sync for ColActPtr {}
+
+/// [`quant_act`] over every column at once: one pool task per column, each running the unchanged
+/// single-column quantizer and copying its `scales`/`codes` into column `c`'s reservation of the
+/// result. A block's scale and codes depend only on that column's own 32-element block, so the
+/// batch is the per-column [`quant_act_pooled`] sequence bit for bit: same scales, same codes, and
+/// a column's refusal is the same `None`. `xs.len() <= 1` and columns of differing length take the
+/// per-column path. `k` is a prefill block width (`<= 64`), one dispatch instead of one per column.
+///
+/// # Complexity
+///
+/// `O(Σ_c xs[c].len())` time in the same two passes as [`quant_act`], split over `k` tasks in one
+/// dispatch; `O(Σ_c xs[c].len())` output in `2k` allocations.
+pub(crate) fn quant_acts_pooled(xs: &[Vec<i64>]) -> Option<Vec<QuantAct>> {
+    /// The activation quantization block, as in [`quant_act`].
+    const QK: usize = 32;
+    let k = xs.len();
+    let n = xs.first().map_or(0, Vec::len);
+    if k <= 1 || xs.iter().any(|x| x.len() != n) {
+        return xs.iter().map(|x| quant_act_pooled(x)).collect();
+    }
+    let per_scales = n.div_ceil(QK);
+    let mut scales: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(per_scales)).collect();
+    let mut codes: Vec<Vec<i8>> = (0..k).map(|_| Vec::with_capacity(n)).collect();
+    let ptrs: Vec<ColActPtr> = scales
+        .iter_mut()
+        .zip(codes.iter_mut())
+        .map(|(s, c)| ColActPtr {
+            scales: s.spare_capacity_mut().as_mut_ptr().cast::<i64>(),
+            codes: c.spare_capacity_mut().as_mut_ptr().cast::<i8>(),
+        })
+        .collect();
+    let ptr = &ptrs;
+    let refused = std::sync::atomic::AtomicBool::new(false);
+    Pool::global().run(k, &|c| match quant_act(&xs[c]) {
+        Some(qa) => {
+            // SAFETY: task `c` is the only writer of column `c`'s reservations, which hold
+            // `per_scales` and `n` elements after the copy — `quant_act`'s invariants are exactly
+            // those lengths — and both allocations outlive the dispatch.
+            unsafe {
+                std::ptr::copy_nonoverlapping(qa.scales().as_ptr(), ptr[c].scales, per_scales);
+                std::ptr::copy_nonoverlapping(qa.codes().as_ptr(), ptr[c].codes, n);
+            }
+        }
+        None => refused.store(true, std::sync::atomic::Ordering::Relaxed),
+    });
+    if refused.load(std::sync::atomic::Ordering::Relaxed) {
+        // As `quant_act_pooled`: a refusal drops every length-0 reservation and the written
+        // columns with it.
+        return None;
+    }
+    let mut out: Vec<QuantAct> = Vec::with_capacity(k);
+    for (mut s, mut c) in scales.into_iter().zip(codes) {
+        // SAFETY: reached only on the refusal-free path, which copied each column's exact
+        // `scales.len()` / `codes.len()` into the reservations above.
+        unsafe {
+            s.set_len(per_scales);
+            c.set_len(n);
+        }
+        out.push(QuantAct {
+            scales: s,
+            codes: c,
+        });
+    }
+    Some(out)
+}
+
 /// [`quant_act_pooled`] as a refusal: `None` only for an activation block whose scale times code
 /// leaves `i64`, which has no Q32.32 dequantization, so the projection refuses with the same
 /// [`MatvecError::Dequant`]`(`[`EngineError::FixedOverflow`]`)` [`matvec_q8act`] returns for such a
@@ -181,6 +259,95 @@ pub(crate) fn swiglu_hidden(
                 }
             }
             j += 1;
+        }
+    });
+    match first
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Disjoint columns of one pooled `SwiGLU`: every task writes only its own flat elements, each at
+/// its column's base plus the element index.
+#[derive(Clone, Copy)]
+struct SwigluPtr(*mut i64);
+// SAFETY: the tasks partition the flat `k·n_ff` element range and each flat element is one
+// distinct `i64` of one `out` column, which outlives the dispatch.
+unsafe impl Send for SwigluPtr {}
+// SAFETY: as above.
+unsafe impl Sync for SwigluPtr {}
+
+/// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j`: one
+/// pool dispatch over the flat `k·n_ff` element count, each element the unchanged [`swiglu_one`]
+/// on its two inputs, so the result is the per-column [`swiglu_hidden`] loop bit for bit. `out`'s
+/// columns must be pre-sized to `gate[c].len()`; each element is written exactly once.
+///
+/// The refusal is the smallest flat index `c·n_ff + j`, the (column, element) lexicographic minimum
+/// the per-column [`swiglu_hidden`] sequence returns.
+///
+/// # Errors
+///
+/// As [`swiglu_one`], and [`FfnError::BadGeometry`] when the three slice families disagree in shape.
+///
+/// # Complexity
+///
+/// `O(k·n_ff)` [`swiglu_one`] evaluations over `⌈k·n_ff/(2·width)⌉`-element chunks, one pool
+/// dispatch; `O(1)` scratch beyond `out`.
+#[allow(
+    clippy::many_single_char_names,
+    reason = "k/n are the column and element counts and c/j an element's column and index, as in \
+              the per-column loop this replaces"
+)]
+pub(crate) fn swiglu_cols(
+    gate: &[Vec<i64>],
+    up: &[Vec<i64>],
+    out: &mut [Vec<i64>],
+) -> Result<(), FfnError> {
+    let k = gate.len();
+    if up.len() != k || out.len() != k {
+        return Err(FfnError::BadGeometry);
+    }
+    let n = gate.first().map_or(0, Vec::len);
+    if up.iter().any(|v| v.len() != n) || out.iter().any(|v| v.len() != n) {
+        return Err(FfnError::BadGeometry);
+    }
+    let flat = k.checked_mul(n).ok_or(FfnError::BadGeometry)?;
+    if flat == 0 {
+        return Ok(());
+    }
+    let pool = Pool::global();
+    let chunk = flat.div_ceil(2 * pool.width()).max(1);
+    let tasks = flat.div_ceil(chunk);
+    let ptrs: Vec<SwigluPtr> = out.iter_mut().map(|v| SwigluPtr(v.as_mut_ptr())).collect();
+    let ptr = &ptrs;
+    let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
+    pool.run(tasks, &|t| {
+        let lo = t * chunk;
+        let hi = (lo + chunk).min(flat);
+        let mut f = lo;
+        while f < hi {
+            let (c, j) = (f / n, f % n);
+            match swiglu_one(gate[c][j], up[c][j]) {
+                Ok(v) => {
+                    // SAFETY: `f < flat`, so `c < k` and `j < n`; flat element `f` maps to the
+                    // single address `ptrs[c] + j`, and the tasks partition `[0, flat)`, so no two
+                    // tasks write the same element.
+                    unsafe { *ptr[c].0.add(j) = v };
+                }
+                Err(e) => {
+                    let mut slot = first
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if slot.as_ref().is_none_or(|(k0, _)| f < *k0) {
+                        *slot = Some((f, e));
+                    }
+                    return;
+                }
+            }
+            f += 1;
         }
     });
     match first
@@ -1025,6 +1192,84 @@ mod tests {
                     single.is_some(),
                     pooled.is_some()
                 ),
+            }
+        }
+    }
+
+    /// The batched multi-column quantization equals one [`quant_act`] per column at 33-wide columns
+    /// (the second block holds one lane), including the `k = 1` delegation and the differing-length
+    /// fallback. Each column's values are scaled by its own factor, so its block scales differ from
+    /// its neighbours' and a misdirected copy cannot pass by coincidence.
+    #[test]
+    fn quant_acts_pooled_equals_the_per_column_quantizations() {
+        for k in [1usize, 2, 7] {
+            let xs: Vec<Vec<i64>> = (0..k)
+                .map(|c| {
+                    let w = i64::try_from(c).expect("small") + 1;
+                    activation(33, w).iter().map(|v| *v * w).collect()
+                })
+                .collect();
+            let want: Vec<QuantAct> = xs
+                .iter()
+                .map(|x| quant_act(x).expect("quantizes"))
+                .collect();
+            let got = quant_acts_pooled(&xs).expect("batched quantization");
+            assert_eq!(got.len(), k, "k = {k}");
+            for (c, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+                assert_eq!(g.scales(), w.scales(), "scales, column {c}, k = {k}");
+                assert_eq!(g.codes(), w.codes(), "codes, column {c}, k = {k}");
+            }
+        }
+        // Columns of differing length take the per-column fallback.
+        let mixed: Vec<Vec<i64>> = vec![activation(33, 1), activation(1, 2), activation(64, 3)];
+        let want: Vec<QuantAct> = mixed
+            .iter()
+            .map(|x| quant_act(x).expect("quantizes"))
+            .collect();
+        let got = quant_acts_pooled(&mixed).expect("fallback");
+        for (c, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+            assert_eq!(g.scales(), w.scales(), "mixed scales, column {c}");
+            assert_eq!(g.codes(), w.codes(), "mixed codes, column {c}");
+        }
+    }
+
+    /// A column whose block scale times its code leaves `i64` refuses the whole batch, as the single
+    /// call refuses that column.
+    #[test]
+    fn quant_acts_pooled_refuses_with_a_refusing_column() {
+        let mut xs: Vec<Vec<i64>> = (0..3usize)
+            .map(|c| activation(33, i64::try_from(c).expect("small") + 1))
+            .collect();
+        xs[1][0] = i64::MAX;
+        assert!(quant_act(&xs[1]).is_none(), "the fixture column refuses");
+        assert!(quant_acts_pooled(&xs).is_none(), "the batch refuses");
+    }
+
+    /// The pooled multi-column `SwiGLU` equals the serial per-column [`swiglu_hidden`] loop bit for
+    /// bit over widths that do and do not divide the flat range, including a one-column batch.
+    #[test]
+    fn swiglu_cols_equals_the_serial_per_column_loop() {
+        for k in [1usize, 2, 7] {
+            for n_ff in [1usize, 33, 128] {
+                let gate: Vec<Vec<i64>> = (0..k)
+                    .map(|c| activation(n_ff, i64::try_from(c).expect("small") + 2))
+                    .collect();
+                let up: Vec<Vec<i64>> = (0..k)
+                    .map(|c| activation(n_ff, i64::try_from(c).expect("small") + 5))
+                    .collect();
+                let want: Vec<Vec<i64>> = gate
+                    .iter()
+                    .zip(&up)
+                    .map(|(g, u)| {
+                        let mut h = vec![0i64; n_ff];
+                        swiglu_hidden(g, u, &mut h, false).expect("serial");
+                        h
+                    })
+                    .collect();
+                let mut got = vec![vec![0i64; n_ff]; k];
+                swiglu_cols(&gate, &up, &mut got)
+                    .unwrap_or_else(|e| panic!("k = {k}, n_ff = {n_ff}: {e:?}"));
+                assert_eq!(got, want, "k = {k}, n_ff = {n_ff}");
             }
         }
     }
