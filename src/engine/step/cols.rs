@@ -285,6 +285,10 @@ impl Engine {
         clippy::needless_range_loop,
         reason = "the layer index, layer, slot, cache, columns, schedule, kernel and dispatch"
     )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "this per-column attention path keeps bias, gate, normalization, cache append and attention in their required state order"
+    )]
     pub(super) fn softmax_cols(
         &self,
         li: Option<&LayerIndex>,
