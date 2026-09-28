@@ -329,11 +329,10 @@ fn test_delta_head_step_8_real_steps_drift() {
         let mut s_fast = s_new.clone();
         let mut c_fast = c_new;
 
-        let o_v0 = delta_head_step_v0(&mut s_v0, &q_tilde, &k_hat, &v, decay, beta)
-            .expect("v0 step ok");
-        let o_ref =
-            delta_head_step_ref(&mut s_new, &mut c_new, &q_tilde, &k_hat, &v, decay, beta)
-                .expect("ref step ok");
+        let o_v0 =
+            delta_head_step_v0(&mut s_v0, &q_tilde, &k_hat, &v, decay, beta).expect("v0 step ok");
+        let o_ref = delta_head_step_ref(&mut s_new, &mut c_new, &q_tilde, &k_hat, &v, decay, beta)
+            .expect("ref step ok");
         let o_fast =
             delta_head_step_fast(&mut s_fast, &mut c_fast, &q_tilde, &k_hat, &v, decay, beta)
                 .expect("fast step ok");
@@ -380,15 +379,7 @@ fn delta_heads_custom<F>(
     step_fn: F,
 ) -> Result<Vec<i64>, StepError>
 where
-    F: FnMut(
-            &mut [i64],
-            &mut i64,
-            &[i64],
-            &[i64],
-            &[i64],
-            i64,
-            i64,
-        ) -> Result<Vec<i64>, StepError>
+    F: FnMut(&mut [i64], &mut i64, &[i64], &[i64], &[i64], i64, i64) -> Result<Vec<i64>, StepError>
         + Send
         + Sync
         + Clone,
@@ -476,22 +467,18 @@ fn bench_delta_heads_50_steps() {
     let mut st_v0 = AffineState::with_slices(&g, 1, 1);
     let layer_v0 = st_v0.layer_mut(0).unwrap();
     let step_v0 =
-        |s: &mut [i64],
-         _c: &mut i64,
-         q: &[i64],
-         k: &[i64],
-         v: &[i64],
-         decay: i64,
-         beta: i64| { delta_head_step_v0(s, q, k, v, decay, beta) };
+        |s: &mut [i64], _c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
+            delta_head_step_v0(s, q, k, v, decay, beta)
+        };
     for _ in 0..5 {
-        let _ = delta_heads_custom(layer_v0, &g, &p, &conv, &z, &b, &a, eps, true, step_v0)
-            .unwrap();
+        let _ =
+            delta_heads_custom(layer_v0, &g, &p, &conv, &z, &b, &a, eps, true, step_v0).unwrap();
     }
     let mut times_v0 = Vec::with_capacity(n_steps);
     for _ in 0..n_steps {
         let t0 = Instant::now();
-        let _ = delta_heads_custom(layer_v0, &g, &p, &conv, &z, &b, &a, eps, true, step_v0)
-            .unwrap();
+        let _ =
+            delta_heads_custom(layer_v0, &g, &p, &conv, &z, &b, &a, eps, true, step_v0).unwrap();
         times_v0.push(t0.elapsed().as_micros());
     }
     times_v0.sort_unstable();
@@ -505,14 +492,14 @@ fn bench_delta_heads_50_steps() {
             delta_head_step_ref(s, c, q, k, v, decay, beta)
         };
     for _ in 0..5 {
-        let _ = delta_heads_custom(layer_ref, &g, &p, &conv, &z, &b, &a, eps, true, step_ref)
-            .unwrap();
+        let _ =
+            delta_heads_custom(layer_ref, &g, &p, &conv, &z, &b, &a, eps, true, step_ref).unwrap();
     }
     let mut times_ref = Vec::with_capacity(n_steps);
     for _ in 0..n_steps {
         let t0 = Instant::now();
-        let _ = delta_heads_custom(layer_ref, &g, &p, &conv, &z, &b, &a, eps, true, step_ref)
-            .unwrap();
+        let _ =
+            delta_heads_custom(layer_ref, &g, &p, &conv, &z, &b, &a, eps, true, step_ref).unwrap();
         times_ref.push(t0.elapsed().as_micros());
     }
     times_ref.sort_unstable();
