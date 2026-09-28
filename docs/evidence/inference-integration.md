@@ -109,3 +109,62 @@ The final live `proof/regen.sh --check` (including the extraction package build)
 including its serialized lane wait, takes 269.31 seconds (`w1-proof-barrier.log`). This completes
 the slice's Rust/extraction/bridge/control barrier on the named source identity; it does not close
 the programme's remaining refinements, size inventory or performance targets.
+
+
+## Final scheduling decision
+
+Final source identity: `86f4a42c19014eaf76438223841cc3d093782ad6`; per-file hashes are in
+`/home/socol/oc-tmp/astra-integration/final-source-identity.json`. The six protected tracked paths
+and both proof packages' toolchain/manifest files retain their checkpoint bytes. Task worktrees
+and branches are removed; unrelated untracked files and the pre-existing `one-allocation` branch
+remain untouched.
+
+The flat-buffer and owned-output SwiGLU variants pass scalar parity, overflow/geometry tests and
+real-model preflight, but neither supplies sufficient measured benefit for adoption. The owned
+variant groups columns into at most 64 tasks and reuses the existing scalar/AVX2 arithmetic with
+no nested pool call. Independent Astra review accepts its internal owned-output interface and
+task bound; this is a review verdict, not a new universal arithmetic theorem.
+
+| command/control | exit | seconds | log |
+|---|---:|---:|---|
+| flat-buffer focused FFN tests, full Clippy and formatting | 0 | 4.01 | `swiglu-clippy-final.log` |
+| flat-buffer operand-swap baseline/red/restore | 0/101/0 | 2.06 | `swiglu-control-final.log` |
+| flat-buffer selected release model tests and profile build | 0 | 15.77 | `swiglu-model-preflight.log` |
+| flat-buffer five-round comparison | 0 | 179.59 | `swiglu-ab.log` |
+| owned-output focused FFN tests, full Clippy and formatting | 0 | 6.47 | `swiglu-owned-focused.log` |
+| owned-output column-zero operand-swap baseline/red/restore | 0/101/0 | 2.32 | `swiglu-owned-control.log` |
+| owned-output selected release model tests and profile build | 0 | 15.67 | `swiglu-owned-model-preflight.log` |
+| owned-output five-round comparison | 0 | 180.88 | `swiglu-owned-ab.log` |
+
+Each selected release model run passes four tests with three explicitly ignored. The owned-output
+control swaps gate/up only in scheduled column zero and fails scalar parity at 64 columns of
+width seven; restoration passes. Both controls mutate disposable copies only.
+
+[Flat-buffer samples](bench/1790610276-astra-swiglu-batch.md) give median paired prefill ratio
+0.986669. [Owned-column samples](bench/1790611132-astra-swiglu-owned.md) give 1.027322, but
+two of five prefill rounds regress, four-core prefill is 1.001618, and speculation loses four of
+five rounds in both settings. These samples do not justify the extra path; the decision is rejection,
+not a claim that its true performance effect is zero. The latest baseline measures 68.86 greedy
+tokens/s default and 49.97 on four i9 performance cores. It measures inference, not rendered FPS
+or throughput on a separate low-end machine.
+
+Cleanup restores `src/engine/chart/ffn.rs` and `src/engine/step/cols.rs` exactly to `608e726`,
+removing every provisional helper consumer and the environment switch. A source-wide search
+confirms neither remains. The accepted overflow fixes, retained mixer boundary tests, reproducible
+prompt, audit factoring and exact half conversion proof remain. No performance candidate survives
+this slice. Activation scaling, finishing, the projection epilogue's isolated measured cost, whole
+executor refinement and the programme's throughput targets remain open.
+
+The final Rust invocation runs the focused five-test FFN gate, the full workspace/all-feature test
+set, full Clippy with warnings denied, formatting, release profile build and the explicit release
+long-prompt test. It exits 0 in 221.24 seconds (`final-rust-barrier.log`): 527 full-suite passes,
+12 ignored, plus the separately run long-prompt pass and five focused passes. The long-prompt
+case again checks the expected 32 token IDs after the 200-token input.
+
+The final `proof/regen.sh --check` freshly extracts the real Rust and builds the extraction package;
+`cd proof/corpus && lake build` then completes 9,221 bridge jobs. The combined locked, memory-capped
+invocation exits 0 in 78.85 seconds (`final-proof-barrier.log`). The four splitter headlines still
+pass their registered closed-cone audits. All final source hashes match the receipt after both gates.
+This closes the local integration slice at grades **tested**, **proved** for the named conversion
+statements, and **measured** for the recorded workloads; the performance and refinement residuals
+above prevent programme closure.

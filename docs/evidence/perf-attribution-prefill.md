@@ -98,7 +98,7 @@ checks are recorded in `inference-integration.md`.
 Receipt: [`1790607104-astra-batched-baseline.md`](bench/1790607104-astra-batched-baseline.md).
 Speculative acceptance is 24%; 39 restore calls occur in the traced run. The current traced
 prefill costs 4.33 ms/token: affine heads 1.323 ms, FFN 1.125 ms, convolution 0.519 ms, affine input
-projection 0.514 ms and attention core 0.355 ms. Greedy decode costs 15.91 ms/token: dense head
+projection 0.514 ms and attention core 0.355 ms. Greedy decode costs 15.91 ms/token: the output-head region
 4.100 ms and FFN 4.095 ms dominate. This is the measured `engine_profile` workload; it is not a
 claim about every public generation API or every prompt.
 
@@ -114,5 +114,31 @@ A separate rotated A/B changes only core and slice settings:
 Receipt: [`1790607289-astra-core-budget.md`](bench/1790607289-astra-core-budget.md).
 Each arm has five samples; every round passed the quiet gate. Compare ratios within a receipt;
 the standalone and interleaved-with-llama baselines differ. Core restriction on this i9 is not
-measurement on a different low-end machine. The next exact experiment changes the affine write
-traversal while retaining the original arithmetic and bounds.
+measurement on a different low-end machine. The subsequent experiments below retain the original arithmetic and bounds.
+
+
+## Scheduling experiments rejected
+
+Each receipt contains five quiet rotated rounds at pp200/tg64, the same Qwen3.5-0.8B Q8_0 model
+and prompt fixture. These are same-binary schedule comparisons, not fresh llama.cpp comparisons.
+The two SwiGLU experiments also measure speculation with 32,768 draft rows.
+
+| candidate / baseline | median paired prefill ratio | four-core prefill ratio | decision | receipt |
+|---|---:|---:|---|---|
+| affine column traversal / row traversal | 1.000292 | 1.002071 | remove candidate; retain scalar boundary tests | [traversal](bench/1790608521-astra-write-traversal.md) |
+| flat-buffer SwiGLU / per-column dispatch | 0.987 | 0.988 | remove candidate | [flat buffer](bench/1790610276-astra-swiglu-batch.md) |
+| owned whole-column SwiGLU / per-column dispatch | 1.027322 | 1.001618 | insufficient consistent benefit; remove candidate | [owned columns](bench/1790611132-astra-swiglu-owned.md) |
+
+The owned-column candidate's prefill ratios are 1.060560, 1.031395, 0.974909, 0.993520 and
+1.027322. Speculation loses four of five rounds under both core settings (median paired ratios
+0.991890 default and 0.988280 four-core). Its median default-pool prefill is 272.67 tokens/s
+against 267.27; four-core prefill is 140.14 against 139.51. The measured greedy rates are 67.96
+against 68.86 default, and 49.25 against 49.97 four-core. The single-column decode body is
+unchanged, so these decode differences do not establish a scheduling benefit. This final
+comparison takes 180.88 seconds, exit 0; all 20 samples are complete, quiet, finite and positive.
+
+The final tree restores `chart/ffn.rs` and `step/cols.rs` to `608e726` exactly and has no
+`APEIRON_BATCH_SWIGLU` switch or multi-column helper. Three scheduling/traversal experiments
+do not establish the required improvement. The next bounded question is the measured contribution
+of the exact projection-scale epilogue, separated from dot accumulation with an instrument control.
+The 60-token/s low-end target, faster-than-llama prefill and approximately double decode remain open.
