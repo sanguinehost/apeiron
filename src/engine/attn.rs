@@ -5,6 +5,26 @@ use super::value::{div_round_nearest, round_shift_32};
 use super::ONE;
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
+use std::cell::Cell;
+
+// Test seam for `APEIRON_EXACT_SCAN`: a per-thread override of the flag, `None` falling through
+// to the process value. The process parse lives in `src/engine/step/cols.rs` where the flag is
+// consumed; the seam is here because `src/engine/tests.rs` cannot name the private
+// `engine::step::cols` module.
+thread_local! {
+    static EXACT_SCAN_OVERRIDE: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// The thread's forced exact-scan value, or `None` to fall through to the process flag.
+pub(crate) fn exact_scan_override() -> Option<bool> {
+    EXACT_SCAN_OVERRIDE.with(Cell::get)
+}
+
+/// Force the exact-scan flag on this thread, or clear it with `None` (the test seam).
+#[cfg(test)]
+pub(crate) fn set_exact_scan_override(value: Option<bool>) {
+    EXACT_SCAN_OVERRIDE.with(|cell| cell.set(value));
+}
 
 /// A refused fixed-point attention read (port-map row 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
