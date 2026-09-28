@@ -17,7 +17,7 @@ use super::{
     add_assign_fixed, affine_slots, apply_sigmoid_gate, qk_norm_and_rope, rms_with_gain_slice,
     softmax_slots, split_query_gate, LayerIndex, Sched, StepError, LAYER_PARTS,
 };
-use crate::engine::chart::ffn::{quant_act_pooled, swiglu_hidden};
+use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
 use crate::engine::chart::QuantAct;
 use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::mixer::{AffineLayer, AffineState};
@@ -608,8 +608,8 @@ impl Engine {
     }
 
     /// The `SwiGLU` FFN over the columns: the single-column path for one column (its pooled
-    /// grouped kernel and scratch); for more, gate and up as `k`-column projections, the same
-    /// elementwise `swiglu_one` per column, and down as a `k`-column projection.
+    /// grouped kernel and scratch); for more, gate and up as `k`-column projections, one
+    /// [`swiglu_cols`] dispatch over all `k·n_ff` elements, and down as a `k`-column projection.
     pub(super) fn ffn_cols(
         &self,
         li: Option<&LayerIndex>,
@@ -639,12 +639,8 @@ impl Engine {
         let qs = quant_cols(xs)?;
         let gate = self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
         let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
-        let mut hs = Vec::with_capacity(xs.len());
-        for c in 0..xs.len() {
-            let mut h = vec![0i64; n_ff];
-            swiglu_hidden(&gate[c], &up[c], &mut h, true).map_err(StepError::Ffn)?;
-            hs.push(h);
-        }
+        let mut hs: Vec<Vec<i64>> = (0..xs.len()).map(|_| vec![0i64; n_ff]).collect();
+        swiglu_cols(&gate, &up, &mut hs).map_err(StepError::Ffn)?;
         self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None)
     }
 
@@ -710,20 +706,14 @@ fn norm_cols(gain: &[i64], xs: &[Vec<i64>], eps: i64) -> Result<Vec<Vec<i64>>, S
     Ok(out.chunks(n).map(<[i64]>::to_vec).collect())
 }
 
-/// The pooled int8 quantization of every column (`quant_act_pooled`), shared by every projection
-/// that reads the same columns.
+/// The pooled int8 quantization of every column ([`quant_acts_pooled`], one dispatch over the `k`
+/// columns), shared by every projection that reads the same columns.
 ///
 /// # Complexity
 ///
 /// `O(k·n)` over the pool.
 fn quant_cols(xs: &[Vec<i64>]) -> Result<Vec<QuantAct>, StepError> {
-    let mut qs = Vec::with_capacity(xs.len());
-    for x in xs {
-        qs.push(
-            quant_act_pooled(x).ok_or(StepError::Matvec(MatvecError::Dequant(
-                crate::engine::EngineError::FixedOverflow,
-            )))?,
-        );
-    }
-    Ok(qs)
+    quant_acts_pooled(xs).ok_or(StepError::Matvec(MatvecError::Dequant(
+        crate::engine::EngineError::FixedOverflow,
+    )))
 }
