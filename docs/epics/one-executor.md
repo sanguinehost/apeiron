@@ -346,3 +346,21 @@ flattened element in a disposable copy; the serial oracle must fail and restorat
 Lead owns builds, measurements and integration. Run five quiet rotated A/B rounds of both
 schedules, including four-core settings; keep the candidate only on supported measurements.
 Grade is tested arithmetic equivalence plus measured timing, not a new universal SIMD theorem.
+
+The flat-buffer SwiGLU candidate fails its performance selection: five quiet rounds in
+`1790610276-astra-swiglu-batch` give median paired prefill ratio 0.987 and speculative ratio 0.948.
+It remains disabled. One final bounded scheduling candidate replaces the provisional output-buffer
+helper with an owned-output helper, reusing `swiglu_hidden` for each column. `Pool::chunks_mut`
+already accepts `Vec<i64>` elements, so whole independent output columns can run in one dispatch
+without a flattened buffer, copying or per-element division. Use that schedule only when columns
+at least equal pool width; otherwise retain per-column pooled calls. Serial mode remains the oracle.
+
+The helper validates rectangular gate/up geometry, returns newly owned output only on success,
+and preserves arithmetic and refusals. Removing the provisional mutable-output parameter leaves
+no caller-owned output to change on failure. Its only consumers are in the two owned files;
+review that internal interface change independently before acceptance. A fresh Luna worker owns
+`src/engine/chart/ffn.rs` and `src/engine/step/cols.rs`; the gate/control and default-off comparison
+remain the same. Tests cover the owned-output contract, geometry, scalar parity and overflow.
+The control swaps gate/up in one scheduled column. No canonical premise or source extraction
+changes. This is the final performance candidate of this slice: absent a supported gain, remove
+it and retain the measured blocker rather than opening another hypothesis.
