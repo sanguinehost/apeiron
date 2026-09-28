@@ -192,6 +192,84 @@ pub(crate) fn swiglu_hidden(
     }
 }
 
+/// Apply exact `SwiGLU` independently to rectangular columns with one dispatch over all elements.
+///
+/// The flat buffer is column-major (`c * n + i`); chunks span columns when needed to fill the
+/// pool. The smallest refused flat index matches serial per-column evaluation. It is copied into
+/// `h` only on success.
+/// For `k` columns of width `n`, shape validation takes `O(k)` length checks; evaluation and
+/// success copy take `O(k * n)` word work. The flat scratch uses `O(k * n)` words. The parallel
+/// path uses one pool dispatch over `ceil(k * n / (2 * pool.width()))`-element chunks.
+///
+/// # Errors
+///
+/// Returns [`FfnError::BadGeometry`] before evaluation if column counts or widths disagree, and
+/// otherwise the first [`swiglu_one`] refusal in column-major order.
+pub(crate) fn swiglu_hidden_cols(
+    gate: &[Vec<i64>],
+    up: &[Vec<i64>],
+    hidden: &mut [Vec<i64>],
+    parallel: bool,
+) -> Result<(), FfnError> {
+    let columns = gate.len();
+    if columns != up.len() || columns != hidden.len() {
+        return Err(FfnError::BadGeometry);
+    }
+    let width = gate.first().map_or(0, Vec::len);
+    if gate.iter().any(|x| x.len() != width)
+        || up.iter().any(|x| x.len() != width)
+        || hidden.iter().any(|x| x.len() != width)
+    {
+        return Err(FfnError::BadGeometry);
+    }
+    let len = columns.checked_mul(width).ok_or(FfnError::BadGeometry)?;
+    if len == 0 {
+        return Ok(());
+    }
+
+    let mut flat = vec![0i64; len];
+    if parallel {
+        let pool = Pool::global();
+        let chunk = flat.len().div_ceil(2 * pool.width()).max(1);
+        let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
+        pool.chunks_mut(&mut flat, chunk, &|_c, start, dst| {
+            for (j, out) in dst.iter_mut().enumerate() {
+                let index = start + j;
+                let column = index / width;
+                let channel = index % width;
+                match swiglu_one(gate[column][channel], up[column][channel]) {
+                    Ok(value) => *out = value,
+                    Err(error) => {
+                        let mut slot = first
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if slot.as_ref().is_none_or(|(earliest, _)| index < *earliest) {
+                            *slot = Some((index, error));
+                        }
+                        return;
+                    }
+                }
+            }
+        });
+        if let Some((_, error)) = first
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
+            return Err(error);
+        }
+    } else {
+        for (index, out) in flat.iter_mut().enumerate() {
+            let column = index / width;
+            let channel = index % width;
+            *out = swiglu_one(gate[column][channel], up[column][channel])?;
+        }
+    }
+    for (dst, src) in hidden.iter_mut().zip(flat.chunks(width)) {
+        dst.copy_from_slice(src);
+    }
+    Ok(())
+}
+
 /// The most scoped threads the Q8-activation row-chunked kernel uses.
 ///
 /// `row_chunk_budget` resolves to all `available_parallelism` threads (32 here), so every projection
@@ -908,6 +986,126 @@ mod tests {
     use crate::engine::matvec::matvec_fixed;
     use crate::engine::ONE;
     use crate::format::quant::{GGML_TYPE_F16, GGML_TYPE_Q8_0};
+
+    #[test]
+    fn swiglu_hidden_cols_matches_serial_columns_across_shapes() {
+        for k in [1usize, 2, 3, 64] {
+            for n in [7usize, 31, 97] {
+                let gate: Vec<Vec<i64>> = (0..k)
+                    .map(|c| {
+                        (0..n)
+                            .map(|i| match (c + i) % 5 {
+                                0 => -ONE,
+                                1 => ONE,
+                                2 => 0,
+                                3 => 4 * ONE,
+                                _ => -4 * ONE,
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let up: Vec<Vec<i64>> = (0..k)
+                    .map(|c| {
+                        (0..n)
+                            .map(|i| match (c + i) % 5 {
+                                0 => 2 * ONE,
+                                2 => {
+                                    if i % 2 == 0 {
+                                        i64::MIN
+                                    } else {
+                                        i64::MAX
+                                    }
+                                }
+                                3 => ONE,
+                                _ => -ONE,
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let mut expected = vec![vec![0; n]; k];
+                for c in 0..k {
+                    swiglu_hidden(&gate[c], &up[c], &mut expected[c], false)
+                        .expect("serial column succeeds");
+                }
+
+                for parallel in [false, true] {
+                    let mut actual = vec![vec![0; n]; k];
+                    assert_eq!(
+                        swiglu_hidden_cols(&gate, &up, &mut actual, parallel),
+                        Ok(()),
+                        "k={k}, n={n}, parallel={parallel}"
+                    );
+                    assert_eq!(actual, expected, "k={k}, n={n}, parallel={parallel}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn swiglu_hidden_cols_checks_empty_and_malformed_geometry_upfront() {
+        let mut no_columns: Vec<Vec<i64>> = Vec::new();
+        assert_eq!(swiglu_hidden_cols(&[], &[], &mut no_columns, true), Ok(()));
+
+        let empty_cols = vec![vec![], vec![]];
+        let mut empty_out = empty_cols.clone();
+        assert_eq!(
+            swiglu_hidden_cols(&empty_cols, &empty_cols, &mut empty_out, true),
+            Ok(())
+        );
+        assert_eq!(empty_out, empty_cols);
+
+        let gate = vec![vec![ONE; 3], vec![ONE; 2]];
+        let up = vec![vec![ONE; 3], vec![ONE; 3]];
+        let mut out = vec![vec![17; 3], vec![19; 3]];
+        let untouched = out.clone();
+        assert_eq!(
+            swiglu_hidden_cols(&gate, &up, &mut out, true),
+            Err(FfnError::BadGeometry)
+        );
+        assert_eq!(out, untouched);
+
+        let rect = vec![vec![ONE; 3], vec![ONE; 3]];
+        let short_up = vec![vec![ONE; 3]];
+        assert_eq!(
+            swiglu_hidden_cols(&rect, &short_up, &mut out, true),
+            Err(FfnError::BadGeometry)
+        );
+        let mut short_out = vec![vec![0; 3]];
+        assert_eq!(
+            swiglu_hidden_cols(&rect, &rect, &mut short_out, true),
+            Err(FfnError::BadGeometry)
+        );
+    }
+
+    #[test]
+    fn swiglu_hidden_cols_matches_overflow_refusal_without_publishing_output() {
+        let k = 3;
+        let n = 7;
+        let mut gate = vec![vec![0; n]; k];
+        let mut up = vec![vec![ONE; n]; k];
+        gate[0][n - 1] = 2 * ONE;
+        up[0][n - 1] = i64::MAX;
+        gate[1][0] = 2 * ONE;
+        up[1][0] = i64::MAX;
+        let expected_error = FfnError::Overflow;
+        let mut seen_error = None;
+        for c in 0..k {
+            let mut col = vec![0; n];
+            if let Err(error) = swiglu_hidden(&gate[c], &up[c], &mut col, false) {
+                seen_error = Some(error);
+                break;
+            }
+        }
+        assert_eq!(seen_error, Some(expected_error.clone()));
+
+        let mut out = vec![vec![23; n]; k];
+        let untouched = out.clone();
+        assert_eq!(
+            swiglu_hidden_cols(&gate, &up, &mut out, true),
+            Err(expected_error)
+        );
+        assert_eq!(out, untouched);
+    }
 
     /// Finite `f16` bit patterns the fixture draws from: `0`, `±0.125`, `±0.25`, `±0.5`, `±1`,
     /// `±2` and `±4`.

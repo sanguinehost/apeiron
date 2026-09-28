@@ -17,13 +17,19 @@ use super::{
     add_assign_fixed, affine_slots, apply_sigmoid_gate, qk_norm_and_rope, rms_with_gain_slice,
     softmax_slots, split_query_gate, LayerIndex, Sched, StepError, LAYER_PARTS,
 };
-use crate::engine::chart::ffn::{quant_act_pooled, swiglu_hidden};
+use crate::engine::chart::ffn::{quant_act_pooled, swiglu_hidden, swiglu_hidden_cols};
 use crate::engine::chart::QuantAct;
 use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
 use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
 use crate::format::quant;
+
+/// Use one flattened `SwiGLU` dispatch when enabled for a same-binary A/B comparison.
+fn batch_swiglu_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("APEIRON_BATCH_SWIGLU").is_ok_and(|value| value == "1"))
+}
 
 impl Engine {
     /// `k = tokens.len()` consecutive decode steps through the trunk, in one pass over the weights
@@ -639,12 +645,19 @@ impl Engine {
         let qs = quant_cols(xs)?;
         let gate = self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
         let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
-        let mut hs = Vec::with_capacity(xs.len());
-        for c in 0..xs.len() {
-            let mut h = vec![0i64; n_ff];
-            swiglu_hidden(&gate[c], &up[c], &mut h, true).map_err(StepError::Ffn)?;
-            hs.push(h);
-        }
+        let hs = if batch_swiglu_enabled() {
+            let mut hs = vec![vec![0i64; n_ff]; xs.len()];
+            swiglu_hidden_cols(&gate, &up, &mut hs, true).map_err(StepError::Ffn)?;
+            hs
+        } else {
+            let mut hs = Vec::with_capacity(xs.len());
+            for c in 0..xs.len() {
+                let mut h = vec![0i64; n_ff];
+                swiglu_hidden(&gate[c], &up[c], &mut h, true).map_err(StepError::Ffn)?;
+                hs.push(h);
+            }
+            hs
+        };
         self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None)
     }
 
