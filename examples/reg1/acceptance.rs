@@ -6,12 +6,16 @@
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
-use crate::matrix::{self, median, ratio, RegisteredCell};
+use crate::matrix::{self, RegisteredCell};
 use crate::performance::{self, Profile};
 use crate::strata::{self, StrataWitness};
 
 #[path = "adapters/serial.rs"]
 pub(crate) mod serial;
+
+mod report;
+use report::{print_acceptance, print_ratio_summary, print_registration};
+pub(crate) use report::{print_headline, print_pair_table};
 
 pub(crate) const RATIO_LIMIT: f64 = 1.0;
 
@@ -533,7 +537,12 @@ pub(crate) fn build_campaign(
     registered: &[RegisteredCell],
     spatial: &performance::spatial::SpatialWitness,
 ) -> Campaign {
+    let t_serial = std::time::Instant::now();
     let serial = serial::measure(strata);
+    eprintln!(
+        "phase=accept.build_campaign.serial elapsed_s={:.3}",
+        t_serial.elapsed().as_secs_f64()
+    );
     let mut cells = Vec::with_capacity(strata.cells.len() + spatial.cells.len());
     let mut pairs = Vec::new();
     for cell in &strata.cells {
@@ -918,263 +927,6 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
     }
 }
 
-fn print_registration() {
-    for inc in INCUMBENTS {
-        println!(
-            "acceptance_registration incumbent={} class={} adapter={} applicability={} \
-             symbol=\"{}\" adapter_reason=\"{}\" applicability_reason=\"{}\"",
-            inc.id,
-            inc.class.name(),
-            inc.adapter.name(),
-            inc.applicability.name(),
-            inc.symbol,
-            inc.adapter.reason(),
-            inc.applicability.reason()
-        );
-    }
-}
-
-fn print_acceptance(outcome: &AcceptanceOutcome) {
-    println!(
-        "acceptance_rule selected/incumbent <= {RATIO_LIMIT:.2} on every applicable (cell, \
-         incumbent) pair; the campaign interval max must be <= {RATIO_LIMIT:.2}"
-    );
-    for tally in &outcome.tallies {
-        println!(
-            "acceptance_incumbent id={} class={} adapter={} applicable={} pass={} fail={} \
-             missing={} not_applicable={} informational={}",
-            tally.id,
-            tally.class.name(),
-            tally.adapter.name(),
-            tally.applicable,
-            tally.passed,
-            tally.failed,
-            tally.missing,
-            tally.not_applicable,
-            tally.informational
-        );
-    }
-    let worst_pair = outcome
-        .worst
-        .as_ref()
-        .map_or_else(|| "NONE".to_string(), |(id, _)| id.clone());
-    let worst_ratio = outcome.worst.as_ref().map_or(0.0, |(_, r)| *r);
-    println!(
-        "acceptance_summary registered={} load_bearing={} applicable={} pass={} fail={} \
-         missing={} unauthorized={} not_applicable={} informational={} concurrency_unmatched={} \
-         address_face_unmatched={} worst_pair={worst_pair} worst_ratio={worst_ratio:.4} \
-         full_acceptance={}",
-        outcome.registered,
-        outcome.load_bearing,
-        outcome.applicable,
-        outcome.passed,
-        outcome.failing.len(),
-        outcome.missing.len(),
-        outcome.unauthorized.len(),
-        outcome.not_applicable,
-        outcome.informational,
-        outcome.concurrency_unmatched,
-        outcome.address_face_unmatched,
-        outcome.full_acceptance
-    );
-    if let Some(first) = outcome.failing.first() {
-        println!("acceptance_first_failure={first}");
-    }
-    if let Some(first) = outcome.missing.first() {
-        println!("acceptance_first_missing={first}");
-    }
-    if let Some(first) = outcome.unauthorized.first() {
-        println!("acceptance_first_unauthorized={first}");
-    }
-}
-
-/// The pair-summary table: one row per registered `(cell, incumbent)` pair. `concurrency` is
-#[allow(
-    clippy::too_many_lines,
-    reason = "one function states the whole fixed-width pair-summary table"
-)]
-pub(crate) fn print_pair_table(campaign: &Campaign, outcome: &AcceptanceOutcome) {
-    let headers = [
-        "family",
-        "cell",
-        "sel_impl",
-        "sel_workers",
-        "inc_impl",
-        "inc_workers",
-        "sel_median_ns",
-        "inc_median_ns",
-        "ratio",
-        "ratio_interval",
-        "concurrency",
-        "address_face",
-        "selected_address",
-        "sample_basis",
-        "status",
-    ];
-    let mut rows: Vec<[String; 15]> = Vec::with_capacity(campaign.pairs.len());
-    for (i, pair) in campaign.pairs.iter().enumerate() {
-        let status = outcome
-            .pair_status
-            .get(i)
-            .copied()
-            .unwrap_or(PairStatus::Fail);
-        let concurrency = pair_concurrency(pair.sel_workers, pair.inc_workers);
-        let sel_median = if pair.selected_samples.is_empty() {
-            "-".to_string()
-        } else {
-            median(&pair.selected_samples).to_string()
-        };
-        let inc_median = if pair.incumbent_samples.is_empty() {
-            "-".to_string()
-        } else {
-            median(&pair.incumbent_samples).to_string()
-        };
-        let ratio_text = if pair.selected_samples.is_empty() || pair.incumbent_samples.is_empty() {
-            "-".to_string()
-        } else {
-            format!(
-                "{:.4}",
-                ratio(
-                    median(&pair.selected_samples),
-                    median(&pair.incumbent_samples)
-                )
-            )
-        };
-        let family = if pair.cell_id.starts_with("spatial/") {
-            "spatial"
-        } else {
-            "current-strata"
-        };
-        rows.push([
-            family.to_string(),
-            pair.cell_id.clone(),
-            pair.sel_impl.to_string(),
-            pair.sel_workers.to_string(),
-            pair.inc_impl.to_string(),
-            pair.inc_workers
-                .map_or_else(|| "-".to_string(), |w| w.to_string()),
-            sel_median,
-            inc_median,
-            ratio_text,
-            interval_text(&pair.campaign_ratios),
-            concurrency.name().to_string(),
-            pair.address_face.name().to_string(),
-            pair.selected_address.to_string(),
-            pair.sample_basis.to_string(),
-            status.name().to_string(),
-        ]);
-    }
-    let mut widths = headers.map(str::len);
-    for row in &rows {
-        for (width, cell) in widths.iter_mut().zip(row.iter()) {
-            *width = (*width).max(cell.len());
-        }
-    }
-    println!(
-        "pair_table rows={} columns=family|cell|sel_impl|sel_workers|inc_impl|inc_workers|\
-         sel_median_ns|inc_median_ns|ratio|ratio_interval|concurrency|address_face|selected_address|sample_basis|status \
-         concurrency=matched|MISMATCH|n/a address_face=matched|unmatched|n/a",
-        rows.len()
-    );
-    print_row(&headers.map(str::to_string), &widths);
-    let rule: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
-    print_row(&rule, &widths);
-    for row in &rows {
-        print_row(row, &widths);
-    }
-}
-
-fn print_row(row: &[String], widths: &[usize]) {
-    let mut line = String::new();
-    for (i, (cell, width)) in row.iter().zip(widths.iter()).enumerate() {
-        if i > 0 {
-            line.push_str(" | ");
-        }
-        line.push_str(cell);
-        line.push_str(&" ".repeat(width.saturating_sub(cell.len())));
-    }
-    println!("{line}");
-}
-
-fn interval_text(ratios: &[f64]) -> String {
-    if ratios.is_empty() {
-        return "-".to_string();
-    }
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
-    for &r in ratios {
-        if r < lo {
-            lo = r;
-        }
-        if r > hi {
-            hi = r;
-        }
-    }
-    format!("[{lo:.4},{hi:.4}]")
-}
-
-pub(crate) fn print_headline(outcome: &AcceptanceOutcome) {
-    println!(
-        "HEADLINE registered={} load_bearing={} applicable={} pass={} fail={} missing={} \
-         concurrency_unmatched={} address_face_unmatched={} full_acceptance={}",
-        outcome.registered,
-        outcome.load_bearing,
-        outcome.applicable,
-        outcome.passed,
-        outcome.failing.len(),
-        outcome.missing.len(),
-        outcome.concurrency_unmatched,
-        outcome.address_face_unmatched,
-        outcome.full_acceptance
-    );
-}
-
-/// Print, per registered incumbent, the observed `selected/incumbent` ratio interval across every
-/// cell whose pair was measured and whose oracle digest agreed. A missing adapter has no pairs.
-fn print_ratio_summary(campaign: &Campaign) {
-    for inc in INCUMBENTS {
-        let mut pairs = 0usize;
-        let mut digest_fail = 0usize;
-        let mut lo = f64::INFINITY;
-        let mut hi = f64::NEG_INFINITY;
-        for pair in campaign.pairs.iter().filter(|p| p.incumbent_id == inc.id) {
-            if let AdapterState::Built = pair.adapter {
-                if pair.oracle_digest != pair.expected_oracle_digest {
-                    digest_fail += 1;
-                    continue;
-                }
-            }
-            if pair.campaign_ratios.is_empty() {
-                continue;
-            }
-            pairs += 1;
-            for &r in &pair.campaign_ratios {
-                if r < lo {
-                    lo = r;
-                }
-                if r > hi {
-                    hi = r;
-                }
-            }
-        }
-        if pairs == 0 {
-            println!(
-                "acceptance_ratio incumbent={} class={} pairs=0 digest_fail={digest_fail} \
-                 r_min=NAN r_max=NAN",
-                inc.id,
-                inc.class.name()
-            );
-        } else {
-            println!(
-                "acceptance_ratio incumbent={} class={} pairs={pairs} digest_fail={digest_fail} \
-                 r_min={lo:.4} r_max={hi:.4}",
-                inc.id,
-                inc.class.name()
-            );
-        }
-    }
-}
-
 pub(crate) const CONTROLS: [&str; 8] = [
     "acceptance-failing-non-hashtrinity-pair",
     "acceptance-omitted-incumbent-pair",
@@ -1496,13 +1248,17 @@ fn run_control(name: &str, profile: Profile) -> Result<i32, String> {
 pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     // Phase 1: the existing measurement, registration enforcement and diagnostics, unchanged except
     // that the acceptance path prints its own table, so the phase-1 dump is silent.
+    let t_total = std::time::Instant::now();
+    let mut t_last = t_total;
     let diagnostic =
         performance::run_performance(profile, false, false, performance::Output::Silent);
     if diagnostic != 0 {
         return diagnostic;
     }
+    performance::phase_mark("accept.phase1", t_total, &mut t_last);
     // Phase 2: the registered per-pair acceptance.
     let strata = strata::run_strata(profile);
+    performance::phase_mark("accept.strata", t_total, &mut t_last);
     let registered = match matrix::load_registered_cells() {
         Ok(cells) => cells,
         Err(e) => {
@@ -1510,15 +1266,19 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
             return 1;
         }
     };
+    performance::phase_mark("accept.registered", t_total, &mut t_last);
     if let Err(e) = matrix::validate_registration(&strata, &registered) {
         eprintln!("acceptance registration validation failed: {e}");
         return 1;
     }
+    performance::phase_mark("accept.registration_validation", t_total, &mut t_last);
     if let Err(e) = strata::validate_strata(&strata) {
         eprintln!("acceptance strata validation failed: {e}");
         return 1;
     }
+    performance::phase_mark("accept.strata_validation", t_total, &mut t_last);
     let spatial = performance::spatial::measure(&strata);
+    performance::phase_mark("accept.spatial", t_total, &mut t_last);
     if json {
         performance::spatial::print(&spatial);
     }
@@ -1527,6 +1287,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         return 1;
     }
     let campaign = build_campaign(&strata, &registered, &spatial);
+    performance::phase_mark("accept.campaign", t_total, &mut t_last);
     println!(
         "acceptance_phase=per-pair profile={} registered_cells={} spatial_cells={} json={json}",
         profile.name(),
@@ -1538,6 +1299,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         print_ratio_summary(&campaign);
     }
     let outcome = evaluate(&campaign, profile == Profile::Full);
+    performance::phase_mark("accept.evaluate", t_total, &mut t_last);
     if json {
         print_acceptance(&outcome);
     } else {
@@ -1564,6 +1326,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
             }
         }
     }
+    performance::phase_mark("accept.controls", t_total, &mut t_last);
     if outcome.passed() {
         println!(
             "strict_acceptance=pass applicable={} failing=0 missing=0 concurrency_unmatched={} \
@@ -1590,210 +1353,4 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
 /// informational, given an applicability that rejects, or mis-classified fails here, so the
 /// acceptance report cannot silently drop a required comparison.
 #[cfg(test)]
-mod registry_tests {
-    use super::{
-        evaluate, is_spatial_incumbent, pair_concurrency, serial_address_face,
-        spatial_address_face, spatial_incumbent_workers, synthetic_campaign, AdapterState,
-        AddressFace, Applicability, Concurrency, PairClass, INCUMBENTS, INFORMATIONAL_COMPARATORS,
-        RATIO_LIMIT, REQUIRED_LOAD_BEARING, SELECTED_WORKERS,
-    };
-
-    /// Every required incumbent is registered exactly once, load-bearing, built, and carries an
-    /// applicability that is not `UnauthorizedNotApplicable`. An omission or demotion fails here.
-    #[test]
-    fn required_incumbents_are_present_load_bearing_and_built() {
-        for id in REQUIRED_LOAD_BEARING {
-            let mut matches = INCUMBENTS.iter().filter(|inc| inc.id == id);
-            let Some(inc) = matches.next() else {
-                panic!("required incumbent {id} is absent from the registry");
-            };
-            assert!(
-                matches.next().is_none(),
-                "required incumbent {id} is registered more than once"
-            );
-            assert_eq!(
-                inc.class,
-                PairClass::LoadBearing,
-                "required incumbent {id} is not load-bearing"
-            );
-            assert_eq!(
-                inc.adapter,
-                AdapterState::Built,
-                "required incumbent {id} has no built adapter"
-            );
-            match inc.applicability {
-                Applicability::Applicable(reason)
-                | Applicability::AuthorizedNotApplicable(reason) => {
-                    assert!(
-                        !reason.is_empty(),
-                        "required incumbent {id} has an empty applicability reason"
-                    );
-                }
-                Applicability::UnauthorizedNotApplicable(_) => {
-                    panic!("required incumbent {id} is unauthorized-not-applicable");
-                }
-            }
-        }
-    }
-
-    /// Every registered incumbent is either a required load-bearing comparator or a named
-    /// informational comparator carrying its stated reason. An unclassified incumbent fails here.
-    #[test]
-    fn every_registered_incumbent_is_classified() {
-        for inc in INCUMBENTS {
-            let required = REQUIRED_LOAD_BEARING.contains(&inc.id);
-            let informational = INFORMATIONAL_COMPARATORS
-                .iter()
-                .find(|(id, _)| *id == inc.id);
-            match (required, informational) {
-                (true, None) => assert_eq!(
-                    inc.class,
-                    PairClass::LoadBearing,
-                    "required incumbent {} is not load-bearing",
-                    inc.id
-                ),
-                (false, Some((id, reason))) => {
-                    assert_eq!(*id, inc.id);
-                    assert_eq!(
-                        inc.class,
-                        PairClass::Informational,
-                        "informational comparator {} is not informational",
-                        inc.id
-                    );
-                    assert_eq!(
-                        inc.applicability.reason(),
-                        *reason,
-                        "informational comparator {} reason drifted",
-                        inc.id
-                    );
-                }
-                (true, Some(_)) => {
-                    panic!("incumbent {} is both required and informational", inc.id);
-                }
-                (false, None) => {
-                    panic!(
-                        "incumbent {} is neither required load-bearing nor informational",
-                        inc.id
-                    );
-                }
-            }
-        }
-        for (id, _) in INFORMATIONAL_COMPARATORS {
-            assert!(
-                INCUMBENTS.iter().any(|inc| inc.id == id),
-                "informational comparator {id} is absent from the registry"
-            );
-        }
-    }
-
-    /// The owner threshold stays `selected/incumbent <= 1.0`. A threshold above one fails here.
-    #[test]
-    fn acceptance_threshold_is_one() {
-        assert!(
-            (RATIO_LIMIT - 1.0).abs() < f64::EPSILON,
-            "the acceptance threshold must stay 1.0, found {RATIO_LIMIT}"
-        );
-    }
-
-    /// The required serial incumbents run at width one on the raw-coordinate face; the required
-    /// spatial incumbents carry the address face their routing mechanism uses. A mis-classified
-    /// required incumbent fails here.
-    #[test]
-    fn required_incumbent_classification_is_correct() {
-        for id in REQUIRED_LOAD_BEARING
-            .iter()
-            .filter(|&&id| !is_spatial_incumbent(id))
-        {
-            assert_eq!(
-                serial_address_face(id),
-                AddressFace::Matched,
-                "serial incumbent {id} must be address-face matched"
-            );
-            assert_eq!(
-                pair_concurrency(SELECTED_WORKERS, Some(1)),
-                Concurrency::Matched,
-                "serial incumbent {id} must be concurrency matched at width one"
-            );
-        }
-        assert_eq!(spatial_address_face("foldhash_par16"), AddressFace::Matched);
-        assert_eq!(spatial_address_face("fxhash_par16"), AddressFace::Matched);
-        assert_eq!(
-            spatial_address_face("hashtrinity_count_par"),
-            AddressFace::Unmatched
-        );
-        assert_eq!(
-            spatial_address_face("hashtrinity_get_each"),
-            AddressFace::Unmatched
-        );
-        assert_eq!(
-            spatial_address_face("hashbrown_rayon"),
-            AddressFace::Unmatched
-        );
-        // The registered applicability rule follows the face: a spatial incumbent is authorized
-        // not applicable on the serial cells, a serial incumbent is applicable there.
-        for inc in INCUMBENTS {
-            if is_spatial_incumbent(inc.id) {
-                assert!(
-                    matches!(inc.applicability, Applicability::AuthorizedNotApplicable(_)),
-                    "spatial incumbent {} must register an authorized-not-applicable rule",
-                    inc.id
-                );
-            } else {
-                assert!(
-                    matches!(inc.applicability, Applicability::Applicable(_)),
-                    "serial incumbent {} must register an applicable rule",
-                    inc.id
-                );
-            }
-        }
-    }
-
-    /// `hashtrinity_get_each` is timed through the combined `count_par` build plus grouped probe,
-    /// so its build width is the hashtrinity pool, not the reported single-core probe width. A
-    /// regression that trusts the reported `workers = 1` fails here.
-    #[test]
-    fn get_each_combined_arm_is_concurrency_unmatched() {
-        let pool = hashtrinity::par::Pool::global().width().max(1);
-        for reported in [1usize, 2, 7, pool, pool + 3] {
-            assert_eq!(
-                spatial_incumbent_workers("hashtrinity_get_each", reported),
-                pool,
-                "get_each must carry the build pool width, not the reported probe width {reported}"
-            );
-        }
-        assert_eq!(
-            spatial_incumbent_workers("hashtrinity_get_each", 1),
-            spatial_incumbent_workers("hashtrinity_count_par", pool),
-            "the combined get_each and count_par arms run the same build width"
-        );
-        if pool > 1 {
-            assert_eq!(
-                pair_concurrency(SELECTED_WORKERS, Some(pool)),
-                Concurrency::Mismatch,
-                "a combined-arm incumbent against the single-core selected run must be a mismatch"
-            );
-        }
-    }
-
-    /// An omitted required pair is reported missing and rejects the campaign. A registry change
-    /// that drops a required `(cell, incumbent)` pair fails here.
-    #[test]
-    fn omitted_required_pair_is_reported_missing() {
-        let mut campaign = synthetic_campaign();
-        let before = campaign.pairs.len();
-        campaign.pairs.retain(|pair| {
-            !(pair.cell_id == "synthetic-cell-a" && pair.incumbent_id == "xxhash_xxh3")
-        });
-        assert!(campaign.pairs.len() < before);
-        let outcome = evaluate(&campaign, false);
-        assert!(
-            outcome
-                .missing
-                .iter()
-                .any(|entry| entry.contains("xxhash_xxh3")),
-            "omitted required pair must be reported missing: {:?}",
-            outcome.missing
-        );
-        assert!(!outcome.passed());
-    }
-}
+mod registry_tests;

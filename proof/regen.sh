@@ -61,7 +61,7 @@ tool_sha256 "$AENEAS"
 echo "== source =="
 # Every listed source must exist: a missing live source fails the digest stage instead of being
 # skipped, so a stale path (for example a deleted module) cannot pass silently.
-# `src/table.rs` textually `include!`s `src/table/state.rs` and `src/table/locator.rs`; `src/coord.rs`
+# `src/table.rs` textually includes `table/{state,locator,prepared}.rs`; `src/coord.rs`
 # pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
 # pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. `src/table/tests.rs`
 # is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
@@ -73,6 +73,7 @@ $REPO_DIR/src/carrier.rs
 $REPO_DIR/src/table.rs
 $REPO_DIR/src/table/state.rs
 $REPO_DIR/src/table/locator.rs
+$REPO_DIR/src/table/prepared.rs
 $REPO_DIR/src/table/probe.rs
 $REPO_DIR/src/coord.rs
 $REPO_DIR/src/coord/address.rs
@@ -83,6 +84,30 @@ $REPO_DIR/src/table/partition.rs
 $REPO_DIR/src/table/resources.rs
 $REPO_DIR/src/table/scan.rs
 $REPO_DIR/src/table/parallel.rs
+$REPO_DIR/src/numeric/fixed_exp.rs
+$REPO_DIR/src/numeric/fixed_rsqrt.rs
+$REPO_DIR/src/numeric/fixed_trig.rs
+$REPO_DIR/src/format/gguf.rs
+$REPO_DIR/src/format/quant.rs
+$REPO_DIR/src/format/packing.rs
+$REPO_DIR/src/engine/mod.rs
+$REPO_DIR/src/engine/value.rs
+$REPO_DIR/src/engine/silu.rs
+$REPO_DIR/src/engine/norm.rs
+$REPO_DIR/src/engine/rope.rs
+$REPO_DIR/src/engine/error.rs
+$REPO_DIR/src/engine/f32_convert.rs
+$REPO_DIR/src/engine/dequant.rs
+$REPO_DIR/src/engine/matvec.rs
+$REPO_DIR/src/engine/attn.rs
+$REPO_DIR/src/engine/lm_head.rs
+$REPO_DIR/src/engine/sampler.rs
+$REPO_DIR/src/engine/ffn.rs
+$REPO_DIR/src/engine/kern/pow2.rs
+$REPO_DIR/src/spirv/mod.rs
+$REPO_DIR/src/spirv/check.rs
+$REPO_DIR/src/policy/mod.rs
+$REPO_DIR/src/policy/decide.rs
 $EXTRACT_DIR/lib.rs
 "
 for f in $SOURCE_FILES; do
@@ -98,7 +123,7 @@ run_extract() {
     # monomorphizing candidate is withdrawn: it omits `--ops-to-function-calls` and
     # `--index-to-function-calls`, which lower every array/slice index and repeat in the tree, so
     # it rejects on `core::array::repeat` and `TArray`/`TSlice`. The preset translates the current
-    # source; see the anative-extraction-preset-probe note.
+    # source; see the anative note.
     "$CHARON" rustc \
         --preset aeneas \
         --dest-file "$llbc" \
@@ -145,6 +170,31 @@ run_extract() {
         --start-from crate::word_stored_publish_prepared \
         --start-from crate::word_regen_publish_prepared \
         --start-from crate::word_capacity_bound_holds \
+        --start-from crate::word_act_scale \
+        --start-from crate::word_f16_split \
+        --start-from crate::word_pow2_finish \
+        --start-from crate::word_fixed_exp \
+        --start-from crate::word_fixed_rsqrt \
+        --start-from crate::word_fixed_sin_cos \
+        --start-from crate::word_gguf_parse_header \
+        --start-from crate::word_q4_k_codes \
+        --start-from crate::word_q6_k_codes \
+        --start-from crate::word_packing_decode_block \
+        --start-from crate::word_silu_fixed \
+        --start-from crate::word_rms_norm_fixed \
+        --start-from crate::word_rope_rotate_fixed \
+        --start-from crate::word_row_dot_fixed \
+        --start-from crate::word_matvec_fixed \
+        --start-from crate::word_lm_head_fixed \
+        --start-from crate::word_kv_state_new \
+        --start-from crate::word_kv_append \
+        --start-from crate::word_attn_head \
+        --start-from crate::word_argmax_fixed \
+        --start-from crate::word_fwht_fixed \
+        --start-from crate::word_route_topk \
+        --start-from crate::word_gate_weights \
+        --start-from crate::word_check_fragment \
+        --start-from crate::word_policy_decide \
         -- \
         --edition 2021 \
         --crate-type lib \

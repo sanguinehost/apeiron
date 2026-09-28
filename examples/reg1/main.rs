@@ -20,9 +20,9 @@
 //!   adapter is missing, or any `not-applicable` is unauthorized. Without `--accept` the same run is
 //!   diagnostic and reports the axis `boundary`. `--accept --profile smoke` applies the same rule on
 //!   the reduced schedule but cannot close G1.
-//! - `--check coverage`: the W4 census. It parses and validates the operation/evidence registry in
-//!   `coverage.json`, prints both denominators' Aeneas and real-table Kani fractions, the
-//!   exclusions and the freshness, and requires three rejecting controls.
+//! - `--check coverage`: the v2 census. It parses and validates the operation/evidence registry in
+//!   `coverage.json`, reports real-source extraction, bridge refinement and executed Rust tests at
+//!   their separate scopes, prints exclusions and freshness, and requires rejecting controls.
 //! - `--check history --controls`: the W1 performance-restoration framework. It validates the
 //!   registered comparison matrix in `matrix.json` and reproduces the original `71942db` spatial
 //!   benchmark in isolated revision-pinned child worktrees, with exact source digests, oracle
@@ -33,9 +33,8 @@
 //! No check claims REG-1: the 10^8 identity run, separate-process determinism, the round-trip
 //! codec, growth/remove and coverage remain unrun or unsupported and are reported as such. The
 //! performance ratio is a measurement, not a pass of the identity or growth rows. The coverage
-//! fractions count existing evidence at its stated scope; the Aeneas and Kani receipts are stale
-//! because neither `cargo kani` nor `proof/regen.sh --check` was run this wave. REG-1/G1 stays
-//! OPEN.
+//! fractions count existing evidence at its stated scope; freshness is reported separately for
+//! extraction, refinement and executed Rust tests. REG-1/G1 stays OPEN.
 
 mod acceptance;
 mod correctness;

@@ -1126,7 +1126,8 @@ fn build_report(repro: &Repro, serial: &SerialRepro, cells: usize) -> Report {
         (
             "coverage",
             AxisStatus::Missing,
-            "Aeneas/Kani census is reported by --check coverage, not here".to_string(),
+            "extraction/refinement/Rust-test census is reported by --check coverage, not here"
+                .to_string(),
         ),
         (
             "historical_serial",

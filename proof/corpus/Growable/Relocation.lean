@@ -165,7 +165,8 @@ for a spill it additionally states successful publication and the resulting occu
 structure RelocationEffectsPrepared {R : Type}
     (keyRep : table.keyrep.KeyRep R I64 table.WordHome)
     (state : table.Table I64 I64 table.WordHome R 16#usize)
-    (entry : table.RebuildPlanEntry) (cloneHeld : R → R) (destination : Destination) : Prop where
+    (entry : table.RebuildPlanEntry) (reserved : table.RebuildReserved R I64)
+    (cloneHeld : R → R) (destination : Destination) : Prop where
   retarget : ∀ sigma held value,
     sourcePayload state entry.source = some (sigma, held, value) →
     ∃ nextLocator,
@@ -175,8 +176,11 @@ structure RelocationEffectsPrepared {R : Type}
           ok nextLocator
   publish : match destination with
     | .flat _ => True
-    | .spill _ index => ∀ (sigma : cell.Sigma) (held : R) (value : I64)
+    | .spill shard index => ∀ (sigma : cell.Sigma) (held : R) (value : I64)
         (address : table.TableAddress) (region : table.Region R I64),
+        sourcePayload state entry.source = some (sigma, held, value) →
+        keyRep.address_held state.home sigma (cloneHeld held) = ok address →
+        reserved.regions.val[shard.val]? = some region →
         ∃ published,
           table.Region.publish_live region index (sigma, cloneHeld held, value) address.place =
               ok published ∧
@@ -319,7 +323,7 @@ theorem word_stored_relocate_entry_flat_preserves
     (prepared : PreparedEntry state decodeStored plan reserved entryAt logical)
     (hflat : FlatPrepared prepared.entry reserved index)
     (effects : RelocationEffectsPrepared Apeiron.GrowableIdentity.storedKeyRep state
-      prepared.entry (fun held => ({ key := held.key } : StoredI64)) (.flat index)) :
+      prepared.entry reserved (fun held => ({ key := held.key } : StoredI64)) (.flat index)) :
     word_stored_relocate_entry state plan reserved entryAt ⦃ result =>
       PayloadStateEq state result.1 ∧
         ReservedRepR result.2 decodeStored (.flat index) logical ⦄ := by
@@ -400,7 +404,7 @@ theorem word_regen_relocate_entry_flat_preserves
     (prepared : PreparedEntry state decodeRegen plan reserved entryAt logical)
     (hflat : FlatPrepared prepared.entry reserved index)
     (effects : RelocationEffectsPrepared Apeiron.GrowableIdentity.regenKeyRep state
-      prepared.entry (fun held => ({ identity := held.identity, codec := () } : RegenI64))
+      prepared.entry reserved (fun held => ({ identity := held.identity, codec := () } : RegenI64))
       (.flat index)) :
     word_regen_relocate_entry state plan reserved entryAt ⦃ result =>
       PayloadStateEq state result.1 ∧
@@ -497,19 +501,12 @@ theorem word_stored_relocate_entry_spill_preserves
           region sigma address held 16#usize)
       shard index)
     (effects : RelocationEffectsPrepared Apeiron.GrowableIdentity.storedKeyRep state
-      prepared.entry (fun held => ({ key := held.key } : StoredI64)) (.spill shard index)) :
+      prepared.entry reserved (fun held => ({ key := held.key } : StoredI64)) (.spill shard index)) :
     word_stored_relocate_entry state plan reserved entryAt ⦃ result =>
       PayloadStateEq state result.1 ∧
         ReservedRepR result.2 decodeStored (.spill shard index) logical ⦄ := by
   rcases prepared.source_rep with ⟨logicalEntry, hsource, hlogical⟩
   have hpayload := hspill.source_eq
-  have hpublish := effects.publish
-  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
-    hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
-  have hshardBound : shard.val < reserved.regions.length := by
-    simpa using (List.getElem?_eq_some_iff.mp hspill.region_eq).1
-  have hregionGet : reserved.regions.val[shard.val] = hspill.region :=
-    (List.getElem?_eq_some_iff.mp hspill.region_eq).2
   have haddress' :
       table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
         Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
@@ -517,6 +514,14 @@ theorem word_stored_relocate_entry_spill_preserves
         { key := hspill.held.key } = ok hspill.address := by
     simpa [Apeiron.GrowableIdentity.storedKeyRep,
       Apeiron.GrowableIdentity.wordHomeInst] using hspill.address_eq
+  have hpublish := effects.publish
+  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
+    hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
+      hspill.source_eq haddress' hspill.region_eq
+  have hshardBound : shard.val < reserved.regions.length := by
+    simpa using (List.getElem?_eq_some_iff.mp hspill.region_eq).1
+  have hregionGet : reserved.regions.val[shard.val] = hspill.region :=
+    (List.getElem?_eq_some_iff.mp hspill.region_eq).2
   have hvacant' :
       table.probe.spill_locate_held
         (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
@@ -609,20 +614,13 @@ theorem word_regen_relocate_entry_spill_preserves
           region sigma address held 16#usize)
       shard index)
     (effects : RelocationEffectsPrepared Apeiron.GrowableIdentity.regenKeyRep state
-      prepared.entry (fun held => ({ identity := held.identity, codec := () } : RegenI64))
+      prepared.entry reserved (fun held => ({ identity := held.identity, codec := () } : RegenI64))
       (.spill shard index)) :
     word_regen_relocate_entry state plan reserved entryAt ⦃ result =>
       PayloadStateEq state result.1 ∧
         ReservedRepR result.2 decodeRegen (.spill shard index) logical ⦄ := by
   rcases prepared.source_rep with ⟨logicalEntry, hsource, hlogical⟩
   have hpayload := hspill.source_eq
-  have hpublish := effects.publish
-  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
-    hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
-  have hshardBound : shard.val < reserved.regions.length := by
-    simpa using (List.getElem?_eq_some_iff.mp hspill.region_eq).1
-  have hregionGet : reserved.regions.val[shard.val] = hspill.region :=
-    (List.getElem?_eq_some_iff.mp hspill.region_eq).2
   have haddress' :
       table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
         Apeiron.GrowableIdentity.wordExactIdentityInst
@@ -631,6 +629,14 @@ theorem word_regen_relocate_entry_spill_preserves
         { identity := hspill.held.identity, codec := () } = ok hspill.address := by
     simpa [Apeiron.GrowableIdentity.regenKeyRep,
       Apeiron.GrowableIdentity.wordHomeInst] using hspill.address_eq
+  have hpublish := effects.publish
+  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
+    hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
+      hspill.source_eq haddress' hspill.region_eq
+  have hshardBound : shard.val < reserved.regions.length := by
+    simpa using (List.getElem?_eq_some_iff.mp hspill.region_eq).1
+  have hregionGet : reserved.regions.val[shard.val] = hspill.region :=
+    (List.getElem?_eq_some_iff.mp hspill.region_eq).2
   have hvacant' :
       table.probe.spill_locate_held
         (table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep
@@ -722,6 +728,249 @@ destination observation in such a certificate; disjointness, old/new live-set eq
 and direct coverage require the still-unmaterialized `RebuildPlanCorrect` predicate.
 -/
 
+/-!
+## Generated `retarget_held` success and failure
+
+Read from the generated body at `proof/ApeironWord.lean` (digest `8e76b917bc89cd0b3ea188950d7957d4296a69a9833b4485abda7c7cea8d9b50`),
+`table.TableLocator.retarget_held` has exactly five outcome branches and one failure channel:
+
+1. `table.same_location old new = ok true` → `ok self`. `same_location` is total (below).
+2. `same_location old new = ok false`, `linked_handle … = ok none` → `ok self`.
+3. `same_location old new = ok false`, `linked_handle … = ok (some handle)` and
+   `UScalar.cast .Usize handle ≥ alloc.vec.Vec.len self.links` → `ok self`.
+4. `same_location old new = ok false`, `linked_handle … = ok (some handle)`, the link index is in
+   bounds, the stored `current` location satisfies `same_location current old = ok false` →
+   `ok self`.
+5. Same as 4 with `same_location current old = ok true` → `ok` of `self` with `links` updated at
+   `UScalar.cast .Usize handle` to `(identity_node, new)` (`alloc.vec.Vec.set`; the generated
+   `index_mut` continuation is `Vec.set` at that index).
+
+Failure: the body's only fallible call whose success is not decided by its own guards is
+`table.TableLocator.linked_handle`. `table.same_location`, `lift (UScalar.cast …)` (pure
+truncating cast), and `alloc.vec.Vec.index`/`index_mut` (bounds discharged by the `handle <
+len links` guard) never fail. So `retarget_held` returns `ok` exactly when `same_location old new =
+ok true` or `linked_handle` returns `ok`, and otherwise returns the `linked_handle` failure
+unchanged. `linked_handle` itself is total for `directory = none` and `sigma = Elliptic` (both
+`ok none`, the `Option` residual maps to `ok none`), but not on arbitrary locator states: its
+`Directory.walk` chain performs bounds-checked `read_word` reads (`residue_identity_root`,
+`find_edge`, the `walk_identity` terminal read), a `massert (i < arity)`, and checked `Usize`
+arithmetic on node-derived indexes, any of which fails on a malformed `directory`
+(`Error.arrayOutOfBounds`, `Error.assertionFailure`, `Error.integerOverflow`).
+
+Consequently `sourcePayload state entry.source = some (sigma, held, value)` does **not** entail
+`∃ next, retarget_held … = ok next`: `sourcePayload` constrains payload fields only, not
+`state.locator`, and a `linked_handle` refusal refutes the totality demand
+(`retarget_held_refuses_of_linked_handle_fail` below). The traversal induction's `hstep` supply
+therefore needs a locator-side success certificate; the exact success condition is
+`retarget_held_succeeds_iff`.
+-/
+
+/-- `same_location` is total: it returns `ok b` for a Bool `b` on every input pair. -/
+theorem generated_same_location_total (left right : table.PayloadLocation) :
+    ∃ b, table.same_location left right = ok b := by
+  cases left with
+  | Resident li =>
+    cases right with
+    | Resident ri => exact ⟨_, rfl⟩
+    | Spill rs ri => exact ⟨_, rfl⟩
+  | Spill ls li =>
+    cases right with
+    | Resident ri => exact ⟨_, rfl⟩
+    | Spill rs ri =>
+      simp only [table.same_location]
+      split <;> exact ⟨_, rfl⟩
+
+/-- Bind inversion at `ok`: a `bind m k` that returns `ok` forces `m = ok`. -/
+private theorem ok_of_bind_ok {α β : Type} (m : Result α) (k : α → Result β) (b : β)
+    (h : m >>= k = ok b) : ∃ a, m = ok a := by
+  cases hm : m.match with
+  | ok a => exact ⟨a, Result.match.isOk.mp hm⟩
+  | vis i kk =>
+    rw [Result.match.isVis.mp hm] at h
+    simp at h
+  | div =>
+    rw [Result.match.isDiv.mp hm] at h
+    simp at h
+
+/-- Branch 1: a true `same_location` guard short-circuits to the unchanged locator. -/
+theorem retarget_held_eq_ok_self_of_same {K H R Faces : Type} (cloneInst : core.clone.Clone K)
+    (homeInst : table.Home H K Faces) (keyRep : table.keyrep.KeyRep R K H)
+    (self : table.TableLocator) (home : H) (sigma : cell.Sigma) (held : R)
+    (old new : table.PayloadLocation) (hsame : table.same_location old new = ok true) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      ok self := by
+  simp [table.TableLocator.retarget_held, hsame]
+
+/-- Branch 2: a `none` from `linked_handle` leaves the locator unchanged. -/
+theorem retarget_held_eq_ok_self_of_no_handle {K H R Faces : Type} (cloneInst : core.clone.Clone K)
+    (homeInst : table.Home H K Faces) (keyRep : table.keyrep.KeyRep R K H)
+    (self : table.TableLocator) (home : H) (sigma : cell.Sigma) (held : R)
+    (old new : table.PayloadLocation) (hsame : table.same_location old new = ok false)
+    (hlinked : table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+      ok none) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      ok self := by
+  simp [table.TableLocator.retarget_held, hsame, hlinked]
+
+/-- Branch 3: a link handle at or past `links` length leaves the locator unchanged. -/
+theorem retarget_held_eq_ok_self_of_link_out_of_bounds {K H R Faces : Type}
+    (cloneInst : core.clone.Clone K) (homeInst : table.Home H K Faces)
+    (keyRep : table.keyrep.KeyRep R K H) (self : table.TableLocator) (home : H)
+    (sigma : cell.Sigma) (held : R) (old new : table.PayloadLocation) (handle : Std.U32)
+    (hsame : table.same_location old new = ok false)
+    (hlinked : table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+      ok (some handle))
+    (hoob : ¬ UScalar.cast .Usize handle < alloc.vec.Vec.len self.links) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      ok self := by
+  simp only [table.TableLocator.retarget_held, hsame, hlinked, lift, bind_tc_ok, if_neg hoob]
+  simp
+
+/-- Branch 4: an in-bounds link whose stored location is not `old` leaves the locator unchanged. -/
+theorem retarget_held_eq_ok_self_of_current_distinct {K H R Faces : Type}
+    (cloneInst : core.clone.Clone K) (homeInst : table.Home H K Faces)
+    (keyRep : table.keyrep.KeyRep R K H) (self : table.TableLocator) (home : H)
+    (sigma : cell.Sigma) (held : R) (old new : table.PayloadLocation) (handle : Std.U32)
+    (identity_node : Std.U32) (current : table.PayloadLocation)
+    (hsame : table.same_location old new = ok false)
+    (hlinked : table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+      ok (some handle))
+    (hlt : UScalar.cast .Usize handle < alloc.vec.Vec.len self.links)
+    (hidx : alloc.vec.Vec.index_usize self.links (UScalar.cast .Usize handle) =
+      ok (identity_node, current))
+    (hcur : table.same_location current old = ok false) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      ok self := by
+  simp only [table.TableLocator.retarget_held, hsame, hlinked, lift, bind_tc_ok, if_pos hlt,
+    alloc.vec.Vec.index_slice_index, hidx]
+  simp [hcur]
+
+/--
+Branch 5: an in-bounds link whose stored location is `old` is rewritten to `new`; the resulting
+locator is `self` with `links.set (UScalar.cast .Usize handle) (identity_node, new)`.
+-/
+theorem retarget_held_eq_ok_set_of_current_matches {K H R Faces : Type}
+    (cloneInst : core.clone.Clone K) (homeInst : table.Home H K Faces)
+    (keyRep : table.keyrep.KeyRep R K H) (self : table.TableLocator) (home : H)
+    (sigma : cell.Sigma) (held : R) (old new : table.PayloadLocation) (handle : Std.U32)
+    (identity_node : Std.U32) (current : table.PayloadLocation)
+    (hsame : table.same_location old new = ok false)
+    (hlinked : table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+      ok (some handle))
+    (hlt : UScalar.cast .Usize handle < alloc.vec.Vec.len self.links)
+    (hidx : alloc.vec.Vec.index_usize self.links (UScalar.cast .Usize handle) =
+      ok (identity_node, current))
+    (hcur : table.same_location current old = ok true) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      ok { self with links := alloc.vec.Vec.set self.links (UScalar.cast .Usize handle) (identity_node, new) } := by
+  simp only [table.TableLocator.retarget_held, hsame, hlinked, lift, bind_tc_ok, if_pos hlt,
+    alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
+    alloc.vec.Vec.index_mut_usize, hidx]
+  simp [hcur]
+
+/-- Failure propagation: with distinct locations, a `linked_handle` refusal is the whole result. -/
+theorem retarget_held_fails_of_linked_handle_fail {K H R Faces : Type}
+    (cloneInst : core.clone.Clone K) (homeInst : table.Home H K Faces)
+    (keyRep : table.keyrep.KeyRep R K H) (self : table.TableLocator) (home : H)
+    (sigma : cell.Sigma) (held : R) (old new : table.PayloadLocation) (e : Error)
+    (hsame : table.same_location old new = ok false)
+    (hlinked : table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+      fail e) :
+    table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old new =
+      fail e := by
+  simp [table.TableLocator.retarget_held, hsame, hlinked]
+
+/--
+The exact success condition: `retarget_held` returns `ok` if and only if either location guard is
+true (branch 1) or `linked_handle` returns `ok` (branches 2-5, whose tail is total under the body's
+own bounds guard).
+-/
+theorem retarget_held_succeeds_iff {K H R Faces : Type} (cloneInst : core.clone.Clone K)
+    (homeInst : table.Home H K Faces) (keyRep : table.keyrep.KeyRep R K H)
+    (self : table.TableLocator) (home : H) (sigma : cell.Sigma) (held : R)
+    (old new : table.PayloadLocation) :
+    (∃ next, table.TableLocator.retarget_held cloneInst homeInst keyRep self home sigma held old
+        new = ok next) ↔
+      (table.same_location old new = ok true ∨
+        ∃ h, table.TableLocator.linked_handle cloneInst homeInst keyRep self home sigma held =
+          ok h) := by
+  obtain ⟨b, hb⟩ := generated_same_location_total old new
+  constructor
+  · intro hex
+    obtain ⟨next, hnext⟩ := hex
+    cases b with
+    | true => exact Or.inl hb
+    | false =>
+      right
+      simp only [table.TableLocator.retarget_held, hb, bind_tc_ok,
+        if_neg Bool.false_ne_true] at hnext
+      exact ok_of_bind_ok _ _ _ hnext
+  · rintro (hsame | ⟨h, hlinked⟩)
+    · exact ⟨_, retarget_held_eq_ok_self_of_same cloneInst homeInst keyRep self home sigma held
+        old new hsame⟩
+    · cases b with
+      | true =>
+        exact ⟨_, retarget_held_eq_ok_self_of_same cloneInst homeInst keyRep self home sigma held
+          old new hb⟩
+      | false =>
+        cases h with
+        | none =>
+          exact ⟨_, retarget_held_eq_ok_self_of_no_handle cloneInst homeInst keyRep self home
+            sigma held old new hb hlinked⟩
+        | some handle =>
+          by_cases hlt : UScalar.cast .Usize handle < alloc.vec.Vec.len self.links
+          · have hbound' : (UScalar.cast .Usize handle).val < self.links.val.length := by
+              simpa [alloc.vec.Vec.len] using hlt
+            have hidx : alloc.vec.Vec.index_usize self.links (UScalar.cast .Usize handle) =
+                ok (self.links.val[(UScalar.cast .Usize handle).val].1,
+                  self.links.val[(UScalar.cast .Usize handle).val].2) := by
+              rw [show alloc.vec.Vec.index_usize self.links (UScalar.cast .Usize handle) =
+                  ok self.links.val[(UScalar.cast .Usize handle).val] by
+                simp only [alloc.vec.Vec.index_usize]
+                rw [show self.links[(UScalar.cast .Usize handle).val]? =
+                    some self.links.val[(UScalar.cast .Usize handle).val] from
+                    List.getElem?_eq_getElem hbound']]
+            obtain ⟨b2, hb2⟩ := generated_same_location_total
+              self.links.val[(UScalar.cast .Usize handle).val].2 old
+            cases b2 with
+            | false =>
+              exact ⟨_, retarget_held_eq_ok_self_of_current_distinct cloneInst homeInst keyRep self
+                home sigma held old new handle _ _ hb hlinked hlt hidx hb2⟩
+            | true =>
+              exact ⟨_, retarget_held_eq_ok_set_of_current_matches cloneInst homeInst keyRep self
+                home sigma held old new handle _ _ hb hlinked hlt hidx hb2⟩
+          · exact ⟨_, retarget_held_eq_ok_self_of_link_out_of_bounds cloneInst homeInst keyRep self
+              home sigma held old new handle hb hlinked hlt⟩
+
+/--
+Counterexample shape to the traversal induction's totality demand: under a `sourcePayload`
+observation and distinct source/destination locations, one `linked_handle` refusal (any `Error`
+from the `Directory.walk` chain) refutes `∃ next, retarget_held … = ok next`. No totality theorem
+in the shape `sourcePayload … → ∃ next, retarget_held … = ok next` is provable without a
+locator-side success certificate.
+-/
+theorem retarget_held_refuses_of_linked_handle_fail {R : Type}
+    (keyRep : table.keyrep.KeyRep R I64 table.WordHome)
+    (state : table.Table I64 I64 table.WordHome R 16#usize) (entry : table.RebuildPlanEntry)
+    (cloneHeld : R → R) (destination : Destination) (sigma : cell.Sigma) (held : R) (value : I64)
+    (e : Error)
+    (_hsource : sourcePayload state entry.source = some (sigma, held, value))
+    (hne : table.same_location (sourceLocation entry.source) (destinationLocation destination) =
+      ok false)
+    (hlinked : table.TableLocator.linked_handle core.clone.CloneI64
+      Apeiron.GrowableIdentity.wordHomeInst keyRep state.locator state.home sigma (cloneHeld held) =
+        fail e) :
+    ¬ ∃ next, table.TableLocator.retarget_held core.clone.CloneI64
+      Apeiron.GrowableIdentity.wordHomeInst keyRep state.locator state.home sigma (cloneHeld held)
+      (sourceLocation entry.source) (destinationLocation destination) = ok next := by
+  intro hex
+  obtain ⟨next, hnext⟩ := hex
+  have hfail := retarget_held_fails_of_linked_handle_fail core.clone.CloneI64
+    Apeiron.GrowableIdentity.wordHomeInst keyRep state.locator state.home sigma (cloneHeld held)
+    (sourceLocation entry.source) (destinationLocation destination) e hne hlinked
+  rw [hfail] at hnext
+  exact fail_not_ok hnext
+
 /-- The stored-carrier rooted traversal preserves every invariant preserved by each rooted step. -/
 theorem word_stored_relocate_all_preserves
     (state : table.Table I64 I64 table.WordHome StoredI64 16#usize)
@@ -797,5 +1046,217 @@ theorem word_regen_relocate_all_preserves
     · rw [if_neg hlt, WP.spec_ok]
       exact ⟨rfl, hinv⟩
   · exact ⟨rfl, Nat.zero_le _, hinitial⟩
+
+/-!
+## Locator well-formedness and `hstep` totality
+
+Read from the generated bodies at `proof/ApeironWord.lean` (digest
+`8e76b917bc89cd0b3ea188950d7957d4296a69a9833b4485abda7c7cea8d9b50`).  `linked_handle` derives
+every index it feeds to `read_word` from words stored in `residue_words`, `identity_words` and
+`edge_words`; the predicates below spell out the exact bounds those derived indexes need, and the
+totality theorems discharge the traversal's `hstep` premise from them.
+
+Record layout: a residue record is `RESIDUE_STRIDE = 4` words (`residue_words[4n + 3]` is the
+identity root), an identity node is `IDENTITY_STRIDE = 2` words (`identity_words[2n]` is the
+terminal handle, `identity_words[2n + 1]` the first edge), an edge is `EDGE_STRIDE = 3` words
+(`edge_words[3e .. 3e + 2]` = label, child, next).  A residue *node value* `v` indexes
+`residue_words` at `4v + 3`; an *identity node value* `v` indexes `identity_words` at `2v` and
+`2v + 1`; an *edge value* `v` indexes `edge_words` at `3v .. 3v + 2`.
+-/
+
+/-- A residue node index: `NO_CHILD` or its identity-root read `residue_words[4v + 3]` is in
+bounds. -/
+def ResidueNodeWF (d : coord.locator.locator_core.Directory) (node : Std.U32) : Prop :=
+  node = coord.locator.locator_core.NO_CHILD ∨
+    4 * node.val + 3 < d.residue_words.val.length
+
+/-- An identity node index: both derived identity reads `identity_words[2v]` (terminal) and
+`identity_words[2v + 1]` (first edge) are in bounds. -/
+def IdentityNodeWF (d : coord.locator.locator_core.Directory) (node : Std.U32) : Prop :=
+  2 * node.val + 1 < d.identity_words.val.length
+
+/-- An edge index: `NO_CHILD` or all three edge reads are in bounds and `EDGE_NEXT` strictly
+decreases (so `find_edge`'s loop terminates). -/
+def EdgeIndexWF (d : coord.locator.locator_core.Directory) (e : Std.U32) : Prop :=
+  e = coord.locator.locator_core.NO_CHILD ∨
+    (3 * e.val + 2 < d.edge_words.val.length ∧
+      ∀ n, d.edge_words.val[3 * e.val + 2]? = some n →
+        n = coord.locator.locator_core.NO_CHILD ∨ n.val < e.val)
+
+/-- Word-array well-formedness of a locator directory: each stored word class carries exactly the
+bounds its derived reads need. -/
+structure DirectoryWF (d : coord.locator.locator_core.Directory) : Prop where
+  /-- A residue child word (`4n + digit`, `digit < 3`) is a residue node value or `NO_CHILD`. -/
+  residue_child_bound :
+    ∀ (p : Nat) (v : Std.U32), d.residue_words.val[p]? = some v → p % 4 ≠ 3 →
+      v ≠ coord.locator.locator_core.NO_CHILD → 4 * v.val + 3 < d.residue_words.val.length
+  /-- A residue identity root (`4n + 3`) is an identity node value or `NO_CHILD`. -/
+  residue_identity_bound :
+    ∀ (p : Nat) (v : Std.U32), d.residue_words.val[p]? = some v → p % 4 = 3 →
+      v ≠ coord.locator.locator_core.NO_CHILD → 2 * v.val + 1 < d.identity_words.val.length
+  /-- An identity first-edge word (`2n + 1`) is an `EdgeIndexWF` edge value. -/
+  identity_edge_bound :
+    ∀ (p : Nat) (v : Std.U32), d.identity_words.val[p]? = some v → p % 2 = 1 →
+      EdgeIndexWF d v
+  /-- An edge child word (`3e + 1`) is an identity node value or `NO_CHILD`. -/
+  edge_child_bound :
+    ∀ (p : Nat) (v : Std.U32), d.edge_words.val[p]? = some v → p % 3 = 1 →
+      v ≠ coord.locator.locator_core.NO_CHILD → 2 * v.val + 1 < d.identity_words.val.length
+  /-- An edge next word (`3e + 2`) is an `EdgeIndexWF` edge value. -/
+  edge_next_bound :
+    ∀ (p : Nat) (v : Std.U32), d.edge_words.val[p]? = some v → p % 3 = 2 →
+      EdgeIndexWF d v
+
+/-- Well-formedness of one `ResidueIndex` instance against one directory: total and bounded
+`LEVELS`/`ARITY`/`ARENA`, digits below `ARITY` (the `massert (i < arity)` in `walk_residue`), and
+the arena root in bounds whenever a zero-level walk can return it unchanged. -/
+structure ResidueIndexWF {I : Type} (inst : coord.locator.locator_core.ResidueIndex I)
+    (d : coord.locator.locator_core.Directory) (levels arity : Std.Usize) (root : Std.U32) : Prop where
+  /-- `LEVELS` succeeds and never exceeds the 64-entry digit buffer. -/
+  levels_eq : inst.LEVELS = ok levels
+  levels_le : levels.val ≤ 64
+  /-- `ARITY` succeeds, is positive (the 0 digit passes `massert`) and at most `MAX_ARITY = 3`
+  (so every residue child read lands on a child word, `4n + digit` with `digit < 3`). -/
+  arity_eq : inst.ARITY = ok arity
+  arity_pos : 0 < arity.val
+  arity_le : arity.val ≤ 3
+  /-- `ARENA` succeeds with `root`. -/
+  arena_eq : inst.ARENA = ok root
+  /-- With zero levels `walk_residue` returns the root unchanged, so `residue_identity_root` reads
+  `residue_words[4 * root + 3]`; with any levels the returned node is a stored child value instead. -/
+  root_bound : levels.val = 0 → ResidueNodeWF d root
+  /-- Every digit written below `levels` is strictly below `ARITY`: the `massert (i < arity)` in
+  `walk_residue_loop.body` cannot fail. -/
+  digits_bounded : ∀ (index : I) (buf : Slice Std.U8), buf.val.length = levels.val →
+    ∃ out, inst.digits index buf = ok out ∧ out.val.length = buf.val.length ∧
+      ∀ (k : Nat) (dv : Std.U8), k < levels.val → out.val[k]? = some dv →
+        core.convert.num.FromUsizeU8.from dv < arity
+
+/-- Totality of the `ExactIdentity` methods `walk_identity` calls. -/
+structure ExactIdentityWF {K Ret Res : Type}
+    (inst : coord.locator.locator_core.ExactIdentity K Ret Res) : Prop where
+  encoding_len_total : ∀ key, ∃ len, inst.encoding_len key = ok len
+  encoding_byte_total : ∀ key (index : Std.Usize), ∃ b, inst.encoding_byte key index = ok b
+
+/-- `EdgeIndexWF` depends only on `edge_words`. -/
+theorem EdgeIndexWF.of_words_eq {d d' : coord.locator.locator_core.Directory} {e : Std.U32}
+    (he : d'.edge_words = d.edge_words) (h : EdgeIndexWF d e) : EdgeIndexWF d' e := by
+  simp only [EdgeIndexWF, he]
+  exact h
+
+/-- `IdentityNodeWF` depends only on `identity_words`. -/
+theorem IdentityNodeWF.of_words_eq {d d' : coord.locator.locator_core.Directory} {node : Std.U32}
+    (hi : d'.identity_words = d.identity_words) (h : IdentityNodeWF d node) :
+    IdentityNodeWF d' node := by
+  simp only [IdentityNodeWF, hi]
+  exact h
+
+/-- `ResidueNodeWF` depends only on `residue_words`. -/
+theorem ResidueNodeWF.of_words_eq {d d' : coord.locator.locator_core.Directory} {node : Std.U32}
+    (hr : d'.residue_words = d.residue_words) (h : ResidueNodeWF d node) :
+    ResidueNodeWF d' node := by
+  simp only [ResidueNodeWF, hr]
+  exact h
+
+/-- `DirectoryWF` depends only on the three word vectors. -/
+theorem DirectoryWF.of_words_eq {d d' : coord.locator.locator_core.Directory}
+    (h : d'.residue_words = d.residue_words ∧ d'.identity_words = d.identity_words ∧
+      d'.edge_words = d.edge_words) : DirectoryWF d → DirectoryWF d' := by
+  intro wf
+  rcases h with ⟨hr, hi, he⟩
+  constructor
+  · intro p v hget hp hno
+    rw [hr] at hget
+    rw [hr]
+    exact wf.residue_child_bound p v hget hp hno
+  · intro p v hget hp hno
+    rw [hr] at hget
+    rw [hi]
+    exact wf.residue_identity_bound p v hget hp hno
+  · intro p v hget hp
+    rw [hi] at hget
+    exact EdgeIndexWF.of_words_eq he (wf.identity_edge_bound p v hget hp)
+  · intro p v hget hp hno
+    rw [he] at hget
+    exact IdentityNodeWF.of_words_eq hi (wf.edge_child_bound p v hget hp hno)
+  · intro p v hget hp
+    rw [he] at hget
+    exact EdgeIndexWF.of_words_eq he (wf.edge_next_bound p v hget hp)
+
+
+/-- `read_word` succeeds in bounds and returns the stored word. -/
+theorem read_word_ok (words : Slice Std.U32) (i : Std.Usize)
+    (hbound : i.val < words.val.length) :
+    coord.locator.locator_core.read_word words i = ok words.val[i.val] := by
+  simp only [coord.locator.locator_core.read_word, Slice.index_usize]
+  rw [show words[i]? = some words.val[i.val] by simp [hbound]]
+
+/-- First-edge words are `EdgeIndexWF` edge values. -/
+theorem DirectoryWF.edgeIndexWF_of_first_edge {d : coord.locator.locator_core.Directory}
+    (wf : DirectoryWF d) {p : Nat} {v : Std.U32}
+    (hget : d.identity_words.val[p]? = some v) (hp : p % 2 = 1) : EdgeIndexWF d v :=
+  wf.identity_edge_bound p v hget hp
+
+/-- Edge next words are `EdgeIndexWF` edge values. -/
+theorem DirectoryWF.edgeIndexWF_of_next {d : coord.locator.locator_core.Directory}
+    (wf : DirectoryWF d) {p : Nat} {v : Std.U32}
+    (hget : d.edge_words.val[p]? = some v) (hp : p % 3 = 2) : EdgeIndexWF d v :=
+  wf.edge_next_bound p v hget hp
+
+/-- Edge child words are identity node values. -/
+theorem DirectoryWF.identityNodeWF_of_edge_child {d : coord.locator.locator_core.Directory}
+    (wf : DirectoryWF d) {p : Nat} {v : Std.U32}
+    (hget : d.edge_words.val[p]? = some v) (hp : p % 3 = 1)
+    (hno : v ≠ coord.locator.locator_core.NO_CHILD) : IdentityNodeWF d v :=
+  wf.edge_child_bound p v hget hp hno
+
+/-- Residue identity roots are identity node values. -/
+theorem DirectoryWF.identityNodeWF_of_identity_root {d : coord.locator.locator_core.Directory}
+    (wf : DirectoryWF d) {p : Nat} {v : Std.U32}
+    (hget : d.residue_words.val[p]? = some v) (hp : p % 4 = 3)
+    (hno : v ≠ coord.locator.locator_core.NO_CHILD) : IdentityNodeWF d v :=
+  wf.residue_identity_bound p v hget hp hno
+
+/-- Residue child words are residue node values. -/
+theorem DirectoryWF.residueNodeWF_of_child {d : coord.locator.locator_core.Directory}
+    (wf : DirectoryWF d) {p : Nat} {v : Std.U32}
+    (hget : d.residue_words.val[p]? = some v) (hp : p % 4 ≠ 3) : ResidueNodeWF d v := by
+  by_cases hno : v = coord.locator.locator_core.NO_CHILD
+  · exact Or.inl hno
+  · exact Or.inr (wf.residue_child_bound p v hget hp hno)
+
+
+/-- `Directory.new` establishes `DirectoryWF` vacuously: all three word vectors are empty, so every
+word-class field has an empty population. -/
+theorem directory_new_wf :
+    ∃ d, coord.locator.locator_core.Directory.new = ok d ∧ DirectoryWF d := by
+  refine ⟨_, rfl, ?_⟩
+  constructor
+  · intro p v hget _ _
+    simp [alloc.vec.Vec.new] at hget
+  · intro p v hget _ _
+    simp [alloc.vec.Vec.new] at hget
+  · intro p v hget _
+    simp [alloc.vec.Vec.new] at hget
+  · intro p v hget _ _
+    simp [alloc.vec.Vec.new] at hget
+  · intro p v hget _
+    simp [alloc.vec.Vec.new] at hget
+
+/-- `recycle_scratch` changes only `staged_scratch` and preserves `DirectoryWF`. -/
+theorem recycle_scratch_wf (d : coord.locator.locator_core.Directory)
+    (path : alloc.vec.Vec Std.U32) (wf : DirectoryWF d) :
+    ∃ d', coord.locator.locator_core.Directory.recycle_scratch d path = ok d' ∧ DirectoryWF d' :=
+  ⟨{d with staged_scratch := some path}, rfl,
+    DirectoryWF.of_words_eq (d := d) (d' := {d with staged_scratch := some path})
+      ⟨rfl, rfl, rfl⟩ wf⟩
+
+/-- `recycle_staged` changes only `staged_scratch` and preserves `DirectoryWF`. -/
+theorem recycle_staged_wf (d : coord.locator.locator_core.Directory)
+    (staged : coord.locator.locator_core.StagedPath) (wf : DirectoryWF d) :
+    ∃ d', coord.locator.locator_core.Directory.recycle_staged d staged = ok d' ∧ DirectoryWF d' :=
+  ⟨{d with staged_scratch := some staged.identity_path}, rfl,
+    DirectoryWF.of_words_eq (d := d) (d' := {d with staged_scratch := some staged.identity_path})
+      ⟨rfl, rfl, rfl⟩ wf⟩
 
 end Apeiron.GrowableRelocation

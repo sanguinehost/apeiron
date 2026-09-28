@@ -1,4 +1,6 @@
 import Native.HyperbolicBase
+import ApeironWord
+import Growable.Identity
 import Mathlib.Algebra.TrivSqZeroExt.Basic
 import Lean
 
@@ -851,6 +853,372 @@ theorem typed_face_domain_exact :
       FaceDomain.fromFace .locatorSigma .hyperbolic = some .hyperbolic := by
   exact ⟨rfl, rfl, rfl, rfl⟩
 
+/-! ## Generated elliptic word packing -/
+
+namespace Native.Address
+
+/-- The extracted word codec decodes its own elliptic packed image. -/
+theorem pack_roundtrip (key : Aeneas.Std.I64) :
+    (do
+      let packed ←
+        apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
+          () key
+      apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack
+        () packed) = Aeneas.Std.Result.ok (some key) := by
+  simp [apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack,
+    apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack,
+    apeiron_word.coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack,
+    apeiron_word.coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack,
+    apeiron_word.I64.Insts.Apeiron_wordCoordPacked.packed,
+    apeiron_word.I64.Insts.Apeiron_wordCoordPacked.unpack,
+    Aeneas.Std.UScalar.hcast, Aeneas.Std.IScalar.hcast]
+
+end Native.Address
+
+/-! ## Generated all-face word addresses -/
+
+namespace Native.Address
+
+open Aeneas Aeneas.Std Result
+
+/-- The generated validator reaches its sole sealed profile from the frozen constants. -/
+theorem h3_40_new_ok :
+    ∃ profile : apeiron_word.coord.address.H3_40,
+      apeiron_word.coord.address.H3_40.new = Aeneas.Std.Result.ok (some profile) := by
+  let HInv : Aeneas.Std.U64 × Aeneas.Std.U32 → Prop := fun state =>
+    state.2.val ≤ 40 ∧ state.1.val = 3 ^ state.2.val
+  have hloop :
+      apeiron_word.coord.address.H3_40.validate_loop
+          apeiron_word.coord.address.H3_40.P
+          apeiron_word.coord.address.H3_40.K
+          apeiron_word.coord.address.H3_40.Q
+          apeiron_word.coord.address.H3_40.R
+          apeiron_word.coord.address.H3_40.S
+          apeiron_word.coord.address.H3_40.INVERSE_OF_TWO 1#u64 0#u32 =
+        Aeneas.Std.Result.ok true := by
+    unfold apeiron_word.coord.address.H3_40.validate_loop
+    have hs : loop
+        (fun state =>
+          apeiron_word.coord.address.H3_40.validate_loop.body
+            apeiron_word.coord.address.H3_40.P
+            apeiron_word.coord.address.H3_40.K
+            apeiron_word.coord.address.H3_40.Q
+            apeiron_word.coord.address.H3_40.R
+            apeiron_word.coord.address.H3_40.S
+            apeiron_word.coord.address.H3_40.INVERSE_OF_TWO state.1 state.2)
+        (1#u64, 0#u32) ⦃ result => result = true ⦄ := by
+      apply loop.spec_decr_nat
+        (measure := fun state : Aeneas.Std.U64 × Aeneas.Std.U32 => 40 - state.2.val)
+        (inv := HInv)
+        (post := fun result => result = true)
+      · intro state hstate
+        rcases state with ⟨power, step⟩
+        rcases hstate with ⟨hstep, hpower⟩
+        dsimp only [HInv] at hstep hpower ⊢
+        unfold apeiron_word.coord.address.H3_40.validate_loop.body
+        by_cases hlt : step < apeiron_word.coord.address.H3_40.K
+        · rw [if_pos hlt]
+          have hstepLt : step.val < 40 := by
+            simpa [apeiron_word.coord.address.H3_40.K] using hlt
+          simp only [Aeneas.Std.lift, Aeneas.Std.bind_tc_ok]
+          simp only [apeiron_word.coord.address.H3_40.P]
+          cases hmul : Aeneas.Std.U64.checked_mul power 3#u64 with
+          | none =>
+            have hover := Aeneas.Std.U64.checked_mul_bv_spec power 3#u64
+            rw [hmul] at hover
+            simp only at hover
+            rw [hpower] at hover
+            have hpowLe : 3 ^ (step.val + 1) ≤ 3 ^ 40 := by
+              exact Nat.pow_le_pow_right (by norm_num) (Nat.succ_le_iff.mpr hstepLt)
+            have hmax : 3 ^ 40 ≤ Aeneas.Std.U64.max := by
+              rw [Aeneas.Std.U64.max_eq]
+              norm_num
+            norm_num at hover
+            rw [pow_succ] at hpowLe
+            omega
+          | some next =>
+            have hnext := Aeneas.Std.U64.checked_mul_bv_spec power 3#u64
+            rw [hmul] at hnext
+            simp only at hnext
+            simp only
+            have haddBound : step.val + 1 ≤ Aeneas.Std.U32.max := by
+              rw [Aeneas.Std.U32.max_eq]
+              omega
+            step
+            scalar_tac
+        · rw [if_neg hlt]
+          have hstepEq : step.val = 40 := by
+            have hnot : ¬step.val < 40 := by
+              simpa [apeiron_word.coord.address.H3_40.K] using hlt
+            omega
+          have hpowerEq : power = apeiron_word.coord.address.H3_40.Q := by
+            apply Aeneas.Std.UScalar.eq_of_val_eq
+            rw [hpower, hstepEq]
+            simp [apeiron_word.coord.address.H3_40.Q]
+          subst power
+          simp only [apeiron_word.coord.address.H3_40.Q,
+            apeiron_word.coord.address.H3_40.P,
+            apeiron_word.coord.address.H3_40.R,
+            apeiron_word.coord.address.H3_40.S,
+            apeiron_word.coord.address.H3_40.INVERSE_OF_TWO]
+          rw [if_neg (by simp)]
+          step
+          have hi : i.val = 9223372036854775808 := by
+            rw [i_post]
+            rw [Nat.shiftLeft_eq]
+            norm_num [Aeneas.Std.U64.size, Aeneas.Std.U64.numBits]
+          rw [if_neg]
+          · step
+            cases o with
+            | some value =>
+              simp only at o_post
+              rw [Aeneas.Std.U64.max_eq] at o_post
+              norm_num at o_post
+            | none =>
+              simp only [Option.isSome, Bool.false_eq_true, if_false]
+              step
+              have hi1 : i1 = 1#u64 := by
+                apply Aeneas.Std.UScalar.eq_of_val_eq
+                rw [i1_post]
+                norm_num
+              subst i1
+              rw [if_neg (by simp)]
+              simp only [Aeneas.Std.lift, Aeneas.Std.bind_tc_ok]
+              step
+              step
+              have hi5 : i5 = 1#u128 := by
+                apply Aeneas.Std.UScalar.eq_of_val_eq
+                rw [i5_post, i4_post]
+                simp only [Aeneas.Std.core.convert.num.FromU128U64.from_val_eq]
+                norm_num
+              subst i5
+              rw [if_neg (by simp)]
+              step
+              step
+              have hi8 : i8 = 1#u128 := by
+                apply Aeneas.Std.UScalar.eq_of_val_eq
+                rw [i8_post, i7_post]
+                simp only [Aeneas.Std.core.convert.num.FromU128U64.from_val_eq]
+                norm_num
+              subst i8
+              rw [if_neg (by simp)]
+              step
+              step
+              have hi12 : i12 = 1#u128 := by
+                apply Aeneas.Std.UScalar.eq_of_val_eq
+                rw [i12_post, i11_post]
+                simp only [Aeneas.Std.core.convert.num.FromU128U64.from_val_eq]
+                norm_num
+              subst i12
+              simp
+          · change ¬12157665459056928801 ≤ i.val
+            rw [hi]
+            norm_num
+      · exact ⟨by norm_num, by norm_num⟩
+    obtain ⟨result, hresult, hpost⟩ := Aeneas.Std.WP.spec_imp_exists hs
+    rw [hpost] at hresult
+    exact hresult
+  refine ⟨{ _sealed := () }, ?_⟩
+  have hvalidate :
+      apeiron_word.coord.address.H3_40.validate
+          apeiron_word.coord.address.H3_40.VERSION
+          apeiron_word.coord.address.H3_40.P
+          apeiron_word.coord.address.H3_40.K
+          apeiron_word.coord.address.H3_40.Q
+          apeiron_word.coord.address.H3_40.R
+          apeiron_word.coord.address.H3_40.S
+          apeiron_word.coord.address.H3_40.INVERSE_OF_TWO = ok true := by
+    unfold apeiron_word.coord.address.H3_40.validate
+    rw [if_neg (by simp), if_neg (by simp), if_neg (by simp)]
+    exact hloop
+  simp [apeiron_word.coord.address.H3_40.new, hvalidate]
+
+/-- The generated default face-home delegation from a validated generated profile. -/
+def wordFaceAddress (profile : apeiron_word.coord.address.H3_40)
+    (face : apeiron_word.cell.Sigma) (key : Aeneas.Std.I64) :
+    Aeneas.Std.Result apeiron_word.coord.address.FaceTableAddress :=
+  apeiron_word.coord.address.FaceHome.address.default
+    apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma () profile face key
+
+/-- The scalar hyperbolic address embeds as the canonical cell `(a, 0)`. -/
+def hyperbolicScalarCell (residue : Aeneas.Std.U64) :
+    Apeiron.Trichotomy.AnyRing.RingCell Apeiron.NativeAddress.H3_40 :=
+  (((residue.val : Nat) : Apeiron.NativeAddress.H3_40), 0)
+
+/-- The scalar embedding uses canonical `ringMul` and `ringNormForm`; it makes no encoding-homomorphism claim. -/
+theorem hyperbolic_scalar_denote (residue : Aeneas.Std.U64) :
+    Apeiron.Trichotomy.AnyRing.ringMul (1 : Apeiron.NativeAddress.H3_40)
+        (hyperbolicScalarCell residue) (1, 0) = hyperbolicScalarCell residue ∧
+      Apeiron.Trichotomy.AnyRing.ringNormForm (1 : Apeiron.NativeAddress.H3_40)
+        (hyperbolicScalarCell residue) = ((residue.val : Nat) : Apeiron.NativeAddress.H3_40) ^ 2 := by
+  simp [hyperbolicScalarCell]
+
+/-- The real default delegation denotes the generated elliptic, parabolic, and hyperbolic bodies. -/
+theorem home_face_denote (profile : apeiron_word.coord.address.H3_40)
+    (_hprofile : apeiron_word.coord.address.H3_40.new = Aeneas.Std.Result.ok (some profile))
+    (key : Aeneas.Std.I64) :
+    wordFaceAddress profile .Elliptic key =
+      (do
+        let packed ←
+          apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
+            () key
+        apeiron_word.coord.address.FaceTableAddress.new (.EllipticWord packed)) ∧
+    wordFaceAddress profile .Parabolic key =
+      (do
+        let dual ←
+          apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
+            () key
+        let residue ← apeiron_word.coord.address.ParabolicDual.residue dual
+        apeiron_word.coord.address.FaceTableAddress.new (.ParabolicWord residue)) ∧
+    wordFaceAddress profile .Hyperbolic key =
+      (do
+        let residue ←
+          apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
+            () profile key
+        apeiron_word.coord.address.FaceTableAddress.new (.HyperbolicResidue profile residue)) := by
+  simp [wordFaceAddress, apeiron_word.coord.address.FaceHome.address.default,
+    apeiron_word.cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode,
+    apeiron_word.coord.address.LocatorSigma.token_for,
+    apeiron_word.coord.address.LocatorSigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode]
+
+/-- One generated constructor witness supplies all three generated face-dispatch equations. -/
+theorem home_face_joint_witness :
+    ∃ profile : apeiron_word.coord.address.H3_40,
+      apeiron_word.coord.address.H3_40.new = Aeneas.Std.Result.ok (some profile) ∧
+      ∀ key : Aeneas.Std.I64,
+        wordFaceAddress profile .Elliptic key =
+            (do
+              let packed ←
+                apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
+                  () key
+              apeiron_word.coord.address.FaceTableAddress.new (.EllipticWord packed)) ∧
+          wordFaceAddress profile .Parabolic key =
+            (do
+              let dual ←
+                apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
+                  () key
+              let residue ← apeiron_word.coord.address.ParabolicDual.residue dual
+              apeiron_word.coord.address.FaceTableAddress.new (.ParabolicWord residue)) ∧
+          wordFaceAddress profile .Hyperbolic key =
+            (do
+              let residue ←
+                apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
+                  () profile key
+              apeiron_word.coord.address.FaceTableAddress.new
+                (.HyperbolicResidue profile residue)) := by
+  obtain ⟨profile, hprofile⟩ := h3_40_new_ok
+  exact ⟨profile, hprofile, fun key => home_face_denote profile hprofile key⟩
+
+
+/-- The carried-key face calls the real face-home address on its retained key. -/
+def storedFaceAddressHeld (profile : apeiron_word.coord.address.H3_40)
+    (face : apeiron_word.cell.Sigma) (held : Apeiron.GrowableIdentity.StoredI64) :
+    Aeneas.Std.Result apeiron_word.coord.address.FaceTableAddress :=
+  apeiron_word.table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
+    Apeiron.GrowableIdentity.wordExactIdentityInst Aeneas.Std.core.clone.CloneI64
+    Apeiron.GrowableIdentity.wordHomeInst
+    apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma
+    () profile face held
+
+/-- The regenerating face decodes its held identity before calling the real face-home address. -/
+def regenFaceAddressHeld (profile : apeiron_word.coord.address.H3_40)
+    (face : apeiron_word.cell.Sigma) (held : Apeiron.GrowableIdentity.RegenI64) :
+    Aeneas.Std.Result apeiron_word.coord.address.FaceTableAddress :=
+  apeiron_word.table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
+    Apeiron.GrowableIdentity.wordExactIdentityInst Apeiron.GrowableIdentity.wordHomeInst
+    Apeiron.GrowableIdentity.wordCodecInst
+    apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma
+    () profile face held
+
+/-- Held stored and regenerating addresses agree with the query address on every admitted face. -/
+theorem held_address_agrees (profile : apeiron_word.coord.address.H3_40)
+    (face : apeiron_word.cell.Sigma) (key : Aeneas.Std.I64)
+    (heldStored : Apeiron.GrowableIdentity.StoredI64)
+    (heldRegen : Apeiron.GrowableIdentity.RegenI64)
+    (hstored : heldStored = { key := key })
+    (hregen : apeiron_word.word_regen_hold face key = Aeneas.Std.Result.ok heldRegen) :
+    storedFaceAddressHeld profile face heldStored = wordFaceAddress profile face key ∧
+      regenFaceAddressHeld profile face heldRegen = wordFaceAddress profile face key := by
+  subst heldStored
+  constructor
+  · rfl
+  · have hdecode := Apeiron.GrowableIdentity.regen_hold_decodes face key
+    rw [hregen] at hdecode
+    simp only [Aeneas.Std.WP.spec_ok] at hdecode
+    unfold regenFaceAddressHeld
+    unfold apeiron_word.table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
+    dsimp only [Apeiron.GrowableIdentity.wordCodecInst,
+      apeiron_word.table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces]
+    simp only [apeiron_word.cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma,
+      Aeneas.Std.bind_tc_ok]
+    change (do
+      let decoded ← Apeiron.GrowableIdentity.decodeRegen face heldRegen
+      wordFaceAddress profile face decoded) = wordFaceAddress profile face key
+    rw [hdecode]
+    simp
+
+/-- One common key has successful agreeing Stored and Regen checks on the admitted Parabolic face. -/
+private theorem spread_zero :
+    apeiron_word.coord.spread 0#u64 =
+      Aeneas.Std.Result.ok { place := 0#u64, id := 0#u64 } := by
+  have hc : Aeneas.Std.UScalar.cast .U128 (0#u64) = 0#u128 := by
+    apply Aeneas.Std.UScalar.eq_of_val_eq
+    simp
+  have hm : Aeneas.Std.core.num.U128.wrapping_mul 0#u128
+      (Aeneas.Std.UScalar.cast .U128 apeiron_word.coord.PHI) = 0#u128 := by
+    apply Aeneas.Std.UScalar.eq_of_val_eq
+    simp
+  have hc64 : Aeneas.Std.UScalar.cast .U64 (0#u128) = 0#u64 := by
+    apply Aeneas.Std.UScalar.eq_of_val_eq
+    simp
+  have hs : (0#u128 >>> 64#i32 : Aeneas.Std.Result Aeneas.Std.U128) =
+      Aeneas.Std.Result.ok 0#u128 := by rfl
+  have hr : Aeneas.Std.core.num.U64.rotate_left 0#u64 32#u32 = 0#u64 := by rfl
+  simp only [apeiron_word.coord.spread, hc, hm, hc64, hs, hr,
+    Aeneas.Std.bind_tc_ok, Aeneas.Std.lift]
+  rfl
+
+theorem held_address_joint_witness :
+    ∃ profile key heldRegen address,
+      apeiron_word.coord.address.H3_40.new = Aeneas.Std.Result.ok (some profile) ∧
+      apeiron_word.word_regen_hold apeiron_word.cell.Sigma.Parabolic key =
+        Aeneas.Std.Result.ok heldRegen ∧
+      wordFaceAddress profile .Parabolic key = Aeneas.Std.Result.ok address ∧
+      storedFaceAddressHeld profile .Parabolic { key := key } =
+        Aeneas.Std.Result.ok address ∧
+      regenFaceAddressHeld profile .Parabolic heldRegen = Aeneas.Std.Result.ok address := by
+  obtain ⟨profile, hprofile⟩ := h3_40_new_ok
+  let key : Aeneas.Std.I64 := 0#i64
+  obtain ⟨heldRegen, hhold, _⟩ := Aeneas.Std.WP.spec_imp_exists
+    (Apeiron.GrowableIdentity.regen_hold_decodes .Parabolic key)
+  have haddress : ∃ address,
+      wordFaceAddress profile .Parabolic key = Aeneas.Std.Result.ok address := by
+    refine ⟨{ value := .ParabolicWord 0#u64 }, ?_⟩
+    simp [wordFaceAddress,
+      apeiron_word.coord.address.FaceHome.address.default,
+      apeiron_word.cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode,
+      apeiron_word.coord.address.LocatorSigma.token_for,
+      apeiron_word.coord.address.LocatorSigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode,
+      apeiron_word.table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual,
+      apeiron_word.coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual,
+      apeiron_word.coord.address.ParabolicDual.new,
+      apeiron_word.coord.address.ParabolicDual.residue,
+      apeiron_word.coord.address.FaceTableAddress.new,
+      core.num.I64.cast_unsigned, key]
+    change (do
+      let x ← apeiron_word.coord.spread 0#u64
+      Aeneas.Std.Result.ok (apeiron_word.coord.address.FaceTableAddress.mk (.ParabolicWord x.place))) =
+        Aeneas.Std.Result.ok
+          (apeiron_word.coord.address.FaceTableAddress.mk (.ParabolicWord 0#u64))
+    simp only [spread_zero, Aeneas.Std.bind_tc_ok]
+  obtain ⟨address, haddress⟩ := haddress
+  have hagree := held_address_agrees profile .Parabolic key { key := key } heldRegen rfl hhold
+  exact ⟨profile, key, heldRegen, address, hprofile, hhold, haddress,
+    by rw [hagree.1]; exact haddress,
+    by rw [hagree.2]; exact haddress⟩
+
+end Native.Address
+
 /-- A many-to-one residue cannot be reused as an equality-faithful identity encoding. -/
 theorem manyToOne_residue_not_exactIdentity
     {Key Residue Retained : Type*} (identity : ExactIdentityContract Key Retained)
@@ -1426,7 +1794,7 @@ elab "#audit " id:ident : command => do
   let constants ← liftCoreM <| realizeGlobalConstWithInfos id
   for constant in constants do
     let axioms ← liftTermElabM <| Lean.collectAxioms constant
-    let bad := axioms.filter (fun name => !locatorClosedAxioms.contains name)
+    let bad := axioms.filter (fun n => !locatorClosedAxioms.contains n)
     if bad.isEmpty then
       logInfo m!"'{constant}' depends on axioms: {axioms.toList}"
     else
@@ -1472,6 +1840,13 @@ elab "#audit " id:ident : command => do
 #audit TableHomeCapability
 #audit FaceLocatorCapability
 #audit typed_face_domain_exact
+#audit Native.Address.pack_roundtrip
+#audit Native.Address.h3_40_new_ok
+#audit Native.Address.hyperbolic_scalar_denote
+#audit Native.Address.home_face_denote
+#audit Native.Address.home_face_joint_witness
+#audit Native.Address.held_address_agrees
+#audit Native.Address.held_address_joint_witness
 #audit manyToOne_residue_not_exactIdentity
 #audit admission_boundary
 #audit table_admission_map_exact

@@ -6,10 +6,10 @@ import Growable.Identity
 /-!
 # Search decision and extracted apply
 
-The probe loop is outside extraction. `SearchDecisionCorrect` states its complete contract over the
-physical entries supplied to the real straight-line apply. The theorems in this module unfold the
-extracted stored and regenerating apply bodies; they do not prove the decision premise, relocation,
-or a whole-table representation invariant.
+The probe loops are extracted. `SearchDecisionCorrect` states their complete contract over the
+physical entries supplied to the real straight-line apply, but this module does not prove that the
+generated probe bodies establish that premise. Its theorems unfold the extracted stored and
+regenerating apply bodies; they do not prove relocation or a whole-table representation invariant.
 -/
 
 namespace Apeiron.GrowableSearch
@@ -113,9 +113,60 @@ def DirectCover {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usiz
     Absent state decode query
 
 /--
+A sound routed summary miss. The generated route selects the shard, the generated summary at the
+query's routed place is negative, and no live representative in that shard decodes to the query.
+`Search` cannot import `GrowableRepresentation` (cycle), so this is the local mirror of
+`GrowableRepresentation.SpillSummaryMissSound`; a producer instantiates it from `RepR`'s summary
+shape/recordedness fields and the generated `spill_locate` route. It is state evidence, not the
+desired `Absent` result: the routing and flat-exclusion consequences are separate structure fields
+on `SearchDecisionCorrect`.
+-/
+structure SummaryMissSound {R : Type}
+    (state : table.Table I64 I64 table.WordHome R 16#usize)
+    (decode : cell.Sigma → R → Option I64) (query : LogicalKey) where
+  address : table.TableAddress
+  shard : Usize
+  generatedAddress :
+    Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 = ok address
+  shardEq : table.shard address = ok shard
+  region : table.Region R I64
+  regionAt : state.shards.val[shard.val]? = some region
+  miss : table.Region.summary_maybe region address.place = ok false
+  excludes : ∀ index value, entryAt state decode (.spill shard index) ≠ some (query, value)
+
+/--
+The three-way non-`Found` absence certificate. Every non-`Found` decision licenses logical absence
+through exactly one route:
+* `directEmpty` — the decision's location is direct-admitted, so `DirectCover` at its first-fit
+  vacancy yields `Absent`;
+* `directExcludedSummaryMiss` — the query is not direct-admitted and a sound routed summary miss
+  excludes every representative; `SearchDecisionCorrect.flatMatchAdmitted` and
+  `SearchDecisionCorrect.spillMatchRouted` carry the generated route that turns the two exclusions
+  into absence;
+* `coverage` — every live representative lies in `checked` and none of the checked locations decodes
+  to the query's canonical value.
+No constructor carries a supplied `Found` or `Absent` result.
+-/
+inductive AbsenceCertificate {R : Type}
+    (state : table.Table I64 I64 table.WordHome R 16#usize)
+    (decode : cell.Sigma → R → Option I64) (logical : Apeiron.Table.HMap LogicalKey I64)
+    (query : LogicalKey) (decision : table.SearchDecision)
+    (direct : LogicalKey → Option Location) (checked : List Location) : Prop where
+  | directEmpty (location : Location)
+      (hlocation : decisionLocation decision = some location)
+      (hdirect : direct query = some location) :
+      AbsenceCertificate state decode logical query decision direct checked
+  | directExcludedSummaryMiss (hexcluded : direct query = none)
+      (hmiss : SummaryMissSound state decode query) :
+      AbsenceCertificate state decode logical query decision direct checked
+  | coverage (hcovered : ∀ location, location ∈ checked →
+      entryAt state decode location ≠ some (query, Apeiron.Table.get logical query)) :
+      AbsenceCertificate state decode logical query decision direct checked
+
+/--
 The unextracted decision's complete premise. Presence is exact and unique; vacancy is first-fit;
-exhaustion is exact; direct absence uses `DirectCover`; every other absence uses complete coverage;
-and a recorded vacancy never truncates the mandatory match sweep.
+exhaustion is exact; direct absence uses `DirectCover`; every other absence uses the three-way
+`AbsenceCertificate`; and a recorded vacancy never truncates the mandatory match sweep.
 -/
 structure SearchDecisionCorrect {R : Type}
     (state : table.Table I64 I64 table.WordHome R 16#usize)
@@ -140,10 +191,19 @@ structure SearchDecisionCorrect {R : Type}
     decisionLocation decision = some location → direct query = some location →
       Absent state decode query
   complete : CompleteCoverage state decode checked
-  absenceCovered : decision.class ≠ .Found →
-    (∃ location, decisionLocation decision = some location ∧ direct query = some location) ∨
-      (∀ location, location ∈ checked → entryAt state decode location ≠
-        some (query, Apeiron.Table.get logical query))
+  absenceCertificate : decision.class ≠ .Found →
+    AbsenceCertificate state decode logical query decision direct checked
+  /-- Every live flat representative's key is direct-admitted: the forward direction of the generated
+      `WordHome.address`/`preparedFlatIndex` route. It turns `direct query = none` into flat absence. -/
+  flatMatchAdmitted : ∀ index value,
+    entryAt state decode (.flat index) = some (query, value) →
+      ∃ location, direct query = some location
+  /-- Every live spill representative routes to its own shard through the generated address. It
+      connects a routed `SummaryMissSound` exclusion to every spill location. -/
+  spillMatchRouted : ∀ shard index value,
+    entryAt state decode (.spill shard index) = some (query, value) →
+      ∃ address, Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 =
+        ok address ∧ table.shard address = ok shard
   vacancyDoesNotStopSweep : decision.class = .Vacant → ∀ location,
     location ∈ sweep → location ∈ checked
   prefixBeforeSweep : ∀ location, location ∈ prefixOrder → location ∈ order
@@ -253,14 +313,29 @@ private theorem absent_of_not_found {R : Type}
   | Found => exact False.elim (hnfound hclass)
   | Exhausted => exact (h.exhaustedExact.mp hclass).1
   | Vacant =>
-      rcases h.absenceCovered hnfound with hdirect | hcovered
-      · obtain ⟨location, hlocation, hdirect⟩ := hdirect
-        obtain ⟨vacantLocation, hvacantLocation, hfirst⟩ := h.vacantExact.mp hclass
+      rcases h.absenceCertificate hnfound with
+        ⟨location, hlocation, hdirect⟩ | ⟨hexcluded, hmiss⟩ | hcovered
+      · obtain ⟨vacantLocation, hvacantLocation, hfirst⟩ := h.vacantExact.mp hclass
         have heq : location = vacantLocation := by
           rw [hlocation] at hvacantLocation
           exact Option.some.inj hvacantLocation
         subst vacantLocation
         exact h.directCover query location hdirect hfirst.1
+      · intro location value hentry
+        cases location with
+        | flat index =>
+            obtain ⟨location, hdirect⟩ := h.flatMatchAdmitted index value hentry
+            rw [hexcluded] at hdirect
+            cases hdirect
+        | spill shard index =>
+            obtain ⟨address, haddress, hshard⟩ := h.spillMatchRouted shard index value hentry
+            rw [hmiss.generatedAddress] at haddress
+            have haddrEq : address = hmiss.address := (Result.ok_injective haddress).symm
+            rw [haddrEq] at hshard
+            rw [hmiss.shardEq] at hshard
+            have hshardEq : shard = hmiss.shard := (Result.ok_injective hshard).symm
+            rw [hshardEq] at hentry
+            exact hmiss.excludes index value hentry
       · intro location value hentry
         have hin := h.complete location (query, value) hentry
         apply hcovered location hin

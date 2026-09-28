@@ -78,6 +78,7 @@ theorem word_stored_apply_pending_and_commit_eq_apply_insert
   rcases hclass with hfound | hvacant <;>
     cases hlocation : decision.location <;>
     simp_all [word_stored_apply_pending_and_commit, table.Table.apply_pending_and_commit,
+      table.Table.recycle_unused_staged_path, core.option.Option.take,
       word_stored_apply_insert, table.Table.apply_insert, rebuiltView, committedResult,
       table.TableLocator.publish_for_held, table.TableLocator.publish_for_query,
       table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.hold,
@@ -116,6 +117,7 @@ theorem word_regen_apply_pending_and_commit_eq_apply_insert
   rcases hclass with hfound | hvacant <;>
     cases hlocation : decision.location <;>
     simp_all [word_regen_apply_pending_and_commit, table.Table.apply_pending_and_commit,
+      table.Table.recycle_unused_staged_path, core.option.Option.take,
       word_regen_apply_insert, table.Table.apply_insert, rebuiltView, committedResult,
       table.TableLocator.publish_for_held, table.TableLocator.publish_for_query,
       table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge,

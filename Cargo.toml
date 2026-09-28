@@ -5,11 +5,7 @@ edition = "2021"
 description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls out of it."
 readme = "README.md"
 authors = ["Lucas 'Paperboy' Rose-Winters"]
-# GPL-3.0, matching lyrium. Note this is viral: a crate that links apeiron must also be GPL-3.0,
-# which for a hash map -- a thing meant to be depended on widely -- is a real constraint. The Rust
-# ecosystem norm for a library like this is `license = "MIT OR Apache-2.0"`; changing it is one
-# line here plus the LICENSE file.
-license-file = "LICENSE"
+license = "MPL-2.0"
 keywords = ["hashmap", "hash", "algebra", "deterministic", "hashdos"]
 categories = ["data-structures", "algorithms", "concurrency"]
 # 1.87 is where `i32::cast_unsigned` and its siblings stabilised (`integer_sign_cast`). `coord`
@@ -26,15 +22,21 @@ derive = ["dep:apeiron-derive"]
 # runs a debug profile (so `debug_assertions` is on), which is why they are gated by this feature and
 # not by `debug_assertions`. The timed release path is counter-free with or without it.
 read-stats = []
-# Off by default. Enables the test-only one-shot reservation-failure seams
-# (`apeiron::coord::locator::reservation_failure`), which use a `thread_local` and therefore must
-# stay off in the Charon/Aeneas extraction unit (Charon builds with default features). With it off,
-# the default build contains no `thread_local` and no seam call; the real `SizeOverflow`,
-# `AllocationFailed` and `Capacity` refusal paths are unaffected.
+# Off by default. Enables the test-only one-shot seams and observation probes
+# (`apeiron::coord::locator::reservation_failure` and the injection-gated seams/probes in
+# `apeiron::table::parallel` and `apeiron::table::locator`), which use a `thread_local` and
+# therefore must stay off in the Charon/Aeneas extraction unit (Charon builds with default
+# features). With it off, the default build contains no `thread_local` and no seam call; the real
+# `SizeOverflow`, `AllocationFailed` and `Capacity` refusal paths are unaffected.
 injection = []
 
 [dependencies]
 apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
+
+# Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`); already in the lock via
+# the dev-dependencies.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

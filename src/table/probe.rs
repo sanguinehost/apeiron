@@ -312,22 +312,18 @@ pub(super) fn spill_locate_held<K, H, R: KeyRep<K, H>, V>(
     result
 }
 
-/// Kani-only fixtures for the real `spill_read` body.
+/// Finite regression fixtures for the real `spill_read` and `spill_locate` bodies.
 ///
-/// A whole-`Table` harness cannot decide this helper: its loops are bounded by a symbolic `Vec`
-/// length and a data-dependent bitmask. These run the
-/// real `spill_read`, the real `Region`, tags, summary and the real `Stored<i64>` full-key
-/// comparison, on a fixed placement so the probe order is deterministic, over a symbolic query key.
-/// Bounded at `n = 2`, four slots, two groups. Not a whole-`Table`, production-geometry, canonical
-/// or universal-refinement result; the `Table` construction/preservation of these facts is a
-/// separate blocked obligation.
-#[cfg(kani)]
-mod harnesses {
+/// These tests run the real helpers, `Region`, tags, summary and `Stored<i64>` comparison at
+/// `n = 2`, four slots and two groups. They cover named concrete cases only. They do not establish
+/// whole-`Table` construction, production geometry, canonical refinement or universal behavior.
+#[cfg(test)]
+mod tests {
     use crate::table::keyrep::{KeyRep, Stored};
     use crate::table::{Region, TableAddress, WordHome};
     use crate::Sigma;
 
-    use super::spill_read;
+    use super::{spill_locate, spill_read, SpillSite};
 
     const N: usize = 2;
     const LEN: usize = 4;
@@ -369,20 +365,76 @@ mod harnesses {
         region
     }
 
-    #[kani::proof]
-    #[kani::unwind(10)]
+    /// The same two-group shape as [`fixture`], with the remaining lane published. Every live
+    /// lane has the query fingerprint, so absence requires full-key rejection before growth.
+    fn full_fixture() -> Region<Stored<i64>, i64> {
+        let address = address();
+        let mut region = fixture(8, 7, 9);
+        region.publish_live(1, (Sigma::Parabolic, held(11, &address), 13), address.place);
+        region
+    }
+
+    /// The real insertion locator distinguishes a late match, the first vacancy and exhaustion on
+    /// assumption-free, initialized two-group regions. These fixtures establish helper-domain
+    /// satisfiability; they do not establish that public `Table` construction reaches these states.
+    #[test]
+    fn spill_locate_classifies_a_fixed_initialized_region() {
+        let region = fixture(8, 7, 9);
+        assert_eq!(
+            spill_locate::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &address(),
+                &8,
+                N,
+            ),
+            SpillSite::Found(2),
+            "an earlier vacancy must not hide the late full-key match"
+        );
+        assert_eq!(
+            spill_locate::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &address(),
+                &10,
+                N,
+            ),
+            SpillSite::Vacant(1),
+            "same-fingerprint key collisions must retain the first vacancy"
+        );
+        assert_eq!(
+            spill_locate::<i64, WordHome, Stored<i64>, i64>(
+                &full_fixture(),
+                Sigma::Parabolic,
+                &address(),
+                &10,
+                N,
+            ),
+            SpillSite::Grow,
+            "a full region with no full-key match requires growth"
+        );
+        assert_eq!(
+            spill_locate::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Elliptic,
+                &address(),
+                &8,
+                N,
+            ),
+            SpillSite::Vacant(1),
+            "an equal key under a different Sigma is not a match"
+        );
+    }
+
+    #[test]
     fn spill_read_returns_the_late_matching_slot() {
-        let stored2: i64 = kani::any();
-        let stored0: i64 = kani::any();
-        let stored3: i64 = kani::any();
-        kani::assume(stored0 != stored2 && stored3 != stored2);
-        let region = fixture(stored2, stored0, stored3);
+        let region = fixture(8, 7, 9);
         assert_eq!(
             spill_read::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Parabolic,
                 &address(),
-                &stored2,
+                &8,
                 N,
             ),
             Some(2),
@@ -390,35 +442,27 @@ mod harnesses {
         );
     }
 
-    #[kani::proof]
-    #[kani::unwind(10)]
+    #[test]
     fn spill_read_reports_absence_without_a_full_key_match() {
-        let query: i64 = kani::any();
-        let stored2: i64 = kani::any();
-        let stored0: i64 = kani::any();
-        let stored3: i64 = kani::any();
-        kani::assume(query != stored2 && query != stored0 && query != stored3);
-        let region = fixture(stored2, stored0, stored3);
-        assert_eq!(
-            spill_read::<i64, WordHome, Stored<i64>, i64>(
-                &region,
-                Sigma::Parabolic,
-                &address(),
-                &query,
-                N,
-            ),
-            None,
-            "a fingerprint collision on every live lane is still absence without a full match"
-        );
+        let region = fixture(8, 7, 9);
+        for query in [10, i64::MIN, i64::MAX] {
+            assert_eq!(
+                spill_read::<i64, WordHome, Stored<i64>, i64>(
+                    &region,
+                    Sigma::Parabolic,
+                    &address(),
+                    &query,
+                    N,
+                ),
+                None,
+                "a fingerprint collision on every live lane is still absence without a full match"
+            );
+        }
     }
 
-    #[kani::proof]
-    #[kani::unwind(10)]
+    #[test]
     fn spill_read_returns_absence_on_a_summary_miss() {
-        let stored2: i64 = kani::any();
-        let stored0: i64 = kani::any();
-        let stored3: i64 = kani::any();
-        let region = fixture(stored2, stored0, stored3);
+        let region = fixture(8, 7, 9);
         let miss = TableAddress {
             place: 1 << 40,
             direct_word: None,
@@ -428,33 +472,22 @@ mod harnesses {
             "the miss address must not be recorded in the summary"
         );
         assert_eq!(
-            spill_read::<i64, WordHome, Stored<i64>, i64>(
-                &region,
-                Sigma::Parabolic,
-                &miss,
-                &stored2,
-                N,
-            ),
+            spill_read::<i64, WordHome, Stored<i64>, i64>(&region, Sigma::Parabolic, &miss, &8, N,),
             None,
             "a summary miss certifies absence without a sweep"
         );
     }
 
-    #[kani::proof]
-    #[kani::unwind(10)]
+    #[test]
     fn spill_read_sweeps_when_the_summary_is_unavailable() {
-        let stored2: i64 = kani::any();
-        let stored0: i64 = kani::any();
-        let stored3: i64 = kani::any();
-        kani::assume(stored0 != stored2 && stored3 != stored2);
-        let mut region = fixture(stored2, stored0, stored3);
+        let mut region = fixture(8, 7, 9);
         region.summary.clear();
         assert_eq!(
             spill_read::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Parabolic,
                 &address(),
-                &stored2,
+                &8,
                 N,
             ),
             Some(2),
