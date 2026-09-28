@@ -364,3 +364,9 @@ remain the same. Tests cover the owned-output contract, geometry, scalar parity 
 The control swaps gate/up in one scheduled column. No canonical premise or source extraction
 changes. This is the final performance candidate of this slice: absent a supported gain, remove
 it and retain the measured blocker rather than opening another hypothesis.
+
+The independent interface review finds that one task per column would exceed `Pool::run`'s task
+limit for sufficiently many valid columns. Preserve that domain by grouping columns into at most
+64 tasks (`chunk = columns.div_ceil(64).max(1)`), using each group's global `start + offset` for
+refusal ordering. The parity population includes 129 columns to exercise grouped tasks and a partial
+last group. This changes scheduling bounds, not admissible geometry or arithmetic.
