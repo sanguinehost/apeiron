@@ -400,3 +400,35 @@ The slice stops after this third performance candidate. The next bounded perform
 measure the exact projection-scale epilogue separately from integer dot accumulation before changing
 that arithmetic path. Its current cost attribution is a hypothesis requiring a fresh instrumented
 measurement and its own control; the existing whole-model prefill/decode targets remain open.
+
+### Projection cost attribution and explicit comparator
+
+Intent: determine whether the exact GEMM block scaling, integer dot loop, or another executing
+path is the next measured bottleneck. Prior whole-phase traces do not isolate this cost. Report
+prefill and fresh-state greedy decode separately, with the model, lengths and llama.cpp comparator.
+
+Spec: retain all runtime arithmetic, quantization, canonical definitions and extraction bytes.
+Inspect the actual release binary and collect user-space cycle samples across all child threads.
+Samples attributed to inline instructions are statistical instruction attribution, not a standalone
+latency measurement or proof of a possible speedup. Check the instrument with an isolated known
+busy-loop workload and retain sample counts, symbols, source/binary identities and host conditions.
+Refresh the five-round pp200/tg64 llama.cpp comparison at 8/16/24/32 threads before selecting a
+candidate. No workers, builds or proof jobs may run during measured windows.
+
+Plan: `APEIRON-INFERENCE-SPIKE-projection-cost` is lead-owned, 540 seconds per full collection
+invocation, with three bounded steps: current comparator; real-binary perf sampling and control;
+source/disassembly attribution. Two read-only Luna tasks inspect disjoint questions in isolated
+worktrees: GEMM dot/scaling instruction boundaries, and the comparator's exact workloads. Neither
+worker builds, benchmarks or edits source. Each returns resolved paths, an exact bounded finding
+and an executable follow-up, then stops before timing starts. No optimization is pre-authorized by
+this measurement plan: a selected change receives its own <=3-file implementation task and control.
+
+SCOPE: lead-owned `docs/epics/one-executor.md`, `docs/evidence/perf-attribution-prefill.md` and
+       one attribution receipt; supplied-checkout documentation exception.
+REGISTER: measurement; excludes new throughput or numerical-correctness claims before evidence.
+CORPUS: `kern/gemm.rs::{group2,rows,row_scales}` and `examples/engine_profile.rs::{run_pp,run_tg,run_llama}`;
+        no new Lean theorem attribution.
+REFERENCE: `/home/socol/Workspace/apeiron/src/engine/kern/gemm.rs`, actual executing source.
+GATE: bounded `perf record -e cycles:u -F 1999` of the release profile example plus attribution
+      report, cwd repository root, 540 seconds; first preflight counter check exits 0.
+GRADE: measured samples and workload inspection; no runtime change or new proof.
