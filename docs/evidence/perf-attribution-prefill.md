@@ -20,7 +20,7 @@ Two instrument defects were found and fixed before any number below was taken:
 - An idle pool worker spun 5 ms after every 50 ms park (`chart/pool.rs` `worker`), about 2 of 32
   CPUs busy while idle. Host busy fell from 12.3% to 4.9% with the fix.
 
-## Baseline against llama.cpp `0324696b8`, best thread count per round
+## Earlier baseline against llama.cpp `0324696b8`, best thread count per round
 
 `1790593468-q35-sliced.md`, 5 rounds, pp 200, tg 64:
 
@@ -32,7 +32,7 @@ Two instrument defects were found and fixed before any number below was taken:
 Earlier comparisons used `llama-bench -t 8` for prefill (≈260 tok/s); llama.cpp's prefill scales
 to 24 threads, its decode peaks at 8.
 
-## Where prefill time goes (traced, 8.6 ms/token)
+## Earlier prefill attribution (traced, 8.6 ms/token)
 
 | phase | ms/token | note |
 |---|---:|---|
@@ -48,7 +48,7 @@ worker spins 47–72% of its time. In `q8_0_row_kcols_avx2` the int8 dot (`vpdpb
 kernel's samples; the per-block reduction (`vphaddd`), lane extraction and the scalar exact
 `i64 × i64 → i128` scale multiply-add dominate.
 
-## A/B results
+## Earlier A/B results
 
 | change | pp | tg | spec | receipt |
 |---|---:|---:|---:|---|
@@ -63,7 +63,7 @@ Slicing is exact: the delta rule is separable by value column, so a slice is a h
 `w` (`mixer::tests::sliced_heads_equal_whole_heads`, 2/4/8 slices, pooled and serial; mutation
 control shifting a slice's value range: baseline green, mutated red, restored green).
 
-## Why speculation does not pay
+## Earlier speculation attribution
 
 At 70% acceptance a round yields 1.7 tokens and needs 1.7× the single-token cost per round to break
 even. Traced (`spec` vs `tg` in `1790593468-q35-sliced.md`): one two-column FFN pass costs
@@ -73,10 +73,46 @@ the rollback (0.48 ms/token). End to end the gain is 3–7%. The kernel microben
 two columns measured the DRAM stream alone. In the model, the exact scale epilogue makes the
 two-column projection compute-bound.
 
-## Open levers, in order of measured weight
+## Earlier priorities
 
 1. Projection kernel epilogue: the exact per-(row, block, column) scale product. The same cost
    limits prefill and speculation.
 2. Dispatch structure: 187 (prefill) and 308 (decode) dispatches per token, with a 23–36% straggler
    wait. Fuse per-column dispatches (attention, conv) into one per layer.
 3. Attention core in prefill: per column, per head; batch the block's queries per head.
+
+
+## Batched source baseline and core budget
+
+Source `39298a1c858a11397b7a9e3d638c5a0b796b4a47`; source digest
+`96c75f9773af6cb9d0f0ef2536cc7c0c8ccb86020759fe614c214a706300c8de`.
+The same model, pp200/tg64, five repetitions and quiet gate are used. The completed integration
+checks are recorded in `inference-integration.md`.
+
+| metric | apeiron median | llama.cpp best-thread median | median per-round ratio |
+|---|---:|---:|---:|
+| prefill tokens/s | 224.99 | 523.54 | 0.43 |
+| greedy tokens/s | 62.71 | 49.90 | 1.27 |
+| speculative tokens/s, one-token prefill included | 37.95 | not compared | not compared |
+
+Receipt: [`1790607104-astra-batched-baseline.md`](bench/1790607104-astra-batched-baseline.md).
+Speculative acceptance is 24%; 39 restore calls occur in the traced run. The current traced
+prefill costs 4.33 ms/token: affine heads 1.323 ms, FFN 1.125 ms, convolution 0.519 ms, affine input
+projection 0.514 ms and attention core 0.355 ms. Greedy decode costs 15.91 ms/token: dense head
+4.100 ms and FFN 4.095 ms dominate. This is the measured `engine_profile` workload; it is not a
+claim about every public generation API or every prompt.
+
+A separate rotated A/B changes only core and slice settings:
+
+| configuration | prefill tokens/s | greedy tokens/s | greedy ratio to its baseline |
+|---|---:|---:|---:|
+| default pool | 271.38 | 69.15 | 1.000 |
+| 8 performance cores | 230.91 | 67.56 | 0.979 |
+| 4 performance cores | 137.92 | 47.84 | 0.693 |
+| 4 performance cores, 8 head slices | 133.99 | 47.97 | 0.708 |
+
+Receipt: [`1790607289-astra-core-budget.md`](bench/1790607289-astra-core-budget.md).
+Each arm has five samples; every round passed the quiet gate. Compare ratios within a receipt;
+the standalone and interleaved-with-llama baselines differ. Core restriction on this i9 is not
+measurement on a different low-end machine. The next exact experiment changes the affine write
+traversal while retaining the original arithmetic and bounds.

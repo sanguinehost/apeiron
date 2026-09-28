@@ -251,3 +251,44 @@ REFERENCE:  /home/socol/oc-tmp/astra-handoff.md
 GATE:       inspect checkpoint paths and unchanged source identity, 60 seconds
 GRADE:      planning; implementation, proof and measurement gates remain separate
 ```
+
+
+### Exact affine traversal and half-word refinement
+
+Fresh receipts: `docs/evidence/bench/1790607104-astra-batched-baseline.{json,md}` and
+`1790607289-astra-core-budget.{json,md}`. Every round passed the quiet gate. The former measures
+224.99 prefill and 62.71 greedy tokens/s against llama.cpp's 523.54 and 49.90; affine heads consume
+30.5% of traced prefill wall time. The rotated core comparison measures 67.56 greedy tokens/s with
+eight performance cores and 47.84 with four. Those are measurements on the i9-14900KF, not a
+claim about different low-end hardware. Speculation at 32,768 draft rows measures 37.95 tokens/s
+and 24% acceptance on this prompt; it is not the selected fast path.
+
+The affine candidate traverses value-column vectors before independent key rows, loading each
+unchanged d-prime vector outside the row loop. Retain the existing multiplication formula,
+rounding, bounds and post-update check. A process-level `APEIRON_WRITE_COLUMN_MAJOR=0|1` switch
+selects traversal for measurement; default 0 until evidence selects a winner. Extra storage is
+constant; no new heap allocation or approximation. The release assembly saved at
+`/home/socol/oc-tmp/astra-integration/write-pass-assembly.txt` contains the repeated split inside
+the current row loop. This observation is not a speed claim.
+
+The proof task links the actual `word_f16_split` to existing `f16Value` for finite patterns and
+proves rejection exactly for exponent 31, with reachable finite/nonfinite witnesses. Do not change
+`act_scale`, `finish`, `ChartDot`, a corpus pin or an axiom policy in this task. The audit registry
+is first split mechanically because its current 2,373 lines exceed the owned-file bound. Preserve
+every existing import, declaration and audit command and keep the same default build root.
+
+| task | owned files | owner | one focused gate | control |
+|---|---|---|---|---|
+| APEIRON-INFERENCE-W1-T1 | `src/engine/mixer.rs`, `src/engine/mixer/tests.rs` | Luna heads | `cargo test --locked --lib engine::mixer::tests` | corrupt only the candidate coefficient; dual-traversal/scalar equality must fail |
+| APEIRON-INFERENCE-W1-T2 | `proof/corpus/AxiomAudit.lean`, `proof/corpus/AxiomAudit/{Core,Remaining}.lean` | Luna attention | `cd proof/corpus && lake build AxiomAudit` | forbidden-axiom sentinel must be rejected in a throwaway copy |
+| APEIRON-INFERENCE-W1-T3 | `proof/corpus/Numeric/Pow2Refinement.lean`, then root `proof/corpus/AxiomAudit.lean` after its factoring task | Luna pow2 for theorem, lead for final registration | `cd proof/corpus && lake build Numeric.Pow2Refinement AxiomAudit` | actual fraction-mask mutation plus regeneration must break the named exactness theorem; restore passes |
+
+Tasks use separate worktrees from the committed plan; lead owns commits, merges and all shared
+build products. The proof writer may check its proposed file against freshly built main dependencies
+under the pinned package's `lake env lean`, lane lock and remaining task budget. That development
+check does not replace the final named build/audit. A fresh independent verifier on a different
+model reviews the new theorem's domain, attribution, witnesses and audit before acceptance. The
+proof has a 540-second work slice and stops after three materially different failed approaches.
+All workers stop for the measured window. The lead performs the five-round rotated A/B against
+the same binary's original traversal; only a supported result changes the default. A regression
+keeps the original traversal and is recorded, not described as a speedup.
