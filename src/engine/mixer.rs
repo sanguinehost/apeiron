@@ -939,8 +939,10 @@ mod avx2_kern {
     /// OR-ing the `|res| > STATE_BOUND` predicate into a flag register, and `O(1)` extra words: the
     /// bound refusal needs no second pass over the state.
     ///
-    /// The predicate `cmpgt(res, B) | cmpgt(-B-1, res)` is `|res| > B` on the signed i64 lanes,
-    /// including `i64::MIN` (`|i64::MIN|` is not representable; the second compare catches it).
+    /// The predicate `cmpgt(res, B) | cmpgt(-B, res)` is exactly `res > B || res < -B`, i.e.
+    /// `|res| > B` on the signed i64 lanes, matching `delta_head_step_ref`'s
+    /// `updated.abs() > STATE_BOUND`. `-B` (not `-B - 1`) makes the boundary word `-(B + 1)` refuse;
+    /// `i64::MIN` also refuses (`|i64::MIN|` is not representable, and the second compare catches it).
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::cast_ptr_alignment,
@@ -957,7 +959,7 @@ mod avx2_kern {
     ) -> Result<(), StepError> {
         let dk = 128;
         let bound = _mm256_set1_epi64x(STATE_BOUND);
-        let below = _mm256_set1_epi64x(-STATE_BOUND - 1);
+        let below = _mm256_set1_epi64x(-STATE_BOUND);
         let mut over = _mm256_setzero_si256();
         for i in 0..dk {
             let ki = k[i];
@@ -1158,11 +1160,17 @@ pub(crate) fn delta_head_step_fast(
     }
     let c_val = *c;
 
-    for &x in s.iter() {
-        if x.abs() > STATE_BOUND {
-            return Err(StepError::Overflow);
-        }
-    }
+    // No pre-read state scan: `|s[i]| ≤ STATE_BOUND` holds before every column step.
+    // (1) `AffineHead::new` zeroes every word and the only writers of `s` are `delta_head_step*`,
+    // `delta_head_chunk` and `clone_from` (a copy of already-checked words); (2) every word the
+    // write pass writes is checked at write time by its
+    // `|res| > STATE_BOUND` predicate, and a `k[i] == 0` row is skipped, keeping its checked value;
+    // (3) the renormalisation fold `*x = mul(*x, c_val)` runs only when `c_val < RENORM_THRESHOLD`,
+    // where `|round(x·c_val / 2³²)| ≤ |x|`, so the fold cannot leave the bound and its own `Err` is
+    // unchanged; (4) the read pass does not modify `s`; (5) `delta_head_chunk` narrows its exit
+    // state through the same `|w| > STATE_BOUND` refusal before writing. `delta_head_step_ref` keeps
+    // its scan: it is the oracle. A state left out of bound by a refusal is unspecified by the
+    // contract and is not re-entered.
 
     // 2. Fused read pass in AVX2
     let mut m_tilde = [0i64; 128];
