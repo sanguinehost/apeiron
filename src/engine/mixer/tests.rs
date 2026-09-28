@@ -375,6 +375,37 @@ fn avx2_write_matches_scalar_across_value_widths() {
     }
 }
 
+/// The AVX2 write predicate refuses exactly `|res| > STATE_BOUND`: the boundary word
+/// `-(STATE_BOUND + 1)` must refuse, `-STATE_BOUND` must pass. One-word edge that the old
+/// `-B - 1` below-bound accepted.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn avx2_write_refuses_exact_negative_bound() {
+    if !std::is_x86_feature_detected!("avx2") {
+        return;
+    }
+
+    let dv = 4usize;
+    let mut k = vec![0i64; 128];
+    k[0] = 1i64 << 32; // mul_q32(1 << 32, -1) = -1
+
+    let mut s = vec![0i64; 128 * dv];
+    s[0] = -STATE_BOUND;
+    let d_prime = [-1i64, 0, 0, 0]; // res[0] = -(STATE_BOUND + 1)
+    let result = unsafe { avx2_kern::write_pass_avx2(&mut s, &k, &d_prime, dv) };
+    assert_eq!(
+        result,
+        Err(StepError::Overflow),
+        "res = -(STATE_BOUND + 1) must refuse"
+    );
+
+    let mut s_in = vec![0i64; 128 * dv];
+    s_in[0] = -STATE_BOUND;
+    let zero = [0i64; 4]; // res[0] = -STATE_BOUND
+    let result = unsafe { avx2_kern::write_pass_avx2(&mut s_in, &k, &zero, dv) };
+    assert_eq!(result, Ok(()), "res = -STATE_BOUND must pass");
+}
+
 #[test]
 #[allow(
     clippy::unreadable_literal,
