@@ -225,10 +225,10 @@ fn test_fast_eq_ref_bit_for_bit_random_and_renorm() {
     }
 }
 
-/// Both AVX2 write traversals update independent cells; compare every word and refusal result.
+/// AVX2 write updates match the scalar formula across widths, signs, zero keys, and refusal.
 #[cfg(target_arch = "x86_64")]
 #[test]
-fn avx2_write_traversals_match_scalar_across_value_widths() {
+fn avx2_write_matches_scalar_across_value_widths() {
     if !std::is_x86_feature_detected!("avx2") {
         return;
     }
@@ -268,15 +268,9 @@ fn avx2_write_traversals_match_scalar_across_value_widths() {
             })
             .collect();
 
-        let mut row_major = initial.clone();
-        let mut column_major = initial.clone();
-        let row_result =
-            unsafe { avx2_kern::write_pass_avx2_order(&mut row_major, &k, &d_prime, dv, false) };
-        let column_result =
-            unsafe { avx2_kern::write_pass_avx2_order(&mut column_major, &k, &d_prime, dv, true) };
-        assert_eq!(row_result, Ok(()), "row-major dv={dv}");
-        assert_eq!(column_result, row_result, "column-major dv={dv}");
-        assert_eq!(column_major, row_major, "traversals dv={dv}");
+        let mut fast = initial.clone();
+        let result = unsafe { avx2_kern::write_pass_avx2(&mut fast, &k, &d_prime, dv) };
+        assert_eq!(result, Ok(()), "AVX2 dv={dv}");
 
         let mut scalar = initial.clone();
         for i in 0..128 {
@@ -287,30 +281,22 @@ fn avx2_write_traversals_match_scalar_across_value_widths() {
                     .expect("bounded state addition");
             }
         }
-        assert_eq!(row_major, scalar, "scalar parity dv={dv}");
+        assert_eq!(fast, scalar, "scalar parity dv={dv}");
 
-        // Overflow is checked only after the complete write pass. Both traversal orders must
-        // leave the same fully updated matrix and return the same refusal.
+        // The state is fully updated before the bound scan reports overflow.
         let overflow_k = vec![1_i64 << 32; 128];
         let overflow_d = vec![1_i64 << 33; dv];
         let overflow_initial = vec![STATE_BOUND - 1; 128 * dv];
-        let mut row_overflow = overflow_initial.clone();
-        let mut column_overflow = overflow_initial;
-        let row_result = unsafe {
-            avx2_kern::write_pass_avx2_order(&mut row_overflow, &overflow_k, &overflow_d, dv, false)
+        let mut overflow_state = overflow_initial;
+        let overflow_result = unsafe {
+            avx2_kern::write_pass_avx2(&mut overflow_state, &overflow_k, &overflow_d, dv)
         };
-        let column_result = unsafe {
-            avx2_kern::write_pass_avx2_order(
-                &mut column_overflow,
-                &overflow_k,
-                &overflow_d,
-                dv,
-                true,
-            )
-        };
-        assert_eq!(row_result, Err(StepError::Overflow), "row refusal dv={dv}");
-        assert_eq!(column_result, row_result, "column refusal dv={dv}");
-        assert_eq!(column_overflow, row_overflow, "refusal state dv={dv}");
+        assert_eq!(overflow_result, Err(StepError::Overflow), "refusal dv={dv}");
+        assert_eq!(
+            overflow_state,
+            vec![STATE_BOUND - 1 + (1_i64 << 33); 128 * dv],
+            "all cells updated before refusal, dv={dv}"
+        );
     }
 }
 
