@@ -66,11 +66,28 @@ struct Packed {
     spread: Vec<u32>,
 }
 
+/// The packing's output pointers. Task `g` writes only group `g`'s `words`/`shift` slices, its
+/// own columns' `emin` (columns `[8·g, min(8·g + LANES, k))`) and `spread[g]`; the four
+/// allocations outlive the dispatch and no two tasks share a slot.
+struct PackPtr {
+    words: *mut u32,
+    shift: *mut i64,
+    emin: *mut u32,
+    spread: *mut u32,
+}
+// SAFETY: `pack` gives each task one disjoint group, so no two tasks write the same `words` or
+// `shift` entry, the same `emin` slot or `spread[g]`; the buffers are not reallocated while the
+// dispatch runs.
+unsafe impl Send for PackPtr {}
+// SAFETY: as above.
+unsafe impl Sync for PackPtr {}
+
 /// Packs the columns, or `None` when a scale is not a power of two.
 ///
 /// # Complexity
 ///
-/// `O(k·n_in)` byte writes and `O(k·blocks)` exponents.
+/// `O(k·n_in)` byte writes and `O(k·blocks)` exponents, split over `groups` pool tasks (one per
+/// `LANES`-wide column group).
 fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     let k = qs.len();
     let groups = k.div_ceil(LANES);
@@ -78,35 +95,57 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     let mut shift = vec![0i64; groups * blocks * LANES];
     let mut emin = vec![0u32; k];
     let mut spread = vec![0u32; groups];
-    for (c, q) in qs.iter().enumerate() {
-        let (g, lane) = (c / LANES, c % LANES);
-        let scales = q.scales();
-        let mut lo = u32::MAX;
-        for &s in scales {
-            if s < 0 || (s != 0 && s.count_ones() != 1) {
-                return None;
-            }
-            if s != 0 {
-                lo = lo.min(s.trailing_zeros());
-            }
-        }
-        let lo = if lo == u32::MAX { 0 } else { lo };
-        emin[c] = lo;
-        let codes = q.codes();
-        for b in 0..blocks {
-            let s = scales[b];
-            let sh = if s == 0 { 0 } else { s.trailing_zeros() - lo };
-            shift[(g * blocks + b) * LANES + lane] = i64::from(sh);
-            spread[g] = spread[g].max(sh);
-            for quad in 0..8 {
-                let at = b * ACT_QK + 4 * quad;
-                let mut w = 0u32;
-                for (i, &x) in codes[at..at + 4].iter().enumerate() {
-                    w |= u32::from(x.cast_unsigned() ^ 0x80) << (8 * i);
+    let refused = std::sync::atomic::AtomicBool::new(false);
+    let ptr = PackPtr {
+        words: words.as_mut_ptr(),
+        shift: shift.as_mut_ptr(),
+        emin: emin.as_mut_ptr(),
+        spread: spread.as_mut_ptr(),
+    };
+    let pk = &ptr;
+    crate::engine::chart::pool::Pool::global().run(groups, &|g| {
+        let lo_c = g * LANES;
+        let hi_c = (lo_c + LANES).min(k);
+        let mut group_spread = 0u32;
+        for (c, q) in qs.iter().enumerate().take(hi_c).skip(lo_c) {
+            let scales = q.scales();
+            let mut lo = u32::MAX;
+            for &s in scales {
+                if s < 0 || (s != 0 && s.count_ones() != 1) {
+                    refused.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return;
                 }
-                words[((g * blocks + b) * 8 + quad) * LANES + lane] = w;
+                if s != 0 {
+                    lo = lo.min(s.trailing_zeros());
+                }
+            }
+            let lo = if lo == u32::MAX { 0 } else { lo };
+            // SAFETY: `c` lies in this task's group, so this is `emin[c]`'s only writer.
+            unsafe { *pk.emin.add(c) = lo };
+            let lane = c - lo_c;
+            let codes = q.codes();
+            for (b, &s) in scales.iter().enumerate().take(blocks) {
+                let sh = if s == 0 { 0 } else { s.trailing_zeros() - lo };
+                // SAFETY: `lane` is this task's lane of group `g`; the entry has no other writer.
+                unsafe { *pk.shift.add((g * blocks + b) * LANES + lane) = i64::from(sh) };
+                group_spread = group_spread.max(sh);
+                for quad in 0..8 {
+                    let at = b * ACT_QK + 4 * quad;
+                    let mut w = 0u32;
+                    for (i, &x) in codes[at..at + 4].iter().enumerate() {
+                        w |= u32::from(x.cast_unsigned() ^ 0x80) << (8 * i);
+                    }
+                    // SAFETY: as for `shift`; the word has no other writer.
+                    unsafe { *pk.words.add(((g * blocks + b) * 8 + quad) * LANES + lane) = w };
+                }
             }
         }
+        // SAFETY: `g` is this task's group, so this is `spread[g]`'s only writer. A group with no
+        // real column cannot occur (`groups = ⌈k/LANES⌉`), so every `spread[g]` is assigned.
+        unsafe { *pk.spread.add(g) = group_spread };
+    });
+    if refused.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
     }
     Some(Packed {
         groups,
@@ -116,6 +155,21 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
         spread,
     })
 }
+
+/// The transpose's output pointers, one per column, each into that column's `Vec<i64>` reserved
+/// to `n_out`. Task `t` writes rows `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_out))` of every
+/// column; the row ranges partition `0..n_out`, so no two tasks write the same element.
+#[cfg(target_arch = "x86_64")]
+struct ColPtrs {
+    ptrs: Vec<*mut std::mem::MaybeUninit<i64>>,
+}
+// SAFETY: `gemm_q8_0` gives each task a disjoint row range and one pointer per column into that
+// column's own allocation; no two tasks alias.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Send for ColPtrs {}
+// SAFETY: as above.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Sync for ColPtrs {}
 
 /// A row's per-block `(m, k − k_min, 128·Σ q)` and its `k_min` and exponent spread, or `None`
 /// for a non-finite scale.
@@ -171,8 +225,9 @@ pub(crate) fn exact_dot(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> 
 ///
 /// Temporal `O(n_out·n_in·k)` byte multiply-adds, 32 per `vpdpbusd`, plus `O(n_out·blocks·k/8)`
 /// vector epilogue steps; the weights are read once per call, and each row's codes are reused
-/// from L1 across the `⌈k/8⌉` groups. Spatial `O(k·n_in)` packed activation bytes plus
-/// `O(n_out·k)` output.
+/// from L1 across the `⌈k/8⌉` groups. The activation pack runs over `⌈k/8⌉` pool tasks and the
+/// row-major→column-major transpose over `⌈n_out/ROWS_PER_TASK⌉`. Spatial `O(k·n_in)` packed
+/// activation bytes plus `O(n_out·k)` output.
 #[must_use]
 pub(crate) fn gemm_q8_0(
     ggml_type: u32,
@@ -232,10 +287,30 @@ pub(crate) fn gemm_q8_0(
             return None;
         }
         let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_out)).collect();
-        for r in 0..n_out {
-            for (c, col) in cols.iter_mut().enumerate() {
-                col.push(inter[r * k + c]);
+        let ptrs = ColPtrs {
+            ptrs: cols
+                .iter_mut()
+                .map(|v| v.spare_capacity_mut().as_mut_ptr())
+                .collect(),
+        };
+        let cols_ptr = &ptrs;
+        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(ROWS_PER_TASK), &|t| {
+            let r0 = t * ROWS_PER_TASK;
+            let r1 = ((t + 1) * ROWS_PER_TASK).min(n_out);
+            // SAFETY: task `t` writes rows `[r0, r1)` of every column; the row ranges partition
+            // `0..n_out`, each column's pointer is into its own `Vec` reserved to `n_out`, and
+            // `inter` is read-only for the dispatch.
+            unsafe {
+                for r in r0..r1 {
+                    for (c, &p) in cols_ptr.ptrs.iter().enumerate() {
+                        p.add(r).write(std::mem::MaybeUninit::new(inter[r * k + c]));
+                    }
+                }
             }
+        });
+        for col in &mut cols {
+            // SAFETY: every index `0..n_out` of every column was written exactly once above.
+            unsafe { col.set_len(n_out) };
         }
         Some(cols)
     }
