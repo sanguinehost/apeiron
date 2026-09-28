@@ -157,15 +157,17 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     })
 }
 
-/// The transpose's output pointers, one per column, each into that column's `Vec<i64>` reserved
+/// The row kernel's output pointers, one per column, each into that column's `Vec<i64>` reserved
 /// to `n_out`. Task `t` writes rows `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_out))` of every
-/// column; the row ranges partition `0..n_out`, so no two tasks write the same element.
+/// column; the row ranges partition `0..n_out`, so no two tasks write the same element and no two
+/// tasks alias.
 #[cfg(target_arch = "x86_64")]
 struct ColPtrs {
     ptrs: Vec<*mut std::mem::MaybeUninit<i64>>,
 }
 // SAFETY: `gemm_q8_0` gives each task a disjoint row range and one pointer per column into that
-// column's own allocation; no two tasks alias.
+// column's own allocation; the kernel stores only rows in the task's range, so no two tasks
+// alias.
 #[cfg(target_arch = "x86_64")]
 unsafe impl Send for ColPtrs {}
 // SAFETY: as above.
@@ -243,8 +245,8 @@ pub(crate) fn exact_dot(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> 
 /// Temporal `O(n_out·n_in·k)` byte multiply-adds, 32 per `vpdpbusd`, plus `O(n_out·blocks·k/8)`
 /// vector epilogue steps; the weights are read once per call, and each row's codes are reused
 /// from L1 across the `⌈k/8⌉` groups. The activation pack runs over `⌈k/8⌉` pool tasks and the
-/// row-major→column-major transpose over `⌈n_out/ROWS_PER_TASK⌉`. Spatial `O(k·n_in)` packed
-/// activation bytes plus `O(n_out·k)` output.
+/// row kernel over `⌈n_out/ROWS_PER_TASK⌉`, each task storing its rows straight into the
+/// per-column vectors. Spatial `O(k·n_in)` packed activation bytes plus `O(n_out·k)` output.
 #[must_use]
 pub(crate) fn gemm_q8_0(
     ggml_type: u32,
@@ -283,26 +285,9 @@ pub(crate) fn gemm_q8_0(
         let k = qs.len();
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
-        let mut inter = vec![0i64; n_out.checked_mul(k)?];
-        let bad = std::sync::atomic::AtomicBool::new(false);
-        crate::engine::chart::pool::Pool::global().chunks_mut(
-            &mut inter,
-            ROWS_PER_TASK * k,
-            &|_, start, dst| {
-                let r0 = start / k;
-                let rows = dst.len() / k;
-                // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows and
-                // the packing covers `packed.groups` groups of `blocks` blocks.
-                let ok =
-                    unsafe { x86::rows(raw, row_bytes, blocks, r0, rows, qs, &packed, limit, dst) };
-                if !ok {
-                    bad.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-            },
-        );
-        if bad.load(std::sync::atomic::Ordering::Relaxed) {
-            return None;
-        }
+        // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
+        // without allocating it, so the overflow still routes to the contract path.
+        n_out.checked_mul(k)?;
         let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_out)).collect();
         let ptrs = ColPtrs {
             ptrs: cols
@@ -310,21 +295,33 @@ pub(crate) fn gemm_q8_0(
                 .map(|v| v.spare_capacity_mut().as_mut_ptr())
                 .collect(),
         };
-        let cols_ptr = &ptrs;
+        let bad = std::sync::atomic::AtomicBool::new(false);
         crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(ROWS_PER_TASK), &|t| {
             let r0 = t * ROWS_PER_TASK;
             let r1 = ((t + 1) * ROWS_PER_TASK).min(n_out);
-            // SAFETY: task `t` writes rows `[r0, r1)` of every column; the row ranges partition
-            // `0..n_out`, each column's pointer is into its own `Vec` reserved to `n_out`, and
-            // `inter` is read-only for the dispatch.
-            unsafe {
-                for r in r0..r1 {
-                    for (c, &p) in cols_ptr.ptrs.iter().enumerate() {
-                        p.add(r).write(std::mem::MaybeUninit::new(inter[r * k + c]));
-                    }
-                }
+            // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows, the packing
+            // covers `packed.groups` groups of `blocks` blocks, and `ptrs` addresses the rows
+            // `[r0, r1)` of every column in that column's own `Vec`, reserved to `n_out`.
+            let ok = unsafe {
+                x86::rows(
+                    raw,
+                    row_bytes,
+                    blocks,
+                    r0,
+                    r1 - r0,
+                    qs,
+                    &packed,
+                    limit,
+                    &ptrs,
+                )
+            };
+            if !ok {
+                bad.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
         for col in &mut cols {
             // SAFETY: every index `0..n_out` of every column was written exactly once above.
             unsafe { col.set_len(n_out) };
@@ -582,12 +579,15 @@ mod x86 {
         [a0, a1, b0, b1]
     }
 
-    /// Rows `r0..r0 + rows` against every column into `dst[r·k + c]`; `false` when an output
-    /// leaves `i64` or a weight scale is non-finite (the caller then runs the contract path).
+    /// Rows `r0..r0 + rows` against every column, each value stored into its own column's `Vec`
+    /// at index `r0 + r + which`; `false` when an output leaves `i64` or a weight scale is
+    /// non-finite (the caller then runs the contract path).
     ///
     /// # Safety
     ///
-    /// AVX2 and AVX-VNNI; `raw` holds rows `r0..r0 + rows` of `row_bytes` bytes.
+    /// AVX2 and AVX-VNNI; `raw` holds rows `r0..r0 + rows` of `row_bytes` bytes; every `cols.ptrs[c]`
+    /// addresses column `c`'s allocation with room for `r0 + rows` elements, and the caller gives
+    /// concurrent invocations disjoint row ranges.
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
@@ -604,7 +604,7 @@ mod x86 {
         qs: &[QuantAct],
         p: &Packed,
         limit: u32,
-        dst: &mut [i64],
+        cols: &super::ColPtrs,
     ) -> bool {
         let k = qs.len();
         let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
@@ -661,7 +661,13 @@ mod x86 {
                         let Some(v) = v else {
                             return false;
                         };
-                        dst[(r + which) * k + c] = v;
+                        // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
+                        // ownership makes `r0 + r + which` unique across tasks and in range.
+                        unsafe {
+                            cols.ptrs[c]
+                                .add(r0 + r + which)
+                                .write(std::mem::MaybeUninit::new(v));
+                        }
                     }
                 }
             }
