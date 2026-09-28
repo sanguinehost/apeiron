@@ -166,6 +166,81 @@ fn sliced_heads_equal_whole_heads() {
 
 #[test]
 #[allow(
+    clippy::cast_possible_wrap,
+    reason = "xorshift words reinterpreted as signed fixed-point test inputs"
+)]
+fn shared_decay_table_equals_per_column_gates() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 128,
+        head_v: 128,
+    };
+    let key_dim = g.n_k_heads * g.head_k;
+    let val_dim = g.n_v_heads * g.head_v;
+    let mut rng = 0x1234_5678_9abc_def0_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let p = AffineVectors {
+        conv: vec![0; g.conv_kernel * (2 * key_dim + val_dim)],
+        dt: (0..g.n_v_heads).map(|_| word(1 << 32)).collect(),
+        a: (0..g.n_v_heads)
+            .map(|_| -(word(1 << 34).abs() + (1 << 32)))
+            .collect(),
+        norm: (0..g.head_v).map(|_| word(1 << 33)).collect(),
+    };
+    let cols: Vec<[Vec<i64>; 4]> = (0..3)
+        .map(|_| {
+            let keys: Vec<i64> = (0..key_dim).map(|_| word(1 << 33)).collect();
+            let mut conv = keys.clone();
+            conv.extend_from_slice(&keys);
+            conv.extend((0..val_dim).map(|_| word(1 << 33)));
+            [
+                conv,
+                (0..val_dim).map(|_| word(1 << 33)).collect(),
+                (0..g.n_v_heads).map(|_| word(1 << 33).abs()).collect(),
+                (0..g.n_v_heads).map(|_| word(1 << 33)).collect(),
+            ]
+        })
+        .collect();
+    let eps = 1i64;
+
+    // Sliced/whole path: the per-(head, column) β/decay table.
+    let mut st = AffineState::with_slices(&g, 1, 1);
+    let layer = st.layer_mut(0).expect("layer");
+    let col_refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+    let shared = delta_heads_cols(layer, &g, &p, &col_refs, eps, true, None).expect("step");
+
+    // Oracle: `delta_heads_custom` recomputes β = σ(b_h), α = exp(a_h · softplus(ssm + dt_h))
+    // per call, so a corrupted table entry cannot agree with it.
+    let mut st_o = AffineState::with_slices(&g, 1, 1);
+    let layer_o = st_o.layer_mut(0).expect("layer");
+    let step =
+        |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
+            delta_head_step(s, c, q, k, v, decay, beta)
+        };
+    let mut oracle = Vec::with_capacity(cols.len());
+    for [c, z, b, a] in &cols {
+        oracle.push(
+            delta_heads_custom(layer_o, &g, &p, c, z, b, a, eps, true, step).expect("oracle"),
+        );
+    }
+    assert_eq!(
+        shared, oracle,
+        "shared β/decay table differs from per-column gates"
+    );
+}
+
+#[test]
+#[allow(
     clippy::unreadable_literal,
     clippy::cast_possible_wrap,
     clippy::cast_possible_truncation,

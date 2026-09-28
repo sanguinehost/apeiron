@@ -578,8 +578,9 @@ mod avx2_kern {
     use super::{StepError, STATE_BOUND};
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_cmpgt_epi64, _mm256_loadu_si256,
-        _mm256_mul_epu32, _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_slli_epi64,
-        _mm256_srli_epi64, _mm256_storeu_si256, _mm256_sub_epi64, _mm256_xor_si256,
+        _mm256_mul_epu32, _mm256_or_si256, _mm256_set1_epi64x, _mm256_setzero_si256,
+        _mm256_slli_epi64, _mm256_srli_epi64, _mm256_storeu_si256, _mm256_sub_epi64,
+        _mm256_testz_si256, _mm256_xor_si256,
     };
 
     /// Pure AVX2 vector `mul_q32` evaluating 4 lanes of `round_shift_32(a · b[lane])`.
@@ -635,8 +636,12 @@ mod avx2_kern {
     }
 
     /// AVX2 write pass: `S̃[i*dv + j] += mul_q32(k[i], d'[j])` across 4 lanes at a time.
-    /// For 128 key rows and `dv` values, it performs at most `128 * dv / 4` vector updates plus
-    /// `128 * dv` state-word reads in the final bound scan, using `O(1)` extra words.
+    /// For 128 key rows and `dv` values, it performs at most `128 * dv / 4` vector updates, each
+    /// OR-ing the `|res| > STATE_BOUND` predicate into a flag register, and `O(1)` extra words: the
+    /// bound refusal needs no second pass over the state.
+    ///
+    /// The predicate `cmpgt(res, B) | cmpgt(-B-1, res)` is `|res| > B` on the signed i64 lanes,
+    /// including `i64::MIN` (`|i64::MIN|` is not representable; the second compare catches it).
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::cast_ptr_alignment,
@@ -652,6 +657,9 @@ mod avx2_kern {
         dv: usize,
     ) -> Result<(), StepError> {
         let dk = 128;
+        let bound = _mm256_set1_epi64x(STATE_BOUND);
+        let below = _mm256_set1_epi64x(-STATE_BOUND - 1);
+        let mut over = _mm256_setzero_si256();
         for i in 0..dk {
             let ki = k[i];
             if ki == 0 {
@@ -667,13 +675,18 @@ mod avx2_kern {
                 let prod = mul_q32_4x_avx2(a_hi, a_lo, b);
                 let cur = _mm256_loadu_si256(row_ptr.add(j).cast::<__m256i>());
                 let res = _mm256_add_epi64(cur, prod);
+                over = _mm256_or_si256(
+                    over,
+                    _mm256_or_si256(
+                        _mm256_cmpgt_epi64(res, bound),
+                        _mm256_cmpgt_epi64(below, res),
+                    ),
+                );
                 _mm256_storeu_si256(row_ptr.add(j).cast::<__m256i>(), res);
             }
         }
-        for &x in s.iter() {
-            if x.abs() > STATE_BOUND {
-                return Err(StepError::Overflow);
-            }
+        if _mm256_testz_si256(over, over) == 0 {
+            return Err(StepError::Overflow);
         }
         Ok(())
     }
@@ -970,9 +983,11 @@ pub(crate) fn delta_heads(
 /// 3. `o_h = delta_head_step(S_h, q̃, k̂, v_h, α, β)`.
 /// 4. `out_h = rms(o_h) ⊙ ssm_norm ⊙ SiLU(z_h)`.
 ///
-/// Three pooled stages: (0) step 1 per key head and column, once; (1) steps 2–3 per value-column
-/// slice of each head ([`AffineLayer`]), one task carrying its slice through all `k` columns in
-/// token order while its state is hot in cache; (2) step 4 per head on the reassembled `o_h`.
+/// Three pooled stages: (0) step 1 per key head and column, once; (0.5) the per-head `β`/`α`
+/// gates per (value head, column), once, shared by every value slice; (1) steps 2–3 per
+/// value-column slice of each head ([`AffineLayer`]), one task carrying its slice through all `k`
+/// columns in token order while its state is hot in cache; (2) step 4 per head on the reassembled
+/// `o_h`.
 /// Heads and slices are independent and each slice's updates run in token order, so the result
 /// equals `k` one-column calls on whole heads. With `snapshot`, each stage-1 task copies its slice
 /// (state and deferred decay) into the snapshot after column 0: the speculative rollback point.
@@ -1043,6 +1058,24 @@ pub(crate) fn delta_heads_cols(
     if let Some((_, e)) = attn_heads(g.n_k_heads, k * 2 * hk, &mut qk, parallel, norm_qk) {
         return Err(e);
     }
+    // Stage 0.5, per value head and column: β = σ(b_h) and α = exp(ssm_a_h·softplus(a_h + dt_h))
+    // read only the column and the head, never the value slice, so compute them once for all
+    // `slices` slice tasks (`bd[h·k·2 + c·2]`, `bd[h·k·2 + c·2 + 1]`). Every fixed_* refusal maps
+    // to Overflow, exactly as it did inside stage 1, but now before any state update.
+    let mut bd = vec![0i64; g.n_v_heads * k * 2];
+    let head_gates = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
+        for (c, (_, _, b, a)) in cols.iter().enumerate() {
+            dst[c * 2] = fixed_sigmoid(b[h]).map_err(|_| StepError::Overflow)?;
+            let sp = fixed_softplus(a[h].checked_add(p.dt[h]).ok_or(StepError::Overflow)?)
+                .map_err(|_| StepError::Overflow)?;
+            dst[c * 2 + 1] = fixed_exp(mul_q32(p.a[h], sp).ok_or(StepError::Overflow)?)
+                .map_err(|_| StepError::Overflow)?;
+        }
+        Ok(())
+    };
+    if let Some((_, e)) = attn_heads(g.n_v_heads, k * 2, &mut bd, parallel, head_gates) {
+        return Err(e);
+    }
     // Stage 1, per (value head, slice): the slice's update through all k columns in token order,
     // its state hot in cache; `raw[t·k·w + c·w ..]`. The rollback copy is taken inside the task.
     let mut raw = vec![0i64; k * val_dim];
@@ -1053,7 +1086,7 @@ pub(crate) fn delta_heads_cols(
         let mut guard = layer.heads[t]
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for (c, (conv, _, b, a)) in cols.iter().enumerate() {
+        for (c, (conv, ..)) in cols.iter().enumerate() {
             if c == 1 {
                 if let Some(snap) = snapshot {
                     snap.heads[t]
@@ -1064,11 +1097,8 @@ pub(crate) fn delta_heads_cols(
             }
             let at = kh * k * 2 * hk + c * 2 * hk;
             let (q_tilde, k_hat) = qk[at..at + 2 * hk].split_at(hk);
-            let beta = fixed_sigmoid(b[h]).map_err(|_| StepError::Overflow)?;
-            let sp = fixed_softplus(a[h].checked_add(p.dt[h]).ok_or(StepError::Overflow)?)
-                .map_err(|_| StepError::Overflow)?;
-            let decay = fixed_exp(mul_q32(p.a[h], sp).ok_or(StepError::Overflow)?)
-                .map_err(|_| StepError::Overflow)?;
+            let beta = bd[h * k * 2 + c * 2];
+            let decay = bd[h * k * 2 + c * 2 + 1];
             let v = &conv[2 * key_dim + vr.start..2 * key_dim + vr.end];
             let AffineHead { s, c: scale } = &mut *guard;
             let o = delta_head_step(s, scale, q_tilde, k_hat, v, decay, beta)?;
