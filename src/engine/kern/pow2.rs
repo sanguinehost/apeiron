@@ -4,9 +4,9 @@
 //! - [`f16_split`]: a weight scale as `m·2^k`;
 //! - [`finish`]: the kernel's final rounding.
 //!
-//! The vector kernel (`kern::gemm`) calls these bodies; their Lean refinements are in
-//! `proof/corpus/Bridge/Pow2Chart.lean`. The loops are `while` loops carrying their values, with no
-//! `TryFrom`, no iterators and no early return inside a loop, so Charon/Aeneas translate them.
+//! The vector kernel (`kern::gemm`) calls these bodies. `Numeric/Pow2Refinement.lean` links half
+//! conversion; activation-scale and finishing refinements remain open. The extraction loops use
+//! carried values without `TryFrom`, iterators or early returns, so Charon/Aeneas translate them.
 
 /// The smallest power of two `S` with `127·S ≥ absmax`: `2^⌈log₂ ⌈absmax/127⌉⌉`, `0` for
 /// `absmax = 0`, `None` when it would pass `2^62` (the largest power of two below `i64::MAX`).

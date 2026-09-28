@@ -1,1 +1,7 @@
 import AxiomAudit.Remaining
+import Numeric.Pow2Refinement
+
+#audit apeiron_word.word_f16_split_nonfinite
+#audit apeiron_word.word_f16_split_exact
+#audit apeiron_word.word_f16_split_finite_witness
+#audit apeiron_word.word_f16_split_nonfinite_witness
