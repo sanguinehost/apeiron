@@ -225,6 +225,95 @@ fn test_fast_eq_ref_bit_for_bit_random_and_renorm() {
     }
 }
 
+/// Both AVX2 write traversals update independent cells; compare every word and refusal result.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn avx2_write_traversals_match_scalar_across_value_widths() {
+    if !std::is_x86_feature_detected!("avx2") {
+        return;
+    }
+
+    for dv in [4usize, 16, 32, 64, 128] {
+        let k: Vec<i64> = (0..128)
+            .map(|i| match i % 5 {
+                0 => 0,
+                1 => 1_i64 << 32,
+                2 => -(1_i64 << 32),
+                3 => (1_i64 << 31) + 17,
+                _ => -((1_i64 << 31) + 29),
+            })
+            .collect();
+        let d_prime: Vec<i64> = (0..dv)
+            .map(|j| {
+                let magnitude = if j % 3 == 0 {
+                    1_i64 << 46
+                } else {
+                    (1_i64 << 40) + (i64::try_from(j).expect("dv <= 128") * 37)
+                };
+                if j % 2 == 0 { magnitude } else { -magnitude }
+            })
+            .collect();
+        let initial: Vec<i64> = (0..128 * dv)
+            .map(|n| {
+                let magnitude = (1_i64 << 43) + i64::try_from(n % 97).expect("remainder < 97");
+                if n % 2 == 0 { magnitude } else { -magnitude }
+            })
+            .collect();
+
+        let mut row_major = initial.clone();
+        let mut column_major = initial.clone();
+        let row_result = unsafe {
+            avx2_kern::write_pass_avx2_order(&mut row_major, &k, &d_prime, dv, false)
+        };
+        let column_result = unsafe {
+            avx2_kern::write_pass_avx2_order(&mut column_major, &k, &d_prime, dv, true)
+        };
+        assert_eq!(row_result, Ok(()), "row-major dv={dv}");
+        assert_eq!(column_result, row_result, "column-major dv={dv}");
+        assert_eq!(column_major, row_major, "traversals dv={dv}");
+
+        let mut scalar = initial.clone();
+        for i in 0..128 {
+            for j in 0..dv {
+                let delta = mul_q32(k[i], d_prime[j]).expect("bounded product");
+                scalar[i * dv + j] = scalar[i * dv + j]
+                    .checked_add(delta)
+                    .expect("bounded state addition");
+            }
+        }
+        assert_eq!(row_major, scalar, "scalar parity dv={dv}");
+
+        // Overflow is checked only after the complete write pass. Both traversal orders must
+        // leave the same fully updated matrix and return the same refusal.
+        let overflow_k = vec![1_i64 << 32; 128];
+        let overflow_d = vec![1_i64 << 33; dv];
+        let overflow_initial = vec![STATE_BOUND - 1; 128 * dv];
+        let mut row_overflow = overflow_initial.clone();
+        let mut column_overflow = overflow_initial;
+        let row_result = unsafe {
+            avx2_kern::write_pass_avx2_order(
+                &mut row_overflow,
+                &overflow_k,
+                &overflow_d,
+                dv,
+                false,
+            )
+        };
+        let column_result = unsafe {
+            avx2_kern::write_pass_avx2_order(
+                &mut column_overflow,
+                &overflow_k,
+                &overflow_d,
+                dv,
+                true,
+            )
+        };
+        assert_eq!(row_result, Err(StepError::Overflow), "row refusal dv={dv}");
+        assert_eq!(column_result, row_result, "column refusal dv={dv}");
+        assert_eq!(column_overflow, row_overflow, "refusal state dv={dv}");
+    }
+}
+
 #[test]
 #[allow(
     clippy::unreadable_literal,
