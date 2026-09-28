@@ -153,6 +153,18 @@ fn head_slices(head_v: usize) -> usize {
     }
 }
 
+/// `APEIRON_EXACT_SCAN`: route the affine-head block scan through the chunked composition
+/// ([`delta_head_chunk`]) instead of the per-step recurrence. Parsed once per process; unset, `0`
+/// and every other value leave the per-step path in place, so the default is bit-identical.
+pub(crate) fn exact_scan() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("APEIRON_EXACT_SCAN")
+            .ok()
+            .is_some_and(|v| v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"))
+    })
+}
+
 impl Clone for AffineLayer {
     fn clone(&self) -> Self {
         AffineLayer {
@@ -720,10 +732,9 @@ fn state_read_prec(s0: &[i64], dv: usize, x: &[i64]) -> Result<Vec<i64>, StepErr
     clippy::too_many_lines,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
-    dead_code,
     reason = "dk, dv, C, G, D, u, o are the recurrence's symbols; geometry, entry state and the \
-              per-step gates are the kernel's input; the chunk path is reached from \
-              engine::mixer::tests until the prefill wiring lands"
+              per-step gates are the kernel's input; the chunked stage-1 routing is \
+              delta_heads_cols"
 )]
 pub(crate) fn delta_head_chunk(
     s: &mut [i64],
@@ -1300,17 +1311,19 @@ pub(crate) fn delta_heads(
 /// (state and deferred decay) into the snapshot after column 0: the speculative rollback point.
 /// A refusal in stage 0 leaves the state untouched; later refusals leave it unspecified.
 ///
+/// When `APEIRON_EXACT_SCAN` is on, a multi-column, snapshot-free block runs stage 1 through the
+/// chunked composition [`delta_head_chunk`] in `<= CHUNK_MAX`-column groups; the readouts and the
+/// real exit state agree with the per-step path within the epic's uniform bound, and the state is
+/// stored as the real state at `c = 1`. The default (flag off, one column, or a snapshot) is the
+/// per-step path bit for bit.
+///
 /// # Complexity
 ///
 /// `O(k · n_v_heads · head_k · head_v)` for the updates, plus `O(k · channels)` for the norms, over
 /// `n_k_heads`, `n_v_heads · slices` and `n_v_heads` pool tasks when `parallel`.
 #[allow(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::many_single_char_names,
-    reason = "the layer state, geometry, parameters, columns and snapshot are the step's input; \
-              z, b, a are the architecture's names for the gate and the β/decay inputs; the three \
-              stages read in order"
+    reason = "the layer state, geometry, parameters, columns and snapshot are the step's input"
 )]
 pub(crate) fn delta_heads_cols(
     layer: &AffineLayer,
@@ -1321,6 +1334,32 @@ pub(crate) fn delta_heads_cols(
     parallel: bool,
     snapshot: Option<&AffineLayer>,
 ) -> Result<Vec<Vec<i64>>, StepError> {
+    // A one-column block has no composition to amortise, and the speculative rollback copy is
+    // materialised per step, so both keep the per-step path whatever the flag says.
+    let chunked = exact_scan() && cols.len() > 1 && snapshot.is_none();
+    delta_heads_cols_impl(layer, g, p, cols, eps, parallel, snapshot, chunked)
+        .map(|(out, _raw)| out)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop,
+    reason = "the layer state, geometry, parameters, columns and snapshot are the step's input; \
+              z, b, a are the architecture's names for the gate and the β/decay inputs; the three \
+              stages read in order; the chunk gathering indexes several column-major buffers"
+)]
+fn delta_heads_cols_impl(
+    layer: &AffineLayer,
+    g: &AffineGeom,
+    p: &AffineVectors,
+    cols: &[AffineCol<'_>],
+    eps: i64,
+    parallel: bool,
+    snapshot: Option<&AffineLayer>,
+    chunked: bool,
+) -> Result<(Vec<Vec<i64>>, Vec<i64>), StepError> {
     let key_dim = g.n_k_heads * g.head_k;
     let val_dim = g.n_v_heads * g.head_v;
     let k = cols.len();
@@ -1393,6 +1432,52 @@ pub(crate) fn delta_heads_cols(
         let mut guard = layer.heads[t]
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Chunked path: the slice's whole block through one composed affine map per `<= CHUNK_MAX`
+        // columns. `delta_head_chunk` decodes the entry state, keeps chunk-internal products at
+        // `2^-CHUNK_PREC` and rounds to Q32.32 once at the chunk boundary; its exit state is the
+        // real state at `c = 1`, which a later chunk decodes as the identity and the next block's
+        // per-step call reads as the unscaled `S̃` at `c = 1`. A refusal before a chunk boundary
+        // writes nothing.
+        if chunked {
+            let AffineHead { s, c: scale } = &mut *guard;
+            let mut q_buf = vec![0i64; CHUNK_MAX * hk];
+            let mut k_buf = vec![0i64; CHUNK_MAX * hk];
+            let mut v_buf = vec![0i64; CHUNK_MAX * w];
+            let mut beta_buf = vec![0i64; CHUNK_MAX];
+            let mut decay_buf = vec![0i64; CHUNK_MAX];
+            let mut start = 0usize;
+            while start < k {
+                let len = (k - start).min(CHUNK_MAX);
+                for c in start..start + len {
+                    let at = kh * k * 2 * hk + c * 2 * hk;
+                    let off = (c - start) * hk;
+                    q_buf[off..off + hk].copy_from_slice(&qk[at..at + hk]);
+                    k_buf[off..off + hk].copy_from_slice(&qk[at + hk..at + 2 * hk]);
+                    beta_buf[c - start] = bd[h * k * 2 + c * 2];
+                    decay_buf[c - start] = bd[h * k * 2 + c * 2 + 1];
+                    let v = &cols[c].0[2 * key_dim + vr.start..2 * key_dim + vr.end];
+                    v_buf[(c - start) * w..(c - start + 1) * w].copy_from_slice(v);
+                }
+                let o = delta_head_chunk(
+                    s,
+                    scale,
+                    &q_buf[..len * hk],
+                    &k_buf[..len * hk],
+                    &v_buf[..len * w],
+                    &decay_buf[..len],
+                    &beta_buf[..len],
+                    hk,
+                    w,
+                    len,
+                )?;
+                for c in start..start + len {
+                    let src = (c - start) * w;
+                    dst[c * w..(c + 1) * w].copy_from_slice(&o[src..src + w]);
+                }
+                start += len;
+            }
+            return Ok(());
+        }
         for (c, (conv, ..)) in cols.iter().enumerate() {
             if c == 1 {
                 if let Some(snap) = snapshot {
@@ -1450,7 +1535,7 @@ pub(crate) fn delta_heads_cols(
             col.extend_from_slice(&out[at..at + g.head_v]);
         }
     }
-    Ok(cols_out)
+    Ok((cols_out, raw))
 }
 
 impl AffineLayer {

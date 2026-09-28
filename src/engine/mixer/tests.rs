@@ -862,6 +862,241 @@ fn chunk_c1_equals_step() {
     assert_eq!(c_chk, c_ora, "one-step chunk decay differs from the step");
 }
 
+/// A random multi-column affine block on one layer. `q = k` per column, a unity `ssm_norm` gain,
+/// `a = dt = 0`, and `ssm_a` chosen so the engine's `α = exp(ssm_a · softplus(0))` is the witness
+/// decay near 0.98. Returns the layer's parameters and the `k` columns.
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "random synthetic fixed-point inputs; α target is a real constant"
+)]
+fn random_affine_block(g: &AffineGeom, k: usize, seed: u64) -> (AffineVectors, Vec<[Vec<i64>; 4]>) {
+    let key_dim = g.n_k_heads * g.head_k;
+    let val_dim = g.n_v_heads * g.head_v;
+    let sp = fixed_softplus(0).expect("softplus(0)");
+    let target = 0.98f64;
+    let ssm_a = (target.ln() * (1u64 << 32) as f64 * (1u64 << 32) as f64 / sp as f64) as i64;
+    let p = AffineVectors {
+        conv: vec![0; g.conv_kernel * (2 * key_dim + val_dim)],
+        dt: vec![0; g.n_v_heads],
+        a: vec![ssm_a; g.n_v_heads],
+        norm: vec![1i64 << 32; g.head_v],
+    };
+    let mut rng = seed;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let cols = (0..k)
+        .map(|_| {
+            let keys: Vec<i64> = (0..key_dim).map(|_| word(1 << 33)).collect();
+            let mut conv = keys.clone();
+            conv.extend_from_slice(&keys);
+            conv.extend((0..val_dim).map(|_| word(1 << 33)));
+            [
+                conv,
+                (0..val_dim).map(|_| word(1 << 33)).collect(),
+                (0..g.n_v_heads).map(|_| word(1 << 33).abs()).collect(),
+                vec![0i64; g.n_v_heads],
+            ]
+        })
+        .collect();
+    (p, cols)
+}
+
+/// Every head's state words in whole-head layout plus each slice's deferred decay `(head, c)`.
+fn layer_state_words(
+    layer: &AffineLayer,
+    g: &AffineGeom,
+    slices: usize,
+) -> (Vec<i64>, Vec<(usize, i64)>) {
+    let w = g.head_v / slices;
+    let mut words = vec![0i64; g.n_v_heads * g.head_k * g.head_v];
+    let mut scales = Vec::new();
+    for (t, m) in layer.heads.iter().enumerate() {
+        let head = m.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (h, sl) = (t / slices, t % slices);
+        for i in 0..g.head_k {
+            let at = h * g.head_k * g.head_v + i * g.head_v + sl * w;
+            words[at..at + w].copy_from_slice(&head.s[i * w..(i + 1) * w]);
+        }
+        scales.push((h, head.c));
+    }
+    (words, scales)
+}
+
+/// `flag_off_is_baseline`: the stage-1 per-step path is bit-identical to the existing one-column
+/// oracle for a multi-column block (outputs, state words and deferred decay).
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the test builds a random block, runs both paths and compares them"
+)]
+fn exact_scan_off_is_bit_identical_to_the_per_step_oracle() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 128,
+        head_v: 128,
+    };
+    let slices = 1usize;
+    let eps = 1i64;
+    let (p, cols) = random_affine_block(&g, 3, 0x0f0f_0f0f_1234_5678);
+
+    let mut st_off = AffineState::with_slices(&g, 1, slices);
+    let layer_off = st_off.layer_mut(0).expect("layer");
+    let refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+    let (out_off, _raw_off) =
+        delta_heads_cols_impl(layer_off, &g, &p, &refs, eps, true, None, false).expect("per-step");
+    let (words_off, scales_off) = layer_state_words(layer_off, &g, slices);
+
+    let mut st_o = AffineState::with_slices(&g, 1, slices);
+    let layer_o = st_o.layer_mut(0).expect("oracle layer");
+    let step =
+        |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
+            delta_head_step(s, c, q, k, v, decay, beta)
+        };
+    let mut out_oracle = Vec::with_capacity(cols.len());
+    for [conv, z, b, a] in &cols {
+        out_oracle.push(
+            delta_heads_custom(layer_o, &g, &p, conv, z, b, a, eps, true, step).expect("oracle"),
+        );
+    }
+    let (words_oracle, scales_oracle) = layer_state_words(layer_o, &g, slices);
+
+    assert_eq!(
+        out_off, out_oracle,
+        "flag-off outputs differ from the oracle"
+    );
+    assert_eq!(
+        words_off, words_oracle,
+        "flag-off state differs from the oracle"
+    );
+    assert_eq!(
+        scales_off, scales_oracle,
+        "flag-off deferred decay differs from the oracle"
+    );
+}
+
+/// `chunk_matches_oracle` at the wiring: a `CHUNK_MAX + 6`-column block run through the chunked
+/// stage-1 path agrees with the per-step path on every readout and on the real exit state within
+/// the epic's `ε/(1 − α)` bound (`Nous.Seq.ChunkedRounding.chunked_discrepancy_uniform_bound`).
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the test builds a random block, runs both paths and compares them"
+)]
+fn exact_scan_on_agrees_with_per_step_within_bound() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 128,
+        head_v: 128,
+    };
+    let slices = 1usize;
+    let eps = 1i64;
+    let (p, cols) = random_affine_block(&g, CHUNK_MAX + 6, 0x9e37_79b9_7f4a_7c15);
+    let refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+
+    let run = |chunked: bool| {
+        let mut st = AffineState::with_slices(&g, 1, slices);
+        let layer = st.layer_mut(0).expect("layer");
+        let (out, raw) = delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, chunked)
+            .expect("wiring step");
+        let (words, scales) = layer_state_words(layer, &g, slices);
+        (out, raw, words, scales)
+    };
+    let (_out_off, raw_off, words_off, scales_off) = run(false);
+    let (_out_on, raw_on, words_on, scales_on) = run(true);
+
+    // The chunked path stores the real state at `c = 1`.
+    assert!(
+        scales_on.iter().all(|&(_, c)| c == 1i64 << 32),
+        "chunked exit decay is not 1.0"
+    );
+    let one = 1i64 << 32;
+    let sp = fixed_softplus(0).expect("softplus(0)");
+    let decay = fixed_exp(mul_q32(p.a[0], sp).expect("ssm_a · softplus")).expect("exp");
+    assert!(decay > 0 && decay < one, "decay {decay} outside (0, 1)");
+    let bound = one / (one - decay);
+
+    let mut dev_out = 0i64;
+    for (a, b) in raw_on.iter().zip(&raw_off) {
+        dev_out = dev_out.max((a - b).abs());
+    }
+    let mut dev_state = 0i64;
+    for (h, &(_, c_off)) in scales_off.iter().enumerate() {
+        let base = h * g.head_k * g.head_v;
+        for i in base..base + g.head_k * g.head_v {
+            let real_off = mul_q32(c_off, words_off[i]).expect("oracle real state");
+            dev_state = dev_state.max((words_on[i] - real_off).abs());
+        }
+    }
+    println!(
+        "exact-scan wiring deviation: outputs {dev_out} LSB, state {dev_state} LSB, bound {bound} \
+         LSB (alpha = {decay} / 2^32, {} columns)",
+        cols.len()
+    );
+    assert!(
+        dev_out <= bound,
+        "output deviation {dev_out} LSB exceeds the {bound} LSB bound"
+    );
+    assert!(
+        dev_state <= bound,
+        "state deviation {dev_state} LSB exceeds the {bound} LSB bound"
+    );
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the test runs the same block at several slice counts and compares"
+)]
+fn exact_scan_chunked_is_slice_separable() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 128,
+        head_v: 128,
+    };
+    let eps = 1i64;
+    let (p, cols) = random_affine_block(&g, 5, 0x1357_9bdf_0246_8ace);
+    let refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+    let run = |slices: usize| {
+        let mut st = AffineState::with_slices(&g, 1, slices);
+        let layer = st.layer_mut(0).expect("layer");
+        let (out, _raw) = delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, true)
+            .expect("chunked step");
+        let (words, scales) = layer_state_words(layer, &g, slices);
+        assert!(
+            scales.iter().all(|&(_, c)| c == 1i64 << 32),
+            "chunked exit decay is not 1.0 at {slices} slices"
+        );
+        (out, words)
+    };
+    let (out1, words1) = run(1);
+    for slices in [2usize, 4] {
+        let (out, words) = run(slices);
+        assert_eq!(out1, out, "chunked outputs differ at {slices} slices");
+        assert_eq!(words1, words, "chunked state differs at {slices} slices");
+    }
+}
+
 #[test]
 #[ignore = "microbench: cargo test --release -- --ignored bench_delta_heads_50_steps"]
 #[allow(
