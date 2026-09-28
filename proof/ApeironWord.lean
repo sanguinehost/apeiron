@@ -61,7 +61,7 @@ def core.marker.PhantomData (T : Type) := Unit
 
 
 /-- Trait declaration: [apeiron_word::scalar::Ring]
-    Source: 'proof/extract/../../src/scalar.rs', lines 28:0-46:1
+    Source: '../../src/scalar.rs', lines 28:0-46:1
     Visibility: public -/
 structure scalar.Ring (Self : Type) where
   ZERO : Result Self
@@ -74,14 +74,14 @@ structure scalar.Ring (Self : Type) where
   from_i64 : Std.I64 → Result Self
 
 /-- [apeiron_word::cell::Cell]
-    Source: 'proof/extract/../../src/cell.rs', lines 79:0-84:1
+    Source: '../../src/cell.rs', lines 79:0-84:1
     Visibility: public -/
 structure cell.Cell (R : Type) where
   a : R
   b : R
 
 /-- [apeiron_word::cell::Sigma]
-    Source: 'proof/extract/../../src/cell.rs', lines 17:0-34:1
+    Source: '../../src/cell.rs', lines 17:0-34:1
     Visibility: public -/
 @[discriminant isize]
 inductive cell.Sigma where
@@ -90,7 +90,7 @@ inductive cell.Sigma where
 | Hyperbolic : cell.Sigma
 
 /-- [apeiron_word::cell::{apeiron_word::cell::Sigma}::value]:
-    Source: 'proof/extract/../../src/cell.rs', lines 39:4-45:5
+    Source: '../../src/cell.rs', lines 39:4-45:5
     Visibility: public -/
 def cell.Sigma.value (self : cell.Sigma) : Result Std.I64 := do
   match self with
@@ -99,7 +99,7 @@ def cell.Sigma.value (self : cell.Sigma) : Result Std.I64 := do
   | cell.Sigma.Hyperbolic => ok 1#i64
 
 /-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::norm_form]:
-    Source: 'proof/extract/../../src/cell.rs', lines 160:4-163:5
+    Source: '../../src/cell.rs', lines 160:4-163:5
     Visibility: public -/
 def cell.Cell.norm_form
   {R : Type} (scalarRingInst : scalar.Ring R) (self : cell.Cell R)
@@ -114,7 +114,7 @@ def cell.Cell.norm_form
   scalarRingInst.sub t t2
 
 /-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::mul]:
-    Source: 'proof/extract/../../src/cell.rs', lines 127:4-133:5
+    Source: '../../src/cell.rs', lines 127:4-133:5
     Visibility: public -/
 def cell.Cell.mul
   {R : Type} (scalarRingInst : scalar.Ring R) (self : cell.Cell R)
@@ -133,7 +133,7 @@ def cell.Cell.mul
   ok { a := t3, b := t6 }
 
 /-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::new]:
-    Source: 'proof/extract/../../src/cell.rs', lines 89:4-91:5
+    Source: '../../src/cell.rs', lines 89:4-91:5
     Visibility: public -/
 def cell.Cell.new
   {R : Type} (scalarRingInst : scalar.Ring R) (a : R) (b : R) :
@@ -142,7 +142,7 @@ def cell.Cell.new
   ok { a, b }
 
 /-- [apeiron_word::carrier::point_density]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 49:0-53:1
+    Source: '../../src/carrier.rs', lines 49:0-53:1
     Visibility: public -/
 def carrier.point_density
   {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
@@ -155,7 +155,7 @@ def carrier.point_density
   cell.Cell.norm_form scalarRingInst c1 sigma
 
 /-- [apeiron_word::carrier::point_flux]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 65:0-73:1
+    Source: '../../src/carrier.rs', lines 65:0-73:1
     Visibility: public -/
 def carrier.point_flux
   {R : Type} (scalarRingInst : scalar.Ring R) (sigma : cell.Sigma)
@@ -167,7 +167,7 @@ def carrier.point_flux
   scalarRingInst.mul t t1
 
 /-- [apeiron_word::carrier::conservative_density_step]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 92:0-109:1
+    Source: '../../src/carrier.rs', lines 92:0-109:1
     Visibility: public -/
 def carrier.conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -184,7 +184,7 @@ def carrier.conservative_density_step
     | some after_net => ok (I64.checked_add after_net source)
 
 /-- [apeiron_word::carrier::diffusive_flux_half]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 127:0-147:1
+    Source: '../../src/carrier.rs', lines 127:0-147:1
     Visibility: public -/
 def carrier.diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
@@ -205,7 +205,7 @@ def carrier.diffusive_flux_half
         | some half => ok (I64.checked_sub 0#i64 half)
 
 /-- [apeiron_word::carrier::DensityLine3]
-    Source: 'proof/extract/../../src/carrier.rs', lines 154:0-161:1
+    Source: '../../src/carrier.rs', lines 154:0-161:1
     Visibility: public -/
 structure carrier.DensityLine3 where
   left : Std.I64
@@ -213,7 +213,7 @@ structure carrier.DensityLine3 where
   right : Std.I64
 
 /-- [apeiron_word::carrier::diffusive_line3_step]:
-    Source: 'proof/extract/../../src/carrier.rs', lines 183:0-212:1
+    Source: '../../src/carrier.rs', lines 183:0-212:1
     Visibility: public -/
 def carrier.diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -246,28 +246,28 @@ def carrier.diffusive_line3_step
           | some right => ok (some { left, center, right })
 
 /-- [apeiron_word::cell::{impl core::clone::Clone for apeiron_word::cell::Sigma}::clone]:
-    Source: 'proof/extract/../../src/cell.rs', lines 16:16-16:21
+    Source: '../../src/cell.rs', lines 16:16-16:21
     Visibility: public -/
 def cell.Sigma.Insts.CoreCloneClone.clone
   (self : cell.Sigma) : Result cell.Sigma := do
   ok self
 
 /-- Trait implementation: [apeiron_word::cell::{impl core::clone::Clone for apeiron_word::cell::Sigma}]
-    Source: 'proof/extract/../../src/cell.rs', lines 16:16-16:21 -/
+    Source: '../../src/cell.rs', lines 16:16-16:21 -/
 @[reducible]
 def cell.Sigma.Insts.CoreCloneClone : core.clone.Clone cell.Sigma := {
   clone := cell.Sigma.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [apeiron_word::cell::{impl core::marker::Copy for apeiron_word::cell::Sigma}]
-    Source: 'proof/extract/../../src/cell.rs', lines 16:23-16:27 -/
+    Source: '../../src/cell.rs', lines 16:23-16:27 -/
 @[reducible]
 def cell.Sigma.Insts.CoreMarkerCopy : core.marker.Copy cell.Sigma := {
   cloneInst := cell.Sigma.Insts.CoreCloneClone
 }
 
 /-- [apeiron_word::cell::{impl core::cmp::PartialEq<apeiron_word::cell::Sigma> for apeiron_word::cell::Sigma}::eq]:
-    Source: 'proof/extract/../../src/cell.rs', lines 16:29-16:38
+    Source: '../../src/cell.rs', lines 16:29-16:38
     Visibility: public -/
 def cell.Sigma.Insts.CoreCmpPartialEqSigma.eq
   (self : cell.Sigma) (other : cell.Sigma) : Result Bool := do
@@ -276,7 +276,7 @@ def cell.Sigma.Insts.CoreCmpPartialEqSigma.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::cell::{impl core::cmp::PartialEq<apeiron_word::cell::Cell<R>> for apeiron_word::cell::Cell<R>}::eq]:
-    Source: 'proof/extract/../../src/cell.rs', lines 78:29-78:38
+    Source: '../../src/cell.rs', lines 78:29-78:38
     Visibility: public -/
 def cell.Cell.Insts.CoreCmpPartialEqCell.eq
   {R : Type} (corecmpPartialEqInst : core.cmp.PartialEq R R)
@@ -289,50 +289,50 @@ def cell.Cell.Insts.CoreCmpPartialEqCell.eq
   else ok false
 
 /-- [apeiron_word::coord::address::H3_40]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 25:0-27:1
+    Source: '../../src/coord/address.rs', lines 25:0-27:1
     Visibility: public -/
 structure coord.address.H3_40 where
   _sealed : Unit
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::P]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 34:4-34:25
+    Source: '../../src/coord/address.rs', lines 34:4-34:25
     Visibility: public -/
 @[global_simps, irreducible] def coord.address.H3_40.P : Std.U64 := 3#u64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::K]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 36:4-36:26
+    Source: '../../src/coord/address.rs', lines 36:4-36:26
     Visibility: public -/
 @[global_simps, irreducible] def coord.address.H3_40.K : Std.U32 := 40#u32
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::Q]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 38:4-38:50
+    Source: '../../src/coord/address.rs', lines 38:4-38:50
     Visibility: public -/
 @[global_simps, irreducible]
 def coord.address.H3_40.Q : Std.U64 := 12157665459056928801#u64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::R]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 40:4-40:25
+    Source: '../../src/coord/address.rs', lines 40:4-40:25
     Visibility: public -/
 @[global_simps, irreducible] def coord.address.H3_40.R : Std.U64 := 1#u64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::S]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 42:4-42:25
+    Source: '../../src/coord/address.rs', lines 42:4-42:25
     Visibility: public -/
 @[global_simps, irreducible] def coord.address.H3_40.S : Std.U64 := 1#u64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::INVERSE_OF_TWO]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 44:4-44:62
+    Source: '../../src/coord/address.rs', lines 44:4-44:62
     Visibility: public -/
 @[global_simps, irreducible]
 def coord.address.H3_40.INVERSE_OF_TWO : Std.U64 := 6078832729528464401#u64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::VERSION]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 46:4-46:31
+    Source: '../../src/coord/address.rs', lines 46:4-46:31
     Visibility: public -/
 @[global_simps, irreducible] def coord.address.H3_40.VERSION : Std.U32 := 1#u32
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::validate]: loop body 0:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 68:8-98:5
+    Source: '../../src/coord/address.rs', lines 68:8-98:5
     Visibility: public -/
 @[rust_loop_body]
 def coord.address.H3_40.validate_loop.body
@@ -394,7 +394,7 @@ def coord.address.H3_40.validate_loop.body
                   else ok (done false)
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::validate]: loop 0:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 68:8-98:5
+    Source: '../../src/coord/address.rs', lines 68:8-98:5
     Visibility: public -/
 @[rust_loop]
 def coord.address.H3_40.validate_loop
@@ -409,7 +409,7 @@ def coord.address.H3_40.validate_loop
     (power, step)
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::validate]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 54:4-98:5
+    Source: '../../src/coord/address.rs', lines 54:4-98:5
     Visibility: public -/
 def coord.address.H3_40.validate
   (version : Std.U32) (base : Std.U64) (exponent : Std.U32) (modulus : Std.U64)
@@ -429,7 +429,7 @@ def coord.address.H3_40.validate
           inverse_root half 1#u64 0#u32
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::new]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 102:4-116:5
+    Source: '../../src/coord/address.rs', lines 102:4-116:5
     Visibility: public -/
 def coord.address.H3_40.new : Result (Option coord.address.H3_40) := do
   let b ←
@@ -442,19 +442,19 @@ def coord.address.H3_40.new : Result (Option coord.address.H3_40) := do
   else ok none
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::H3_40}::q]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 120:4-122:5
+    Source: '../../src/coord/address.rs', lines 120:4-122:5
     Visibility: public -/
 def coord.address.H3_40.q (self : coord.address.H3_40) : Result Std.U64 := do
   ok coord.address.H3_40.Q
 
 /-- [apeiron_word::coord::address::Residue]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 154:0-154:24
+    Source: '../../src/coord/address.rs', lines 154:0-154:24
     Visibility: public -/
 @[reducible]
 def coord.address.Residue := Std.U64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::Residue}::reduce]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 173:4-180:5
+    Source: '../../src/coord/address.rs', lines 173:4-180:5
     Visibility: public -/
 def coord.address.Residue.reduce
   (profile : coord.address.H3_40) (word : Std.U64) :
@@ -467,21 +467,21 @@ def coord.address.Residue.reduce
        ok i
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::Residue}::get]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 184:4-186:5
+    Source: '../../src/coord/address.rs', lines 184:4-186:5
     Visibility: public -/
 def coord.address.Residue.get
   (self : coord.address.Residue) : Result Std.U64 := do
   ok self
 
 /-- [apeiron_word::coord::address::ParabolicDual]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 196:0-199:1
+    Source: '../../src/coord/address.rs', lines 196:0-199:1
     Visibility: public -/
 structure coord.address.ParabolicDual where
   scalar : Std.U64
   nilpotent : Std.U64
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::ParabolicDual}::new]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 204:4-206:5
+    Source: '../../src/coord/address.rs', lines 204:4-206:5
     Visibility: public -/
 def coord.address.ParabolicDual.new
   (scalar : Std.U64) (nilpotent : Std.U64) :
@@ -490,14 +490,14 @@ def coord.address.ParabolicDual.new
   ok { scalar, nilpotent }
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::ParabolicDual}::residue]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 222:4-224:5
+    Source: '../../src/coord/address.rs', lines 222:4-224:5
     Visibility: public -/
 def coord.address.ParabolicDual.residue
   (self : coord.address.ParabolicDual) : Result Std.U64 := do
   ok self.scalar
 
 /-- [apeiron_word::coord::address::AddressValue]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 233:0-240:1
+    Source: '../../src/coord/address.rs', lines 233:0-240:1
     Visibility: public -/
 @[discriminant isize]
 inductive coord.address.AddressValue where
@@ -509,13 +509,13 @@ inductive coord.address.AddressValue where
   coord.address.AddressValue
 
 /-- [apeiron_word::coord::address::FaceTableAddress]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 295:0-297:1
+    Source: '../../src/coord/address.rs', lines 295:0-297:1
     Visibility: public -/
 structure coord.address.FaceTableAddress where
   value : coord.address.AddressValue
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::FaceTableAddress}::new]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 302:4-304:5
+    Source: '../../src/coord/address.rs', lines 302:4-304:5
     Visibility: public -/
 def coord.address.FaceTableAddress.new
   (value : coord.address.AddressValue) :
@@ -524,12 +524,12 @@ def coord.address.FaceTableAddress.new
   ok { value }
 
 /-- Trait declaration: [apeiron_word::coord::address::sealed::Sealed]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 325:4-325:23
+    Source: '../../src/coord/address.rs', lines 325:4-325:23
     Visibility: public -/
 structure coord.address.sealed.Sealed (Self : Type) where
 
 /-- [apeiron_word::coord::address::LocatorSigma]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 334:0-340:1
+    Source: '../../src/coord/address.rs', lines 334:0-340:1
     Visibility: public -/
 @[discriminant isize]
 inductive coord.address.LocatorSigma where
@@ -537,7 +537,7 @@ inductive coord.address.LocatorSigma where
 | Hyperbolic : coord.address.LocatorSigma
 
 /-- [apeiron_word::coord::address::{apeiron_word::coord::address::LocatorSigma}::token_for]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 354:4-360:5
+    Source: '../../src/coord/address.rs', lines 354:4-360:5
     Visibility: public -/
 def coord.address.LocatorSigma.token_for
   (sigma : cell.Sigma) : Result (Option coord.address.LocatorSigma) := do
@@ -547,14 +547,14 @@ def coord.address.LocatorSigma.token_for
   | cell.Sigma.Hyperbolic => ok (some coord.address.LocatorSigma.Hyperbolic)
 
 /-- Trait implementation: [apeiron_word::coord::address::{impl apeiron_word::coord::address::sealed::Sealed for apeiron_word::cell::Sigma}]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 363:0-363:32 -/
+    Source: '../../src/coord/address.rs', lines 363:0-363:32 -/
 @[reducible]
 def cell.Sigma.Insts.Apeiron_wordCoordAddressSealedSealed :
   coord.address.sealed.Sealed cell.Sigma := {
 }
 
 /-- Trait declaration: [apeiron_word::coord::address::FaceResidueCapability]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 371:0-377:1
+    Source: '../../src/coord/address.rs', lines 371:0-377:1
     Visibility: public -/
 structure coord.address.FaceResidueCapability (Self : Type) (K : Type) where
   parabolic_dual : Self → K → Result coord.address.ParabolicDual
@@ -562,14 +562,14 @@ structure coord.address.FaceResidueCapability (Self : Type) (K : Type) where
     coord.address.Residue
 
 /-- Trait declaration: [apeiron_word::coord::address::EllipticPacking]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 408:0-414:1
+    Source: '../../src/coord/address.rs', lines 408:0-414:1
     Visibility: public -/
 structure coord.address.EllipticPacking (Self : Type) (K : Type) where
   elliptic_pack : Self → K → Result Std.U64
   elliptic_unpack : Self → Std.U64 → Result (Option K)
 
 /-- Trait declaration: [apeiron_word::coord::address::FaceDomain]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 421:0-433:1
+    Source: '../../src/coord/address.rs', lines 421:0-433:1
     Visibility: public -/
 structure coord.address.FaceDomain (Self : Type) (K : Type) (H : Type) where
   DEFAULT : Result Self
@@ -581,7 +581,7 @@ structure coord.address.FaceDomain (Self : Type) (K : Type) (H : Type) where
     coord.address.FaceTableAddress
 
 /-- Trait declaration: [apeiron_word::coord::address::FaceCoord]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 440:0-448:1
+    Source: '../../src/coord/address.rs', lines 440:0-448:1
     Visibility: public -/
 structure coord.address.FaceCoord (Self : Type) (K : Type) (Self_Faces : Type)
   where
@@ -591,7 +591,7 @@ structure coord.address.FaceCoord (Self : Type) (K : Type) (Self_Faces : Type)
     coord.address.FaceTableAddress
 
 /-- [apeiron_word::coord::address::FaceCoord::coord]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 445:4-447:5
+    Source: '../../src/coord/address.rs', lines 445:4-447:5
     Visibility: public -/
 @[trait_default]
 def coord.address.FaceCoord.coord.default
@@ -603,7 +603,7 @@ def coord.address.FaceCoord.coord.default
   FaceCoordInst.FaceDomainInst.encode face self profile key
 
 /-- Trait declaration: [apeiron_word::coord::address::FaceHome]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 454:0-459:1
+    Source: '../../src/coord/address.rs', lines 454:0-459:1
     Visibility: public -/
 structure coord.address.FaceHome (Self : Type) (K : Type) (Self_Clause0_Faces :
   Type) where
@@ -612,7 +612,7 @@ structure coord.address.FaceHome (Self : Type) (K : Type) (Self_Clause0_Faces :
     Result coord.address.FaceTableAddress
 
 /-- [apeiron_word::coord::address::FaceHome::address]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 456:4-458:5
+    Source: '../../src/coord/address.rs', lines 456:4-458:5
     Visibility: public -/
 @[trait_default]
 def coord.address.FaceHome.address.default
@@ -624,7 +624,7 @@ def coord.address.FaceHome.address.default
   FaceHomeInst.FaceCoordInst.coord self profile face key
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::coord::address::LocatorSigma}::encode]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 497:4-505:5
+    Source: '../../src/coord/address.rs', lines 497:4-505:5
     Visibility: public -/
 def coord.address.LocatorSigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode
   {K : Type} {H : Type} (FaceResidueCapabilityInst :
@@ -646,7 +646,7 @@ def coord.address.LocatorSigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode
   coord.address.FaceTableAddress.new value
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::cell::Sigma}::encode]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 475:4-480:5
+    Source: '../../src/coord/address.rs', lines 475:4-480:5
     Visibility: public -/
 def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode
   {K : Type} {H : Type} (FaceResidueCapabilityInst :
@@ -666,7 +666,7 @@ def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.encode
       FaceResidueCapabilityInst locator home profile key
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::cell::Sigma}::from_sigma]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 471:4-473:5
+    Source: '../../src/coord/address.rs', lines 471:4-473:5
     Visibility: public -/
 def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.from_sigma
   {K : Type} {H : Type} (FaceResidueCapabilityInst :
@@ -677,7 +677,7 @@ def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.from_sigma
   ok (some sigma)
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::cell::Sigma}::sigma]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 467:4-469:5
+    Source: '../../src/coord/address.rs', lines 467:4-469:5
     Visibility: public -/
 def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma
   {K : Type} {H : Type} (FaceResidueCapabilityInst :
@@ -688,7 +688,7 @@ def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma
   ok self
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::cell::Sigma}::DEFAULT]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 465:4-465:42
+    Source: '../../src/coord/address.rs', lines 465:4-465:42
     Visibility: public -/
 @[global_simps, irreducible]
 def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.DEFAULT {K : Type} {H :
@@ -697,7 +697,7 @@ def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.DEFAULT {K : Type} {H :
   cell.Sigma.Parabolic
 
 /-- Trait implementation: [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceDomain<K, H> for apeiron_word::cell::Sigma}]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 461:0-481:1 -/
+    Source: '../../src/coord/address.rs', lines 461:0-481:1 -/
 @[reducible]
 def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain {K : Type} {H : Type}
   (FaceResidueCapabilityInst : coord.address.FaceResidueCapability H K)
@@ -716,26 +716,26 @@ def cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain {K : Type} {H : Type}
 }
 
 /-- [apeiron_word::coord::address::WordFaceHome]
-    Source: 'proof/extract/../../src/coord/address.rs', lines 513:0-513:24
+    Source: '../../src/coord/address.rs', lines 513:0-513:24
     Visibility: public -/
 @[reducible]
 def coord.address.WordFaceHome := Unit
 
 /-- [apeiron_word::coord::Addr]
-    Source: 'proof/extract/../../src/coord.rs', lines 184:0-193:1
+    Source: '../../src/coord.rs', lines 184:0-193:1
     Visibility: public -/
 structure coord.Addr where
   place : Std.U64
   id : Std.U64
 
 /-- [apeiron_word::coord::PHI]
-    Source: 'proof/extract/../../src/coord.rs', lines 59:0-59:43
+    Source: '../../src/coord.rs', lines 59:0-59:43
     Visibility: public -/
 @[global_simps, irreducible]
 def coord.PHI : Std.U64 := 11400714819323198485#u64
 
 /-- [apeiron_word::coord::spread]:
-    Source: 'proof/extract/../../src/coord.rs', lines 366:0-374:1
+    Source: '../../src/coord.rs', lines 366:0-374:1
     Visibility: public -/
 def coord.spread (x : Std.U64) : Result coord.Addr := do
   let i ← lift (UScalar.cast .U128 x)
@@ -749,7 +749,7 @@ def coord.spread (x : Std.U64) : Result coord.Addr := do
   ok { place := i4, id := lo }
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::coord::address::WordFaceHome}::parabolic_dual]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 526:4-528:5
+    Source: '../../src/coord/address.rs', lines 526:4-528:5
     Visibility: public -/
 def
   coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -761,7 +761,7 @@ def
   coord.address.ParabolicDual.new a.place 0#u64
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::coord::address::WordFaceHome}::hyperbolic_scalar]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 530:4-532:5
+    Source: '../../src/coord/address.rs', lines 530:4-532:5
     Visibility: public -/
 def
   coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -773,14 +773,14 @@ def
   coord.address.Residue.reduce profile i
 
 /-- [apeiron_word::coord::{impl apeiron_word::coord::Packed for i64}::packed]:
-    Source: 'proof/extract/../../src/coord.rs', lines 493:12-493:52
+    Source: '../../src/coord.rs', lines 493:12-493:52
     Visibility: public -/
 def I64.Insts.Apeiron_wordCoordPacked.packed
   (self : Std.I64) : Result Std.U64 := do
   ok (IScalar.hcast .U64 self)
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::coord::address::WordFaceHome}::elliptic_pack]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 546:4-548:5
+    Source: '../../src/coord/address.rs', lines 546:4-548:5
     Visibility: public -/
 def
   coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
@@ -788,14 +788,14 @@ def
   I64.Insts.Apeiron_wordCoordPacked.packed key
 
 /-- [apeiron_word::coord::{impl apeiron_word::coord::Packed for i64}::unpack]:
-    Source: 'proof/extract/../../src/coord.rs', lines 502:12-502:51
+    Source: '../../src/coord.rs', lines 502:12-502:51
     Visibility: public -/
 def I64.Insts.Apeiron_wordCoordPacked.unpack
   (c : Std.U64) : Result Std.I64 := do
   ok (UScalar.hcast .I64 c)
 
 /-- [apeiron_word::coord::address::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::coord::address::WordFaceHome}::elliptic_unpack]:
-    Source: 'proof/extract/../../src/coord/address.rs', lines 550:4-552:5
+    Source: '../../src/coord/address.rs', lines 550:4-552:5
     Visibility: public -/
 def
   coord.address.WordFaceHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack
@@ -806,29 +806,29 @@ def
   ok (some i)
 
 /-- [apeiron_word::coord::locator::LEVELS]
-    Source: 'proof/extract/../../src/coord/locator.rs', lines 116:0-116:40 -/
+    Source: '../../src/coord/locator.rs', lines 116:0-116:40 -/
 @[global_simps, irreducible]
 def coord.locator.LEVELS : Result Std.Usize :=
   ok (UScalar.cast .Usize coord.address.H3_40.K)
 
 /-- [apeiron_word::coord::locator::PARABOLIC_LEVELS]
-    Source: 'proof/extract/../../src/coord/locator.rs', lines 118:0-118:51 -/
+    Source: '../../src/coord/locator.rs', lines 118:0-118:51 -/
 @[global_simps, irreducible]
 def coord.locator.PARABOLIC_LEVELS : Result Std.Usize :=
   ok (UScalar.cast .Usize core.num.U64.BITS)
 
 /-- [apeiron_word::coord::locator::locator_core::MAX_ARITY]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 52:0-52:27 -/
+    Source: '../../src/coord/locator_core.rs', lines 52:0-52:27 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.MAX_ARITY : Std.Usize := 3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::NO_CHILD]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 61:0-61:31 -/
+    Source: '../../src/coord/locator_core.rs', lines 61:0-61:31 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.NO_CHILD : Std.U32 := core.num.U32.MAX
 
 /-- [apeiron_word::coord::locator::locator_core::Refusal]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 65:0-76:1
+    Source: '../../src/coord/locator_core.rs', lines 65:0-76:1
     Visibility: public -/
 @[discriminant isize]
 inductive coord.locator.locator_core.Refusal where
@@ -839,14 +839,14 @@ inductive coord.locator.locator_core.Refusal where
 | Uncovered : coord.locator.locator_core.Refusal
 
 /-- Trait declaration: [apeiron_word::coord::locator::locator_core::RetainedKey]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 84:0-84:36
+    Source: '../../src/coord/locator_core.rs', lines 84:0-84:36
     Visibility: public -/
 structure coord.locator.locator_core.RetainedKey (Self : Type) where
   corecloneCloneInst : core.clone.Clone Self
   corecmpEqInst : core.cmp.Eq Self
 
 /-- Trait implementation: [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::RetainedKey for T}]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 85:0-85:40 -/
+    Source: '../../src/coord/locator_core.rs', lines 85:0-85:40 -/
 @[reducible]
 def coord.locator.locator_core.RetainedKey.Blanket {T : Type}
   (corecloneCloneInst1 : core.clone.Clone T) (corecmpEqInst1 : core.cmp.Eq T) :
@@ -856,7 +856,7 @@ def coord.locator.locator_core.RetainedKey.Blanket {T : Type}
 }
 
 /-- Trait declaration: [apeiron_word::coord::locator::locator_core::ExactIdentity]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 92:0-140:1
+    Source: '../../src/coord/locator_core.rs', lines 92:0-140:1
     Visibility: public -/
 structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   : Type) (Self_Reserved : Type) where
@@ -873,26 +873,26 @@ structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   retained_encoding_byte : Self_Retained → Std.Usize → Result Std.U8
 
 /-- [apeiron_word::table::TableAddress]
-    Source: 'proof/extract/../../src/table.rs', lines 101:0-106:1
+    Source: '../../src/table.rs', lines 101:0-106:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
   direct_word : Option Std.U32
 
 /-- [apeiron_word::coord::locator::locator_core::identity_address]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 144:0-149:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 144:0-149:1 -/
 def coord.locator.locator_core.identity_address
   : Result table.TableAddress := do
   ok { place := 0#u64, direct_word := none }
 
 /-- [apeiron_word::table::WordHome]
-    Source: 'proof/extract/../../src/table.rs', lines 148:0-148:20
+    Source: '../../src/table.rs', lines 148:0-148:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_unpack]:
-    Source: 'proof/extract/../../src/table.rs', lines 182:4-184:5
+    Source: '../../src/table.rs', lines 182:4-184:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack
@@ -901,7 +901,7 @@ def
     () word
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_pack]:
-    Source: 'proof/extract/../../src/table.rs', lines 179:4-181:5
+    Source: '../../src/table.rs', lines 179:4-181:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
@@ -910,7 +910,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}]
-    Source: 'proof/extract/../../src/table.rs', lines 178:0-185:1 -/
+    Source: '../../src/table.rs', lines 178:0-185:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
   coord.address.EllipticPacking table.WordHome Std.I64 := {
@@ -921,7 +921,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::hyperbolic_scalar]:
-    Source: 'proof/extract/../../src/table.rs', lines 174:4-176:5
+    Source: '../../src/table.rs', lines 174:4-176:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -932,7 +932,7 @@ def
     () profile key
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::parabolic_dual]:
-    Source: 'proof/extract/../../src/table.rs', lines 171:4-173:5
+    Source: '../../src/table.rs', lines 171:4-173:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -943,7 +943,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}]
-    Source: 'proof/extract/../../src/table.rs', lines 170:0-177:1 -/
+    Source: '../../src/table.rs', lines 170:0-177:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
   coord.address.FaceResidueCapability table.WordHome Std.I64 := {
@@ -954,7 +954,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceCoord<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: 'proof/extract/../../src/table.rs', lines 186:0-188:1 -/
+    Source: '../../src/table.rs', lines 186:0-188:1 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
   coord.address.FaceCoord table.WordHome Std.I64 cell.Sigma := {
@@ -968,7 +968,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceHome<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: 'proof/extract/../../src/table.rs', lines 189:0-189:34 -/
+    Source: '../../src/table.rs', lines 189:0-189:34 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
   coord.address.FaceHome table.WordHome Std.I64 cell.Sigma := {
@@ -979,7 +979,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::address]:
-    Source: 'proof/extract/../../src/table.rs', lines 158:4-168:5
+    Source: '../../src/table.rs', lines 158:4-168:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -995,7 +995,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::home]:
-    Source: 'proof/extract/../../src/table.rs', lines 150:4-152:5
+    Source: '../../src/table.rs', lines 150:4-152:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -1004,7 +1004,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait declaration: [apeiron_word::table::Home]
-    Source: 'proof/extract/../../src/table.rs', lines 124:0-131:1
+    Source: '../../src/table.rs', lines 124:0-131:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -1014,7 +1014,7 @@ structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   address : Self → cell.Sigma → K → Result table.TableAddress
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: 'proof/extract/../../src/table.rs', lines 149:0-169:1 -/
+    Source: '../../src/table.rs', lines 149:0-169:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma : table.Home
   table.WordHome Std.I64 cell.Sigma := {
@@ -1025,7 +1025,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma : table.Home
 }
 
 /-- [apeiron_word::table::keyrep::address_identity]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 307:0-311:1 -/
+    Source: '../../src/table/keyrep.rs', lines 307:0-311:1 -/
 def table.keyrep.address_identity
   (address : table.TableAddress) (key : Std.I64) : Result Std.U64 := do
   let i ← core.num.I64.cast_unsigned key
@@ -1033,7 +1033,7 @@ def table.keyrep.address_identity
   ok a.id
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::ExactCodec<i64, H, u64, (), Clause0_Clause0_Clause0_Faces> for apeiron_word::table::keyrep::I64WordCodec}::encode]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 286:4-290:5
+    Source: '../../src/table/keyrep.rs', lines 286:4-290:5
     Visibility: public -/
 def
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.encode
@@ -1050,7 +1050,7 @@ def
   ok a.id
 
 /-- [apeiron_word::coord::locator::locator_core::word_identity]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 152:0-158:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 152:0-158:1 -/
 def coord.locator.locator_core.word_identity
   (key : Std.I64) : Result Std.U64 := do
   let ta ← coord.locator.locator_core.identity_address
@@ -1059,19 +1059,19 @@ def coord.locator.locator_core.word_identity
     key ta
 
 /-- [apeiron_word::coord::PHI_INV]
-    Source: 'proof/extract/../../src/coord.rs', lines 390:0-390:47
+    Source: '../../src/coord.rs', lines 390:0-390:47
     Visibility: public -/
 @[global_simps, irreducible]
 def coord.PHI_INV : Std.U64 := 17428512612931826493#u64
 
 /-- [apeiron_word::coord::unspread]:
-    Source: 'proof/extract/../../src/coord.rs', lines 385:0-387:1
+    Source: '../../src/coord.rs', lines 385:0-387:1
     Visibility: public -/
 def coord.unspread (id : Std.U64) : Result Std.U64 := do
   ok (core.num.U64.wrapping_mul id coord.PHI_INV)
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::ExactCodec<i64, H, u64, (), Clause0_Clause0_Clause0_Faces> for apeiron_word::table::keyrep::I64WordCodec}::decode]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 292:4-294:5
+    Source: '../../src/table/keyrep.rs', lines 292:4-294:5
     Visibility: public -/
 def
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.decode
@@ -1084,7 +1084,7 @@ def
   core.num.U64.cast_signed i
 
 /-- [apeiron_word::coord::locator::locator_core::word_from_identity]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 161:0-163:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 161:0-163:1 -/
 def coord.locator.locator_core.word_from_identity
   (identity : Std.U64) : Result Std.I64 := do
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.decode
@@ -1092,7 +1092,7 @@ def coord.locator.locator_core.word_from_identity
     identity
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::retained_encoding_byte]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 198:4-200:5
+    Source: '../../src/coord/locator_core.rs', lines 198:4-200:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.retained_encoding_byte
@@ -1103,7 +1103,7 @@ def
   Array.index_usize a index
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::retained_encoding_len]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 194:4-196:5
+    Source: '../../src/coord/locator_core.rs', lines 194:4-196:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.retained_encoding_len
@@ -1111,7 +1111,7 @@ def
   ok 8#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::encoding_byte]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 189:4-192:5
+    Source: '../../src/coord/locator_core.rs', lines 189:4-192:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.encoding_byte
@@ -1121,7 +1121,7 @@ def
   Array.index_usize a index
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::encoding_len]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 185:4-187:5
+    Source: '../../src/coord/locator_core.rs', lines 185:4-187:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.encoding_len
@@ -1129,7 +1129,7 @@ def
   ok 8#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::matches_retained]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 181:4-183:5
+    Source: '../../src/coord/locator_core.rs', lines 181:4-183:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.matches_retained
@@ -1138,7 +1138,7 @@ def
   ok (i = retained)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::retain_reserved]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 177:4-179:5
+    Source: '../../src/coord/locator_core.rs', lines 177:4-179:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.retain_reserved
@@ -1146,7 +1146,7 @@ def
   coord.locator.locator_core.word_identity self
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::reserve_retain]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 173:4-175:5
+    Source: '../../src/coord/locator_core.rs', lines 173:4-175:5
     Visibility: public -/
 def
   I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.reserve_retain
@@ -1156,14 +1156,14 @@ def
   ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}::retain]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 169:4-171:5
+    Source: '../../src/coord/locator_core.rs', lines 169:4-171:5
     Visibility: public -/
 def I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple.retain
   (self : Std.I64) : Result Std.U64 := do
   coord.locator.locator_core.word_identity self
 
 /-- Trait implementation: [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<u64, ()> for i64}]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 165:0-201:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 165:0-201:1 -/
 @[reducible]
 def I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple :
   coord.locator.locator_core.ExactIdentity Std.I64 Std.U64 Unit := {
@@ -1189,7 +1189,7 @@ def I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple :
 }
 
 /-- Trait declaration: [apeiron_word::coord::locator::locator_core::ResidueIndex]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 404:0-413:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 404:0-413:1 -/
 structure coord.locator.locator_core.ResidueIndex (Self : Type) where
   LEVELS : Result Std.Usize
   ARITY : Result Std.Usize
@@ -1197,7 +1197,7 @@ structure coord.locator.locator_core.ResidueIndex (Self : Type) where
   digits : Self → Slice Std.U8 → Result (Slice Std.U8)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::digits]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 426:8-429:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 426:8-429:9 -/
 @[rust_loop_body]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits_loop.body
@@ -1218,7 +1218,7 @@ def
   else ok (done out)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::digits]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 426:8-429:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 426:8-429:9 -/
 @[rust_loop]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits_loop
@@ -1233,7 +1233,7 @@ def
     (out, level)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::digits]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 424:4-430:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 424:4-430:5 -/
 @[reducible]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits
@@ -1244,7 +1244,7 @@ def
     self out 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::ARENA]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 418:4-418:25 -/
+    Source: '../../src/coord/locator_core.rs', lines 418:4-418:25 -/
 @[global_simps, irreducible]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.ARENA
@@ -1252,7 +1252,7 @@ def
   1#u32
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::ARITY]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 417:4-417:27 -/
+    Source: '../../src/coord/locator_core.rs', lines 417:4-417:27 -/
 @[global_simps, irreducible]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.ARITY
@@ -1260,7 +1260,7 @@ def
   2#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}::LEVELS]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 416:4-416:50 -/
+    Source: '../../src/coord/locator_core.rs', lines 416:4-416:50 -/
 @[global_simps, irreducible]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.LEVELS
@@ -1268,7 +1268,7 @@ def
   coord.locator.PARABOLIC_LEVELS
 
 /-- Trait implementation: [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::ParabolicDual}]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 415:0-431:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 415:0-431:1 -/
 @[reducible]
 def
   coord.address.ParabolicDual.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex
@@ -1284,7 +1284,7 @@ def
 }
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::digits]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 445:8-449:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 445:8-449:9 -/
 @[rust_loop_body]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits_loop.body
@@ -1303,7 +1303,7 @@ def
   else ok (done out)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::digits]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 445:8-449:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 445:8-449:9 -/
 @[rust_loop]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits_loop
@@ -1317,7 +1317,7 @@ def
     (out, value, level)
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::digits]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 442:4-450:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 442:4-450:5 -/
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.digits
   (self : coord.address.Residue) (out : Slice Std.U8) :
@@ -1328,7 +1328,7 @@ def
     out value 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::ARENA]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 436:4-436:25 -/
+    Source: '../../src/coord/locator_core.rs', lines 436:4-436:25 -/
 @[global_simps, irreducible]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.ARENA
@@ -1336,7 +1336,7 @@ def
   0#u32
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::ARITY]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 435:4-435:27 -/
+    Source: '../../src/coord/locator_core.rs', lines 435:4-435:27 -/
 @[global_simps, irreducible]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.ARITY
@@ -1344,7 +1344,7 @@ def
   3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}::LEVELS]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 434:4-434:40 -/
+    Source: '../../src/coord/locator_core.rs', lines 434:4-434:40 -/
 @[global_simps, irreducible]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex.LEVELS
@@ -1352,7 +1352,7 @@ def
   coord.locator.LEVELS
 
 /-- Trait implementation: [apeiron_word::coord::locator::locator_core::{impl apeiron_word::coord::locator::locator_core::ResidueIndex for apeiron_word::coord::address::Residue}]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 433:0-451:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 433:0-451:1 -/
 @[reducible]
 def
   coord.address.Residue.Insts.Apeiron_wordCoordLocatorLocator_coreResidueIndex
@@ -1368,20 +1368,20 @@ def
 }
 
 /-- [apeiron_word::coord::locator::locator_core::Walk]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 607:0-615:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 607:0-615:1 -/
 @[discriminant isize]
 inductive coord.locator.locator_core.Walk where
 | Terminal : Std.U32 → coord.locator.locator_core.Walk
 | Miss : Std.Usize → Std.Usize → coord.locator.locator_core.Walk
 
 /-- [apeiron_word::coord::locator::locator_core::StagedPath]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 618:0-621:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 618:0-621:1 -/
 structure coord.locator.locator_core.StagedPath where
   residue_path : Array Std.U32 65#usize
   identity_path : alloc.vec.Vec Std.U32
 
 /-- [apeiron_word::coord::locator::locator_core::Directory]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 649:0-669:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 649:0-669:1 -/
 structure coord.locator.locator_core.Directory where
   residue_words : alloc.vec.Vec Std.U32
   identity_words : alloc.vec.Vec Std.U32
@@ -1391,58 +1391,58 @@ structure coord.locator.locator_core.Directory where
   staged_scratch : Option (alloc.vec.Vec Std.U32)
 
 /-- [apeiron_word::coord::locator::locator_core::RESIDUE_STRIDE]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 672:0-672:32 -/
+    Source: '../../src/coord/locator_core.rs', lines 672:0-672:32 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.RESIDUE_STRIDE : Std.Usize := 4#usize
 
 /-- [apeiron_word::coord::locator::locator_core::RESIDUE_IDENTITY]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 674:0-674:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 674:0-674:34 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.RESIDUE_IDENTITY : Std.Usize := 3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_STRIDE]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 676:0-676:33 -/
+    Source: '../../src/coord/locator_core.rs', lines 676:0-676:33 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_STRIDE : Std.Usize := 2#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_TERMINAL]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 678:0-678:35 -/
+    Source: '../../src/coord/locator_core.rs', lines 678:0-678:35 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_TERMINAL : Std.Usize := 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_FIRST_EDGE]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 680:0-680:37 -/
+    Source: '../../src/coord/locator_core.rs', lines 680:0-680:37 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_FIRST_EDGE : Std.Usize := 1#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_STRIDE]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 682:0-682:29 -/
+    Source: '../../src/coord/locator_core.rs', lines 682:0-682:29 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_STRIDE : Std.Usize := 3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_LABEL]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 684:0-684:28 -/
+    Source: '../../src/coord/locator_core.rs', lines 684:0-684:28 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_LABEL : Std.Usize := 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_CHILD]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 686:0-686:28 -/
+    Source: '../../src/coord/locator_core.rs', lines 686:0-686:28 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_CHILD : Std.Usize := 1#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_NEXT]
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 688:0-688:27 -/
+    Source: '../../src/coord/locator_core.rs', lines 688:0-688:27 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_NEXT : Std.Usize := 2#usize
 
 /-- [apeiron_word::coord::locator::locator_core::read_word]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 691:0-693:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 691:0-693:1 -/
 def coord.locator.locator_core.read_word
   (words : Slice Std.U32) (index : Std.Usize) : Result Std.U32 := do
   Slice.index_usize words index
 
 /-- [apeiron_word::coord::locator::locator_core::store_word]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 706:0-708:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 706:0-708:1 -/
 def coord.locator.locator_core.store_word
   (words : Slice Std.U32) (index : Std.Usize) (value : Std.U32) :
   Result (Slice Std.U32)
@@ -1450,7 +1450,7 @@ def coord.locator.locator_core.store_word
   Slice.update words index value
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::new]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 712:4-721:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 712:4-721:5 -/
 def coord.locator.locator_core.Directory.new
   : Result coord.locator.locator_core.Directory := do
   ok
@@ -1464,7 +1464,7 @@ def coord.locator.locator_core.Directory.new
     }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::recycle_scratch]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 751:4-753:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 751:4-753:5 -/
 def coord.locator.locator_core.Directory.recycle_scratch
   (self : coord.locator.locator_core.Directory)
   (identity_path : alloc.vec.Vec Std.U32) :
@@ -1473,7 +1473,7 @@ def coord.locator.locator_core.Directory.recycle_scratch
   ok { self with staged_scratch := (some identity_path) }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::take_staged_scratch]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 729:4-745:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 729:4-745:5 -/
 def coord.locator.locator_core.Directory.take_staged_scratch
   (self : coord.locator.locator_core.Directory) (path_len : Std.Usize) :
   Result ((core.result.Result (alloc.vec.Vec Std.U32)
@@ -1501,7 +1501,7 @@ def coord.locator.locator_core.Directory.take_staged_scratch
       { self with staged_scratch := o })
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::recycle_staged]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 760:4-766:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 760:4-766:5 -/
 def coord.locator.locator_core.Directory.recycle_staged
   (self : coord.locator.locator_core.Directory)
   (staged : coord.locator.locator_core.StagedPath) :
@@ -1511,14 +1511,14 @@ def coord.locator.locator_core.Directory.recycle_staged
     staged.identity_path
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_record_count]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 769:4-771:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 769:4-771:5 -/
 def coord.locator.locator_core.Directory.residue_record_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.residue_words
   i / coord.locator.locator_core.RESIDUE_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::arena_len]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 774:4-780:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 774:4-780:5 -/
 def coord.locator.locator_core.Directory.arena_len
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
   (self : coord.locator.locator_core.Directory) :
@@ -1531,21 +1531,21 @@ def coord.locator.locator_core.Directory.arena_len
   else ok self.parabolic_nodes
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::identity_node_count]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 783:4-785:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 783:4-785:5 -/
 def coord.locator.locator_core.Directory.identity_node_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.identity_words
   i / coord.locator.locator_core.IDENTITY_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::edge_count]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 788:4-790:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 788:4-790:5 -/
 def coord.locator.locator_core.Directory.edge_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.edge_words
   i / coord.locator.locator_core.EDGE_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_identity_root]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 853:4-858:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 853:4-858:5 -/
 def coord.locator.locator_core.Directory.residue_identity_root
   (self : coord.locator.locator_core.Directory) (node : Std.U32) :
   Result Std.U32
@@ -1557,7 +1557,7 @@ def coord.locator.locator_core.Directory.residue_identity_root
   coord.locator.locator_core.read_word s i2
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_child]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 862:4-870:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 862:4-870:5 -/
 def coord.locator.locator_core.Directory.residue_child
   (self : coord.locator.locator_core.Directory) (node : Std.U32)
   (digit : Std.U8) :
@@ -1577,7 +1577,7 @@ def coord.locator.locator_core.Directory.residue_child
   else ok coord.locator.locator_core.NO_CHILD
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1521:10-1522:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 1521:10-1522:34 -/
 @[rust_loop_body]
 def coord.locator.locator_core.walk_residue_loop.body
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
@@ -1607,7 +1607,7 @@ def coord.locator.locator_core.walk_residue_loop.body
   else ok (done (node, depth))
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1521:10-1522:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 1521:10-1522:34 -/
 @[rust_loop]
 def coord.locator.locator_core.walk_residue_loop
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
@@ -1621,7 +1621,7 @@ def coord.locator.locator_core.walk_residue_loop
     (node, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1512:0-1537:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 1512:0-1537:1 -/
 def coord.locator.locator_core.walk_residue
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
   (levels : Std.Usize) (arity : Std.Usize) (root : Std.U32) :
@@ -1634,7 +1634,7 @@ def coord.locator.locator_core.walk_residue
   ok (node, i)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1549:4-1555:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1549:4-1555:5 -/
 @[rust_loop_body]
 def coord.locator.locator_core.find_edge_loop.body
   (edge_words : Slice Std.U32) (label : Std.U8) (edge : Std.U32)
@@ -1664,7 +1664,7 @@ def coord.locator.locator_core.find_edge_loop.body
   else ok (done found)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1549:4-1555:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1549:4-1555:5 -/
 @[rust_loop]
 def coord.locator.locator_core.find_edge_loop
   (edge_words : Slice Std.U32) (label : Std.U8) (edge : Std.U32)
@@ -1677,7 +1677,7 @@ def coord.locator.locator_core.find_edge_loop
     (edge, found)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1543:0-1557:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 1543:0-1557:1 -/
 def coord.locator.locator_core.find_edge
   (identity_words : Slice Std.U32) (edge_words : Slice Std.U32)
   (node : Std.U32) (label : Std.U8) :
@@ -1691,7 +1691,7 @@ def coord.locator.locator_core.find_edge
     coord.locator.locator_core.NO_CHILD
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 903:8-915:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 903:8-915:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.walk_identity_loop.body
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -1727,7 +1727,7 @@ def coord.locator.locator_core.Directory.walk_identity_loop.body
   else ok (done (self, idnode, miss))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 903:8-915:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 903:8-915:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.walk_identity_loop
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -1747,7 +1747,7 @@ def coord.locator.locator_core.Directory.walk_identity_loop
     (idnode, miss, index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 898:4-932:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 898:4-932:5 -/
 def coord.locator.locator_core.Directory.walk_identity
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1775,7 +1775,7 @@ def coord.locator.locator_core.Directory.walk_identity
   | some miss1 => ok miss1
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 873:4-895:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 873:4-895:5 -/
 def coord.locator.locator_core.Directory.walk
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1809,7 +1809,7 @@ def coord.locator.locator_core.Directory.walk
         ExactIdentityInst self identity_root key
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::rollback]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1406:4-1419:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1406:4-1419:5 -/
 def coord.locator.locator_core.Directory.rollback
   (self : coord.locator.locator_core.Directory) (residue_len : Std.Usize)
   (identity_len : Std.Usize) (edge_len : Std.Usize)
@@ -1831,7 +1831,7 @@ def coord.locator.locator_core.Directory.rollback
     }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::reserve_edge]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1383:4-1392:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1383:4-1392:5 -/
 def coord.locator.locator_core.Directory.reserve_edge
   (self : coord.locator.locator_core.Directory) :
   Result ((core.result.Result Unit coord.locator.locator_core.Refusal) ×
@@ -1849,7 +1849,7 @@ def coord.locator.locator_core.Directory.reserve_edge
   else ok (core.result.Result.Ok (), { self with edge_words := v })
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::new_identity_node]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1395:4-1403:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1395:4-1403:5 -/
 def coord.locator.locator_core.Directory.new_identity_node
   (self : coord.locator.locator_core.Directory) :
   Result ((core.result.Result Std.U32 coord.locator.locator_core.Refusal) ×
@@ -1881,7 +1881,7 @@ def coord.locator.locator_core.Directory.new_identity_node
       self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::bump_face_nodes]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1370:4-1376:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1370:4-1376:5 -/
 def coord.locator.locator_core.Directory.bump_face_nodes
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
   (self : coord.locator.locator_core.Directory) :
@@ -1898,7 +1898,7 @@ def coord.locator.locator_core.Directory.bump_face_nodes
     ok { self with parabolic_nodes := i1 }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::push_residue_default]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1363:8-1366:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1363:8-1366:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.push_residue_default_loop.body
   (self : coord.locator.locator_core.Directory) (word : Std.Usize) :
@@ -1914,7 +1914,7 @@ def coord.locator.locator_core.Directory.push_residue_default_loop.body
   else ok (done self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::push_residue_default]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1363:8-1366:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1363:8-1366:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.push_residue_default_loop
   (self : coord.locator.locator_core.Directory) (word : Std.Usize) :
@@ -1927,7 +1927,7 @@ def coord.locator.locator_core.Directory.push_residue_default_loop
     (self, word)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::push_residue_default]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1361:4-1367:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1361:4-1367:5 -/
 @[reducible]
 def coord.locator.locator_core.Directory.push_residue_default
   (self : coord.locator.locator_core.Directory) :
@@ -1936,7 +1936,7 @@ def coord.locator.locator_core.Directory.push_residue_default
   coord.locator.locator_core.Directory.push_residue_default_loop self 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.stage_reserved_loop0.body
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1989,7 +1989,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop0.body
   else ok (done (self, residue_path, refusal))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.stage_reserved_loop0
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2006,7 +2006,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop0
     (self, residue_path, refusal, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop body 1:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.stage_reserved_loop1.body
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2061,7 +2061,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop1.body
   else ok (done (self, identity_path, refusal))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop 1:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.stage_reserved_loop1
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2082,7 +2082,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop1
     (self, identity_path, refusal, node, byte_index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1269:4-1358:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1269:4-1358:5 -/
 def coord.locator.locator_core.Directory.stage_reserved
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2163,7 +2163,7 @@ def coord.locator.locator_core.Directory.stage_reserved
       ok (core.result.Result.Err refusal2, self3)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.materialize_roots_loop.body
   (v : alloc.vec.Vec Std.U32) (word : Std.Usize) :
@@ -2179,7 +2179,7 @@ def coord.locator.locator_core.Directory.materialize_roots_loop.body
   else ok (done v)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.materialize_roots_loop
   (v : alloc.vec.Vec Std.U32) (word : Std.Usize) :
@@ -2192,7 +2192,7 @@ def coord.locator.locator_core.Directory.materialize_roots_loop
     (v, word)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1250:4-1258:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1250:4-1258:5 -/
 def coord.locator.locator_core.Directory.materialize_roots
   (self : coord.locator.locator_core.Directory) :
   Result coord.locator.locator_core.Directory
@@ -2207,7 +2207,7 @@ def coord.locator.locator_core.Directory.materialize_roots
   else ok self
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::reserve_for]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1004:4-1103:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1004:4-1103:5 -/
 def coord.locator.locator_core.Directory.reserve_for
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2514,7 +2514,7 @@ def coord.locator.locator_core.Directory.reserve_for
     ok (r1, self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1476:8-1482:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1476:8-1482:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_identity_edge_loop.body
   (v : alloc.vec.Vec Std.U32) (label : Std.U8) (previous : Std.U32)
@@ -2541,7 +2541,7 @@ def coord.locator.locator_core.Directory.link_identity_edge_loop.body
   else ok (done (previous, edge))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1476:8-1482:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1476:8-1482:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_identity_edge_loop
   (v : alloc.vec.Vec Std.U32) (label : Std.U8) (previous : Std.U32)
@@ -2555,7 +2555,7 @@ def coord.locator.locator_core.Directory.link_identity_edge_loop
     (previous, edge)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1472:4-1503:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1472:4-1503:5 -/
 def coord.locator.locator_core.Directory.link_identity_edge
   (self : coord.locator.locator_core.Directory) (parent : Std.U32)
   (label : Std.U8) (child : Std.U32) :
@@ -2607,7 +2607,7 @@ def coord.locator.locator_core.Directory.link_identity_edge
       ok { self with edge_words := v3 }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop body 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1433:14-1434:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1433:14-1434:38 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_loop0.body
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2647,7 +2647,7 @@ def coord.locator.locator_core.Directory.link_loop0.body
   else ok (done (self, staged))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop 0:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1433:14-1434:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1433:14-1434:38 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_loop0
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2664,7 +2664,7 @@ def coord.locator.locator_core.Directory.link_loop0
     (self, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop body 1:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1450:8-1456:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1450:8-1456:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_loop1.body
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2691,7 +2691,7 @@ def coord.locator.locator_core.Directory.link_loop1.body
   else ok (done self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop 1:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1450:8-1456:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1450:8-1456:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_loop1
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2708,7 +2708,7 @@ def coord.locator.locator_core.Directory.link_loop1
     (self, byte_index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]:
-    Source: 'proof/extract/../../src/coord/locator_core.rs', lines 1423:4-1465:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1423:4-1465:5 -/
 def coord.locator.locator_core.Directory.link
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2767,7 +2767,7 @@ def coord.locator.locator_core.Directory.link
     { self2 with identity_words := v1 } staged1
 
 /-- [apeiron_word::coord::finish]:
-    Source: 'proof/extract/../../src/coord.rs', lines 158:0-164:1
+    Source: '../../src/coord.rs', lines 158:0-164:1
     Visibility: public -/
 def coord.finish (h : Std.U64) : Result Std.U64 := do
   let i ← h >>> 30#i32
@@ -2780,7 +2780,7 @@ def coord.finish (h : Std.U64) : Result Std.U64 := do
   ok (h4 ^^^ i2)
 
 /-- [apeiron_word::attn::AttnError]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 11:0-58:1
+    Source: '../../src/engine/attn.rs', lines 11:0-58:1
     Visibility: public -/
 @[discriminant isize]
 inductive attn.AttnError where
@@ -2796,7 +2796,7 @@ inductive attn.AttnError where
 | ZeroSum : attn.AttnError
 
 /-- [apeiron_word::attn::KvState]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 69:0-79:1
+    Source: '../../src/engine/attn.rs', lines 69:0-79:1
     Visibility: public -/
 structure attn.KvState where
   n_layer : Std.Usize
@@ -2810,7 +2810,7 @@ structure attn.KvState where
   v : alloc.vec.Vec (alloc.vec.Vec Std.I64)
 
 /-- [apeiron_word::attn::plane_at]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 86:0-91:1 -/
+    Source: '../../src/engine/attn.rs', lines 86:0-91:1 -/
 def attn.plane_at
   (kv : Std.Usize) (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize)
   (i : Std.Usize) :
@@ -2844,14 +2844,14 @@ def attn.plane_at
       Std.Usize (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::value::round_shift_32]:
-    Source: 'proof/extract/../../src/engine/value.rs', lines 10:0-12:1 -/
+    Source: '../../src/engine/value.rs', lines 10:0-12:1 -/
 def value.round_shift_32 (v : Std.I128) : Result Std.I128 := do
   let i ← 1#i128 <<< 31#i32
   let i1 ← v + i
   i1 >>> 32#i32
 
 /-- [apeiron_word::quant::QuantError]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 95:0-107:1
+    Source: '../../src/format/quant.rs', lines 95:0-107:1
     Visibility: public -/
 @[discriminant isize]
 inductive quant.QuantError where
@@ -2860,7 +2860,7 @@ inductive quant.QuantError where
 | LengthOverflow : quant.QuantError
 
 /-- [apeiron_word::gguf::GgufError]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 26:0-57:1
+    Source: '../../src/format/gguf.rs', lines 26:0-57:1
     Visibility: public -/
 @[discriminant isize]
 inductive gguf.GgufError where
@@ -2876,7 +2876,7 @@ inductive gguf.GgufError where
 | Quant : quant.QuantError → gguf.GgufError
 
 /-- [apeiron_word::f32_convert::F32Error]
-    Source: 'proof/extract/../../src/engine/f32_convert.rs', lines 5:0-17:1
+    Source: '../../src/engine/f32_convert.rs', lines 5:0-17:1
     Visibility: public -/
 @[discriminant isize]
 inductive f32_convert.F32Error where
@@ -2885,7 +2885,7 @@ inductive f32_convert.F32Error where
 | Truncated : Std.Usize → Std.Usize → f32_convert.F32Error
 
 /-- [apeiron_word::error::EngineError]
-    Source: 'proof/extract/../../src/engine/error.rs', lines 16:0-88:1
+    Source: '../../src/engine/error.rs', lines 16:0-88:1
     Visibility: public -/
 @[discriminant isize]
 inductive error.EngineError where
@@ -2913,7 +2913,7 @@ inductive error.EngineError where
 | BadVector : String → Str → error.EngineError
 
 /-- [apeiron_word::matvec::MatvecError]
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 11:0-48:1
+    Source: '../../src/engine/matvec.rs', lines 11:0-48:1
     Visibility: public -/
 @[discriminant isize]
 inductive matvec.MatvecError where
@@ -2927,7 +2927,7 @@ inductive matvec.MatvecError where
 | OutputOverflow : matvec.MatvecError
 
 /-- [apeiron_word::matvec::row_dot_fixed]: loop body 0:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 97:4-108:5
+    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
     Visibility: public -/
 @[rust_loop_body]
 def matvec.row_dot_fixed_loop.body
@@ -2960,7 +2960,7 @@ def matvec.row_dot_fixed_loop.body
   else ok (done (acc, acc_ok))
 
 /-- [apeiron_word::matvec::row_dot_fixed]: loop 0:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 97:4-108:5
+    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
     Visibility: public -/
 @[rust_loop]
 def matvec.row_dot_fixed_loop
@@ -2974,7 +2974,7 @@ def matvec.row_dot_fixed_loop
     (acc, i, acc_ok)
 
 /-- [apeiron_word::matvec::row_dot_fixed]:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 86:0-117:1
+    Source: '../../src/engine/matvec.rs', lines 86:0-117:1
     Visibility: public -/
 def matvec.row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -3005,12 +3005,12 @@ def matvec.row_dot_fixed
     else ok (core.result.Result.Err matvec.MatvecError.AccumulatorOverflow)
 
 /-- [apeiron_word::attn::score_at::{closure}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 114:59-114:82 -/
+    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
 @[reducible]
 def attn.score_at.closure := Unit
 
 /-- [apeiron_word::attn::score_at::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::attn::AttnError> for apeiron_word::attn::score_at::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 114:59-114:82 -/
+    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
 def
   attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError.call_once
   (c : attn.score_at.closure) (tupled_args : matvec.MatvecError) :
@@ -3019,7 +3019,7 @@ def
   ok attn.AttnError.Overflow
 
 /-- Trait implementation: [apeiron_word::attn::score_at::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::attn::AttnError> for apeiron_word::attn::score_at::{closure}}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 114:59-114:82 -/
+    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
 @[reducible]
 def attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError
   : core.ops.function.FnOnce attn.score_at.closure matvec.MatvecError
@@ -3029,7 +3029,7 @@ def attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError
 }
 
 /-- [apeiron_word::attn::score_at]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 101:0-123:1 -/
+    Source: '../../src/engine/attn.rs', lines 101:0-123:1 -/
 def attn.score_at
   (kplane : Slice Std.I64) (q : Slice Std.I64) (scale : Std.I64)
   (kv : Std.Usize) (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize) :
@@ -3107,25 +3107,25 @@ def attn.score_at
       Std.I64 (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'proof/extract/lib.rs', lines 107:4-107:40
+    Source: 'lib.rs', lines 109:4-109:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'proof/extract/lib.rs', lines 109:4-109:46
+    Source: 'lib.rs', lines 111:4-111:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
 
 /-- [apeiron_word::fixed_exp::ExpError]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 42:0-46:1
+    Source: '../../src/numeric/fixed_exp.rs', lines 42:0-46:1
     Visibility: public -/
 @[discriminant isize]
 inductive fixed_exp.ExpError where
 | OutOfRange : fixed_exp.ExpError
 
 /-- [apeiron_word::fixed_exp::exp_scale]:
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 134:0-158:1 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 134:0-158:1 -/
 def fixed_exp.exp_scale
   (k : Std.I64) (acc : Std.I128) :
   Result (core.result.Result Std.I64 fixed_exp.ExpError)
@@ -3173,12 +3173,12 @@ def fixed_exp.exp_scale
           ok (core.result.Result.Ok i4)
 
 /-- [apeiron_word::fixed_exp::round_div_2p32::HALF]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 50:4-50:31 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 50:4-50:31 -/
 @[global_simps, irreducible]
 def fixed_exp.round_div_2p32.HALF : Result Std.I128 := 1#i128 <<< 31#i32
 
 /-- [apeiron_word::fixed_exp::round_div_2p32]:
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 49:0-56:1 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 49:0-56:1 -/
 def fixed_exp.round_div_2p32 (value : Std.I128) : Result Std.I128 := do
   if value >= 0#i128
   then
@@ -3193,7 +3193,7 @@ def fixed_exp.round_div_2p32 (value : Std.I128) : Result Std.I128 := do
     -. i3
 
 /-- [apeiron_word::fixed_exp::exp_horner]:
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 107:0-119:1 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 107:0-119:1 -/
 def fixed_exp.exp_horner (r : Std.I64) : Result Std.I128 := do
   let r1 ← lift (core.convert.num.FromI128I64.from r)
   let i ← 852176#i128 * r1
@@ -3219,35 +3219,35 @@ def fixed_exp.exp_horner (r : Std.I64) : Result Std.I128 := do
   i13 + 4294967296#i128
 
 /-- [apeiron_word::fixed_exp::ONE]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 32:0-32:25 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 32:0-32:25 -/
 @[global_simps, irreducible]
 def fixed_exp.ONE : Result Std.I64 := 1#i64 <<< 32#i32
 
 /-- [apeiron_word::fixed_exp::exp_reduce::UPPER]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 74:4-74:32 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 74:4-74:32 -/
 @[global_simps, irreducible]
 def fixed_exp.exp_reduce.UPPER : Result Std.I64 := do
   let i ← fixed_exp.ONE
   21#i64 * i
 
 /-- [apeiron_word::fixed_exp::exp_reduce::LOWER]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 73:4-73:33 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 73:4-73:33 -/
 @[global_simps, irreducible]
 def fixed_exp.exp_reduce.LOWER : Result Std.I64 := do
   let i ← fixed_exp.ONE
   (-16)#i64 * i
 
 /-- [apeiron_word::fixed_exp::LN2_RECIP_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 38:0-38:41 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 38:0-38:41 -/
 @[global_simps, irreducible]
 def fixed_exp.LN2_RECIP_Q32 : Std.I64 := 6196328019#i64
 
 /-- [apeiron_word::fixed_exp::LN2_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 35:0-35:35 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 35:0-35:35 -/
 @[global_simps, irreducible] def fixed_exp.LN2_Q32 : Std.I64 := 2977044472#i64
 
 /-- [apeiron_word::fixed_exp::exp_reduce]:
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 72:0-98:1 -/
+    Source: '../../src/numeric/fixed_exp.rs', lines 72:0-98:1 -/
 def fixed_exp.exp_reduce
   (x : Std.I64) :
   Result (core.result.Result (Std.I64 × Std.I64) fixed_exp.ExpError)
@@ -3292,7 +3292,7 @@ def fixed_exp.exp_reduce
               ok (core.result.Result.Ok (k, r))
 
 /-- [apeiron_word::fixed_exp::fixed_exp]:
-    Source: 'proof/extract/../../src/numeric/fixed_exp.rs', lines 176:0-183:1
+    Source: '../../src/numeric/fixed_exp.rs', lines 176:0-183:1
     Visibility: public -/
 def fixed_exp.fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
@@ -3305,12 +3305,12 @@ def fixed_exp.fixed_exp
   | core.result.Result.Err e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::attn::exp_at::{closure}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
 @[reducible]
 def attn.exp_at.closure := Unit
 
 /-- [apeiron_word::attn::exp_at::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::attn::AttnError> for apeiron_word::attn::exp_at::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
 def
   attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError.call_once
   (c : attn.exp_at.closure) (tupled_args : fixed_exp.ExpError) :
@@ -3319,7 +3319,7 @@ def
   ok attn.AttnError.ExpOutOfRange
 
 /-- Trait implementation: [apeiron_word::attn::exp_at::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::attn::AttnError> for apeiron_word::attn::exp_at::{closure}}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
 @[reducible]
 def attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError :
   core.ops.function.FnOnce attn.exp_at.closure fixed_exp.ExpError
@@ -3329,7 +3329,7 @@ def attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError :
 }
 
 /-- [apeiron_word::attn::exp_at]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 127:0-134:1 -/
+    Source: '../../src/engine/attn.rs', lines 127:0-134:1 -/
 def attn.exp_at
   (score : Std.I64) (mx : Std.I64) :
   Result (core.result.Result Std.I64 attn.AttnError)
@@ -3353,7 +3353,7 @@ def attn.exp_at
       Std.I64 (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::value::div_round_nearest]:
-    Source: 'proof/extract/../../src/engine/value.rs', lines 5:0-7:1 -/
+    Source: '../../src/engine/value.rs', lines 5:0-7:1 -/
 def value.div_round_nearest
   (num : Std.I128) (den : Std.I128) : Result Std.I128 := do
   let i ← den / 2#i128
@@ -3361,7 +3361,7 @@ def value.div_round_nearest
   i1 / den
 
 /-- [apeiron_word::attn::weight_at]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 143:0-152:1 -/
+    Source: '../../src/engine/attn.rs', lines 143:0-152:1 -/
 def attn.weight_at
   (e : Std.I64) (total : Std.I128) :
   Result (core.result.Result Std.I64 attn.AttnError)
@@ -3389,7 +3389,7 @@ def attn.weight_at
       Std.I64 (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::attn::value_term]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 155:0-169:1 -/
+    Source: '../../src/engine/attn.rs', lines 155:0-169:1 -/
 def attn.value_term
   (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
   (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize) (i : Std.Usize) :
@@ -3419,7 +3419,7 @@ def attn.value_term
       Std.I128 (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::attn::value_component]: loop body 0:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 193:4-209:5 -/
+    Source: '../../src/engine/attn.rs', lines 193:4-209:5 -/
 @[rust_loop_body]
 def attn.value_component_loop.body
   (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
@@ -3448,7 +3448,7 @@ def attn.value_component_loop.body
   else ok (done (acc, err))
 
 /-- [apeiron_word::attn::value_component]: loop 0:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 193:4-209:5 -/
+    Source: '../../src/engine/attn.rs', lines 193:4-209:5 -/
 @[rust_loop]
 def attn.value_component_loop
   (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
@@ -3462,7 +3462,7 @@ def attn.value_component_loop
     (acc, s, ok1, err)
 
 /-- [apeiron_word::attn::value_component]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 180:0-218:1 -/
+    Source: '../../src/engine/attn.rs', lines 180:0-218:1 -/
 def attn.value_component
   (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
   (kvh : Std.Usize) (hd : Std.Usize) (pos : Std.Usize) (i : Std.Usize) :
@@ -3487,26 +3487,26 @@ def attn.value_component
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::fixed_rsqrt::ONE]
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 22:0-22:25 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 22:0-22:25 -/
 @[global_simps, irreducible]
 def fixed_rsqrt.ONE : Result Std.I64 := 1#i64 <<< 32#i32
 
 /-- [apeiron_word::fixed_rsqrt::fixed_rsqrt::UPPER]
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 75:4-75:33 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 75:4-75:33 -/
 @[global_simps, irreducible]
 def fixed_rsqrt.fixed_rsqrt.UPPER : Result Std.I64 := do
   let i ← fixed_rsqrt.ONE
   i <<< 20#i32
 
 /-- [apeiron_word::fixed_rsqrt::fixed_rsqrt::LOWER]
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 74:4-74:33 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 74:4-74:33 -/
 @[global_simps, irreducible]
 def fixed_rsqrt.fixed_rsqrt.LOWER : Result Std.I64 := do
   let i ← fixed_rsqrt.ONE
   i >>> 20#i32
 
 /-- [apeiron_word::fixed_rsqrt::isqrt]: loop body 0:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 40:4-42:5 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 40:4-42:5 -/
 @[rust_loop_body]
 def fixed_rsqrt.isqrt_loop0.body
   (n : Std.I128) (bit : Std.I128) :
@@ -3518,7 +3518,7 @@ def fixed_rsqrt.isqrt_loop0.body
   else ok (done bit)
 
 /-- [apeiron_word::fixed_rsqrt::isqrt]: loop 0:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 40:4-42:5 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 40:4-42:5 -/
 @[rust_loop]
 def fixed_rsqrt.isqrt_loop0
   (n : Std.I128) (bit : Std.I128) : Result Std.I128 := do
@@ -3527,7 +3527,7 @@ def fixed_rsqrt.isqrt_loop0
     bit
 
 /-- [apeiron_word::fixed_rsqrt::isqrt]: loop body 1:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 43:4-52:5 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 43:4-52:5 -/
 @[rust_loop_body]
 def fixed_rsqrt.isqrt_loop1.body
   (rem : Std.I128) (res : Std.I128) (bit : Std.I128) :
@@ -3552,7 +3552,7 @@ def fixed_rsqrt.isqrt_loop1.body
   else ok (done res)
 
 /-- [apeiron_word::fixed_rsqrt::isqrt]: loop 1:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 43:4-52:5 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 43:4-52:5 -/
 @[rust_loop]
 def fixed_rsqrt.isqrt_loop1
   (rem : Std.I128) (res : Std.I128) (bit : Std.I128) : Result Std.I128 := do
@@ -3561,21 +3561,21 @@ def fixed_rsqrt.isqrt_loop1
     (rem, res, bit)
 
 /-- [apeiron_word::fixed_rsqrt::isqrt]:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 36:0-54:1 -/
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 36:0-54:1 -/
 def fixed_rsqrt.isqrt (n : Std.I128) : Result Std.I128 := do
   let bit ← 1#i128 <<< 126#i32
   let bit1 ← fixed_rsqrt.isqrt_loop0 n bit
   fixed_rsqrt.isqrt_loop1 n 0#i128 bit1
 
 /-- [apeiron_word::fixed_rsqrt::RsqrtError]
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 26:0-29:1
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 26:0-29:1
     Visibility: public -/
 @[discriminant isize]
 inductive fixed_rsqrt.RsqrtError where
 | OutOfRange : fixed_rsqrt.RsqrtError
 
 /-- [apeiron_word::fixed_rsqrt::fixed_rsqrt]:
-    Source: 'proof/extract/../../src/numeric/fixed_rsqrt.rs', lines 73:0-94:1
+    Source: '../../src/numeric/fixed_rsqrt.rs', lines 73:0-94:1
     Visibility: public -/
 def fixed_rsqrt.fixed_rsqrt
   (x : Std.I64) :
@@ -3604,12 +3604,12 @@ def fixed_rsqrt.fixed_rsqrt
         ok (core.result.Result.Ok i6)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 266:50-266:80 -/
+    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
 @[reducible]
 def attn.KvState.new.closure := Unit
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 266:50-266:80 -/
+    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
 def
   attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once
   (c : attn.KvState.new.closure) (tupled_args : fixed_rsqrt.RsqrtError) :
@@ -3618,7 +3618,7 @@ def
   ok attn.AttnError.ScaleOutOfRange
 
 /-- Trait implementation: [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}}]
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 266:50-266:80 -/
+    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
 @[reducible]
 def
   attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError
@@ -3629,7 +3629,7 @@ def
 }
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 236:4-289:5
+    Source: '../../src/engine/attn.rs', lines 236:4-289:5
     Visibility: public -/
 def attn.KvState.new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -3719,7 +3719,7 @@ def attn.KvState.new
             else ok (core.result.Result.Err attn.AttnError.BadGeometry)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 359:4-401:5
+    Source: '../../src/engine/attn.rs', lines 359:4-401:5
     Visibility: public -/
 def attn.KvState.append
   (self : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -3829,7 +3829,7 @@ def attn.KvState.append
       ok (r1, self)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 0:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 483:8-497:9
+    Source: '../../src/engine/attn.rs', lines 483:8-497:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop0.body
@@ -3863,7 +3863,7 @@ def attn.KvState.attn_head_loop0.body
   else ok (done (scores, mx, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 0:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 483:8-497:9
+    Source: '../../src/engine/attn.rs', lines 483:8-497:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop0
@@ -3879,7 +3879,7 @@ def attn.KvState.attn_head_loop0
     (scores, mx, s, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 1:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 509:8-526:9
+    Source: '../../src/engine/attn.rs', lines 509:8-526:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop1.body
@@ -3916,7 +3916,7 @@ def attn.KvState.attn_head_loop1.body
   else ok (done (exps, total, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 1:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 509:8-526:9
+    Source: '../../src/engine/attn.rs', lines 509:8-526:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop1
@@ -3931,7 +3931,7 @@ def attn.KvState.attn_head_loop1
     (exps, total, s, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 2:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 539:8-548:9
+    Source: '../../src/engine/attn.rs', lines 539:8-548:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop2.body
@@ -3962,7 +3962,7 @@ def attn.KvState.attn_head_loop2.body
   else ok (done (weights, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 2:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 539:8-548:9
+    Source: '../../src/engine/attn.rs', lines 539:8-548:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop2
@@ -3977,7 +3977,7 @@ def attn.KvState.attn_head_loop2
     (weights, s, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 3:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 558:8-567:9
+    Source: '../../src/engine/attn.rs', lines 558:8-567:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop3.body
@@ -4008,7 +4008,7 @@ def attn.KvState.attn_head_loop3.body
   else ok (done (out, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 3:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 558:8-567:9
+    Source: '../../src/engine/attn.rs', lines 558:8-567:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop3
@@ -4024,7 +4024,7 @@ def attn.KvState.attn_head_loop3
     (out, i, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]:
-    Source: 'proof/extract/../../src/engine/attn.rs', lines 432:4-572:5
+    Source: '../../src/engine/attn.rs', lines 432:4-572:5
     Visibility: public -/
 def attn.KvState.attn_head
   (self : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -4114,7 +4114,7 @@ def attn.KvState.attn_head
               ok (r1, out)
 
 /-- [apeiron_word::dequant::f16_to_fixed]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 25:0-41:1
+    Source: '../../src/engine/dequant.rs', lines 25:0-41:1
     Visibility: public -/
 def dequant.f16_to_fixed
   (h : Std.U16) : Result (core.result.Result Std.I64 error.EngineError) := do
@@ -4152,12 +4152,12 @@ def dequant.f16_to_fixed
           Std.I64 (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::read_u16::{closure}]
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 47:18-47:49 -/
+    Source: '../../src/engine/dequant.rs', lines 47:18-47:49 -/
 @[reducible]
 def dequant.read_u16.closure := Unit
 
 /-- [apeiron_word::dequant::read_u16::{impl core::ops::function::FnOnce<(&'_ [u8],), core::option::Option<[u8; 2usize]>> for apeiron_word::dequant::read_u16::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 47:18-47:49 -/
+    Source: '../../src/engine/dequant.rs', lines 47:18-47:49 -/
 def
   dequant.read_u16.closure.Insts.CoreOpsFunctionFnOnceTupleSharedSliceU8OptionArrayU82.call_once
   (c : dequant.read_u16.closure) (tupled_args : Slice Std.U8) :
@@ -4169,7 +4169,7 @@ def
   core.result.Result.ok r
 
 /-- Trait implementation: [apeiron_word::dequant::read_u16::{impl core::ops::function::FnOnce<(&'_ [u8],), core::option::Option<[u8; 2usize]>> for apeiron_word::dequant::read_u16::{closure}}]
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 47:18-47:49 -/
+    Source: '../../src/engine/dequant.rs', lines 47:18-47:49 -/
 @[reducible]
 def
   dequant.read_u16.closure.Insts.CoreOpsFunctionFnOnceTupleSharedSliceU8OptionArrayU82
@@ -4180,7 +4180,7 @@ def
 }
 
 /-- [apeiron_word::dequant::read_u16]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 44:0-53:1 -/
+    Source: '../../src/engine/dequant.rs', lines 44:0-53:1 -/
 def dequant.read_u16
   (raw : Slice Std.U8) (i : Std.Usize) :
   Result (core.result.Result Std.U16 error.EngineError)
@@ -4207,7 +4207,7 @@ def dequant.read_u16
       Std.U16 (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::mul]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 56:0-58:1 -/
+    Source: '../../src/engine/dequant.rs', lines 56:0-58:1 -/
 def dequant.mul
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 error.EngineError)
@@ -4216,7 +4216,7 @@ def dequant.mul
   core.option.Option.ok_or o error.EngineError.FixedOverflow
 
 /-- [apeiron_word::dequant::sub]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 61:0-63:1 -/
+    Source: '../../src/engine/dequant.rs', lines 61:0-63:1 -/
 def dequant.sub
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 error.EngineError)
@@ -4225,7 +4225,7 @@ def dequant.sub
   core.option.Option.ok_or o error.EngineError.FixedOverflow
 
 /-- [apeiron_word::dequant::block_slice]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 66:0-74:1 -/
+    Source: '../../src/engine/dequant.rs', lines 66:0-74:1 -/
 def dequant.block_slice
   (raw : Slice Std.U8) (block : Std.Usize) (bb : Std.Usize) :
   Result (core.result.Result (Slice Std.U8) error.EngineError)
@@ -4254,7 +4254,7 @@ def dequant.block_slice
       (Slice Std.U8) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::push_prefix]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 79:4-82:5 -/
+    Source: '../../src/engine/dequant.rs', lines 79:4-82:5 -/
 @[rust_loop_body]
 def dequant.push_prefix_loop.body
   (vals : Array Std.I64 256#usize) (take : Std.Usize)
@@ -4271,7 +4271,7 @@ def dequant.push_prefix_loop.body
   else ok (done out)
 
 /-- [apeiron_word::dequant::push_prefix]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 79:4-82:5 -/
+    Source: '../../src/engine/dequant.rs', lines 79:4-82:5 -/
 @[rust_loop]
 def dequant.push_prefix_loop
   (out : alloc.vec.Vec Std.I64) (vals : Array Std.I64 256#usize)
@@ -4283,7 +4283,7 @@ def dequant.push_prefix_loop
     (out, idx)
 
 /-- [apeiron_word::dequant::push_prefix]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 77:0-83:1 -/
+    Source: '../../src/engine/dequant.rs', lines 77:0-83:1 -/
 @[reducible]
 def dequant.push_prefix
   (out : alloc.vec.Vec Std.I64) (vals : Array Std.I64 256#usize)
@@ -4293,12 +4293,12 @@ def dequant.push_prefix
   dequant.push_prefix_loop out vals take 0#usize
 
 /-- [apeiron_word::quant::PTQ1_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 89:0-89:33
+    Source: '../../src/format/quant.rs', lines 89:0-89:33
     Visibility: public -/
 @[global_simps, irreducible] def quant.PTQ1_0_QK : Std.Usize := 128#usize
 
 /-- [apeiron_word::quant::PTQ1_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 91:0-91:96
+    Source: '../../src/format/quant.rs', lines 91:0-91:96
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.PTQ1_0_BLOCK_BYTES : Result Std.Usize := do
@@ -4311,7 +4311,7 @@ def quant.PTQ1_0_BLOCK_BYTES : Result Std.Usize := do
   i5 + 2#usize
 
 /-- [apeiron_word::dequant::read_scale]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 118:0-120:1 -/
+    Source: '../../src/engine/dequant.rs', lines 118:0-120:1 -/
 def dequant.read_scale
   (raw : Slice Std.U8) (i : Std.Usize) :
   Result (core.result.Result Std.I64 error.EngineError)
@@ -4325,7 +4325,7 @@ def dequant.read_scale
       Std.I64 (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::ptq1_0_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 110:4-113:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 110:4-113:5 -/
 @[rust_loop_body]
 def dequant.lowbit.ptq1_0_block_loop0.body
   (blk : Slice Std.U8) (qs : Array Std.U8 24#usize) (k : Std.Usize) :
@@ -4341,7 +4341,7 @@ def dequant.lowbit.ptq1_0_block_loop0.body
   else ok (done qs)
 
 /-- [apeiron_word::dequant::lowbit::ptq1_0_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 110:4-113:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 110:4-113:5 -/
 @[rust_loop]
 def dequant.lowbit.ptq1_0_block_loop0
   (blk : Slice Std.U8) (qs : Array Std.U8 24#usize) (k : Std.Usize) :
@@ -4352,7 +4352,7 @@ def dequant.lowbit.ptq1_0_block_loop0
     (qs, k)
 
 /-- [apeiron_word::dequant::lowbit::ptq1_0_block]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 116:4-119:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 116:4-119:5 -/
 @[rust_loop_body]
 def dequant.lowbit.ptq1_0_block_loop1.body
   (blk : Slice Std.U8) (qh : Array Std.U8 2#usize) (h : Std.Usize) :
@@ -4369,7 +4369,7 @@ def dequant.lowbit.ptq1_0_block_loop1.body
   else ok (done qh)
 
 /-- [apeiron_word::dequant::lowbit::ptq1_0_block]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 116:4-119:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 116:4-119:5 -/
 @[rust_loop]
 def dequant.lowbit.ptq1_0_block_loop1
   (blk : Slice Std.U8) (qh : Array Std.U8 2#usize) (h : Std.Usize) :
@@ -4380,7 +4380,7 @@ def dequant.lowbit.ptq1_0_block_loop1
     (qh, h)
 
 /-- [apeiron_word::dequant::lowbit::ptq1_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 105:0-121:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 105:0-121:1 -/
 def dequant.lowbit.ptq1_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.U8 24#usize) × (Array
@@ -4410,13 +4410,13 @@ def dequant.lowbit.ptq1_0_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::POW3]
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 24:0-24:46 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 24:0-24:46 -/
 @[global_simps, irreducible]
 def dequant.lowbit.POW3 : Array Std.U16 6#usize :=
   Array.make 6#usize [ 1#u16, 3#u16, 9#u16, 27#u16, 81#u16, 243#u16 ]
 
 /-- [apeiron_word::dequant::lowbit::trit]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 38:0-40:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 38:0-40:1 -/
 def dequant.lowbit.trit (b : Std.U8) (n : Std.Usize) : Result Std.I64 := do
   let i ← lift (core.convert.num.FromU16U8.from b)
   let i1 ← Array.index_usize dequant.lowbit.POW3 n
@@ -4427,13 +4427,13 @@ def dequant.lowbit.trit (b : Std.U8) (n : Std.Usize) : Result Std.I64 := do
   I64.Insts.CoreConvertFromU16.from i5
 
 /-- [apeiron_word::dequant::lowbit::PTQ1_0_STAGES]
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 31:0-31:46 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 31:0-31:46 -/
 @[global_simps, irreducible]
 def dequant.lowbit.PTQ1_0_STAGES : Array Std.Usize 3#usize :=
   Array.make 3#usize [ 32#usize, 16#usize, 8#usize ]
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 4:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 439:28-453:29 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 439:28-453:29 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 24#usize) (take : Std.Usize)
@@ -4469,7 +4469,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 4:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 439:28-453:29 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 439:28-453:29 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4486,7 +4486,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0_loop0
     (out, ok1, err, pos, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 437:24-455:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 437:24-455:25 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 24#usize) (take : Std.Usize)
@@ -4510,7 +4510,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 437:24-455:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 437:24-455:25 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4527,7 +4527,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0_loop0
     (out, ok1, err, pos, plane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 435:20-457:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 435:20-457:21 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 24#usize) (take : Std.Usize)
@@ -4551,7 +4551,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos, base))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 435:20-457:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 435:20-457:21 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4567,7 +4567,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0_loop0
     (out, ok1, err, pos, base)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 433:16-459:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 433:16-459:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 24#usize) (take : Std.Usize)
@@ -4591,7 +4591,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 433:16-459:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 433:16-459:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4607,7 +4607,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop0
     (out, ok1, err, pos, base, stage)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 6:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 463:20-477:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 463:20-477:21 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1_loop0.body
   (scale : Std.I64) (qh : Array Std.U8 2#usize) (take : Std.Usize)
@@ -4641,7 +4641,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 6:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 463:20-477:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 463:20-477:21 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4657,7 +4657,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1_loop0
     (out, ok1, err, pos, tail)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 5:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 461:16-479:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 461:16-479:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1.body
   (scale : Std.I64) (qh : Array Std.U8 2#usize) (take : Std.Usize)
@@ -4680,7 +4680,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 5:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 461:16-479:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 461:16-479:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4695,7 +4695,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0_loop1
     (out, ok1, err, pos, plane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 426:4-487:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 426:4-487:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_ptq1_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -4732,7 +4732,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 426:4-487:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 426:4-487:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_ptq1_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -4747,7 +4747,7 @@ def dequant.lowbit.dequant_ptq1_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_ptq1_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 417:0-492:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 417:0-492:1 -/
 def dequant.lowbit.dequant_ptq1_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -4762,12 +4762,12 @@ def dequant.lowbit.dequant_ptq1_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::TQ1_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 85:0-85:32
+    Source: '../../src/format/quant.rs', lines 85:0-85:32
     Visibility: public -/
 @[global_simps, irreducible] def quant.TQ1_0_QK : Std.Usize := 256#usize
 
 /-- [apeiron_word::quant::TQ1_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 87:0-87:92
+    Source: '../../src/format/quant.rs', lines 87:0-87:92
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.TQ1_0_BLOCK_BYTES : Result Std.Usize := do
@@ -4780,7 +4780,7 @@ def quant.TQ1_0_BLOCK_BYTES : Result Std.Usize := do
   i5 + 2#usize
 
 /-- [apeiron_word::dequant::lowbit::tq1_0_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 90:4-93:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 90:4-93:5 -/
 @[rust_loop_body]
 def dequant.lowbit.tq1_0_block_loop0.body
   (blk : Slice Std.U8) (qs : Array Std.U8 48#usize) (k : Std.Usize) :
@@ -4796,7 +4796,7 @@ def dequant.lowbit.tq1_0_block_loop0.body
   else ok (done qs)
 
 /-- [apeiron_word::dequant::lowbit::tq1_0_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 90:4-93:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 90:4-93:5 -/
 @[rust_loop]
 def dequant.lowbit.tq1_0_block_loop0
   (blk : Slice Std.U8) (qs : Array Std.U8 48#usize) (k : Std.Usize) :
@@ -4807,7 +4807,7 @@ def dequant.lowbit.tq1_0_block_loop0
     (qs, k)
 
 /-- [apeiron_word::dequant::lowbit::tq1_0_block]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 96:4-99:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 96:4-99:5 -/
 @[rust_loop_body]
 def dequant.lowbit.tq1_0_block_loop1.body
   (blk : Slice Std.U8) (qh : Array Std.U8 4#usize) (h : Std.Usize) :
@@ -4824,7 +4824,7 @@ def dequant.lowbit.tq1_0_block_loop1.body
   else ok (done qh)
 
 /-- [apeiron_word::dequant::lowbit::tq1_0_block]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 96:4-99:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 96:4-99:5 -/
 @[rust_loop]
 def dequant.lowbit.tq1_0_block_loop1
   (blk : Slice Std.U8) (qh : Array Std.U8 4#usize) (h : Std.Usize) :
@@ -4835,7 +4835,7 @@ def dequant.lowbit.tq1_0_block_loop1
     (qh, h)
 
 /-- [apeiron_word::dequant::lowbit::tq1_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 85:0-101:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 85:0-101:1 -/
 def dequant.lowbit.tq1_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.U8 48#usize) × (Array
@@ -4865,13 +4865,13 @@ def dequant.lowbit.tq1_0_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::TQ1_0_STAGES]
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 27:0-27:42 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 27:0-27:42 -/
 @[global_simps, irreducible]
 def dequant.lowbit.TQ1_0_STAGES : Array Std.Usize 2#usize :=
   Array.make 2#usize [ 32#usize, 16#usize ]
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 4:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 353:28-367:29 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 353:28-367:29 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 48#usize) (take : Std.Usize)
@@ -4907,7 +4907,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 4:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 353:28-367:29 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 353:28-367:29 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4924,7 +4924,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0_loop0
     (out, ok1, err, pos, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 351:24-369:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 351:24-369:25 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 48#usize) (take : Std.Usize)
@@ -4948,7 +4948,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 351:24-369:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 351:24-369:25 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -4965,7 +4965,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0_loop0
     (out, ok1, err, pos, plane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 349:20-371:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 349:20-371:21 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 48#usize) (take : Std.Usize)
@@ -4989,7 +4989,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos, base))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 349:20-371:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 349:20-371:21 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5005,7 +5005,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0_loop0
     (out, ok1, err, pos, base)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 347:16-373:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 347:16-373:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 48#usize) (take : Std.Usize)
@@ -5029,7 +5029,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 347:16-373:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 347:16-373:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5045,7 +5045,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop0
     (out, ok1, err, pos, base, stage)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 6:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 377:20-391:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 377:20-391:21 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop1_loop0.body
   (scale : Std.I64) (qh : Array Std.U8 4#usize) (take : Std.Usize)
@@ -5079,7 +5079,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop1_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 6:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 377:20-391:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 377:20-391:21 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop1_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5095,7 +5095,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop1_loop0
     (out, ok1, err, pos, tail)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 5:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 375:16-393:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 375:16-393:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop1.body
   (scale : Std.I64) (qh : Array Std.U8 4#usize) (take : Std.Usize)
@@ -5118,7 +5118,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop1.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 5:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 375:16-393:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 375:16-393:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0_loop1
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5133,7 +5133,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0_loop1
     (out, ok1, err, pos, plane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 340:4-401:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 340:4-401:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq1_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -5170,7 +5170,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 340:4-401:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 340:4-401:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq1_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -5185,7 +5185,7 @@ def dequant.lowbit.dequant_tq1_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq1_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 331:0-406:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 331:0-406:1 -/
 def dequant.lowbit.dequant_tq1_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -5200,12 +5200,12 @@ def dequant.lowbit.dequant_tq1_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::TQ2_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 81:0-81:32
+    Source: '../../src/format/quant.rs', lines 81:0-81:32
     Visibility: public -/
 @[global_simps, irreducible] def quant.TQ2_0_QK : Std.Usize := 256#usize
 
 /-- [apeiron_word::quant::TQ2_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 83:0-83:54
+    Source: '../../src/format/quant.rs', lines 83:0-83:54
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.TQ2_0_BLOCK_BYTES : Result Std.Usize := do
@@ -5213,7 +5213,7 @@ def quant.TQ2_0_BLOCK_BYTES : Result Std.Usize := do
   i + 2#usize
 
 /-- [apeiron_word::dequant::lowbit::tq2_0_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 76:4-79:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 76:4-79:5 -/
 @[rust_loop_body]
 def dequant.lowbit.tq2_0_block_loop.body
   (blk : Slice Std.U8) (qs : Array Std.U8 64#usize) (k : Std.Usize) :
@@ -5229,7 +5229,7 @@ def dequant.lowbit.tq2_0_block_loop.body
   else ok (done qs)
 
 /-- [apeiron_word::dequant::lowbit::tq2_0_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 76:4-79:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 76:4-79:5 -/
 @[rust_loop]
 def dequant.lowbit.tq2_0_block_loop
   (blk : Slice Std.U8) (qs : Array Std.U8 64#usize) (k : Std.Usize) :
@@ -5240,7 +5240,7 @@ def dequant.lowbit.tq2_0_block_loop
     (qs, k)
 
 /-- [apeiron_word::dequant::lowbit::tq2_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 71:0-81:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 71:0-81:1 -/
 def dequant.lowbit.tq2_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.U8 64#usize))
@@ -5268,7 +5268,7 @@ def dequant.lowbit.tq2_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop body 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 287:24-302:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 287:24-302:25 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 64#usize) (take : Std.Usize)
@@ -5307,7 +5307,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop 3:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 287:24-302:25 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 287:24-302:25 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5324,7 +5324,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0_loop0
     (out, ok1, err, pos, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 285:20-304:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 285:20-304:21 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 64#usize) (take : Std.Usize)
@@ -5347,7 +5347,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0.body
   else ok (done (out, ok1, err, pos))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 285:20-304:21 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 285:20-304:21 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5363,7 +5363,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0_loop0
     (out, ok1, err, pos, plane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 283:16-306:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 283:16-306:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 64#usize) (take : Std.Usize)
@@ -5386,7 +5386,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 283:16-306:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 283:16-306:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq2_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5401,7 +5401,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0_loop0
     (out, ok1, err, pos, group)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 277:4-314:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 277:4-314:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_tq2_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -5435,7 +5435,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 277:4-314:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 277:4-314:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_tq2_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -5450,7 +5450,7 @@ def dequant.lowbit.dequant_tq2_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_tq2_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 268:0-319:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 268:0-319:1 -/
 def dequant.lowbit.dequant_tq2_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -5465,12 +5465,12 @@ def dequant.lowbit.dequant_tq2_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::PQ2_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 77:0-77:32
+    Source: '../../src/format/quant.rs', lines 77:0-77:32
     Visibility: public -/
 @[global_simps, irreducible] def quant.PQ2_0_QK : Std.Usize := 128#usize
 
 /-- [apeiron_word::quant::PQ2_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 79:0-79:54
+    Source: '../../src/format/quant.rs', lines 79:0-79:54
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.PQ2_0_BLOCK_BYTES : Result Std.Usize := do
@@ -5478,7 +5478,7 @@ def quant.PQ2_0_BLOCK_BYTES : Result Std.Usize := do
   2#usize + i
 
 /-- [apeiron_word::dequant::lowbit::pq2_0_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 63:4-66:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 63:4-66:5 -/
 @[rust_loop_body]
 def dequant.lowbit.pq2_0_block_loop.body
   (blk : Slice Std.U8) (qs : Array Std.U8 32#usize) (k : Std.Usize) :
@@ -5495,7 +5495,7 @@ def dequant.lowbit.pq2_0_block_loop.body
   else ok (done qs)
 
 /-- [apeiron_word::dequant::lowbit::pq2_0_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 63:4-66:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 63:4-66:5 -/
 @[rust_loop]
 def dequant.lowbit.pq2_0_block_loop
   (blk : Slice Std.U8) (qs : Array Std.U8 32#usize) (k : Std.Usize) :
@@ -5506,7 +5506,7 @@ def dequant.lowbit.pq2_0_block_loop
     (qs, k)
 
 /-- [apeiron_word::dequant::lowbit::pq2_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 58:0-68:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 58:0-68:1 -/
 def dequant.lowbit.pq2_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.U8 32#usize))
@@ -5534,7 +5534,7 @@ def dequant.lowbit.pq2_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::dequant_pq2_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 235:16-245:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 235:16-245:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_pq2_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 32#usize) (take : Std.Usize)
@@ -5570,7 +5570,7 @@ def dequant.lowbit.dequant_pq2_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_pq2_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 235:16-245:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 235:16-245:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_pq2_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5585,7 +5585,7 @@ def dequant.lowbit.dequant_pq2_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_pq2_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 230:4-253:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 230:4-253:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_pq2_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -5619,7 +5619,7 @@ def dequant.lowbit.dequant_pq2_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_pq2_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 230:4-253:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 230:4-253:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_pq2_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -5634,7 +5634,7 @@ def dequant.lowbit.dequant_pq2_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_pq2_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 221:0-258:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 221:0-258:1 -/
 def dequant.lowbit.dequant_pq2_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -5649,17 +5649,17 @@ def dequant.lowbit.dequant_pq2_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::Q2_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 73:0-73:30
+    Source: '../../src/format/quant.rs', lines 73:0-73:30
     Visibility: public -/
 @[global_simps, irreducible] def quant.Q2_0_QK : Std.Usize := 64#usize
 
 /-- [apeiron_word::quant::Q1_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 69:0-69:31
+    Source: '../../src/format/quant.rs', lines 69:0-69:31
     Visibility: public -/
 @[global_simps, irreducible] def quant.Q1_0_QK : Std.Usize := 128#usize
 
 /-- [apeiron_word::quant::Q1_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 71:0-71:52
+    Source: '../../src/format/quant.rs', lines 71:0-71:52
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q1_0_BLOCK_BYTES : Result Std.Usize := do
@@ -5667,7 +5667,7 @@ def quant.Q1_0_BLOCK_BYTES : Result Std.Usize := do
   2#usize + i
 
 /-- [apeiron_word::dequant::lowbit::q1_q2_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 50:4-53:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 50:4-53:5 -/
 @[rust_loop_body]
 def dequant.lowbit.q1_q2_block_loop.body
   (blk : Slice Std.U8) (qs : Array Std.U8 16#usize) (k : Std.Usize) :
@@ -5684,7 +5684,7 @@ def dequant.lowbit.q1_q2_block_loop.body
   else ok (done qs)
 
 /-- [apeiron_word::dequant::lowbit::q1_q2_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 50:4-53:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 50:4-53:5 -/
 @[rust_loop]
 def dequant.lowbit.q1_q2_block_loop
   (blk : Slice Std.U8) (qs : Array Std.U8 16#usize) (k : Std.Usize) :
@@ -5695,7 +5695,7 @@ def dequant.lowbit.q1_q2_block_loop
     (qs, k)
 
 /-- [apeiron_word::dequant::lowbit::q1_q2_block]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 45:0-55:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 45:0-55:1 -/
 def dequant.lowbit.q1_q2_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.U8 16#usize))
@@ -5723,7 +5723,7 @@ def dequant.lowbit.q1_q2_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::lowbit::dequant_q2_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 190:16-200:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 190:16-200:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_q2_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 16#usize) (take : Std.Usize)
@@ -5759,7 +5759,7 @@ def dequant.lowbit.dequant_q2_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_q2_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 190:16-200:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 190:16-200:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_q2_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -5774,7 +5774,7 @@ def dequant.lowbit.dequant_q2_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_q2_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 185:4-208:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 185:4-208:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_q2_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -5808,7 +5808,7 @@ def dequant.lowbit.dequant_q2_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_q2_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 185:4-208:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 185:4-208:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_q2_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -5823,7 +5823,7 @@ def dequant.lowbit.dequant_q2_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_q2_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 176:0-213:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 176:0-213:1 -/
 def dequant.lowbit.dequant_q2_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -5838,7 +5838,7 @@ def dequant.lowbit.dequant_q2_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::dequant::lowbit::dequant_q1_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 151:16-155:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 151:16-155:17 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_q1_0_row_loop0_loop0.body
   (scale : Std.I64) (qs : Array Std.U8 16#usize) (neg : Std.I64)
@@ -5869,7 +5869,7 @@ def dequant.lowbit.dequant_q1_0_row_loop0_loop0.body
   else ok (done (out, ok1))
 
 /-- [apeiron_word::dequant::lowbit::dequant_q1_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 151:16-155:17 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 151:16-155:17 -/
 @[rust_loop]
 def dequant.lowbit.dequant_q1_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (scale : Std.I64)
@@ -5883,7 +5883,7 @@ def dequant.lowbit.dequant_q1_0_row_loop0_loop0
     (out, ok1, lane)
 
 /-- [apeiron_word::dequant::lowbit::dequant_q1_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 138:4-163:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 138:4-163:5 -/
 @[rust_loop_body]
 def dequant.lowbit.dequant_q1_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -5922,7 +5922,7 @@ def dequant.lowbit.dequant_q1_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::lowbit::dequant_q1_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 138:4-163:5 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 138:4-163:5 -/
 @[rust_loop]
 def dequant.lowbit.dequant_q1_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -5937,7 +5937,7 @@ def dequant.lowbit.dequant_q1_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::lowbit::dequant_q1_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant_lowbit.rs', lines 129:0-168:1 -/
+    Source: '../../src/engine/dequant_lowbit.rs', lines 129:0-168:1 -/
 def dequant.lowbit.dequant_q1_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -5952,12 +5952,12 @@ def dequant.lowbit.dequant_q1_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::QK_K]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 18:0-18:28
+    Source: '../../src/format/quant.rs', lines 18:0-18:28
     Visibility: public -/
 @[global_simps, irreducible] def quant.QK_K : Std.Usize := 256#usize
 
 /-- [apeiron_word::quant::need]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 221:0-230:1 -/
+    Source: '../../src/format/quant.rs', lines 221:0-230:1 -/
 def quant.need
   (blk : Slice Std.U8) (n : Std.Usize) :
   Result (core.result.Result Unit quant.QuantError)
@@ -5970,7 +5970,7 @@ def quant.need
   else ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::quant::Q6_K_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 64:0-64:72
+    Source: '../../src/format/quant.rs', lines 64:0-64:72
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q6_K_BLOCK_BYTES : Result Std.Usize := do
@@ -5982,7 +5982,7 @@ def quant.Q6_K_BLOCK_BYTES : Result Std.Usize := do
   i4 + 2#usize
 
 /-- [apeiron_word::quant::q6_k_codes]: loop body 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 581:8-592:9
+    Source: '../../src/format/quant.rs', lines 581:8-592:9
     Visibility: public -/
 @[rust_loop_body]
 def quant.q6_k_codes_loop0_loop0.body
@@ -6051,7 +6051,7 @@ def quant.q6_k_codes_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q6_k_codes]: loop 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 581:8-592:9
+    Source: '../../src/format/quant.rs', lines 581:8-592:9
     Visibility: public -/
 @[rust_loop]
 def quant.q6_k_codes_loop0_loop0
@@ -6065,7 +6065,7 @@ def quant.q6_k_codes_loop0_loop0
     (out, l)
 
 /-- [apeiron_word::quant::q6_k_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 577:4-594:5
+    Source: '../../src/format/quant.rs', lines 577:4-594:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q6_k_codes_loop0.body
@@ -6084,7 +6084,7 @@ def quant.q6_k_codes_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q6_k_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 577:4-594:5
+    Source: '../../src/format/quant.rs', lines 577:4-594:5
     Visibility: public -/
 @[rust_loop]
 def quant.q6_k_codes_loop0
@@ -6097,7 +6097,7 @@ def quant.q6_k_codes_loop0
     (out, n)
 
 /-- [apeiron_word::quant::q6_k_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 571:0-596:1
+    Source: '../../src/format/quant.rs', lines 571:0-596:1
     Visibility: public -/
 def quant.q6_k_codes
   (blk : Slice Std.U8) :
@@ -6127,7 +6127,7 @@ def quant.q6_k_codes
       residual
 
 /-- [apeiron_word::quant::u16le]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 212:0-214:1 -/
+    Source: '../../src/format/quant.rs', lines 212:0-214:1 -/
 def quant.u16le (b : Slice Std.U8) (i : Std.Usize) : Result Std.U16 := do
   let i1 ← Slice.index_usize b i
   let i2 ← i + 1#usize
@@ -6135,7 +6135,7 @@ def quant.u16le (b : Slice Std.U8) (i : Std.Usize) : Result Std.U16 := do
   ok (core.num.U16.from_le_bytes (Array.make 2#usize [ i1, i3 ]))
 
 /-- [apeiron_word::quant::q6_k_d]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 565:0-568:1
+    Source: '../../src/format/quant.rs', lines 565:0-568:1
     Visibility: public -/
 def quant.q6_k_d
   (blk : Slice Std.U8) :
@@ -6158,7 +6158,7 @@ def quant.q6_k_d
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::quant::q6_k_scales]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 557:4-560:5
+    Source: '../../src/format/quant.rs', lines 557:4-560:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q6_k_scales_loop.body
@@ -6180,7 +6180,7 @@ def quant.q6_k_scales_loop.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q6_k_scales]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 557:4-560:5
+    Source: '../../src/format/quant.rs', lines 557:4-560:5
     Visibility: public -/
 @[rust_loop]
 def quant.q6_k_scales_loop
@@ -6192,7 +6192,7 @@ def quant.q6_k_scales_loop
     (out, k)
 
 /-- [apeiron_word::quant::q6_k_scales]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 553:0-562:1
+    Source: '../../src/format/quant.rs', lines 553:0-562:1
     Visibility: public -/
 def quant.q6_k_scales
   (blk : Slice Std.U8) :
@@ -6211,14 +6211,14 @@ def quant.q6_k_scales
       (Array Std.I8 16#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::error::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::error::EngineError}::from]:
-    Source: 'proof/extract/../../src/engine/error.rs', lines 152:4-154:5
+    Source: '../../src/engine/error.rs', lines 152:4-154:5
     Visibility: public -/
 def error.EngineError.Insts.CoreConvertFromQuantError.from
   (e : quant.QuantError) : Result error.EngineError := do
   ok (error.EngineError.Quant e)
 
 /-- Trait implementation: [apeiron_word::error::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::error::EngineError}]
-    Source: 'proof/extract/../../src/engine/error.rs', lines 151:0-155:1 -/
+    Source: '../../src/engine/error.rs', lines 151:0-155:1 -/
 @[reducible]
 def error.EngineError.Insts.CoreConvertFromQuantError : core.convert.From
   error.EngineError quant.QuantError := {
@@ -6226,7 +6226,7 @@ def error.EngineError.Insts.CoreConvertFromQuantError : core.convert.From
 }
 
 /-- [apeiron_word::dequant::q6_k_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 182:0-188:1 -/
+    Source: '../../src/engine/dequant.rs', lines 182:0-188:1 -/
 def dequant.q6_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 16#usize) × (Array
@@ -6276,7 +6276,7 @@ def dequant.q6_k_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 549:20-558:21 -/
+    Source: '../../src/engine/dequant.rs', lines 549:20-558:21 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0_loop0_loop0.body
   (codes : Array Std.I8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -6309,7 +6309,7 @@ def dequant.dequant_q6_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 549:20-558:21 -/
+    Source: '../../src/engine/dequant.rs', lines 549:20-558:21 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -6324,7 +6324,7 @@ def dequant.dequant_q6_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 539:16-560:17 -/
+    Source: '../../src/engine/dequant.rs', lines 539:16-560:17 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0_loop0.body
   (d : Std.I64) (scales : Array Std.I8 16#usize)
@@ -6355,7 +6355,7 @@ def dequant.dequant_q6_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 539:16-560:17 -/
+    Source: '../../src/engine/dequant.rs', lines 539:16-560:17 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64)
@@ -6370,7 +6370,7 @@ def dequant.dequant_q6_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 533:4-571:5 -/
+    Source: '../../src/engine/dequant.rs', lines 533:4-571:5 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -6408,7 +6408,7 @@ def dequant.dequant_q6_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 533:4-571:5 -/
+    Source: '../../src/engine/dequant.rs', lines 533:4-571:5 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -6422,7 +6422,7 @@ def dequant.dequant_q6_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 528:0-576:1 -/
+    Source: '../../src/engine/dequant.rs', lines 528:0-576:1 -/
 def dequant.dequant_q6_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -6436,7 +6436,7 @@ def dequant.dequant_q6_k_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::q4_k_scale_min]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 479:0-488:1
+    Source: '../../src/format/quant.rs', lines 479:0-488:1
     Visibility: public -/
 def quant.q4_k_scale_min
   (scales : Array Std.U8 12#usize) (j : Std.Usize) :
@@ -6468,12 +6468,12 @@ def quant.q4_k_scale_min
     ok (i7, i13)
 
 /-- [apeiron_word::quant::Q4_K_SCALE_SIZE]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 66:0-66:38
+    Source: '../../src/format/quant.rs', lines 66:0-66:38
     Visibility: public -/
 @[global_simps, irreducible] def quant.Q4_K_SCALE_SIZE : Std.Usize := 12#usize
 
 /-- [apeiron_word::quant::Q4_K_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 62:0-62:58
+    Source: '../../src/format/quant.rs', lines 62:0-62:58
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q4_K_BLOCK_BYTES : Result Std.Usize := do
@@ -6483,7 +6483,7 @@ def quant.Q4_K_BLOCK_BYTES : Result Std.Usize := do
   i1 + i2
 
 /-- [apeiron_word::quant::q4_k_codes]: loop body 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 499:8-503:9
+    Source: '../../src/format/quant.rs', lines 499:8-503:9
     Visibility: public -/
 @[rust_loop_body]
 def quant.q4_k_codes_loop0_loop0.body
@@ -6512,7 +6512,7 @@ def quant.q4_k_codes_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q4_k_codes]: loop 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 499:8-503:9
+    Source: '../../src/format/quant.rs', lines 499:8-503:9
     Visibility: public -/
 @[rust_loop]
 def quant.q4_k_codes_loop0_loop0
@@ -6525,7 +6525,7 @@ def quant.q4_k_codes_loop0_loop0
     (out, l)
 
 /-- [apeiron_word::quant::q4_k_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 497:4-505:5
+    Source: '../../src/format/quant.rs', lines 497:4-505:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q4_k_codes_loop0.body
@@ -6541,7 +6541,7 @@ def quant.q4_k_codes_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q4_k_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 497:4-505:5
+    Source: '../../src/format/quant.rs', lines 497:4-505:5
     Visibility: public -/
 @[rust_loop]
 def quant.q4_k_codes_loop0
@@ -6553,7 +6553,7 @@ def quant.q4_k_codes_loop0
     (out, b)
 
 /-- [apeiron_word::quant::q4_k_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 492:0-507:1
+    Source: '../../src/format/quant.rs', lines 492:0-507:1
     Visibility: public -/
 def quant.q4_k_codes
   (blk : Slice Std.U8) :
@@ -6578,7 +6578,7 @@ def quant.q4_k_codes
       residual
 
 /-- [apeiron_word::dequant::q4_k_block]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 173:4-176:5 -/
+    Source: '../../src/engine/dequant.rs', lines 173:4-176:5 -/
 @[rust_loop_body]
 def dequant.q4_k_block_loop.body
   (blk : Slice Std.U8) (sc : Array Std.U8 12#usize) (k : Std.Usize) :
@@ -6595,7 +6595,7 @@ def dequant.q4_k_block_loop.body
   else ok (done sc)
 
 /-- [apeiron_word::dequant::q4_k_block]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 173:4-176:5 -/
+    Source: '../../src/engine/dequant.rs', lines 173:4-176:5 -/
 @[rust_loop]
 def dequant.q4_k_block_loop
   (blk : Slice Std.U8) (sc : Array Std.U8 12#usize) (k : Std.Usize) :
@@ -6606,7 +6606,7 @@ def dequant.q4_k_block_loop
     (sc, k)
 
 /-- [apeiron_word::dequant::q4_k_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 164:0-179:1 -/
+    Source: '../../src/engine/dequant.rs', lines 164:0-179:1 -/
 def dequant.q4_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × Std.I64 × (Array Std.U8 12#usize) ×
@@ -6651,7 +6651,7 @@ def dequant.q4_k_block
       256#usize)) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 476:20-504:21 -/
+    Source: '../../src/engine/dequant.rs', lines 476:20-504:21 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0_loop0_loop0.body
   (codes : Array Std.U8 256#usize) (group : Std.Usize) (slope_lo : Std.I64)
@@ -6707,7 +6707,7 @@ def dequant.dequant_q4_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 476:20-504:21 -/
+    Source: '../../src/engine/dequant.rs', lines 476:20-504:21 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -6723,7 +6723,7 @@ def dequant.dequant_q4_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 440:16-506:17 -/
+    Source: '../../src/engine/dequant.rs', lines 440:16-506:17 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0_loop0.body
   (scale : Std.I64) (min_scale : Std.I64) (sc : Array Std.U8 12#usize)
@@ -6775,7 +6775,7 @@ def dequant.dequant_q4_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 440:16-506:17 -/
+    Source: '../../src/engine/dequant.rs', lines 440:16-506:17 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (scale : Std.I64)
@@ -6791,7 +6791,7 @@ def dequant.dequant_q4_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 434:4-517:5 -/
+    Source: '../../src/engine/dequant.rs', lines 434:4-517:5 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -6829,7 +6829,7 @@ def dequant.dequant_q4_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 434:4-517:5 -/
+    Source: '../../src/engine/dequant.rs', lines 434:4-517:5 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -6843,7 +6843,7 @@ def dequant.dequant_q4_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 429:0-522:1 -/
+    Source: '../../src/engine/dequant.rs', lines 429:0-522:1 -/
 def dequant.dequant_q4_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -6857,7 +6857,7 @@ def dequant.dequant_q4_k_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::Q3_K_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 60:0-60:65
+    Source: '../../src/format/quant.rs', lines 60:0-60:65
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q3_K_BLOCK_BYTES : Result Std.Usize := do
@@ -6868,7 +6868,7 @@ def quant.Q3_K_BLOCK_BYTES : Result Std.Usize := do
   i3 + 2#usize
 
 /-- [apeiron_word::quant::q3_k_codes]: loop body 3:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 440:16-445:17
+    Source: '../../src/format/quant.rs', lines 440:16-445:17
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_codes_loop0_loop0_loop0_loop0.body
@@ -6902,7 +6902,7 @@ def quant.q3_k_codes_loop0_loop0_loop0_loop0.body
   else ok (done (out, y))
 
 /-- [apeiron_word::quant::q3_k_codes]: loop 3:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 440:16-445:17
+    Source: '../../src/format/quant.rs', lines 440:16-445:17
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_codes_loop0_loop0_loop0_loop0
@@ -6917,7 +6917,7 @@ def quant.q3_k_codes_loop0_loop0_loop0_loop0
     (out, y, l)
 
 /-- [apeiron_word::quant::q3_k_codes]: loop body 2:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 437:12-447:13
+    Source: '../../src/format/quant.rs', lines 437:12-447:13
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_codes_loop0_loop0_loop0.body
@@ -6938,7 +6938,7 @@ def quant.q3_k_codes_loop0_loop0_loop0.body
   else ok (done (out, y))
 
 /-- [apeiron_word::quant::q3_k_codes]: loop 2:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 437:12-447:13
+    Source: '../../src/format/quant.rs', lines 437:12-447:13
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_codes_loop0_loop0_loop0
@@ -6953,7 +6953,7 @@ def quant.q3_k_codes_loop0_loop0_loop0
     (out, y, plane)
 
 /-- [apeiron_word::quant::q3_k_codes]: loop body 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 435:8-451:9
+    Source: '../../src/format/quant.rs', lines 435:8-451:9
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_codes_loop0_loop0.body
@@ -6974,7 +6974,7 @@ def quant.q3_k_codes_loop0_loop0.body
   else ok (done (out, m, y))
 
 /-- [apeiron_word::quant::q3_k_codes]: loop 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 435:8-451:9
+    Source: '../../src/format/quant.rs', lines 435:8-451:9
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_codes_loop0_loop0
@@ -6989,7 +6989,7 @@ def quant.q3_k_codes_loop0_loop0
     (out, m, y, shift, round)
 
 /-- [apeiron_word::quant::q3_k_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 431:4-453:5
+    Source: '../../src/format/quant.rs', lines 431:4-453:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_codes_loop0.body
@@ -7008,7 +7008,7 @@ def quant.q3_k_codes_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q3_k_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 431:4-453:5
+    Source: '../../src/format/quant.rs', lines 431:4-453:5
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_codes_loop0
@@ -7022,7 +7022,7 @@ def quant.q3_k_codes_loop0
     (out, m, y, half)
 
 /-- [apeiron_word::quant::q3_k_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 423:0-455:1
+    Source: '../../src/format/quant.rs', lines 423:0-455:1
     Visibility: public -/
 def quant.q3_k_codes
   (blk : Slice Std.U8) :
@@ -7052,7 +7052,7 @@ def quant.q3_k_codes
       residual
 
 /-- [apeiron_word::quant::q3_k_d]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 417:0-420:1
+    Source: '../../src/format/quant.rs', lines 417:0-420:1
     Visibility: public -/
 def quant.q3_k_d
   (blk : Slice Std.U8) :
@@ -7074,17 +7074,17 @@ def quant.q3_k_d
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::quant::q3_k_scales::KMASK2]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 390:4-390:36 -/
+    Source: '../../src/format/quant.rs', lines 390:4-390:36 -/
 @[global_simps, irreducible]
 def quant.q3_k_scales.KMASK2 : Std.U32 := 252645135#u32
 
 /-- [apeiron_word::quant::q3_k_scales::KMASK1]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 389:4-389:36 -/
+    Source: '../../src/format/quant.rs', lines 389:4-389:36 -/
 @[global_simps, irreducible]
 def quant.q3_k_scales.KMASK1 : Std.U32 := 50529027#u32
 
 /-- [apeiron_word::quant::q3_k_scales]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 395:4-399:5
+    Source: '../../src/format/quant.rs', lines 395:4-399:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_scales_loop0.body
@@ -7110,7 +7110,7 @@ def quant.q3_k_scales_loop0.body
   else ok (done aux)
 
 /-- [apeiron_word::quant::q3_k_scales]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 395:4-399:5
+    Source: '../../src/format/quant.rs', lines 395:4-399:5
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_scales_loop0
@@ -7122,7 +7122,7 @@ def quant.q3_k_scales_loop0
     (aux, k)
 
 /-- [apeiron_word::quant::q3_k_scales]: loop body 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 409:4-412:5
+    Source: '../../src/format/quant.rs', lines 409:4-412:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q3_k_scales_loop1.body
@@ -7146,7 +7146,7 @@ def quant.q3_k_scales_loop1.body
   else ok (done scales)
 
 /-- [apeiron_word::quant::q3_k_scales]: loop 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 409:4-412:5
+    Source: '../../src/format/quant.rs', lines 409:4-412:5
     Visibility: public -/
 @[rust_loop]
 def quant.q3_k_scales_loop1
@@ -7159,7 +7159,7 @@ def quant.q3_k_scales_loop1
     (scales, j)
 
 /-- [apeiron_word::quant::q3_k_scales]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 388:0-414:1
+    Source: '../../src/format/quant.rs', lines 388:0-414:1
     Visibility: public -/
 def quant.q3_k_scales
   (blk : Slice Std.U8) :
@@ -7214,7 +7214,7 @@ def quant.q3_k_scales
       (Array Std.I8 16#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q3_k_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 148:0-154:1 -/
+    Source: '../../src/engine/dequant.rs', lines 148:0-154:1 -/
 def dequant.q3_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 16#usize) × (Array
@@ -7264,7 +7264,7 @@ def dequant.q3_k_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 390:20-399:21 -/
+    Source: '../../src/engine/dequant.rs', lines 390:20-399:21 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0_loop0_loop0.body
   (codes : Array Std.I8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -7297,7 +7297,7 @@ def dequant.dequant_q3_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 390:20-399:21 -/
+    Source: '../../src/engine/dequant.rs', lines 390:20-399:21 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -7312,7 +7312,7 @@ def dequant.dequant_q3_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 380:16-401:17 -/
+    Source: '../../src/engine/dequant.rs', lines 380:16-401:17 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0_loop0.body
   (d : Std.I64) (scales : Array Std.I8 16#usize)
@@ -7344,7 +7344,7 @@ def dequant.dequant_q3_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 380:16-401:17 -/
+    Source: '../../src/engine/dequant.rs', lines 380:16-401:17 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64)
@@ -7359,7 +7359,7 @@ def dequant.dequant_q3_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 374:4-412:5 -/
+    Source: '../../src/engine/dequant.rs', lines 374:4-412:5 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -7397,7 +7397,7 @@ def dequant.dequant_q3_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 374:4-412:5 -/
+    Source: '../../src/engine/dequant.rs', lines 374:4-412:5 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -7411,7 +7411,7 @@ def dequant.dequant_q3_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 369:0-417:1 -/
+    Source: '../../src/engine/dequant.rs', lines 369:0-417:1 -/
 def dequant.dequant_q3_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -7425,7 +7425,7 @@ def dequant.dequant_q3_k_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::q2_k_scale_min]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 316:0-318:1
+    Source: '../../src/format/quant.rs', lines 316:0-318:1
     Visibility: public -/
 def quant.q2_k_scale_min (sc : Std.U8) : Result (Std.U8 × Std.U8) := do
   let i ← lift (sc &&& 15#u8)
@@ -7433,7 +7433,7 @@ def quant.q2_k_scale_min (sc : Std.U8) : Result (Std.U8 × Std.U8) := do
   ok (i, i1)
 
 /-- [apeiron_word::quant::q2_k_codes]: loop body 3:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 348:16-352:17
+    Source: '../../src/format/quant.rs', lines 348:16-352:17
     Visibility: public -/
 @[rust_loop_body]
 def quant.q2_k_codes_loop0_loop0_loop0_loop0.body
@@ -7456,7 +7456,7 @@ def quant.q2_k_codes_loop0_loop0_loop0_loop0.body
   else ok (done (out, y))
 
 /-- [apeiron_word::quant::q2_k_codes]: loop 3:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 348:16-352:17
+    Source: '../../src/format/quant.rs', lines 348:16-352:17
     Visibility: public -/
 @[rust_loop]
 def quant.q2_k_codes_loop0_loop0_loop0_loop0
@@ -7470,7 +7470,7 @@ def quant.q2_k_codes_loop0_loop0_loop0_loop0
     (out, y, l)
 
 /-- [apeiron_word::quant::q2_k_codes]: loop body 2:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 345:12-354:13
+    Source: '../../src/format/quant.rs', lines 345:12-354:13
     Visibility: public -/
 @[rust_loop_body]
 def quant.q2_k_codes_loop0_loop0_loop0.body
@@ -7489,7 +7489,7 @@ def quant.q2_k_codes_loop0_loop0_loop0.body
   else ok (done (out, y))
 
 /-- [apeiron_word::quant::q2_k_codes]: loop 2:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 345:12-354:13
+    Source: '../../src/format/quant.rs', lines 345:12-354:13
     Visibility: public -/
 @[rust_loop]
 def quant.q2_k_codes_loop0_loop0_loop0
@@ -7503,7 +7503,7 @@ def quant.q2_k_codes_loop0_loop0_loop0
     (out, y, plane)
 
 /-- [apeiron_word::quant::q2_k_codes]: loop body 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 343:8-357:9
+    Source: '../../src/format/quant.rs', lines 343:8-357:9
     Visibility: public -/
 @[rust_loop_body]
 def quant.q2_k_codes_loop0_loop0.body
@@ -7522,7 +7522,7 @@ def quant.q2_k_codes_loop0_loop0.body
   else ok (done (out, y))
 
 /-- [apeiron_word::quant::q2_k_codes]: loop 1:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 343:8-357:9
+    Source: '../../src/format/quant.rs', lines 343:8-357:9
     Visibility: public -/
 @[rust_loop]
 def quant.q2_k_codes_loop0_loop0
@@ -7536,7 +7536,7 @@ def quant.q2_k_codes_loop0_loop0
     (out, y, shift, round)
 
 /-- [apeiron_word::quant::q2_k_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 339:4-359:5
+    Source: '../../src/format/quant.rs', lines 339:4-359:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q2_k_codes_loop0.body
@@ -7554,7 +7554,7 @@ def quant.q2_k_codes_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q2_k_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 339:4-359:5
+    Source: '../../src/format/quant.rs', lines 339:4-359:5
     Visibility: public -/
 @[rust_loop]
 def quant.q2_k_codes_loop0
@@ -7567,7 +7567,7 @@ def quant.q2_k_codes_loop0
     (out, y, half)
 
 /-- [apeiron_word::quant::q2_k_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 333:0-361:1
+    Source: '../../src/format/quant.rs', lines 333:0-361:1
     Visibility: public -/
 def quant.q2_k_codes
   (blk : Slice Std.U8) :
@@ -7593,7 +7593,7 @@ def quant.q2_k_codes
       residual
 
 /-- [apeiron_word::quant::Q2_K_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 58:0-58:61
+    Source: '../../src/format/quant.rs', lines 58:0-58:61
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q2_K_BLOCK_BYTES : Result Std.Usize := do
@@ -7603,7 +7603,7 @@ def quant.Q2_K_BLOCK_BYTES : Result Std.Usize := do
   i2 + 4#usize
 
 /-- [apeiron_word::quant::q2_k_dmin]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 327:0-330:1
+    Source: '../../src/format/quant.rs', lines 327:0-330:1
     Visibility: public -/
 def quant.q2_k_dmin
   (blk : Slice Std.U8) :
@@ -7625,7 +7625,7 @@ def quant.q2_k_dmin
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::quant::q2_k_d]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 321:0-324:1
+    Source: '../../src/format/quant.rs', lines 321:0-324:1
     Visibility: public -/
 def quant.q2_k_d
   (blk : Slice Std.U8) :
@@ -7646,7 +7646,7 @@ def quant.q2_k_d
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::quant::q2_k_scales]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 308:0-313:1
+    Source: '../../src/format/quant.rs', lines 308:0-313:1
     Visibility: public -/
 def quant.q2_k_scales
   (blk : Slice Std.U8) :
@@ -7671,7 +7671,7 @@ def quant.q2_k_scales
       (Array Std.U8 16#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q2_k_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 138:0-145:1 -/
+    Source: '../../src/engine/dequant.rs', lines 138:0-145:1 -/
 def dequant.q2_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × Std.I64 × (Array Std.U8 16#usize) ×
@@ -7740,7 +7740,7 @@ def dequant.q2_k_block
       256#usize)) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 330:20-345:21 -/
+    Source: '../../src/engine/dequant.rs', lines 330:20-345:21 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0_loop0_loop0.body
   (codes : Array Std.U8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -7777,7 +7777,7 @@ def dequant.dequant_q2_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 2:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 330:20-345:21 -/
+    Source: '../../src/engine/dequant.rs', lines 330:20-345:21 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -7793,7 +7793,7 @@ def dequant.dequant_q2_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 311:16-347:17 -/
+    Source: '../../src/engine/dequant.rs', lines 311:16-347:17 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0_loop0.body
   (d : Std.I64) (dmin : Std.I64) (scales : Array Std.U8 16#usize)
@@ -7831,7 +7831,7 @@ def dequant.dequant_q2_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 311:16-347:17 -/
+    Source: '../../src/engine/dequant.rs', lines 311:16-347:17 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64) (dmin : Std.I64)
@@ -7846,7 +7846,7 @@ def dequant.dequant_q2_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 305:4-358:5 -/
+    Source: '../../src/engine/dequant.rs', lines 305:4-358:5 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -7884,7 +7884,7 @@ def dequant.dequant_q2_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 305:4-358:5 -/
+    Source: '../../src/engine/dequant.rs', lines 305:4-358:5 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -7898,7 +7898,7 @@ def dequant.dequant_q2_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 300:0-363:1 -/
+    Source: '../../src/engine/dequant.rs', lines 300:0-363:1 -/
 def dequant.dequant_q2_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -7912,17 +7912,17 @@ def dequant.dequant_q2_k_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::Q8_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 50:0-50:30
+    Source: '../../src/format/quant.rs', lines 50:0-50:30
     Visibility: public -/
 @[global_simps, irreducible] def quant.Q8_0_QK : Std.Usize := 32#usize
 
 /-- [apeiron_word::quant::Q5_0_QK]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 54:0-54:35
+    Source: '../../src/format/quant.rs', lines 54:0-54:35
     Visibility: public -/
 @[global_simps, irreducible] def quant.Q5_0_QK : Std.Usize := quant.Q8_0_QK
 
 /-- [apeiron_word::quant::Q5_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 56:0-56:56
+    Source: '../../src/format/quant.rs', lines 56:0-56:56
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q5_0_BLOCK_BYTES : Result Std.Usize := do
@@ -7931,7 +7931,7 @@ def quant.Q5_0_BLOCK_BYTES : Result Std.Usize := do
   i + i1
 
 /-- [apeiron_word::quant::q5_0_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 283:4-292:5
+    Source: '../../src/format/quant.rs', lines 283:4-292:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q5_0_codes_loop.body
@@ -7972,7 +7972,7 @@ def quant.q5_0_codes_loop.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q5_0_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 283:4-292:5
+    Source: '../../src/format/quant.rs', lines 283:4-292:5
     Visibility: public -/
 @[rust_loop]
 def quant.q5_0_codes_loop
@@ -7985,7 +7985,7 @@ def quant.q5_0_codes_loop
     (out, j)
 
 /-- [apeiron_word::quant::q5_0_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 277:0-294:1
+    Source: '../../src/format/quant.rs', lines 277:0-294:1
     Visibility: public -/
 def quant.q5_0_codes
   (blk : Slice Std.U8) :
@@ -8012,7 +8012,7 @@ def quant.q5_0_codes
       (Array Std.I8 32#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::quant::q5_0_d]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 268:0-271:1
+    Source: '../../src/format/quant.rs', lines 268:0-271:1
     Visibility: public -/
 def quant.q5_0_d
   (blk : Slice Std.U8) :
@@ -8030,7 +8030,7 @@ def quant.q5_0_d
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q5_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 130:0-135:1 -/
+    Source: '../../src/engine/dequant.rs', lines 130:0-135:1 -/
 def dequant.q5_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 32#usize))
@@ -8072,7 +8072,7 @@ def dequant.q5_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 272:16-281:17 -/
+    Source: '../../src/engine/dequant.rs', lines 272:16-281:17 -/
 @[rust_loop_body]
 def dequant.dequant_q5_0_row_loop0_loop0.body
   (scale : Std.I64) (codes : Array Std.I8 32#usize) (take : Std.Usize)
@@ -8102,7 +8102,7 @@ def dequant.dequant_q5_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 272:16-281:17 -/
+    Source: '../../src/engine/dequant.rs', lines 272:16-281:17 -/
 @[rust_loop]
 def dequant.dequant_q5_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -8116,7 +8116,7 @@ def dequant.dequant_q5_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 267:4-289:5 -/
+    Source: '../../src/engine/dequant.rs', lines 267:4-289:5 -/
 @[rust_loop_body]
 def dequant.dequant_q5_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -8150,7 +8150,7 @@ def dequant.dequant_q5_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 267:4-289:5 -/
+    Source: '../../src/engine/dequant.rs', lines 267:4-289:5 -/
 @[rust_loop]
 def dequant.dequant_q5_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -8164,7 +8164,7 @@ def dequant.dequant_q5_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 262:0-294:1 -/
+    Source: '../../src/engine/dequant.rs', lines 262:0-294:1 -/
 def dequant.dequant_q5_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -8178,13 +8178,13 @@ def dequant.dequant_q5_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::quant::Q8_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 52:0-52:43
+    Source: '../../src/format/quant.rs', lines 52:0-52:43
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q8_0_BLOCK_BYTES : Result Std.Usize := 2#usize + 32#usize
 
 /-- [apeiron_word::quant::q8_0_codes]: loop body 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 242:4-245:5
+    Source: '../../src/format/quant.rs', lines 242:4-245:5
     Visibility: public -/
 @[rust_loop_body]
 def quant.q8_0_codes_loop.body
@@ -8205,7 +8205,7 @@ def quant.q8_0_codes_loop.body
   else ok (done out)
 
 /-- [apeiron_word::quant::q8_0_codes]: loop 0:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 242:4-245:5
+    Source: '../../src/format/quant.rs', lines 242:4-245:5
     Visibility: public -/
 @[rust_loop]
 def quant.q8_0_codes_loop
@@ -8218,7 +8218,7 @@ def quant.q8_0_codes_loop
     (out, j)
 
 /-- [apeiron_word::quant::q8_0_codes]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 235:0-247:1
+    Source: '../../src/format/quant.rs', lines 235:0-247:1
     Visibility: public -/
 def quant.q8_0_codes
   (raw : Slice Std.U8) (b : Std.Usize) :
@@ -8247,7 +8247,7 @@ def quant.q8_0_codes
       (Array Std.I8 32#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q8_0_block]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 123:0-127:1 -/
+    Source: '../../src/engine/dequant.rs', lines 123:0-127:1 -/
 def dequant.q8_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 32#usize))
@@ -8274,7 +8274,7 @@ def dequant.q8_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop body 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 234:16-243:17 -/
+    Source: '../../src/engine/dequant.rs', lines 234:16-243:17 -/
 @[rust_loop_body]
 def dequant.dequant_q8_0_row_loop0_loop0.body
   (scale : Std.I64) (codes : Array Std.I8 32#usize) (take : Std.Usize)
@@ -8304,7 +8304,7 @@ def dequant.dequant_q8_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop 1:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 234:16-243:17 -/
+    Source: '../../src/engine/dequant.rs', lines 234:16-243:17 -/
 @[rust_loop]
 def dequant.dequant_q8_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -8318,7 +8318,7 @@ def dequant.dequant_q8_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 229:4-251:5 -/
+    Source: '../../src/engine/dequant.rs', lines 229:4-251:5 -/
 @[rust_loop_body]
 def dequant.dequant_q8_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -8352,7 +8352,7 @@ def dequant.dequant_q8_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 229:4-251:5 -/
+    Source: '../../src/engine/dequant.rs', lines 229:4-251:5 -/
 @[rust_loop]
 def dequant.dequant_q8_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -8366,7 +8366,7 @@ def dequant.dequant_q8_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 224:0-256:1 -/
+    Source: '../../src/engine/dequant.rs', lines 224:0-256:1 -/
 def dequant.dequant_q8_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -8380,7 +8380,7 @@ def dequant.dequant_q8_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::dequant::dequant_f16_row]: loop body 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 198:4-213:5 -/
+    Source: '../../src/engine/dequant.rs', lines 198:4-213:5 -/
 @[rust_loop_body]
 def dequant.dequant_f16_row_loop.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -8412,7 +8412,7 @@ def dequant.dequant_f16_row_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_f16_row]: loop 0:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 198:4-213:5 -/
+    Source: '../../src/engine/dequant.rs', lines 198:4-213:5 -/
 @[rust_loop]
 def dequant.dequant_f16_row_loop
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -8425,7 +8425,7 @@ def dequant.dequant_f16_row_loop
     (out, idx, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_f16_row]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 194:0-218:1 -/
+    Source: '../../src/engine/dequant.rs', lines 194:0-218:1 -/
 def dequant.dequant_f16_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -8438,7 +8438,7 @@ def dequant.dequant_f16_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::dequant::dequant_row_fixed]:
-    Source: 'proof/extract/../../src/engine/dequant.rs', lines 93:0-115:1 -/
+    Source: '../../src/engine/dequant.rs', lines 93:0-115:1 -/
 def dequant.dequant_row_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_elems : Std.Usize)
   (out : alloc.vec.Vec Std.I64) :
@@ -8464,7 +8464,7 @@ def dequant.dequant_row_fixed
       ggml_type), out)
 
 /-- [apeiron_word::ffn::FfnError]
-    Source: 'proof/extract/../../src/engine/ffn.rs', lines 12:0-27:1
+    Source: '../../src/engine/ffn.rs', lines 12:0-27:1
     Visibility: public -/
 @[discriminant isize]
 inductive ffn.FfnError where
@@ -8475,11 +8475,11 @@ inductive ffn.FfnError where
 | Matvec : matvec.MatvecError → ffn.FfnError
 
 /-- [apeiron_word::hadamard::MAX_K]
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 19:0-19:24 -/
+    Source: '../../src/engine/hadamard.rs', lines 19:0-19:24 -/
 @[global_simps, irreducible] def hadamard.MAX_K : Std.Usize := 16#usize
 
 /-- [apeiron_word::hadamard::C]
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 26:0-44:2 -/
+    Source: '../../src/engine/hadamard.rs', lines 26:0-44:2 -/
 @[global_simps, irreducible]
 def hadamard.C : Array Std.I64 17#usize :=
   Array.make 17#usize [
@@ -8490,7 +8490,7 @@ def hadamard.C : Array Std.I64 17#usize :=
     ]
 
 /-- [apeiron_word::hadamard::HadamardError]
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 48:0-58:1
+    Source: '../../src/engine/hadamard.rs', lines 48:0-58:1
     Visibility: public -/
 @[discriminant isize]
 inductive hadamard.HadamardError where
@@ -8500,7 +8500,7 @@ inductive hadamard.HadamardError where
 | Overflow : hadamard.HadamardError
 
 /-- [apeiron_word::hadamard::block_exponent]: loop body 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 68:4-70:5 -/
+    Source: '../../src/engine/hadamard.rs', lines 68:4-70:5 -/
 @[rust_loop_body]
 def hadamard.block_exponent_loop.body
   (block : Std.Usize) (k : Std.Usize) :
@@ -8516,7 +8516,7 @@ def hadamard.block_exponent_loop.body
   else ok (done k)
 
 /-- [apeiron_word::hadamard::block_exponent]: loop 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 68:4-70:5 -/
+    Source: '../../src/engine/hadamard.rs', lines 68:4-70:5 -/
 @[rust_loop]
 def hadamard.block_exponent_loop
   (block : Std.Usize) (k : Std.Usize) : Result Std.Usize := do
@@ -8525,7 +8525,7 @@ def hadamard.block_exponent_loop
     k
 
 /-- [apeiron_word::hadamard::block_exponent]:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 63:0-76:1 -/
+    Source: '../../src/engine/hadamard.rs', lines 63:0-76:1 -/
 def hadamard.block_exponent
   (block : Std.Usize) : Result (Option Std.Usize) := do
   if block < 2#usize
@@ -8538,7 +8538,7 @@ def hadamard.block_exponent
     else ok none
 
 /-- [apeiron_word::hadamard::round_q32_signed]:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 83:0-90:1 -/
+    Source: '../../src/engine/hadamard.rs', lines 83:0-90:1 -/
 def hadamard.round_q32_signed (num : Std.I128) : Result Std.I128 := do
   let den ← 1#i128 <<< engine.FIXED_FRAC_BITS
   if num >= 0#i128
@@ -8548,7 +8548,7 @@ def hadamard.round_q32_signed (num : Std.I128) : Result Std.I128 := do
        -. i1
 
 /-- [apeiron_word::hadamard::fwht_int]: loop body 2:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 134:12-156:13
+    Source: '../../src/engine/hadamard.rs', lines 134:12-156:13
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_int_loop0_loop0_loop0.body
@@ -8589,7 +8589,7 @@ def hadamard.fwht_int_loop0_loop0_loop0.body
   else ok (done (x, ok1, err))
 
 /-- [apeiron_word::hadamard::fwht_int]: loop 2:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 134:12-156:13
+    Source: '../../src/engine/hadamard.rs', lines 134:12-156:13
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_int_loop0_loop0_loop0
@@ -8603,7 +8603,7 @@ def hadamard.fwht_int_loop0_loop0_loop0
     (x, ok1, err, lane)
 
 /-- [apeiron_word::hadamard::fwht_int]: loop body 1:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 132:8-158:9
+    Source: '../../src/engine/hadamard.rs', lines 132:8-158:9
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_int_loop0_loop0.body
@@ -8627,7 +8627,7 @@ def hadamard.fwht_int_loop0_loop0.body
   else ok (done (x, ok1, err))
 
 /-- [apeiron_word::hadamard::fwht_int]: loop 1:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 132:8-158:9
+    Source: '../../src/engine/hadamard.rs', lines 132:8-158:9
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_int_loop0_loop0
@@ -8641,7 +8641,7 @@ def hadamard.fwht_int_loop0_loop0
     (x, ok1, err, base)
 
 /-- [apeiron_word::hadamard::fwht_int]: loop body 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 130:4-161:5
+    Source: '../../src/engine/hadamard.rs', lines 130:4-161:5
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_int_loop0.body
@@ -8665,7 +8665,7 @@ def hadamard.fwht_int_loop0.body
   else ok (done (x, err))
 
 /-- [apeiron_word::hadamard::fwht_int]: loop 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 130:4-161:5
+    Source: '../../src/engine/hadamard.rs', lines 130:4-161:5
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_int_loop0
@@ -8680,7 +8680,7 @@ def hadamard.fwht_int_loop0
     (x, ok1, err, stage, span)
 
 /-- [apeiron_word::hadamard::fwht_int]:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 118:0-166:1
+    Source: '../../src/engine/hadamard.rs', lines 118:0-166:1
     Visibility: public -/
 def hadamard.fwht_int
   (x : Slice Std.I64) (block : Std.Usize) :
@@ -8701,7 +8701,7 @@ def hadamard.fwht_int
     else ok (core.result.Result.Err hadamard.HadamardError.LengthMismatch, x)
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop body 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 259:4-279:5
+    Source: '../../src/engine/hadamard.rs', lines 259:4-279:5
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_fixed_loop0.body
@@ -8746,7 +8746,7 @@ def hadamard.fwht_fixed_loop0.body
   else ok (done (x, norm_err))
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop 0:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 259:4-279:5
+    Source: '../../src/engine/hadamard.rs', lines 259:4-279:5
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_fixed_loop0
@@ -8760,7 +8760,7 @@ def hadamard.fwht_fixed_loop0
     (x, idx, norm_ok, norm_err)
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop body 1:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 214:8-219:9
+    Source: '../../src/engine/hadamard.rs', lines 214:8-219:9
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_fixed_loop1.body
@@ -8785,7 +8785,7 @@ def hadamard.fwht_fixed_loop1.body
   else ok (done signs_ok)
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop 1:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 214:8-219:9
+    Source: '../../src/engine/hadamard.rs', lines 214:8-219:9
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_fixed_loop1
@@ -8795,7 +8795,7 @@ def hadamard.fwht_fixed_loop1
     (idx, signs_ok)
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop body 2:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 232:8-243:9
+    Source: '../../src/engine/hadamard.rs', lines 232:8-243:9
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_fixed_loop2.body
@@ -8830,7 +8830,7 @@ def hadamard.fwht_fixed_loop2.body
   else ok (done (x, neg_err))
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop 2:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 232:8-243:9
+    Source: '../../src/engine/hadamard.rs', lines 232:8-243:9
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_fixed_loop2
@@ -8844,7 +8844,7 @@ def hadamard.fwht_fixed_loop2
     (x, idx, neg_ok, neg_err)
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop body 3:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 259:4-279:5
+    Source: '../../src/engine/hadamard.rs', lines 259:4-279:5
     Visibility: public -/
 @[rust_loop_body]
 def hadamard.fwht_fixed_loop3.body
@@ -8889,7 +8889,7 @@ def hadamard.fwht_fixed_loop3.body
   else ok (done (x, norm_err))
 
 /-- [apeiron_word::hadamard::fwht_fixed]: loop 3:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 259:4-279:5
+    Source: '../../src/engine/hadamard.rs', lines 259:4-279:5
     Visibility: public -/
 @[rust_loop]
 def hadamard.fwht_fixed_loop3
@@ -8903,7 +8903,7 @@ def hadamard.fwht_fixed_loop3
     (x, idx, norm_ok, norm_err)
 
 /-- [apeiron_word::hadamard::fwht_fixed]:
-    Source: 'proof/extract/../../src/engine/hadamard.rs', lines 195:0-284:1
+    Source: '../../src/engine/hadamard.rs', lines 195:0-284:1
     Visibility: public -/
 def hadamard.fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -8961,8 +8961,127 @@ def hadamard.fwht_fixed
           else ok (core.result.Result.Err hadamard.HadamardError.BadSign, x)
     else ok (core.result.Result.Err hadamard.HadamardError.LengthMismatch, x)
 
+/-- [apeiron_word::pow2::act_scale]: loop body 0:
+    Source: '../../src/engine/kern/pow2.rs', lines 30:4-33:5
+    Visibility: public -/
+@[rust_loop_body]
+def pow2.act_scale_loop.body
+  (need : Std.U64) (s : Std.U64) (steps : Std.U32) :
+  Result (ControlFlow (Std.U64 × Std.U32) Std.U64)
+  := do
+  if s < need
+  then
+    if steps < 62#u32
+    then
+      let s1 ← s * 2#u64
+      let steps1 ← steps + 1#u32
+      ok (cont (s1, steps1))
+    else ok (done s)
+  else ok (done s)
+
+/-- [apeiron_word::pow2::act_scale]: loop 0:
+    Source: '../../src/engine/kern/pow2.rs', lines 30:4-33:5
+    Visibility: public -/
+@[rust_loop]
+def pow2.act_scale_loop
+  (need : Std.U64) (s : Std.U64) (steps : Std.U32) : Result Std.U64 := do
+  loop
+    (fun (s1, steps1) => pow2.act_scale_loop.body need s1 steps1)
+    (s, steps)
+
+/-- [apeiron_word::pow2::act_scale]:
+    Source: '../../src/engine/kern/pow2.rs', lines 22:0-39:1
+    Visibility: public -/
+def pow2.act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
+  if absmax = 0#u64
+  then ok (some 0#u64)
+  else
+    let i ← absmax / 127#u64
+    let i1 ← absmax % 127#u64
+    let i2 ← lift (core.convert.num.FromU64Bool.from (i1 != 0#u64))
+    let need ← i + i2
+    let s ← pow2.act_scale_loop need 1#u64 0#u32
+    if s < need
+    then ok none
+    else ok (some s)
+
+/-- [apeiron_word::pow2::f16_split]:
+    Source: '../../src/engine/kern/pow2.rs', lines 52:0-64:1
+    Visibility: public -/
+def pow2.f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
+  let i ← h >>> 10#i32
+  let i1 ← lift (i &&& 31#u16)
+  let e ← lift (core.convert.num.FromU32U16.from i1)
+  let i2 ← lift (h &&& 1023#u16)
+  let f ← lift (UScalar.hcast .I32 i2)
+  if e = 31#u32
+  then ok none
+  else
+    let (m, k) ←
+      if e = 0#u32
+      then ok (f, 8#u32)
+      else do
+           let i3 ← f + 1024#i32
+           let i4 ← e + 7#u32
+           ok (i3, i4)
+    let i3 ← h >>> 15#i32
+    if i3 = 1#u16
+    then let i4 ← -. m
+         ok (some (i4, k))
+    else ok (some (m, k))
+
+/-- [apeiron_word::pow2::finish]:
+    Source: '../../src/engine/kern/pow2.rs', lines 76:0-96:1
+    Visibility: public -/
+def pow2.finish (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
+  let wide ← lift (core.convert.num.FromI128I64.from acc)
+  if s >= 32#u32
+  then
+    let up ← s - 32#u32
+    if acc = 0#i64
+    then
+      let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+      if 0#i128 < i
+      then ok none
+      else
+        let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+        if 0#i128 > i1
+        then ok none
+        else let i2 ← lift (IScalar.cast .I64 0#i128)
+             ok (some i2)
+    else
+      if up > 63#u32
+      then ok none
+      else
+        let i ← 1#i128 <<< up
+        let v ← wide * i
+        let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+        if v < i1
+        then ok none
+        else
+          let i2 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+          if v > i2
+          then ok none
+          else let i3 ← lift (IScalar.cast .I64 v)
+               ok (some i3)
+  else
+    let down ← 32#u32 - s
+    let i ← down - 1#u32
+    let i1 ← 1#i128 <<< i
+    let i2 ← wide + i1
+    let v ← i2 >>> down
+    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i3
+    then ok none
+    else
+      let i4 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+      if v > i4
+      then ok none
+      else let i5 ← lift (IScalar.cast .I64 v)
+           ok (some i5)
+
 /-- [apeiron_word::lm_head::LmHeadError]
-    Source: 'proof/extract/../../src/engine/lm_head.rs', lines 16:0-51:1
+    Source: '../../src/engine/lm_head.rs', lines 16:0-51:1
     Visibility: public -/
 @[discriminant isize]
 inductive lm_head.LmHeadError where
@@ -8979,13 +9098,13 @@ inductive lm_head.LmHeadError where
 | Matvec : matvec.MatvecError → lm_head.LmHeadError
 
 /-- [apeiron_word::lm_head::LmHeadError::Matvec]:
-    Source: 'proof/extract/../../src/engine/lm_head.rs', lines 50:4-50:23 -/
+    Source: '../../src/engine/lm_head.rs', lines 50:4-50:23 -/
 def lm_head.LmHeadError.Matvec.constructor
   (me : matvec.MatvecError) : Result lm_head.LmHeadError := do
   ok (lm_head.LmHeadError.Matvec me)
 
 /-- [apeiron_word::lm_head::LmHeadError::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::lm_head::LmHeadError> for apeiron_word::lm_head::LmHeadError::Matvec}::call_once]:
-    Source: 'proof/extract/../../src/engine/lm_head.rs', lines 50:4-50:23 -/
+    Source: '../../src/engine/lm_head.rs', lines 50:4-50:23 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLmHeadError.call_once
   (state : matvec.MatvecError → Result lm_head.LmHeadError)
   (args : matvec.MatvecError) :
@@ -8994,7 +9113,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLmHeadError.call_once
   lm_head.LmHeadError.Matvec.constructor args
 
 /-- Trait implementation: [apeiron_word::lm_head::LmHeadError::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::lm_head::LmHeadError> for apeiron_word::lm_head::LmHeadError::Matvec}]
-    Source: 'proof/extract/../../src/engine/lm_head.rs', lines 50:4-50:23 -/
+    Source: '../../src/engine/lm_head.rs', lines 50:4-50:23 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLmHeadError :
   core.ops.function.FnOnce (matvec.MatvecError → Result lm_head.LmHeadError)
@@ -9004,7 +9123,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLmHeadError :
 }
 
 /-- [apeiron_word::quant::Q2_0_BLOCK_BYTES]
-    Source: 'proof/extract/../../src/format/quant.rs', lines 75:0-75:52
+    Source: '../../src/format/quant.rs', lines 75:0-75:52
     Visibility: public -/
 @[global_simps, irreducible]
 def quant.Q2_0_BLOCK_BYTES : Result Std.Usize := do
@@ -9012,7 +9131,7 @@ def quant.Q2_0_BLOCK_BYTES : Result Std.Usize := do
   2#usize + i
 
 /-- [apeiron_word::quant::block_geom]:
-    Source: 'proof/extract/../../src/format/quant.rs', lines 127:0-145:1
+    Source: '../../src/format/quant.rs', lines 127:0-145:1
     Visibility: public -/
 def quant.block_geom
   (t : Std.U32) : Result (Option (Std.Usize × Std.Usize)) := do
@@ -9050,7 +9169,7 @@ def quant.block_geom
   | _ => ok none
 
 /-- [apeiron_word::matvec::matvec_fixed]: loop body 0:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 177:4-217:5
+    Source: '../../src/engine/matvec.rs', lines 177:4-217:5
     Visibility: public -/
 @[rust_loop_body]
 def matvec.matvec_fixed_loop.body
@@ -9114,7 +9233,7 @@ def matvec.matvec_fixed_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::matvec::matvec_fixed]: loop 0:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 177:4-217:5
+    Source: '../../src/engine/matvec.rs', lines 177:4-217:5
     Visibility: public -/
 @[rust_loop]
 def matvec.matvec_fixed_loop
@@ -9131,7 +9250,7 @@ def matvec.matvec_fixed_loop
     (out, row_buf, o, ok1, err)
 
 /-- [apeiron_word::matvec::matvec_fixed]:
-    Source: 'proof/extract/../../src/engine/matvec.rs', lines 149:0-222:1
+    Source: '../../src/engine/matvec.rs', lines 149:0-222:1
     Visibility: public -/
 def matvec.matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -9192,7 +9311,7 @@ def matvec.matvec_fixed
       residual
 
 /-- [apeiron_word::lm_head::lm_head_fixed]:
-    Source: 'proof/extract/../../src/engine/lm_head.rs', lines 113:0-127:1
+    Source: '../../src/engine/lm_head.rs', lines 113:0-127:1
     Visibility: public -/
 def lm_head.lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -9218,7 +9337,7 @@ def lm_head.lm_head_fixed
         (lm_head.LmHeadError.Matvec.constructor)
 
 /-- [apeiron_word::moe::MoeError]
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 27:0-58:1
+    Source: '../../src/engine/moe.rs', lines 27:0-58:1
     Visibility: public -/
 @[discriminant isize]
 inductive moe.MoeError where
@@ -9232,12 +9351,12 @@ inductive moe.MoeError where
 | Ffn : ffn.FfnError → moe.MoeError
 
 /-- [apeiron_word::moe::exp_shifted::{closure}]
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 81:35-81:62 -/
+    Source: '../../src/engine/moe.rs', lines 81:35-81:62 -/
 @[reducible]
 def moe.exp_shifted.closure := Unit
 
 /-- [apeiron_word::moe::exp_shifted::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::moe::MoeError> for apeiron_word::moe::exp_shifted::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 81:35-81:62 -/
+    Source: '../../src/engine/moe.rs', lines 81:35-81:62 -/
 def
   moe.exp_shifted.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorMoeError.call_once
   (c : moe.exp_shifted.closure) (tupled_args : fixed_exp.ExpError) :
@@ -9246,7 +9365,7 @@ def
   ok moe.MoeError.ExpOutOfRange
 
 /-- Trait implementation: [apeiron_word::moe::exp_shifted::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::moe::MoeError> for apeiron_word::moe::exp_shifted::{closure}}]
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 81:35-81:62 -/
+    Source: '../../src/engine/moe.rs', lines 81:35-81:62 -/
 @[reducible]
 def moe.exp_shifted.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorMoeError :
   core.ops.function.FnOnce moe.exp_shifted.closure fixed_exp.ExpError
@@ -9256,7 +9375,7 @@ def moe.exp_shifted.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorMoeError :
 }
 
 /-- [apeiron_word::moe::exp_shifted]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 76:0-83:1 -/
+    Source: '../../src/engine/moe.rs', lines 76:0-83:1 -/
 def moe.exp_shifted
   (v : Std.I64) (mx : Std.I64) :
   Result (core.result.Result Std.I64 moe.MoeError)
@@ -9280,7 +9399,7 @@ def moe.exp_shifted
       Std.I64 (core.convert.FromSame moe.MoeError) residual
 
 /-- [apeiron_word::moe::weight_of]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 93:0-102:1 -/
+    Source: '../../src/engine/moe.rs', lines 93:0-102:1 -/
 def moe.weight_of
   (e : Std.I64) (total : Std.I128) :
   Result (core.result.Result Std.I64 moe.MoeError)
@@ -9308,7 +9427,7 @@ def moe.weight_of
       Std.I64 (core.convert.FromSame moe.MoeError) residual
 
 /-- [apeiron_word::moe::sum_shifted]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 110:4-126:5 -/
+    Source: '../../src/engine/moe.rs', lines 110:4-126:5 -/
 @[rust_loop_body]
 def moe.sum_shifted_loop.body
   (logits : Slice Std.I64) (mx : Std.I64) (total : Std.I128) (i : Std.Usize)
@@ -9339,7 +9458,7 @@ def moe.sum_shifted_loop.body
   else ok (done (total, err))
 
 /-- [apeiron_word::moe::sum_shifted]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 110:4-126:5 -/
+    Source: '../../src/engine/moe.rs', lines 110:4-126:5 -/
 @[rust_loop]
 def moe.sum_shifted_loop
   (logits : Slice Std.I64) (mx : Std.I64) (total : Std.I128) (i : Std.Usize)
@@ -9352,7 +9471,7 @@ def moe.sum_shifted_loop
     (total, i, ok1, err)
 
 /-- [apeiron_word::moe::sum_shifted]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 105:0-131:1 -/
+    Source: '../../src/engine/moe.rs', lines 105:0-131:1 -/
 def moe.sum_shifted
   (logits : Slice Std.I64) (mx : Std.I64) :
   Result (core.result.Result Std.I128 moe.MoeError)
@@ -9363,7 +9482,7 @@ def moe.sum_shifted
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::moe::sum_shifted_selected]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 139:4-155:5 -/
+    Source: '../../src/engine/moe.rs', lines 139:4-155:5 -/
 @[rust_loop_body]
 def moe.sum_shifted_selected_loop.body
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64)
@@ -9396,7 +9515,7 @@ def moe.sum_shifted_selected_loop.body
   else ok (done (total, err))
 
 /-- [apeiron_word::moe::sum_shifted_selected]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 139:4-155:5 -/
+    Source: '../../src/engine/moe.rs', lines 139:4-155:5 -/
 @[rust_loop]
 def moe.sum_shifted_selected_loop
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64)
@@ -9409,7 +9528,7 @@ def moe.sum_shifted_selected_loop
     (total, j, ok1, err)
 
 /-- [apeiron_word::moe::sum_shifted_selected]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 134:0-160:1 -/
+    Source: '../../src/engine/moe.rs', lines 134:0-160:1 -/
 def moe.sum_shifted_selected
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64) :
   Result (core.result.Result Std.I128 moe.MoeError)
@@ -9421,7 +9540,7 @@ def moe.sum_shifted_selected
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::moe::weights_shifted]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 174:4-189:5 -/
+    Source: '../../src/engine/moe.rs', lines 174:4-189:5 -/
 @[rust_loop_body]
 def moe.weights_shifted_loop.body
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64)
@@ -9456,7 +9575,7 @@ def moe.weights_shifted_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::moe::weights_shifted]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 174:4-189:5 -/
+    Source: '../../src/engine/moe.rs', lines 174:4-189:5 -/
 @[rust_loop]
 def moe.weights_shifted_loop
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64)
@@ -9470,7 +9589,7 @@ def moe.weights_shifted_loop
     (out, j, ok1, err)
 
 /-- [apeiron_word::moe::weights_shifted]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 164:0-194:1 -/
+    Source: '../../src/engine/moe.rs', lines 164:0-194:1 -/
 def moe.weights_shifted
   (logits : Slice Std.I64) (sel : Slice Std.U32) (mx : Std.I64)
   (total : Std.I128) :
@@ -9485,7 +9604,7 @@ def moe.weights_shifted
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::moe::best_unchosen]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 263:4-273:5 -/
+    Source: '../../src/engine/moe.rs', lines 263:4-273:5 -/
 @[rust_loop_body]
 def moe.best_unchosen_loop.body
   (logits : Slice Std.I64) (chosen : Slice Bool) (n : Std.Usize)
@@ -9514,7 +9633,7 @@ def moe.best_unchosen_loop.body
   else ok (done best)
 
 /-- [apeiron_word::moe::best_unchosen]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 263:4-273:5 -/
+    Source: '../../src/engine/moe.rs', lines 263:4-273:5 -/
 @[rust_loop]
 def moe.best_unchosen_loop
   (logits : Slice Std.I64) (chosen : Slice Bool) (n : Std.Usize)
@@ -9527,7 +9646,7 @@ def moe.best_unchosen_loop
     (best, best_val, j)
 
 /-- [apeiron_word::moe::best_unchosen]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 258:0-279:1 -/
+    Source: '../../src/engine/moe.rs', lines 258:0-279:1 -/
 def moe.best_unchosen
   (logits : Slice Std.I64) (chosen : Slice Bool) :
   Result (Std.Usize × Bool)
@@ -9539,7 +9658,7 @@ def moe.best_unchosen
   else ok (0#usize, false)
 
 /-- [apeiron_word::moe::route_topk]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 235:4-246:5
+    Source: '../../src/engine/moe.rs', lines 235:4-246:5
     Visibility: public -/
 @[rust_loop_body]
 def moe.route_topk_loop.body
@@ -9574,7 +9693,7 @@ def moe.route_topk_loop.body
   else ok (done (sel, err))
 
 /-- [apeiron_word::moe::route_topk]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 235:4-246:5
+    Source: '../../src/engine/moe.rs', lines 235:4-246:5
     Visibility: public -/
 @[rust_loop]
 def moe.route_topk_loop
@@ -9589,7 +9708,7 @@ def moe.route_topk_loop
     (chosen, sel, ok1, err, pass)
 
 /-- [apeiron_word::moe::route_topk]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 222:0-251:1
+    Source: '../../src/engine/moe.rs', lines 222:0-251:1
     Visibility: public -/
 def moe.route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -9614,7 +9733,7 @@ def moe.route_topk
         | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::moe::gate_weights]: loop body 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 308:4-317:5
+    Source: '../../src/engine/moe.rs', lines 308:4-317:5
     Visibility: public -/
 @[rust_loop_body]
 def moe.gate_weights_loop0.body
@@ -9640,7 +9759,7 @@ def moe.gate_weights_loop0.body
   else ok (done err)
 
 /-- [apeiron_word::moe::gate_weights]: loop 0:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 308:4-317:5
+    Source: '../../src/engine/moe.rs', lines 308:4-317:5
     Visibility: public -/
 @[rust_loop]
 def moe.gate_weights_loop0
@@ -9653,7 +9772,7 @@ def moe.gate_weights_loop0
     (j, ok1, err)
 
 /-- [apeiron_word::moe::gate_weights]: loop body 1:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 329:8-335:9
+    Source: '../../src/engine/moe.rs', lines 329:8-335:9
     Visibility: public -/
 @[rust_loop_body]
 def moe.gate_weights_loop1.body
@@ -9675,7 +9794,7 @@ def moe.gate_weights_loop1.body
   else ok (done m)
 
 /-- [apeiron_word::moe::gate_weights]: loop 1:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 329:8-335:9
+    Source: '../../src/engine/moe.rs', lines 329:8-335:9
     Visibility: public -/
 @[rust_loop]
 def moe.gate_weights_loop1
@@ -9688,7 +9807,7 @@ def moe.gate_weights_loop1
     (m, j)
 
 /-- [apeiron_word::moe::gate_weights]: loop body 2:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 342:8-347:9
+    Source: '../../src/engine/moe.rs', lines 342:8-347:9
     Visibility: public -/
 @[rust_loop_body]
 def moe.gate_weights_loop2.body
@@ -9706,7 +9825,7 @@ def moe.gate_weights_loop2.body
   else ok (done m)
 
 /-- [apeiron_word::moe::gate_weights]: loop 2:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 342:8-347:9
+    Source: '../../src/engine/moe.rs', lines 342:8-347:9
     Visibility: public -/
 @[rust_loop]
 def moe.gate_weights_loop2
@@ -9718,7 +9837,7 @@ def moe.gate_weights_loop2
     (m, i)
 
 /-- [apeiron_word::moe::gate_weights]:
-    Source: 'proof/extract/../../src/engine/moe.rs', lines 300:0-355:1
+    Source: '../../src/engine/moe.rs', lines 300:0-355:1
     Visibility: public -/
 def moe.gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -9762,7 +9881,7 @@ def moe.gate_weights
     | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::norm::NormError]
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 9:0-15:1
+    Source: '../../src/engine/norm.rs', lines 9:0-15:1
     Visibility: public -/
 @[discriminant isize]
 inductive norm.NormError where
@@ -9770,7 +9889,7 @@ inductive norm.NormError where
 | OutOfRange : norm.NormError
 
 /-- [apeiron_word::norm::rms_norm_fixed]: loop body 0:
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 63:4-73:5
+    Source: '../../src/engine/norm.rs', lines 63:4-73:5
     Visibility: public -/
 @[rust_loop_body]
 def norm.rms_norm_fixed_loop0.body
@@ -9800,7 +9919,7 @@ def norm.rms_norm_fixed_loop0.body
   else ok (done (sum_sq, sum_ok))
 
 /-- [apeiron_word::norm::rms_norm_fixed]: loop 0:
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 63:4-73:5
+    Source: '../../src/engine/norm.rs', lines 63:4-73:5
     Visibility: public -/
 @[rust_loop]
 def norm.rms_norm_fixed_loop0
@@ -9814,7 +9933,7 @@ def norm.rms_norm_fixed_loop0
     (sum_sq, i, sum_ok)
 
 /-- [apeiron_word::norm::rms_norm_fixed]: loop body 1:
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 101:4-114:5
+    Source: '../../src/engine/norm.rs', lines 101:4-114:5
     Visibility: public -/
 @[rust_loop_body]
 def norm.rms_norm_fixed_loop1.body
@@ -9853,7 +9972,7 @@ def norm.rms_norm_fixed_loop1.body
   else ok (done (out, out_ok))
 
 /-- [apeiron_word::norm::rms_norm_fixed]: loop 1:
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 101:4-114:5
+    Source: '../../src/engine/norm.rs', lines 101:4-114:5
     Visibility: public -/
 @[rust_loop]
 def norm.rms_norm_fixed_loop1
@@ -9867,7 +9986,7 @@ def norm.rms_norm_fixed_loop1
     (out, i, out_ok)
 
 /-- [apeiron_word::norm::rms_norm_fixed]:
-    Source: 'proof/extract/../../src/engine/norm.rs', lines 55:0-119:1
+    Source: '../../src/engine/norm.rs', lines 55:0-119:1
     Visibility: public -/
 def norm.rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -9917,7 +10036,7 @@ def norm.rms_norm_fixed
     else ok (core.result.Result.Err norm.NormError.OutOfRange)
 
 /-- [apeiron_word::rope::RopeError]
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 14:0-27:1
+    Source: '../../src/engine/rope.rs', lines 14:0-27:1
     Visibility: public -/
 @[discriminant isize]
 inductive rope.RopeError where
@@ -9928,19 +10047,19 @@ inductive rope.RopeError where
 | OutOfRange : rope.RopeError
 
 /-- [apeiron_word::rope::RopeTable]
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 35:0-38:1
+    Source: '../../src/engine/rope.rs', lines 35:0-38:1
     Visibility: public -/
 structure rope.RopeTable where
   head_dim : Std.Usize
   turns : alloc.vec.Vec Std.U64
 
 /-- [apeiron_word::fixed_trig::TWO_PI_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 42:0-42:39 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 42:0-42:39 -/
 @[global_simps, irreducible]
 def fixed_trig.TWO_PI_Q32 : Std.I64 := 26986075409#i64
 
 /-- [apeiron_word::fixed_trig::turn_to_radians]:
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 231:0-235:1
+    Source: '../../src/numeric/fixed_trig.rs', lines 231:0-235:1
     Visibility: public -/
 def fixed_trig.turn_to_radians (phase : Std.U64) : Result Std.I64 := do
   let s ← lift (UScalar.hcast .I64 phase)
@@ -9953,31 +10072,31 @@ def fixed_trig.turn_to_radians (phase : Std.U64) : Result Std.I64 := do
   ok (IScalar.cast .I64 r)
 
 /-- [apeiron_word::fixed_trig::ONE]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 39:0-39:25 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 39:0-39:25 -/
 @[global_simps, irreducible]
 def fixed_trig.ONE : Result Std.I64 := 1#i64 <<< 32#i32
 
 /-- [apeiron_word::fixed_trig::fixed_sin_cos::UPPER]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 151:4-151:34 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 151:4-151:34 -/
 @[global_simps, irreducible]
 def fixed_trig.fixed_sin_cos.UPPER : Result Std.I64 := do
   let i ← fixed_trig.ONE
   4096#i64 * i
 
 /-- [apeiron_word::fixed_trig::fixed_sin_cos::LOWER]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 150:4-150:35 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 150:4-150:35 -/
 @[global_simps, irreducible]
 def fixed_trig.fixed_sin_cos.LOWER : Result Std.I64 := do
   let i ← fixed_trig.ONE
   (-4096)#i64 * i
 
 /-- [apeiron_word::fixed_trig::round_div_2p32::HALF]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 95:4-95:31 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 95:4-95:31 -/
 @[global_simps, irreducible]
 def fixed_trig.round_div_2p32.HALF : Result Std.I128 := 1#i128 <<< 31#i32
 
 /-- [apeiron_word::fixed_trig::round_div_2p32]:
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 94:0-101:1 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 94:0-101:1 -/
 def fixed_trig.round_div_2p32 (value : Std.I128) : Result Std.I128 := do
   if value >= 0#i128
   then
@@ -9992,35 +10111,35 @@ def fixed_trig.round_div_2p32 (value : Std.I128) : Result Std.I128 := do
     -. i3
 
 /-- [apeiron_word::fixed_trig::COS_C4]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 75:0-75:28 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 75:0-75:28 -/
 @[global_simps, irreducible] def fixed_trig.COS_C4 : Std.I64 := 106522#i64
 
 /-- [apeiron_word::fixed_trig::COS_C3]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 72:0-72:30 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 72:0-72:30 -/
 @[global_simps, irreducible] def fixed_trig.COS_C3 : Std.I64 := 5965232#i64
 
 /-- [apeiron_word::fixed_trig::COS_C2]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 69:0-69:32 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 69:0-69:32 -/
 @[global_simps, irreducible] def fixed_trig.COS_C2 : Std.I64 := 178956971#i64
 
 /-- [apeiron_word::fixed_trig::COS_C1]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 66:0-66:34 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 66:0-66:34 -/
 @[global_simps, irreducible] def fixed_trig.COS_C1 : Std.I64 := 2147483648#i64
 
 /-- [apeiron_word::fixed_trig::SIN_C3]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 63:0-63:28 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 63:0-63:28 -/
 @[global_simps, irreducible] def fixed_trig.SIN_C3 : Std.I64 := 852176#i64
 
 /-- [apeiron_word::fixed_trig::SIN_C2]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 60:0-60:31 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 60:0-60:31 -/
 @[global_simps, irreducible] def fixed_trig.SIN_C2 : Std.I64 := 35791394#i64
 
 /-- [apeiron_word::fixed_trig::SIN_C1]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 57:0-57:32 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 57:0-57:32 -/
 @[global_simps, irreducible] def fixed_trig.SIN_C1 : Std.I64 := 715827883#i64
 
 /-- [apeiron_word::fixed_trig::taylor_sin_cos]:
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 109:0-129:1 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 109:0-129:1 -/
 def fixed_trig.taylor_sin_cos (t : Std.I64) : Result (Std.I64 × Std.I64) := do
   let t1 ← lift (core.convert.num.FromI128I64.from t)
   let i ← t1 * t1
@@ -10064,40 +10183,40 @@ def fixed_trig.taylor_sin_cos (t : Std.I64) : Result (Std.I64 × Std.I64) := do
   ok (sin_t, cos_t)
 
 /-- [apeiron_word::fixed_trig::SinCos]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 86:0-91:1
+    Source: '../../src/numeric/fixed_trig.rs', lines 86:0-91:1
     Visibility: public -/
 structure fixed_trig.SinCos where
   sin : Std.I64
   cos : Std.I64
 
 /-- [apeiron_word::fixed_trig::TrigError]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 79:0-82:1
+    Source: '../../src/numeric/fixed_trig.rs', lines 79:0-82:1
     Visibility: public -/
 @[discriminant isize]
 inductive fixed_trig.TrigError where
 | OutOfRange : fixed_trig.TrigError
 
 /-- [apeiron_word::fixed_trig::QUARTER_PI_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 54:0-54:42 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 54:0-54:42 -/
 @[global_simps, irreducible]
 def fixed_trig.QUARTER_PI_Q32 : Std.I64 := 3373259426#i64
 
 /-- [apeiron_word::fixed_trig::HALF_PI_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 51:0-51:39 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 51:0-51:39 -/
 @[global_simps, irreducible]
 def fixed_trig.HALF_PI_Q32 : Std.I64 := 6746518852#i64
 
 /-- [apeiron_word::fixed_trig::PI_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 48:0-48:35 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 48:0-48:35 -/
 @[global_simps, irreducible] def fixed_trig.PI_Q32 : Std.I64 := 13493037705#i64
 
 /-- [apeiron_word::fixed_trig::TWO_PI_RECIP_Q32]
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 45:0-45:42 -/
+    Source: '../../src/numeric/fixed_trig.rs', lines 45:0-45:42 -/
 @[global_simps, irreducible]
 def fixed_trig.TWO_PI_RECIP_Q32 : Std.I64 := 683565276#i64
 
 /-- [apeiron_word::fixed_trig::fixed_sin_cos]:
-    Source: 'proof/extract/../../src/numeric/fixed_trig.rs', lines 149:0-208:1
+    Source: '../../src/numeric/fixed_trig.rs', lines 149:0-208:1
     Visibility: public -/
 def fixed_trig.fixed_sin_cos
   (x : Std.I64) :
@@ -10185,7 +10304,7 @@ def fixed_trig.fixed_sin_cos
                 ok (core.result.Result.Ok { sin := sin_out, cos := cos_out })
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_head]: loop body 0:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 221:8-255:9 -/
+    Source: '../../src/engine/rope.rs', lines 221:8-255:9 -/
 @[rust_loop_body]
 def rope.RopeTable.rotate_head_loop.body
   (v : alloc.vec.Vec Std.U64) (pos : Std.U32) (d2 : Std.Usize)
@@ -10269,7 +10388,7 @@ def rope.RopeTable.rotate_head_loop.body
   else ok (done (x, ok1))
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_head]: loop 0:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 221:8-255:9 -/
+    Source: '../../src/engine/rope.rs', lines 221:8-255:9 -/
 @[rust_loop]
 def rope.RopeTable.rotate_head_loop
   (v : alloc.vec.Vec Std.U64) (x : Slice Std.I64) (pos : Std.U32)
@@ -10282,7 +10401,7 @@ def rope.RopeTable.rotate_head_loop
     (x, j, ok1)
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate_head]:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 217:4-260:5 -/
+    Source: '../../src/engine/rope.rs', lines 217:4-260:5 -/
 def rope.RopeTable.rotate_head
   (self : rope.RopeTable) (x : Slice Std.I64) (pos : Std.U32) :
   Result ((core.result.Result Unit rope.RopeError) × (Slice Std.I64))
@@ -10295,7 +10414,7 @@ def rope.RopeTable.rotate_head
   else ok (core.result.Result.Err rope.RopeError.OutOfRange, x1)
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate]: loop body 0:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 149:8-159:9
+    Source: '../../src/engine/rope.rs', lines 149:8-159:9
     Visibility: public -/
 @[rust_loop_body]
 def rope.RopeTable.rotate_loop.body
@@ -10344,7 +10463,7 @@ def rope.RopeTable.rotate_loop.body
   else ok (done (q, k, ok1))
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate]: loop 0:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 149:8-159:9
+    Source: '../../src/engine/rope.rs', lines 149:8-159:9
     Visibility: public -/
 @[rust_loop]
 def rope.RopeTable.rotate_loop
@@ -10359,7 +10478,7 @@ def rope.RopeTable.rotate_loop
     (q, k, h, ok1)
 
 /-- [apeiron_word::rope::{apeiron_word::rope::RopeTable}::rotate]:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 139:4-165:5
+    Source: '../../src/engine/rope.rs', lines 139:4-165:5
     Visibility: public -/
 def rope.RopeTable.rotate
   (self : rope.RopeTable) (q : Slice Std.I64) (k : Slice Std.I64)
@@ -10387,7 +10506,7 @@ def rope.RopeTable.rotate
     else ok (core.result.Result.Err rope.RopeError.VectorLength, q, k)
 
 /-- [apeiron_word::rope::rope_rotate_fixed]:
-    Source: 'proof/extract/../../src/engine/rope.rs', lines 270:0-277:1
+    Source: '../../src/engine/rope.rs', lines 270:0-277:1
     Visibility: public -/
 def rope.rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -10398,7 +10517,7 @@ def rope.rope_rotate_fixed
   rope.RopeTable.rotate table q k pos
 
 /-- [apeiron_word::sampler::SamplerError]
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 9:0-25:1
+    Source: '../../src/engine/sampler.rs', lines 9:0-25:1
     Visibility: public -/
 @[discriminant isize]
 inductive sampler.SamplerError where
@@ -10410,12 +10529,12 @@ inductive sampler.SamplerError where
 | Overflow : sampler.SamplerError
 
 /-- [apeiron_word::sampler::argmax_fixed::{closure}]
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 53:32-53:63 -/
+    Source: '../../src/engine/sampler.rs', lines 53:32-53:63 -/
 @[reducible]
 def sampler.argmax_fixed.closure := Unit
 
 /-- [apeiron_word::sampler::argmax_fixed::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::sampler::SamplerError> for apeiron_word::sampler::argmax_fixed::{closure}}::call_once]:
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 53:32-53:63 -/
+    Source: '../../src/engine/sampler.rs', lines 53:32-53:63 -/
 def
   sampler.argmax_fixed.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorSamplerError.call_once
   (c : sampler.argmax_fixed.closure)
@@ -10425,7 +10544,7 @@ def
   ok sampler.SamplerError.LogitsTooLong
 
 /-- Trait implementation: [apeiron_word::sampler::argmax_fixed::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::sampler::SamplerError> for apeiron_word::sampler::argmax_fixed::{closure}}]
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 53:32-53:63 -/
+    Source: '../../src/engine/sampler.rs', lines 53:32-53:63 -/
 @[reducible]
 def
   sampler.argmax_fixed.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorSamplerError
@@ -10436,7 +10555,7 @@ def
 }
 
 /-- [apeiron_word::sampler::argmax_fixed]: loop body 0:
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 47:4-52:5
+    Source: '../../src/engine/sampler.rs', lines 47:4-52:5
     Visibility: public -/
 @[rust_loop_body]
 def sampler.argmax_fixed_loop.body
@@ -10456,7 +10575,7 @@ def sampler.argmax_fixed_loop.body
   else ok (done best)
 
 /-- [apeiron_word::sampler::argmax_fixed]: loop 0:
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 47:4-52:5
+    Source: '../../src/engine/sampler.rs', lines 47:4-52:5
     Visibility: public -/
 @[rust_loop]
 def sampler.argmax_fixed_loop
@@ -10468,7 +10587,7 @@ def sampler.argmax_fixed_loop
     (best, i)
 
 /-- [apeiron_word::sampler::argmax_fixed]:
-    Source: 'proof/extract/../../src/engine/sampler.rs', lines 41:0-54:1
+    Source: '../../src/engine/sampler.rs', lines 41:0-54:1
     Visibility: public -/
 def sampler.argmax_fixed
   (logits : Slice Std.I64) :
@@ -10485,7 +10604,7 @@ def sampler.argmax_fixed
       r ()
 
 /-- [apeiron_word::silu::SiluError]
-    Source: 'proof/extract/../../src/engine/silu.rs', lines 13:0-22:1
+    Source: '../../src/engine/silu.rs', lines 13:0-22:1
     Visibility: public -/
 @[discriminant isize]
 inductive silu.SiluError where
@@ -10494,21 +10613,21 @@ inductive silu.SiluError where
 | Overflow : silu.SiluError
 
 /-- [apeiron_word::silu::silu_fixed::UPPER]
-    Source: 'proof/extract/../../src/engine/silu.rs', lines 55:4-55:32 -/
+    Source: '../../src/engine/silu.rs', lines 55:4-55:32 -/
 @[global_simps, irreducible]
 def silu.silu_fixed.UPPER : Result Std.I64 := do
   let i ← engine.ONE
   16#i64 * i
 
 /-- [apeiron_word::silu::silu_fixed::LOWER]
-    Source: 'proof/extract/../../src/engine/silu.rs', lines 54:4-54:33 -/
+    Source: '../../src/engine/silu.rs', lines 54:4-54:33 -/
 @[global_simps, irreducible]
 def silu.silu_fixed.LOWER : Result Std.I64 := do
   let i ← engine.ONE
   (-21)#i64 * i
 
 /-- [apeiron_word::silu::silu_fixed]:
-    Source: 'proof/extract/../../src/engine/silu.rs', lines 53:0-92:1
+    Source: '../../src/engine/silu.rs', lines 53:0-92:1
     Visibility: public -/
 def silu.silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
@@ -10563,7 +10682,7 @@ def silu.silu_fixed
         ok (core.result.Result.Err silu.SiluError.ExpOutOfRange)
 
 /-- [apeiron_word::exchange::Exchange]
-    Source: 'proof/extract/../../src/exchange.rs', lines 39:0-46:1
+    Source: '../../src/exchange.rs', lines 39:0-46:1
     Visibility: public -/
 structure exchange.Exchange (R : Type) where
   impulse : cell.Cell R
@@ -10571,7 +10690,7 @@ structure exchange.Exchange (R : Type) where
   body_after : cell.Cell R
 
 /-- [apeiron_word::exchange::exchange_impulse]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 57:0-59:1
+    Source: '../../src/exchange.rs', lines 57:0-59:1
     Visibility: public -/
 def exchange.exchange_impulse
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -10583,7 +10702,7 @@ def exchange.exchange_impulse
   cell.Cell.new scalarRingInst t t1
 
 /-- [apeiron_word::exchange::elastic_exchange]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 70:0-77:1
+    Source: '../../src/exchange.rs', lines 70:0-77:1
     Visibility: public -/
 def exchange.elastic_exchange
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -10600,7 +10719,7 @@ def exchange.elastic_exchange
   ok { impulse, carrier_after := c, body_after := c1 }
 
 /-- [apeiron_word::exchange::accept_derived_impulse]:
-    Source: 'proof/extract/../../src/exchange.rs', lines 91:0-101:1
+    Source: '../../src/exchange.rs', lines 91:0-101:1
     Visibility: public -/
 def exchange.accept_derived_impulse
   {R : Type} (scalarRingInst : scalar.Ring R) (p : cell.Cell R)
@@ -10617,28 +10736,28 @@ def exchange.accept_derived_impulse
   else ok none
 
 /-- [apeiron_word::gguf::GGUF_MAGIC]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 16:0-16:41
+    Source: '../../src/format/gguf.rs', lines 16:0-16:41
     Visibility: public -/
 @[global_simps, irreducible]
 def gguf.GGUF_MAGIC : Array Std.U8 4#usize :=
   Array.make 4#usize [ 71#u8, 71#u8, 85#u8, 70#u8 ]
 
 /-- [apeiron_word::gguf::DEFAULT_ALIGNMENT]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 18:0-18:38
+    Source: '../../src/format/gguf.rs', lines 18:0-18:38
     Visibility: public -/
 @[global_simps, irreducible] def gguf.DEFAULT_ALIGNMENT : Std.U64 := 32#u64
 
 /-- [apeiron_word::gguf::MAX_DIMS]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 20:0-20:30
+    Source: '../../src/format/gguf.rs', lines 20:0-20:30
     Visibility: public -/
 @[global_simps, irreducible] def gguf.MAX_DIMS : Std.Usize := 4#usize
 
 /-- [apeiron_word::gguf::MAX_ARRAY_DEPTH]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 22:0-22:31 -/
+    Source: '../../src/format/gguf.rs', lines 22:0-22:31 -/
 @[global_simps, irreducible] def gguf.MAX_ARRAY_DEPTH : Std.U32 := 8#u32
 
 /-- [apeiron_word::gguf::GVal]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 95:0-108:1
+    Source: '../../src/format/gguf.rs', lines 95:0-108:1
     Visibility: public -/
 @[discriminant isize]
 inductive gguf.GVal where
@@ -10650,7 +10769,7 @@ inductive gguf.GVal where
 | Arr : Std.U32 → alloc.vec.Vec gguf.GVal → gguf.GVal
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GVal}::as_i64]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 112:4-124:5
+    Source: '../../src/format/gguf.rs', lines 112:4-124:5
     Visibility: public -/
 def gguf.GVal.as_i64 (self : gguf.GVal) : Result (Option Std.I64) := do
   match self with
@@ -10673,7 +10792,7 @@ def gguf.GVal.as_i64 (self : gguf.GVal) : Result (Option Std.I64) := do
   | gguf.GVal.Arr _ _ => ok none
 
 /-- [apeiron_word::gguf::TensorDesc]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 138:0-147:1
+    Source: '../../src/format/gguf.rs', lines 138:0-147:1
     Visibility: public -/
 structure gguf.TensorDesc where
   «name» : alloc.vec.Vec Std.U8
@@ -10682,13 +10801,13 @@ structure gguf.TensorDesc where
   offset : Std.U64
 
 /-- [apeiron_word::gguf::Cur]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 174:0-177:1 -/
+    Source: '../../src/format/gguf.rs', lines 174:0-177:1 -/
 structure gguf.Cur where
   b : Slice Std.U8
   i : Std.Usize
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u8]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 180:4-184:5 -/
+    Source: '../../src/format/gguf.rs', lines 180:4-184:5 -/
 def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
   let o ←
     core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
@@ -10705,7 +10824,7 @@ def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
     ok (o1, self)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u16]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 185:4-189:5 -/
+    Source: '../../src/format/gguf.rs', lines 185:4-189:5 -/
 def gguf.Cur.u16
   (self : gguf.Cur) : Result ((Option Std.U16) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u8 self
@@ -10731,7 +10850,7 @@ def gguf.Cur.u16
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u32]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 190:4-196:5 -/
+    Source: '../../src/format/gguf.rs', lines 190:4-196:5 -/
 def gguf.Cur.u32
   (self : gguf.Cur) : Result ((Option Std.U32) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u8 self
@@ -10776,7 +10895,7 @@ def gguf.Cur.u32
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u64]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 197:4-201:5 -/
+    Source: '../../src/format/gguf.rs', lines 197:4-201:5 -/
 def gguf.Cur.u64
   (self : gguf.Cur) : Result ((Option Std.U64) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u32 self
@@ -10804,7 +10923,7 @@ def gguf.Cur.u64
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::four]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 203:4-209:5 -/
+    Source: '../../src/format/gguf.rs', lines 203:4-209:5 -/
 def gguf.Cur.four
   (self : gguf.Cur) :
   Result ((Option (Array Std.U8 4#usize)) × gguf.Cur)
@@ -10848,7 +10967,7 @@ def gguf.Cur.four
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]: loop body 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 227:8-230:9 -/
+    Source: '../../src/format/gguf.rs', lines 227:8-230:9 -/
 @[rust_loop_body]
 def gguf.Cur.string_loop.body
   (s : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
@@ -10865,7 +10984,7 @@ def gguf.Cur.string_loop.body
   else ok (done out)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]: loop 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 227:8-230:9 -/
+    Source: '../../src/format/gguf.rs', lines 227:8-230:9 -/
 @[rust_loop]
 def gguf.Cur.string_loop
   (s : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
@@ -10877,7 +10996,7 @@ def gguf.Cur.string_loop
     (out, k)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 214:4-233:5 -/
+    Source: '../../src/format/gguf.rs', lines 214:4-233:5 -/
 def gguf.Cur.string
   (self : gguf.Cur) :
   Result ((Option (alloc.vec.Vec Std.U8)) × gguf.Cur)
@@ -10914,7 +11033,7 @@ def gguf.Cur.string
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::scalar]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 236:4-257:5 -/
+    Source: '../../src/format/gguf.rs', lines 236:4-257:5 -/
 def gguf.Cur.scalar
   (self : gguf.Cur) (t : Std.U32) :
   Result ((Option gguf.GVal) × gguf.Cur)
@@ -11080,7 +11199,7 @@ def gguf.Cur.scalar
   | _ => ok (none, self)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::array_header]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 262:4-275:5 -/
+    Source: '../../src/format/gguf.rs', lines 262:4-275:5 -/
 def gguf.Cur.array_header
   (self : gguf.Cur) :
   Result ((Option (Std.U32 × Std.Usize)) × gguf.Cur)
@@ -11115,7 +11234,7 @@ def gguf.Cur.array_header
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop body 1:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 339:20-342:21 -/
+    Source: '../../src/format/gguf.rs', lines 339:20-342:21 -/
 @[rust_loop_body]
 def gguf.Cur.value_loop0_loop0.body
   (s : Std.Usize) (flat : alloc.vec.Vec gguf.GVal)
@@ -11136,7 +11255,7 @@ def gguf.Cur.value_loop0_loop0.body
   else ok (done (flat, elems))
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop 1:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 339:20-342:21 -/
+    Source: '../../src/format/gguf.rs', lines 339:20-342:21 -/
 @[rust_loop]
 def gguf.Cur.value_loop0_loop0
   (flat : alloc.vec.Vec gguf.GVal) (s : Std.Usize)
@@ -11149,7 +11268,7 @@ def gguf.Cur.value_loop0_loop0
     (flat, elems, k)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop body 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 326:8-387:9 -/
+    Source: '../../src/format/gguf.rs', lines 326:8-387:9 -/
 @[rust_loop_body]
 def gguf.Cur.value_loop0.body
   (depth : Std.U32) (self : gguf.Cur) (flat : alloc.vec.Vec gguf.GVal)
@@ -11257,7 +11376,7 @@ def gguf.Cur.value_loop0.body
               0#u32, false, false, result))
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 326:8-387:9 -/
+    Source: '../../src/format/gguf.rs', lines 326:8-387:9 -/
 @[rust_loop]
 def gguf.Cur.value_loop0
   (self : gguf.Cur) (depth : Std.U32) (flat : alloc.vec.Vec gguf.GVal)
@@ -11274,7 +11393,7 @@ def gguf.Cur.value_loop0
       result)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 293:4-392:5 -/
+    Source: '../../src/format/gguf.rs', lines 293:4-392:5 -/
 def gguf.Cur.value
   (self : gguf.Cur) (t : Std.U32) (depth : Std.U32) :
   Result ((Option gguf.GVal) × gguf.Cur)
@@ -11315,7 +11434,7 @@ def gguf.Cur.value
         ok (o1, self1)
 
 /-- [apeiron_word::gguf::GgufHeader]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 399:0-412:1
+    Source: '../../src/format/gguf.rs', lines 399:0-412:1
     Visibility: public -/
 structure gguf.GgufHeader where
   version : Std.U32
@@ -11326,7 +11445,7 @@ structure gguf.GgufHeader where
   data0 : Std.U64
 
 /-- [apeiron_word::gguf::ALIGN_BYTES]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 454:0-454:52 -/
+    Source: '../../src/format/gguf.rs', lines 454:0-454:52 -/
 @[global_simps, irreducible]
 def gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
   Array.make 17#usize [
@@ -11335,11 +11454,11 @@ def gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
     ]
 
 /-- [apeiron_word::gguf::ALIGN_LEN]
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 455:0-455:28 -/
+    Source: '../../src/format/gguf.rs', lines 455:0-455:28 -/
 @[global_simps, irreducible] def gguf.ALIGN_LEN : Std.Usize := 17#usize
 
 /-- [apeiron_word::gguf::parse_kv]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 462:0-469:1 -/
+    Source: '../../src/format/gguf.rs', lines 462:0-469:1 -/
 def gguf.parse_kv
   (c : gguf.Cur) :
   Result ((core.result.Result ((alloc.vec.Vec Std.U8) × gguf.GVal)
@@ -11385,7 +11504,7 @@ def gguf.parse_kv
     ok (r1, c1)
 
 /-- [apeiron_word::gguf::parse_tensor]: loop body 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 484:4-492:5 -/
+    Source: '../../src/format/gguf.rs', lines 484:4-492:5 -/
 @[rust_loop_body]
 def gguf.parse_tensor_loop.body
   (nd : Std.U32) (c : gguf.Cur) (dims : alloc.vec.Vec Std.U64)
@@ -11412,7 +11531,7 @@ def gguf.parse_tensor_loop.body
   else ok (done (c.b, c.i, dims, dim_err))
 
 /-- [apeiron_word::gguf::parse_tensor]: loop 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 484:4-492:5 -/
+    Source: '../../src/format/gguf.rs', lines 484:4-492:5 -/
 @[rust_loop]
 def gguf.parse_tensor_loop
   (c : gguf.Cur) (nd : Std.U32) (dims : alloc.vec.Vec Std.U64)
@@ -11426,7 +11545,7 @@ def gguf.parse_tensor_loop
     (c, dims, dim_err, k)
 
 /-- [apeiron_word::gguf::parse_tensor]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 475:0-504:1 -/
+    Source: '../../src/format/gguf.rs', lines 475:0-504:1 -/
 def gguf.parse_tensor
   (c : gguf.Cur) :
   Result ((core.result.Result gguf.TensorDesc gguf.GgufError) × gguf.Cur)
@@ -11499,7 +11618,7 @@ def gguf.parse_tensor
     ok (r1, c1)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 535:4-543:5
+    Source: '../../src/format/gguf.rs', lines 535:4-543:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop0.body
@@ -11527,7 +11646,7 @@ def gguf.parse_header_loop0.body
   else ok (done (c.b, c.i, kv, kv_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 0:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 535:4-543:5
+    Source: '../../src/format/gguf.rs', lines 535:4-543:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop0
@@ -11543,7 +11662,7 @@ def gguf.parse_header_loop0
     (c, kv, kv_err, ki)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 2:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 556:12-561:13
+    Source: '../../src/format/gguf.rs', lines 556:12-561:13
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop1_loop0.body
@@ -11567,7 +11686,7 @@ def gguf.parse_header_loop1_loop0.body
   else ok (done same)
 
 /-- [apeiron_word::gguf::parse_header]: loop 2:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 556:12-561:13
+    Source: '../../src/format/gguf.rs', lines 556:12-561:13
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop1_loop0
@@ -11580,7 +11699,7 @@ def gguf.parse_header_loop1_loop0
     (j, same)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 1:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 552:4-570:5
+    Source: '../../src/format/gguf.rs', lines 552:4-570:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop1.body
@@ -11620,7 +11739,7 @@ def gguf.parse_header_loop1.body
   else ok (done alignment)
 
 /-- [apeiron_word::gguf::parse_header]: loop 1:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 552:4-570:5
+    Source: '../../src/format/gguf.rs', lines 552:4-570:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop1
@@ -11633,7 +11752,7 @@ def gguf.parse_header_loop1
     (alignment, ai)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 3:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 575:4-583:5
+    Source: '../../src/format/gguf.rs', lines 575:4-583:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop2.body
@@ -11660,7 +11779,7 @@ def gguf.parse_header_loop2.body
   else ok (done (c.i, tensors, ts_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 3:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 575:4-583:5
+    Source: '../../src/format/gguf.rs', lines 575:4-583:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop2
@@ -11676,7 +11795,7 @@ def gguf.parse_header_loop2
     (c, tensors, ts_err, ti)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 4:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 535:4-543:5
+    Source: '../../src/format/gguf.rs', lines 535:4-543:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop3.body
@@ -11704,7 +11823,7 @@ def gguf.parse_header_loop3.body
   else ok (done (c.b, c.i, kv, kv_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 4:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 535:4-543:5
+    Source: '../../src/format/gguf.rs', lines 535:4-543:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop3
@@ -11720,7 +11839,7 @@ def gguf.parse_header_loop3
     (c, kv, kv_err, ki)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 6:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 556:12-561:13
+    Source: '../../src/format/gguf.rs', lines 556:12-561:13
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop4_loop0.body
@@ -11744,7 +11863,7 @@ def gguf.parse_header_loop4_loop0.body
   else ok (done same)
 
 /-- [apeiron_word::gguf::parse_header]: loop 6:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 556:12-561:13
+    Source: '../../src/format/gguf.rs', lines 556:12-561:13
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop4_loop0
@@ -11757,7 +11876,7 @@ def gguf.parse_header_loop4_loop0
     (j, same)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 5:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 552:4-570:5
+    Source: '../../src/format/gguf.rs', lines 552:4-570:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop4.body
@@ -11797,7 +11916,7 @@ def gguf.parse_header_loop4.body
   else ok (done alignment)
 
 /-- [apeiron_word::gguf::parse_header]: loop 5:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 552:4-570:5
+    Source: '../../src/format/gguf.rs', lines 552:4-570:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop4
@@ -11810,7 +11929,7 @@ def gguf.parse_header_loop4
     (alignment, ai)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 7:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 575:4-583:5
+    Source: '../../src/format/gguf.rs', lines 575:4-583:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop5.body
@@ -11837,7 +11956,7 @@ def gguf.parse_header_loop5.body
   else ok (done (c.i, tensors, ts_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 7:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 575:4-583:5
+    Source: '../../src/format/gguf.rs', lines 575:4-583:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop5
@@ -11853,7 +11972,7 @@ def gguf.parse_header_loop5
     (c, tensors, ts_err, ti)
 
 /-- [apeiron_word::gguf::parse_header]:
-    Source: 'proof/extract/../../src/format/gguf.rs', lines 508:0-608:1
+    Source: '../../src/format/gguf.rs', lines 508:0-608:1
     Visibility: public -/
 def gguf.parse_header
   (buf : Slice Std.U8) (file_len : Std.U64) :
@@ -12069,13 +12188,13 @@ def gguf.parse_header
       gguf.GgufHeader (core.convert.FromSame gguf.GgufError) residual
 
 /-- [apeiron_word::packing::ONE]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 30:0-30:29
+    Source: '../../src/format/packing.rs', lines 30:0-30:29
     Visibility: public -/
 @[global_simps, irreducible]
 def packing.ONE : Result Std.I64 := 1#i64 <<< 32#i32
 
 /-- [apeiron_word::packing::CodeWidth]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 34:0-45:1
+    Source: '../../src/format/packing.rs', lines 34:0-45:1
     Visibility: public -/
 @[discriminant isize]
 inductive packing.CodeWidth where
@@ -12085,7 +12204,7 @@ inductive packing.CodeWidth where
 | F32 : packing.CodeWidth
 
 /-- [apeiron_word::packing::ScaleKind]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 49:0-59:1
+    Source: '../../src/format/packing.rs', lines 49:0-59:1
     Visibility: public -/
 @[discriminant isize]
 inductive packing.ScaleKind where
@@ -12094,7 +12213,7 @@ inductive packing.ScaleKind where
 | Identity : packing.ScaleKind
 
 /-- [apeiron_word::packing::PlaneOrder]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 63:0-68:1
+    Source: '../../src/format/packing.rs', lines 63:0-68:1
     Visibility: public -/
 @[discriminant isize]
 inductive packing.PlaneOrder where
@@ -12102,7 +12221,7 @@ inductive packing.PlaneOrder where
 | MsbFirst : packing.PlaneOrder
 
 /-- [apeiron_word::packing::NibbleOrder]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 72:0-77:1
+    Source: '../../src/format/packing.rs', lines 72:0-77:1
     Visibility: public -/
 @[discriminant isize]
 inductive packing.NibbleOrder where
@@ -12110,7 +12229,7 @@ inductive packing.NibbleOrder where
 | HighLow : packing.NibbleOrder
 
 /-- [apeiron_word::packing::{impl core::cmp::PartialEq<apeiron_word::packing::NibbleOrder> for apeiron_word::packing::NibbleOrder}::eq]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 71:29-71:38
+    Source: '../../src/format/packing.rs', lines 71:29-71:38
     Visibility: public -/
 def packing.NibbleOrder.Insts.CoreCmpPartialEqNibbleOrder.eq
   (self : packing.NibbleOrder) (other : packing.NibbleOrder) :
@@ -12121,7 +12240,7 @@ def packing.NibbleOrder.Insts.CoreCmpPartialEqNibbleOrder.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::packing::PackingError]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 81:0-115:1
+    Source: '../../src/format/packing.rs', lines 81:0-115:1
     Visibility: public -/
 @[discriminant isize]
 inductive packing.PackingError where
@@ -12138,7 +12257,7 @@ inductive packing.PackingError where
 | Quant : quant.QuantError → packing.PackingError
 
 /-- [apeiron_word::packing::f16_bits_to_fixed]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 155:0-171:1
+    Source: '../../src/format/packing.rs', lines 155:0-171:1
     Visibility: public -/
 def packing.f16_bits_to_fixed
   (bits : Std.U16) :
@@ -12171,7 +12290,7 @@ def packing.f16_bits_to_fixed
       else ok (core.result.Result.Ok mag)
 
 /-- [apeiron_word::packing::pow2_exp_to_fixed]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 181:0-195:1
+    Source: '../../src/format/packing.rs', lines 181:0-195:1
     Visibility: public -/
 def packing.pow2_exp_to_fixed
   (e : Std.U8) : Result (core.result.Result Std.I64 packing.PackingError) := do
@@ -12196,7 +12315,7 @@ def packing.pow2_exp_to_fixed
       ok (core.result.Result.Ok i3)
 
 /-- [apeiron_word::packing::round_scaled]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 203:0-221:1 -/
+    Source: '../../src/format/packing.rs', lines 203:0-221:1 -/
 def packing.round_scaled
   (sig : Std.I64) (rbits : Std.U32) (positive : Bool) : Result Std.I64 := do
   if rbits >= 25#u32
@@ -12217,7 +12336,7 @@ def packing.round_scaled
          else ok q
 
 /-- [apeiron_word::packing::f32_bits_to_fixed]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 238:0-269:1
+    Source: '../../src/format/packing.rs', lines 238:0-269:1
     Visibility: public -/
 def packing.f32_bits_to_fixed
   (bits : Std.U32) :
@@ -12328,7 +12447,7 @@ def packing.f32_bits_to_fixed
           else ok (core.result.Result.Ok magnitude)
 
 /-- [apeiron_word::packing::CanonicalBlock]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 277:0-286:1
+    Source: '../../src/format/packing.rs', lines 277:0-286:1
     Visibility: public -/
 structure packing.CanonicalBlock where
   scale : Std.U16
@@ -12337,7 +12456,7 @@ structure packing.CanonicalBlock where
   codes : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::packing::Packing]
-    Source: 'proof/extract/../../src/format/packing.rs', lines 290:0-313:1
+    Source: '../../src/format/packing.rs', lines 290:0-313:1
     Visibility: public -/
 structure packing.Packing where
   width : packing.CodeWidth
@@ -12353,7 +12472,7 @@ structure packing.Packing where
   nibble_order : packing.NibbleOrder
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::total_code_bits]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 333:4-350:5
+    Source: '../../src/format/packing.rs', lines 333:4-350:5
     Visibility: public -/
 def packing.Packing.total_code_bits
   (self : packing.Packing) :
@@ -12387,7 +12506,7 @@ def packing.Packing.total_code_bits
   | packing.CodeWidth.F32 => ok (core.result.Result.Ok 32#usize)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::is_terminal]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 355:4-357:5
+    Source: '../../src/format/packing.rs', lines 355:4-357:5
     Visibility: public -/
 def packing.Packing.is_terminal (self : packing.Packing) : Result Bool := do
   match self.width with
@@ -12397,7 +12516,7 @@ def packing.Packing.is_terminal (self : packing.Packing) : Result Bool := do
   | packing.CodeWidth.F32 => ok true
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::block_size]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 365:4-377:5
+    Source: '../../src/format/packing.rs', lines 365:4-377:5
     Visibility: public -/
 def packing.Packing.block_size
   (self : packing.Packing) :
@@ -12424,7 +12543,7 @@ def packing.Packing.block_size
       ok (core.result.Result.Err (packing.PackingError.BadBlock self.block))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::groups]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 384:4-393:5
+    Source: '../../src/format/packing.rs', lines 384:4-393:5
     Visibility: public -/
 def packing.Packing.groups
   (self : packing.Packing) :
@@ -12454,7 +12573,7 @@ def packing.Packing.groups
       Std.Usize (core.convert.FromSame packing.PackingError) residual
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::scale_field_bytes]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 397:4-403:5
+    Source: '../../src/format/packing.rs', lines 397:4-403:5
     Visibility: public -/
 def packing.Packing.scale_field_bytes
   (self : packing.Packing) : Result Std.Usize := do
@@ -12464,7 +12583,7 @@ def packing.Packing.scale_field_bytes
   | packing.ScaleKind.Identity => ok 0#usize
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::block_bytes]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 410:4-428:5
+    Source: '../../src/format/packing.rs', lines 410:4-428:5
     Visibility: public -/
 def packing.Packing.block_bytes
   (self : packing.Packing) :
@@ -12540,7 +12659,7 @@ def packing.Packing.block_bytes
       Std.Usize (core.convert.FromSame packing.PackingError) residual
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::scale_to_fixed]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 562:4-568:5
+    Source: '../../src/format/packing.rs', lines 562:4-568:5
     Visibility: public -/
 def packing.Packing.scale_to_fixed
   (self : packing.Packing) (raw : Std.U16) :
@@ -12556,7 +12675,7 @@ def packing.Packing.scale_to_fixed
     ok (core.result.Result.Ok i)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::unpack_code]: loop body 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 574:8-583:9 -/
+    Source: '../../src/format/packing.rs', lines 574:8-583:9 -/
 @[rust_loop_body]
 def packing.Packing.unpack_code_loop.body
   (area : Slice Std.U8) (i : Std.Usize) (total : Std.Usize)
@@ -12589,7 +12708,7 @@ def packing.Packing.unpack_code_loop.body
   else ok (done (self, v))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::unpack_code]: loop 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 574:8-583:9 -/
+    Source: '../../src/format/packing.rs', lines 574:8-583:9 -/
 @[rust_loop]
 def packing.Packing.unpack_code_loop
   (self : packing.Packing) (area : Slice Std.U8) (i : Std.Usize)
@@ -12602,7 +12721,7 @@ def packing.Packing.unpack_code_loop
     (self, v, k)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::unpack_code]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 571:4-591:5 -/
+    Source: '../../src/format/packing.rs', lines 571:4-591:5 -/
 def packing.Packing.unpack_code
   (self : packing.Packing) (area : Slice Std.U8) (i : Std.Usize)
   (total : Std.Usize) :
@@ -12625,7 +12744,7 @@ def packing.Packing.unpack_code
   else ok v
 
 /-- [apeiron_word::packing::read_field]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 934:0-940:1 -/
+    Source: '../../src/format/packing.rs', lines 934:0-940:1 -/
 def packing.read_field
   (raw : Slice Std.U8) («at» : Std.Usize) (n : Std.Usize) :
   Result Std.U16
@@ -12640,7 +12759,7 @@ def packing.read_field
     ok (core.num.U16.from_le_bytes (Array.make 2#usize [ i, i2 ]))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 700:8-703:9
+    Source: '../../src/format/packing.rs', lines 700:8-703:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop0.body
@@ -12659,7 +12778,7 @@ def packing.Packing.decode_block_fields_loop0.body
   else ok (done area)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 700:8-703:9
+    Source: '../../src/format/packing.rs', lines 700:8-703:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop0
@@ -12673,7 +12792,7 @@ def packing.Packing.decode_block_fields_loop0
     (area, j)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 1:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 706:12-709:13
+    Source: '../../src/format/packing.rs', lines 706:12-709:13
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop1.body
@@ -12695,7 +12814,7 @@ def packing.Packing.decode_block_fields_loop1.body
   else ok (done area)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 1:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 706:12-709:13
+    Source: '../../src/format/packing.rs', lines 706:12-709:13
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop1
@@ -12708,7 +12827,7 @@ def packing.Packing.decode_block_fields_loop1
     (area, j)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 2:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop2.body
@@ -12744,7 +12863,7 @@ def packing.Packing.decode_block_fields_loop2.body
   else ok (done codes)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 2:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop2
@@ -12761,7 +12880,7 @@ def packing.Packing.decode_block_fields_loop2
     (codes, i4)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 3:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop3.body
@@ -12797,7 +12916,7 @@ def packing.Packing.decode_block_fields_loop3.body
   else ok (done codes)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 3:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop3
@@ -12814,7 +12933,7 @@ def packing.Packing.decode_block_fields_loop3
     (codes, i4)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 4:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 672:12-692:13
+    Source: '../../src/format/packing.rs', lines 672:12-692:13
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop4.body
@@ -12861,7 +12980,7 @@ def packing.Packing.decode_block_fields_loop4.body
   else ok (done (b1, «at», coeffs))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 4:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 672:12-692:13
+    Source: '../../src/format/packing.rs', lines 672:12-692:13
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop4
@@ -12877,7 +12996,7 @@ def packing.Packing.decode_block_fields_loop4
     (b1, «at», coeffs, g)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 5:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 700:8-703:9
+    Source: '../../src/format/packing.rs', lines 700:8-703:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop5.body
@@ -12896,7 +13015,7 @@ def packing.Packing.decode_block_fields_loop5.body
   else ok (done area)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 5:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 700:8-703:9
+    Source: '../../src/format/packing.rs', lines 700:8-703:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop5
@@ -12910,7 +13029,7 @@ def packing.Packing.decode_block_fields_loop5
     (area, j)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 6:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 706:12-709:13
+    Source: '../../src/format/packing.rs', lines 706:12-709:13
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop6.body
@@ -12932,7 +13051,7 @@ def packing.Packing.decode_block_fields_loop6.body
   else ok (done area)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 6:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 706:12-709:13
+    Source: '../../src/format/packing.rs', lines 706:12-709:13
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop6
@@ -12945,7 +13064,7 @@ def packing.Packing.decode_block_fields_loop6
     (area, j)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 7:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop7.body
@@ -12981,7 +13100,7 @@ def packing.Packing.decode_block_fields_loop7.body
   else ok (done codes)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 7:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop7
@@ -12998,7 +13117,7 @@ def packing.Packing.decode_block_fields_loop7
     (codes, i4)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop body 8:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop_body]
 def packing.Packing.decode_block_fields_loop8.body
@@ -13034,7 +13153,7 @@ def packing.Packing.decode_block_fields_loop8.body
   else ok (done codes)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]: loop 8:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 713:8-716:9
+    Source: '../../src/format/packing.rs', lines 713:8-716:9
     Visibility: public -/
 @[rust_loop]
 def packing.Packing.decode_block_fields_loop8
@@ -13051,7 +13170,7 @@ def packing.Packing.decode_block_fields_loop8
     (codes, i4)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block_fields]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 644:4-723:5
+    Source: '../../src/format/packing.rs', lines 644:4-723:5
     Visibility: public -/
 def packing.Packing.decode_block_fields
   (self : packing.Packing) (raw : Slice Std.U8) :
@@ -13216,7 +13335,7 @@ def packing.Packing.decode_block_fields
       residual
 
 /-- [apeiron_word::packing::terminal_bits_to_fixed]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 897:0-904:1 -/
+    Source: '../../src/format/packing.rs', lines 897:0-904:1 -/
 def packing.terminal_bits_to_fixed
   (width : packing.CodeWidth) (bits : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -13234,7 +13353,7 @@ def packing.terminal_bits_to_fixed
     packing.f32_bits_to_fixed i
 
 /-- [apeiron_word::packing::sub]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 929:0-931:1 -/
+    Source: '../../src/format/packing.rs', lines 929:0-931:1 -/
 def packing.sub
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -13243,7 +13362,7 @@ def packing.sub
   core.option.Option.ok_or o packing.PackingError.Overflow
 
 /-- [apeiron_word::packing::mul]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 924:0-926:1 -/
+    Source: '../../src/format/packing.rs', lines 924:0-926:1 -/
 def packing.mul
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -13252,7 +13371,7 @@ def packing.mul
   core.option.Option.ok_or o packing.PackingError.Overflow
 
 /-- [apeiron_word::packing::balanced_trit]: loop body 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 911:4-921:1 -/
+    Source: '../../src/format/packing.rs', lines 911:4-921:1 -/
 @[rust_loop_body]
 def packing.balanced_trit_loop.body
   (field : Std.I64) (l : Std.U8) (acc : Std.I64) (weight : Std.I64)
@@ -13302,7 +13421,7 @@ def packing.balanced_trit_loop.body
   else ok (done (core.result.Result.Ok acc))
 
 /-- [apeiron_word::packing::balanced_trit]: loop 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 911:4-921:1 -/
+    Source: '../../src/format/packing.rs', lines 911:4-921:1 -/
 @[rust_loop]
 def packing.balanced_trit_loop
   (field : Std.I64) (l : Std.U8) (acc : Std.I64) (weight : Std.I64)
@@ -13315,7 +13434,7 @@ def packing.balanced_trit_loop
     (acc, weight, k)
 
 /-- [apeiron_word::packing::balanced_trit]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 907:0-921:1 -/
+    Source: '../../src/format/packing.rs', lines 907:0-921:1 -/
 @[reducible]
 def packing.balanced_trit
   (field : Std.I64) (l : Std.U8) :
@@ -13324,7 +13443,7 @@ def packing.balanced_trit
   packing.balanced_trit_loop field l 0#i64 1#i64 0#usize
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue_entry]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 799:4-820:5 -/
+    Source: '../../src/format/packing.rs', lines 799:4-820:5 -/
 def packing.Packing.epilogue_entry
   (self : packing.Packing) (b : packing.CanonicalBlock) (i : Std.Usize)
   (scale : Std.I64) (min_scale : Std.I64) (group : Std.Usize) :
@@ -13523,7 +13642,7 @@ def packing.Packing.epilogue_entry
         Std.I64 (core.convert.FromSame packing.PackingError) residual
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop body 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 753:12-764:13 -/
+    Source: '../../src/format/packing.rs', lines 753:12-764:13 -/
 @[rust_loop_body]
 def packing.Packing.epilogue_loop0.body
   (cw : packing.CodeWidth) (v : alloc.vec.Vec Std.I64) (block : Std.Usize)
@@ -13553,7 +13672,7 @@ def packing.Packing.epilogue_loop0.body
   else ok (done (out, failed, error))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop 0:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 753:12-764:13 -/
+    Source: '../../src/format/packing.rs', lines 753:12-764:13 -/
 @[rust_loop]
 def packing.Packing.epilogue_loop0
   (cw : packing.CodeWidth) (v : alloc.vec.Vec Std.I64) (block : Std.Usize)
@@ -13567,7 +13686,7 @@ def packing.Packing.epilogue_loop0
     (out, failed, error, i)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop body 1:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 777:8-788:9 -/
+    Source: '../../src/format/packing.rs', lines 777:8-788:9 -/
 @[rust_loop_body]
 def packing.Packing.epilogue_loop1.body
   (cw : packing.CodeWidth) (i : Std.U8) (i1 : Std.U32) (i2 : Std.U32)
@@ -13613,7 +13732,7 @@ def packing.Packing.epilogue_loop1.body
   else ok (done (out, failed, error))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop 1:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 777:8-788:9 -/
+    Source: '../../src/format/packing.rs', lines 777:8-788:9 -/
 @[rust_loop]
 def packing.Packing.epilogue_loop1
   (cw : packing.CodeWidth) (i : Std.U8) (i1 : Std.U32) (i2 : Std.U32)
@@ -13632,7 +13751,7 @@ def packing.Packing.epilogue_loop1
     (out, failed, error, i6)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop body 2:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 777:8-788:9 -/
+    Source: '../../src/format/packing.rs', lines 777:8-788:9 -/
 @[rust_loop_body]
 def packing.Packing.epilogue_loop2.body
   (cw : packing.CodeWidth) (i : Std.U8) (i1 : Std.U32) (i2 : Std.U32)
@@ -13678,7 +13797,7 @@ def packing.Packing.epilogue_loop2.body
   else ok (done (out, failed, error))
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]: loop 2:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 777:8-788:9 -/
+    Source: '../../src/format/packing.rs', lines 777:8-788:9 -/
 @[rust_loop]
 def packing.Packing.epilogue_loop2
   (cw : packing.CodeWidth) (i : Std.U8) (i1 : Std.U32) (i2 : Std.U32)
@@ -13697,7 +13816,7 @@ def packing.Packing.epilogue_loop2
     (out, failed, error, i6)
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::epilogue]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 741:4-794:5 -/
+    Source: '../../src/format/packing.rs', lines 741:4-794:5 -/
 def packing.Packing.epilogue
   (self : packing.Packing) (b : packing.CanonicalBlock) :
   Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
@@ -13780,7 +13899,7 @@ def packing.Packing.epilogue
       residual
 
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::decode_block]:
-    Source: 'proof/extract/../../src/format/packing.rs', lines 735:4-738:5
+    Source: '../../src/format/packing.rs', lines 735:4-738:5
     Visibility: public -/
 def packing.Packing.decode_block
   (self : packing.Packing) (raw : Slice Std.U8) :
@@ -13797,7 +13916,7 @@ def packing.Packing.decode_block
       residual
 
 /-- [apeiron_word::policy::decide::Op]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 18:0-29:1
+    Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.decide.Op where
@@ -13808,7 +13927,7 @@ inductive policy.decide.Op where
 | Any : policy.decide.Op
 
 /-- [apeiron_word::policy::decide::Effect]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 33:0-40:1
+    Source: '../../src/policy/decide.rs', lines 33:0-40:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.decide.Effect where
@@ -13817,7 +13936,7 @@ inductive policy.decide.Effect where
 | Ask : policy.decide.Effect
 
 /-- [apeiron_word::policy::decide::{impl core::cmp::PartialEq<apeiron_word::policy::decide::Effect> for apeiron_word::policy::decide::Effect}::eq]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 32:22-32:31
+    Source: '../../src/policy/decide.rs', lines 32:22-32:31
     Visibility: public -/
 def policy.decide.Effect.Insts.CoreCmpPartialEqEffect.eq
   (self : policy.decide.Effect) (other : policy.decide.Effect) :
@@ -13828,7 +13947,7 @@ def policy.decide.Effect.Insts.CoreCmpPartialEqEffect.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::policy::decide::Atom]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 44:0-51:1
+    Source: '../../src/policy/decide.rs', lines 44:0-51:1
     Visibility: public -/
 structure policy.decide.Atom where
   op : policy.decide.Op
@@ -13836,7 +13955,7 @@ structure policy.decide.Atom where
   value : Std.U64
 
 /-- [apeiron_word::policy::decide::Rule]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 55:0-68:1
+    Source: '../../src/policy/decide.rs', lines 55:0-68:1
     Visibility: public -/
 structure policy.decide.Rule where
   id : Std.U32
@@ -13847,7 +13966,7 @@ structure policy.decide.Rule where
   atom_len : Std.U32
 
 /-- [apeiron_word::policy::decide::Cause]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 72:0-77:1
+    Source: '../../src/policy/decide.rs', lines 72:0-77:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.decide.Cause where
@@ -13855,7 +13974,7 @@ inductive policy.decide.Cause where
 | NoPermit : policy.decide.Cause
 
 /-- [apeiron_word::policy::decide::Verdict]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 81:0-107:1
+    Source: '../../src/policy/decide.rs', lines 81:0-107:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.decide.Verdict where
@@ -13865,7 +13984,7 @@ inductive policy.decide.Verdict where
 | Deny : policy.decide.Cause → policy.decide.Verdict
 
 /-- [apeiron_word::policy::decide::Tri]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 111:0-115:1 -/
+    Source: '../../src/policy/decide.rs', lines 111:0-115:1 -/
 @[discriminant isize]
 inductive policy.decide.Tri where
 | T : policy.decide.Tri
@@ -13873,7 +13992,7 @@ inductive policy.decide.Tri where
 | U : policy.decide.Tri
 
 /-- [apeiron_word::policy::decide::{impl core::cmp::PartialEq<apeiron_word::policy::decide::Tri> for apeiron_word::policy::decide::Tri}::eq]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 110:22-110:31
+    Source: '../../src/policy/decide.rs', lines 110:22-110:31
     Visibility: public -/
 def policy.decide.Tri.Insts.CoreCmpPartialEqTri.eq
   (self : policy.decide.Tri) (other : policy.decide.Tri) : Result Bool := do
@@ -13882,7 +14001,7 @@ def policy.decide.Tri.Insts.CoreCmpPartialEqTri.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [apeiron_word::policy::decide::{impl core::cmp::PartialEq<apeiron_word::policy::decide::Tri> for apeiron_word::policy::decide::Tri}]
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 110:22-110:31 -/
+    Source: '../../src/policy/decide.rs', lines 110:22-110:31 -/
 @[reducible]
 impl_def policy.decide.Tri.Insts.CoreCmpPartialEqTri : core.cmp.PartialEq
   policy.decide.Tri policy.decide.Tri := {
@@ -13892,7 +14011,7 @@ impl_def policy.decide.Tri.Insts.CoreCmpPartialEqTri : core.cmp.PartialEq
 }
 
 /-- [apeiron_word::policy::decide::atom_eval]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 117:0-165:1 -/
+    Source: '../../src/policy/decide.rs', lines 117:0-165:1 -/
 def policy.decide.atom_eval
   (atom : policy.decide.Atom) (facts : Slice Std.U64) (known : Std.U64) :
   Result policy.decide.Tri
@@ -13936,7 +14055,7 @@ def policy.decide.atom_eval
           else ok policy.decide.Tri.F
 
 /-- [apeiron_word::policy::decide::guard_eval]: loop body 0:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 178:4-187:1 -/
+    Source: '../../src/policy/decide.rs', lines 178:4-187:1 -/
 @[rust_loop_body]
 def policy.decide.guard_eval_loop.body
   (atoms : Slice policy.decide.Atom) (facts : Slice Std.U64) (known : Std.U64)
@@ -13959,7 +14078,7 @@ def policy.decide.guard_eval_loop.body
   else ok (done acc)
 
 /-- [apeiron_word::policy::decide::guard_eval]: loop 0:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 178:4-187:1 -/
+    Source: '../../src/policy/decide.rs', lines 178:4-187:1 -/
 @[rust_loop]
 def policy.decide.guard_eval_loop
   (atoms : Slice policy.decide.Atom) (facts : Slice Std.U64) (known : Std.U64)
@@ -13973,7 +14092,7 @@ def policy.decide.guard_eval_loop
     (acc, i)
 
 /-- [apeiron_word::policy::decide::guard_eval]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 170:0-187:1 -/
+    Source: '../../src/policy/decide.rs', lines 170:0-187:1 -/
 def policy.decide.guard_eval
   (rule : policy.decide.Rule) (atoms : Slice policy.decide.Atom)
   (facts : Slice Std.U64) (known : Std.U64) :
@@ -13994,7 +14113,7 @@ def policy.decide.guard_eval
         policy.decide.Tri.T 0#usize
 
 /-- [apeiron_word::policy::decide::min_id]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 195:0-206:1 -/
+    Source: '../../src/policy/decide.rs', lines 195:0-206:1 -/
 def policy.decide.min_id
   (best : Option Std.U32) (id : Std.U32) : Result (Option Std.U32) := do
   match best with
@@ -14004,7 +14123,7 @@ def policy.decide.min_id
               else ok best
 
 /-- [apeiron_word::policy::decide::decide]: loop body 0:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 235:4-260:5
+    Source: '../../src/policy/decide.rs', lines 235:4-260:5
     Visibility: public -/
 @[rust_loop_body]
 def policy.decide.decide_loop0.body
@@ -14070,7 +14189,7 @@ def policy.decide.decide_loop0.body
   else ok (done (permit, forbid, ask, permit_by, ask_by))
 
 /-- [apeiron_word::policy::decide::decide]: loop 0:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 235:4-260:5
+    Source: '../../src/policy/decide.rs', lines 235:4-260:5
     Visibility: public -/
 @[rust_loop]
 def policy.decide.decide_loop0
@@ -14088,7 +14207,7 @@ def policy.decide.decide_loop0
     (permit, forbid, ask, permit_by, ask_by, i)
 
 /-- [apeiron_word::policy::decide::decide]: loop body 1:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 268:8-278:9
+    Source: '../../src/policy/decide.rs', lines 268:8-278:9
     Visibility: public -/
 @[rust_loop_body]
 def policy.decide.decide_loop1.body
@@ -14130,7 +14249,7 @@ def policy.decide.decide_loop1.body
   else ok (done forbid_by)
 
 /-- [apeiron_word::policy::decide::decide]: loop 1:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 268:8-278:9
+    Source: '../../src/policy/decide.rs', lines 268:8-278:9
     Visibility: public -/
 @[rust_loop]
 def policy.decide.decide_loop1
@@ -14145,7 +14264,7 @@ def policy.decide.decide_loop1
     (forbid_by, j)
 
 /-- [apeiron_word::policy::decide::decide]:
-    Source: 'proof/extract/../../src/policy/decide.rs', lines 221:0-304:1
+    Source: '../../src/policy/decide.rs', lines 221:0-304:1
     Visibility: public -/
 def policy.decide.decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -14190,47 +14309,47 @@ def policy.decide.decide
       else ok (policy.decide.Verdict.Attenuate granted «by»)
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::from_i64]:
-    Source: 'proof/extract/../../src/scalar.rs', lines 105:4-107:5
+    Source: '../../src/scalar.rs', lines 105:4-107:5
     Visibility: public -/
 def I64.Insts.Apeiron_wordScalarRing.from_i64
   (v : Std.I64) : Result Std.I64 := do
   ok v
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::mul]:
-    Source: 'proof/extract/../../src/scalar.rs', lines 102:4-104:5
+    Source: '../../src/scalar.rs', lines 102:4-104:5
     Visibility: public -/
 def I64.Insts.Apeiron_wordScalarRing.mul
   (self : Std.I64) (other : Std.I64) : Result Std.I64 := do
   ok (core.num.I64.wrapping_mul self other)
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::sub]:
-    Source: 'proof/extract/../../src/scalar.rs', lines 99:4-101:5
+    Source: '../../src/scalar.rs', lines 99:4-101:5
     Visibility: public -/
 def I64.Insts.Apeiron_wordScalarRing.sub
   (self : Std.I64) (other : Std.I64) : Result Std.I64 := do
   ok (core.num.I64.wrapping_sub self other)
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::add]:
-    Source: 'proof/extract/../../src/scalar.rs', lines 96:4-98:5
+    Source: '../../src/scalar.rs', lines 96:4-98:5
     Visibility: public -/
 def I64.Insts.Apeiron_wordScalarRing.add
   (self : Std.I64) (other : Std.I64) : Result Std.I64 := do
   ok (core.num.I64.wrapping_add self other)
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::ONE]
-    Source: 'proof/extract/../../src/scalar.rs', lines 94:4-94:24
+    Source: '../../src/scalar.rs', lines 94:4-94:24
     Visibility: public -/
 @[global_simps, irreducible]
 def I64.Insts.Apeiron_wordScalarRing.ONE : Std.I64 := 1#i64
 
 /-- [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}::ZERO]
-    Source: 'proof/extract/../../src/scalar.rs', lines 93:4-93:25
+    Source: '../../src/scalar.rs', lines 93:4-93:25
     Visibility: public -/
 @[global_simps, irreducible]
 def I64.Insts.Apeiron_wordScalarRing.ZERO : Std.I64 := 0#i64
 
 /-- Trait implementation: [apeiron_word::scalar::{impl apeiron_word::scalar::Ring for i64}]
-    Source: 'proof/extract/../../src/scalar.rs', lines 92:0-108:1 -/
+    Source: '../../src/scalar.rs', lines 92:0-108:1 -/
 @[reducible]
 def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
   ZERO := ok I64.Insts.Apeiron_wordScalarRing.ZERO
@@ -14244,20 +14363,20 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
 }
 
 /-- [apeiron_word::spirv::check::HEADER_WORDS]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 34:0-34:30 -/
+    Source: '../../src/spirv/check.rs', lines 34:0-34:30 -/
 @[global_simps, irreducible]
 def spirv.check.HEADER_WORDS : Std.Usize := 5#usize
 
 /-- [apeiron_word::spirv::check::MAGIC]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 37:0-37:31 -/
+    Source: '../../src/spirv/check.rs', lines 37:0-37:31 -/
 @[global_simps, irreducible] def spirv.check.MAGIC : Std.U32 := 119734787#u32
 
 /-- [apeiron_word::spirv::check::VERSION_1_3]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 40:0-40:37 -/
+    Source: '../../src/spirv/check.rs', lines 40:0-40:37 -/
 @[global_simps, irreducible] def spirv.check.VERSION_1_3 : Std.U32 := 66304#u32
 
 /-- [apeiron_word::spirv::check::SERVED_OPCODES]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 43:0-46:2 -/
+    Source: '../../src/spirv/check.rs', lines 43:0-46:2 -/
 @[global_simps, irreducible]
 def spirv.check.SERVED_OPCODES : Array Std.U32 42#usize :=
   Array.make 42#usize [
@@ -14269,19 +14388,19 @@ def spirv.check.SERVED_OPCODES : Array Std.U32 42#usize :=
     ]
 
 /-- [apeiron_word::spirv::check::VALID_STORAGE_CLASSES]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 49:0-49:54 -/
+    Source: '../../src/spirv/check.rs', lines 49:0-49:54 -/
 @[global_simps, irreducible]
 def spirv.check.VALID_STORAGE_CLASSES : Array Std.U32 4#usize :=
   Array.make 4#usize [ 1#u32, 4#u32, 7#u32, 12#u32 ]
 
 /-- [apeiron_word::spirv::check::VALID_DECORATIONS]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 52:0-52:59 -/
+    Source: '../../src/spirv/check.rs', lines 52:0-52:59 -/
 @[global_simps, irreducible]
 def spirv.check.VALID_DECORATIONS : Array Std.U32 6#usize :=
   Array.make 6#usize [ 2#u32, 6#u32, 11#u32, 33#u32, 34#u32, 35#u32 ]
 
 /-- [apeiron_word::spirv::check::CheckError]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 56:0-150:1
+    Source: '../../src/spirv/check.rs', lines 56:0-150:1
     Visibility: public -/
 @[discriminant isize]
 inductive spirv.check.CheckError where
@@ -14303,7 +14422,7 @@ inductive spirv.check.CheckError where
 | UnterminatedLiteral : Std.Usize → spirv.check.CheckError
 
 /-- [apeiron_word::spirv::check::TyTag]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 213:0-232:1 -/
+    Source: '../../src/spirv/check.rs', lines 213:0-232:1 -/
 @[discriminant isize]
 inductive spirv.check.TyTag where
 | Int : Std.U32 → spirv.check.TyTag
@@ -14317,7 +14436,7 @@ inductive spirv.check.TyTag where
 | Void : spirv.check.TyTag
 
 /-- [apeiron_word::spirv::check::ty_get]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 730:4-737:1 -/
+    Source: '../../src/spirv/check.rs', lines 730:4-737:1 -/
 @[rust_loop_body]
 def spirv.check.ty_get_loop.body
   (tys : Slice (Std.U32 × spirv.check.TyTag)) (id : Std.U32) (i : Std.Usize) :
@@ -14334,7 +14453,7 @@ def spirv.check.ty_get_loop.body
   else ok (done none)
 
 /-- [apeiron_word::spirv::check::ty_get]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 730:4-737:1 -/
+    Source: '../../src/spirv/check.rs', lines 730:4-737:1 -/
 @[rust_loop]
 def spirv.check.ty_get_loop
   (tys : Slice (Std.U32 × spirv.check.TyTag)) (id : Std.U32) (i : Std.Usize) :
@@ -14345,7 +14464,7 @@ def spirv.check.ty_get_loop
     i
 
 /-- [apeiron_word::spirv::check::ty_get]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 728:0-737:1 -/
+    Source: '../../src/spirv/check.rs', lines 728:0-737:1 -/
 @[reducible]
 def spirv.check.ty_get
   (tys : Slice (Std.U32 × spirv.check.TyTag)) (id : Std.U32) :
@@ -14354,7 +14473,7 @@ def spirv.check.ty_get
   spirv.check.ty_get_loop tys id 0#usize
 
 /-- [apeiron_word::spirv::check::TagSpec]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 236:0-259:1 -/
+    Source: '../../src/spirv/check.rs', lines 236:0-259:1 -/
 @[discriminant isize]
 inductive spirv.check.TagSpec where
 | None : spirv.check.TagSpec
@@ -14370,7 +14489,7 @@ inductive spirv.check.TagSpec where
 | OfType : Std.U32 → spirv.check.TagSpec
 
 /-- [apeiron_word::spirv::check::resolve_tag]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 758:0-781:1 -/
+    Source: '../../src/spirv/check.rs', lines 758:0-781:1 -/
 def spirv.check.resolve_tag
   (spec : spirv.check.TagSpec) (tys : Slice (Std.U32 × spirv.check.TyTag)) :
   Result (Option spirv.check.TyTag)
@@ -14402,7 +14521,7 @@ def spirv.check.resolve_tag
   | spirv.check.TagSpec.OfType ty => spirv.check.ty_get tys ty
 
 /-- [apeiron_word::spirv::check::ty_insert]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 742:4-750:1 -/
+    Source: '../../src/spirv/check.rs', lines 742:4-750:1 -/
 @[rust_loop_body]
 def spirv.check.ty_insert_loop.body
   (tys : alloc.vec.Vec (Std.U32 × spirv.check.TyTag)) (id : Std.U32)
@@ -14428,7 +14547,7 @@ def spirv.check.ty_insert_loop.body
        ok (done tys1)
 
 /-- [apeiron_word::spirv::check::ty_insert]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 742:4-750:1 -/
+    Source: '../../src/spirv/check.rs', lines 742:4-750:1 -/
 @[rust_loop]
 def spirv.check.ty_insert_loop
   (tys : alloc.vec.Vec (Std.U32 × spirv.check.TyTag)) (id : Std.U32)
@@ -14440,7 +14559,7 @@ def spirv.check.ty_insert_loop
     i
 
 /-- [apeiron_word::spirv::check::ty_insert]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 740:0-750:1 -/
+    Source: '../../src/spirv/check.rs', lines 740:0-750:1 -/
 @[reducible]
 def spirv.check.ty_insert
   (tys : alloc.vec.Vec (Std.U32 × spirv.check.TyTag)) (id : Std.U32)
@@ -14450,7 +14569,7 @@ def spirv.check.ty_insert
   spirv.check.ty_insert_loop tys id tag 0#usize
 
 /-- [apeiron_word::spirv::check::defs_contains]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 718:4-725:1 -/
+    Source: '../../src/spirv/check.rs', lines 718:4-725:1 -/
 @[rust_loop_body]
 def spirv.check.defs_contains_loop.body
   (defs : Slice Std.U32) (id : Std.U32) (i : Std.Usize) :
@@ -14467,7 +14586,7 @@ def spirv.check.defs_contains_loop.body
   else ok (done false)
 
 /-- [apeiron_word::spirv::check::defs_contains]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 718:4-725:1 -/
+    Source: '../../src/spirv/check.rs', lines 718:4-725:1 -/
 @[rust_loop]
 def spirv.check.defs_contains_loop
   (defs : Slice Std.U32) (id : Std.U32) (i : Std.Usize) : Result Bool := do
@@ -14476,14 +14595,14 @@ def spirv.check.defs_contains_loop
     i
 
 /-- [apeiron_word::spirv::check::defs_contains]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 716:0-725:1 -/
+    Source: '../../src/spirv/check.rs', lines 716:0-725:1 -/
 @[reducible]
 def spirv.check.defs_contains
   (defs : Slice Std.U32) (id : Std.U32) : Result Bool := do
   spirv.check.defs_contains_loop defs id 0#usize
 
 /-- [apeiron_word::spirv::check::decoration_admitted]: loop body 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop_body]
 def spirv.check.decoration_admitted_loop.body
   (decoration : Std.U32) (i : Std.Usize) :
@@ -14501,7 +14620,7 @@ def spirv.check.decoration_admitted_loop.body
   else ok (done false)
 
 /-- [apeiron_word::spirv::check::decoration_admitted]: loop 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop]
 def spirv.check.decoration_admitted_loop
   (decoration : Std.U32) (i : Std.Usize) : Result Bool := do
@@ -14510,13 +14629,13 @@ def spirv.check.decoration_admitted_loop
     i
 
 /-- [apeiron_word::spirv::check::decoration_admitted]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 704:0-713:1 -/
+    Source: '../../src/spirv/check.rs', lines 704:0-713:1 -/
 @[reducible]
 def spirv.check.decoration_admitted (decoration : Std.U32) : Result Bool := do
   spirv.check.decoration_admitted_loop decoration 0#usize
 
 /-- [apeiron_word::spirv::check::storage_class_admitted]: loop body 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop_body]
 def spirv.check.storage_class_admitted_loop.body
   (storage_class : Std.U32) (i : Std.Usize) :
@@ -14534,7 +14653,7 @@ def spirv.check.storage_class_admitted_loop.body
   else ok (done false)
 
 /-- [apeiron_word::spirv::check::storage_class_admitted]: loop 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop]
 def spirv.check.storage_class_admitted_loop
   (storage_class : Std.U32) (i : Std.Usize) : Result Bool := do
@@ -14543,14 +14662,14 @@ def spirv.check.storage_class_admitted_loop
     i
 
 /-- [apeiron_word::spirv::check::storage_class_admitted]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 692:0-701:1 -/
+    Source: '../../src/spirv/check.rs', lines 692:0-701:1 -/
 @[reducible]
 def spirv.check.storage_class_admitted
   (storage_class : Std.U32) : Result Bool := do
   spirv.check.storage_class_admitted_loop storage_class 0#usize
 
 /-- [apeiron_word::spirv::check::Shape]
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 262:0-275:1 -/
+    Source: '../../src/spirv/check.rs', lines 262:0-275:1 -/
 structure spirv.check.Shape where
   result : Option Std.U32
   uses : alloc.vec.Vec Std.U32
@@ -14560,7 +14679,7 @@ structure spirv.check.Shape where
   sudot : Option (Std.U32 × Std.U32 × Std.U32)
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop0.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14604,7 +14723,7 @@ def spirv.check.apply_shape_loop0.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop0
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14618,7 +14737,7 @@ def spirv.check.apply_shape_loop0
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 1:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop1.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14662,7 +14781,7 @@ def spirv.check.apply_shape_loop1.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 1:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop1
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14676,7 +14795,7 @@ def spirv.check.apply_shape_loop1
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 2:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop2.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14720,7 +14839,7 @@ def spirv.check.apply_shape_loop2.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 2:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop2
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14734,7 +14853,7 @@ def spirv.check.apply_shape_loop2
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 3:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop3.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14778,7 +14897,7 @@ def spirv.check.apply_shape_loop3.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 3:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop3
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14792,7 +14911,7 @@ def spirv.check.apply_shape_loop3
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 4:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop4.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14836,7 +14955,7 @@ def spirv.check.apply_shape_loop4.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 4:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop4
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14850,7 +14969,7 @@ def spirv.check.apply_shape_loop4
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 5:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop5.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14894,7 +15013,7 @@ def spirv.check.apply_shape_loop5.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 5:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop5
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14908,7 +15027,7 @@ def spirv.check.apply_shape_loop5
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 6:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop6.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14952,7 +15071,7 @@ def spirv.check.apply_shape_loop6.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 6:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop6
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -14966,7 +15085,7 @@ def spirv.check.apply_shape_loop6
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop body 7:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop_body]
 def spirv.check.apply_shape_loop7.body
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -15010,7 +15129,7 @@ def spirv.check.apply_shape_loop7.body
           ok (done (core.result.Result.Ok (), defs1, tys1))
 
 /-- [apeiron_word::spirv::check::apply_shape]: loop 7:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 658:4-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 658:4-675:1 -/
 @[rust_loop]
 def spirv.check.apply_shape_loop7
   (index : Std.Usize) (o : Option Std.U32) (v : alloc.vec.Vec Std.U32)
@@ -15024,7 +15143,7 @@ def spirv.check.apply_shape_loop7
     u
 
 /-- [apeiron_word::spirv::check::apply_shape]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 627:0-675:1 -/
+    Source: '../../src/spirv/check.rs', lines 627:0-675:1 -/
 def spirv.check.apply_shape
   (index : Std.Usize) (shape : spirv.check.Shape)
   (defs : alloc.vec.Vec Std.U32)
@@ -15365,7 +15484,7 @@ def spirv.check.apply_shape
         storage_class), defs, tys)
 
 /-- [apeiron_word::spirv::check::has_literal_terminator]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 787:4-799:1 -/
+    Source: '../../src/spirv/check.rs', lines 787:4-799:1 -/
 @[rust_loop_body]
 def spirv.check.has_literal_terminator_loop.body
   (words : Slice Std.U32) (i : Std.Usize) :
@@ -15398,7 +15517,7 @@ def spirv.check.has_literal_terminator_loop.body
   else ok (done false)
 
 /-- [apeiron_word::spirv::check::has_literal_terminator]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 787:4-799:1 -/
+    Source: '../../src/spirv/check.rs', lines 787:4-799:1 -/
 @[rust_loop]
 def spirv.check.has_literal_terminator_loop
   (words : Slice Std.U32) (i : Std.Usize) : Result Bool := do
@@ -15407,14 +15526,14 @@ def spirv.check.has_literal_terminator_loop
     i
 
 /-- [apeiron_word::spirv::check::has_literal_terminator]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 785:0-799:1 -/
+    Source: '../../src/spirv/check.rs', lines 785:0-799:1 -/
 @[reducible]
 def spirv.check.has_literal_terminator
   (words : Slice Std.U32) : Result Bool := do
   spirv.check.has_literal_terminator_loop words 0#usize
 
 /-- [apeiron_word::spirv::check::served_contains]: loop body 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop_body]
 def spirv.check.served_contains_loop.body
   (opcode : Std.U32) (i : Std.Usize) :
@@ -15432,7 +15551,7 @@ def spirv.check.served_contains_loop.body
   else ok (done false)
 
 /-- [apeiron_word::spirv::check::served_contains]: loop 0:
-    Source: 'proof/extract/lib.rs', lines 0:0-0:0 -/
+    Source: 'lib.rs', lines 0:0-0:0 -/
 @[rust_loop]
 def spirv.check.served_contains_loop
   (opcode : Std.U32) (i : Std.Usize) : Result Bool := do
@@ -15441,13 +15560,13 @@ def spirv.check.served_contains_loop
     i
 
 /-- [apeiron_word::spirv::check::served_contains]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 680:0-689:1 -/
+    Source: '../../src/spirv/check.rs', lines 680:0-689:1 -/
 @[reducible]
 def spirv.check.served_contains (opcode : Std.U32) : Result Bool := do
   spirv.check.served_contains_loop opcode 0#usize
 
 /-- [apeiron_word::spirv::check::require_min]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 340:0-351:1 -/
+    Source: '../../src/spirv/check.rs', lines 340:0-351:1 -/
 def spirv.check.require_min
   (index : Std.Usize) (opcode : Std.U32) (operands : Slice Std.U32)
   (minimum : Std.Usize) :
@@ -15461,7 +15580,7 @@ def spirv.check.require_min
       index opcode))
 
 /-- [apeiron_word::spirv::check::require_exact]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 326:0-337:1 -/
+    Source: '../../src/spirv/check.rs', lines 326:0-337:1 -/
 def spirv.check.require_exact
   (index : Std.Usize) (opcode : Std.U32) (operands : Slice Std.U32)
   (expected : Std.Usize) :
@@ -15475,19 +15594,19 @@ def spirv.check.require_exact
       index opcode))
 
 /-- [apeiron_word::spirv::check::ids1]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 298:0-302:1 -/
+    Source: '../../src/spirv/check.rs', lines 298:0-302:1 -/
 def spirv.check.ids1 (a : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
   alloc.vec.Vec.push (alloc.vec.Vec.new Std.U32) a
 
 /-- [apeiron_word::spirv::check::ids2]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 305:0-309:1 -/
+    Source: '../../src/spirv/check.rs', lines 305:0-309:1 -/
 def spirv.check.ids2
   (a : Std.U32) (b : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
   let v ← spirv.check.ids1 a
   alloc.vec.Vec.push v b
 
 /-- [apeiron_word::spirv::check::ids3]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 312:0-316:1 -/
+    Source: '../../src/spirv/check.rs', lines 312:0-316:1 -/
 def spirv.check.ids3
   (a : Std.U32) (b : Std.U32) (c : Std.U32) :
   Result (alloc.vec.Vec Std.U32)
@@ -15496,7 +15615,7 @@ def spirv.check.ids3
   alloc.vec.Vec.push v c
 
 /-- [apeiron_word::spirv::check::ids4]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 319:0-323:1 -/
+    Source: '../../src/spirv/check.rs', lines 319:0-323:1 -/
 def spirv.check.ids4
   (w0 : Std.U32) (w1 : Std.U32) (w2 : Std.U32) (w3 : Std.U32) :
   Result (alloc.vec.Vec Std.U32)
@@ -15505,7 +15624,7 @@ def spirv.check.ids4
   alloc.vec.Vec.push v w3
 
 /-- [apeiron_word::spirv::check::plain]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 278:0-287:1 -/
+    Source: '../../src/spirv/check.rs', lines 278:0-287:1 -/
 def spirv.check.plain : Result spirv.check.Shape := do
   ok
     {
@@ -15518,7 +15637,7 @@ def spirv.check.plain : Result spirv.check.Shape := do
     }
 
 /-- [apeiron_word::spirv::check::shape_of]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 360:0-624:1 -/
+    Source: '../../src/spirv/check.rs', lines 360:0-624:1 -/
 def spirv.check.shape_of
   (index : Std.Usize) (opcode : Std.U32) (operands : Slice Std.U32) :
   Result (core.result.Result spirv.check.Shape spirv.check.CheckError)
@@ -16296,7 +16415,7 @@ def spirv.check.shape_of
       opcode))
 
 /-- [apeiron_word::spirv::check::check_fragment]: loop body 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 191:4-208:1
+    Source: '../../src/spirv/check.rs', lines 191:4-208:1
     Visibility: public -/
 @[rust_loop_body]
 def spirv.check.check_fragment_loop.body
@@ -16352,7 +16471,7 @@ def spirv.check.check_fragment_loop.body
   else ok (done (core.result.Result.Ok ()))
 
 /-- [apeiron_word::spirv::check::check_fragment]: loop 0:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 191:4-208:1
+    Source: '../../src/spirv/check.rs', lines 191:4-208:1
     Visibility: public -/
 @[rust_loop]
 def spirv.check.check_fragment_loop
@@ -16366,7 +16485,7 @@ def spirv.check.check_fragment_loop
     (defs, tys, index)
 
 /-- [apeiron_word::spirv::check::check_fragment]:
-    Source: 'proof/extract/../../src/spirv/check.rs', lines 171:0-208:1
+    Source: '../../src/spirv/check.rs', lines 171:0-208:1
     Visibility: public -/
 def spirv.check.check_fragment
   (words : Slice Std.U32) :
@@ -16400,12 +16519,12 @@ def spirv.check.check_fragment
               spirv.check.HEADER_WORDS
 
 /-- Trait declaration: [apeiron_word::table::keyrep::sealed::Sealed]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 16:4-16:23
+    Source: '../../src/table/keyrep.rs', lines 16:4-16:23
     Visibility: public -/
 structure table.keyrep.sealed.Sealed (Self : Type) where
 
 /-- Trait declaration: [apeiron_word::table::keyrep::KeyRep]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 24:0-64:1
+    Source: '../../src/table/keyrep.rs', lines 24:0-64:1
     Visibility: public -/
 structure table.keyrep.KeyRep (Self : Type) (K : Type) (H : Type) where
   sealedSealedInst : table.keyrep.sealed.Sealed Self
@@ -16426,13 +16545,13 @@ structure table.keyrep.KeyRep (Self : Type) (K : Type) (H : Type) where
     → Self → Result coord.address.FaceTableAddress
 
 /-- [apeiron_word::table::keyrep::Stored]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 112:0-114:1
+    Source: '../../src/table/keyrep.rs', lines 112:0-114:1
     Visibility: public -/
 structure table.keyrep.Stored (K : Type) where
   key : K
 
 /-- [apeiron_word::table::keyrep::{impl core::clone::Clone for apeiron_word::table::keyrep::Stored<K>}::clone]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 111:9-111:14
+    Source: '../../src/table/keyrep.rs', lines 111:9-111:14
     Visibility: public -/
 def table.keyrep.Stored.Insts.CoreCloneClone.clone
   {K : Type} (corecloneCloneInst : core.clone.Clone K)
@@ -16443,7 +16562,7 @@ def table.keyrep.Stored.Insts.CoreCloneClone.clone
   ok { key := t }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl core::clone::Clone for apeiron_word::table::keyrep::Stored<K>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 111:9-111:14 -/
+    Source: '../../src/table/keyrep.rs', lines 111:9-111:14 -/
 @[reducible]
 def table.keyrep.Stored.Insts.CoreCloneClone {K : Type} (corecloneCloneInst :
   core.clone.Clone K) : core.clone.Clone (table.keyrep.Stored K) := {
@@ -16451,14 +16570,14 @@ def table.keyrep.Stored.Insts.CoreCloneClone {K : Type} (corecloneCloneInst :
 }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::sealed::Sealed for apeiron_word::table::keyrep::Stored<K>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 116:0-116:39 -/
+    Source: '../../src/table/keyrep.rs', lines 116:0-116:39 -/
 @[reducible]
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepSealedSealed (K : Type) :
   table.keyrep.sealed.Sealed (table.keyrep.Stored K) := {
 }
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::face_address_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 155:4-165:5
+    Source: '../../src/table/keyrep.rs', lines 155:4-165:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16475,7 +16594,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
   coordaddressFaceHomeInst.address home profile face carrier.key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::query_encoding_byte]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 151:4-153:5
+    Source: '../../src/table/keyrep.rs', lines 151:4-153:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_byte
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16489,7 +16608,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_byte
   coordlocatorlocator_coreExactIdentityInst.encoding_byte key index
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::query_encoding_len]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 147:4-149:5
+    Source: '../../src/table/keyrep.rs', lines 147:4-149:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_len
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16503,7 +16622,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_len
   coordlocatorlocator_coreExactIdentityInst.encoding_len key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::held_encoding_byte]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 143:4-145:5
+    Source: '../../src/table/keyrep.rs', lines 143:4-145:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_byte
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16518,7 +16637,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_byte
   coordlocatorlocator_coreExactIdentityInst.encoding_byte carrier.key index
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::held_encoding_len]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 139:4-141:5
+    Source: '../../src/table/keyrep.rs', lines 139:4-141:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_len
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16532,7 +16651,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_len
   coordlocatorlocator_coreExactIdentityInst.encoding_len carrier.key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::address_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 135:4-137:5
+    Source: '../../src/table/keyrep.rs', lines 135:4-137:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16547,7 +16666,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
   HomeInst.address home sigma carrier.key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::key_owned]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 131:4-133:5
+    Source: '../../src/table/keyrep.rs', lines 131:4-133:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.key_owned
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16562,7 +16681,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.key_owned
   corecloneCloneInst.clone carrier.key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::matches_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 127:4-129:5
+    Source: '../../src/table/keyrep.rs', lines 127:4-129:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches_held
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16578,7 +16697,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches_held
     carrier.key other.key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::matches]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 123:4-125:5
+    Source: '../../src/table/keyrep.rs', lines 123:4-125:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16594,7 +16713,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches
     carrier.key key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}::hold]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 119:4-121:5
+    Source: '../../src/table/keyrep.rs', lines 119:4-121:5
     Visibility: public -/
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.hold
   {K : Type} {H : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16610,7 +16729,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.hold
   ok { key := t }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Stored<K>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 118:0-166:1 -/
+    Source: '../../src/table/keyrep.rs', lines 118:0-166:1 -/
 @[reducible]
 def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep {K : Type} {H :
   Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16659,7 +16778,7 @@ def table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep {K : Type} {H :
 }
 
 /-- Trait declaration: [apeiron_word::table::keyrep::ExactCodec]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 182:0-202:1
+    Source: '../../src/table/keyrep.rs', lines 182:0-202:1
     Visibility: public -/
 structure table.keyrep.ExactCodec (Self : Type) (K : Type) (H : Type)
   (Self_Clause1_Retained : Type) (Self_Clause1_Reserved : Type)
@@ -16675,14 +16794,14 @@ structure table.keyrep.ExactCodec (Self : Type) (K : Type) (H : Type)
   identity_encoding_byte : Std.U64 → Std.Usize → Result Std.U8
 
 /-- [apeiron_word::table::keyrep::Regen]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 205:0-208:1
+    Source: '../../src/table/keyrep.rs', lines 205:0-208:1
     Visibility: public -/
 structure table.keyrep.Regen (C : Type) where
   identity : Std.U64
   codec : core.marker.PhantomData C
 
 /-- [apeiron_word::table::keyrep::{impl core::clone::Clone for apeiron_word::table::keyrep::Regen<C>}::clone]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 211:4-216:5
+    Source: '../../src/table/keyrep.rs', lines 211:4-216:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.CoreCloneClone.clone
   {C : Type} (self : table.keyrep.Regen C) :
@@ -16691,7 +16810,7 @@ def table.keyrep.Regen.Insts.CoreCloneClone.clone
   ok { self with codec := () }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl core::clone::Clone for apeiron_word::table::keyrep::Regen<C>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 210:0-217:1 -/
+    Source: '../../src/table/keyrep.rs', lines 210:0-217:1 -/
 @[reducible]
 def table.keyrep.Regen.Insts.CoreCloneClone (C : Type) : core.clone.Clone
   (table.keyrep.Regen C) := {
@@ -16699,14 +16818,14 @@ def table.keyrep.Regen.Insts.CoreCloneClone (C : Type) : core.clone.Clone
 }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::sealed::Sealed for apeiron_word::table::keyrep::Regen<C>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 219:0-219:38 -/
+    Source: '../../src/table/keyrep.rs', lines 219:0-219:38 -/
 @[reducible]
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepSealedSealed (C : Type) :
   table.keyrep.sealed.Sealed (table.keyrep.Regen C) := {
 }
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::face_address_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 262:4-273:5
+    Source: '../../src/table/keyrep.rs', lines 262:4-273:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16728,7 +16847,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.face_address_held
   coordaddressFaceHomeInst.address home profile face key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::query_encoding_byte]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 258:4-260:5
+    Source: '../../src/table/keyrep.rs', lines 258:4-260:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_byte
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16746,7 +16865,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_byte
   coordlocatorlocator_coreExactIdentityInst.encoding_byte key index
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::query_encoding_len]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 254:4-256:5
+    Source: '../../src/table/keyrep.rs', lines 254:4-256:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_len
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16763,7 +16882,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.query_encoding_len
   coordlocatorlocator_coreExactIdentityInst.encoding_len key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::held_encoding_byte]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 250:4-252:5
+    Source: '../../src/table/keyrep.rs', lines 250:4-252:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_byte
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16781,7 +16900,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_byte
   ExactCodecInst.identity_encoding_byte carrier.identity index
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::held_encoding_len]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 246:4-248:5
+    Source: '../../src/table/keyrep.rs', lines 246:4-248:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_len
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16799,7 +16918,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.held_encoding_len
   ExactCodecInst.identity_encoding_len carrier.identity
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::address_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 241:4-244:5
+    Source: '../../src/table/keyrep.rs', lines 241:4-244:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16818,7 +16937,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.address_held
   HomeInst.address home sigma key
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::key_owned]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 237:4-239:5
+    Source: '../../src/table/keyrep.rs', lines 237:4-239:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.key_owned
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16836,7 +16955,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.key_owned
   ExactCodecInst.decode sigma carrier.identity
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::matches_held]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 233:4-235:5
+    Source: '../../src/table/keyrep.rs', lines 233:4-235:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.matches_held
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16855,7 +16974,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.matches_held
   ok (carrier.identity = other.identity)
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::matches]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 229:4-231:5
+    Source: '../../src/table/keyrep.rs', lines 229:4-231:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.matches
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16875,7 +16994,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.matches
   ok (carrier.identity = i)
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}::hold]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 222:4-227:5
+    Source: '../../src/table/keyrep.rs', lines 222:4-227:5
     Visibility: public -/
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.hold
   {K : Type} {H : Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved
@@ -16894,7 +17013,7 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep.hold
   ok { identity := i, codec := () }
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::KeyRep<K, H> for apeiron_word::table::keyrep::Regen<C>}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 221:0-274:1 -/
+    Source: '../../src/table/keyrep.rs', lines 221:0-274:1 -/
 @[reducible]
 def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep {K : Type} {H :
   Type} {C : Type} {Clause0_Retained : Type} {Clause0_Reserved : Type}
@@ -16942,20 +17061,20 @@ def table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep {K : Type} {H :
 }
 
 /-- [apeiron_word::table::keyrep::I64WordCodec]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 281:0-281:24
+    Source: '../../src/table/keyrep.rs', lines 281:0-281:24
     Visibility: public -/
 @[reducible]
 def table.keyrep.I64WordCodec := Unit
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::sealed::Sealed for apeiron_word::table::keyrep::I64WordCodec}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 283:0-283:39 -/
+    Source: '../../src/table/keyrep.rs', lines 283:0-283:39 -/
 @[reducible]
 def table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepSealedSealed :
   table.keyrep.sealed.Sealed table.keyrep.I64WordCodec := {
 }
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::ExactCodec<i64, H, u64, (), Clause0_Clause0_Clause0_Faces> for apeiron_word::table::keyrep::I64WordCodec}::identity_encoding_byte]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 300:4-303:5
+    Source: '../../src/table/keyrep.rs', lines 300:4-303:5
     Visibility: public -/
 def
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.identity_encoding_byte
@@ -16969,7 +17088,7 @@ def
   Array.index_usize a index
 
 /-- [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::ExactCodec<i64, H, u64, (), Clause0_Clause0_Clause0_Faces> for apeiron_word::table::keyrep::I64WordCodec}::identity_encoding_len]:
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 296:4-298:5
+    Source: '../../src/table/keyrep.rs', lines 296:4-298:5
     Visibility: public -/
 def
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.identity_encoding_len
@@ -16981,7 +17100,7 @@ def
   ok 8#usize
 
 /-- Trait implementation: [apeiron_word::table::keyrep::{impl apeiron_word::table::keyrep::ExactCodec<i64, H, u64, (), Clause0_Clause0_Clause0_Faces> for apeiron_word::table::keyrep::I64WordCodec}]
-    Source: 'proof/extract/../../src/table/keyrep.rs', lines 285:0-304:1 -/
+    Source: '../../src/table/keyrep.rs', lines 285:0-304:1 -/
 @[reducible]
 def
   table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces
@@ -17010,7 +17129,7 @@ def
 }
 
 /-- [apeiron_word::table::StorageError]
-    Source: 'proof/extract/../../src/table.rs', lines 90:0-97:1
+    Source: '../../src/table.rs', lines 90:0-97:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.StorageError where
@@ -17019,7 +17138,7 @@ inductive table.StorageError where
 | ShardFull : table.StorageError
 
 /-- [apeiron_word::table::resources::LocatorReservationPlan]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 49:0-66:1 -/
+    Source: '../../src/table/resources.rs', lines 49:0-66:1 -/
 structure table.resources.LocatorReservationPlan where
   parabolic_nodes : Std.Usize
   residue_nodes : Std.Usize
@@ -17031,7 +17150,7 @@ structure table.resources.LocatorReservationPlan where
   retained_identity_bytes : Std.Usize
 
 /-- [apeiron_word::table::locator_path_plan]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 185:0-218:1 -/
+    Source: '../../src/table/locator.rs', lines 185:0-218:1 -/
 def table.locator_path_plan
   {I : Type} (coordlocatorlocator_coreResidueIndexInst :
   coord.locator.locator_core.ResidueIndex I) (encoding_len : Std.Usize) :
@@ -17095,13 +17214,13 @@ def table.locator_path_plan
       table.StorageError) residual
 
 /-- [apeiron_word::table::resources::CapacityBound]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 12:0-17:1 -/
+    Source: '../../src/table/resources.rs', lines 12:0-17:1 -/
 structure table.resources.CapacityBound where
   required_len : Std.Usize
   observed_capacity : Std.Usize
 
 /-- [apeiron_word::table::resources::LocatorReservationReceipt]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 77:0-94:1 -/
+    Source: '../../src/table/resources.rs', lines 77:0-94:1 -/
 structure table.resources.LocatorReservationReceipt where
   parabolic_nodes : table.resources.CapacityBound
   residue_nodes : table.resources.CapacityBound
@@ -17113,7 +17232,7 @@ structure table.resources.LocatorReservationReceipt where
   retained_identity : table.resources.CapacityBound
 
 /-- [apeiron_word::table::locator_bound]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 268:0-273:1 -/
+    Source: '../../src/table/locator.rs', lines 268:0-273:1 -/
 def table.locator_bound
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result table.resources.CapacityBound
@@ -17121,7 +17240,7 @@ def table.locator_bound
   ok { required_len, observed_capacity }
 
 /-- [apeiron_word::table::observe_locator_receipt]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 231:0-251:1 -/
+    Source: '../../src/table/locator.rs', lines 231:0-251:1 -/
 def table.observe_locator_receipt
   (plan : table.resources.LocatorReservationPlan)
   (staged : coord.locator.locator_core.StagedPath) (links_capacity : Std.Usize)
@@ -17162,7 +17281,7 @@ def table.observe_locator_receipt
     }
 
 /-- [apeiron_word::table::locator_refusal]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
 def table.locator_refusal
   (refusal : coord.locator.locator_core.Refusal) :
   Result table.StorageError
@@ -17180,7 +17299,7 @@ def table.locator_refusal
     ok table.StorageError.AllocationFailed
 
 /-- [apeiron_word::table::{impl core::ops::function::FnOnce<(apeiron_word::coord::locator::locator_core::Refusal,), apeiron_word::table::StorageError> for apeiron_word::table::locator_refusal}::call_once]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError.call_once
   (state : coord.locator.locator_core.Refusal → Result table.StorageError)
   (args : coord.locator.locator_core.Refusal) :
@@ -17189,7 +17308,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError.call_once
   table.locator_refusal args
 
 /-- Trait implementation: [apeiron_word::table::{impl core::ops::function::FnOnce<(apeiron_word::coord::locator::locator_core::Refusal,), apeiron_word::table::StorageError> for apeiron_word::table::locator_refusal}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError :
   core.ops.function.FnOnce (coord.locator.locator_core.Refusal → Result
@@ -17199,13 +17318,13 @@ def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError :
 }
 
 /-- [apeiron_word::table::QueryIdentity]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 282:0-287:1 -/
+    Source: '../../src/table/locator.rs', lines 282:0-287:1 -/
 structure table.QueryIdentity (K : Type) (H : Type) (R : Type) where
   key : K
   _carrier : core.marker.PhantomData (H × R)
 
 /-- [apeiron_word::table::query_identity_bytes_equal]: loop body 0:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '../../src/table/locator.rs', lines 300:4-307:1 -/
 @[rust_loop_body]
 def table.query_identity_bytes_equal_loop.body
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17223,7 +17342,7 @@ def table.query_identity_bytes_equal_loop.body
   else ok (done true)
 
 /-- [apeiron_word::table::query_identity_bytes_equal]: loop 0:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '../../src/table/locator.rs', lines 300:4-307:1 -/
 @[rust_loop]
 def table.query_identity_bytes_equal_loop
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17236,7 +17355,7 @@ def table.query_identity_bytes_equal_loop
     index
 
 /-- [apeiron_word::table::query_identity_bytes_equal]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 294:0-307:1 -/
+    Source: '../../src/table/locator.rs', lines 294:0-307:1 -/
 def table.query_identity_bytes_equal
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
   H) (left : K) (right : K) :
@@ -17251,7 +17370,7 @@ def table.query_identity_bytes_equal
       0#usize
 
 /-- [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::QueryIdentity<'_0, K, H, R>> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::eq]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 318:4-320:5
+    Source: '../../src/table/locator.rs', lines 318:4-320:5
     Visibility: public -/
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17261,7 +17380,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   table.query_identity_bytes_equal keyrepKeyRepInst self.key other.key
 
 /-- Trait implementation: [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::QueryIdentity<'_0, K, H, R>> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 309:0-321:1 -/
+    Source: '../../src/table/locator.rs', lines 309:0-321:1 -/
 @[reducible]
 impl_def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H
   : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K H) :
@@ -17274,7 +17393,7 @@ impl_def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl core::cmp::Eq for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 322:0-322:72 -/
+    Source: '../../src/table/locator.rs', lines 322:0-322:72 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
   (keyrepKeyRepInst : table.keyrep.KeyRep R K H) : core.cmp.Eq
@@ -17284,7 +17403,7 @@ def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_byte]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 360:4-362:5
+    Source: '../../src/table/locator.rs', lines 360:4-362:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_byte
@@ -17295,7 +17414,7 @@ def
   ok 0#u8
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_len]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 353:4-355:5
+    Source: '../../src/table/locator.rs', lines 353:4-355:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_len
@@ -17306,7 +17425,7 @@ def
   ok 0#usize
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::encoding_byte]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 346:4-348:5
+    Source: '../../src/table/locator.rs', lines 346:4-348:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_byte
@@ -17317,7 +17436,7 @@ def
   keyrepKeyRepInst.query_encoding_byte self.key index
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::encoding_len]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 343:4-345:5
+    Source: '../../src/table/locator.rs', lines 343:4-345:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_len
@@ -17328,7 +17447,7 @@ def
   keyrepKeyRepInst.query_encoding_len self.key
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::matches_retained]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 340:4-342:5
+    Source: '../../src/table/locator.rs', lines 340:4-342:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.matches_retained
@@ -17339,7 +17458,7 @@ def
   ok false
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retain_reserved]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 335:4-335:40
+    Source: '../../src/table/locator.rs', lines 335:4-335:40
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retain_reserved
@@ -17350,7 +17469,7 @@ def
   ok ()
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::reserve_retain]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 332:4-334:5
+    Source: '../../src/table/locator.rs', lines 332:4-334:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.reserve_retain
@@ -17361,7 +17480,7 @@ def
   ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retain]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 331:4-331:23
+    Source: '../../src/table/locator.rs', lines 331:4-331:23
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retain
@@ -17372,7 +17491,7 @@ def
   ok ()
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 324:0-363:1 -/
+    Source: '../../src/table/locator.rs', lines 324:0-363:1 -/
 @[reducible]
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple
@@ -17409,14 +17528,14 @@ def
 }
 
 /-- [apeiron_word::table::PayloadLocation]
-    Source: 'proof/extract/../../src/table/state.rs', lines 510:0-515:1 -/
+    Source: '../../src/table/state.rs', lines 510:0-515:1 -/
 @[discriminant isize]
 inductive table.PayloadLocation where
 | Resident : Std.Usize → table.PayloadLocation
 | Spill : Std.Usize → Std.Usize → table.PayloadLocation
 
 /-- [apeiron_word::table::same_location]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 371:0-380:1 -/
+    Source: '../../src/table/locator.rs', lines 371:0-380:1 -/
 def table.same_location
   (left : table.PayloadLocation) (right : table.PayloadLocation) :
   Result Bool
@@ -17435,7 +17554,7 @@ def table.same_location
       else ok false
 
 /-- [apeiron_word::table::TableLocator]
-    Source: 'proof/extract/../../src/table/state.rs', lines 523:0-532:1 -/
+    Source: '../../src/table/state.rs', lines 523:0-532:1 -/
 structure table.TableLocator where
   profile : Option coord.address.H3_40
   directory : Option coord.locator.locator_core.Directory
@@ -17443,7 +17562,7 @@ structure table.TableLocator where
   staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::profile_or_init]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 384:4-391:5 -/
+    Source: '../../src/table/locator.rs', lines 384:4-391:5 -/
 def table.TableLocator.profile_or_init
   (self : table.TableLocator) :
   Result ((core.result.Result coord.address.H3_40 table.StorageError) ×
@@ -17466,7 +17585,7 @@ def table.TableLocator.profile_or_init
   | some profile => ok (core.result.Result.Ok profile, self)
 
 /-- [apeiron_word::table::resources::{apeiron_word::table::resources::LocatorReservationReceipt}::EMPTY]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 98:4-131:6 -/
+    Source: '../../src/table/resources.rs', lines 98:4-131:6 -/
 @[global_simps, irreducible]
 def table.resources.LocatorReservationReceipt.EMPTY
   : table.resources.LocatorReservationReceipt :=
@@ -17485,7 +17604,7 @@ def table.resources.LocatorReservationReceipt.EMPTY
   }
 
 /-- [apeiron_word::table::resources::capacity_bound_holds]:
-    Source: 'proof/extract/../../src/table/resources.rs', lines 208:0-210:1 -/
+    Source: '../../src/table/resources.rs', lines 208:0-210:1 -/
 def table.resources.capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result Bool
@@ -17493,7 +17612,7 @@ def table.resources.capacity_bound_holds
   ok (required_len <= observed_capacity)
 
 /-- [apeiron_word::table::resources::{apeiron_word::table::resources::LocatorReservationReceipt}::holds]:
-    Source: 'proof/extract/../../src/table/resources.rs', lines 138:4-162:5 -/
+    Source: '../../src/table/resources.rs', lines 138:4-162:5 -/
 def table.resources.LocatorReservationReceipt.holds
   (self : table.resources.LocatorReservationReceipt) : Result Bool := do
   let b ←
@@ -17545,7 +17664,7 @@ def table.resources.LocatorReservationReceipt.holds
   else ok false
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_bytes]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 459:4-492:5 -/
+    Source: '../../src/table/locator.rs', lines 459:4-492:5 -/
 def table.TableLocator.reserve_bytes
   {I : Type} {K : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (coordlocatorlocator_coreResidueIndexInst :
@@ -17611,14 +17730,14 @@ def table.TableLocator.reserve_bytes
     ok (r1, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
 @[reducible]
 def table.TableLocator.reserve_path.closure (K : Type) (H : Type) (R : Type)
   (Clause1_Clause0_Clause0_Faces : Type) :=
 Unit
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}<K, H, R, Clause1_Clause0_Clause0_Faces>}::call_once]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
 def
   table.TableLocator.reserve_path.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
@@ -17632,7 +17751,7 @@ def
   ok table.StorageError.AllocationFailed
 
 /-- Trait implementation: [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}<K, H, R, Clause1_Clause0_Clause0_Faces>}]
-    Source: 'proof/extract/../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
 @[reducible]
 def
   table.TableLocator.reserve_path.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
@@ -17648,7 +17767,7 @@ def
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 406:4-452:5 -/
+    Source: '../../src/table/locator.rs', lines 406:4-452:5 -/
 def table.TableLocator.reserve_path
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17734,7 +17853,7 @@ def table.TableLocator.reserve_path
         ok (r2, { self with directory := o, links := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::record_link]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 691:4-698:5 -/
+    Source: '../../src/table/locator.rs', lines 691:4-698:5 -/
 def table.TableLocator.record_link
   (self : table.TableLocator) (handle : Std.U32) (identity_node : Std.U32)
   (location : table.PayloadLocation) :
@@ -17754,7 +17873,7 @@ def table.TableLocator.record_link
     ok { self with links := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::publish_for_query]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 615:4-669:5 -/
+    Source: '../../src/table/locator.rs', lines 615:4-669:5 -/
 def table.TableLocator.publish_for_query
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17836,7 +17955,7 @@ def table.TableLocator.publish_for_query
           location
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::publish_for_held]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 672:4-688:5 -/
+    Source: '../../src/table/locator.rs', lines 672:4-688:5 -/
 def table.TableLocator.publish_for_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17854,7 +17973,7 @@ def table.TableLocator.publish_for_held
       keyrepKeyRepInst self home sigma key location
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::linked_handle]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 716:4-752:5 -/
+    Source: '../../src/table/locator.rs', lines 716:4-752:5 -/
 def table.TableLocator.linked_handle
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17909,7 +18028,7 @@ def table.TableLocator.linked_handle
       Std.U32 residual
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::retarget_held]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 773:4-800:5 -/
+    Source: '../../src/table/locator.rs', lines 773:4-800:5 -/
 def table.TableLocator.retarget_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17947,7 +18066,7 @@ def table.TableLocator.retarget_held
       else ok self
 
 /-- [apeiron_word::table::FlatSlot]
-    Source: 'proof/extract/../../src/table/state.rs', lines 419:0-424:1 -/
+    Source: '../../src/table/state.rs', lines 419:0-424:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -17955,20 +18074,20 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [apeiron_word::table::Flat]
-    Source: 'proof/extract/../../src/table/state.rs', lines 426:0-429:1 -/
+    Source: '../../src/table/state.rs', lines 426:0-429:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
 
 /-- [apeiron_word::table::Region]
-    Source: 'proof/extract/../../src/table/state.rs', lines 107:0-118:1 -/
+    Source: '../../src/table/state.rs', lines 107:0-118:1 -/
 structure table.Region (R : Type) (V : Type) where
   tags : alloc.vec.Vec Std.U8
   slots : alloc.vec.Vec (cell.Sigma × R × V)
   summary : alloc.vec.Vec Std.U64
 
 /-- [apeiron_word::table::Table]
-    Source: 'proof/extract/../../src/table.rs', lines 218:0-230:1
+    Source: '../../src/table.rs', lines 218:0-230:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   Std.Usize) where
@@ -17981,7 +18100,7 @@ structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   locator : table.TableLocator
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_locator_path]:
-    Source: 'proof/extract/../../src/table/locator.rs', lines 815:4-821:5 -/
+    Source: '../../src/table/locator.rs', lines 815:4-821:5 -/
 def table.Table.reserve_locator_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -17997,35 +18116,35 @@ def table.Table.reserve_locator_path
   ok (r, { self with locator := tl })
 
 /-- [apeiron_word::table::partition::SHARD_BITS]
-    Source: 'proof/extract/../../src/table/partition.rs', lines 30:0-30:37 -/
+    Source: '../../src/table/partition.rs', lines 30:0-30:37 -/
 @[global_simps, irreducible] def table.partition.SHARD_BITS : Std.U32 := 8#u32
 
 /-- [apeiron_word::table::partition::SHARDS]
-    Source: 'proof/extract/../../src/table/partition.rs', lines 33:0-33:49 -/
+    Source: '../../src/table/partition.rs', lines 33:0-33:49 -/
 @[global_simps, irreducible]
 def table.partition.SHARDS : Result Std.Usize :=
   1#usize <<< table.partition.SHARD_BITS
 
 /-- [apeiron_word::table::partition::SHARD_MASK]
-    Source: 'proof/extract/../../src/table/partition.rs', lines 36:0-36:48 -/
+    Source: '../../src/table/partition.rs', lines 36:0-36:48 -/
 @[global_simps, irreducible]
 def table.partition.SHARD_MASK : Result Std.Usize := do
   let i ← table.partition.SHARDS
   i - 1#usize
 
 /-- [apeiron_word::table::partition::Parts]
-    Source: 'proof/extract/../../src/table/partition.rs', lines 50:0-53:1 -/
+    Source: '../../src/table/partition.rs', lines 50:0-53:1 -/
 structure table.partition.Parts where
   buf : alloc.vec.Vec Std.Usize
   ends : Array Std.Usize 257#usize
 
 /-- [apeiron_word::table::SHARD_MASK]
-    Source: 'proof/extract/../../src/table.rs', lines 62:0-62:48 -/
+    Source: '../../src/table.rs', lines 62:0-62:48 -/
 @[global_simps, irreducible]
 def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
 
 /-- [apeiron_word::table::shard]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 325:0-330:1 -/
+    Source: '../../src/table/state.rs', lines 325:0-330:1 -/
 def table.shard (address : table.TableAddress) : Result Std.Usize := do
   match address.direct_word with
   | none =>
@@ -18038,7 +18157,7 @@ def table.shard (address : table.TableAddress) : Result Std.Usize := do
     ok (i &&& i1)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop body 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 203:4-209:5 -/
+    Source: '../../src/table/partition.rs', lines 203:4-209:5 -/
 @[rust_loop_body]
 def table.partition.partition_chunk_loop0.body
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18063,7 +18182,7 @@ def table.partition.partition_chunk_loop0.body
   else ok (done counts)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 203:4-209:5 -/
+    Source: '../../src/table/partition.rs', lines 203:4-209:5 -/
 @[rust_loop]
 def table.partition.partition_chunk_loop0
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18078,7 +18197,7 @@ def table.partition.partition_chunk_loop0
     (counts, i)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop body 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 214:4-219:5 -/
+    Source: '../../src/table/partition.rs', lines 214:4-219:5 -/
 @[rust_loop_body]
 def table.partition.partition_chunk_loop1.body
   (counts : Array Std.Usize 256#usize) (ends : Array Std.Usize 257#usize)
@@ -18099,7 +18218,7 @@ def table.partition.partition_chunk_loop1.body
   else ok (done (ends, cursor, total))
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 214:4-219:5 -/
+    Source: '../../src/table/partition.rs', lines 214:4-219:5 -/
 @[rust_loop]
 def table.partition.partition_chunk_loop1
   (counts : Array Std.Usize 256#usize) (ends : Array Std.Usize 257#usize)
@@ -18114,7 +18233,7 @@ def table.partition.partition_chunk_loop1
     (ends, cursor, total, s)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop body 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 223:4-230:5 -/
+    Source: '../../src/table/partition.rs', lines 223:4-230:5 -/
 @[rust_loop_body]
 def table.partition.partition_chunk_loop2.body
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18144,7 +18263,7 @@ def table.partition.partition_chunk_loop2.body
   else ok (done buf)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 223:4-230:5 -/
+    Source: '../../src/table/partition.rs', lines 223:4-230:5 -/
 @[rust_loop]
 def table.partition.partition_chunk_loop2
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18160,7 +18279,7 @@ def table.partition.partition_chunk_loop2
     (i, cursor, buf)
 
 /-- [apeiron_word::table::partition::partition_chunk]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 195:0-232:1 -/
+    Source: '../../src/table/partition.rs', lines 195:0-232:1 -/
 def table.partition.partition_chunk
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
   (HomeInst : table.Home H K Clause0_Clause0_Clause0_Faces) (home : H)
@@ -18185,7 +18304,7 @@ def table.partition.partition_chunk
   ok (buf1, ends2)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::of]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 62:4-75:5 -/
+    Source: '../../src/table/partition.rs', lines 62:4-75:5 -/
 def table.partition.Parts.of
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
   (HomeInst : table.Home H K Clause0_Clause0_Clause0_Faces) (home : H)
@@ -18205,7 +18324,7 @@ def table.partition.Parts.of
     ok { buf, ends }
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::loads]: loop body 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 82:8-85:9 -/
+    Source: '../../src/table/partition.rs', lines 82:8-85:9 -/
 @[rust_loop_body]
 def table.partition.Parts.loads_loop.body
   (self : table.partition.Parts) (loads : Array Std.Usize 256#usize)
@@ -18225,7 +18344,7 @@ def table.partition.Parts.loads_loop.body
   else ok (done loads)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::loads]: loop 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 82:8-85:9 -/
+    Source: '../../src/table/partition.rs', lines 82:8-85:9 -/
 @[rust_loop]
 def table.partition.Parts.loads_loop
   (self : table.partition.Parts) (loads : Array Std.Usize 256#usize)
@@ -18237,14 +18356,14 @@ def table.partition.Parts.loads_loop
     (loads, s)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::loads]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 79:4-87:5 -/
+    Source: '../../src/table/partition.rs', lines 79:4-87:5 -/
 def table.partition.Parts.loads
   (self : table.partition.Parts) : Result (Array Std.Usize 256#usize) := do
   let loads := Array.repeat 256#usize 0#usize
   table.partition.Parts.loads_loop self loads 0#usize
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::len]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 95:4-101:5 -/
+    Source: '../../src/table/partition.rs', lines 95:4-101:5 -/
 def table.partition.Parts.len
   (self : table.partition.Parts) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.buf
@@ -18253,7 +18372,7 @@ def table.partition.Parts.len
   else ok 1#usize
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::run]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 104:4-108:5 -/
+    Source: '../../src/table/partition.rs', lines 104:4-108:5 -/
 def table.partition.Parts.run
   (self : table.partition.Parts) (worker : Std.Usize) (shard : Std.Usize) :
   Result (Slice Std.Usize)
@@ -18276,7 +18395,7 @@ def table.partition.Parts.run
     self2.buf { start, «end» }
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::first]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 110:4-120:5 -/
+    Source: '../../src/table/partition.rs', lines 110:4-120:5 -/
 def table.partition.Parts.first
   (self : table.partition.Parts) (shard : Std.Usize) :
   Result (Option Std.Usize)
@@ -18296,7 +18415,7 @@ def table.partition.Parts.first
   else ok none
 
 /-- [apeiron_word::table::partition::partition_entry_matches]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 173:0-186:1 -/
+    Source: '../../src/table/partition.rs', lines 173:0-186:1 -/
 def table.partition.partition_entry_matches
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
   (HomeInst : table.Home H K Clause0_Clause0_Clause0_Faces) (home : H)
@@ -18320,7 +18439,7 @@ def table.partition.partition_entry_matches
   else ok false
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::is_intact]: loop body 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 155:16-164:17 -/
+    Source: '../../src/table/partition.rs', lines 155:16-164:17 -/
 @[rust_loop_body]
 def table.partition.Parts.is_intact_loop0_loop0.body
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18347,7 +18466,7 @@ def table.partition.Parts.is_intact_loop0_loop0.body
   else ok (done intact)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::is_intact]: loop 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 155:16-164:17 -/
+    Source: '../../src/table/partition.rs', lines 155:16-164:17 -/
 @[rust_loop]
 def table.partition.Parts.is_intact_loop0_loop0
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18365,7 +18484,7 @@ def table.partition.Parts.is_intact_loop0_loop0
     (intact, «at», prev)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::is_intact]: loop body 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 147:8-167:9 -/
+    Source: '../../src/table/partition.rs', lines 147:8-167:9 -/
 @[rust_loop_body]
 def table.partition.Parts.is_intact_loop0.body
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18398,7 +18517,7 @@ def table.partition.Parts.is_intact_loop0.body
   else ok (done intact)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::is_intact]: loop 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 147:8-167:9 -/
+    Source: '../../src/table/partition.rs', lines 147:8-167:9 -/
 @[rust_loop]
 def table.partition.Parts.is_intact_loop0
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
@@ -18414,7 +18533,7 @@ def table.partition.Parts.is_intact_loop0
     (intact, s)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Parts}::is_intact]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 132:4-169:5 -/
+    Source: '../../src/table/partition.rs', lines 132:4-169:5 -/
 def table.partition.Parts.is_intact
   {K : Type} {V : Type} {H : Type} {Clause0_Clause0_Clause0_Faces : Type}
   (HomeInst : table.Home H K Clause0_Clause0_Clause0_Faces)
@@ -18438,12 +18557,12 @@ def table.partition.Parts.is_intact
     input intact1 0#usize
 
 /-- [apeiron_word::table::partition::Schedule]
-    Source: 'proof/extract/../../src/table/partition.rs', lines 528:0-530:1 -/
+    Source: '../../src/table/partition.rs', lines 528:0-530:1 -/
 structure table.partition.Schedule where
   bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 538:8-541:9 -/
+    Source: '../../src/table/partition.rs', lines 538:8-541:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop0.body
   (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
@@ -18459,7 +18578,7 @@ def table.partition.Schedule.lpt_loop0.body
   else ok (done order)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 538:8-541:9 -/
+    Source: '../../src/table/partition.rs', lines 538:8-541:9 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop0
   (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
@@ -18471,7 +18590,7 @@ def table.partition.Schedule.lpt_loop0
     (order, shard)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 546:12-555:13 -/
+    Source: '../../src/table/partition.rs', lines 546:12-555:13 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop1_loop0.body
   (i : Std.Usize) (loads : Array Std.Usize 256#usize)
@@ -18503,7 +18622,7 @@ def table.partition.Schedule.lpt_loop1_loop0.body
   else ok (done best)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 546:12-555:13 -/
+    Source: '../../src/table/partition.rs', lines 546:12-555:13 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop1_loop0
   (i : Std.Usize) (loads : Array Std.Usize 256#usize)
@@ -18517,7 +18636,7 @@ def table.partition.Schedule.lpt_loop1_loop0
     (best, candidate)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 543:8-560:9 -/
+    Source: '../../src/table/partition.rs', lines 543:8-560:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop1.body
   (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
@@ -18544,7 +18663,7 @@ def table.partition.Schedule.lpt_loop1.body
   else ok (done order)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 543:8-560:9 -/
+    Source: '../../src/table/partition.rs', lines 543:8-560:9 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop1
   (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
@@ -18557,7 +18676,7 @@ def table.partition.Schedule.lpt_loop1
     (order, first)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 3:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 564:8-568:9 -/
+    Source: '../../src/table/partition.rs', lines 564:8-568:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop2.body
   (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
@@ -18575,7 +18694,7 @@ def table.partition.Schedule.lpt_loop2.body
   else ok (done (bins, filled))
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 3:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 564:8-568:9 -/
+    Source: '../../src/table/partition.rs', lines 564:8-568:9 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop2
   (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
@@ -18589,7 +18708,7 @@ def table.partition.Schedule.lpt_loop2
     (bins, filled, worker)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 5:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 574:12-581:13 -/
+    Source: '../../src/table/partition.rs', lines 574:12-581:13 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop3_loop0.body
   (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
@@ -18618,7 +18737,7 @@ def table.partition.Schedule.lpt_loop3_loop0.body
   else ok (done chosen)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 5:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 574:12-581:13 -/
+    Source: '../../src/table/partition.rs', lines 574:12-581:13 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop3_loop0
   (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
@@ -18631,7 +18750,7 @@ def table.partition.Schedule.lpt_loop3_loop0
     (chosen, worker)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 4:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 570:8-585:9 -/
+    Source: '../../src/table/partition.rs', lines 570:8-585:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.lpt_loop3.body
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
@@ -18669,7 +18788,7 @@ def table.partition.Schedule.lpt_loop3.body
   else ok (done bins)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 4:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 570:8-585:9 -/
+    Source: '../../src/table/partition.rs', lines 570:8-585:9 -/
 @[rust_loop]
 def table.partition.Schedule.lpt_loop3
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
@@ -18684,7 +18803,7 @@ def table.partition.Schedule.lpt_loop3
     (bins, filled, order_at)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 534:4-587:5 -/
+    Source: '../../src/table/partition.rs', lines 534:4-587:5 -/
 def table.partition.Schedule.lpt
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) :
   Result table.partition.Schedule
@@ -18704,13 +18823,13 @@ def table.partition.Schedule.lpt
   ok { bins := bins1 }
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::len]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 593:4-595:5 -/
+    Source: '../../src/table/partition.rs', lines 593:4-595:5 -/
 def table.partition.Schedule.len
   (self : table.partition.Schedule) : Result Std.Usize := do
   ok (alloc.vec.Vec.len self.bins)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::bin]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 597:4-599:5 -/
+    Source: '../../src/table/partition.rs', lines 597:4-599:5 -/
 def table.partition.Schedule.bin
   (self : table.partition.Schedule) (worker : Std.Usize) :
   Result (Slice Std.Usize)
@@ -18721,7 +18840,7 @@ def table.partition.Schedule.bin
   ok (alloc.vec.Vec.deref v)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 610:12-618:13 -/
+    Source: '../../src/table/partition.rs', lines 610:12-618:13 -/
 @[rust_loop_body]
 def table.partition.Schedule.is_complete_loop0_loop0.body
   (bin : alloc.vec.Vec Std.Usize) (seen : Array Bool 256#usize)
@@ -18754,7 +18873,7 @@ def table.partition.Schedule.is_complete_loop0_loop0.body
   else ok (done (seen, complete))
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 1:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 610:12-618:13 -/
+    Source: '../../src/table/partition.rs', lines 610:12-618:13 -/
 @[rust_loop]
 def table.partition.Schedule.is_complete_loop0_loop0
   (seen : Array Bool 256#usize) (complete : Bool)
@@ -18768,7 +18887,7 @@ def table.partition.Schedule.is_complete_loop0_loop0
     (seen, complete, «at»)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 607:8-620:9 -/
+    Source: '../../src/table/partition.rs', lines 607:8-620:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.is_complete_loop0.body
   (self : table.partition.Schedule) (seen : Array Bool 256#usize)
@@ -18792,7 +18911,7 @@ def table.partition.Schedule.is_complete_loop0.body
   else ok (done (seen, complete))
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 0:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 607:8-620:9 -/
+    Source: '../../src/table/partition.rs', lines 607:8-620:9 -/
 @[rust_loop]
 def table.partition.Schedule.is_complete_loop0
   (self : table.partition.Schedule) (seen : Array Bool 256#usize)
@@ -18806,7 +18925,7 @@ def table.partition.Schedule.is_complete_loop0
     (seen, complete, worker)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 622:8-627:9 -/
+    Source: '../../src/table/partition.rs', lines 622:8-627:9 -/
 @[rust_loop_body]
 def table.partition.Schedule.is_complete_loop1.body
   (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
@@ -18827,7 +18946,7 @@ def table.partition.Schedule.is_complete_loop1.body
   else ok (done complete)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 2:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 622:8-627:9 -/
+    Source: '../../src/table/partition.rs', lines 622:8-627:9 -/
 @[rust_loop]
 def table.partition.Schedule.is_complete_loop1
   (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
@@ -18839,7 +18958,7 @@ def table.partition.Schedule.is_complete_loop1
     (complete, shard)
 
 /-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]:
-    Source: 'proof/extract/../../src/table/partition.rs', lines 603:4-629:5 -/
+    Source: '../../src/table/partition.rs', lines 603:4-629:5 -/
 def table.partition.Schedule.is_complete
   (self : table.partition.Schedule) : Result Bool := do
   let seen := Array.repeat 256#usize false
@@ -18848,12 +18967,12 @@ def table.partition.Schedule.is_complete
   table.partition.Schedule.is_complete_loop1 seen1 complete 0#usize
 
 /-- [apeiron_word::table::SHARDS]
-    Source: 'proof/extract/../../src/table.rs', lines 60:0-60:40 -/
+    Source: '../../src/table.rs', lines 60:0-60:40 -/
 @[global_simps, irreducible]
 def table.SHARDS : Result Std.Usize := table.partition.SHARDS
 
 /-- [apeiron_word::table::slots_for]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 357:4-361:1 -/
+    Source: '../../src/table/state.rs', lines 357:4-361:1 -/
 @[rust_loop_body]
 def table.slots_for_loop.body
   (n : Std.Usize) (groups_needed : Std.Usize) (groups : Std.Usize) :
@@ -18878,7 +18997,7 @@ def table.slots_for_loop.body
     ok (done r)
 
 /-- [apeiron_word::table::slots_for]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 357:4-361:1 -/
+    Source: '../../src/table/state.rs', lines 357:4-361:1 -/
 @[rust_loop]
 def table.slots_for_loop
   (n : Std.Usize) (groups_needed : Std.Usize) (groups : Std.Usize) :
@@ -18889,7 +19008,7 @@ def table.slots_for_loop
     groups
 
 /-- [apeiron_word::table::slots_for]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 350:0-361:1 -/
+    Source: '../../src/table/state.rs', lines 350:0-361:1 -/
 def table.slots_for
   (load : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result Std.Usize table.StorageError)
@@ -18918,7 +19037,7 @@ def table.slots_for
         Std.Usize (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::summary_trailing_zeros]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 24:4-27:5 -/
+    Source: '../../src/table/state.rs', lines 24:4-27:5 -/
 @[rust_loop_body]
 def table.summary_trailing_zeros_loop.body
   (value : Std.Usize) (zeros : Std.U32) :
@@ -18936,7 +19055,7 @@ def table.summary_trailing_zeros_loop.body
   else ok (done zeros)
 
 /-- [apeiron_word::table::summary_trailing_zeros]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 24:4-27:5 -/
+    Source: '../../src/table/state.rs', lines 24:4-27:5 -/
 @[rust_loop]
 def table.summary_trailing_zeros_loop
   (value : Std.Usize) (zeros : Std.U32) : Result Std.U32 := do
@@ -18946,23 +19065,23 @@ def table.summary_trailing_zeros_loop
     (value, zeros)
 
 /-- [apeiron_word::table::summary_trailing_zeros]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 22:0-29:1 -/
+    Source: '../../src/table/state.rs', lines 22:0-29:1 -/
 @[reducible]
 def table.summary_trailing_zeros (value : Std.Usize) : Result Std.U32 := do
   table.summary_trailing_zeros_loop value 0#u32
 
 /-- [apeiron_word::table::SUMMARY_MIN_BITS]
-    Source: 'proof/extract/../../src/table/state.rs', lines 9:0-9:36 -/
+    Source: '../../src/table/state.rs', lines 9:0-9:36 -/
 @[global_simps, irreducible]
 def table.SUMMARY_MIN_BITS : Std.Usize := 256#usize
 
 /-- [apeiron_word::table::SUMMARY_BITS_PER_SLOT]
-    Source: 'proof/extract/../../src/table/state.rs', lines 7:0-7:40 -/
+    Source: '../../src/table/state.rs', lines 7:0-7:40 -/
 @[global_simps, irreducible]
 def table.SUMMARY_BITS_PER_SLOT : Std.Usize := 32#usize
 
 /-- [apeiron_word::table::summary_words]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 58:4-63:5 -/
+    Source: '../../src/table/state.rs', lines 58:4-63:5 -/
 @[rust_loop_body]
 def table.summary_words_loop.body
   (words : Std.Usize) (power : Std.Usize) (overflow : Bool) :
@@ -18980,7 +19099,7 @@ def table.summary_words_loop.body
   else ok (done (power, overflow))
 
 /-- [apeiron_word::table::summary_words]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 58:4-63:5 -/
+    Source: '../../src/table/state.rs', lines 58:4-63:5 -/
 @[rust_loop]
 def table.summary_words_loop
   (words : Std.Usize) (power : Std.Usize) (overflow : Bool) :
@@ -18992,7 +19111,7 @@ def table.summary_words_loop
     (power, overflow)
 
 /-- [apeiron_word::table::summary_words]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 39:0-72:1 -/
+    Source: '../../src/table/state.rs', lines 39:0-72:1 -/
 def table.summary_words
   (slots : Std.Usize) :
   Result (core.result.Result Std.Usize table.StorageError)
@@ -19029,12 +19148,12 @@ def table.summary_words
         Std.Usize (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::resources::try_reserve_exact::{closure}]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
 @[reducible]
 def table.resources.try_reserve_exact.closure (T : Type) := Unit
 
 /-- [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}::call_once]:
-    Source: 'proof/extract/../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
 def
   table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
   {T : Type} (c : table.resources.try_reserve_exact.closure T)
@@ -19044,7 +19163,7 @@ def
   ok table.StorageError.AllocationFailed
 
 /-- Trait implementation: [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
 @[reducible]
 def
   table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
@@ -19056,7 +19175,7 @@ def
 }
 
 /-- [apeiron_word::table::resources::try_reserve_exact]:
-    Source: 'proof/extract/../../src/table/resources.rs', lines 198:0-205:1 -/
+    Source: '../../src/table/resources.rs', lines 198:0-205:1 -/
 def table.resources.try_reserve_exact
   {T : Type} (items : alloc.vec.Vec T) (additional : Std.Usize) :
   Result ((core.result.Result Unit table.StorageError) × (alloc.vec.Vec T))
@@ -19069,7 +19188,7 @@ def table.resources.try_reserve_exact
   ok (r1, items1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::reserve_empty]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 210:4-227:5 -/
+    Source: '../../src/table/state.rs', lines 210:4-227:5 -/
 def table.Region.reserve_empty
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (n : Std.Usize) :
@@ -19116,7 +19235,7 @@ def table.Region.reserve_empty
       (table.Region R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::empty]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 120:4-126:5 -/
+    Source: '../../src/table/state.rs', lines 120:4-126:5 -/
 def table.Region.empty (R : Type) (V : Type) : Result (table.Region R V) := do
   ok
     {
@@ -19126,7 +19245,7 @@ def table.Region.empty (R : Type) (V : Type) : Result (table.Region R V) := do
     }
 
 /-- [apeiron_word::table::reserve_plan_regions]: loop body 0:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 18:4-33:5 -/
+    Source: '../../src/table/prepared.rs', lines 18:4-33:5 -/
 @[rust_loop_body]
 def table.reserve_plan_regions_loop.body
   {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
@@ -19169,7 +19288,7 @@ def table.reserve_plan_regions_loop.body
   else ok (done (regions, reservation_error))
 
 /-- [apeiron_word::table::reserve_plan_regions]: loop 0:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 18:4-33:5 -/
+    Source: '../../src/table/prepared.rs', lines 18:4-33:5 -/
 @[rust_loop]
 def table.reserve_plan_regions_loop
   {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
@@ -19185,7 +19304,7 @@ def table.reserve_plan_regions_loop
     (regions, reservation_error, shard_at)
 
 /-- [apeiron_word::table::reserve_plan_regions]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 11:0-38:1 -/
+    Source: '../../src/table/prepared.rs', lines 11:0-38:1 -/
 def table.reserve_plan_regions
   {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
   R) (corecloneCloneInst1 : core.clone.Clone V) (spill_loads : Slice Std.Usize)
@@ -19211,7 +19330,7 @@ def table.reserve_plan_regions
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 230:8-232:9 -/
+    Source: '../../src/table/state.rs', lines 230:8-232:9 -/
 @[rust_loop_body]
 def table.Region.initialize_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -19231,7 +19350,7 @@ def table.Region.initialize_loop.body
   else ok (done (self.tags, self.slots, self.summary))
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 230:8-232:9 -/
+    Source: '../../src/table/state.rs', lines 230:8-232:9 -/
 @[rust_loop]
 def table.Region.initialize_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -19246,7 +19365,7 @@ def table.Region.initialize_loop
     self
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 229:4-233:5 -/
+    Source: '../../src/table/state.rs', lines 229:4-233:5 -/
 def table.Region.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Region R V)
@@ -19259,7 +19378,7 @@ def table.Region.initialize
   ok { tags := v, slots := v1, summary := v2 }
 
 /-- [apeiron_word::table::initialize_reserved_regions]: loop body 0:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 52:4-55:5 -/
+    Source: '../../src/table/prepared.rs', lines 52:4-55:5 -/
 @[rust_loop_body]
 def table.initialize_reserved_regions_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -19281,7 +19400,7 @@ def table.initialize_reserved_regions_loop.body
   else ok (done regions)
 
 /-- [apeiron_word::table::initialize_reserved_regions]: loop 0:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 52:4-55:5 -/
+    Source: '../../src/table/prepared.rs', lines 52:4-55:5 -/
 @[rust_loop]
 def table.initialize_reserved_regions_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -19297,7 +19416,7 @@ def table.initialize_reserved_regions_loop
     (regions, shard_at)
 
 /-- [apeiron_word::table::initialize_reserved_regions]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 45:0-56:1 -/
+    Source: '../../src/table/prepared.rs', lines 45:0-56:1 -/
 @[reducible]
 def table.initialize_reserved_regions
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -19310,7 +19429,7 @@ def table.initialize_reserved_regions
     regions sigma held default 0#usize
 
 /-- [apeiron_word::table::mark_selected_occupied]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 59:0-63:1 -/
+    Source: '../../src/table/prepared.rs', lines 59:0-63:1 -/
 def table.mark_selected_occupied
   (occupied : Slice Bool) (selected : Option Std.Usize) :
   Result (Slice Bool)
@@ -19320,7 +19439,7 @@ def table.mark_selected_occupied
   | some index => Slice.update occupied index true
 
 /-- [apeiron_word::table::increment_spill_load]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 66:0-74:1 -/
+    Source: '../../src/table/prepared.rs', lines 66:0-74:1 -/
 def table.increment_spill_load
   (spill_loads : Slice Std.Usize) (spill : Std.Usize) :
   Result ((Option table.StorageError) × (Slice Std.Usize))
@@ -19334,7 +19453,7 @@ def table.increment_spill_load
     ok (none, spill_loads1)
 
 /-- [apeiron_word::table::account_spill_load]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 77:0-87:1 -/
+    Source: '../../src/table/prepared.rs', lines 77:0-87:1 -/
 def table.account_spill_load
   (spill_loads : Slice Std.Usize) (spill : Std.Usize)
   (selected : Option Std.Usize) :
@@ -19346,22 +19465,22 @@ def table.account_spill_load
   else table.increment_spill_load spill_loads spill
 
 /-- [apeiron_word::table::WINDOWS]
-    Source: 'proof/extract/../../src/table.rs', lines 86:0-86:25 -/
+    Source: '../../src/table.rs', lines 86:0-86:25 -/
 @[global_simps, irreducible] def table.WINDOWS : Std.Usize := 7#usize
 
 /-- [apeiron_word::table::WINDOW_MASK]
-    Source: 'proof/extract/../../src/table.rs', lines 85:0-85:30 -/
+    Source: '../../src/table.rs', lines 85:0-85:30 -/
 @[global_simps, irreducible] def table.WINDOW_MASK : Std.U64 := 127#u64
 
 /-- [apeiron_word::table::DESCENT_MASK]
-    Source: 'proof/extract/../../src/table.rs', lines 84:0-84:40 -/
+    Source: '../../src/table.rs', lines 84:0-84:40 -/
 @[global_simps, irreducible]
 def table.DESCENT_MASK : Result Std.U64 := do
   let i ← 1#u64 <<< 49#i32
   i - 1#u64
 
 /-- [apeiron_word::table::group]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 379:0-386:1 -/
+    Source: '../../src/table/state.rs', lines 379:0-386:1 -/
 def table.group
   (place : Std.U64) (step : Std.Usize) (mask : Std.Usize) :
   Result Std.Usize
@@ -19387,7 +19506,7 @@ def table.group
     ok (i6 &&& mask)
 
 /-- [apeiron_word::table::matches]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 341:0-348:1 -/
+    Source: '../../src/table/state.rs', lines 341:0-348:1 -/
 def table.matches
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (slot : (cell.Sigma × R × V))
@@ -19401,19 +19520,19 @@ def table.matches
   else ok false
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_MASK]
-    Source: 'proof/extract/../../src/table.rs', lines 83:0-83:38 -/
+    Source: '../../src/table.rs', lines 83:0-83:38 -/
 @[global_simps, irreducible] def table.TAG_FINGERPRINT_MASK : Std.U8 := 127#u8
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_SHIFT]
-    Source: 'proof/extract/../../src/table.rs', lines 81:0-81:37 -/
+    Source: '../../src/table.rs', lines 81:0-81:37 -/
 @[global_simps, irreducible] def table.TAG_FINGERPRINT_SHIFT : Std.U32 := 8#u32
 
 /-- [apeiron_word::table::TAG_LIVE]
-    Source: 'proof/extract/../../src/table.rs', lines 72:0-72:26 -/
+    Source: '../../src/table.rs', lines 72:0-72:26 -/
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [apeiron_word::table::tag]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 337:0-339:1 -/
+    Source: '../../src/table/state.rs', lines 337:0-339:1 -/
 def table.tag (place : Std.U64) : Result Std.U8 := do
   let i ← place >>> table.TAG_FINGERPRINT_SHIFT
   let i1 ← lift (UScalar.cast .U8 i)
@@ -19421,11 +19540,11 @@ def table.tag (place : Std.U64) : Result Std.U8 := do
   ok (table.TAG_LIVE ||| i2)
 
 /-- [apeiron_word::table::MAX_GROUP]
-    Source: 'proof/extract/../../src/table.rs', lines 70:0-70:28 -/
+    Source: '../../src/table.rs', lines 70:0-70:28 -/
 @[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
 
 /-- [apeiron_word::table::valid_n]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 317:0-319:1 -/
+    Source: '../../src/table/state.rs', lines 317:0-319:1 -/
 def table.valid_n (n : Std.Usize) : Result Bool := do
   if n != 0#usize
   then
@@ -19435,7 +19554,7 @@ def table.valid_n (n : Std.Usize) : Result Bool := do
   else ok false
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_index]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 149:4-165:5 -/
+    Source: '../../src/table/state.rs', lines 149:4-165:5 -/
 def table.Region.summary_index
   (R : Type) (V : Type) (place : Std.U64) (len_words : Std.Usize) :
   Result (Option Std.Usize)
@@ -19494,7 +19613,7 @@ def table.Region.summary_index
         ok (some i5)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_maybe]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 183:4-188:5 -/
+    Source: '../../src/table/state.rs', lines 183:4-188:5 -/
 def table.Region.summary_maybe
   {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
   Result Bool
@@ -19514,7 +19633,7 @@ def table.Region.summary_maybe
     ok (i5 != 0#u64)
 
 /-- [apeiron_word::table::scan::least_set_lane]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 138:0-168:1
+    Source: '../../src/table/scan.rs', lines 138:0-168:1
     Visibility: public -/
 def table.scan.least_set_lane (bits : Std.U64) : Result Std.Usize := do
   if bits = 0#u64
@@ -19571,13 +19690,13 @@ def table.scan.least_set_lane (bits : Std.U64) : Result Std.Usize := do
     else ok lane4
 
 /-- [apeiron_word::table::scan::LANES_PER_WORD]
-    Source: 'proof/extract/../../src/table/scan.rs', lines 14:0-14:36
+    Source: '../../src/table/scan.rs', lines 14:0-14:36
     Visibility: public -/
 @[global_simps, irreducible]
 def table.scan.LANES_PER_WORD : Std.Usize := 8#usize
 
 /-- [apeiron_word::table::scan::word_at]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 64:0-68:1 -/
+    Source: '../../src/table/scan.rs', lines 64:0-68:1 -/
 def table.scan.word_at
   (line : Slice Std.U8) (off : Std.Usize) : Result Std.U64 := do
   let buf := Array.repeat 8#usize 0#u8
@@ -19591,29 +19710,29 @@ def table.scan.word_at
   ok (core.num.U64.from_le_bytes buf1)
 
 /-- [apeiron_word::table::scan::GATHER]
-    Source: 'proof/extract/../../src/table/scan.rs', lines 26:0-26:42 -/
+    Source: '../../src/table/scan.rs', lines 26:0-26:42 -/
 @[global_simps, irreducible]
 def table.scan.GATHER : Std.U64 := 567382630219905#u64
 
 /-- [apeiron_word::table::scan::gather]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 55:0-57:1 -/
+    Source: '../../src/table/scan.rs', lines 55:0-57:1 -/
 def table.scan.gather (marked : Std.U64) : Result Std.U8 := do
   let i ← lift (core.num.U64.wrapping_mul marked table.scan.GATHER)
   let i1 ← i >>> 56#i32
   ok (UScalar.cast .U8 i1)
 
 /-- [apeiron_word::table::scan::HI]
-    Source: 'proof/extract/../../src/table/scan.rs', lines 19:0-19:38 -/
+    Source: '../../src/table/scan.rs', lines 19:0-19:38 -/
 @[global_simps, irreducible]
 def table.scan.HI : Std.U64 := 9259542123273814144#u64
 
 /-- [apeiron_word::table::scan::LO]
-    Source: 'proof/extract/../../src/table/scan.rs', lines 17:0-17:38 -/
+    Source: '../../src/table/scan.rs', lines 17:0-17:38 -/
 @[global_simps, irreducible]
 def table.scan.LO : Std.U64 := 72340172838076673#u64
 
 /-- [apeiron_word::table::scan::eq_swar]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 35:0-38:1 -/
+    Source: '../../src/table/scan.rs', lines 35:0-38:1 -/
 def table.scan.eq_swar (word : Std.U64) (byte : Std.U8) : Result Std.U64 := do
   let i ← lift (UScalar.cast .U64 byte)
   let i1 ← lift (core.num.U64.wrapping_mul table.scan.LO i)
@@ -19625,7 +19744,7 @@ def table.scan.eq_swar (word : Std.U64) (byte : Std.U8) : Result Std.U64 := do
   ok (i5 &&& table.scan.HI)
 
 /-- [apeiron_word::table::scan::match_tag]: loop body 0:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 81:4-86:5
+    Source: '../../src/table/scan.rs', lines 81:4-86:5
     Visibility: public -/
 @[rust_loop_body]
 def table.scan.match_tag_loop0.body
@@ -19652,7 +19771,7 @@ def table.scan.match_tag_loop0.body
   else ok (done (mask, off, base))
 
 /-- [apeiron_word::table::scan::match_tag]: loop 0:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 81:4-86:5
+    Source: '../../src/table/scan.rs', lines 81:4-86:5
     Visibility: public -/
 @[rust_loop]
 def table.scan.match_tag_loop0
@@ -19666,7 +19785,7 @@ def table.scan.match_tag_loop0
     (mask, off, base)
 
 /-- [apeiron_word::table::scan::match_tag]: loop body 1:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 87:4-93:5
+    Source: '../../src/table/scan.rs', lines 87:4-93:5
     Visibility: public -/
 @[rust_loop_body]
 def table.scan.match_tag_loop1.body
@@ -19693,7 +19812,7 @@ def table.scan.match_tag_loop1.body
   else ok (done mask)
 
 /-- [apeiron_word::table::scan::match_tag]: loop 1:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 87:4-93:5
+    Source: '../../src/table/scan.rs', lines 87:4-93:5
     Visibility: public -/
 @[rust_loop]
 def table.scan.match_tag_loop1
@@ -19707,7 +19826,7 @@ def table.scan.match_tag_loop1
     (mask, off, base)
 
 /-- [apeiron_word::table::scan::match_tag]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 77:0-95:1
+    Source: '../../src/table/scan.rs', lines 77:0-95:1
     Visibility: public -/
 def table.scan.match_tag
   (line : Slice Std.U8) (tag : Std.U8) : Result Std.U64 := do
@@ -19716,7 +19835,7 @@ def table.scan.match_tag
   table.scan.match_tag_loop1 line tag mask off base
 
 /-- [apeiron_word::table::probe::spill_read]: loop body 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 238:20-247:21 -/
+    Source: '../../src/table/probe.rs', lines 238:20-247:21 -/
 @[rust_loop_body]
 def table.probe.spill_read_loop0_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -19748,7 +19867,7 @@ def table.probe.spill_read_loop0_loop0.body
   else ok (done hit)
 
 /-- [apeiron_word::table::probe::spill_read]: loop 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 238:20-247:21 -/
+    Source: '../../src/table/probe.rs', lines 238:20-247:21 -/
 @[rust_loop]
 def table.probe.spill_read_loop0_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -19763,7 +19882,7 @@ def table.probe.spill_read_loop0_loop0
     (hit, hits)
 
 /-- [apeiron_word::table::probe::spill_read]: loop body 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 229:16-249:17 -/
+    Source: '../../src/table/probe.rs', lines 229:16-249:17 -/
 @[rust_loop_body]
 def table.probe.spill_read_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -19796,7 +19915,7 @@ def table.probe.spill_read_loop0.body
   else ok (done hit)
 
 /-- [apeiron_word::table::probe::spill_read]: loop 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 229:16-249:17 -/
+    Source: '../../src/table/probe.rs', lines 229:16-249:17 -/
 @[rust_loop]
 def table.probe.spill_read_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -19813,7 +19932,7 @@ def table.probe.spill_read_loop0
     (hit, step)
 
 /-- [apeiron_word::table::probe::spill_read]:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 212:0-259:1 -/
+    Source: '../../src/table/probe.rs', lines 212:0-259:1 -/
 def table.probe.spill_read
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -19853,7 +19972,7 @@ def table.probe.spill_read
   else ok none
 
 /-- [apeiron_word::table::get_prepared_shard]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 94:0-105:1 -/
+    Source: '../../src/table/prepared.rs', lines 94:0-105:1 -/
 def table.get_prepared_shard
   {K : Type} {H : Type} {R : Type} {V : Type} {Clause0_Faces : Type}
   (coordaddressFaceCoordInst : coord.address.FaceCoord H K Clause0_Faces)
@@ -19873,13 +19992,13 @@ def table.get_prepared_shard
     ok (some t)
 
 /-- Trait declaration: [apeiron_word::table::Merge]
-    Source: 'proof/extract/../../src/table.rs', lines 134:0-137:1
+    Source: '../../src/table.rs', lines 134:0-137:1
     Visibility: public -/
 structure table.Merge (Self : Type) (V : Type) where
   merge : Self → V → V → Result V
 
 /-- [apeiron_word::table::SpillSite]
-    Source: 'proof/extract/../../src/table/state.rs', lines 237:0-241:1 -/
+    Source: '../../src/table/state.rs', lines 237:0-241:1 -/
 @[discriminant isize]
 inductive table.SpillSite where
 | Found : Std.Usize → table.SpillSite
@@ -19887,7 +20006,7 @@ inductive table.SpillSite where
 | Grow : table.SpillSite
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_set]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 169:4-174:5 -/
+    Source: '../../src/table/state.rs', lines 169:4-174:5 -/
 def table.Region.summary_set
   {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
   Result (table.Region R V)
@@ -19908,7 +20027,7 @@ def table.Region.summary_set
     ok { self with summary := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::publish_live]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 197:4-207:5 -/
+    Source: '../../src/table/state.rs', lines 197:4-207:5 -/
 def table.Region.publish_live
   {R : Type} {V : Type} (self : table.Region R V) (index : Std.Usize)
   (payload : (cell.Sigma × R × V)) (place : Std.U64) :
@@ -19927,7 +20046,7 @@ def table.Region.publish_live
   ok { self1 with tags := v1 }
 
 /-- [apeiron_word::table::least_set_lane]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 392:4-394:5 -/
+    Source: '../../src/table/state.rs', lines 392:4-394:5 -/
 @[rust_loop_body]
 def table.least_set_lane_loop.body
   (bits : Std.U64) (lane : Std.Usize) :
@@ -19945,7 +20064,7 @@ def table.least_set_lane_loop.body
   else ok (done lane)
 
 /-- [apeiron_word::table::least_set_lane]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 392:4-394:5 -/
+    Source: '../../src/table/state.rs', lines 392:4-394:5 -/
 @[rust_loop]
 def table.least_set_lane_loop
   (bits : Std.U64) (lane : Std.Usize) : Result Std.Usize := do
@@ -19954,13 +20073,13 @@ def table.least_set_lane_loop
     lane
 
 /-- [apeiron_word::table::least_set_lane]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 390:0-396:1 -/
+    Source: '../../src/table/state.rs', lines 390:0-396:1 -/
 @[reducible]
 def table.least_set_lane (bits : Std.U64) : Result Std.Usize := do
   table.least_set_lane_loop bits 0#usize
 
 /-- [apeiron_word::table::scan::zero_swar]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 44:0-46:1 -/
+    Source: '../../src/table/scan.rs', lines 44:0-46:1 -/
 def table.scan.zero_swar (word : Std.U64) : Result Std.U64 := do
   let i ← lift (word ||| table.scan.HI)
   let i1 ← lift (core.num.U64.wrapping_sub i table.scan.LO)
@@ -19969,7 +20088,7 @@ def table.scan.zero_swar (word : Std.U64) : Result Std.U64 := do
   ok (i3 &&& table.scan.HI)
 
 /-- [apeiron_word::table::scan::match_empty]: loop body 0:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 107:4-112:5
+    Source: '../../src/table/scan.rs', lines 107:4-112:5
     Visibility: public -/
 @[rust_loop_body]
 def table.scan.match_empty_loop0.body
@@ -19995,7 +20114,7 @@ def table.scan.match_empty_loop0.body
   else ok (done (mask, off, base))
 
 /-- [apeiron_word::table::scan::match_empty]: loop 0:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 107:4-112:5
+    Source: '../../src/table/scan.rs', lines 107:4-112:5
     Visibility: public -/
 @[rust_loop]
 def table.scan.match_empty_loop0
@@ -20008,7 +20127,7 @@ def table.scan.match_empty_loop0
     (mask, off, base)
 
 /-- [apeiron_word::table::scan::match_empty]: loop body 1:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 113:4-119:5
+    Source: '../../src/table/scan.rs', lines 113:4-119:5
     Visibility: public -/
 @[rust_loop_body]
 def table.scan.match_empty_loop1.body
@@ -20034,7 +20153,7 @@ def table.scan.match_empty_loop1.body
   else ok (done mask)
 
 /-- [apeiron_word::table::scan::match_empty]: loop 1:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 113:4-119:5
+    Source: '../../src/table/scan.rs', lines 113:4-119:5
     Visibility: public -/
 @[rust_loop]
 def table.scan.match_empty_loop1
@@ -20047,7 +20166,7 @@ def table.scan.match_empty_loop1
     (mask, off, base)
 
 /-- [apeiron_word::table::scan::match_empty]:
-    Source: 'proof/extract/../../src/table/scan.rs', lines 103:0-121:1
+    Source: '../../src/table/scan.rs', lines 103:0-121:1
     Visibility: public -/
 def table.scan.match_empty (line : Slice Std.U8) : Result Std.U64 := do
   let (mask, off, base) ←
@@ -20055,7 +20174,7 @@ def table.scan.match_empty (line : Slice Std.U8) : Result Std.U64 := do
   table.scan.match_empty_loop1 line mask off base
 
 /-- [apeiron_word::table::probe::spill_locate]: loop body 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 42:20-50:21 -/
+    Source: '../../src/table/probe.rs', lines 42:20-50:21 -/
 @[rust_loop_body]
 def table.probe.spill_locate_loop0_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20086,7 +20205,7 @@ def table.probe.spill_locate_loop0_loop0.body
   else ok (done (b, i1))
 
 /-- [apeiron_word::table::probe::spill_locate]: loop 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 42:20-50:21 -/
+    Source: '../../src/table/probe.rs', lines 42:20-50:21 -/
 @[rust_loop]
 def table.probe.spill_locate_loop0_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20101,7 +20220,7 @@ def table.probe.spill_locate_loop0_loop0
     (b, i1, hits)
 
 /-- [apeiron_word::table::probe::spill_locate]: loop body 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 38:12-59:13 -/
+    Source: '../../src/table/probe.rs', lines 38:12-59:13 -/
 @[rust_loop_body]
 def table.probe.spill_locate_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20174,7 +20293,7 @@ def table.probe.spill_locate_loop0.body
   else ok (done (b, i1, b1, i2))
 
 /-- [apeiron_word::table::probe::spill_locate]: loop 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 38:12-59:13 -/
+    Source: '../../src/table/probe.rs', lines 38:12-59:13 -/
 @[rust_loop]
 def table.probe.spill_locate_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20192,7 +20311,7 @@ def table.probe.spill_locate_loop0
     (b, i1, b1, i2, may_match, step)
 
 /-- [apeiron_word::table::probe::spill_locate]:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 17:0-68:1 -/
+    Source: '../../src/table/probe.rs', lines 17:0-68:1 -/
 def table.probe.spill_locate
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -20232,7 +20351,7 @@ def table.probe.spill_locate
   else ok table.SpillSite.Grow
 
 /-- [apeiron_word::table::apply_prepared_shard_placed]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 115:0-152:1 -/
+    Source: '../../src/table/prepared.rs', lines 115:0-152:1 -/
 def table.apply_prepared_shard_placed
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause1_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -20271,7 +20390,7 @@ def table.apply_prepared_shard_placed
     ok (core.result.Result.Err table.StorageError.SizeOverflow, region)
 
 /-- [apeiron_word::table::apply_prepared_shard]:
-    Source: 'proof/extract/../../src/table/prepared.rs', lines 159:0-180:1 -/
+    Source: '../../src/table/prepared.rs', lines 159:0-180:1 -/
 def table.apply_prepared_shard
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause1_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -20292,7 +20411,7 @@ def table.apply_prepared_shard
   | core.result.Result.Err error => ok (core.result.Result.Err error, region1)
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop body 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 286:20-295:21 -/
+    Source: '../../src/table/probe.rs', lines 286:20-295:21 -/
 @[rust_loop_body]
 def table.probe.spill_locate_held_loop0_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20328,7 +20447,7 @@ def table.probe.spill_locate_held_loop0_loop0.body
   else ok (done (b, i))
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop 1:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 286:20-295:21 -/
+    Source: '../../src/table/probe.rs', lines 286:20-295:21 -/
 @[rust_loop]
 def table.probe.spill_locate_held_loop0_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20343,7 +20462,7 @@ def table.probe.spill_locate_held_loop0_loop0
     (b, i, hits)
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop body 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 282:12-304:13 -/
+    Source: '../../src/table/probe.rs', lines 282:12-304:13 -/
 @[rust_loop_body]
 def table.probe.spill_locate_held_loop0.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20415,7 +20534,7 @@ def table.probe.spill_locate_held_loop0.body
   else ok (done (b, i1, b1, i2))
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop 0:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 282:12-304:13 -/
+    Source: '../../src/table/probe.rs', lines 282:12-304:13 -/
 @[rust_loop]
 def table.probe.spill_locate_held_loop0
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20433,7 +20552,7 @@ def table.probe.spill_locate_held_loop0
     (b, i1, b1, i2, may_match, step)
 
 /-- [apeiron_word::table::probe::spill_locate_held]:
-    Source: 'proof/extract/../../src/table/probe.rs', lines 265:0-313:1 -/
+    Source: '../../src/table/probe.rs', lines 265:0-313:1 -/
 def table.probe.spill_locate_held
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -20473,55 +20592,55 @@ def table.probe.spill_locate_held
   else ok table.SpillSite.Grow
 
 /-- [apeiron_word::table::resources::RegionReservation]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 21:0-28:1 -/
+    Source: '../../src/table/resources.rs', lines 21:0-28:1 -/
 structure table.resources.RegionReservation where
   tags : table.resources.CapacityBound
   payloads : table.resources.CapacityBound
   summary : table.resources.CapacityBound
 
 /-- [apeiron_word::table::resources::ReservationReceipt]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 32:0-39:1 -/
+    Source: '../../src/table/resources.rs', lines 32:0-39:1 -/
 structure table.resources.ReservationReceipt where
   flat : table.resources.CapacityBound
   directory : table.resources.CapacityBound
   regions : Array table.resources.RegionReservation 256#usize
 
 /-- [apeiron_word::table::resources::PreparedOutcome]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 166:0-173:1 -/
+    Source: '../../src/table/resources.rs', lines 166:0-173:1 -/
 structure table.resources.PreparedOutcome (R : Type) where
   reservation : table.resources.ReservationReceipt
   locator : table.resources.LocatorReservationReceipt
   pending_held : R
 
 /-- [apeiron_word::table::RebuildReserved]
-    Source: 'proof/extract/../../src/table/state.rs', lines 449:0-452:1 -/
+    Source: '../../src/table/state.rs', lines 449:0-452:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- [apeiron_word::table::RebuildSource]
-    Source: 'proof/extract/../../src/table/state.rs', lines 432:0-435:1 -/
+    Source: '../../src/table/state.rs', lines 432:0-435:1 -/
 @[discriminant isize]
 inductive table.RebuildSource where
 | Resident : Std.Usize → table.RebuildSource
 | Spill : Std.Usize → Std.Usize → table.RebuildSource
 
 /-- [apeiron_word::table::RebuildPlanEntry]
-    Source: 'proof/extract/../../src/table/state.rs', lines 437:0-441:1 -/
+    Source: '../../src/table/state.rs', lines 437:0-441:1 -/
 structure table.RebuildPlanEntry where
   source : table.RebuildSource
   flat : Option Std.Usize
   spill : Std.Usize
 
 /-- [apeiron_word::table::RebuildPlan]
-    Source: 'proof/extract/../../src/table/state.rs', lines 443:0-447:1 -/
+    Source: '../../src/table/state.rs', lines 443:0-447:1 -/
 structure table.RebuildPlan where
   lanes : Std.Usize
   entries : alloc.vec.Vec table.RebuildPlanEntry
   spill_loads : alloc.vec.Vec Std.Usize
 
 /-- [apeiron_word::table::resources::PreparedResult]
-    Source: 'proof/extract/../../src/table/resources.rs', lines 183:0-195:1 -/
+    Source: '../../src/table/resources.rs', lines 183:0-195:1 -/
 @[discriminant isize]
 inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Prepared :
@@ -20532,7 +20651,7 @@ inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Refused : table.StorageError → table.resources.PreparedResult R V
 
 /-- [apeiron_word::table::resources::publish_prepared]:
-    Source: 'proof/extract/../../src/table/resources.rs', lines 217:0-228:1 -/
+    Source: '../../src/table/resources.rs', lines 217:0-228:1 -/
 def table.resources.publish_prepared
   {R : Type} {V : Type}
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved R
@@ -20547,12 +20666,12 @@ def table.resources.publish_prepared
     ok (table.resources.PreparedResult.Refused error)
 
 /-- [apeiron_word::table::ASSUMED_SLOT_BYTES]
-    Source: 'proof/extract/../../src/table/state.rs', lines 14:0-14:37 -/
+    Source: '../../src/table/state.rs', lines 14:0-14:37 -/
 @[global_simps, irreducible]
 def table.ASSUMED_SLOT_BYTES : Std.Usize := 32#usize
 
 /-- [apeiron_word::table::SearchClass]
-    Source: 'proof/extract/../../src/table/state.rs', lines 244:0-251:1
+    Source: '../../src/table/state.rs', lines 244:0-251:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchClass where
@@ -20561,7 +20680,7 @@ inductive table.SearchClass where
 | Exhausted : table.SearchClass
 
 /-- [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::SearchClass> for apeiron_word::table::SearchClass}::eq]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 243:29-243:38
+    Source: '../../src/table/state.rs', lines 243:29-243:38
     Visibility: public -/
 def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   (self : table.SearchClass) (other : table.SearchClass) : Result Bool := do
@@ -20570,7 +20689,7 @@ def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::table::SearchLocation]
-    Source: 'proof/extract/../../src/table/state.rs', lines 255:0-262:1
+    Source: '../../src/table/state.rs', lines 255:0-262:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchLocation where
@@ -20579,14 +20698,14 @@ inductive table.SearchLocation where
 | NoIndex : table.SearchLocation
 
 /-- [apeiron_word::table::SearchDecision]
-    Source: 'proof/extract/../../src/table/state.rs', lines 266:0-271:1
+    Source: '../../src/table/state.rs', lines 266:0-271:1
     Visibility: public -/
 structure table.SearchDecision where
   «class» : table.SearchClass
   location : table.SearchLocation
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::found_flat]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 274:4-279:5 -/
+    Source: '../../src/table/state.rs', lines 274:4-279:5 -/
 def table.SearchDecision.found_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -20596,7 +20715,7 @@ def table.SearchDecision.found_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::vacant_flat]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 280:4-285:5 -/
+    Source: '../../src/table/state.rs', lines 280:4-285:5 -/
 def table.SearchDecision.vacant_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -20606,7 +20725,7 @@ def table.SearchDecision.vacant_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::from_spill]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 286:4-301:5 -/
+    Source: '../../src/table/state.rs', lines 286:4-301:5 -/
 def table.SearchDecision.from_spill
   (shard : Std.Usize) (site : table.SpillSite) :
   Result table.SearchDecision
@@ -20632,14 +20751,14 @@ def table.SearchDecision.from_spill
       }
 
 /-- [apeiron_word::table::ApplyOutcome]
-    Source: 'proof/extract/../../src/table/state.rs', lines 309:0-314:1 -/
+    Source: '../../src/table/state.rs', lines 309:0-314:1 -/
 @[discriminant isize]
 inductive table.ApplyOutcome (K : Type) (V : Type) where
 | Committed : table.ApplyOutcome K V
 | NeedsGrowth : K → V → table.ApplyOutcome K V
 
 /-- [apeiron_word::table::capacity_bound]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 368:0-377:1 -/
+    Source: '../../src/table/state.rs', lines 368:0-377:1 -/
 def table.capacity_bound
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result table.resources.CapacityBound
@@ -20666,7 +20785,7 @@ def table.capacity_bound
     fail panic
 
 /-- [apeiron_word::table::mark_direct_word]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 406:0-417:1 -/
+    Source: '../../src/table/state.rs', lines 406:0-417:1 -/
 def table.mark_direct_word
   (seen : Slice Std.U64) (count : Std.Usize) (word : Std.U32) (limit : Std.U64)
   :
@@ -20692,17 +20811,17 @@ def table.mark_direct_word
          ok (seen1, count)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::empty]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 455:4-460:5 -/
+    Source: '../../src/table/state.rs', lines 455:4-460:5 -/
 def table.Flat.empty (R : Type) (V : Type) : Result (table.Flat R V) := do
   ok { lanes := 0#usize, slots := (alloc.vec.Vec.new (table.FlatSlot R V)) }
 
 /-- [apeiron_word::table::SHARD_BITS]
-    Source: 'proof/extract/../../src/table.rs', lines 61:0-61:46 -/
+    Source: '../../src/table.rs', lines 61:0-61:46 -/
 @[global_simps, irreducible]
 def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::index]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 467:4-478:5 -/
+    Source: '../../src/table/state.rs', lines 467:4-478:5 -/
 def table.Flat.index
   {R : Type} {V : Type} (self : table.Flat R V) (word : Std.U32) :
   Result (Option Std.Usize)
@@ -20723,7 +20842,7 @@ def table.Flat.index
     | some base => ok (Usize.checked_add base lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::byte_len_for]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 479:4-481:5 -/
+    Source: '../../src/table/state.rs', lines 479:4-481:5 -/
 def table.Flat.byte_len_for
   (R : Type) (V : Type) (lanes : Std.Usize) : Result (Option Std.Usize) := do
   let i ← table.SHARDS
@@ -20737,7 +20856,7 @@ def table.Flat.byte_len_for
       Std.Usize residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::reserve]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 485:4-490:5 -/
+    Source: '../../src/table/state.rs', lines 485:4-490:5 -/
 def table.Flat.reserve
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (lanes : Std.Usize) :
@@ -20764,7 +20883,7 @@ def table.Flat.reserve
       (table.Flat R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop body 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 494:8-501:9 -/
+    Source: '../../src/table/state.rs', lines 494:8-501:9 -/
 @[rust_loop_body]
 def table.Flat.initialize_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20785,7 +20904,7 @@ def table.Flat.initialize_loop.body
   else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop 0:
-    Source: 'proof/extract/../../src/table/state.rs', lines 494:8-501:9 -/
+    Source: '../../src/table/state.rs', lines 494:8-501:9 -/
 @[rust_loop]
 def table.Flat.initialize_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20800,7 +20919,7 @@ def table.Flat.initialize_loop
     v
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 492:4-502:5 -/
+    Source: '../../src/table/state.rs', lines 492:4-502:5 -/
 def table.Flat.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Flat R V)
@@ -20815,7 +20934,7 @@ def table.Flat.initialize
   ok { self with slots := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::new]:
-    Source: 'proof/extract/../../src/table/state.rs', lines 536:4-543:5 -/
+    Source: '../../src/table/state.rs', lines 536:4-543:5 -/
 def table.TableLocator.new : Result table.TableLocator := do
   ok
     {
@@ -20826,35 +20945,35 @@ def table.TableLocator.new : Result table.TableLocator := do
     }
 
 /-- [apeiron_word::table::DEFAULT_BUDGET_BYTES]
-    Source: 'proof/extract/../../src/table.rs', lines 57:0-57:50 -/
+    Source: '../../src/table.rs', lines 57:0-57:50 -/
 @[global_simps, irreducible]
 def table.DEFAULT_BUDGET_BYTES : Result Std.Usize := do
   let i ← table.SHARDS
   i * 1024#usize
 
 /-- [apeiron_word::table::MAX_LANE_BITS]
-    Source: 'proof/extract/../../src/table.rs', lines 58:0-58:43 -/
+    Source: '../../src/table.rs', lines 58:0-58:43 -/
 @[global_simps, irreducible]
 def table.MAX_LANE_BITS : Result Std.U32 := 32#u32 - table.SHARD_BITS
 
 /-- [apeiron_word::table::BUILD_PARTITION_CROSSOVER]
-    Source: 'proof/extract/../../src/table.rs', lines 68:0-68:46 -/
+    Source: '../../src/table.rs', lines 68:0-68:46 -/
 @[global_simps, irreducible]
 def table.BUILD_PARTITION_CROSSOVER : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::PARTITION_CHUNK]
-    Source: 'proof/extract/../../src/table.rs', lines 69:0-69:36 -/
+    Source: '../../src/table.rs', lines 69:0-69:36 -/
 @[global_simps, irreducible]
 def table.PARTITION_CHUNK : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::WordMerge]
-    Source: 'proof/extract/../../src/table.rs', lines 191:0-191:21
+    Source: '../../src/table.rs', lines 191:0-191:21
     Visibility: public -/
 @[reducible]
 def table.WordMerge := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}::merge]:
-    Source: 'proof/extract/../../src/table.rs', lines 193:4-195:5
+    Source: '../../src/table.rs', lines 193:4-195:5
     Visibility: public -/
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   (self : table.WordMerge) (new : Std.I64) (old : Std.I64) :
@@ -20863,7 +20982,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   ok (core.num.I64.wrapping_add new old)
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}]
-    Source: 'proof/extract/../../src/table.rs', lines 192:0-196:1 -/
+    Source: '../../src/table.rs', lines 192:0-196:1 -/
 @[reducible]
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
   table.WordMerge Std.I64 := {
@@ -20871,7 +20990,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 237:8-240:9
+    Source: '../../src/table.rs', lines 237:8-240:9
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.new_loop.body
@@ -20890,7 +21009,7 @@ def table.Table.new_loop.body
   else ok (done shards)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 237:8-240:9
+    Source: '../../src/table.rs', lines 237:8-240:9
     Visibility: public -/
 @[rust_loop]
 def table.Table.new_loop
@@ -20903,7 +21022,7 @@ def table.Table.new_loop
     (shards, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]:
-    Source: 'proof/extract/../../src/table.rs', lines 234:4-250:5
+    Source: '../../src/table.rs', lines 234:4-250:5
     Visibility: public -/
 def table.Table.new
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -20928,7 +21047,7 @@ def table.Table.new
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::search_decision]:
-    Source: 'proof/extract/../../src/table.rs', lines 266:4-283:5 -/
+    Source: '../../src/table.rs', lines 266:4-283:5 -/
 def table.Table.search_decision
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -20987,7 +21106,7 @@ def table.Table.search_decision
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_get]:
-    Source: 'proof/extract/../../src/table.rs', lines 297:4-307:5 -/
+    Source: '../../src/table.rs', lines 297:4-307:5 -/
 def table.Table.apply_get
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21024,7 +21143,7 @@ def table.Table.apply_get
   | table.SearchLocation.NoIndex => ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 360:4-380:5
+    Source: '../../src/table.rs', lines 360:4-380:5
     Visibility: public -/
 def table.Table.get_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21110,7 +21229,7 @@ def table.Table.get_at
       else ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_prepared_shard_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 387:4-392:5 -/
+    Source: '../../src/table.rs', lines 387:4-392:5 -/
 def table.Table.get_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21132,7 +21251,7 @@ def table.Table.get_prepared_shard_at
   ok (core.option.Option.unwrap_or o self.default)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 445:8-456:9 -/
+    Source: '../../src/table.rs', lines 445:8-456:9 -/
 @[rust_loop_body]
 def table.Table.density_at_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize} (keyrepKeyRepInst
@@ -21169,7 +21288,7 @@ def table.Table.density_at_loop0.body
   else ok (done (self.home, self.shards, seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 445:8-456:9 -/
+    Source: '../../src/table.rs', lines 445:8-456:9 -/
 @[rust_loop]
 def table.Table.density_at_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize} (keyrepKeyRepInst
@@ -21184,7 +21303,7 @@ def table.Table.density_at_loop0
     (seen, count, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 2:
-    Source: 'proof/extract/../../src/table.rs', lines 460:12-472:13 -/
+    Source: '../../src/table.rs', lines 460:12-472:13 -/
 @[rust_loop_body]
 def table.Table.density_at_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21230,7 +21349,7 @@ def table.Table.density_at_loop1_loop0.body
   else ok (done (seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 2:
-    Source: 'proof/extract/../../src/table.rs', lines 460:12-472:13 -/
+    Source: '../../src/table.rs', lines 460:12-472:13 -/
 @[rust_loop]
 def table.Table.density_at_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21245,7 +21364,7 @@ def table.Table.density_at_loop1_loop0
     (seen, count, j)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 458:8-474:9 -/
+    Source: '../../src/table.rs', lines 458:8-474:9 -/
 @[rust_loop_body]
 def table.Table.density_at_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21266,7 +21385,7 @@ def table.Table.density_at_loop1.body
   else ok (done (seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 458:8-474:9 -/
+    Source: '../../src/table.rs', lines 458:8-474:9 -/
 @[rust_loop]
 def table.Table.density_at_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21281,7 +21400,7 @@ def table.Table.density_at_loop1
     (seen, count, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 425:4-479:5 -/
+    Source: '../../src/table.rs', lines 425:4-479:5 -/
 def table.Table.density_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21338,7 +21457,7 @@ def table.Table.density_at
       Std.Usize (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 491:8-500:9 -/
+    Source: '../../src/table.rs', lines 491:8-500:9 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop0.body
   (V : Type) (R : Type) (error : Option table.StorageError)
@@ -21375,7 +21494,7 @@ def table.Table.selected_lanes_loop0.body
   else ok (done (error, budget_lanes))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 491:8-500:9 -/
+    Source: '../../src/table.rs', lines 491:8-500:9 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop0
   (V : Type) (R : Type) (error : Option table.StorageError)
@@ -21389,7 +21508,7 @@ def table.Table.selected_lanes_loop0
     (error, budget_lanes, budget_reached)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 506:12-530:13 -/
+    Source: '../../src/table.rs', lines 506:12-530:13 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21456,7 +21575,7 @@ def table.Table.selected_lanes_loop1.body
   else ok (done (error, best))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 506:12-530:13 -/
+    Source: '../../src/table.rs', lines 506:12-530:13 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21476,7 +21595,7 @@ def table.Table.selected_lanes_loop1
     (error, lane, best, budget_exceeded)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]:
-    Source: 'proof/extract/../../src/table.rs', lines 480:4-541:5 -/
+    Source: '../../src/table.rs', lines 480:4-541:5 -/
 def table.Table.selected_lanes
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21516,7 +21635,7 @@ def table.Table.selected_lanes
     | some error1 => ok (core.result.Result.Err error1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 557:8-560:9 -/
+    Source: '../../src/table.rs', lines 557:8-560:9 -/
 @[rust_loop_body]
 def table.Table.grow_spill_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize}
@@ -21544,7 +21663,7 @@ def table.Table.grow_spill_loop0.body
       self.key, self.locator, load))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 557:8-560:9 -/
+    Source: '../../src/table.rs', lines 557:8-560:9 -/
 @[rust_loop]
 def table.Table.grow_spill_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize}
@@ -21560,7 +21679,7 @@ def table.Table.grow_spill_loop0
     (load, tag_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 573:8-594:9 -/
+    Source: '../../src/table.rs', lines 573:8-594:9 -/
 @[rust_loop_body]
 def table.Table.grow_spill_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21620,7 +21739,7 @@ def table.Table.grow_spill_loop1.body
   else ok (done (tl, fresh, relocation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 573:8-594:9 -/
+    Source: '../../src/table.rs', lines 573:8-594:9 -/
 @[rust_loop]
 def table.Table.grow_spill_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21639,7 +21758,7 @@ def table.Table.grow_spill_loop1
     (tl, fresh, i, relocation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]:
-    Source: 'proof/extract/../../src/table.rs', lines 546:4-615:5 -/
+    Source: '../../src/table.rs', lines 546:4-615:5 -/
 def table.Table.grow_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -21769,7 +21888,7 @@ def table.Table.grow_spill
       })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::flat_index_for]:
-    Source: 'proof/extract/../../src/table.rs', lines 884:4-899:5 -/
+    Source: '../../src/table.rs', lines 884:4-899:5 -/
 def table.Table.flat_index_for
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21795,7 +21914,7 @@ def table.Table.flat_index_for
       | some value => ok (Usize.checked_add value lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::keep_unoccupied]:
-    Source: 'proof/extract/../../src/table.rs', lines 871:4-882:5 -/
+    Source: '../../src/table.rs', lines 871:4-882:5 -/
 def table.Table.keep_unoccupied
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21813,7 +21932,7 @@ def table.Table.keep_unoccupied
     else ok index
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 635:8-651:9 -/
+    Source: '../../src/table.rs', lines 635:8-651:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21877,7 +21996,7 @@ def table.Table.plan_rebuild_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 635:8-651:9 -/
+    Source: '../../src/table.rs', lines 635:8-651:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21900,7 +22019,7 @@ def table.Table.plan_rebuild_loop0
     (occupied, entries, spill_loads, planning_error, resident_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 2:
-    Source: 'proof/extract/../../src/table.rs', lines 655:12-672:13 -/
+    Source: '../../src/table.rs', lines 655:12-672:13 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21969,7 +22088,7 @@ def table.Table.plan_rebuild_loop1_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 2:
-    Source: 'proof/extract/../../src/table.rs', lines 655:12-672:13 -/
+    Source: '../../src/table.rs', lines 655:12-672:13 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21993,7 +22112,7 @@ def table.Table.plan_rebuild_loop1_loop0
     (occupied, entries, spill_loads, planning_error, slot_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 653:8-674:9 -/
+    Source: '../../src/table.rs', lines 653:8-674:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22027,7 +22146,7 @@ def table.Table.plan_rebuild_loop1.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 653:8-674:9 -/
+    Source: '../../src/table.rs', lines 653:8-674:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22050,7 +22169,7 @@ def table.Table.plan_rebuild_loop1
     (occupied, entries, spill_loads, planning_error, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]:
-    Source: 'proof/extract/../../src/table.rs', lines 616:4-692:5 -/
+    Source: '../../src/table.rs', lines 616:4-692:5 -/
 def table.Table.plan_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22140,7 +22259,7 @@ def table.Table.plan_rebuild
       table.RebuildPlan (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_rebuild]:
-    Source: 'proof/extract/../../src/table.rs', lines 694:4-698:5 -/
+    Source: '../../src/table.rs', lines 694:4-698:5 -/
 def table.Table.reserve_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22173,7 +22292,7 @@ def table.Table.reserve_rebuild
       residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 736:8-760:9 -/
+    Source: '../../src/table.rs', lines 736:8-760:9 -/
 @[rust_loop_body]
 def table.Table.observe_receipt_loop.body
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22222,7 +22341,7 @@ def table.Table.observe_receipt_loop.body
   else ok (done (regions, error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 736:8-760:9 -/
+    Source: '../../src/table.rs', lines 736:8-760:9 -/
 @[rust_loop]
 def table.Table.observe_receipt_loop
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22238,7 +22357,7 @@ def table.Table.observe_receipt_loop
     (regions, shard_at, error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]:
-    Source: 'proof/extract/../../src/table.rs', lines 708:4-769:5 -/
+    Source: '../../src/table.rs', lines 708:4-769:5 -/
 def table.Table.observe_receipt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22278,7 +22397,7 @@ def table.Table.observe_receipt
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::materialize_rebuild]:
-    Source: 'proof/extract/../../src/table.rs', lines 781:4-810:5 -/
+    Source: '../../src/table.rs', lines 781:4-810:5 -/
 def table.Table.materialize_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22305,7 +22424,7 @@ def table.Table.materialize_rebuild
     { reservation, locator, pending_held })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_from_plan]:
-    Source: 'proof/extract/../../src/table.rs', lines 820:4-851:5 -/
+    Source: '../../src/table.rs', lines 820:4-851:5 -/
 def table.Table.prepare_from_plan
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22349,7 +22468,7 @@ def table.Table.prepare_from_plan
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_rebuild]:
-    Source: 'proof/extract/../../src/table.rs', lines 854:4-865:5 -/
+    Source: '../../src/table.rs', lines 854:4-865:5 -/
 def table.Table.prepare_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22371,7 +22490,7 @@ def table.Table.prepare_rebuild
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::locate_rebuilt]:
-    Source: 'proof/extract/../../src/table.rs', lines 908:4-930:5 -/
+    Source: '../../src/table.rs', lines 908:4-930:5 -/
 def table.Table.locate_rebuilt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22423,7 +22542,7 @@ def table.Table.locate_rebuilt
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: 'proof/extract/../../src/table.rs', lines 944:4-1006:5 -/
+    Source: '../../src/table.rs', lines 944:4-1006:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22510,7 +22629,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1023:8-1026:9 -/
+    Source: '../../src/table.rs', lines 1023:8-1026:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22533,7 +22652,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1023:8-1026:9 -/
+    Source: '../../src/table.rs', lines 1023:8-1026:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22551,7 +22670,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: 'proof/extract/../../src/table.rs', lines 1017:4-1027:5 -/
+    Source: '../../src/table.rs', lines 1017:4-1027:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22566,7 +22685,7 @@ def table.Table.relocate_all
     keyrepKeyRepInst self plan reserved 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: 'proof/extract/../../src/table.rs', lines 1036:4-1046:5 -/
+    Source: '../../src/table.rs', lines 1036:4-1046:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22595,7 +22714,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: 'proof/extract/../../src/table.rs', lines 1063:4-1121:5 -/
+    Source: '../../src/table.rs', lines 1063:4-1121:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22707,7 +22826,7 @@ def table.Table.apply_pending_and_commit
     fail panic
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_rebuild]:
-    Source: 'proof/extract/../../src/table.rs', lines 1130:4-1171:5 -/
+    Source: '../../src/table.rs', lines 1130:4-1171:5 -/
 def table.Table.apply_prepared_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22738,7 +22857,7 @@ def table.Table.apply_prepared_rebuild
     ok (core.result.Result.Err error, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::rebuild_resident]:
-    Source: 'proof/extract/../../src/table.rs', lines 1175:4-1186:5 -/
+    Source: '../../src/table.rs', lines 1175:4-1186:5 -/
 def table.Table.rebuild_resident
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22758,7 +22877,7 @@ def table.Table.rebuild_resident
     address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_insert]:
-    Source: 'proof/extract/../../src/table.rs', lines 1192:4-1250:5 -/
+    Source: '../../src/table.rs', lines 1192:4-1250:5 -/
 def table.Table.apply_insert
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22853,7 +22972,7 @@ def table.Table.apply_insert
       ok (table.ApplyOutcome.NeedsGrowth key value, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::insert_with_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 1255:4-1288:5
+    Source: '../../src/table.rs', lines 1255:4-1288:5
     Visibility: public -/
 def table.Table.insert_with_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23041,7 +23160,7 @@ def table.Table.insert_with_at
   else ok (core.result.Result.Err table.StorageError.SizeOverflow, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_shard_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 1299:4-1335:5 -/
+    Source: '../../src/table.rs', lines 1299:4-1335:5 -/
 def table.Table.apply_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23147,7 +23266,7 @@ def table.Table.apply_prepared_shard_at
       ok (r4, { self with shards := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1458:8-1462:5 -/
+    Source: '../../src/table.rs', lines 1458:8-1462:5 -/
 @[rust_loop_body]
 def table.Table.build_at_sequential_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23182,7 +23301,7 @@ def table.Table.build_at_sequential_loop.body
       ok (done r1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1458:8-1462:5 -/
+    Source: '../../src/table.rs', lines 1458:8-1462:5 -/
 @[rust_loop]
 def table.Table.build_at_sequential_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23201,7 +23320,7 @@ def table.Table.build_at_sequential_loop
     (iter, t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]:
-    Source: 'proof/extract/../../src/table.rs', lines 1451:4-1462:5 -/
+    Source: '../../src/table.rs', lines 1451:4-1462:5 -/
 def table.Table.build_at_sequential
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -23219,7 +23338,7 @@ def table.Table.build_at_sequential
     HomeInst keyrepKeyRepInst MergeInst iter merge t
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1378:16-1399:17
+    Source: '../../src/table.rs', lines 1378:16-1399:17
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop0.body
@@ -23284,7 +23403,7 @@ def table.Table.build_at_loop0.body
   else ok (done (t, reservation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 0:
-    Source: 'proof/extract/../../src/table.rs', lines 1378:16-1399:17
+    Source: '../../src/table.rs', lines 1378:16-1399:17
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop0
@@ -23304,7 +23423,7 @@ def table.Table.build_at_loop0
     (t, s, reservation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 1:
-    Source: 'proof/extract/../../src/table.rs', lines 1404:20-1415:21
+    Source: '../../src/table.rs', lines 1404:20-1415:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop1.body
@@ -23350,7 +23469,7 @@ def table.Table.build_at_loop1.body
   else ok (done t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 1:
-    Source: 'proof/extract/../../src/table.rs', lines 1404:20-1415:21
+    Source: '../../src/table.rs', lines 1404:20-1415:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop1
@@ -23370,7 +23489,7 @@ def table.Table.build_at_loop1
     (t, initialized)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 5:
-    Source: 'proof/extract/../../src/table.rs', lines 1428:32-1436:33
+    Source: '../../src/table.rs', lines 1428:32-1436:33
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0_loop0.body
@@ -23408,7 +23527,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 5:
-    Source: 'proof/extract/../../src/table.rs', lines 1428:32-1436:33
+    Source: '../../src/table.rs', lines 1428:32-1436:33
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0_loop0
@@ -23430,7 +23549,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0
     (t, assembly_error, run_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 4:
-    Source: 'proof/extract/../../src/table.rs', lines 1425:28-1438:29
+    Source: '../../src/table.rs', lines 1425:28-1438:29
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0.body
@@ -23463,7 +23582,7 @@ def table.Table.build_at_loop2_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 4:
-    Source: 'proof/extract/../../src/table.rs', lines 1425:28-1438:29
+    Source: '../../src/table.rs', lines 1425:28-1438:29
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0
@@ -23486,7 +23605,7 @@ def table.Table.build_at_loop2_loop0_loop0
     (t, assembly_error, chunk)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 3:
-    Source: 'proof/extract/../../src/table.rs', lines 1422:24-1440:25
+    Source: '../../src/table.rs', lines 1422:24-1440:25
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0.body
@@ -23519,7 +23638,7 @@ def table.Table.build_at_loop2_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 3:
-    Source: 'proof/extract/../../src/table.rs', lines 1422:24-1440:25
+    Source: '../../src/table.rs', lines 1422:24-1440:25
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0
@@ -23542,7 +23661,7 @@ def table.Table.build_at_loop2_loop0
     (t, assembly_error, bin_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 2:
-    Source: 'proof/extract/../../src/table.rs', lines 1419:20-1442:21
+    Source: '../../src/table.rs', lines 1419:20-1442:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2.body
@@ -23575,7 +23694,7 @@ def table.Table.build_at_loop2.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 2:
-    Source: 'proof/extract/../../src/table.rs', lines 1419:20-1442:21
+    Source: '../../src/table.rs', lines 1419:20-1442:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2
@@ -23597,7 +23716,7 @@ def table.Table.build_at_loop2
     (t, assembly_error, worker)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]:
-    Source: 'proof/extract/../../src/table.rs', lines 1355:4-1450:5
+    Source: '../../src/table.rs', lines 1355:4-1450:5
     Visibility: public -/
 def table.Table.build_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23656,7 +23775,7 @@ def table.Table.build_at
     else ok (core.result.Result.Err table.StorageError.SizeOverflow)
 
 /-- [apeiron_word::word_mul]:
-    Source: 'proof/extract/lib.rs', lines 142:0-144:1
+    Source: 'lib.rs', lines 144:0-146:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -23665,14 +23784,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'proof/extract/lib.rs', lines 147:0-149:1
+    Source: 'lib.rs', lines 149:0-151:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'proof/extract/lib.rs', lines 156:0-158:1
+    Source: 'lib.rs', lines 158:0-160:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -23682,7 +23801,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'proof/extract/lib.rs', lines 161:0-169:1
+    Source: 'lib.rs', lines 163:0-171:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -23693,7 +23812,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'proof/extract/lib.rs', lines 173:0-180:1
+    Source: 'lib.rs', lines 175:0-182:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -23703,14 +23822,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'proof/extract/lib.rs', lines 183:0-185:1
+    Source: 'lib.rs', lines 185:0-187:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'proof/extract/lib.rs', lines 189:0-194:1
+    Source: 'lib.rs', lines 191:0-196:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -23719,7 +23838,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'proof/extract/lib.rs', lines 197:0-199:1
+    Source: 'lib.rs', lines 199:0-201:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23728,7 +23847,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'proof/extract/lib.rs', lines 202:0-204:1
+    Source: 'lib.rs', lines 204:0-206:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23737,7 +23856,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'proof/extract/lib.rs', lines 211:0-217:1
+    Source: 'lib.rs', lines 213:0-219:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -23747,7 +23866,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'proof/extract/lib.rs', lines 258:0-264:1
+    Source: 'lib.rs', lines 260:0-266:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -23757,7 +23876,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'proof/extract/lib.rs', lines 267:0-271:1
+    Source: 'lib.rs', lines 269:0-273:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -23765,7 +23884,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'proof/extract/lib.rs', lines 274:0-284:1
+    Source: 'lib.rs', lines 276:0-286:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -23780,7 +23899,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'proof/extract/lib.rs', lines 287:0-298:1
+    Source: 'lib.rs', lines 289:0-300:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -23796,7 +23915,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'proof/extract/lib.rs', lines 301:0-309:1
+    Source: 'lib.rs', lines 303:0-311:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23809,7 +23928,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'proof/extract/lib.rs', lines 312:0-321:1
+    Source: 'lib.rs', lines 314:0-323:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23822,7 +23941,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'proof/extract/lib.rs', lines 334:0-336:1
+    Source: 'lib.rs', lines 336:0-338:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23836,7 +23955,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'proof/extract/lib.rs', lines 350:0-355:1
+    Source: 'lib.rs', lines 352:0-357:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -23851,7 +23970,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'proof/extract/lib.rs', lines 367:0-369:1
+    Source: 'lib.rs', lines 369:0-371:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23866,7 +23985,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'proof/extract/lib.rs', lines 384:0-389:1
+    Source: 'lib.rs', lines 386:0-391:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -23884,7 +24003,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'proof/extract/lib.rs', lines 392:0-398:1
+    Source: 'lib.rs', lines 394:0-400:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23899,7 +24018,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'proof/extract/lib.rs', lines 402:0-410:1
+    Source: 'lib.rs', lines 404:0-412:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23917,7 +24036,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'proof/extract/lib.rs', lines 413:0-415:1
+    Source: 'lib.rs', lines 415:0-417:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23933,7 +24052,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'proof/extract/lib.rs', lines 419:0-427:1
+    Source: 'lib.rs', lines 421:0-429:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23955,7 +24074,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'proof/extract/lib.rs', lines 435:0-437:1
+    Source: 'lib.rs', lines 437:0-439:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23969,7 +24088,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'proof/extract/lib.rs', lines 444:0-456:1
+    Source: 'lib.rs', lines 446:0-458:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23992,7 +24111,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'proof/extract/lib.rs', lines 459:0-461:1
+    Source: 'lib.rs', lines 461:0-463:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24007,7 +24126,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'proof/extract/lib.rs', lines 464:0-476:1
+    Source: 'lib.rs', lines 466:0-478:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24033,7 +24152,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'proof/extract/lib.rs', lines 479:0-484:1
+    Source: 'lib.rs', lines 481:0-486:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -24041,37 +24160,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'proof/extract/lib.rs', lines 489:0-491:1
+    Source: 'lib.rs', lines 491:0-493:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'proof/extract/lib.rs', lines 497:0-499:1
+    Source: 'lib.rs', lines 499:0-501:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'proof/extract/lib.rs', lines 502:0-504:1
+    Source: 'lib.rs', lines 504:0-506:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'proof/extract/lib.rs', lines 510:0-512:1
+    Source: 'lib.rs', lines 512:0-514:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'proof/extract/lib.rs', lines 518:0-520:1
+    Source: 'lib.rs', lines 520:0-522:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'proof/extract/lib.rs', lines 528:0-539:1
+    Source: 'lib.rs', lines 530:0-541:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24090,7 +24209,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'proof/extract/lib.rs', lines 545:0-556:1
+    Source: 'lib.rs', lines 547:0-558:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24111,7 +24230,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'proof/extract/lib.rs', lines 564:0-574:1
+    Source: 'lib.rs', lines 566:0-576:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24129,7 +24248,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'proof/extract/lib.rs', lines 579:0-589:1
+    Source: 'lib.rs', lines 581:0-591:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24149,7 +24268,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'proof/extract/lib.rs', lines 598:0-617:1
+    Source: 'lib.rs', lines 600:0-619:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24169,7 +24288,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'proof/extract/lib.rs', lines 623:0-642:1
+    Source: 'lib.rs', lines 625:0-644:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24193,7 +24312,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'proof/extract/lib.rs', lines 650:0-657:1
+    Source: 'lib.rs', lines 652:0-659:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24204,7 +24323,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'proof/extract/lib.rs', lines 663:0-670:1
+    Source: 'lib.rs', lines 665:0-672:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24217,7 +24336,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'proof/extract/lib.rs', lines 675:0-677:1
+    Source: 'lib.rs', lines 677:0-679:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -24226,21 +24345,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'proof/extract/lib.rs', lines 684:0-686:1
+    Source: 'lib.rs', lines 686:0-688:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
+/-- [apeiron_word::word_act_scale]:
+    Source: 'lib.rs', lines 693:0-695:1
+    Visibility: public -/
+def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
+  pow2.act_scale absmax
+
+/-- [apeiron_word::word_f16_split]:
+    Source: 'lib.rs', lines 700:0-702:1
+    Visibility: public -/
+def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
+  pow2.f16_split h
+
+/-- [apeiron_word::word_pow2_finish]:
+    Source: 'lib.rs', lines 707:0-709:1
+    Visibility: public -/
+def word_pow2_finish
+  (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
+  pow2.finish acc s
+
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'proof/extract/lib.rs', lines 693:0-695:1
+    Source: 'lib.rs', lines 716:0-718:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'proof/extract/lib.rs', lines 703:0-708:1
+    Source: 'lib.rs', lines 726:0-731:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -24249,7 +24387,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'proof/extract/lib.rs', lines 715:0-722:1
+    Source: 'lib.rs', lines 738:0-745:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -24260,7 +24398,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'proof/extract/lib.rs', lines 726:0-728:1
+    Source: 'lib.rs', lines 749:0-751:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -24269,7 +24407,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'proof/extract/lib.rs', lines 732:0-734:1
+    Source: 'lib.rs', lines 755:0-757:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -24278,7 +24416,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'proof/extract/lib.rs', lines 740:0-742:1
+    Source: 'lib.rs', lines 763:0-765:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -24289,7 +24427,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'proof/extract/lib.rs', lines 748:0-750:1
+    Source: 'lib.rs', lines 771:0-773:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -24298,7 +24436,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'proof/extract/lib.rs', lines 766:0-768:1
+    Source: 'lib.rs', lines 789:0-791:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -24307,7 +24445,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'proof/extract/lib.rs', lines 785:0-790:1
+    Source: 'lib.rs', lines 808:0-813:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -24316,7 +24454,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'proof/extract/lib.rs', lines 796:0-798:1
+    Source: 'lib.rs', lines 819:0-821:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -24325,7 +24463,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'proof/extract/lib.rs', lines 804:0-810:1
+    Source: 'lib.rs', lines 827:0-833:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -24334,7 +24472,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'proof/extract/lib.rs', lines 816:0-822:1
+    Source: 'lib.rs', lines 839:0-845:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -24343,7 +24481,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'proof/extract/lib.rs', lines 830:0-838:1
+    Source: 'lib.rs', lines 853:0-861:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -24353,7 +24491,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'proof/extract/lib.rs', lines 845:0-847:1
+    Source: 'lib.rs', lines 868:0-870:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -24362,7 +24500,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'proof/extract/lib.rs', lines 857:0-865:1
+    Source: 'lib.rs', lines 880:0-888:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -24372,7 +24510,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'proof/extract/lib.rs', lines 873:0-881:1
+    Source: 'lib.rs', lines 896:0-904:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -24382,7 +24520,7 @@ def word_kv_state_new
   attn.KvState.new n_layer n_head n_head_kv head_dim cap
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'proof/extract/lib.rs', lines 887:0-894:1
+    Source: 'lib.rs', lines 910:0-917:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -24392,7 +24530,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'proof/extract/lib.rs', lines 901:0-910:1
+    Source: 'lib.rs', lines 924:0-933:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -24402,7 +24540,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'proof/extract/lib.rs', lines 916:0-918:1
+    Source: 'lib.rs', lines 939:0-941:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -24411,7 +24549,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'proof/extract/lib.rs', lines 942:0-944:1
+    Source: 'lib.rs', lines 965:0-967:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -24420,7 +24558,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'proof/extract/lib.rs', lines 960:0-969:1
+    Source: 'lib.rs', lines 983:0-992:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
