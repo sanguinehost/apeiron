@@ -19,6 +19,7 @@ use super::{
 };
 use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
 use crate::engine::chart::QuantAct;
+use crate::engine::kern::gemm::gemm_q8_0_swiglu;
 use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
@@ -637,11 +638,58 @@ impl Engine {
             return Ok(out);
         }
         let qs = quant_cols(xs)?;
-        let gate = self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
-        let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
-        let mut hs: Vec<Vec<i64>> = (0..xs.len()).map(|_| vec![0i64; n_ff]).collect();
-        swiglu_cols(&gate, &up, &mut hs).map_err(StepError::Ffn)?;
+        // One pooled `[W_gate; W_up]` GEMM with the `SwiGLU` epilogue when both weights are `Q8_0`
+        // and the fused kernel applies; `None` keeps the separate gate/up/`SwiGLU` path, which is
+        // also the refusal owner for any gate/up value the fused kernel cannot produce exactly.
+        let hs = match self.ffn_fused_swiglu(li, layer, n_ff, n_embd, &qs) {
+            Some(Ok(hs)) => hs,
+            Some(Err(e)) => return Err(StepError::Ffn(e)),
+            None => {
+                let gate =
+                    self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
+                let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
+                let mut hs: Vec<Vec<i64>> = (0..xs.len()).map(|_| vec![0i64; n_ff]).collect();
+                swiglu_cols(&gate, &up, &mut hs).map_err(StepError::Ffn)?;
+                hs
+            }
+        };
         self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None)
+    }
+
+    /// The fused `[W_gate; W_up]` `Q8_0` GEMM with the `SwiGLU` epilogue, or `None` when the input
+    /// is not eligible: a `Hadamard` fold, a missing or non-`Q8_0` tensor, or the kernel's own
+    /// shape/host gate. A setup failure returns `None` rather than an error so the separate path
+    /// owns the refusal, preserving its gate-before-up-before-`SwiGLU` order.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n_ff·n_in·k)` multiply-adds in one pool dispatch plus the two resident payload resolves;
+    /// the gate/up matrices are not built.
+    fn ffn_fused_swiglu(
+        &self,
+        li: Option<&LayerIndex>,
+        layer: usize,
+        n_ff: usize,
+        n_embd: usize,
+        qs: &[QuantAct],
+    ) -> Option<Result<Vec<Vec<i64>>, crate::engine::FfnError>> {
+        let li = li?;
+        if self.hadamard().is_some() {
+            return None;
+        }
+        let (Ok(gidx), Ok(uidx)) = (li.at(4, layer), li.at(5, layer)) else {
+            return None;
+        };
+        let (Ok((gt, graw)), Ok((ut, uraw))) = (
+            self.payload_at(gidx, n_ff, n_embd, Sched::Resident),
+            self.payload_at(uidx, n_ff, n_embd, Sched::Resident),
+        ) else {
+            return None;
+        };
+        if gt != quant::GGML_TYPE_Q8_0 || ut != quant::GGML_TYPE_Q8_0 {
+            return None;
+        }
+        gemm_q8_0_swiglu(graw.as_ref(), uraw.as_ref(), n_ff, n_embd, qs)
     }
 
     /// The name-resolved FFN of one column (the exact path and the test oracle schedule).

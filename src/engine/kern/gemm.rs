@@ -32,6 +32,7 @@
 
 use crate::engine::chart::{ActMagnitude, QuantAct};
 use crate::engine::value::round_shift_32;
+use crate::engine::{silu_fixed, FfnError};
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
 
 /// Lanes of one activation quantization block.
@@ -170,6 +171,22 @@ unsafe impl Send for ColPtrs {}
 // SAFETY: as above.
 #[cfg(target_arch = "x86_64")]
 unsafe impl Sync for ColPtrs {}
+
+/// The fused `SwiGLU` epilogue's output pointers, one per column, each into that column's
+/// `Vec<i64>` pre-sized to `n_ff`. Task `t` writes hidden indices
+/// `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_ff))` of every column; the row ranges partition
+/// `0..n_ff`, so no two tasks write the same element.
+#[cfg(target_arch = "x86_64")]
+struct SwigluPtrs {
+    ptrs: Vec<*mut i64>,
+}
+// SAFETY: `gemm_q8_0_swiglu` gives each task a disjoint hidden-index range and one pointer per
+// column into that column's own allocation; no two tasks alias.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Send for SwigluPtrs {}
+// SAFETY: as above.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Sync for SwigluPtrs {}
 
 /// A row's per-block `(m, k − k_min, 128·Σ q)` and its `k_min` and exponent spread, or `None`
 /// for a non-finite scale.
@@ -317,6 +334,128 @@ pub(crate) fn gemm_q8_0(
     #[cfg(not(target_arch = "x86_64"))]
     {
         let _ = (ggml_type, raw, n_out, n_in, qs);
+        None
+    }
+}
+
+/// `round(silu(gate)·up / 2^32)` in checked integer arithmetic: the fused epilogue's element,
+/// identical to `chart::ffn`'s private `swiglu_one` (the same [`silu_fixed`], checked `i128`
+/// product and one [`round_shift_32`] narrowing).
+///
+/// # Errors
+///
+/// [`FfnError::Overflow`] when the product or the `i64` narrowing leaves its range;
+/// [`silu_fixed`]'s refusal otherwise.
+fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
+    let s = silu_fixed(gate)?;
+    let prod = i128::from(s)
+        .checked_mul(i128::from(up))
+        .ok_or(FfnError::Overflow)?;
+    i64::try_from(round_shift_32(prod)).map_err(|_| FfnError::Overflow)
+}
+
+/// The fused `[W_gate; W_up]` projection with the `SwiGLU` epilogue:
+/// `h[c][i] = round(silu(gate[c][i])·up[c][i] / 2^32)`, where gate/up are row `i` of the two `Q8_0`
+/// payloads against column `c`'s packed activation.
+///
+/// One pooled dispatch: each task owns a range of hidden indices `i`, computes gate row `i` and up
+/// row `i` for every column with the same kernel `gemm_q8_0` uses (one [`pack`], the same `group2`
+/// cores, [`finish`]/[`exact_dot`]), and writes `h[c][i]` directly. The gate matrix, the up matrix
+/// and the separate `SwiGLU` pass are never materialised; the activation is packed once for both
+/// channels.
+///
+/// `None` when the shape or host gate is not met, or when a gate/up value cannot be produced
+/// exactly (a non-finite scale, a [`finish`]/[`exact_dot`] overflow, a non-`Exact` activation). The
+/// caller then runs the separate gate GEMM, up GEMM and `swiglu_cols`, which owns those refusals in
+/// the contract's gate-before-up-before-`SwiGLU` order.
+///
+/// `Some(Err)` is exactly a `SwiGLU` element refusal ([`silu_fixed`], the checked product or the
+/// narrowing) at the minimal `(column, index)` in `swiglu_cols`' flat order.
+///
+/// # Complexity
+///
+/// Temporal `O(n_ff·n_in·k)` exact multiply-adds — the gate and up dots — plus `O(n_ff·k)`
+/// `swiglu_one` evaluations over `⌈n_ff/ROWS_PER_TASK⌉` pool tasks in one dispatch. Spatial
+/// `O(k·n_in)` packed activation bytes plus `O(n_ff·k)` output; no `n_ff·k` gate or up matrix.
+#[must_use]
+pub(crate) fn gemm_q8_0_swiglu(
+    raw_gate: &[u8],
+    raw_up: &[u8],
+    n_ff: usize,
+    n_in: usize,
+    qs: &[QuantAct],
+) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if qs.is_empty()
+            || n_ff == 0
+            || !n_in.is_multiple_of(ACT_QK)
+            || n_in / ACT_QK > MAX_BLOCKS
+            || !std::is_x86_feature_detected!("avx2")
+            || !std::is_x86_feature_detected!("avxvnni")
+        {
+            return None;
+        }
+        let blocks = n_in / ACT_QK;
+        let row_bytes = blocks * Q8_0_BLOCK_BYTES;
+        let need = n_ff.checked_mul(row_bytes)?;
+        if raw_gate.len() < need || raw_up.len() < need {
+            return None;
+        }
+        let k = qs.len();
+        // The output is `n_ff·k` words; guard the product as `gemm_q8_0` guards its interleaving
+        // buffer.
+        n_ff.checked_mul(k)?;
+        for q in qs {
+            // The same fast-row preconditions `gemm_q8_0` requires of every column.
+            if q.len() != n_in
+                || q.scales().len() != blocks
+                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
+                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
+            {
+                return None;
+            }
+        }
+        let packed = pack(qs, blocks)?;
+        let limit = spread_limit(blocks);
+        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; n_ff]).collect();
+        let ptrs = SwigluPtrs {
+            ptrs: cols.iter_mut().map(Vec::as_mut_ptr).collect(),
+        };
+        let out = &ptrs;
+        let bad = std::sync::atomic::AtomicBool::new(false);
+        let first: std::sync::Mutex<Option<(usize, usize, FfnError)>> = std::sync::Mutex::new(None);
+        let first_ref = &first;
+        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(ROWS_PER_TASK), &|t| {
+            let r0 = t * ROWS_PER_TASK;
+            let rows = (n_ff - r0).min(ROWS_PER_TASK);
+            // SAFETY: AVX2 and AVX-VNNI were detected above; both payloads hold `n_ff` rows and the
+            // packing covers `packed.groups` groups of `blocks` blocks; task `t` owns hidden indices
+            // `[r0, r0 + rows)` and writes each column's own allocation there.
+            let ok = unsafe {
+                x86::rows_swiglu(
+                    raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, &packed, limit, out,
+                    first_ref,
+                )
+            };
+            if !ok {
+                bad.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        match first
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
+            Some((_, _, e)) => Some(Err(e)),
+            None => Some(Ok(cols)),
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (raw_gate, raw_up, n_ff, n_in, qs);
         None
     }
 }
@@ -530,6 +669,115 @@ mod x86 {
         }
         true
     }
+
+    /// Hidden indices `r0..r0 + rows` of the fused `[W_gate; W_up]` projection: one packed
+    /// activation dots gate row `i` and up row `i` for every column (`group2` shares the activation
+    /// loads), the epilogue applies [`super::swiglu_one`], and `h[c][i]` is written directly.
+    ///
+    /// Returns `false` when a weight scale is non-finite or a gate/up value leaves `i64`; the caller
+    /// then runs the separate gate/up/`SwiGLU` path, which owns the refusal. A refused `SwiGLU`
+    /// element is recorded as the minimal `(column, index)` in `first`; every row is still scanned
+    /// so the minimum over all tasks is the serial `swiglu_hidden` order.
+    ///
+    /// # Safety
+    ///
+    /// AVX2 and AVX-VNNI; `raw_gate`/`raw_up` hold indices `r0..r0 + rows` of `row_bytes` bytes;
+    /// each `qs[c].codes()` holds `blocks·32` lanes and `qs[c].scales()` `blocks` values; `out` has
+    /// one pointer per column into a distinct allocation of at least `n_ff` `i64`s.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::many_single_char_names,
+        clippy::cast_ptr_alignment,
+        reason = "p/k/r/c/g/i name the packing, columns, row offset, output column, group and hidden \
+                  index; _mm256_storeu_si256 accepts the unaligned lane buffer"
+    )]
+    pub(super) unsafe fn rows_swiglu(
+        raw_gate: &[u8],
+        raw_up: &[u8],
+        row_bytes: usize,
+        blocks: usize,
+        r0: usize,
+        rows: usize,
+        qs: &[QuantAct],
+        p: &Packed,
+        limit: u32,
+        out: &super::SwigluPtrs,
+        first: &std::sync::Mutex<Option<(usize, usize, crate::engine::FfnError)>>,
+    ) -> bool {
+        let k = qs.len();
+        let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
+        let mut sb = [(0i32, 0i64, 0i32); MAX_BLOCKS];
+        let mut lanes = [0i64; 16];
+        let mut r = 0usize;
+        while r < rows {
+            let i = r0 + r;
+            let ga = &raw_gate[i * row_bytes..(i + 1) * row_bytes];
+            let ua = &raw_up[i * row_bytes..(i + 1) * row_bytes];
+            let (Some((ka, spa)), Some((kb, spb))) = (
+                row_scales(ga, blocks, &mut sa),
+                row_scales(ua, blocks, &mut sb),
+            ) else {
+                return false;
+            };
+            for g in 0..p.groups {
+                // SAFETY: the group's words and shifts are in range of the packing.
+                let acc = unsafe {
+                    group2(
+                        ga,
+                        ua,
+                        &sa[..blocks],
+                        &sb[..blocks],
+                        blocks,
+                        p.words.as_ptr().add(g * blocks * 8 * LANES),
+                        p.shift.as_ptr().add(g * blocks * LANES),
+                    )
+                };
+                // SAFETY: `lanes` holds 16 `i64`.
+                unsafe {
+                    for (idx, v) in acc.iter().enumerate() {
+                        _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(), *v);
+                    }
+                }
+                for lane in 0..LANES {
+                    let c = g * LANES + lane;
+                    if c >= k {
+                        break;
+                    }
+                    let gate = if spa + p.spread[g] > limit {
+                        exact_dot(ga, blocks, &qs[c])
+                    } else {
+                        finish(lanes[lane], ka + p.emin[c])
+                    };
+                    let up = if spb + p.spread[g] > limit {
+                        exact_dot(ua, blocks, &qs[c])
+                    } else {
+                        finish(lanes[8 + lane], kb + p.emin[c])
+                    };
+                    let (Some(gate), Some(up)) = (gate, up) else {
+                        return false;
+                    };
+                    match super::swiglu_one(gate, up) {
+                        Ok(h) => {
+                            // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                            // other task's, so this element has one writer.
+                            unsafe { *out.ptrs[c].add(i) = h };
+                        }
+                        Err(e) => {
+                            let mut slot = first
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
+                                *slot = Some((c, i, e));
+                            }
+                        }
+                    }
+                }
+            }
+            r += 1;
+        }
+        true
+    }
 }
 
 #[cfg(test)]
@@ -646,6 +894,144 @@ mod tests {
         let raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
         let qs = columns(16, 1024, 4, &mut seed);
         assert!(gemm_q8_0(GGML_TYPE_Q8_0, &raw, 64, 1024, &qs).is_some());
+    }
+
+    /// A `rows × n_in` `Q8_0` payload whose every block has the largest finite scale `0x7BFF` and
+    /// all code bytes `127`, so the row dot is maximal.
+    fn max_payload(rows: usize, n_in: usize) -> Vec<u8> {
+        let blocks = n_in / 32;
+        let mut raw = vec![0u8; rows * blocks * Q8_0_BLOCK_BYTES];
+        for r in 0..rows {
+            for b in 0..blocks {
+                let off = (r * blocks + b) * Q8_0_BLOCK_BYTES;
+                raw[off..off + 2].copy_from_slice(&0x7BFFu16.to_le_bytes());
+                for l in 0..32 {
+                    raw[off + 2 + l] = 127;
+                }
+            }
+        }
+        raw
+    }
+
+    /// The fused `[W_gate; W_up]` + `SwiGLU` equals the separate gate GEMM, up GEMM and the serial
+    /// `swiglu_hidden` loop bit for bit, over random `Q8_0` payloads with mixed `f16` exponents
+    /// (normal, subnormal, negative, zero) and activation ranges that drive both the vector
+    /// accumulation and the exact spread path. A gate/up GEMM refusal must defer (`None`) to the
+    /// separate path, and a refused `SwiGLU` element must carry the same `FfnError`.
+    #[test]
+    fn swiglu_fused_equals_the_separate_path() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 0x5a17_5a17u64;
+        let scale_sets: [&[u16]; 3] = [
+            &[0x2000, 0x2400, 0x1c00, 0xa000],
+            &[0x0001, 0x03ff, 0x0400, 0x8200],
+            &[0x0000, 0x3c00, 0x0010, 0x7bff],
+        ];
+        for &(n_ff, n_in) in &[(1usize, 32usize), (17, 64), (33, 128), (40, 256)] {
+            for &k in &[1usize, 2, 7, 8, 9] {
+                for (si, scales) in scale_sets.iter().enumerate() {
+                    for range in [1u32, 8, 30] {
+                        let g_raw = payload(n_ff, n_in, scales, &mut seed);
+                        let u_raw = payload(n_ff, n_in, scales, &mut seed);
+                        let qs = columns(k, n_in, range, &mut seed);
+                        let gate: Result<Vec<Vec<i64>>, _> = qs
+                            .iter()
+                            .map(|q| matvec_q8act(GGML_TYPE_Q8_0, &g_raw, n_ff, n_in, q))
+                            .collect();
+                        let up: Result<Vec<Vec<i64>>, _> = qs
+                            .iter()
+                            .map(|q| matvec_q8act(GGML_TYPE_Q8_0, &u_raw, n_ff, n_in, q))
+                            .collect();
+                        let fused = gemm_q8_0_swiglu(&g_raw, &u_raw, n_ff, n_in, &qs);
+                        match (gate, up) {
+                            (Ok(gate), Ok(up)) => {
+                                let mut want: Vec<Vec<i64>> =
+                                    (0..k).map(|_| vec![0i64; n_ff]).collect();
+                                let mut refused: Option<FfnError> = None;
+                                for c in 0..k {
+                                    if let Err(e) = crate::engine::chart::ffn::swiglu_hidden(
+                                        &gate[c],
+                                        &up[c],
+                                        &mut want[c],
+                                        false,
+                                    ) {
+                                        refused = Some(e);
+                                        break;
+                                    }
+                                }
+                                match (fused, refused) {
+                                    (Some(Ok(got)), None) => assert_eq!(
+                                        got, want,
+                                        "n_ff {n_ff} n_in {n_in} k {k} scales {si} range {range}"
+                                    ),
+                                    (Some(Err(e)), Some(r)) => assert_eq!(
+                                        e, r,
+                                        "n_ff {n_ff} n_in {n_in} k {k} scales {si} range {range}"
+                                    ),
+                                    // A gate/up value the fused kernel cannot prove exact: the
+                                    // separate path owns the value (covered by the ordinary test).
+                                    (None, _) => {}
+                                    (Some(Ok(_)), Some(r)) => {
+                                        panic!("fused produced a value where SwiGLU refuses: {r:?}")
+                                    }
+                                    (Some(Err(e)), None) => {
+                                        panic!("fused refused where the separate path is Ok: {e:?}")
+                                    }
+                                }
+                            }
+                            // A gate or up GEMM refusal: the fused path must defer so the separate
+                            // path returns the contract's `MatvecError` in gate-before-up order.
+                            _ => assert!(
+                                fused.is_none(),
+                                "a gate/up GEMM refusal must defer to the separate path"
+                            ),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The fused kernel takes its fast path on ordinary inputs (a test that always fell back would
+    /// pass vacuously).
+    #[test]
+    fn swiglu_fused_runs_on_ordinary_inputs() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 11u64;
+        let g_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let u_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let qs = columns(8, 1024, 4, &mut seed);
+        assert!(matches!(
+            gemm_q8_0_swiglu(&g_raw, &u_raw, 64, 1024, &qs),
+            Some(Ok(_))
+        ));
+    }
+
+    /// A `SwiGLU` element whose product leaves `i64` refuses through the fused path with the same
+    /// `FfnError` the serial `swiglu_hidden` returns, at the minimal `(column, index)`.
+    #[test]
+    fn swiglu_fused_reports_a_refusing_element() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let (n_ff, n_in) = (2usize, 32usize);
+        let raw = max_payload(n_ff, n_in);
+        // `127·2^24` quantizes on the power-of-two grid with code `127`: gate and up are ≈5.7e17,
+        // so `silu(gate)·up / 2^32` leaves `i64`.
+        let q = quant_act(&vec![127i64 << 24; n_in]).expect("dequantizes");
+        let gate = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("gate contract");
+        let up = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("up contract");
+        let mut want = vec![0i64; n_ff];
+        let refuse = crate::engine::chart::ffn::swiglu_hidden(&gate, &up, &mut want, false);
+        assert_eq!(refuse, Err(FfnError::Overflow), "the fixture must refuse");
+        assert_eq!(
+            gemm_q8_0_swiglu(&raw, &raw, n_ff, n_in, &[q]),
+            Some(Err(FfnError::Overflow))
+        );
     }
 
     #[test]
