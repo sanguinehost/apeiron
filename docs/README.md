@@ -30,6 +30,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [combinator-links](epics/combinator-links.md) | in progress |
 | [corpus-release-pin](epics/corpus-release-pin.md) | approved |
 | [engine-throughput](epics/engine-throughput.md) | W2 tested (Q8Act 40/40 parity); T6B running |
+| [exact-scan-contract](epics/exact-scan-contract.md) | draft; chunked exact accumulation (DeltaNet state + online softmax), prefill ratio target |
 | [decode-dominance](epics/decode-dominance.md) | draft; beat llama.cpp via batch-invariance, exact speculative greedy, zero skip, traffic statements |
 | [frontier-consumer](epics/frontier-consumer.md) | draft; cross-track roadmap (product ladder R0–R5) |
 | [gpu-spv](epics/gpu-spv.md) | draft |
