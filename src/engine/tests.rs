@@ -629,6 +629,202 @@ fn attn_head_is_deterministic_across_calls() {
     assert_eq!(a, b);
 }
 
+/// A deterministic Q32.32 word in `[-4·ONE, 4·ONE)` from a 64-bit LCG state: reproducible
+/// non-trivial attention keys, queries and values without an RNG dependency.
+fn attn_word(state: &mut u64) -> i64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    let wide = i64::try_from(*state >> 1).expect("the top 63 bits fit i64");
+    wide % (8 * ONE) - 4 * ONE
+}
+
+#[test]
+fn attn_fused_den_num_are_independent_of_tile_count() {
+    let mut kv = KvState::new(1, 2, 1, 4, 8).expect("geometry");
+    let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut s = 0usize;
+    while s < 8 {
+        let k = [
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+        ];
+        let v = [
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+        ];
+        assert_eq!(kv.append(0, &k, &v), Ok(s));
+        s += 1;
+    }
+    let q = [ONE, ONE / 2, -ONE / 4, ONE / 8];
+    let pos = 7usize;
+    let m = kv.attn_max(0, 0, &q, pos).expect("max over the prefix");
+    let reference = kv
+        .attn_fused_state(0, 0, &q, pos, m, 1)
+        .expect("unit tiles");
+    assert_eq!(reference.m, m);
+    let mut tile = 1usize;
+    while tile <= 9 {
+        let got = kv
+            .attn_fused_state(0, 0, &q, pos, m, tile)
+            .expect("tiled fold");
+        assert_eq!(got.den, reference.den, "den changed with tile {tile}");
+        assert_eq!(got.num, reference.num, "num changed with tile {tile}");
+        tile += 1;
+    }
+}
+
+#[test]
+fn attn_head_fused_matches_per_position_oracle_within_bound() {
+    let mut kv = KvState::new(1, 2, 1, 4, 8).expect("geometry");
+    let mut seed = 0x1234_5678_9ABC_DEF0_u64;
+    let mut value_rows: Vec<[i64; 4]> = Vec::new();
+    let mut s = 0usize;
+    while s < 8 {
+        let k = [
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+        ];
+        let v = [
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+        ];
+        assert_eq!(kv.append(0, &k, &v), Ok(s));
+        value_rows.push(v);
+        s += 1;
+    }
+    let one = i128::from(ONE);
+    let mut pos = 0usize;
+    while pos < 8 {
+        let q = [
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+            attn_word(&mut seed),
+        ];
+        let mut head = 0usize;
+        while head < 2 {
+            let mut oracle = [0i64; 4];
+            kv.attn_head(0, head, &q, pos, &mut oracle)
+                .expect("per-position oracle");
+            let mut fused = [0i64; 4];
+            kv.attn_head_fused(0, head, &q, pos, 1 + pos % 3, &mut fused)
+                .expect("fused read");
+            let mut i = 0usize;
+            while i < 4 {
+                let mut sum_abs: i128 = 0;
+                let mut j = 0usize;
+                while j <= pos {
+                    sum_abs += i128::from(value_rows[j][i].abs());
+                    j += 1;
+                }
+                let dev = (i128::from(oracle[i]) - i128::from(fused[i])).abs();
+                // Each oracle weight rounds by < 1/2 LSB of `2^-32`, accumulated over the prefix,
+                // and the one-normalisation readout adds at most 2 LSB; the scaled integer form
+                // of `|oracle - fused| <= Σ_j |v_j|/(2·2^32) + 2` is tested here.
+                assert!(
+                    2 * one * dev <= sum_abs + 4 * one,
+                    "pos {pos} head {head} i {i}: oracle {} fused {} dev {dev}",
+                    oracle[i],
+                    fused[i],
+                );
+                i += 1;
+            }
+            head += 1;
+        }
+        pos += 1;
+    }
+}
+
+#[test]
+fn attn_head_fused_uses_the_global_max_across_tiles() {
+    // Two keys of scores 0 and 22·ONE. The gap exceeds `16·ONE`, so at the true maximum key 0's
+    // numerator saturates to 0, and it exceeds the `fixed_exp` window under key 0's smaller
+    // shift; a fold that fixed the first tile's maximum only could not reproduce the oracle.
+    let mut kv = KvState::new(1, 1, 1, 1, 2).expect("geometry");
+    assert_eq!(kv.append(0, &[0], &[5 * ONE]), Ok(0));
+    assert_eq!(kv.append(0, &[22 * ONE], &[-3 * ONE]), Ok(1));
+    let q = [ONE];
+    let mut oracle = [0i64; 1];
+    kv.attn_head(0, 0, &q, 1, &mut oracle).expect("oracle");
+    assert_eq!(oracle, [-3 * ONE]);
+    let mut fused = [0i64; 1];
+    kv.attn_head_fused(0, 0, &q, 1, 1, &mut fused)
+        .expect("fused read");
+    assert_eq!(fused, oracle);
+}
+
+#[test]
+fn attn_fused_refuses_zero_sum_and_zero_tile() {
+    let mut kv = KvState::new(1, 1, 1, 1, 2).expect("geometry");
+    assert_eq!(kv.append(0, &[ONE], &[ONE]), Ok(0));
+    assert_eq!(kv.append(0, &[ONE], &[ONE]), Ok(1));
+    let q = [ONE];
+    let m = kv.attn_max(0, 0, &q, 1).expect("max");
+    assert_eq!(m, ONE);
+    assert_eq!(
+        kv.attn_fused_state(0, 0, &q, 1, m, 1).expect("state").den,
+        2 * i128::from(ONE)
+    );
+    // Every shift below the window saturates to zero, so the fused denominator is empty.
+    assert_eq!(
+        kv.attn_fused_state(0, 0, &q, 1, m + 17 * ONE, 1),
+        Err(AttnError::ZeroSum)
+    );
+    assert_eq!(
+        kv.attn_fused_state(0, 0, &q, 1, m, 0),
+        Err(AttnError::BadGeometry)
+    );
+    assert_eq!(
+        kv.attn_head_fused(0, 0, &q, 1, 0, &mut [0i64; 1]),
+        Err(AttnError::BadGeometry)
+    );
+}
+
+#[test]
+fn attn_head_fused_refuses_bad_geometry_and_shapes() {
+    let mut kv = KvState::new(1, 2, 1, 2, 1).expect("geometry");
+    assert_eq!(kv.append(0, &[ONE, ONE], &[ONE, ONE]), Ok(0));
+    let q = [ONE, ONE];
+    assert_eq!(
+        kv.attn_head_fused(1, 0, &q, 0, 1, &mut [0i64; 2]),
+        Err(AttnError::LayerOutOfRange {
+            layer: 1,
+            n_layer: 1,
+        })
+    );
+    assert_eq!(
+        kv.attn_head_fused(0, 2, &q, 0, 1, &mut [0i64; 2]),
+        Err(AttnError::HeadOutOfRange { head: 2, n_head: 2 })
+    );
+    assert_eq!(
+        kv.attn_head_fused(0, 0, &[ONE], 0, 1, &mut [0i64; 2]),
+        Err(AttnError::RowLength {
+            expected: 2,
+            got: 1,
+        })
+    );
+    assert_eq!(
+        kv.attn_head_fused(0, 0, &q, 0, 1, &mut [0i64; 1]),
+        Err(AttnError::RowLength {
+            expected: 2,
+            got: 1,
+        })
+    );
+    assert_eq!(
+        kv.attn_head_fused(0, 0, &q, 1, 1, &mut [0i64; 2]),
+        Err(AttnError::PositionOutOfRange { pos: 1, len: 1 })
+    );
+}
+
 /// One `Q8_0` block per row, `d = 1.0` and the first `row.len()` codes, for synthetic FFN
 /// payloads; the unused codes stay `0`.
 fn q8_0_rows(rows: &[&[u8]]) -> Vec<u8> {

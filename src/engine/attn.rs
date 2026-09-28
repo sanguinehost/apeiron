@@ -217,7 +217,330 @@ fn value_component(
     Ok(rounded as i64)
 }
 
+/// The fused online-softmax state of one query head: the fixed max-shift score and the exact
+/// `i128` denominator and numerator sums of the causal prefix at that shift.
+///
+/// `den = Σ_{j≤pos} e_j` and `num_i = Σ_{j≤pos} e_j·v_{j,i}`, with `e_j = exp_at(score_j, m)`.
+/// Both sums are exact checked `i128` additions, so they are independent of the order and of the
+/// tile grouping of the keys (integer addition is associative and commutative). In real reading
+/// `num_i/den` is `Σ_j softmax(score)_j·v_{j,i}` — the common shift cancels — the dense softmax
+/// attention `Numeric.EngineAttnRefinement.denseAttnReal`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttnFusedState {
+    /// The fixed max-shift score `m`.
+    pub m: i64,
+    /// The exact softmax denominator `Σ_j e_j` (`> 0` for a state that was returned).
+    pub den: i128,
+    /// The exact numerator `Σ_j e_j·v_{j,i}`, `head_dim` wide.
+    pub num: Vec<i128>,
+}
+
+/// Round-to-nearest `num / den` (`den > 0`) for a signed numerator: the sign-symmetric companion
+/// of [`round_shift_32`], ties away from zero. The error against the exact quotient is below
+/// `1/2 + 1/(2·den)`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the `as i64` narrowing is range-checked against i128::from(i64::MAX)/i64::MIN \
+              immediately before it; `i64::try_from` emits an unmodeled external the fail-closed \
+              extraction audit rejects"
+)]
+fn round_div_signed(num: i128, den: i128) -> Result<i64, AttnError> {
+    let q = if num >= 0 {
+        (num + den / 2) / den
+    } else {
+        // `(num - den/2) / den` rounds the magnitude to nearest without negating `num`; the plain
+        // form stays total at `i128::MIN`.
+        (num - den / 2) / den
+    };
+    if q > i128::from(i64::MAX) || q < i128::from(i64::MIN) {
+        return Err(AttnError::Overflow);
+    }
+    Ok(q as i64)
+}
+
 impl KvState {
+    /// The shared guard chain of the fused read, in the order [`KvState::attn_head`] checks it
+    /// (layer, query head, query width, position); returns the GQA KV head `q_head` reads.
+    fn fused_kvh(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+    ) -> Result<usize, AttnError> {
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if q_head >= self.n_head {
+            return Err(AttnError::HeadOutOfRange {
+                head: q_head,
+                n_head: self.n_head,
+            });
+        }
+        if q.len() != self.head_dim {
+            return Err(AttnError::RowLength {
+                expected: self.head_dim,
+                got: q.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        Ok(q_head / (self.n_head / self.n_head_kv))
+    }
+
+    /// The score prefix `0..=pos` of the fused read: one [`score_at`] per causal key, the same
+    /// scores [`KvState::attn_head`] computes. Returns the GQA KV head and the score list.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time in checked `i128` multiply-adds, `O(pos + 1)` space for the
+    /// score list: `O(pos + 1)` calls into `O(head_dim)` each, accumulated once per key.
+    fn score_prefix(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+    ) -> Result<(usize, Vec<i64>), AttnError> {
+        let kvh = self.fused_kvh(layer, q_head, q, pos)?;
+        let hd = self.head_dim;
+        let kv = self.n_head_kv;
+        let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+        let mut scores: Vec<i64> = Vec::with_capacity(slots);
+        let kplane = &self.k[layer];
+        let mut s = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while s <= pos && ok {
+            match score_at(kplane, q, self.scale, kv, kvh, hd, s) {
+                Ok(score) => scores.push(score),
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            s += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        Ok((kvh, scores))
+    }
+
+    /// Fold the precomputed score prefix into a fused `(m, den, num)` state at the fixed shift
+    /// `m`, in `tile`-key groups. The tile boundaries only re-parenthesise the same `i128` sums,
+    /// so the returned `den`/`num` are the same for every `tile`.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time in checked `i128` multiply-adds and one [`fixed_exp`] per
+    /// key, `O(head_dim)` space for `num` plus `O(1)` for the group cursor; the op count is
+    /// independent of `tile`.
+    fn fused_fold(
+        &self,
+        layer: usize,
+        kvh: usize,
+        scores: &[i64],
+        m: i64,
+        tile: usize,
+    ) -> Result<AttnFusedState, AttnError> {
+        let hd = self.head_dim;
+        let kv = self.n_head_kv;
+        let vplane = &self.v[layer];
+        let count = scores.len();
+        let mut den: i128 = 0;
+        let mut num: Vec<i128> = vec![0i128; hd];
+        let mut start = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while start < count && ok {
+            let end = match start.checked_add(tile) {
+                Some(last) => last.min(count),
+                None => count,
+            };
+            let mut key = start;
+            while key < end && ok {
+                match exp_at(scores[key], m) {
+                    Ok(exp_word) => {
+                        if let Some(next) = den.checked_add(i128::from(exp_word)) {
+                            den = next;
+                        } else {
+                            err = Some(AttnError::Overflow);
+                            ok = false;
+                        }
+                        let mut comp = 0usize;
+                        while comp < hd && ok {
+                            match plane_at(kv, kvh, hd, key, comp) {
+                                Ok(at) => {
+                                    if let Some(&vb) = vplane.get(at) {
+                                        if let Some(term) =
+                                            i128::from(exp_word).checked_mul(i128::from(vb))
+                                        {
+                                            if let Some(next) = num[comp].checked_add(term) {
+                                                num[comp] = next;
+                                            } else {
+                                                err = Some(AttnError::Overflow);
+                                                ok = false;
+                                            }
+                                        } else {
+                                            err = Some(AttnError::Overflow);
+                                            ok = false;
+                                        }
+                                    } else {
+                                        err = Some(AttnError::Overflow);
+                                        ok = false;
+                                    }
+                                }
+                                Err(geo_err) => {
+                                    err = Some(geo_err);
+                                    ok = false;
+                                }
+                            }
+                            comp += 1;
+                        }
+                    }
+                    Err(exp_err) => {
+                        err = Some(exp_err);
+                        ok = false;
+                    }
+                }
+                key += 1;
+            }
+            start = end;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        if den <= 0 {
+            return Err(AttnError::ZeroSum);
+        }
+        Ok(AttnFusedState { m, den, num })
+    }
+
+    /// The exact maximum score over the causal prefix `0..=pos`: pass 1 of the fused read, the
+    /// shift the fold fixes for every key. The prefix is nonempty (`pos < occupied`), so the
+    /// result is a real score.
+    ///
+    /// # Errors
+    ///
+    /// The [`KvState::attn_head`] guard chain and its `AttnError::Overflow` on a score epilogue.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time, `O(pos + 1)` space for the score prefix.
+    #[must_use = "the max shift is the fold's fixed `m`"]
+    pub fn attn_max(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+    ) -> Result<i64, AttnError> {
+        let (_kvh, scores) = self.score_prefix(layer, q_head, q, pos)?;
+        let mut mx = i64::MIN;
+        let mut s = 0usize;
+        while s < scores.len() {
+            if scores[s] > mx {
+                mx = scores[s];
+            }
+            s += 1;
+        }
+        Ok(mx)
+    }
+
+    /// The fused `(m, den, num)` state of the causal prefix at the fixed shift `m`, folded in
+    /// `tile`-key groups. `m` is caller-supplied: the online read passes the exact maximum from
+    /// [`KvState::attn_max`], so every key is shifted by one common value and the exact `i128`
+    /// sums do not depend on `tile`.
+    ///
+    /// # Errors
+    ///
+    /// The [`KvState::attn_head`] guard chain; [`AttnError::BadGeometry`] when `tile == 0`;
+    /// [`AttnError::ZeroSum`] when `den == 0` (every shift below the `fixed_exp` window);
+    /// [`AttnError::Overflow`] when an `i128` accumulation leaves range.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time, `O(head_dim)` space beyond the `O(pos + 1)` score prefix;
+    /// independent of `tile`.
+    pub fn attn_fused_state(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+        m: i64,
+        tile: usize,
+    ) -> Result<AttnFusedState, AttnError> {
+        if tile == 0 {
+            return Err(AttnError::BadGeometry);
+        }
+        let (kvh, scores) = self.score_prefix(layer, q_head, q, pos)?;
+        self.fused_fold(layer, kvh, &scores, m, tile)
+    }
+
+    /// The fused online attention read of one query head at `pos`, the exact-scan companion of
+    /// [`KvState::attn_head`]: the exact maximum score over the causal prefix, the exact
+    /// `(m, den, num)` fold in `tile`-key groups, and one normalisation `round(num_i / den)` per
+    /// output component. The per-probability path of [`KvState::attn_head`] is unchanged and
+    /// remains the oracle.
+    ///
+    /// # Errors
+    ///
+    /// The [`KvState::attn_head`] guard chain; [`AttnError::BadGeometry`] when `tile == 0`;
+    /// [`AttnError::ZeroSum`] when the fold's denominator is zero (unreachable at the exact
+    /// maximum, retained for a caller-supplied `m`); [`AttnError::Overflow`] when an `i128`
+    /// accumulation or an `i64` narrowing leaves range.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time in checked `i128` multiply-adds and one [`fixed_exp`] per
+    /// key, `O(pos + 1)` space for the score prefix and `O(head_dim)` for the fused state; the
+    /// per-position weight vector and its `O(pos + 1)` divisions are removed.
+    pub fn attn_head_fused(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+        tile: usize,
+        out: &mut [i64],
+    ) -> Result<(), AttnError> {
+        if tile == 0 {
+            return Err(AttnError::BadGeometry);
+        }
+        if out.len() != self.head_dim {
+            return Err(AttnError::RowLength {
+                expected: self.head_dim,
+                got: out.len(),
+            });
+        }
+        let (kvh, scores) = self.score_prefix(layer, q_head, q, pos)?;
+        // Pass 1 of the online read: the exact global maximum, the one shift every tile folds
+        // under. A per-tile maximum would rescale the running sums and make the result depend on
+        // the tile boundaries.
+        let mut mx = i64::MIN;
+        let mut s = 0usize;
+        while s < scores.len() {
+            if scores[s] > mx {
+                mx = scores[s];
+            }
+            s += 1;
+        }
+        let state = self.fused_fold(layer, kvh, &scores, mx, tile)?;
+        let mut i = 0usize;
+        while i < self.head_dim {
+            out[i] = round_div_signed(state.num[i], state.den)?;
+            i += 1;
+        }
+        Ok(())
+    }
+
     /// Allocate a zeroed cache for `n_layer` layers, `n_head` query heads, `n_head_kv` KV heads,
     /// `head_dim` values per head and at most `cap` positions per layer.
     ///
