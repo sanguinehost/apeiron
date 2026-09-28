@@ -1,0 +1,17 @@
+[package]
+name = "apeiron_word"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = []
+injection = []
+read-stats = []
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.189"
+
+[workspace]
