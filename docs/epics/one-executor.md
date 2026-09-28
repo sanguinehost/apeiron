@@ -370,3 +370,33 @@ limit for sufficiently many valid columns. Preserve that domain by grouping colu
 64 tasks (`chunk = columns.div_ceil(64).max(1)`), using each group's global `start + offset` for
 refusal ordering. The parity population includes 129 columns to exercise grouped tasks and a partial
 last group. This changes scheduling bounds, not admissible geometry or arithmetic.
+
+### Scheduling decision and final integration
+
+The owned-output comparison `1790611132-astra-swiglu-owned` has five complete quiet rounds.
+Its default-pool paired prefill ratios range from 0.974909 to 1.060560, median 1.027322, with
+two regressions. Four-core prefill is 1.001618; speculation loses four of five rounds in both
+configurations. This is insufficient evidence to adopt the extra scheduling path.
+
+`APEIRON-INFERENCE-W2-T3` assigns Luna cleanup ownership of `src/engine/chart/ffn.rs` and
+`src/engine/step/cols.rs`, base `2930e9e4acf650f0183f337e32c322f63098af29`, in
+`/home/socol/oc-tmp/worktree-agent-inference-w2-cleanup`. Restore both files byte-for-byte from
+`608e726`, removing the provisional helper, its consumers, tests and switch together. Their complete
+consumer inventory is those two files; the final source search must contain neither
+`swiglu_hidden_cols` nor `APEIRON_BATCH_SWIGLU` under `src/`. Gate: focused FFN tests plus the
+whole integration barrier, each invocation bounded at 540 seconds. The experiment's operand-swap
+control is recorded before removal; byte equality checks that cleanup restores the accepted path.
+The lead owns build products, commits, integration, receipts and worktree removal.
+
+SCOPE: the two declared source files; remove rejected experiments and recover the accepted bytes.
+REGISTER: state/test; no new performance, canonical or universal arithmetic claim.
+CORPUS: existing source and the exact prior revision; no new theorem attribution.
+REFERENCE: `/home/socol/Workspace/apeiron/docs/epics/one-executor.md`, scheduling selection above.
+GATE: `cargo test --locked --lib engine::chart::ffn::tests`, repository root, 540 seconds;
+       final Rust/extraction/bridge barriers remain required.
+GRADE: tested restoration pending gates; measured experiment rejected, no speedup accepted.
+
+The slice stops after this third performance candidate. The next bounded performance task is to
+measure the exact projection-scale epilogue separately from integer dot accumulation before changing
+that arithmetic path. Its current cost attribution is a hypothesis requiring a fresh instrumented
+measurement and its own control; the existing whole-model prefill/decode targets remain open.
