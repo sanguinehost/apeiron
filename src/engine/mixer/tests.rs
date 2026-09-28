@@ -250,24 +250,30 @@ fn avx2_write_traversals_match_scalar_across_value_widths() {
                 } else {
                     (1_i64 << 40) + (i64::try_from(j).expect("dv <= 128") * 37)
                 };
-                if j % 2 == 0 { magnitude } else { -magnitude }
+                if j % 2 == 0 {
+                    magnitude
+                } else {
+                    -magnitude
+                }
             })
             .collect();
         let initial: Vec<i64> = (0..128 * dv)
             .map(|n| {
                 let magnitude = (1_i64 << 43) + i64::try_from(n % 97).expect("remainder < 97");
-                if n % 2 == 0 { magnitude } else { -magnitude }
+                if n % 2 == 0 {
+                    magnitude
+                } else {
+                    -magnitude
+                }
             })
             .collect();
 
         let mut row_major = initial.clone();
         let mut column_major = initial.clone();
-        let row_result = unsafe {
-            avx2_kern::write_pass_avx2_order(&mut row_major, &k, &d_prime, dv, false)
-        };
-        let column_result = unsafe {
-            avx2_kern::write_pass_avx2_order(&mut column_major, &k, &d_prime, dv, true)
-        };
+        let row_result =
+            unsafe { avx2_kern::write_pass_avx2_order(&mut row_major, &k, &d_prime, dv, false) };
+        let column_result =
+            unsafe { avx2_kern::write_pass_avx2_order(&mut column_major, &k, &d_prime, dv, true) };
         assert_eq!(row_result, Ok(()), "row-major dv={dv}");
         assert_eq!(column_result, row_result, "column-major dv={dv}");
         assert_eq!(column_major, row_major, "traversals dv={dv}");
@@ -291,13 +297,7 @@ fn avx2_write_traversals_match_scalar_across_value_widths() {
         let mut row_overflow = overflow_initial.clone();
         let mut column_overflow = overflow_initial;
         let row_result = unsafe {
-            avx2_kern::write_pass_avx2_order(
-                &mut row_overflow,
-                &overflow_k,
-                &overflow_d,
-                dv,
-                false,
-            )
+            avx2_kern::write_pass_avx2_order(&mut row_overflow, &overflow_k, &overflow_d, dv, false)
         };
         let column_result = unsafe {
             avx2_kern::write_pass_avx2_order(
