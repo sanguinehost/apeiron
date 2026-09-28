@@ -292,3 +292,13 @@ proof has a 540-second work slice and stops after three materially different fai
 All workers stop for the measured window. The lead performs the five-round rotated A/B against
 the same binary's original traversal; only a supported result changes the default. A regression
 keeps the original traversal and is recorded, not described as a speedup.
+
+### Reproducible benchmark prompt
+
+Lead-owned task `APEIRON-INFERENCE-W1-T4` owns `examples/engine_profile.rs`,
+`tests/fixtures/qwen35-prompt2.ids` and this planning entry in its isolated task worktree. Copy the
+existing prompt bytes, sha256 `894a166ae31393f33425ed7d1fd0b3eed0801c26a3c7095d90825d66fb240443`,
+and use the repository fixture as the default. The explicit `--ids` option remains available.
+Gate: byte/hash equality and `cargo test --locked --example engine_profile`, 540 seconds.
+Grade: tested input preservation; no arithmetic or performance claim. A semantic mutation control
+is inapplicable to a byte-identical relocation; exact hash equality checks the complete input.
