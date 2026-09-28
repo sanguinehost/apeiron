@@ -25,7 +25,7 @@ use crate::engine::trace::{self, Phase};
 use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
 use crate::format::quant;
 
-/// Use one flattened `SwiGLU` dispatch when enabled for a same-binary A/B comparison.
+/// Use whole-column `SwiGLU` scheduling when enabled for a same-binary A/B comparison.
 fn batch_swiglu_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("APEIRON_BATCH_SWIGLU").is_ok_and(|value| value == "1"))
@@ -646,9 +646,7 @@ impl Engine {
         let gate = self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
         let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
         let hs = if batch_swiglu_enabled() {
-            let mut hs = vec![vec![0i64; n_ff]; xs.len()];
-            swiglu_hidden_cols(&gate, &up, &mut hs, true).map_err(StepError::Ffn)?;
-            hs
+            swiglu_hidden_cols(&gate, &up, true).map_err(StepError::Ffn)?
         } else {
             let mut hs = Vec::with_capacity(xs.len());
             for c in 0..xs.len() {
