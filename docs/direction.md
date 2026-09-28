@@ -1,5 +1,10 @@
 # Apeiron Programme Direction
 
+Kani is retired from development and acceptance by user direction;
+[the retirement contract](epics/kani-retirement.md) supersedes earlier Kani requirements.
+Rust tests, source mutation controls, extraction and Lean refinement retain their distinct scopes.
+No universal read, representation or allocator obligation closes through this policy change.
+
 This file is the sole programme authority. It states the shared thesis, ownership, outcomes,
 primitive correspondence, migration and execution order. Local documents own local representations,
 trust and execution detail and link here: [local boundary](kernel-boundary.md) and
@@ -16,7 +21,7 @@ aspiration or the importance of a milestone.
 
 | First-class programme thread | Destination and ownership | Engineering route |
 |---|---|---|
-| Physics and prediction; the Null cell | Develop the descent/ascent programme in [Paper I](../../sanguine/release/paper1/INDEX.md) and test the [registered physical predictions](../../sanguine/theory/PREDICTIONS_REGISTRATION.md) against their own falsifiers. The Null cell is the real hyperbolic specialization, not a replacement for the full sigma family. | Canonical algebra, explicit physical interpretation, numerical refinement and scientific conformance; empirical prediction acceptance stays independent of software/game acceptance. |
+| Physics and prediction; the hyperbolic face (`σ>0`) | Develop the descent/ascent programme in [Paper I](../../sanguine/release/paper1/INDEX.md) and test the [registered physical predictions](../../sanguine/theory/PREDICTIONS_REGISTRATION.md) against their own falsifiers. The hyperbolic face is the real split specialization, not a replacement for the full σ-family. | Canonical algebra, explicit physical interpretation, numerical refinement and scientific conformance; empirical prediction acceptance stays independent of software/game acceptance. |
 | **Whispering Tides** | A playable, scientifically constrained generated world, owned by its [application roadmap](../../whispering-tides/ROADMAP.md). | Song A5 services and A6's pinned planet-generation/interactive slice; full game/science scope remains first-class programme work beyond that release slice. |
 | Video games | Playable systems and reusable engine machinery; Penglai owns game policy and host integration, Lyrium later extracts engine machinery. | Checked readouts, rendering/input, assets and bounded simulation through application-owned gates; no game policy in the canonical core. |
 | World simulation / universe generation | Generate and evolve worlds from the common basis, from planetary terrain/fluids to wider physical models. | Song research C4–C6/G7 and application conformance, with seeded state, units, tolerances and independent references; not merely a graphics benchmark. |
@@ -48,6 +53,11 @@ canonical object; anything not rooted in it is not accepted. The canonical objec
 `Apeiron.Table.{HMap,get,insertWith,build}` and
 `Apeiron.Trichotomy.AnyRing.{RingCell,ringMul,ringNormForm}` with the extracted `Cell<i64>` word
 bodies (`word_mul_denote`, `word_norm_denote`).
+
+Name the algebra and its faces by their standard mathematical names and notation: `R[x]/(x²−σ)`;
+elliptic (`σ<0`), parabolic (`σ=0`), hyperbolic (`σ>0`); the norm form, idempotents and zero divisors
+keep their usual names. Cite the originator(s) of a borrowed object before its reference, and
+retrieve the reference before calling it evidence. Legacy coinages are not reused for new objects.
 
 Fold/hashtrinity -> Apeiron consolidation must be **performance-preserving**: it carries forward
 the high-performance implementation's useful tested surfaces, not merely its names or formulas.
@@ -195,7 +205,7 @@ closure condition. A missing gate or profile requires a bounded design task befo
 implementation; a missing gate is named, never replaced by a fictional command.
 
 The readiness profiles are the gate between the foundation and the next large implementation.
-`docs/spec/joint-primitives.md`, `joint-table.md` and `joint-evaluator.md` name the selected
+`docs/contracts/joint-primitives.md`, `joint-table.md` and `joint-evaluator.md` name the selected
 primitives, domains and obligations, and their checkers establish specification consistency only.
 Their table R1/R2, unmatched B1 algebra and fuel-evaluator profiles are layer-local evidence/spec
 artifacts, not separate foundational authorities. The algebra/combinator, correspondence, lift,
@@ -211,7 +221,7 @@ readiness, and the existing Song milestones are retained, not replaced by it.
 | Retained Lean + reusable Rust source convergence | Apeiron lead | all programme work | none | The canonical source location remains `../sanguine-apeiron/proof`; the bridge manifest resolves Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`, not the older `88866412` pin. Migration into Apeiron remains open. | One revision holds canonical Lean and reusable Rust, both built and audited on one source/tool identity. |
 | Literal algebra, combinator and evaluator foundation | corpus lead (Apeiron) | Song, Rust, physics | retained Lean | `Apeiron.Combinator.routes_are_a_combinatory_algebra` and `Apeiron.Combinator.denote_reduces` are checked theorems. `Apeiron.Combinator.Comb.normalize` is a fuel-bounded evaluator definition; `Apeiron.Combinator.Comb.verdict_decided_exact` proves exactness when the verdict is not `.fuel`. `Omega.lean` proves non-normalization for a named term; that is a boundary, not an unfinished theorem. Open: selected finite-machine representations and executing evaluator refinement. | The selected executing evaluator refines the canonical semantics on an explicit domain and reports resource exhaustion without a false verdict. |
 | Independent Rust–Slang primitive correspondence | cross-repo lead (Apeiron + Song) | both executing implementations | retained Lean; combinator evaluator | Profiles exist, separate Rust and Song replacement refinements are checked, and `Joint.WordBridge` proves the `I64 ↔ Slang.Word` pointwise-map transport. Open: unconditional Song source binding, decoded-context instantiation and the combined theorem on a matched domain. | A checked joint primitive theorem relates both executing implementations to the same canonical definition on a matched domain, including representation, state/effects, admission/refusal and resources. |
-| Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles; Song A0–A4 before bulk ingestion | Plan: Universal Algorithm Bridge, `song lift` and `song adapt` (A7), with modality-blind `universalLiftCons` ingestion and SSA cons-list state vectors. Historical Lean authorities and their real scopes are recorded in the [transfer analysis](plan/programme-roadmap.md#translation-authorities-and-missing-links). Missing links: LLVM domain/effects/undefined behaviour, list→Church state, opcode interpretation, historical→canonical term transport and Song source binding. | Supported source interpretations and target realizations compose through canonical semantics, refusing unsupported inputs; imported-program claims require A7, not every A0–A6 release. |
+| Lift / universal translation | Apeiron lead, with Song owning its source/target adapters | subsumption, realization | source and semantic profiles; Song A0–A4 before bulk ingestion | Plan: Universal Algorithm Bridge, `song lift` and `song adapt` (A7), with modality-blind `universalLiftCons` ingestion and SSA cons-list state vectors. Historical Lean authorities and their real scopes are recorded in the [transfer analysis](roadmap.md#translation-authorities-and-missing-links). Missing links: LLVM domain/effects/undefined behaviour, list→Church state, opcode interpretation, historical→canonical term transport and Song source binding. | Supported source interpretations and target realizations compose through canonical semantics, refusing unsupported inputs; imported-program claims require A7, not every A0–A6 release. |
 | Checked reduction / subsumption | Apeiron lead; Song transformation owner | realization, transformation | lift; canonical term transport | Plan: structural resonance (`song resonate`) and harmonic cancellation (`song cancel`), with collision-confirmed structural sharing, checked hoist/rewrite certificates and explicit observations. `Apeiron.Combinator.Comb.hoist_preserves_semantics`, `Apeiron.Combinator.denote_reduces` and `Comb.verdict_decided_exact` cover their named term relations, not a source-level subsumption pipeline. | Lossless reconstruction or observable relative subsumption is checked, including effects, refusal and resources; distinguish source compression from runtime benefit. |
 | CPU / Slang / GPU realization | Apeiron + Song leads | applications, measurement | subsumption | Named `Cell<i64>` source kernels are refined. The programme-wide joint refinement is not established; existing Slang contracts and model bridges, and GPU experiments, have their own scope. | Each realization refines the same supported semantics, with target features, reduction order and numerical tolerance specified. |
 | Secure OS-language-proof-kernel composition | cross-repo lead (Apeiron semantics/refinement + Song execution) | literal-machine, games and world-simulation tracks | retained Lean; Song A0–A6/B6; primitive correspondence; lift/subsumption; realization | Plan: supersede monolithic Linux with the capability OS, coupled language/proof core, Universal Algorithm Bridge, resonance/cancellation and direct hardware/native ELF projection (`song project`, A7). Hosted ELF output is not native isolation. Open: end-to-end composition through source semantics, authority, boot/ABI and hardware. | A revision-pinned vertical system passes Song's local gates; composing refinements cover the admitted language, proof kernel, OS/ABI and executing primitives with explicit threat model, refusal and resources. A7 additionally gates imported-program claims, not every local release. |
@@ -219,8 +229,8 @@ readiness, and the existing Song milestones are retained, not replaced by it.
 | Active test-time learning and lower-cost useful AI | AI-track lead | applications | joint foundation readiness; realization | Historical formal and executable records exist: [paper1](../../sanguine/release/paper1/INDEX.md) and [spinor-ttl](../../spinor-ttl/README.md). Existing work is not new acceptance. Open: a joint learning/update profile and its executing correspondence. | Streaming updates and retained knowledge satisfy the selected contracts; adaptation quality, learning/inference cost and resource bounds meet a pinned comparison profile. The research target is order-of-magnitude cost improvement at matched useful capability, not an established result. Inference or quantization alone does not close learning. |
 | Physics: classical/quantum correspondence and neutrino prediction | Apeiron physics lead | scientific and application tracks | algebra foundation | Conditional model theorems exist in `Apeiron/Physics/Madelung.lean`, `Apeiron/Physics/Flavour.lean` and `Apeiron/Cosmology/NeutrinoSum.lean`. Real-valued carrier conservation and scoped kinetic-energy results are proved under their stated hypotheses; ring-generic theorems establish conservation and norm-form-ledger identities, not kinetic energy or nonnegativity. The word ring carries no energy claim. Open: joint scientific conformance profiles separating model theorems from empirical confirmation. | Named model predictions are checked against their test profiles under stated domains and tolerances, independently of game integration. |
 | Application and game integration | Penglai + Whispering Tides leads | players, scientific users | physics foundation; realization | Historical toy, game and scientific examples exist; this pass establishes neither current integration testing nor refinement. Open: a playable or scientific loop consuming checked model readouts. | A playable or scientific loop consumes checked model readouts with its own integration gate. |
-| Federation / distributed | Song network lead or an assigned distributed-service lead | applications, including Whispering Tides if the profile calls for it | primitive correspondence | The historical Sanguine federation transfer lineage is recorded in the [song network roadmap](../../song/docs/network/ROADMAP.md) (C3/G5) as design input, and the old corpus's decentralised core (`Navigation/Federation.lean`: `federation_algebra`, `federation_defense`, `federation_reseeds_the_genome`, `conflict_floor`, `scheduler_floor`) is captured for rebase in [security-algebra-rebase](intent/security-algebra-rebase.md). Open: a joint current protocol profile; existing network experiments are historical. | Distributed peers exchange checked, revision-pinned state with explicit delivery, identity, partition and duplicate semantics. |
-| Security / cryptography rebase | lead; Sol for grades; corpus lead (Apeiron) for transport | every executing face and the federation layer | retained Lean; canonical trichotomy | The old Sanguine security module (`../sanguine/proof/Substrate/Algebra/Security/`, 17 files) is largely proved pre-trichotomy: cost-based secrecy rejected (`cipher_secrecy_is_only_cost`), OTP-grade dropped-window secrecy (`sanguine_encryption_information_theoretic_security`, `otp_perfect_secrecy`), the cipher/hash fork (`EncryptionProjection`), and the systems-security results (`MandalaMemory`, `RaceFreedom`, `CapProvenance`). Captured, **not actioned**, in [intent](intent/security-algebra-rebase.md) and [plan](plan/security-algebra-rebase.md). Open: the rebase onto the trichotomy faces, the per-theorem grade transport, and the deeper-review spikes (SHA-256d reading, message-schedule localisation, the AES/RSA bridge named but not re-proven). | Every security theorem is rebound to a face at its declared grade in the canonical corpus, and the corpus's minimum-encryption standard is a claim with a confirm/refute pair; grades are frozen and neither direction is presupposed. The end state is an end-to-end proved Rust implementation per target standard (primitives in Apeiron's core, implementations in a secondary crypto repository), each answering the three questions: stated goals (formal + empirical), structural/algebraic weaknesses, and implementation weaknesses from the empirical hacks. |
+| Federation / distributed | Song network lead or an assigned distributed-service lead | applications, including Whispering Tides if the profile calls for it | primitive correspondence | The historical Sanguine federation transfer lineage is recorded in the [song network roadmap](../../song/docs/network/ROADMAP.md) (C3/G5) as design input, and the old corpus's decentralised core (`Navigation/Federation.lean`: `federation_algebra`, `federation_defense`, `federation_reseeds_the_genome`, `conflict_floor`, `scheduler_floor`) is captured for rebase in [security-algebra-rebase](epics/security-algebra-rebase.md). Open: a joint current protocol profile; existing network experiments are historical. | Distributed peers exchange checked, revision-pinned state with explicit delivery, identity, partition and duplicate semantics. |
+| Security / cryptography rebase | lead; Sol for grades; corpus lead (Apeiron) for transport | every executing face and the federation layer | retained Lean; canonical trichotomy | The old Sanguine security module (`../sanguine/proof/Substrate/Algebra/Security/`, 17 files) is largely proved pre-trichotomy: cost-based secrecy rejected (`cipher_secrecy_is_only_cost`), OTP-grade dropped-window secrecy (`sanguine_encryption_information_theoretic_security`, `otp_perfect_secrecy`), the cipher/hash fork (`EncryptionProjection`), and the systems-security results (`MandalaMemory`, `RaceFreedom`, `CapProvenance`). Captured, **not actioned**, in [intent](epics/security-algebra-rebase.md) and [plan](epics/security-algebra-rebase.md). Open: the rebase onto the trichotomy faces, the per-theorem grade transport, and the deeper-review spikes (SHA-256d reading, message-schedule localisation, the AES/RSA bridge named but not re-proven). | Every security theorem is rebound to a face at its declared grade in the canonical corpus, and the corpus's minimum-encryption standard is a claim with a confirm/refute pair; grades are frozen and neither direction is presupposed. The end state is an end-to-end proved Rust implementation per target standard (primitives in Apeiron's core, implementations in a secondary crypto repository), each answering the three questions: stated goals (formal + empirical), structural/algebraic weaknesses, and implementation weaknesses from the empirical hacks. |
 
 The following G1/REG-1 requirements are unchanged. Its recorded ratios, exits and fixed-shard API
 references are historical receipts, not measurements or API descriptions of the growable source
@@ -229,7 +239,7 @@ read in this review. Current acceptance requires rerunning its exact gate on the
 ## Required R0 acceptance: G1 / REG-1
 
 <!-- APEIRON-STRATEGY-DECISION-T3-STATUS BEGIN -->
-**Current performance status.** The [post-correctness receipt](evidence/perf-remeasure-2026-09-19-post-correctness.md)
+**Current performance status.** The [post-correctness receipt](evidence/perf-ledger.md)
 supersedes the older performance checkpoints below: strict exit 1, `pass=421 fail=1029`,
 `applicable=1450`, `full_acceptance=false`; every spatial pair fails. The worst serial pair is
 spill absent-miss, 20.4682x against `hashbrown_fxhash` (interval [20.0871,20.5922], 16.161 ns/op).
@@ -255,7 +265,7 @@ rewriting the historical RFC: recording a failing ratio as a boundary is evidenc
   insert -> encode -> decode -> get as identical keys.
 - Determinism: identical key/value results across separate processes.
 - Growth/merge: get, insert, remove, growth and ordered versus commutative merges agree with the
-  reference, including refusal. Missing operations in the current fixed-shard API must be reported
+  reference, including refusal. Missing operations in the current growable API must be reported
   as explicit contract boundaries, not silently omitted or counted as passes.
 - Performance: match or beat **every** named applicable incumbent on every applicable cell,
   `selected/incumbent <= 1.0`, never behind and ideally ahead. The named incumbents are
@@ -266,7 +276,7 @@ rewriting the historical RFC: recording a failing ratio as a boundary is evidenc
   `selected/hashtrinity <= 1.25` and replaces the historical-envelope question: there is no
   separate envelope tolerance and no family-wide exemption. An inconclusive or failed required cell
   keeps G1 open.
-- Coverage: report the fraction of the admitted operation surface inside Aeneas/Kani; the container
+- Coverage: report the fraction of the admitted operation surface with Aeneas extraction, Lean refinement and Rust tests separately; the container
   stays outside reported coverage until evidence includes it.
 
 The required comparison matrix carries the historical tested surfaces, not just one full16 case:
@@ -304,7 +314,7 @@ conditions, metric, timed interval, raw samples and uncertainty. Pre-register re
 uncertainty decision rule; inconclusive intervals do not pass. Use same-run relative comparisons,
 not copied absolute milliseconds. Require rejecting oracle/digest, workload-identity and
 slowed-path or selected-implementation-mismatch controls, then an unchanged restored baseline.
-The [lifecycle annex](plan/storage-refinement.md#performance-preserving-consolidation-lifecycle-annex)
+The [lifecycle annex](epics/storage-refinement.md#performance-preserving-consolidation-lifecycle-annex)
 registers the history and bounded implementation sequence. The existing `examples/reg1/` harness
 carries the strict all-row acceptance command
 `cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`.
@@ -313,7 +323,7 @@ when a `pass` cell's ratio interval max is above `1.0` (each applicable cell mus
 `selected/incumbent <= 1.0`); `not-applicable` speed cells and the separate resource rows are
 excluded. The same run without `--accept` is diagnostic, exits 0 and reports the axis `boundary`. The
 command currently exits 1. The fresh strict full-profile receipt
-([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-remeasure-2026-09-19-post-spill.md), sha256
+([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-ledger.md), sha256
 `946b5d40…`) gives HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387 fail=1063
 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`. The spill
 absent-miss cells fell ~15–21x (for example `occ16-seeded-random-absent-miss-replacement`
@@ -414,14 +424,14 @@ Keep source paths and pins accurate: a path written in a document must resolve. 
 approved destination from the not-yet-moved source. A source-proof run log records what happened at
 a revision; it is not fresh acceptance. The release identity is recorded in
 [proof/README.md](../proof/README.md); the run narrative is in
-[autonomous-run-log.md](autonomous-run-log.md).
+[archive/autonomous-run-log.md](archive/autonomous-run-log.md).
 
 Historical evidence stays at its source and is pointed to, not copied. The predecessor documentation
 at Git `1403767e671c81737525702946a3eb1eae4f0b0b` is retained: the storage lifecycle
-([intent](intent/storage-refinement.md), [spec](spec/storage-refinement.md),
-[plan](plan/storage-refinement.md)), the [carrier refinement plan](plan/carrier-refinement.md) and
-the [corpus release pin plan](plan/corpus-release-pin.md). The combined
-[programme plan](plan/programme-roadmap.md) records this documentation pass.
+([intent](epics/storage-refinement.md), [spec](epics/storage-refinement.md),
+[plan](epics/storage-refinement.md)), the [carrier refinement plan](epics/carrier-refinement.md) and
+the [corpus release pin plan](epics/corpus-release-pin.md). The combined
+[programme plan](roadmap.md) records this documentation pass.
 
 ## Revised representation boundary
 
@@ -437,7 +447,7 @@ One representative per key is held under a composite `DirectCover`; extent growt
 newly eligible spills. Key-dropping uses the concrete compile-time carrier `Stored<K>` or `Regen`
 under `KeyRep` and an exact codec law, not a sibling count table or a lossy `FreqMap`. Restoration also
 includes the key-partitioned load-sized shard build, deterministic schedule, grouped probe and
-key-dropping count/dedup; the proof, extraction, Kani, registration and measurement work follows on
+key-dropping count/dedup; the proof, extraction, registration and measurement work follows on
 the same source identity. The flat/spill structure is present in executing Rust; completion of
 these extraction, refinement and measurement obligations is separate. No speed recovery is claimed.
 
@@ -484,7 +494,7 @@ Removing `is_intact` requires replacing its production assurance with a source-l
 argument, not merely calling a tested, unextracted validator unnecessary. Grouped readback already
 exists; eliminating its copies/reducing locally is deferred behind an order/effect contract.
 
-The [serialized owner plan](plan/programme-roadmap.md#serialized-table-owner-and-spatial-plan)
+The [serialized owner plan](roadmap.md#serialized-table-owner-and-spatial-plan)
 and [read/scatter boundary](kernel-boundary.md#read-specialization-and-scatter-boundary) govern these
 tasks. The active Sol owner finishes on its frozen source before factoring changes generated paths.
 W7 composition remains frozen under its unchanged reopening condition; regression re-proof continues.
@@ -500,11 +510,11 @@ run by this documentation decision.
 below, not their requirements. **Authorize the partition-validation cost cut; reject removal of the
 region payload initialization in this dispatch.** `Region::reserve` materializes every payload before
 indexed writes; deleting that pass is not a redundant-write elimination on the present representation.
-The [bounded dispatch](plan/programme-roadmap.md#partition-cut-and-frozen-bridge-maintenance) requires
+The [bounded dispatch](roadmap.md#partition-cut-and-frozen-bridge-maintenance) requires
 intent/spec ratification before changing the fail-closed validator. A safe replacement payload layout
 requires a separate Astra/Sol decision with initialization, drop, refusal and extraction obligations.
 
-The last read strict receipt remains [post-spill](evidence/perf-remeasure-2026-09-19-post-spill.md):
+The last read strict receipt remains [post-spill](evidence/perf-ledger.md):
 exit 1, `full_acceptance=false`, 387 passing and 1063 failing applicable pairs; all spatial pairs
 fail, including concurrency/address-face rejection independent of speed. Its measured examples are
 absent-miss 373.85x → 23.59x and growth-insert 231.88x → 1.53x. The supplied later fingerprint
@@ -536,7 +546,7 @@ Rust/proof barrier, both axiom cones and realization exclusions remain unchanged
 `prepared_rebuild_refines_insertWith` attempts and new extraction undertaken solely to unblock them.
 Name the pending search/commit perimeter `W7-SearchCommitBoundary`, with the explicit premises and
 rejecting-test obligations in the [local boundary](kernel-boundary.md#w7-searchcommitboundary).
-It is trusted/unproved, with only individually evidenced Rust tests or bounded Kani checks labelled
+It is trusted/unproved, with only individually evidenced Rust tests labelled
 `tested`; the boundary as a whole is not yet test-accepted. Existing audited core implications keep
 their exact scopes. Whole-state `apply_insert` preservation and the pending composition remain open.
 Tests, more assumptions and a green build of existing modules do not establish either theorem.
@@ -547,7 +557,7 @@ G1/REG-1 and the owner definition of done remain **OPEN**, `report_complete=fals
 search/commit boundary is not an accepted replacement for real-Rust canonical refinement. The
 allocator/executor exclusions do not permit moving sequential search or commit out of eventual
 end-to-end acceptance. The next large AI implementation remains gated; bounded physics/prediction,
-Null-cell, Whispering Tides, game and world-simulation interface work retains its independent gates.
+The hyperbolic-face (`σ>0`) physics workstream, Whispering Tides, game and world-simulation interface work retains its independent gates.
 
 Reopen W7 only when the lead receives a Sol-ratified, source-pinned task for full `apply_insert`
 `RepR` preservation (both carriers, joint found/fresh flat/spill witnesses, rejecting controls), an
@@ -559,13 +569,13 @@ does not itself reopen or discharge W7. Once the measured production mechanism i
 this proof route is mandatory before G1 closure; freezing it indefinitely leaves the epic incomplete.
 
 **Performance workstream.** The fresh strict full-profile receipt
-([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-remeasure-2026-09-19-post-spill.md), sha256
+([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-ledger.md), sha256
 `946b5d40…`) supersedes the prior full-profile receipt. The supplied 84-pass/566-fail run, serial
 direct ratios 1.75–3.94 versus hashtrinity/hashbrown (about 0.50 versus std), and spatial ratios 2–25
 are stale diagnostics, not measurements of the selected identity here. Earlier receipts below remain
 historical. Comparison coverage is repaired: the five named hashers are load-bearing. Next reduce
 serial direct-path overhead while preparing the spatial partition/build/probe recovery on disjoint
-paths. The [decision matrix and tasks](plan/programme-roadmap.md#performance-re-anchor-and-bounded-dispatch)
+paths. The [decision matrix and tasks](roadmap.md#performance-re-anchor-and-bounded-dispatch)
 choose mechanisms from fresh per-operation evidence, not the old ratios alone.
 
 `examples/reg1/acceptance.rs` and the [hash comparison](hash-comparison.md) registry now classify
@@ -595,18 +605,22 @@ the next large implementation gated.
 its historical implementation and semantic law through normal form/translation to Rust and
 Song/Slang execution, satisfying G1/REG-1 and supporting the secure OS-language-proof system.
 
-The current extraction/refinement leg continues on the real growable implementation. Older
+The current extraction/refinement leg continues on the real growable implementation. The
+[Kani-retirement receipt](evidence/kani-retirement.md) records fresh regeneration/checking at
+generated SHA-256 `92c771510c259bc56c9e437e7d3f3108fa9e2796e6ba41ca2cd826f4127ff74e`
+(1708 extraction-package jobs; 3482 corpus jobs). It does not close the universal read/search links,
+`SearchDecisionCorrect`, or the allocator adapter. Older
 fixed-shard execution statements and the repeated W4–W8 dispatch chain in the handoff are stale;
-the [consolidation report](plan/programme-roadmap.md#conflicts-and-follow-on-documentation) records
+the [consolidation report](roadmap.md#conflicts-and-follow-on-documentation) records
 the exact reconciliation tasks. The resource/refusal contract remains transactional checked
 reservation (option (b)); allocator realization remains outside the extracted core.
 
-1. **Resume the existing extraction/refinement leg.** Bind prepared-resource and search-decision/apply
-   roots for both carriers to the production path, verify extraction freshness and close the growable
-   bridge under its explicit premises. Retain the identity-injectivity, constructor, relocation,
-   schedule and refusal obligations. Source/pin presence is not acceptance. G1/REG-1 stays **OPEN**
-   under the unchanged all-row contract above; historical benchmark receipts are not reruns of this
-   growable source. No restored historical source is automatically admitted.
+1. **Continue the read/search proof leg.** Follow [the current bounded plan](epics/read-proof.md)
+   for the still-open universal read/search links and allocator boundary. Retain the
+   identity-injectivity, constructor, relocation, schedule and refusal obligations. Source/pin
+   presence and fresh extraction are not semantic closure. G1/REG-1 stays **OPEN** under the
+   unchanged all-row contract above; historical benchmark receipts are not reruns of this growable
+   source. No restored historical source is automatically admitted.
 2. **Connect the same primitive.** Close the audited cross-revision collapse/fold correspondence
    and the admitted SKI/derived-Iota translation links without promoting historical anchors.
 3. **Complete the execution refinements.** Song source binding is a later refinement leg of that
@@ -618,6 +632,40 @@ reservation (option (b)); allocator realization remains outside the extracted co
    source/target profile. Independent A5/A6 application slices inform core interfaces in parallel.
    A0–A6/B6 release conditions stay unchanged. This assigns bounded cross-repo tasks, not an entire
    repository; no giant AI port now.
+
+**Verified-AI order.** The staged order to a demonstrable verified-AI artifact — apeiron core
+barrier, Neural rebase, end-to-end extraction, Song base and correspondence, pinned-domain universal
+translation, AI architecture iteration, release only after rebase and end-to-end proof — is recorded
+with its prior-art index (paper1, paper2, spinor-ttl, the Neural corpus) in the
+[programme roadmap](roadmap.md#verified-ai-sequence-and-prior-art-index). Publication
+of pre-rebase artifacts is not a programme step. Survival income is a separate track.
+
+**AI-track re-anchor (lead direction).** The stage-2 port is reference material, not the AI track:
+no vendored module imports the canonical object, and the historical count-LM/entropy/ridge names
+carry no reduction to `R[x]/(x²−σ)`. The AI track restarts from the trichotomy with a minimum
+standard model/training surface rebuilt natively in apeiron — TorchLean at `de3192df…` is read as the
+reference for that surface's scope, not adopted as a dependency; reusable pieces (rings, tensors,
+folds, autograd) are generalised where they serve beyond the model. On that foundation sits the O(1)
+training/finetuning/inference and forward-only-learning model. Intent:
+[`docs/epics/ai-track-reanchor.md`](epics/ai-track-reanchor.md). Spec and plan follow before any
+task is allocated.
+
+**Inference-parity priority (user direction).** Before the architecture track resumes, the AI work
+runs an existing open-weight model from the apeiron tree and reproduces the `fold` engine's recorded
+llama.cpp comparison. No source-level component sits outside the model, and the executing path is
+integer/fixed-point: the existing Aeneas integer model with transcendentals as proven integer
+implementations carrying error bounds. The Aeneas float fork is deferred with a trigger — a float
+artifact that must itself be verified, not a test oracle — so Song's frozen generation-one SoftFloat
+core and one-ulp bound (`song-ref` `ae688f66…`) remain seeds, not an active lane; Song's current prover
+is integer-linear and cannot carry IEEE-754. `rustc`/LLVM codegen, the CPU ISA and — for the GPU lane —
+the SPIR-V toolchain, driver and hardware are the named platform boundary. The engine source is the old
+`fold` tree; the comparison receipts are `fold/results/vs-llamacpp-27b.md`,
+`fold/results/h2h-8b-at-the-served-carrier.md`, `fold/results/vs-llamacpp.md`. The seam is rejected and
+the integer decision recorded in [`docs/epics/inference-parity.md`](epics/inference-parity.md); the
+toolchain feasibility spikes (integer transcendentals, Aeneas float model, Song prover) are complete,
+and the parity [spec](epics/inference-parity.md) and [plan](epics/inference-parity.md) precede task
+allocation. The `Nous` waves (W4-T2 face instances, W4-T3 channel-form attention) are paused behind
+this milestone.
 
 Open acceptance obligations retained by the revised boundary: the `10^8` identity row and the coverage
 census; the unextracted `std::thread::scope` orchestration boundary and its trust statement; integration

@@ -1,0 +1,38 @@
+--- a/proof/corpus/Closures/Engineering/RadixDescent.lean
++++ b/proof/corpus/Closures/Engineering/RadixDescent.lean
+@@ -200,7 +200,7 @@
+ theorem bits_separate {W p q : ℕ} (hpq : p ≠ q) (hp : p < 2 ^ W) (hq : q < 2 ^ W) :
+     ∃ i < W, p.testBit i ≠ q.testBit i := by
+   by_contra h
+-  push_neg at h
++  push Not at h
+   apply hpq
+   apply Nat.eq_of_testBit_eq
+   intro i
+@@ -233,7 +233,7 @@
+ -- ═══════════════════════════════════════════════════════════════════
+ 
+ /-- A digit is a residue below the radix — the codomain bound the linear-prefix walk works in. -/
+-theorem digit_lt (b j p : ℕ) (hb : 0 < b) : digit b j p < 2 ^ b :=
++theorem digit_lt (b j p : ℕ) (_hb : 0 < b) : digit b j p < 2 ^ b :=
+   Nat.mod_lt _ (by positivity)
+ 
+ /-- The probe address of `k` at step `j`: the `j`-th radix-`2^b` digit of the fold `k·PHI`. -/
+@@ -1154,7 +1154,7 @@
+       = 2 ^ W - 2 ^ (W - b) := by
+   haveI : NeZero (2 ^ W) := ⟨by positivity⟩
+   classical
+-  have h := Finset.filter_card_add_filter_neg_card_eq_card
++  have h := Finset.card_filter_add_card_filter_not
+     (s := (Finset.univ : Finset (ZMod (2 ^ W)))) (p := fun c => homeSlot b PHI c = s)
+   rw [home_balanced hb PHI hs, Finset.card_univ, ZMod.card] at h
+   simp only [ne_eq]
+@@ -1202,7 +1202,7 @@
+         = (2 ^ W) ^ n - (2 ^ W - 2 ^ (W - b)) ^ n := by
+     intro s hs'
+     have hs : s < 2 ^ b := Finset.mem_range.mp hs'
+-    have h := Finset.filter_card_add_filter_neg_card_eq_card
++    have h := Finset.card_filter_add_card_filter_not
+       (s := (Finset.univ : Finset (Keys n W))) (p := fun κ => ∀ i, homeSlot b PHI (κ i) ≠ s)
+     rw [Finset.card_univ, card_keys] at h
+     have hmiss : (Finset.univ.filter (fun κ : Keys n W => ∀ i, homeSlot b PHI (κ i) ≠ s)).card

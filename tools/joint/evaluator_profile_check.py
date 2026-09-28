@@ -2,7 +2,7 @@
 """Consistency checker for the W18-T2 joint evaluator profile.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/spec/joint-evaluator.md`` and ``tools/joint/evaluator_profile_rows.json``
+``docs/contracts/joint-evaluator.md`` and ``tools/joint/evaluator_profile_rows.json``
 are internally complete and that every artifact they name resolves:
 
 * every evaluator profile row carries all eight required fields and stays
@@ -61,7 +61,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "spec" / "joint-evaluator.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "joint-evaluator.md"
 ROWS_PATH = HERE.parent / "evaluator_profile_rows.json"
 
 # Named artifacts deliberately absent from the pinned corpus. A reference that

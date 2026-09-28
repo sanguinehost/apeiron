@@ -1,6 +1,6 @@
 diff -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
---- a/Aeneas/Std/Core/Cmp.lean	2026-09-21 10:36:56.607967491 +1000
-+++ b/Aeneas/Std/Core/Cmp.lean	2026-09-21 10:36:56.609392478 +1000
+--- a/Aeneas/Std/Core/Cmp.lean	2026-09-26 15:53:50.784439693 +1000
++++ b/Aeneas/Std/Core/Cmp.lean	2026-09-26 15:53:50.810313017 +1000
 @@ -152,10 +152,12 @@
      core.cmp.Ord.clamp_body partialOrdInst.le partialOrdInst.lt partialOrdInst.gt
  
@@ -18,8 +18,8 @@ diff -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
  def core.cmp.Ord.min.default {Self : Type} (lt : Self → Self → Result Bool)
    (x y : Self) : Result Self :=
 diff -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
---- a/Aeneas/Std/Core/CoreOption.lean	2026-09-21 10:36:56.616853800 +1000
-+++ b/Aeneas/Std/Core/CoreOption.lean	2026-09-21 10:36:56.619023771 +1000
+--- a/Aeneas/Std/Core/CoreOption.lean	2026-09-26 15:53:50.784439693 +1000
++++ b/Aeneas/Std/Core/CoreOption.lean	2026-09-26 15:53:56.839729911 +1000
 @@ -1,5 +1,7 @@
  import Aeneas.Std.Core.Core
  import Aeneas.Std.Core.Result
@@ -28,7 +28,7 @@ diff -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
  import Aeneas.Std.String
  
  namespace Aeneas.Std
-@@ -33,4 +35,21 @@
+@@ -33,4 +35,32 @@
  theorem core.option.Option.ok_or_none {T E : Type} (error : E) :
    core.option.Option.ok_or (none : Option T) error = ok (.Err error) := rfl
  
@@ -49,11 +49,22 @@ diff -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
 +def core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
 +    (T : Type) (_r : Option core.convert.Infallible) : Result (Option T) := ok none
 +
++/-- SPIKE model: `Option::and_then`. `none` is left untouched; `some v` is passed to the
++`FnOnce` instance. This is the form the pinned generator emits for the `Option::and_then`
++external; the closure it supplies is a concrete `FnOnce` impl in the generated file. -/
++@[rust_fun "core::option::{core::option::Option<@T>}::and_then"]
++def core.option.Option.and_then {T U F : Type}
++    (opsfunctionFnOnceFTupleTOptionInst : core.ops.function.FnOnce F T (Option U))
++    (x : Option T) (f : F) : Result (Option U) :=
++  match x with
++  | none => ok none
++  | some v => opsfunctionFnOnceFTupleTOptionInst.call_once f v
++
  end Aeneas.Std
 diff -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
---- a/Aeneas/Std/Core/CoreResult.lean	2026-09-21 10:36:56.629569138 +1000
-+++ b/Aeneas/Std/Core/CoreResult.lean	2026-09-21 10:36:56.632968543 +1000
-@@ -32,4 +32,11 @@
+--- a/Aeneas/Std/Core/CoreResult.lean	2026-09-26 15:53:50.784439693 +1000
++++ b/Aeneas/Std/Core/CoreResult.lean	2026-09-26 15:57:24.454242320 +1000
+@@ -32,4 +32,18 @@
      let mapped ← fnOnce.call_once f error
      ok (core.result.Result.Err mapped : core.result.Result T F)) := rfl
  
@@ -64,10 +75,95 @@ diff -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
 +  | .Ok _ => ok false
 +  | .Err _ => ok true
 +
++/-- SPIKE model: `Result::ok`. `Ok v` becomes `some v`; `Err _` becomes `none`. -/
++@[rust_fun "core::result::{core::result::Result<@T, @E>}::ok"]
++def core.result.Result.ok {T E : Type} (r : core.result.Result T E) : Std.Result (Option T) :=
++  match r with
++  | .Ok v => _root_.Aeneas.Std.Result.ok (some v)
++  | .Err _ => _root_.Aeneas.Std.Result.ok none
++
  end Aeneas.Std
+diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
+--- a/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:53:50.784693136 +1000
++++ b/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:54:09.258998932 +1000
+@@ -100,6 +100,18 @@
+ def IScalar.cast_fromBool (ty : IScalarTy) (x : Bool) : IScalar ty :=
+   if x then ⟨ 1#ty.numBits ⟩ else ⟨ 0#ty.numBits ⟩
+ 
++/-- SPIKE model: `From<u8> for i64`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i64, u8>}::from"]
++def I64.Insts.CoreConvertFromU8.from (x : U8) : Result I64 := ok (UScalar.hcast .I64 x)
++
++/-- SPIKE model: `From<u16> for i64`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i64, u16>}::from"]
++def I64.Insts.CoreConvertFromU16.from (x : U16) : Result I64 := ok (UScalar.hcast .I64 x)
++
++/-- SPIKE model: `From<u8> for i32`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i32, u8>}::from"]
++def I32.Insts.CoreConvertFromU8.from (x : U8) : Result I32 := ok (UScalar.hcast .I32 x)
++
+ /-!
+ # Casts: Theorems
+ -/
+diff -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
+--- a/Aeneas/Std/Scalar/Ops.lean	2026-09-26 15:53:50.784799782 +1000
++++ b/Aeneas/Std/Scalar/Ops.lean	2026-09-26 15:54:09.258998932 +1000
+@@ -4,3 +4,19 @@
+ import Aeneas.Std.Scalar.Ops.Neg
+ import Aeneas.Std.Scalar.Ops.Rem
+ import Aeneas.Std.Scalar.Ops.Sub
++
++namespace Aeneas.Std
++
++open Result
++
++/-- SPIKE model: `usize::div_ceil`. The quotient rounded towards positive infinity; a zero
++divisor refuses through the same `divisionByZero` as `/`, and the `+1` cannot overflow because
++it is only taken when there is a nonzero remainder, so the quotient is strictly below the
++dividend. -/
++@[rust_fun "core::num::{usize}::div_ceil"]
++def core.num.Usize.div_ceil (x y : Usize) : Result Usize := do
++  let q ← UScalar.div x y
++  let r ← UScalar.rem x y
++  if r.val = 0 then ok q else UScalar.add q (UScalar.one : Usize)
++
++end Aeneas.Std
+diff -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/WrappingOps/Shl.lean
+--- a/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-09-26 15:53:50.785029548 +1000
++++ b/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-09-26 15:54:00.480808769 +1000
+@@ -17,6 +17,13 @@
+ def IScalar.wrapping_shl {ty} (x : IScalar ty) (s : U32) : IScalar ty :=
+   ⟨ x.bv.shiftLeft (s.val % ty.numBits) ⟩
+ 
++/-- SPIKE model: `i64::checked_shl`. `none` when the shift amount reaches the bit width;
++otherwise the value shifted left with the shifted-out high bits discarded, exactly Rust's
++`checked_shl` (it checks the amount, not the value bits). -/
++@[rust_fun "core::num::{i64}::checked_shl"]
++def core.num.I64.checked_shl (x : I64) (s : U32) : Result (Option I64) :=
++  if s.val < 64 then ok (some (IScalar.wrapping_shl x s)) else ok none
++
+ uscalar @[step_pure_def]
+ def «%S».wrapping_shl (x : «%S») (s : U32) : «%S» := @UScalar.wrapping_shl UScalarTy.«%S» x s
+ 
+diff -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
+--- a/Aeneas/Std/String.lean	2026-09-26 15:53:50.784296986 +1000
++++ b/Aeneas/Std/String.lean	2026-09-26 15:53:50.811028990 +1000
+@@ -24,8 +24,10 @@
+   rw [loop_length 0 [] (Nat.zero_le _)]
+   simp
+ 
+-/-- TODO: we shouldn't use `decide +native` but it seems we can't reduce it otherwise. -/
+-def toStr (s : String) (h : s.toByteArray.size ≤ U32.max := by decide +native) : Str :=
++/-- `U32.max` is an `irreducible_def`, so plain `decide` cannot evaluate the bound. Rewriting it
++to its numeral first makes the remaining goal `s.toByteArray.size ≤ 4294967295`, which `decide`
++closes by kernel reduction for a string literal, with no `decide +native`/`Lean.ofReduceBool`. -/
++def toStr (s : String) (h : s.toByteArray.size ≤ U32.max := by rw [U32.max_eq]; decide) : Str :=
+   .from (s.toByteArray.toList.map
+     (fun x => ⟨ x.toNat, by cases x; simp only [UInt8.toNat_ofBitVec, UScalarTy.U8_numBits_eq, Nat.reducePow]; omega  ⟩))
+     (by
 diff -ruN a/Aeneas/Std/Vec.lean b/Aeneas/Std/Vec.lean
---- a/Aeneas/Std/Vec.lean	2026-09-21 10:36:56.599611709 +1000
-+++ b/Aeneas/Std/Vec.lean	2026-09-21 10:36:56.601899074 +1000
+--- a/Aeneas/Std/Vec.lean	2026-09-26 15:53:50.784296986 +1000
++++ b/Aeneas/Std/Vec.lean	2026-09-26 15:53:50.810797278 +1000
 @@ -17,6 +17,13 @@
  local macro_rules
  | `(tactic| get_elem_tactic) => `(tactic| grind)

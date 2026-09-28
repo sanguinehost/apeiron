@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Rejecting gate for the canonical Kepler contract (APEIRON-KEPLER-W1-T2).
 
-The frozen W0 contract is ``docs/intent/kepler-canonical.md``,
-``docs/spec/kepler-canonical.md`` and ``docs/plan/kepler-canonical.md``. This
+The frozen W0 contract is ``docs/contracts/kepler-canonical-intent.md``,
+``docs/contracts/kepler-canonical-spec.md`` and ``docs/contracts/kepler-canonical-plan.md``. This
 checker validates the semantic content of that contract, not its file names:
 a document that keeps the shape but states an unsound claim must be rejected
 with a diagnostic that names the field and the observed problem. A grep-only,
@@ -181,15 +181,15 @@ EXIT_USAGE = 2
 SELF_TEST_BUDGET_S = 120
 SUBPROCESS_TIMEOUT_S = 60
 
-INTENT = "docs/intent/kepler-canonical.md"
-SPEC = "docs/spec/kepler-canonical.md"
-PLAN = "docs/plan/kepler-canonical.md"
+INTENT = "docs/contracts/kepler-canonical-intent.md"
+SPEC = "docs/contracts/kepler-canonical-spec.md"
+PLAN = "docs/contracts/kepler-canonical-plan.md"
 CONTRACT_DOCS = (INTENT, SPEC, PLAN)
 
 CANONICAL_PIN = "3d66ea3aa2fe1de5997b6b757247454a2f771358"
 
 # The predecessor attribution inventory must cover exactly these declarations
-# (docs/spec/kepler-canonical.md, "Predecessor attribution and migrations").
+# (docs/contracts/kepler-canonical-spec.md, "Predecessor attribution and migrations").
 INVENTORY_DECLARATIONS = (
     "keplerMap",
     "kepler_iff_fixedpoint",

@@ -5,7 +5,7 @@
 //! executing table keeps its own [`crate::table::TableAddress`]; nothing here is wired into a
 //! table read or write.
 //!
-//! Faces follow the per-face contract in `docs/spec/algebra-native-addressing.md`:
+//! Faces follow the per-face contract in `docs/epics/algebra-native-addressing.md`:
 //!
 //! | face | [`Sigma`] | address ring | word map |
 //! |---|---|---|---|

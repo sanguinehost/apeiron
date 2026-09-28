@@ -48,9 +48,9 @@ marks the rest `anchor`.
 | std `HashMap`/`HashSet` | SipHash-1-3, process-random key | SwissTable port; 1 control byte/entry; SIMD group probe; load factor 7/8; `DELETED` tombstone [S20] | doubling growth; tombstone removal | resistance by secret keying | std/alloc | std |
 | hashbrown 0.15.5 (apeiron dev-dep pin [S2]) | foldhash default, pluggable | SwissTable; 1 byte overhead; SIMD; empty map does not allocate [S20] | load 7/8; doubling; `rayon` feature [S20] | default hasher weaker than SipHash, by its own README [S20] | `no_std` + `alloc` [S20] | MIT/Apache [S20] |
 | hashbrown + rayon | per-instance seeds | parallel `par_iter` | as hashbrown | as hashbrown | `no_std` unlikely with rayon anchor | MIT/Apache [S20][S29] |
-| apeiron `coord::spread` / direct `Coord` | optional process pepper, default `NO_PEPPER = 0` [S3][S6] | `id = x·PHI` bijection; `place = rotl(hi,32) ^ lo` discard; `finish` is splitmix bijection [S4] | direct lane is exact-coordinate candidate [S5] | coordinate key is its own address; lossy fold uses pepper [S4][S6] | std (`AtomicU64`) [S6] | GPL-3.0 [S2] |
-| apeiron `fold_bytes` (`mix2`/`settle`) | default unkeyed; process pepper optional [S3] | length ladder; two independent 16-byte lanes; folded multiply plus `a - b` guard [S3] | one-shot | guard closes seed-cancel; pepper de-amortizes offline search [S3][S6]; no collision-resistance promise, 2^32 birthday [S3] | std | GPL-3.0 [S2] |
-| apeiron `Table` | `Home`/`Merge` callbacks; optional global pepper [S5][S6] | 256 growable regions; 7-bit tag group scan; direct lane then 7 descent windows then cyclic sweep [S5] | region reallocation and re-placement; `ShardFull` retained only for compatibility [S5] | deterministic placement; finite first-fit order; no proved adversary bound anchor | std + alloc (`Vec`) [S5] | GPL-3.0 [S2] |
+| apeiron `coord::spread` / direct `Coord` | optional process pepper, default `NO_PEPPER = 0` [S3][S6] | `id = x·PHI` bijection; `place = rotl(hi,32) ^ lo` discard; `finish` is splitmix bijection [S4] | direct lane is exact-coordinate candidate [S5] | coordinate key is its own address; lossy fold uses pepper [S4][S6] | std (`AtomicU64`) [S6] | MPL-2.0 [S2] |
+| apeiron `fold_bytes` (`mix2`/`settle`) | default unkeyed; process pepper optional [S3] | length ladder; two independent 16-byte lanes; folded multiply plus `a - b` guard [S3] | one-shot | guard closes seed-cancel; pepper de-amortizes offline search [S3][S6]; no collision-resistance promise, 2^32 birthday [S3] | std | MPL-2.0 [S2] |
+| apeiron `Table` | `Home`/`Merge` callbacks; optional global pepper [S5][S6] | 256 growable regions; 7-bit tag group scan; direct lane then 7 descent windows then cyclic sweep [S5] | region reallocation and re-placement; `ShardFull` retained only for compatibility [S5] | deterministic placement; finite first-fit order; no proved adversary bound anchor | std + alloc (`Vec`) [S5] | MPL-2.0 [S2] |
 | hashtrinity `Table`/`FreqMap`/`CoordMap` (pinned predecessor [S2]) | unseeded by design; deterministic [S11] | keyless 2^−64 false-positive; `CoordMap` worst-case probe 1 [S11] | capacity-presized; merges only | claims "by construction" via `k·PHI` bijection and radix descent [S11]; `tests/hashdos.rs` states the worst-case probe bound is measured, and `AggregationBound.descent_can_be_wholly_blocked` fills a descent's whole window set [S14] | uses std anchor | MIT/Apache [S11] |
 
 Source alignment note: the corrected `README.md` and `kernel-boundary.md` now name the executing
@@ -60,7 +60,7 @@ shard, `ShardFull` refusal, `N = 0` refusal, no probing) as revision-bound histo
 [S1][S5][S9]. `src/table.rs` is that growable, key-partitioned representation with a finite
 first-fit probe and checked sizing/reservation; `ShardFull` is retained as a compatibility variant
 the growable table does not return. The divergence this note previously recorded is resolved in the
-local boundary; `docs/spec/storage-refinement.md` still carries stale fixed-shard-as-executing rows
+local boundary; `docs/epics/storage-refinement.md` still carries stale fixed-shard-as-executing rows
 and is corrected under a separate owner.
 
 ## Fair comparisons by face
@@ -127,7 +127,7 @@ surfaces; the missing adapters are an open coverage gap, not a `not-applicable` 
 
 | domain | property it actually needs | bar-setter | apEIRON reading |
 |---|---|---|---|
-| General Rust std replacement | hasher quality and speed; HashDOS only if keys are untrusted; permissive license; optional no_std | hashbrown/foldhash for speed; std SipHash for untrusted keys | GPL-3.0 is the stated blocker for std-replacement adoption [S2]; no current speed claim [S1] |
+| General Rust std replacement | hasher quality and speed; HashDOS only if keys are untrusted; permissive license; optional no_std | hashbrown/foldhash for speed; std SipHash for untrusted keys | licence is `MPL-2.0` [S2]; no licence blocker; no current speed claim [S1] |
 | Operating systems / kernels | `no_std`, no hidden allocation, deterministic, no panics, bounded worst case | hashbrown `no_std`+`alloc`; an inline fixed table | grows regions with `Vec` and uses `std` atomics [S5][S6]; not a no_std drop-in |
 | Programming-language runtimes / compilers | small-integer throughput, deterministic across runs, trusted inputs | FxHash/rustc-hash and foldhash-f | coordinate direct index is the right shape but unmeasured; license applies |
 | Proof assistants / proof kernels | reproducibility and cross-process determinism, stable names, keyed collision resistance; speed secondary | a deterministic fold with an explicit key, or keyed SipHash | deterministic default and logged pepper fit replay [S3][S6]; the pepper is process-global state, not per-map |
@@ -147,14 +147,15 @@ README directs that to Argon2 [S21].
 Local apEIRON:
 
 - [S1] `README.md`.
-- [S2] `Cargo.toml` and `Cargo.lock`: license-file GPL-3.0; pins foldhash 0.1.5, hashbrown 0.15.5,
+- [S2] `Cargo.toml` and `Cargo.lock`: `license = "MPL-2.0"`; pins foldhash 0.1.5, hashbrown 0.15.5,
   rustc-hash 2.1.3, criterion 0.5.1; hashtrinity git rev
   `4cc14471ae24f3f204fb0b0e91736ef75c909358`.
 - [S3] `src/fold.rs`.
 - [S4] `src/coord.rs`.
 - [S5] `src/table.rs`, `src/table/scan.rs`.
 - [S6] `src/pepper.rs`.
-- [S7] `src/proofs.rs` (`cfg(kani)`).
+- [S7] `src/table/probe.rs` ordinary finite read/locator regression tests; symbolic Kani harnesses
+  were retired under `docs/epics/kani-retirement.md`.
 - [S8] `docs/direction.md`, section "Required R0 acceptance: G1 / REG-1".
 - [S9] `docs/kernel-boundary.md`.
 - [S10] `docs/flash-handoff.md`.

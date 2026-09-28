@@ -2252,10 +2252,10 @@
       "wave": "W24",
       "title": "Byte bridge",
       "note": "Constructive source-byte packing, canonical view, length and injectivity proofs.",
-      "audit_module": "Slang/Source/BytesAudit.lean",
+      "audit_module": "Slang/Source/Audit/Bytes.lean",
       "source_files": [
         "proof/corpus/Slang/Source/Bytes.lean",
-        "proof/corpus/Slang/Source/BytesAudit.lean"
+        "proof/corpus/Slang/Source/Audit/Bytes.lean"
       ],
       "declarations": [
         {
@@ -2327,38 +2327,38 @@
         {
           "name": "Slang.Source.BytesAudit.nat_add_zero",
           "expected_type": "(0 : Nat) + 0 = 0",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         },
         {
           "name": "Slang.Source.BytesAudit.sample",
           "expected_type": "Slang.Source.SourceBytes",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         },
         {
           "name": "Slang.Source.BytesAudit.mutated",
           "expected_type": "Slang.Source.SourceBytes",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         },
         {
           "name": "Slang.Source.BytesAudit.sample_rep",
           "expected_type": "Slang.Source.ByteRep Slang.Source.BytesAudit.sample (Slang.Source.encodeBytes Slang.Source.BytesAudit.sample)",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         },
         {
           "name": "Slang.Source.BytesAudit.represented_encoding_eq",
           "expected_type": "∀ {bytes bytes' : Slang.Source.SourceBytes}, Slang.Source.ByteRep bytes (Slang.Source.encodeBytes bytes') → bytes = bytes'",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         },
         {
           "name": "Slang.Source.BytesAudit.mutated_rejected",
           "expected_type": "¬Slang.Source.ByteRep Slang.Source.BytesAudit.sample (Slang.Source.encodeBytes Slang.Source.BytesAudit.mutated)",
-          "module": "Slang.Source.BytesAudit",
-          "path": "proof/corpus/Slang/Source/BytesAudit.lean"
+          "module": "Slang.Source.Audit.Bytes",
+          "path": "proof/corpus/Slang/Source/Audit/Bytes.lean"
         }
       ]
     },
@@ -2366,12 +2366,12 @@
       "kind": "active",
       "wave": "W22",
       "title": "Lexical fidelity",
-      "note": "Migrated to the empty cone; declarations registered from Slang/Source/LexingAudit.lean.",
-      "audit_module": "Slang/Source/LexingAudit.lean",
+      "note": "Migrated to the empty cone; declarations registered from Slang/Source/Audit/Lexing.lean.",
+      "audit_module": "Slang/Source/Audit/Lexing.lean",
       "source_files": [
         "proof/corpus/Slang/Decode.lean",
         "proof/corpus/Slang/Source/Lexing.lean",
-        "proof/corpus/Slang/Source/LexingAudit.lean"
+        "proof/corpus/Slang/Source/Audit/Lexing.lean"
       ],
       "declarations": [
         {
@@ -2461,50 +2461,50 @@
         {
           "name": "Slang.Source.LexingAudit.multibyteSource",
           "expected_type": "Slang.Source.SourceBytes",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.multibyteTokens",
           "expected_type": "List Slang.Decode.Token",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.multibyte_derivation",
           "expected_type": "Slang.Source.LexingDerivation Slang.Source.LexingAudit.multibyteSource Slang.Source.LexingAudit.multibyteTokens 2",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.multibyte_advances_two_bytes",
           "expected_type": "Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.LexingAudit.multibyteSource) = .ok (Slang.Source.LexingAudit.multibyteTokens, 2)",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.multibyte_endpoint_not_char_count",
           "expected_type": "Slang.Source.LexingAudit.multibyteTokens.head?.map (·.span.stop) ≠ some 1",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.unknown_reachable_rejected",
           "expected_type": "(match Slang.Decode.parseExprFuel 4 0 Slang.Source.LexingAudit.multibyteTokens with | .error _ => true | .ok _ => false) = true",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.unknown_not_trivia",
           "expected_type": "(Slang.Decode.tokenize (Slang.Source.encodeBytes Slang.Source.LexingAudit.multibyteSource)).map (fun result => result.1.map (·.kind)) = .ok [.other 'é']",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingAudit.nat_add_zero",
           "expected_type": "(0 : Nat) + 0 = 0",
-          "module": "Slang.Source.LexingAudit",
-          "path": "proof/corpus/Slang/Source/LexingAudit.lean"
+          "module": "Slang.Source.Audit.Lexing",
+          "path": "proof/corpus/Slang/Source/Audit/Lexing.lean"
         },
         {
           "name": "Slang.Source.LexingDerivation.intro",
@@ -7600,6 +7600,12 @@
       "title": "Whole-source structural UTF-8 witnesses",
       "note": "Balanced depth-two composition of codepoint-aligned source parts. Named part reads replace whole-list drop/take searches; Utf8Scan.continue threads each part into the exact generated cell, table and std source values.",
       "audit_module": "Slang/Generated/SourceWitness/Tokenizer/Audit.lean",
+      "source_import_closures": [
+        {
+          "root": "Slang.Generated.Table",
+          "allowed_imports": ["Slang.Source.Bytes", "Slang.Generated.TableSupport"]
+        }
+      ],
       "source_files": [
         "proof/corpus/Slang/Generated/Table.lean",
         "proof/corpus/Slang/Generated/TableSupport.lean",

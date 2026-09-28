@@ -60,8 +60,19 @@ theorem extracted_shard_of_direct_word (address : table.TableAddress) (word : U3
   unfold table.shard
   rw [hword]
   step
-  simp only [directShard]
-  rw [shard_post]
+  simp only [table.SHARD_MASK, table.partition.SHARD_MASK, table.partition.SHARDS,
+    table.partition.SHARD_BITS]
+  step
+  · cases System.Platform.numBits_eq <;> simp_all
+  · step
+    · cases System.Platform.numBits_eq <;> simp_all [Usize.size, Usize.numBits]
+    · have hmask : i1 = 255#usize := by
+        apply UScalar.eq_of_val_eq
+        rw [i1_post]
+        cases System.Platform.numBits_eq <;> simp_all [Usize.size, Usize.numBits]
+      rw [hmask]
+      simp only [directShard]
+      rw [shard_post]
 
 /-- A certified in-range word determines the prepared flat index independently of placement. -/
 theorem preparedFlatIndex_of_admission (address : table.TableAddress) (word : U32) (lanes : Nat)

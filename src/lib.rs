@@ -1,9 +1,5 @@
 #![warn(missing_docs)]
 #![warn(clippy::allow_attributes_without_reason)]
-#![allow(
-    unexpected_cfgs,
-    reason = "`cfg(kani)` is set by `cargo kani`, which cargo itself does not know about"
-)]
 
 //! The two-slot algebra `R[x]/(x^2 - sigma)` and one corpus-specified table.
 //!
@@ -12,14 +8,18 @@
 pub mod carrier;
 pub mod cell;
 pub mod coord;
+pub mod engine;
 pub mod exchange;
 pub mod fold;
+pub mod format;
 pub mod kepler;
 pub mod keystore;
 pub mod merge;
+pub mod numeric;
 pub mod pepper;
-pub mod proofs;
+pub mod policy;
 pub mod scalar;
+pub mod spirv;
 pub mod table;
 
 /// Coordinate and packed-key derives, available with the `derive` feature.

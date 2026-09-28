@@ -3,7 +3,7 @@ name = "call-census"
 version = "0.2.0"
 edition = "2021"
 description = "Reproducible AST-based Rust call-site census for Hashtrinity/apeiron consumers."
-license = "GPL-3.0"
+license = "MPL-2.0"
 publish = false
 
 # This tool lives inside the apeiron repository tree but is deliberately its own

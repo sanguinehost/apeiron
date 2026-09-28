@@ -53,7 +53,7 @@ Coverage and exclusions
 =======================
 Governing documents scanned: ``docs/direction.md``, ``docs/kernel-boundary.md``,
 ``docs/flash-handoff.md``, ``README.md`` and ``proof/README.md`` -- the AGENTS.md
-section 1 reading order. ``docs/plan/storage-refinement.md`` is excluded: it is
+section 1 reading order. ``docs/epics/storage-refinement.md`` is excluded: it is
 a plan whose grade records are explicitly superseded/historical, so its grades
 are not current claims. Fenced code blocks are excluded (they show commands, not
 grade assertions). A sentence under a plan/modal marker (``next``, ``will``,
@@ -198,7 +198,7 @@ def lean_resolves(name, declarations, namespaces, audits):
     if name in CLOSED_AXIOMS:
         return True
     short = name.split(".")[-1]
-    return short in declarations or short in namespaces or short in audits
+    return name in declarations or short in declarations or short in namespaces or short in audits
 
 
 # --------------------------------------------------------------------------
@@ -683,6 +683,19 @@ def self_test():
             target = workdir / name
             shutil.copytree(base, target)
             return target
+
+        dotted = fresh("exact-dotted-declaration")
+        dotted_source = dotted / "proof" / "Generated.lean"
+        _write(dotted_source, "def table.Table.apply_insert : Nat := 0\n")
+        with (dotted / "docs" / "kernel-boundary.md").open("a", encoding="utf-8") as handle:
+            handle.write("\n`table.Table.apply_insert` is proved.\n")
+        record("positive: exact dotted declaration passes", 0, _run_checker(dotted))
+        _write(dotted_source, "def other.Table.apply_insert : Nat := 0\n")
+        record("negative: different dotted declaration rejected", 1, _run_checker(dotted),
+               ("table.Table.apply_insert",))
+        dotted_source.unlink()
+        record("negative: deleted dotted declaration rejected", 1, _run_checker(dotted),
+               ("table.Table.apply_insert",))
 
         def unbacked_prose(tree):
             with (tree / "docs" / "kernel-boundary.md").open("a", encoding="utf-8") as handle:

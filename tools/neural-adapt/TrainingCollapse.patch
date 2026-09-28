@@ -1,0 +1,51 @@
+--- a/proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean
++++ b/proof/corpus/Substrate/Algebra/Neural/TrainingCollapse.lean
+@@ -194,7 +194,7 @@
+     (drag X lam).PosDef := by
+   have hgram : (Xᵀ * X).PosSemidef := by
+     have h := Matrix.posSemidef_conjTranspose_mul_self X
+-    simpa [Matrix.conjTranspose, Matrix.transpose] using h
++    simpa only [Matrix.conjTranspose_eq_transpose_of_trivial] using h
+   have hsm : (lam • (1 : Matrix (Fin d) (Fin d) ℝ)).PosDef :=
+     Matrix.PosDef.smul Matrix.PosDef.one hl
+   exact Matrix.PosDef.posSemidef_add hgram hsm
+@@ -570,8 +570,8 @@
+       simp only [Matrix.sum_apply, Matrix.smul_apply, Matrix.vecMulVec_apply,
+         smul_eq_mul, Matrix.mul_apply, Matrix.transpose_apply]
+       refine Finset.sum_congr rfl (fun i _ => ?_)
+-      simp only [Matrix.diagonal_apply, mul_ite, mul_zero, ite_mul, zero_mul,
+-        Finset.sum_ite_eq, Finset.sum_ite_eq', Finset.mem_univ, if_true]
++      simp only [Matrix.diagonal_apply, mul_ite, mul_zero,
++        Finset.sum_ite_eq', Finset.mem_univ, if_true]
+       ring
+ 
+ /-- **The weighted drag is positive-definite** for nonnegative weights and
+@@ -586,7 +586,7 @@
+     have hD : (Matrix.diagonal w).PosSemidef :=
+       Matrix.posSemidef_diagonal_iff.mpr hw
+     have h := hD.conjTranspose_mul_mul_same X
+-    simpa [Matrix.conjTranspose, Matrix.transpose] using h
++    simpa only [Matrix.conjTranspose_eq_transpose_of_trivial] using h
+   have hsm : (lam • (1 : Matrix (Fin d) (Fin d) ℝ)).PosDef :=
+     Matrix.PosDef.smul Matrix.PosDef.one hl
+   exact Matrix.PosDef.posSemidef_add hgram hsm
+@@ -648,7 +648,7 @@
+     qform U B Wstar ≤ qform U B W := by
+   have hnn : 0 ≤ ((W - Wstar)ᵀ * U * (W - Wstar)).trace := by
+     have h := (hpsd.conjTranspose_mul_mul_same (W - Wstar)).trace_nonneg
+-    simpa [Matrix.conjTranspose, Matrix.transpose] using h
++    simpa only [Matrix.conjTranspose_eq_transpose_of_trivial] using h
+   linarith [qform_completion hU hW W, hnn]
+ 
+ /-- The `j`-th diagonal entry of `Mᵀ·U·M` IS the quadratic form of `U` at `M`'s `j`-th column —
+@@ -719,9 +719,8 @@
+     congr 1
+     simp only [Matrix.transpose_mul, Matrix.transpose_transpose, Matrix.mul_assoc]
+   simp only [objective, qform, drag, Matrix.transpose_sub, Matrix.transpose_mul,
+-    Matrix.transpose_transpose, Matrix.transpose_add, Matrix.transpose_smul, Matrix.transpose_one,
+     Matrix.sub_mul, Matrix.mul_sub, Matrix.add_mul, Matrix.mul_add, Matrix.smul_mul,
+-    Matrix.mul_smul, Matrix.one_mul, Matrix.mul_one, Matrix.mul_assoc,
++    Matrix.mul_smul, Matrix.mul_one, Matrix.mul_assoc,
+     Matrix.trace_add, Matrix.trace_sub, Matrix.trace_smul, smul_eq_mul]
+   rw [hcross]
+   ring

@@ -1,0 +1,11 @@
+--- a/proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean
++++ b/proof/corpus/Substrate/Algebra/Neural/MLPrimitivesBridge.lean
+@@ -384,7 +384,7 @@
+     (3) keeps the table's evidence regardless of the floor: `q_j ≥ (c_j − D c_j)/tot`. -/
+ theorem kn_floor_refinement {V : ℕ} (p : Fin V → ℝ) (c : Fin V → ℕ) (D : ℕ → ℝ)
+     (hp1 : ∑ j, p j = 1) (hpnn : ∀ j, 0 ≤ p j)
+-    (hD0 : D 0 = 0) (hDnn : ∀ n, 0 ≤ D n) (hDle : ∀ n, D n ≤ n)
++    (_hD0 : D 0 = 0) (hDnn : ∀ n, 0 ≤ D n) (hDle : ∀ n, D n ≤ n)
+     (htot : 0 < ∑ j, (c j : ℝ)) :
+     (∑ j, ((∑ i, D (c i)) / (∑ i, (c i : ℝ)) * p j
+         + ((c j : ℝ) - D (c j)) / (∑ i, (c i : ℝ))) = 1)

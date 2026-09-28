@@ -1,0 +1,12 @@
+--- a/proof/corpus/Substrate/Algebra/QuantumField/MadelungCell.lean
++++ b/proof/corpus/Substrate/Algebra/QuantumField/MadelungCell.lean
+@@ -211,7 +211,8 @@
+     (hR : ∀ y, HasDerivAt R (dR y) y) (hdφ : ∀ y, HasDerivAt dφ (ddφ y) y) (y : ℝ) :
+     HasDerivAt (current R dφ)
+       ((dR y * R y + R y * dR y) * dφ y + R y * R y * ddφ y) y := by
+-  simpa only [current] using ((hR y).mul (hR y)).mul (hdφ y)
++  change HasDerivAt (R * R * dφ) _ _
++  simpa only [Pi.mul_apply] using ((hR y).mul (hR y)).mul (hdφ y)
+ 
+ /-- **The imaginary channel is the continuity equation (headline).** `R·Im(cellCurv)`
+     equals the current divergence `(R²·φ')'` — conservation of the Born density

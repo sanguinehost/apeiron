@@ -13,7 +13,7 @@
 //! A sparse, face-indexed residue locator with a shared exact-identity byte trie.
 //!
 //! The locator is the physical half of the parabolic and hyperbolic faces in
-//! `docs/spec/algebra-native-addressing.md`. It is a standalone structure: it is not wired into
+//! `docs/epics/algebra-native-addressing.md`. It is a standalone structure: it is not wired into
 //! [`crate::table::Table`] and it changes no existing read or write.
 //!
 //! # Per-face indexing
@@ -125,7 +125,7 @@ const MAX_LEVELS: usize = if LEVELS > PARABOLIC_LEVELS {
 /// The largest number of byte-labelled edges one identity node may hold.
 const MAX_LABELS: usize = 256;
 
-/// Exact-identity instances for the small integer keys used by the tests and Kani harnesses.
+/// Exact-identity instances for the small integer keys used by the regression tests.
 ///
 /// Each width encodes as its fixed-width original-bit bytes, most-significant first, with no
 /// truncation and no reduced residue: for an unsigned key `E(k) = k.to_be_bytes()`, and for a
@@ -556,12 +556,15 @@ impl<K: ExactIdentity, V> Locator<K, V> {
         let (reserved, staged) = self.reserve_for(index, key)?;
         let retained = key.retain_reserved(reserved);
         if self.reps.len() > u32::MAX as usize {
+            // Refusal after staging: the scratch returns to the idle slot with nothing published.
+            self.directory.recycle_staged(staged);
             return Err(Refusal::SizeOverflow);
         }
         let handle = self.reps.len() as u32;
         let identity_node = staged.identity_path[key.encoding_len()];
         // Publish the complete path first, then commit the payload the terminal now names.
-        self.publish(index, key, &staged, handle);
+        // Publication consumes the staged path and recycles its scratch buffer.
+        self.publish(index, key, staged, handle);
         self.reps.push(Representative {
             index,
             identity: retained,
@@ -708,10 +711,13 @@ impl<K: ExactIdentity, V> Locator<K, V> {
         }
     }
 
-    /// Publishes the staged path into the face's residue arena and the shared identity trie.
-    fn publish(&mut self, index: FaceIndex, key: &K, staged: &StagedPath, handle: u32) {
+    /// Publishes the staged path into the face's residue arena and the shared identity trie,
+    /// consuming the staged path and recycling its scratch buffer.
+    fn publish(&mut self, index: FaceIndex, key: &K, staged: StagedPath, handle: u32) {
         match index {
-            FaceIndex::Elliptic => {}
+            // Unreachable (`insert` refuses the elliptic face before staging); the defensive arm
+            // still returns the scratch to the idle slot rather than dropping it.
+            FaceIndex::Elliptic => self.directory.recycle_staged(staged),
             FaceIndex::Parabolic(dual) => self.directory.link(&dual, key, staged, handle),
             FaceIndex::Hyperbolic(residue) => self.directory.link(&residue, key, staged, handle),
         }

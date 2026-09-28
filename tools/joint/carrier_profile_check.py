@@ -2,7 +2,7 @@
 """Consistency checker for the W19-T2 joint carrier/exchange subprofile.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/spec/joint-carrier-exchange.md`` and
+``docs/contracts/joint-carrier-exchange.md`` and
 ``tools/joint/carrier_profile_rows.json`` are internally complete and that
 every artifact they name resolves:
 
@@ -73,7 +73,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "spec" / "joint-carrier-exchange.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "joint-carrier-exchange.md"
 ROWS_PATH = HERE.parent / "carrier_profile_rows.json"
 
 PROFILE_ID = "APEIRON-PROGRAMME-W19-T2"

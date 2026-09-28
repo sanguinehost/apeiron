@@ -17,7 +17,7 @@
 //! the two entries return bit-identical solutions (tested on the sampled
 //! population).
 //!
-//! # Admitted domain (contract: `docs/spec/kepler-canonical.md`)
+//! # Admitted domain (contract: `docs/contracts/kepler-canonical-spec.md`)
 //!
 //! Only `face == Sigma::Elliptic` executes. `Sigma::default()` is Parabolic and
 //! is never a solver face. The mean anomaly is finite with `-pi <= m <= pi` over

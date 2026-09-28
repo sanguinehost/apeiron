@@ -12,7 +12,6 @@ local trusted computing base (TCB) for this repository:
   * the toolchain patch installer (``proof/install-patches.sh``);
   * the storage mutation-control runner (``proof/storage-controls.py``);
   * the axiom-cone audit driver (``proof/corpus/AxiomAudit.lean``);
-  * the bounded-model-checking harnesses (``src/proofs.rs``);
   * the extraction selection wrapper (``proof/extract/lib.rs``);
   * the hand-written boundary statement modules (``proof/Denotation.lean``,
     ``proof/Refinement.lean``) and the package entry points
@@ -99,7 +98,6 @@ OWNED_ROOTS = (
 # Local trusted checking code, explicit manifest. Every entry must exist.
 TRUSTED_CHECKING = (
     "tools/check-assurance.py",
-    "src/proofs.rs",
     "proof/regen.sh",
     "proof/install-patches.sh",
     "proof/storage-controls.py",

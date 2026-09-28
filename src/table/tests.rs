@@ -373,6 +373,238 @@ fn apply_pending_and_commit_consumes_the_supplied_decision() {
     assert_eq!(*found.get_at(sigma, &key), 7);
 }
 
+/// An exact-identity key whose encoding is `len` repetitions of one byte.
+///
+/// The per-instance encoding length is the instrument: one table can stage a long path and then a
+/// short one, so the staged-scratch observations below separate a recycled buffer (same address,
+/// retained capacity covering the long path) from a fresh allocation sized for the short path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Repeated {
+    byte: u8,
+    len: u8,
+}
+
+impl ExactIdentity for Repeated {
+    type Retained = (u8, u8);
+    type Reserved = ();
+
+    fn retain(&self) -> (u8, u8) {
+        (self.byte, self.len)
+    }
+
+    fn reserve_retain(&self) -> Result<(), Refusal> {
+        Ok(())
+    }
+
+    fn retain_reserved(&self, (): ()) -> (u8, u8) {
+        self.retain()
+    }
+
+    fn matches_retained(&self, retained: &(u8, u8)) -> bool {
+        self.retain() == *retained
+    }
+
+    fn encoding_len(&self) -> usize {
+        usize::from(self.len)
+    }
+
+    fn encoding_byte(&self, index: usize) -> u8 {
+        assert!(
+            index < usize::from(self.len),
+            "byte index within the encoding"
+        );
+        self.byte
+    }
+
+    fn retained_encoding_len(retained: &(u8, u8)) -> usize {
+        usize::from(retained.1)
+    }
+
+    fn retained_encoding_byte(retained: &(u8, u8), index: usize) -> u8 {
+        assert!(
+            index < usize::from(retained.1),
+            "byte index within the encoding"
+        );
+        retained.0
+    }
+}
+
+/// The packed placement word of a [`Repeated`] key: its length and byte.
+fn repeated_word(key: &Repeated) -> u64 {
+    (u64::from(key.len) << 8) | u64::from(key.byte)
+}
+
+/// A placement-only home for [`Repeated`] keys on the locator faces.
+#[derive(Clone, Copy)]
+struct RepeatedHome;
+
+impl Home<Repeated> for RepeatedHome {
+    fn home(&self, key: &Repeated) -> u64 {
+        repeated_word(key)
+    }
+
+    fn address(&self, _sigma: Sigma, key: &Repeated) -> TableAddress {
+        TableAddress {
+            place: self.home(key),
+            direct_word: None,
+        }
+    }
+}
+
+locator_face!(RepeatedHome, Repeated, repeated_word);
+
+/// The address and capacity of the outstanding staged path's identity-path scratch buffer.
+fn scratch_marker<K, V, H, const N: usize, R>(table: &Table<K, V, H, N, R>) -> (*const u32, usize)
+where
+    R: KeyRep<K, H>,
+{
+    let Some((_, staged)) = &table.locator.staged else {
+        panic!("a staged path is outstanding");
+    };
+    (
+        staged.identity_path.as_ptr(),
+        staged.identity_path.capacity(),
+    )
+}
+
+/// The flat found-update commit recycles the staged scratch buffer instead of dropping it.
+///
+/// The pending key's staged path is unused on a found update, but its identity-path buffer returns
+/// to the directory's idle slot through `Directory::recycle_staged`, so the next reservation hands
+/// out the same allocation: same address, and capacity still covering the long path. Dropping the
+/// buffer frees it, and the shorter reservation would then show a fresh, smaller allocation. The
+/// checked receipt observes the same capacity through its `staging` bound.
+#[test]
+fn flat_found_update_recycles_the_staged_scratch() {
+    let sigma = Sigma::Parabolic;
+    let home = RepeatedHome;
+    let long_key = Repeated {
+        byte: 0xA5,
+        len: 64,
+    };
+    let short_key = Repeated { byte: 0x5A, len: 1 };
+    let mut table = Table::<Repeated, i64, RepeatedHome, 16>::new(-1, home);
+    let address = Home::address(&home, sigma, &long_key);
+    let held =
+        <Stored<Repeated> as KeyRep<Repeated, RepeatedHome>>::hold(sigma, &long_key, &address);
+
+    // Stage the pending key's path exactly as the rebuild reservation does.
+    let receipt = table
+        .reserve_locator_path(sigma, &long_key)
+        .expect("the long path reserves");
+    let first = scratch_marker(&table);
+    assert_eq!(
+        first.1, receipt.staging.observed_capacity,
+        "the checked receipt observes the scratch capacity the staged path holds"
+    );
+    assert!(
+        first.1 > long_key.encoding_len(),
+        "the scratch is sized for the long path: {} words",
+        first.1
+    );
+
+    // The rebuilt storage the commit consumes: one found flat slot holding the pending key.
+    let mut resident = Flat::<Stored<Repeated>, i64>::reserve(1).expect("one lane");
+    resident.initialize(sigma, &held, &-1);
+    resident.slots[5] = FlatSlot {
+        live: true,
+        sigma,
+        held: held.clone(),
+        value: 10,
+    };
+    let regions: Vec<Region<Stored<Repeated>, i64>> =
+        (0..SHARDS).map(|_| Region::empty()).collect();
+    table.apply_pending_and_commit(
+        RebuildReserved { resident, regions },
+        SearchDecision::found_flat(5),
+        &ReplacementMerge,
+        sigma,
+        99,
+        held,
+        &address,
+    );
+    assert_eq!(table.len(), 0, "a found update changes no logical length");
+    assert_eq!(
+        table.resident.slots[5].value, 99,
+        "the found update merges into its existing slot"
+    );
+
+    // The next reservation takes the recycled buffer: same address and retained capacity, so the
+    // short path allocates no fresh scratch.
+    table
+        .reserve_locator_path(sigma, &short_key)
+        .expect("the short path reserves");
+    let second = scratch_marker(&table);
+    assert_eq!(
+        second, first,
+        "the found-update apply must recycle the staged scratch: the next reservation takes the \
+         same buffer at the same address with its retained capacity, not a fresh allocation sized \
+         for the short path"
+    );
+}
+
+/// The spill found-update commit recycles the staged scratch buffer instead of dropping it.
+///
+/// The same observation as the flat arm, on the spill arm of the commit body: the unused staged
+/// path's buffer returns to the idle slot, so the next reservation reuses it without allocating.
+#[test]
+fn spill_found_update_recycles_the_staged_scratch() {
+    let sigma = Sigma::Parabolic;
+    let home = RepeatedHome;
+    let long_key = Repeated {
+        byte: 0xC3,
+        len: 64,
+    };
+    let short_key = Repeated { byte: 0x3C, len: 1 };
+    let mut table = Table::<Repeated, i64, RepeatedHome, 16>::new(-1, home);
+    let address = Home::address(&home, sigma, &long_key);
+    let held =
+        <Stored<Repeated> as KeyRep<Repeated, RepeatedHome>>::hold(sigma, &long_key, &address);
+
+    table
+        .reserve_locator_path(sigma, &long_key)
+        .expect("the long path reserves");
+    let first = scratch_marker(&table);
+
+    // The rebuilt storage the commit consumes: one found spill slot holding the pending key.
+    let resident = Flat::<Stored<Repeated>, i64>::reserve(1).expect("one lane");
+    let mut region =
+        Region::<Stored<Repeated>, i64>::reserve_empty(32).expect("two initialized groups");
+    region.initialize(sigma, &held, &-1);
+    region.slots[3] = (sigma, held.clone(), 10);
+    let mut regions: Vec<Region<Stored<Repeated>, i64>> =
+        (0..SHARDS).map(|_| Region::empty()).collect();
+    regions[0] = region;
+    table.apply_pending_and_commit(
+        RebuildReserved { resident, regions },
+        SearchDecision {
+            class: SearchClass::Found,
+            location: SearchLocation::Spill(0, 3),
+        },
+        &ReplacementMerge,
+        sigma,
+        99,
+        held,
+        &address,
+    );
+    assert_eq!(table.len(), 0, "a found update changes no logical length");
+    assert_eq!(
+        table.shards[0].slots[3].2, 99,
+        "the found update merges into its existing slot"
+    );
+
+    table
+        .reserve_locator_path(sigma, &short_key)
+        .expect("the short path reserves");
+    let second = scratch_marker(&table);
+    assert_eq!(
+        second, first,
+        "the spill found-update apply must recycle the staged scratch: the next reservation takes \
+         the same buffer at the same address with its retained capacity, not a fresh allocation \
+         sized for the short path"
+    );
+}
+
 /// A word value that counts every clone, so a refusal path can be shown to clone nothing.
 ///
 /// `K` and `V` share one counter through the `Rc`, so a `Stored::hold` key clone, a payload

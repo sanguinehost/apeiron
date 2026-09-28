@@ -1,8 +1,8 @@
 # Extraction requirements — what Aeneas needs from the source
 
 Analysis only. No decision, no root-set change, no claim of `proved`. Derived from the record:
-`proof/README.md`, `proof/regen.sh`, `proof/patches/`, `docs/evidence/anative-extraction-preset-probe.md`,
-`docs/spec/storage-refinement.md`, and the storage-extraction history (`f6db050`, `57a83ba`, `f7d77e4`,
+`proof/README.md`, `proof/regen.sh`, `proof/patches/`, `docs/evidence/anative.md`,
+`docs/epics/storage-refinement.md`, and the storage-extraction history (`f6db050`, `57a83ba`, `f7d77e4`,
 `48333f0`, `d7cf517`, `e848256`, `9a80543`).
 
 ## The pipeline and its single acceptance test
@@ -66,9 +66,9 @@ The growable flat/spill table replaced fixed arrays with `Vec` growth. Growth re
 shape defect, is what moved the write path out of the modeled closure.
 
 The ratified spec already encodes the consequence: allocation is "an unextracted trust boundary with
-a simulation statement" (`docs/spec/storage-refinement.md:171-178`), and "planning, reservation and
+a simulation statement" (`docs/epics/storage-refinement.md:171-178`), and "planning, reservation and
 allocating public build/insert methods are not roots under the resource [contract]"
-(`docs/spec/storage-refinement.md:352-353`, `:373`). So the inner-cone root set is the **current
+(`docs/epics/storage-refinement.md:352-353`, `:373`). So the inner-cone root set is the **current
 contract**, not a new idea — but its cost must stay visible.
 
 ## Three legitimate responses — and the one that is not

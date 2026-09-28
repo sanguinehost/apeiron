@@ -29,6 +29,17 @@
 //! An armed [`reservation_failure`] entry refusal short-circuits the step; an armed
 //! [`reservation_failure::arm_late_edge`] refusal fires at the identity-edge reservation. Both arms
 //! are one-shot and leave the committed links, counts and coverage unchanged.
+//!
+//! # Staged-path scratch ownership cycle
+//!
+//! One staged identity-path buffer serves every reservation. The [`Directory`] idle scratch is
+//! handed to the outstanding [`StagedPath`] on reservation and recycled after publication or
+//! refusal. [`Directory::reserve_for`] takes the idle buffer (allocating only when no buffer is
+//! idle or the retained capacity is too small), [`Directory::link`] and the refusal paths return it
+//! to the idle slot, and [`Directory::take_staged_scratch`] clears it before reuse. The idle slot
+//! is empty while a path is outstanding, so a second reservation allocates its own buffer and no
+//! two staged paths share one. A staged path dropped by its consumer without publication simply
+//! loses the buffer; the next reservation then falls back to one fresh allocation.
 
 use crate::cell::Sigma;
 use crate::coord::address::{ParabolicDual, Residue};
@@ -320,7 +331,7 @@ impl<T: ExactIdentity> ExactIdentity for std::sync::Arc<T> {
 /// Deterministic one-shot reservation-failure injection for [`Directory::reserve_for`].
 ///
 /// This is an inherent seam, not a `#[cfg(test)]` one: the zero-effects tests live in
-/// `tests/native_locator.rs`, an external integration crate that cannot observe `#[cfg(test)]`
+/// `tests/native_locator/main.rs`, an external integration crate that cannot observe `#[cfg(test)]`
 /// items. Two one-shot arms exist, both consumed by the same insert:
 ///
 /// * [`arm`] fires at the entry to the reserve-all phase, before any bound check, arena
@@ -458,8 +469,7 @@ pub(crate) struct Edge {
 /// sibling-edge arena.
 ///
 /// Reading a record copies at most one edge; no `Vec` is materialized and no borrow outlives a
-/// step. [`EdgeList::capacity`] reports the one edge record every identity node reserves when it is
-/// created; [`EdgeList::len`] walks the sibling chain for the cold validators.
+/// step. [`EdgeList::len`] walks the sibling chain for the cold validators.
 #[derive(Clone, Copy)]
 pub(crate) struct EdgeList<'a> {
     edge_words: &'a [u32],
@@ -476,22 +486,6 @@ impl EdgeList<'_> {
             edge = read_word(self.edge_words, EDGE_STRIDE * edge as usize + EDGE_NEXT);
         }
         len
-    }
-
-    /// The number of edge records reserved for this node.
-    ///
-    /// Every identity node reserves exactly one outgoing edge record when
-    /// [`Directory::new_identity_node`] creates it, so a copied edge list reports one. The
-    /// reservation receipt observes this per-node count; the flat arena's total record capacity is
-    /// counted by stride in [`Directory`].
-    #[allow(
-        clippy::unused_self,
-        reason = "the copied edge view is the call-site interface `table::locator` observes \
-                  (`node.edges.capacity()`); the per-view capacity is the constant one reserved \
-                  edge record, and the method form is preserved"
-    )]
-    pub(crate) const fn capacity(&self) -> usize {
-        1
     }
 
     /// Consecutive adjacent-pair windows over the sorted chain.
@@ -626,6 +620,22 @@ pub(crate) struct StagedPath {
     pub(crate) identity_path: Vec<u32>,
 }
 
+/// The outcome of [`Directory::reserve_or_linked`]: the key was already linked, or a fresh path is
+/// staged exactly as [`Directory::reserve_for`] stages one.
+///
+/// The variant payload is a plain type parameter, not an associated-type projection in the
+/// declaration: the pinned extractor elaborates a type parameter at every use site (as
+/// `Directory::reserve_for`'s `K::Reserved` return already shows) while a projection inside a
+/// variant declaration is a shape it has not been shown to translate.
+pub(crate) enum FoundOrStaged<R> {
+    /// The key is already linked at this existing terminal handle. Nothing was created, staged or
+    /// retained, and the staged-path scratch returned to its idle slot.
+    Found(u32),
+    /// A genuinely new path is staged: exactly [`Directory::reserve_for`]'s success payload, with
+    /// the same refusal rollback and scratch recycling.
+    Staged(R),
+}
+
 /// The shared directory engine: one flat scalar residue arena for both faces and one flat
 /// exact-identity byte trie (identity-node records plus sorted sibling-edge records).
 ///
@@ -651,6 +661,11 @@ pub(crate) struct Directory {
     hyperbolic_nodes: usize,
     /// The number of logical parabolic residue nodes, including the implicit root.
     parabolic_nodes: usize,
+    /// The idle staged-path scratch buffer, recycled through `idle -> outstanding -> idle`.
+    ///
+    /// `None` while a [`StagedPath`] is outstanding (or after one was dropped unpublished), so no
+    /// two staged paths ever share one buffer. See the module-level ownership-cycle note.
+    staged_scratch: Option<Vec<u32>>,
 }
 
 /// The stride, in `u32` words, of one residue node record.
@@ -701,7 +716,53 @@ impl Directory {
             edge_words: Vec::new(),
             hyperbolic_nodes: 1,
             parabolic_nodes: 1,
+            staged_scratch: None,
         }
+    }
+
+    /// Hands the idle staged-path scratch to a new staged path, cleared before reuse.
+    ///
+    /// The buffer's retained capacity is the point of the cycle: `try_reserve_exact(path_len)` is a
+    /// no-op whenever the recycled buffer already holds `path_len` words, so the steady path
+    /// allocates once per directory instead of once per key. The only fallible step is that
+    /// growth, and a failure returns the buffer to the idle slot unchanged.
+    fn take_staged_scratch(&mut self, path_len: usize) -> Result<Vec<u32>, Refusal> {
+        // The explicit `if let` fill, not `unwrap_or_default`: the pinned extractor has no
+        // `Default` dispatch to translate.
+        let recycled = self.staged_scratch.take();
+        let mut identity_path = Vec::new();
+        if let Some(buffer) = recycled {
+            identity_path = buffer;
+        }
+        // Cleared before reuse: no node index of the previously staged path may survive into the
+        // next one. This is the cycle's single clear.
+        identity_path.clear();
+        if identity_path.try_reserve_exact(path_len).is_err() {
+            self.recycle_scratch(identity_path);
+            return Err(Refusal::AllocationFailed);
+        }
+        Ok(identity_path)
+    }
+
+    /// Returns a staged-path scratch buffer to the idle slot, still holding its last contents.
+    ///
+    /// [`Directory::take_staged_scratch`] clears the buffer before the next hand-out; keeping the
+    /// capacity is the point of the cycle.
+    fn recycle_scratch(&mut self, identity_path: Vec<u32>) {
+        self.staged_scratch = Some(identity_path);
+    }
+
+    /// Recycles an outstanding [`StagedPath`] back into the idle slot after publication was refused
+    /// or abandoned.
+    ///
+    /// Publication through [`Directory::link`] recycles internally; a consumer that drops a staged
+    /// path without publishing calls this instead so the buffer survives for the next reservation.
+    pub(crate) fn recycle_staged(&mut self, staged: StagedPath) {
+        let StagedPath {
+            residue_path: _,
+            identity_path,
+        } = staged;
+        self.recycle_scratch(identity_path);
     }
 
     /// The number of materialized residue records.
@@ -999,10 +1060,11 @@ impl Directory {
             return Err(Refusal::AllocationFailed);
         }
         let path_len = encoding_len.checked_add(1).ok_or(Refusal::SizeOverflow)?;
-        let mut identity_path = Vec::new();
-        identity_path
-            .try_reserve_exact(path_len)
-            .map_err(|_| Refusal::AllocationFailed)?;
+        // The staged path reuses the directory's idle scratch buffer (cleared before reuse) and
+        // allocates only when no buffer is idle or its retained capacity is too small. The growth
+        // is the last fallible reservation in this phase, in the same slot as the former per-key
+        // `Vec::new` + `try_reserve_exact`.
+        let identity_path = self.take_staged_scratch(path_len)?;
         let saved_residue = self.residue_words.len();
         let saved_identity = self.identity_words.len();
         let saved_edges = self.edge_words.len();
@@ -1032,10 +1094,156 @@ impl Directory {
                     saved_hyperbolic,
                     saved_parabolic,
                 );
+                // Refusal returns the staged scratch to the idle slot with the rolled-back arenas.
+                self.recycle_staged(staged);
                 return Err(refusal);
             }
         };
         Ok((reserved, staged))
+    }
+
+    /// The reserve-all sizing and capacity phase of [`Directory::reserve_or_linked`], kept as a
+    /// separate body so [`Directory::reserve_for`]'s own text is unchanged: every count and handle
+    /// bound is checked first, then the residue, identity and edge arenas take their capacity-only
+    /// reservations and the staged scratch is cleared and grown to `encoding_len + 1` words. No
+    /// node, edge, terminal or retained identity is created here.
+    ///
+    /// Temporal `O(encoding_len)` words checked and reserved, one checked-arithmetic chain and
+    /// three `try_reserve` calls; spatial `O(encoding_len)` staged-scratch growth beyond the
+    /// arenas' capacity-only reservations.
+    fn reserve_all_capacity<K: ExactIdentity>(&mut self, key: &K) -> Result<Vec<u32>, Refusal> {
+        let encoding_len = key.encoding_len();
+        let new_identity = encoding_len.checked_add(1).ok_or(Refusal::SizeOverflow)?;
+        let residue_records = self.residue_record_count();
+        let residue_base = match residue_records.checked_add(2) {
+            Some(value) => value,
+            None => return Err(Refusal::SizeOverflow),
+        };
+        let residue_levels = match residue_base.checked_add(LEVELS) {
+            Some(value) => value,
+            None => return Err(Refusal::SizeOverflow),
+        };
+        let residue_end = match residue_levels.checked_add(PARABOLIC_LEVELS) {
+            Some(value) => value,
+            None => return Err(Refusal::SizeOverflow),
+        };
+        let identity_end = self
+            .identity_node_count()
+            .checked_add(new_identity)
+            .ok_or(Refusal::SizeOverflow)?;
+        let edge_reserve = new_identity.checked_mul(2).ok_or(Refusal::SizeOverflow)?;
+        let edge_end = self
+            .edge_count()
+            .checked_add(edge_reserve)
+            .ok_or(Refusal::SizeOverflow)?;
+        if residue_end > u32::MAX as usize
+            || identity_end > u32::MAX as usize
+            || edge_end > u32::MAX as usize
+        {
+            return Err(Refusal::SizeOverflow);
+        }
+        let residue_delta = match residue_end.checked_sub(residue_records) {
+            Some(value) => value,
+            None => return Err(Refusal::SizeOverflow),
+        };
+        let residue_additional = match residue_delta.checked_mul(RESIDUE_STRIDE) {
+            Some(value) => value,
+            None => return Err(Refusal::SizeOverflow),
+        };
+        let identity_additional = new_identity
+            .checked_mul(IDENTITY_STRIDE)
+            .ok_or(Refusal::SizeOverflow)?;
+        let edge_additional = edge_reserve
+            .checked_mul(EDGE_STRIDE)
+            .ok_or(Refusal::SizeOverflow)?;
+        if self.residue_words.try_reserve(residue_additional).is_err()
+            || self
+                .identity_words
+                .try_reserve(identity_additional)
+                .is_err()
+            || self.edge_words.try_reserve(edge_additional).is_err()
+        {
+            return Err(Refusal::AllocationFailed);
+        }
+        let path_len = encoding_len.checked_add(1).ok_or(Refusal::SizeOverflow)?;
+        self.take_staged_scratch(path_len)
+    }
+
+    /// Reserves and stages a complete path unless `key` is already linked: one staging walk that
+    /// doubles as the repeat detection behind the table's parallel directory assembly.
+    ///
+    /// [`Directory::stage_reserved`] reuses every existing child of the path and creates at least
+    /// one node for a genuinely new key — creation, once it starts, is a contiguous suffix through
+    /// the terminal — so an already linked key ends at its existing terminal node and the
+    /// `IDENTITY_TERMINAL` word read after staging is the handle [`Directory::link`] published
+    /// there, or [`NO_CHILD`] for a genuinely new path (including a prefix of an existing key).
+    /// The found arm returns that handle and calls no `reserve_retain`, [`Directory::link`] or
+    /// `record_link`; the rollback to the entry lengths is a defensive no-op under the reuse
+    /// invariant and keeps "nothing was created" true by construction. The staged arm is exactly
+    /// [`Directory::reserve_for`]'s success and refusal behavior, retained identity and rollback
+    /// included.
+    ///
+    /// Temporal `O(I::LEVELS + |E(k)| * f)` scalar arena steps, `f <= 256` the longest per-node
+    /// sibling-edge chain: one residue walk and one identity walk that stages as it reuses, plus
+    /// one terminal read; the separate repeat-detection walk is gone. Spatial `O(|E(k)|)` staged
+    /// path entries beyond [`Directory::reserve_all_capacity`]'s reservations.
+    pub(crate) fn reserve_or_linked<I: ResidueIndex, K: ExactIdentity>(
+        &mut self,
+        index: &I,
+        key: &K,
+    ) -> Result<FoundOrStaged<(K::Reserved, StagedPath)>, Refusal> {
+        let identity_path = self.reserve_all_capacity(key)?;
+        let saved_residue = self.residue_words.len();
+        let saved_identity = self.identity_words.len();
+        let saved_edges = self.edge_words.len();
+        let saved_hyperbolic = self.hyperbolic_nodes;
+        let saved_parabolic = self.parabolic_nodes;
+        self.materialize_roots();
+        let staged = match self.stage_reserved::<I, K>(index, key, identity_path) {
+            Ok(staged) => staged,
+            Err(refusal) => {
+                self.rollback(
+                    saved_residue,
+                    saved_identity,
+                    saved_edges,
+                    saved_hyperbolic,
+                    saved_parabolic,
+                );
+                return Err(refusal);
+            }
+        };
+        let terminal_node = staged.identity_path[key.encoding_len()];
+        let terminal = read_word(
+            &self.identity_words,
+            IDENTITY_STRIDE * terminal_node as usize + IDENTITY_TERMINAL,
+        );
+        if terminal != NO_CHILD {
+            self.rollback(
+                saved_residue,
+                saved_identity,
+                saved_edges,
+                saved_hyperbolic,
+                saved_parabolic,
+            );
+            self.recycle_staged(staged);
+            return Ok(FoundOrStaged::Found(terminal));
+        }
+        let reserved = match key.reserve_retain() {
+            Ok(reserved) => reserved,
+            Err(refusal) => {
+                self.rollback(
+                    saved_residue,
+                    saved_identity,
+                    saved_edges,
+                    saved_hyperbolic,
+                    saved_parabolic,
+                );
+                // Refusal returns the staged scratch to the idle slot with the rolled-back arenas.
+                self.recycle_staged(staged);
+                return Err(refusal);
+            }
+        };
+        Ok(FoundOrStaged::Staged((reserved, staged)))
     }
 
     /// Materializes both implicit residue roots, leaving the logical node counts unchanged.
@@ -1053,9 +1261,11 @@ impl Directory {
     ///
     /// Every arena was reserved by [`Directory::reserve_for`] before retention, and each identity
     /// edge slot is reserved through [`Directory::reserve_edge`] here, so staging performs the
-    /// fallible edge reservations before retention and never after it. On any nested reservation
-    /// failure the caller truncates the staged arenas to their saved lengths, so nothing is
-    /// observable through the caller's read.
+    /// fallible edge reservations before retention and never after it. The scratch arrives cleared
+    /// from [`Directory::take_staged_scratch`], so the path pushes onto an empty buffer. On any
+    /// nested reservation failure the caller truncates the staged arenas to their saved lengths
+    /// (nothing is observable through the caller's read) and this function returns the scratch to
+    /// the idle slot before reporting the refusal.
     fn stage_reserved<I: ResidueIndex, K: ExactIdentity>(
         &mut self,
         index: &I,
@@ -1098,14 +1308,14 @@ impl Directory {
             if root == NO_CHILD {
                 match self.new_identity_node() {
                     Ok(root) => {
-                        identity_path.clear();
+                        // The buffer arrives cleared from `take_staged_scratch`.
                         identity_path.push(root);
                         node = root;
                     }
                     Err(err) => refusal = Some(err),
                 }
             } else {
-                identity_path.clear();
+                // The buffer arrives cleared from `take_staged_scratch`.
                 identity_path.push(root);
                 node = root;
             }
@@ -1135,7 +1345,11 @@ impl Directory {
             }
         }
         match refusal {
-            Some(refusal) => Err(refusal),
+            Some(refusal) => {
+                // Rollback path: the scratch goes back to the idle slot with the staged arenas.
+                self.recycle_scratch(identity_path);
+                Err(refusal)
+            }
             None => Ok(StagedPath {
                 residue_path,
                 identity_path,
@@ -1204,12 +1418,13 @@ impl Directory {
         self.parabolic_nodes = parabolic_nodes;
     }
 
-    /// Publishes the staged path. Every write is infallible: all storage was reserved.
+    /// Publishes the staged path, then returns its scratch buffer to the idle slot. Every write is
+    /// infallible: all storage was reserved.
     pub(crate) fn link<I: ResidueIndex, K: ExactIdentity>(
         &mut self,
         index: &I,
         key: &K,
-        staged: &StagedPath,
+        staged: StagedPath,
         handle: u32,
     ) {
         let mut digits = [0u8; MAX_LEVELS];
@@ -1245,6 +1460,8 @@ impl Directory {
             IDENTITY_STRIDE * terminal_node as usize + IDENTITY_TERMINAL,
             handle,
         );
+        // Publication is the end of the ownership cycle: the scratch returns to the idle slot.
+        self.recycle_staged(staged);
     }
 
     /// Publishes one staged identity edge after the read-only sorted search has ended.
@@ -1341,7 +1558,8 @@ fn find_edge(identity_words: &[u32], edge_words: &[u32], node: u32, label: u8) -
 
 #[cfg(test)]
 mod tests {
-    use super::ExactIdentity;
+    use super::{Directory, ExactIdentity, FoundOrStaged, Walk};
+    use crate::coord::address::ParabolicDual;
     use std::sync::Arc;
 
     fn query_bytes<K: ExactIdentity>(key: &K) -> Vec<u8> {
@@ -1372,5 +1590,106 @@ mod tests {
                 .map(|index| <Arc<i64> as ExactIdentity>::retained_encoding_byte(&retained, index))
                 .collect();
         assert_eq!(retained_bytes, shared_bytes);
+    }
+
+    /// The staged-path scratch is one recycled buffer: the same allocation goes idle after
+    /// publication and serves the next reservation, cleared before reuse. A dropped clear leaves
+    /// the previous staged path's node indices in the buffer, so the next published path links
+    /// stale nodes and the terminal walks below stop matching.
+    #[test]
+    fn the_staged_path_scratch_is_recycled_after_publication() {
+        let mut directory = Directory::new();
+        let index = ParabolicDual::new(3, 0);
+        let seven = 7i64;
+        let eight = 8i64;
+        let ((), first) = directory
+            .reserve_for::<ParabolicDual, i64>(&index, &seven)
+            .expect("a fresh path reserves");
+        let first_buffer = first.identity_path.as_ptr();
+        assert!(
+            directory.staged_scratch.is_none(),
+            "the scratch is outstanding with the staged path"
+        );
+        directory.link(&index, &seven, first, 0);
+        let idle = directory
+            .staged_scratch
+            .as_ref()
+            .expect("publication returns the scratch to the idle slot");
+        assert_eq!(
+            idle.as_ptr(),
+            first_buffer,
+            "the same buffer returns to the idle slot, not a fresh allocation"
+        );
+        let ((), second) = directory
+            .reserve_for::<ParabolicDual, i64>(&index, &eight)
+            .expect("the recycled scratch reserves");
+        assert_eq!(
+            second.identity_path.as_ptr(),
+            first_buffer,
+            "the idle scratch is reused, not reallocated"
+        );
+        assert_eq!(
+            second.identity_path.len(),
+            9,
+            "the recycled buffer is cleared before reuse"
+        );
+        directory.link(&index, &eight, second, 1);
+        assert!(matches!(
+            directory.walk::<ParabolicDual, i64>(&index, &seven),
+            Walk::Terminal(0)
+        ));
+        assert!(matches!(
+            directory.walk::<ParabolicDual, i64>(&index, &eight),
+            Walk::Terminal(1)
+        ));
+    }
+
+    /// The found-or-linked seam detects a repeat key inside the one staging walk: the second
+    /// reservation returns the published terminal handle, creates no residue node, identity node or
+    /// edge, and returns the scratch to its idle slot. The rejecting control makes the found arm
+    /// never fire; the repeat then stages and the handle and count assertions below go RED.
+    #[test]
+    fn reserve_or_linked_finds_a_repeat_key_without_creating_anything() {
+        let mut directory = Directory::new();
+        let index = ParabolicDual::new(3, 0);
+        let seven = 7i64;
+        let ((), first) = match directory
+            .reserve_or_linked::<ParabolicDual, i64>(&index, &seven)
+            .expect("a fresh path reserves")
+        {
+            FoundOrStaged::Staged(payload) => payload,
+            FoundOrStaged::Found(_) => panic!("a fresh key is staged, never found"),
+        };
+        directory.link(&index, &seven, first, 17);
+        let before = (
+            directory.arena_len::<ParabolicDual>(),
+            directory.identity_node_count(),
+            directory.edge_count(),
+        );
+        match directory
+            .reserve_or_linked::<ParabolicDual, i64>(&index, &seven)
+            .expect("a repeat key is found, never refused")
+        {
+            FoundOrStaged::Found(handle) => {
+                assert_eq!(
+                    handle, 17,
+                    "the repeat returns the published terminal handle"
+                );
+            }
+            FoundOrStaged::Staged(_) => panic!("a repeat key must not stage a path"),
+        }
+        assert_eq!(
+            (
+                directory.arena_len::<ParabolicDual>(),
+                directory.identity_node_count(),
+                directory.edge_count(),
+            ),
+            before,
+            "a repeat key adds no residue node, identity node or edge"
+        );
+        assert!(
+            directory.staged_scratch.is_some(),
+            "the idle scratch returns to its slot"
+        );
     }
 }

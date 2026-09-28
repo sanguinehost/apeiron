@@ -1,0 +1,29 @@
+--- a/proof/corpus/Substrate/Algebra/Neural/SparseAttentionBudget.lean
++++ b/proof/corpus/Substrate/Algebra/Neural/SparseAttentionBudget.lean
+@@ -77,7 +77,7 @@
+     `S = ∑pᵢ² > 0`, any set of keys each carrying weight `≥ S` (`= 1/PR`, the heavy/light cut) has
+     cardinality `≤ PR = 1/S`. So the effective support is `PR`; the rest are the near-null drag. The
+     sparse budget `A = ⌈PR⌉` is read off the geometry, not chosen. -/
+-theorem heavy_count_le_PR {n : ℕ} (p : Fin n → ℝ) (hp : ∀ i, 0 ≤ p i)
++theorem heavy_count_le_PR {n : ℕ} (p : Fin n → ℝ) (_hp : ∀ i, 0 ≤ p i)
+     (S : ℝ) (hS : S = ∑ i, (p i) ^ 2) (hSpos : 0 < S)
+     (heavy : Finset (Fin n)) (hh : ∀ i ∈ heavy, S ≤ p i) :
+     (heavy.card : ℝ) ≤ participationRatio p := by
+@@ -86,7 +86,7 @@
+     have : ∑ _i ∈ heavy, S ^ 2 ≤ ∑ i ∈ heavy, (p i) ^ 2 :=
+       Finset.sum_le_sum fun i hi => by
+         have h1 : S ≤ p i := hh i hi
+-        nlinarith [hp i, hSpos.le]
++        nlinarith [_hp i, hSpos.le]
+     simpa [Finset.sum_const, nsmul_eq_mul] using this
+   have hle_total : ∑ i ∈ heavy, (p i) ^ 2 ≤ S := by
+     rw [hS]
+@@ -100,7 +100,7 @@
+ /-- **`PR ≤ n`** — the effective support never exceeds the full key count (Cauchy–Schwarz: for a
+     distribution, `∑pᵢ² ≥ 1/n`, so `PR = 1/∑pᵢ² ≤ n`). Dense (`A = n`) is the `PR = n` limit, i.e.
+     a *flat* attention — the worst case, all drag, no concentration. -/
+-theorem PR_le_card {n : ℕ} (hn : 0 < n) (p : Fin n → ℝ) (hsum : ∑ i, p i = 1) :
++theorem PR_le_card {n : ℕ} (_hn : 0 < n) (p : Fin n → ℝ) (hsum : ∑ i, p i = 1) :
+     participationRatio p ≤ n := by
+   -- Cauchy–Schwarz: (∑ p·1)² ≤ (∑p²)(∑1²) ⟹ 1 ≤ (∑p²)·n
+   have hcs : (1 : ℝ) ≤ (∑ i, (p i) ^ 2) * n := by

@@ -1,5 +1,10 @@
 # Apeiron Local Boundary: Representation And Trust
 
+Kani is retired from all current gates; the
+[retirement contract](epics/kani-retirement.md) supersedes earlier Kani requirements.
+Historical bounded-check receipts are not current coverage. Rust regression tests and semantic
+controls remain required at their stated scope; universal source refinement remains open.
+
 This document owns Apeiron's local representation and trust boundary. The programme thesis,
 ownership and outcomes are in the [programme direction](direction.md); this file does not restate
 them. Local authority: the executing growable flat/spill `Table` representation, the historical
@@ -15,8 +20,10 @@ here. The programme authority is
 Owner Astra, `APEIRON-STRATEGY-DECISION-T3`; architectural grade `anchor`. Current performance and
 the unresolved attainability verdict are in [direction](direction.md#serial-read-specialization-and-stable-parallel-scatter).
 This section supersedes older current-status/dispatch text, not any invariant, gate or trust statement.
-The reported `b590a393` extraction/1708-job result is not the in-flight Sol bridge re-proof and does
-not discharge `W7-SearchCommitBoundary` or the four spill-filter obligations below. The read source
+The retirement receipt's generated `92c77151…` extraction/check (1708 jobs) and corpus build
+(3482 jobs) preserve the recorded executable content after annotation-only changes; they do not
+discharge the universal read/search links, `SearchDecisionCorrect`, the allocator adapter,
+`W7-SearchCommitBoundary` or the four spill-filter obligations below. The read source
 now uses checked summary reservation/receipts and `publish_live`'s payload → summary → tag order;
 T2's earlier source-discrepancy list describes its old snapshot, not acceptance of all resource paths.
 
@@ -67,7 +74,8 @@ constructor-output relation in Sol's verdict. New scratch storage/copy cost must
 The output-construction work is O(n + 256p), auxiliary O(n + 256p) words for n indexes and p chunks;
 chunk scatter and final concatenation each visit each index once. No p-fold speedup follows.
 
-`is_intact` remains a tested validator, not an extracted constructor proof. Its removal, debug-only
+The partition validator in `src/table/partition.rs` is tested by
+`cargo test --locked --lib table::partition::tests::partition_integrity_`, not an extracted constructor proof. Its removal, debug-only
 replacement or producer-set flag is not authorized. Borrowed grouped readback or worker-local
 `sum_parallel` reduction is a separate effect/order/overflow task; the ordered REG-1 digest and
 query callback order cannot be replaced with a sum. Payload initialization stays materialized after
@@ -295,11 +303,11 @@ time. The fixed-`N` qualifier is not renamed onto the growable representation.
 
 **Staging.** The representation change is a multi-task serialized integration wave, not a three-file
 edit. Each task owns at most three files and keeps `cargo test`, `cargo clippy` and `cargo fmt`
-green plus its focused gate; the wave closes only when extraction, refinement, Kani, the REG-1
+green plus its focused gate; the wave closes only when extraction, refinement, the REG-1
 harness and the shared gates pass on the integrated identity. An intermediate proof failure is not
 an accepted wave result. Reason: changing the representation simultaneously changes admission
 (`src/table.rs` positive-`N` `ShardFull`), the extracted array representation
-(`proof/ApeironWord.lean`), the bounded-admission refinements, `src/proofs.rs` Kani predicates and
+(`proof/ApeironWord.lean`), the bounded-admission refinements, Rust regression tests and
 the REG-1 workloads/oracles.
 
 **Unextracted execution boundary.** Threading (`std::thread::scope`) sits behind an unextracted
@@ -376,8 +384,8 @@ claim. This section supersedes the **Selected representation** and probe wording
 differ; the fixed-shard representation is revision-bound historical evidence and the growable
 flat/spill `Table` executes in `src/table.rs`; its integration wave remains open on an integrated
 source/tool identity. The contract itself is
-in the [spec](spec/storage-refinement.md#revised-production-contract-reworked-growable-key-partitioned-table);
-the dispatch order is in the [plan](plan/storage-refinement.md#rework-dispatch-order).
+in the [spec](epics/storage-refinement.md#revised-production-contract-reworked-growable-key-partitioned-table);
+the dispatch order is in the [plan](epics/storage-refinement.md#rework-dispatch-order).
 
 **First cut rejected.** The first growable `Table` at `src/table.rs` sha256
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected as the production
@@ -409,14 +417,14 @@ word shifted by eight, not `place >> 8`; full `(Sigma,K)` equality always decide
 `coord::Addr` keeps its `id`/`place` meaning without a blanket injectivity claim. The exact laws,
 finite search theorem, reachable-state direct-empty certificate and corrected seven-bit window mask
 are stated in the
-[spec](spec/storage-refinement.md#revised-production-contract-reworked-growable-key-partitioned-table).
+[spec](epics/storage-refinement.md#revised-production-contract-reworked-growable-key-partitioned-table).
 The former coverage-before-every-absence wording is superseded: direct-empty may certify absence
 under `DirectCover`; otherwise complete finite coverage is mandatory. A recorded prefix vacancy may
 skip later prefix windows but not the all-group match sweep.
 
 **Flat-resident boundary (Sol contract).** The final representation contract is the table-level
 shard-major `256 × L` flat area beside independently load-sized grouped spill regions, as specified
-in [storage-refinement.md](spec/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
+in [storage-refinement.md](epics/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
 Flat slots use `{live,sigma,key,value}` with `live` as sole occupancy authority; spill tags are the
 sole spill occupancy authority. Checked sizing, budget and density determine flat residency;
 density/budget exclusion routes to spill rather than refusing the operation. `Site` distinguishes
@@ -442,7 +450,7 @@ build, relocation, lookup and update, including when their addresses coincide.
 **Required theorem set and premises.** The complete bridge set is
 `Growable{Geometry,Directory,Identity,Scan,Search,Relocation,Refinement,Witnesses,Schedule,Batch}`.
 Its headlines, premises and canonical roots are normative in the
-[Sol contract](spec/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
+[Sol contract](epics/storage-refinement.md#flat-resident-and-grouped-spill-contract-sol-decision).
 The earlier first-cut rows below remain a dependency summary, not the complete set:
 
 | Module | Premise and required headline | Canonical root |
@@ -522,15 +530,16 @@ public methods.
 
 ### Resource-interface boundary after the context-join spike
 
-Owner Sol; recorded by `APEIRON-EXTRACT-REP-W5-T1`; documentation only. The supplied spike is grade
-`tested` evidence, not proof. Aeneas `505b6ca-dirty` / Charon `0.1.254` reports
+Owner Sol; recorded by `APEIRON-EXTRACT-REP-W5-T1`; documentation only. The supplied spike is a
+historical extraction diagnostic, not current acceptance. Its executable spike gate is MISSING. Aeneas `505b6ca-dirty` / Charon `0.1.254` reports
 `Could not match the contexts` at `Table::plan_rebuild` (`src/table.rs:678:16-680:17`). The minimal
 reproducer requires a generic borrowed carrier in a loop, an inner live-field guard and a branch on a
-computed `Option`/enum classification from `address_held`; scalar guard and the tested straight-line,
-accumulated-`Option` and cast variants pass. Loop translation and strict-join flags do not remove it.
-Law `PinnedJoinBoundary`: this is Aeneas limitation (b), not allocator-model case (c), and further
-planner reshaping is not required for the proof route. Reachable `try_reserve_exact` is the separate
-unmodeled allocator blocker.
+computed `Option`/enum classification from the carrier address method in `src/table/keyrep.rs`;
+the supplied log reports scalar-guard, straight-line, accumulated-option and cast variants passing. Loop translation and strict-join flags do not remove it.
+The historical `PinnedJoinBoundary` classified this as an Aeneas context-join limitation. Current
+`proof/ApeironWord.lean` contains `table.Table.plan_rebuild`, so this diagnostic is not a current
+extraction blocker for that body. Allocator may-failure and capacity/layout correspondence remain
+separate model/refinement obligations; generated syntax does not discharge them.
 
 **Extraction-root decision (`anchor`).** The proof roots are monomorphic wrappers for both
 `Stored<i64>` and `Regen<I64WordCodec>` that call the real shared prepared-plan sequential core/apply
@@ -577,8 +586,8 @@ requires complete finite coverage. `search_decision_simulates` composes this law
 apply refinement to canonical total-by-default `Apeiron.Table.get` and to
 `Apeiron.Table.get_insertWith_self` / `Apeiron.Table.get_insertWith_ne` for insertion.
 
-Rust tests may cover each classification and late-hit/first-fit controls; Kani may exhaust bounded
-geometries and reject sweep/first-fit mutations. That evidence is `tested`/bounded, not a proof of the
+Rust tests cover concrete classification and late-hit/first-fit regressions with rejecting
+sweep/first-fit mutations. That evidence is `tested`, not a proof of the
 generic decision law. `GrowableSearch` refines the apply under `SearchDecisionCorrect`;
 `GrowableRelocation`, `GrowableRefinement` and `GrowableWitnesses` carry that premise.
 `GrowableDirectory`, `GrowableSchedule` and `GrowableBatch` are unchanged.
@@ -595,7 +604,7 @@ The claim excludes the search decision loop and its correctness law, planner/res
 allocator/global-allocator realization, allocation success/failure realization,
 executor/`std::thread::scope`, rustc/LLVM, ABI, GPU/SPIR-V and the `unsafe` container. This is not a
 model-versus-real gap after source factoring: the apply is the real production region access, and the
-decision is a controlled classification with its own Rust/Kani evidence obligation. The Slang
+decision is a controlled classification with its own Rust test and source-refinement evidence obligations. The Slang
 source-refinement empty-cone separation is unchanged. Allocating public methods remain unrooted until
 a checked Aeneas primitive/tool model exists. REG-1/G1 remains **OPEN**.
 
@@ -609,7 +618,7 @@ is required before a full corpus build.
 
 Owner Astra; task `APEIRON-EXTRACT-REP-RELOCATION-BOUNDARY-T1`. This is an additive boundary
 extension at grade `anchor`, conditional on Sol's relocation contract in
-`docs/spec/storage-refinement.md`; no extraction, proof or performance acceptance is recorded.
+`docs/epics/storage-refinement.md`; no extraction, proof or performance acceptance is recorded.
 
 **Verdict: same architecture, additional root.** Factor one shared per-entry `relocate_entry`
 operation out of the executing `Table::apply_prepared_rebuild` and call it from production. Add
@@ -669,7 +678,7 @@ Sol owns the exact initialized-resource and relocation premises and their non-va
 If its contract requires whole-body refinement, entry-only evidence leaves that requirement open;
 if it permits initialization before the last fallible reservation or assumes the desired relocation
 postcondition, stop for reconciliation. The implementation order is in
-[the roadmap](plan/programme-roadmap.md#relocation-root-integration-order). Every earlier gate,
+[the roadmap](roadmap.md#relocation-root-integration-order). Every earlier gate,
 command, theorem requirement and realization obligation is retained; REG-1/G1 remains **OPEN**.
 
 The concurrently supplied Sol section `Relocation entry interface` agrees on both roots, materialized
@@ -690,7 +699,7 @@ This specifies the missing resource handoff, not acceptance of `rebuild_preserve
 the shared production relocation/apply bodies, both carrier roots and the decision/apply split.
 `src/table.rs:1180-1187` still holds/materializes payloads inside `apply_prepared_rebuild`;
 `reserve_rebuild` returns only capacity-reserved staging storage. This does not yet implement the
-adapter-owned-initialization clause in `docs/spec/storage-refinement.md:393-412`. Move that phase
+adapter-owned-initialization clause in `docs/epics/storage-refinement.md:393-412`. Move that phase
 after successful reserve-all into the unextracted adapter, including the pending `R::hold`, and pass
 its held carrier forward rather than holding it again in apply. Keep `RebuildReserved` and the
 existing relocation/commit signatures unchanged; add a separate internal handoff envelope.
@@ -793,7 +802,7 @@ Residual blockers: actual handoff and extraction are absent; Sol must reconcile 
 contract, prove disjoint-write frames and the semantic composition. No fabricated success tuple
 discharges adapter reachability. Initialization tests must detect a late-reservation clone, not just
 correct final values. Implementation order is in
-[the roadmap](plan/programme-roadmap.md#prepared-resource-handoff-integration-order).
+[the roadmap](roadmap.md#prepared-resource-handoff-integration-order).
 REG-1/G1 and all full-barrier requirements remain **OPEN** and unchanged.
 
 ### Resource adapter simulation premise
@@ -866,7 +875,7 @@ and their audits also remain unchanged by this decision. Register the new condit
 separately; do not relabel the old transport as unconditional adapter reachability. After any
 regeneration, revalidate all twelve headlines and predicate audits by bounded builds/audits and
 freshness plus the existing and resource-specific controls on the same source/tool identity.
-The [derivation order](plan/programme-roadmap.md#resource-premise-to-whole-table-derivation)
+The [derivation order](roadmap.md#resource-premise-to-whole-table-derivation)
 retains the whole-table, frame and composition obligations. REG-1/G1 and the full barrier stay open.
 
 ### Pending-composition premise boundary
@@ -943,7 +952,7 @@ premise is needed is insufficient for this stronger whole-table composition. Sol
 exact contract before W7 acceptance; Astra neither edits nor waives it. Recheck joint satisfiability
 of the plan's symbolic-decision uniqueness and all new premises for found and fresh flat/spill cases;
 projections or incompatible separate witnesses do not meet that requirement. The
-[retry and adjudication conditions](plan/programme-roadmap.md#pending-composition-retry-and-semantic-adjudication)
+[retry and adjudication conditions](roadmap.md#pending-composition-retry-and-semantic-adjudication)
 retain every previous control, realization obligation and full barrier. REG-1/G1 remains **OPEN**.
 
 ### W7-SearchCommitBoundary
@@ -970,7 +979,7 @@ No axiom, admitted theorem, global instance or assumed committed post-state supp
 | `word_stored_rebuild_preserves`, `word_regen_rebuild_preserves` | Existing conditional old-map `ReservedRepR` preservation under source `RepR`, publication and resource/plan certificates; no pending canonical insertion. |
 | Whole-table `RepR`/`ReservedRepR` | Definitions and checked lemmas, not an unconditional reachable-state preservation theorem for every public operation. |
 | `apply_insert` whole-state preservation; `prepared_rebuild_refines_insertWith` | Unproved/open and suspended. No conditional composition theorem is asserted merely because its dependencies build. |
-| Search/commit adapter evidence | Record each Rust test and Kani harness with actual source hash, domain, positive/red/restored exits and exclusions. Until all required controls run, boundary test acceptance is OPEN. The recorded two-lane Kani timeout (900 s, exit 124 in the spec) is inconclusive, not a successful bounded check. |
+| Search/commit adapter evidence | Record each Rust test with actual source hash, domain, positive/red/restored exits and exclusions. Until all required controls run, boundary test acceptance is OPEN. The recorded two-lane Kani timeout (900 s, exit 124 in the spec) is inconclusive, not a successful bounded check. |
 | G1/REG-1 | OPEN; `report_complete=false`. Neither these proofs nor a future performance pass discharges the other joint obligations. |
 
 **Required rejecting evidence, not new proof.** Exercise the real path for both carriers: direct and
@@ -983,8 +992,8 @@ Inject overflow and a late reservation failure through the real adapter: unchang
 observations, zero hold/clone/merge/relocation, no partial build. A hand-built prepared tuple tests
 apply only; it is not actual adapter reachability. A generated-body mutation and a Rust-path mutation
 test different links; keep both existing obligations. Timeouts, OOM and compile errors are not
-semantic red controls. Kani must retain unwinding assertions and the real 256-shard constructor;
-per-loop bounds may reduce solver cost, but a reduced model does not replace that evidence.
+semantic red controls. Ordinary tests execute production geometry; concrete helper fixtures do not replace public
+constructor, representation or universal source-refinement evidence.
 
 **Trust statement.** Actual composite search/`locate_rebuilt`, query routing, symbolic/runtime
 decision agreement, aggregate fresh-length headroom, callback effect counts, adapter planning,
@@ -1065,7 +1074,7 @@ initialized-resource interface and all old obligations remain until that separat
 After either production change, regenerate both carriers and all retained roots, repair generated
 state constructors/write models, and revalidate Search, Relocation, Representation, Resources and
 their downstream audits/controls. In particular, adding an empty summary to every Lean update would
-misrepresent the executed writes. `generated_tag_nonzero` repair alone proves neither tag/payload
+misrepresent the executed writes. The open `generated_tag_nonzero` target alone would prove neither tag/payload
 agreement nor summary soundness. New summary bounds can make old universally quantified apply
 statements false on malformed regions: report the exact goal to Sol, not a silent domain restriction.
 W7 stays frozen; regression maintenance is not a composition retry. Rust/canonical closed cone,
@@ -1093,7 +1102,7 @@ termination or purity for callbacks outside those laws. Neither a reference cont
 tested-only optimized container is an accepted substitute.
 Former storage proofs remain historical evidence about deleted source, not this table.
 
-The [bounded source-witness route](plan/slang-source-refinement.md#bounded-source-witness-route)
+The [bounded source-witness route](contracts/slang-source-refinement-plan.md#bounded-source-witness-route)
 shares data/index equations and composes proofs of existing structural relations; the retired
 named proof DAG / segment-lemma evaluator and retired generated traces remain binned. R6 checks
 producer text, not arbitrary Python behavior or default-depth compliance: `tools/slang/export.py`

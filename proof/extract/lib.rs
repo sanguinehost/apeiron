@@ -2,8 +2,10 @@
 //!
 //! This is a development-only translation unit, not a crate in the Apeiron workspace.
 //! Charon drives rustc over this single file; the modules it pulls in by `#[path]` are the
-//! real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`, `src/carrier.rs`, `src/table.rs` and
-//! `src/coord.rs`, so the extracted definitions track the source the library builds. The wrappers
+//! real `src/scalar.rs`, `src/cell.rs`, `src/exchange.rs`, `src/carrier.rs`, `src/table.rs`,
+//! `src/coord.rs` and `src/numeric/{fixed_exp,fixed_rsqrt,fixed_trig}.rs`, so the extracted
+//! definitions track the source the
+//! library builds. The wrappers
 //! below exist only to give Charon concrete, monomorphic roots and to call the real methods; they do
 //! not restate any formula.
 //!
@@ -17,6 +19,114 @@ pub mod cell;
 pub mod coord;
 #[path = "../../src/exchange.rs"]
 pub mod exchange;
+#[path = "../../src/numeric/fixed_rsqrt.rs"]
+pub mod fixed_rsqrt;
+#[path = "../../src/numeric/fixed_trig.rs"]
+pub mod fixed_trig;
+#[path = "../../src/format/gguf.rs"]
+pub mod gguf;
+
+#[path = "../../src/numeric/fixed_exp.rs"]
+pub mod fixed_exp;
+
+/// Mirror of `crate::numeric` for the extraction unit: the real `src/engine/{silu,norm}.rs` import
+/// `crate::numeric::fixed_exp::fixed_exp` and `crate::numeric::fixed_rsqrt::{fixed_rsqrt,RsqrtError}`,
+/// and `src/engine/rope.rs` imports `crate::numeric::fixed_trig::fixed_sin_cos`, so the three
+/// `numeric::*` aliases name the modules above.
+pub mod numeric {
+    pub use super::{fixed_exp, fixed_rsqrt, fixed_trig};
+}
+
+/// Mirror of `crate::format` for the extraction unit: the real `src/engine/error.rs` imports
+/// `crate::format::gguf::GgufError` and `crate::format::quant::QuantError`, and
+/// `src/engine/dequant.rs` and `src/engine/matvec.rs` import `crate::format::quant`, so these
+/// aliases name the crate-root modules declared below.
+pub mod format {
+    pub use super::{gguf, packing, quant};
+}
+
+#[path = "../../src/engine/value.rs"]
+pub mod value;
+#[path = "../../src/engine/silu.rs"]
+pub mod silu;
+#[path = "../../src/engine/norm.rs"]
+pub mod norm;
+#[path = "../../src/engine/rope.rs"]
+pub mod rope;
+#[path = "../../src/engine/error.rs"]
+pub mod error;
+#[path = "../../src/engine/f32_convert.rs"]
+pub mod f32_convert;
+#[path = "../../src/engine/dequant.rs"]
+pub mod dequant;
+#[path = "../../src/engine/matvec.rs"]
+pub mod matvec;
+#[path = "../../src/engine/attn.rs"]
+pub mod attn;
+#[path = "../../src/engine/lm_head.rs"]
+pub mod lm_head;
+#[path = "../../src/engine/sampler.rs"]
+pub mod sampler;
+#[path = "../../src/engine/hadamard.rs"]
+pub mod hadamard;
+#[path = "../../src/engine/ffn.rs"]
+pub mod ffn;
+#[path = "../../src/engine/moe.rs"]
+pub mod moe;
+#[path = "../../src/engine/kern/pow2.rs"]
+pub mod pow2;
+
+/// Mirror of `crate::engine` for the extraction unit: `crate::engine::silu` (the real kernel's
+/// module path) aliases [`silu`], `crate::engine::value` aliases [`value`], `crate::engine::norm`
+/// and `crate::engine::rope` alias the two kernel modules, and `ONE`/`FIXED_FRAC_BITS` are the
+/// engine-root constants the kernels read.
+///
+/// The kernel modules are declared at the crate root (a `#[path]` inside an inline module would
+/// resolve against a virtual directory and cannot traverse its non-existent `..`); their
+/// `super::value` and `super::FIXED_FRAC_BITS` therefore resolve to the crate-root [`value`] and
+/// the crate-root aliases of `ONE`/`FIXED_FRAC_BITS` below, which name the same items. The same
+/// reason puts [`attn`]/[`lm_head`]/[`sampler`] at the crate root: their `super::matvec`,
+/// `super::value` and `super::MatvecError` imports then name the crate-root items re-exported
+/// under the engine mirror.
+pub mod engine {
+    pub use super::{
+        attn, error, f32_convert, ffn, hadamard, lm_head, matvec, moe, norm, rope, sampler, silu,
+        value,
+    };
+
+    /// The engine refusal type at its real `crate::engine::EngineError` path.
+    pub use super::error::EngineError;
+    /// The attention refusal and cache at their real `crate::engine` paths.
+    pub use super::attn::{AttnError, KvState};
+    /// The LM-head refusal at its real `crate::engine::LmHeadError` path.
+    pub use super::lm_head::LmHeadError;
+    /// The projection refusal at its real `crate::engine::MatvecError` path.
+    pub use super::matvec::MatvecError;
+    /// The sampler refusal at its real `crate::engine::SamplerError` path.
+    pub use super::sampler::SamplerError;
+
+    /// Fractional bits of the executing fixed-point representation (Q32.32).
+    pub const FIXED_FRAC_BITS: u32 = 32;
+    /// The Q32.32 unit: `ONE` denotes `1.0`.
+    pub const ONE: i64 = 1 << FIXED_FRAC_BITS;
+}
+
+/// Crate-root aliases of the engine-root constants, so the top-level [`norm`]/[`rope`] mirrors read
+/// the same `ONE`/`FIXED_FRAC_BITS` their real `crate::engine` parent defines.
+pub use engine::{FIXED_FRAC_BITS, ONE};
+
+/// Crate-root alias of the engine refusal type, so the top-level [`dequant`]/[`matvec`] mirrors read
+/// the same `EngineError` their real `crate::engine` parent defines.
+pub use error::EngineError;
+
+/// Crate-root alias of the projection refusal, so the top-level [`lm_head`] mirror reads the same
+/// `MatvecError` its real `crate::engine` parent re-exports.
+pub use matvec::MatvecError;
+
+#[path = "../../src/format/packing.rs"]
+pub mod packing;
+#[path = "../../src/format/quant.rs"]
+pub mod quant;
 #[path = "../../src/scalar.rs"]
 pub mod scalar;
 #[path = "../../src/table.rs"]
@@ -320,9 +430,9 @@ pub fn word_regen_prepared_shard_apply(
 
 /// Real straight-line read apply through the stored carrier.
 ///
-/// The composite decision walk (`Table::search_decision`, and the shared `spill_locate` scan it
-/// uses) stays unextracted under `PinnedJoinBoundary`; the caller supplies the already-computed
-/// [`table::SearchDecision`]. This calls the real `Table::apply_get`, which indexes the selected
+/// The caller supplies the already-computed [`table::SearchDecision`]; separate selected roots
+/// extract `Table::search_decision` and the shared `spill_locate` scan, but their bridge contract
+/// remains a premise. This calls the real `Table::apply_get`, which indexes the selected
 /// real resident/spill slot and returns the real default for every non-`Found` classification.
 pub fn word_stored_apply_get(state: &WordStoredTable, decision: table::SearchDecision) -> i64 {
     *state.apply_get(decision)
@@ -567,3 +677,324 @@ pub fn word_regen_publish_prepared(
 pub fn word_capacity_bound_holds(required_len: usize, observed_capacity: usize) -> bool {
     table::resources::capacity_bound_holds(required_len, observed_capacity)
 }
+
+/// The real fixed-point `exp` body, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/numeric/fixed_exp.rs` body; it does not restate the `ln 2` reduction,
+/// the degree-7 Horner polynomial or the `2^k` scaling. The wrapper only fixes the argument and
+/// result types.
+pub fn word_fixed_exp(x: i64) -> Result<i64, fixed_exp::ExpError> {
+    fixed_exp::fixed_exp(x)
+}
+
+/// The real power-of-two activation block scale that `quant_act` uses.
+///
+/// Calls `src/engine/kern/pow2.rs` `act_scale`; the wrapper does not restate the doubling loop.
+pub fn word_act_scale(absmax: u64) -> Option<u64> {
+    pow2::act_scale(absmax)
+}
+
+/// The real `f16` weight-scale split `d = m·2^k` that the power-of-two GEMM uses.
+///
+/// Calls `src/engine/kern/pow2.rs` `f16_split`; the wrapper only fixes the types.
+pub fn word_f16_split(h: u16) -> Option<(i32, u32)> {
+    pow2::f16_split(h)
+}
+
+/// The real final rounding `round_shift_32(acc·2^s)` of the power-of-two GEMM.
+///
+/// Calls `src/engine/kern/pow2.rs` `finish`; the wrapper only fixes the types.
+pub fn word_pow2_finish(acc: i64, s: u32) -> Option<i64> {
+    pow2::finish(acc, s)
+}
+
+/// The real fixed-point `SiLU` body, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/silu.rs` body, which `crate::engine::silu_fixed` also delegates
+/// to; it does not restate the two saturation branches, the `fixed_exp` call or the
+/// round-to-nearest division. The wrapper only fixes the argument and result types.
+pub fn word_silu_fixed(v: i64) -> Result<i64, engine::silu::SiluError> {
+    engine::silu::silu_fixed(v)
+}
+
+/// The real fixed-point `RMSNorm` body, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/norm.rs` body, which `crate::engine::rms_norm_fixed` also
+/// re-exports; it does not restate the `i128` sum of squares, the round-to-nearest mean, the
+/// `eps_fixed` addend, the `fixed_rsqrt` call or the value-path epilogue. The wrapper only fixes
+/// the row and epsilon types.
+pub fn word_rms_norm_fixed(
+    row: &[i64],
+    eps_fixed: i64,
+) -> Result<Vec<i64>, engine::norm::NormError> {
+    engine::norm::rms_norm_fixed(row, eps_fixed)
+}
+
+/// The real per-token `RoPE` rotation body, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/rope.rs` body, which `crate::engine::rope_rotate_fixed` also
+/// re-exports; it does not restate the checked angle product, the `fixed_sin_cos` pair or the
+/// round-to-nearest epilogue. The wrapper only fixes the vector, position and table types.
+pub fn word_rope_rotate_fixed(
+    q: &mut [i64],
+    k: &mut [i64],
+    pos: u32,
+    table: &engine::rope::RopeTable,
+) -> Result<(), engine::rope::RopeError> {
+    engine::rope::rope_rotate_fixed(q, k, pos, table)
+}
+
+/// This calls the real `src/numeric/fixed_rsqrt.rs` body; it does not restate the scaled integer
+/// square root, the division or the rounding. The wrapper only fixes the argument and result types.
+pub fn word_fixed_rsqrt(x: i64) -> Result<i64, fixed_rsqrt::RsqrtError> {
+    fixed_rsqrt::fixed_rsqrt(x)
+}
+
+/// This calls the real `src/numeric/fixed_trig.rs` body; it does not restate the `2π` reduction,
+/// the quadrant fold or the Taylor polynomials. The wrapper only fixes the argument and result types.
+pub fn word_fixed_sin_cos(x: i64) -> Result<fixed_trig::SinCos, fixed_trig::TrigError> {
+    fixed_trig::fixed_sin_cos(x)
+}
+
+/// The real GGUF header/metadata/tensor-directory parse over a caller-supplied byte slice.
+///
+/// This calls the real `format::gguf::parse_header` body; the wrapper fixes only the file-length
+/// argument to the slice length. It does not restate the magic, version or directory arithmetic.
+pub fn word_gguf_parse_header(buf: &[u8]) -> Result<gguf::GgufHeader, gguf::GgufError> {
+    gguf::parse_header(buf, buf.len() as u64)
+}
+
+/// The real Q4_K integer 4-bit code unpack over one 144-byte super-block.
+///
+/// This calls the real `format::quant::q4_k_codes` body; the wrapper fixes only the array type. It
+/// does not restate the nibble or scale-pair layout.
+pub fn word_q4_k_codes(blk: &[u8]) -> Result<[u8; quant::QK_K], quant::QuantError> {
+    quant::q4_k_codes(blk)
+}
+
+/// The real Q4_K block dequant into a fixed 256-weight observation array.
+///
+/// This calls the real `format::quant::dequant_q4_k_block` body; the wrapper fixes only the output
+/// type. It does not restate the `d·sc·code − dmin·min` scaling.
+pub fn word_q4_k_dequant(
+    blk: &[u8],
+    out: &mut [f32; quant::QK_K],
+) -> Result<(), quant::QuantError> {
+    quant::dequant_q4_k_block(blk, out)
+}
+
+/// The real Q6_K integer 6-bit code unpack over one 210-byte super-block.
+///
+/// This calls the real `format::quant::q6_k_codes` body; the wrapper fixes only the array type.
+pub fn word_q6_k_codes(blk: &[u8]) -> Result<[i8; quant::QK_K], quant::QuantError> {
+    quant::q6_k_codes(blk)
+}
+
+/// The real Q6_K block dequant into a fixed 256-weight observation array.
+///
+/// This calls the real `format::quant::dequant_q6_k_block` body; the wrapper fixes only the output
+/// type.
+pub fn word_q6_k_dequant(
+    blk: &[u8],
+    out: &mut [f32; quant::QK_K],
+) -> Result<(), quant::QuantError> {
+    quant::dequant_q6_k_block(blk, out)
+}
+
+/// The real canonical packing block decode over a caller-supplied byte slice.
+///
+/// This calls the real `format::packing::Packing::decode_block` body; the wrapper fixes only the
+/// `Packing` type. It does not restate the scale decode, the code unpack or the affine epilogue.
+pub fn word_packing_decode_block(
+    p: packing::Packing,
+    raw: &[u8],
+) -> Result<Vec<i64>, packing::PackingError> {
+    p.decode_block(raw)
+}
+
+/// The real MoE top-k selection, rooted at the concrete Q32.32 `i64` router logits.
+///
+/// This calls the real `src/engine/moe.rs` body (k passes of a max scan, lower index on ties); the
+/// wrapper only fixes the slice and result types.
+pub fn word_route_topk(logits: &[i64], k: usize) -> Result<Vec<u32>, engine::moe::MoeError> {
+    engine::moe::route_topk(logits, k)
+}
+
+/// The real MoE gate weights over the selected experts, rooted at the concrete Q32.32 `i64` words.
+///
+/// This calls the real `src/engine/moe.rs` body (max-shifted fixed `exp`, checked total, rounded
+/// division); the wrapper only fixes the slice and result types.
+pub fn word_gate_weights(
+    logits: &[i64],
+    sel: &[u32],
+    renorm: bool,
+) -> Result<Vec<i64>, engine::moe::MoeError> {
+    engine::moe::gate_weights(logits, sel, renorm)
+}
+
+/// The real exact-integer Walsh–Hadamard rotation, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/hadamard.rs` body (sign multiply, `k` checked butterfly stages,
+/// one normalization by the `C[k]` table); the wrapper only fixes the slice and result types.
+pub fn word_fwht_fixed(
+    x: &mut [i64],
+    signs: Option<&[i8]>,
+    block: usize,
+) -> Result<(), engine::hadamard::HadamardError> {
+    engine::hadamard::fwht_fixed(x, signs, block)
+}
+
+/// The real fixed-point projection kernel, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/matvec.rs` body, which dequantizes one weight row at a time with
+/// the real `dequant_row_fixed` and reduces it with the real `row_dot_fixed`; the wrapper only
+/// fixes the payload, shape and result types. It does not restate the row stride, the dequantizer
+/// dispatch or the `i128` dot and its `>> 32` epilogue.
+pub fn word_matvec_fixed(
+    ggml_type: u32,
+    raw: &[u8],
+    n_out: usize,
+    n_in: usize,
+    x: &[i64],
+) -> Result<Vec<i64>, engine::matvec::MatvecError> {
+    engine::matvec::matvec_fixed(ggml_type, raw, n_out, n_in, x)
+}
+
+/// The real row-dot helper of the projection kernel, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/matvec.rs` body; it does not restate the checked `i128`
+/// multiply-add accumulation or the single round-to-nearest `>> 32` epilogue. The wrapper only
+/// fixes the weight-row and activation types.
+pub fn word_row_dot_fixed(w_row: &[i64], x: &[i64]) -> Result<i64, engine::matvec::MatvecError> {
+    engine::matvec::row_dot_fixed(w_row, x)
+}
+
+/// The real LM-head application, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/lm_head.rs` `lm_head_fixed` body, which
+/// `crate::engine::Engine::lm_head_fixed` also delegates to after its checked tensor read; it does
+/// not restate the activation-width guard, the quant-family check or the `vocab`-row projection
+/// with its single `>> 32` epilogue. It composes the rooted [`engine::matvec::matvec_fixed`], so
+/// the projection externals already resolve. The wrapper only fixes the payload and activation
+/// types.
+pub fn word_lm_head_fixed(
+    ggml_type: u32,
+    raw: &[u8],
+    vocab: usize,
+    n_embd: usize,
+    x: &[i64],
+) -> Result<Vec<i64>, engine::lm_head::LmHeadError> {
+    engine::lm_head::lm_head_fixed(ggml_type, raw, vocab, n_embd, x)
+}
+
+/// The real `KvState::new` constructor, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/attn.rs` body, which computes the load-time
+/// `fixed_rsqrt(head_dim)` score scale and allocates one zeroed plane per layer; it does not restate
+/// the geometry guard, the scale call or the plane sizing. The wrapper only fixes the geometry
+/// types.
+pub fn word_kv_state_new(
+    n_layer: usize,
+    n_head: usize,
+    n_head_kv: usize,
+    head_dim: usize,
+    cap: usize,
+) -> Result<attn::KvState, attn::AttnError> {
+    attn::KvState::new(n_layer, n_head, n_head_kv, head_dim, cap)
+}
+
+/// The real `KvState::append`, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/attn.rs` body; it does not restate the width, capacity or
+/// position guard, or the position-major row copy. The wrapper only fixes the row types.
+pub fn word_kv_append(
+    state: &mut attn::KvState,
+    layer: usize,
+    k_rows: &[i64],
+    v_rows: &[i64],
+) -> Result<usize, attn::AttnError> {
+    state.append(layer, k_rows, v_rows)
+}
+
+/// The real per-query-head causal attention read, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/attn.rs` `KvState::attn_head` body, whose score shift, softmax
+/// normalisation and value accumulation are the production path; it does not restate the
+/// `row_dot_fixed` score, the `fixed_exp` softmax, the round-to-nearest weights or the epilogue.
+pub fn word_attn_head(
+    state: &attn::KvState,
+    layer: usize,
+    q_head: usize,
+    q: &[i64],
+    pos: usize,
+    out: &mut [i64],
+) -> Result<(), attn::AttnError> {
+    state.attn_head(layer, q_head, q, pos, out)
+}
+
+/// The real greedy `argmax_fixed` sampler, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/sampler.rs` body; it does not restate the strict-`>` tie rule or
+/// the index-range refusal. The wrapper only fixes the logit type.
+pub fn word_argmax_fixed(logits: &[i64]) -> Result<u32, sampler::SamplerError> {
+    sampler::argmax_fixed(logits)
+}
+
+/// The real integer nucleus filter `top_p_fixed`, rooted at the concrete Q32.32 `i64` word.
+///
+/// This calls the real `src/engine/sampler.rs` body; it does not restate the maximum shift, the
+/// `fixed_exp` window, the checked `i128` total, the round-to-nearest probabilities, the descending
+/// order or the cumulative prefix rule. The wrapper only fixes the logit and threshold types.
+pub fn word_top_p_fixed(logits: &[i64], p: i64) -> Result<Vec<u32>, sampler::SamplerError> {
+    sampler::top_p_fixed(logits, p)
+}
+
+/// Mirror of `crate::spirv` for the extraction unit: the real `src/spirv/mod.rs` declares
+/// `pub mod check;`, so the `#[path]`-declared `spirv` module resolves `check` against the real
+/// `src/spirv/` directory and pulls the real `src/spirv/check.rs`. The checker body itself imports
+/// only the standard library, so no other mirror is needed.
+#[path = "../../src/spirv/mod.rs"]
+pub mod spirv;
+
+/// The real SPIR-V DP4A fragment checker, rooted at the concrete `&[u32]` word slice.
+///
+/// This calls the real `src/spirv/check.rs` `check_fragment` body; it does not restate the header,
+/// D1-D4, storage, decoration or `OpSUDot` obligations. The wrapper only fixes the slice element
+/// type (the emitted words are `u32`), so Charon translates the production checker rather than a
+/// copy.
+pub fn word_check_fragment(words: &[u32]) -> Result<(), spirv::check::CheckError> {
+    spirv::check_fragment(words)
+}
+
+/// Mirror of `crate::policy` for the extraction unit: the real `src/policy/mod.rs` declares
+/// `pub mod decide;`, so the `#[path]`-declared `policy` module resolves `decide` against the real
+/// `src/policy/` directory and pulls the real `src/policy/decide.rs`. The decision core imports only
+/// the standard library, so no other mirror is needed.
+#[path = "../../src/policy/mod.rs"]
+pub mod policy;
+
+/// The real bounded authorization decision core `policy::decide`, rooted at the concrete `&[Rule]`,
+/// `&[Atom]` and `&[u64]` word slices.
+///
+/// This calls the real `src/policy/decide.rs` `decide` body; it does not restate the passes over
+/// `rules`, the Kleene guard evaluation, the mask arithmetic or the `Option` min-id fold. The
+/// wrapper fixes nothing: `decide` is already monomorphic over the concrete `Rule`, `Atom`, `u64`,
+/// `u32` and `u64` argument types, and the call is the whole body.
+pub fn word_policy_decide(
+    rules: &[policy::Rule],
+    atoms: &[policy::Atom],
+    facts: &[u64],
+    known: u64,
+    action: u32,
+    want: u64,
+) -> policy::Verdict {
+    policy::decide(rules, atoms, facts, known, action, want)
+}
+
+/// Row-chunked projection helpers the real `src/engine/ffn.rs` imports (`super::par`) and their
+/// fused block-wise dot (`super::fused`). Neither is an extraction root; they are declared last so
+/// no extracted item's source span moves.
+#[path = "../../src/engine/fused.rs"]
+pub mod fused;
+#[path = "../../src/engine/par.rs"]
+pub mod par;

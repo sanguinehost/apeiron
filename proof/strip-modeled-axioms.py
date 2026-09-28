@@ -25,7 +25,14 @@ ALLOW = {
     "core.option.Option.as_ref",
     "core.option.Option.Insts.CoreOpsTry_traitTry.branch",
     "core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual",
+    "core.option.Option.and_then",
     "core.result.Result.is_err",
+    "core.result.Result.ok",
+    "core.num.I64.checked_shl",
+    "core.num.Usize.div_ceil",
+    "I64.Insts.CoreConvertFromU8.from",
+    "I64.Insts.CoreConvertFromU16.from",
+    "I32.Insts.CoreConvertFromU8.from",
 }
 
 AXIOM_LINE = re.compile(r"^axiom\s+(\S+)")

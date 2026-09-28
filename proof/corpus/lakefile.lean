@@ -24,7 +24,10 @@ lean_lib ApeironWordBridge where
   -- revision-bound fixed-shard layout. They remain on disk as historical evidence but are not
   -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
   roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
-    `Growable.Geometry, `Growable.Identity, `Growable.Scan, `Kepler.Certificate, `Growable.Search,
+    `Security.InterpretationWitnesses,
+    `Growable.Geometry, `Growable.Identity, `Growable.Scan,
+    `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
+    `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,
     `Growable.Relocation, `Growable.Refinement, `Growable.Resources, `Growable.Representation,
     `Growable.Rebuild,
     `AxiomAudit, `Joint.WordBridge,
@@ -33,8 +36,8 @@ lean_lib ApeironWordBridge where
     `Slang.DecodeTest, `Slang.Word, `Slang.Machine, `Slang.MachineAudit,
     `Slang.Generated.Table, `Slang.Generated.TableDerivation,
     `Slang.Generated.TableSupport,
-    `Slang.Source.Bytes, `Slang.Source.BytesAudit,
-    `Slang.Source.Lexing, `Slang.Source.LexingAudit, `Slang.Source.Grammar,
+    `Slang.Source.Bytes, `Slang.Source.Audit.Bytes,
+    `Slang.Source.Lexing, `Slang.Source.Audit.Lexing, `Slang.Source.Grammar,
     `Slang.Source.GrammarAudit,     `Slang.Arena.Bounded, `Slang.Arena.StateResult, `Slang.Arena.HandleAudit,
     `Slang.Address.Faces, `Slang.Address.FacesAudit,
     `Slang.Memo.Key, `Slang.Memo.KeyAudit,
@@ -98,3 +101,33 @@ lean_lib ApeironWordBridge where
     `Slang.Generated.SourceWitness.Decoder.ChunksB,
     `Slang.Generated.SourceWitness.Decoder.Assembly,
     `Slang.Generated.SourceWitness.Decoder.Audit]
+
+-- Stage-2 neural rebase: the vendored historical subtrees, byte-identical copies from
+-- `sanguine/proof` (manifest `Substrate/vendor.sha256`, regeneration `tools/vendor-neural.sh`).
+-- A separate default target owns module discovery for the vendored files; `ApeironWordBridge`
+-- does not import them until the wave-1 audit registrations do.
+@[default_target]
+lean_lib SubstrateVendored where
+  globs := #[.submodules `Substrate, .submodules `Closures]
+
+-- AI-track re-anchor: native trichotomy-first surface and model
+-- (docs/epics/ai-track-reanchor.md, docs/epics/ai-track-reanchor.md). One library, module discovery
+-- under Nous/; Core/ is ring-generic and Model/ is AI-specific.
+lean_lib Nous where
+  globs := #[.submodules `Nous]
+
+-- Inference-parity numeric kernels: fixed-point Rust bodies and their real-valued refinements
+-- (docs/epics/inference-parity.md, docs/epics/inference-parity.md). Module discovery under Numeric/.
+lean_lib Numeric where
+  globs := #[.submodules `Numeric]
+
+-- GPU/SPIR-V subset verification: mechanized fragment semantics, decoder soundness and the
+-- checker/DP4A refinements (docs/epics/gpu-spv.md, docs/epics/gpu-spv.md). Module discovery under
+-- Spirv/; roots are registered here by the lead before each task dispatches.
+lean_lib Spirv where
+  globs := #[.submodules `Spirv]
+
+-- Bounded authorization decision core (docs/epics/policy-engine.md): the canonical definition staged
+-- here until the corpus migration, its laws, and (W2) the analysis layer over Apeiron.Decider.
+lean_lib Policy where
+  globs := #[.submodules `Policy]

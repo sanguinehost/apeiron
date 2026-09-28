@@ -2,7 +2,7 @@
 """Consistency checker for the W17-T1 joint primitive profile.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/spec/joint-primitives.md`` and ``tools/joint/profile_rows.json`` are
+``docs/contracts/joint-primitives.md`` and ``tools/joint/profile_rows.json`` are
 internally complete and that every artifact they name resolves:
 
 * every joint profile row carries all seven populated fields, in both the
@@ -68,7 +68,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "spec" / "joint-primitives.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "joint-primitives.md"
 ROWS_PATH = HERE.parent / "profile_rows.json"
 
 # Named artifacts that are deliberately absent from the pinned corpus. A

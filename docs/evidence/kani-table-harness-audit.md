@@ -1,5 +1,9 @@
 # Kani harness audit: stale fixed-shard premises and CBMC cost
 
+Status: superseded by [user-directed Kani retirement](../epics/kani-retirement.md).
+Kani receipts and requirements below describe the earlier work only; do not run or retry them.
+Retirement does not turn timeouts into passes or close missing Lean refinements.
+
 Gate: `cargo kani` (`src/proofs.rs`, `#[cfg(kani)] mod harnesses`, 63 harnesses).
 Machine: `i9-14900KF`, 32 threads, 62 GiB. Kani `0.67.0`, CBMC `6.8.0`.
 Run: `nice -n 10 timeout <T> cargo kani -j 16 --output-format terse -Z unstable-options --harness-timeout <t>s`.
@@ -204,7 +208,7 @@ whole-`Table` obligations as blocked until separately covered; a passing helper 
 full gate. Require reachable positive and negative cases and a real-source late-sweep mutation that
 fails.
 
-Universal refinement, independently required and named in `docs/spec/read-path-specialization.md`:
+Universal refinement, independently required and named in `docs/epics/read-path-specialization.md`:
 `Growable/Scan.lean` (source-linked summary/fingerprint exclusion facts),
 `Growable/Representation.lean` (representation facts and their construction/preservation), and
 `Growable/Search.lean` (prove the generated `spill_read` and both `word_{stored,regen}_table_get_at`
@@ -247,3 +251,49 @@ construction/preservation of the fixture's facts is a separate blocked obligatio
 9 are the whole-`Table` read/write/search harnesses; they remain enabled and blocked. Production is
 green: `cargo test --workspace --all-features` rc 0, `cargo clippy -D warnings` rc 0,
 `cargo fmt --all -- --check` rc 0.
+
+## Insertion-locator fixture task
+
+`spill_locate_classifies_a_fixed_initialized_region` directly calls the real `spill_locate` body
+for `Stored<i64>`, `WordHome`, `Sigma::Parabolic`, `n = 2`, four slots and two groups. The regions
+are created through `Region::reserve_empty(4)` and `initialize`; live slots are published only
+through `publish_live`, which records the summary before the live tag. All keys and queries are
+concrete, so no `kani::assume` is needed to inhabit the following branches:
+
+- group 0 `[key 7, vacant]`, group 1 `[key 8, key 9]`, query `8`: `Found(2)`, after the earlier
+  vacancy and in the cyclic coverage sweep;
+- the same region, query `10`: `Vacant(1)`, after rejecting same-fingerprint full-key collisions;
+- all four lanes live with keys unequal to `10`: `Grow`;
+- the first region, key `8` queried under `Sigma::Elliptic`: `Vacant(1)`, because the stored
+  `Sigma::Parabolic` payload is not a match.
+
+Focused gate:
+
+```sh
+cargo kani --harness spill_locate_classifies_a_fixed_initialized_region \
+  -Z unstable-options --harness-timeout 120s
+```
+
+Receipt: `src/table/probe.rs` SHA-256
+`9cbf4ead2188957f2100833a8e84a4ba3505b25cd66b18a57834abd1a0a22a0f`; Kani `0.67.0`, CBMC
+`6.8.0`. The focused baseline exited 0 with 803 checks, 23 unreachable and verification time
+7.423595 s (`target/handoff-w2-t2/baseline-final.log`). In a disposable copy, changing the real
+`spill_locate` outer bound from `step < WINDOWS + groups` to `step < WINDOWS` exited 1 with the
+`Found(2)` assertion `an earlier vacancy must not hide the late full-key match` as the sole failed
+check, 29 unreachable and verification time 5.7235403 s
+(`target/handoff-w2-t2/mutant-final.log`). The unchanged restored source exited 0 with 803 checks,
+23 unreachable and verification time 7.4622197 s
+(`target/handoff-w2-t2/restored-final.log`). `cargo fmt --all -- --check` exited 0
+(`target/handoff-w2-t2/fmt.log`). No timeout, compilation error, unwind failure or unreachable
+assertion supplied the red result.
+
+The claim is `tested`/bounded only for these exact initialized helper fixtures:
+the real locator distinguishes a late full-key match, the first probe-order vacancy, exhaustion,
+and unequal-`Sigma` identity. `reserve_empty`, `initialize` and `publish_live` make the fixture
+representation-valid, but no result shows it reachable from `Table::new` followed by public
+`insert_with`. `Region::reserve_empty(4)` executes the real fixture-helper allocation path, but the
+harness establishes no whole-`Table` allocation/growth or allocator-realization/refusal result. It
+does not execute table construction, locator publication, relocation, resource failure,
+direct-region selection, `Table::search_decision`, `get_at`, `Regen`, production 256-shard
+equivalence, canonical `get`, or universal `SearchDecisionCorrect`. The nine whole-`Table`
+harnesses remain enabled and blocked.

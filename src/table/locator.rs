@@ -5,6 +5,8 @@
 // shared directory engine in `crate::coord::locator::locator_core`; it builds no second trie, and
 // the directory owns no key and no value. No read path consumes the directory here.
 
+use crate::coord::locator::locator_core::FoundOrStaged;
+
 /// The largest number of byte-labelled edges one identity node may hold.
 ///
 /// This is the engine's design bound; the checker rejects a directory that exceeds it.
@@ -218,20 +220,21 @@ fn locator_path_plan<I: ResidueIndex>(
 /// Observes the locator capacity receipt for a reserved path.
 ///
 /// Every field pairs the checked plan target with what the reservation actually observed: the
-/// residue and identity node counts, the summed identity-edge capacity, the reverse-link registry
+/// residue and identity node counts, the identity-edge capacity, the reverse-link registry
 /// capacity, the staged identity-path capacity and the retained encoding length. A `Vec`'s capacity
 /// is never below its length, so the node-count bounds are sound. The receipt's
 /// [`LocatorReservationReceipt::holds`] is the refusal witness.
+///
+/// Temporal O(1): every identity node reserves exactly one outgoing edge record when it is created,
+/// so the arena's edge capacity is the identity-node count. The former per-node sum walked every
+/// node per reserved key, O(nodes) per key and quadratic per build.
 fn observe_locator_receipt(
     plan: &LocatorReservationPlan,
     staged: &StagedPath,
     links_capacity: usize,
     directory: &Directory,
 ) -> LocatorReservationReceipt {
-    let mut edge_capacity = 0usize;
-    for node in directory.identity_nodes() {
-        edge_capacity = edge_capacity.saturating_add(node.edges.capacity());
-    }
+    let edge_capacity = directory.identity_node_count();
     LocatorReservationReceipt {
         parabolic_nodes: locator_bound(plan.parabolic_nodes, directory.arena_len::<ParabolicDual>()),
         residue_nodes: locator_bound(plan.residue_nodes, directory.arena_len::<Residue>()),
@@ -415,13 +418,112 @@ impl TableLocator {
         if matches!(sigma, Sigma::Elliptic) {
             return Ok(LocatorReservationReceipt::EMPTY);
         }
-        let encoding_len = R::query_encoding_len(key);
-        let mut bytes: Vec<u8> = Vec::new();
-        try_reserve_exact(&mut bytes, encoding_len)?;
-        let mut i = 0;
-        while i < encoding_len {
-            bytes.push(R::query_encoding_byte(key, i));
-            i += 1;
+        // The allocation-free empty state materializes on its first locator reservation.
+        if self.directory.is_none() {
+            self.directory = Some(Directory::new());
+        }
+        if self.links.len() > u32::MAX as usize {
+            return Err(StorageError::SizeOverflow);
+        }
+        let handle = self.links.len() as u32;
+        self.links
+            .try_reserve(1)
+            .map_err(|_| StorageError::AllocationFailed)?;
+        let links_capacity = self.links.capacity();
+        // A borrowed view forwards the carrier's exact bytes: reservation allocates no key buffer
+        // and retains no second copy, because the table's carrier is the authoritative key store.
+        let view = QueryIdentity::<K, H, R> {
+            key,
+            _carrier: PhantomData,
+        };
+        match sigma {
+            // Already returned above: the elliptic face has no locator.
+            Sigma::Elliptic => Ok(LocatorReservationReceipt::EMPTY),
+            Sigma::Parabolic => {
+                let index = home.parabolic_dual(key);
+                self.reserve_bytes::<ParabolicDual, K, H, R>(&index, &view, links_capacity, handle)
+            }
+            Sigma::Hyperbolic => {
+                let profile = self.profile_or_init()?;
+                let index = home.hyperbolic_scalar(profile, key);
+                self.reserve_bytes::<Residue, K, H, R>(&index, &view, links_capacity, handle)
+            }
+        }
+    }
+
+    /// Reserves and stages one exact byte key's complete path on the committed directory.
+    ///
+    /// The key is the borrowed [`QueryIdentity`] view: the reservation reads the carrier's exact
+    /// bytes directly, allocates no key buffer and retains nothing (`Reserved = ()`), which the
+    /// receipt already requires.
+    fn reserve_bytes<I: ResidueIndex, K, H, R>(
+        &mut self,
+        index: &I,
+        view: &QueryIdentity<'_, K, H, R>,
+        links_capacity: usize,
+        handle: u32,
+    ) -> Result<LocatorReservationReceipt, StorageError>
+    where
+        K: Clone,
+        H: Home<K>,
+        R: KeyRep<K, H>,
+    {
+        let plan = locator_path_plan::<I>(R::query_encoding_len(view.key))?;
+        // Direct reborrow of the owned `Option<Directory>` field: the branch-local binding is a
+        // plain `&mut Directory`, so no `Result<&mut Directory, _>` or its `?`-desugared
+        // `ControlFlow` enters the translated body. `reserve_path` materializes the directory
+        // before this call, so the `None` arm is the same defensive refusal as before.
+        let Some(directory) = &mut self.directory else {
+            return Err(StorageError::AllocationFailed);
+        };
+        // The unit pattern is the view's `Reserved = ()`: the table's own carrier is the
+        // authoritative key store, so the reservation retains no second copy to release.
+        let ((), staged) = directory
+            .reserve_for::<I, QueryIdentity<'_, K, H, R>>(index, view)
+            .map_err(locator_refusal)?;
+        let receipt = observe_locator_receipt(&plan, &staged, links_capacity, directory);
+        if !receipt.holds() {
+            // Refusal after staging: the scratch returns to the idle slot with nothing published.
+            directory.recycle_staged(staged);
+            return Err(StorageError::AllocationFailed);
+        }
+        self.staged = Some((handle, staged));
+        Ok(receipt)
+    }
+
+    /// Reserves and stages the pending query key's directory path unless the key is already
+    /// linked: the parallel assembly's found-or-linked seam.
+    ///
+    /// The one staging walk doubles as the repeat detection ([`FoundOrStaged`] carries its
+    /// mechanism), so a repeat key costs no separate probe walk. This wrapper performs exactly the
+    /// checks [`TableLocator::reserve_path`] performs for the staged arm — the locator-free
+    /// elliptic face reserves nothing, the directory materializes, the reverse-link registry takes
+    /// its capacity-only reservation, the hyperbolic profile initializes — before the walk, since
+    /// the arm is decided inside it. The found arm calls no `ExactIdentity::reserve_retain`,
+    /// [`Directory::link`] or [`TableLocator::record_link`]: it returns the existing handle and the
+    /// caller records it only. The staged arm is exactly [`TableLocator::reserve_path`]'s staged
+    /// contract: the receipt is observed and checked, a refusal recycles the staged path and
+    /// nothing is published, and [`TableLocator::staged_handle`] reports the handle publication
+    /// will use.
+    ///
+    /// Temporal `O(I::LEVELS + |E(k)| * f)` for the staging walk plus checked sizing and receipt
+    /// observation; spatial `O(1)` beyond [`Directory::reserve_or_linked`]'s reservations.
+    fn reserve_or_linked<K, H, R>(
+        &mut self,
+        home: &H,
+        sigma: Sigma,
+        key: &K,
+    ) -> Result<FoundOrStaged<LocatorReservationReceipt>, StorageError>
+    where
+        K: Clone,
+        H: Home<K>,
+        R: KeyRep<K, H>,
+    {
+        // The locator-free elliptic face reserves nothing; this mirrors `reserve_path`'s empty
+        // arm and is unreachable from `preassemble_directory`, which branches on the elliptic face
+        // before this call.
+        if matches!(sigma, Sigma::Elliptic) {
+            return Ok(FoundOrStaged::Staged(LocatorReservationReceipt::EMPTY));
         }
         // The allocation-free empty state materializes on its first locator reservation.
         if self.directory.is_none() {
@@ -435,59 +537,81 @@ impl TableLocator {
             .try_reserve(1)
             .map_err(|_| StorageError::AllocationFailed)?;
         let links_capacity = self.links.capacity();
+        // A borrowed view forwards the carrier's exact bytes: the reservation allocates no key
+        // buffer and retains no second copy, found arm included.
+        let view = QueryIdentity::<K, H, R> {
+            key,
+            _carrier: PhantomData,
+        };
         match sigma {
             // Already returned above: the elliptic face has no locator.
-            Sigma::Elliptic => Ok(LocatorReservationReceipt::EMPTY),
+            Sigma::Elliptic => Ok(FoundOrStaged::Staged(LocatorReservationReceipt::EMPTY)),
             Sigma::Parabolic => {
                 let index = home.parabolic_dual(key);
-                self.reserve_bytes::<ParabolicDual>(&index, &bytes, links_capacity, handle)
+                self.reserve_or_linked_bytes::<ParabolicDual, K, H, R>(
+                    &index,
+                    &view,
+                    links_capacity,
+                    handle,
+                )
             }
             Sigma::Hyperbolic => {
                 let profile = self.profile_or_init()?;
                 let index = home.hyperbolic_scalar(profile, key);
-                self.reserve_bytes::<Residue>(&index, &bytes, links_capacity, handle)
+                self.reserve_or_linked_bytes::<Residue, K, H, R>(
+                    &index,
+                    &view,
+                    links_capacity,
+                    handle,
+                )
             }
         }
     }
 
-    /// Reserves and stages one exact byte key's complete path on the committed directory.
-    fn reserve_bytes<I: ResidueIndex>(
+    /// [`TableLocator::reserve_bytes`] for the found-or-linked seam: stages one exact byte key's
+    /// complete path on the committed directory unless the key is already linked.
+    fn reserve_or_linked_bytes<I: ResidueIndex, K, H, R>(
         &mut self,
         index: &I,
-        bytes: &[u8],
+        view: &QueryIdentity<'_, K, H, R>,
         links_capacity: usize,
         handle: u32,
-    ) -> Result<LocatorReservationReceipt, StorageError> {
-        let plan = locator_path_plan::<I>(bytes.len())?;
-        let mut key: Vec<u8> = Vec::new();
-        try_reserve_exact(&mut key, bytes.len())?;
-        key.extend_from_slice(bytes);
+    ) -> Result<FoundOrStaged<LocatorReservationReceipt>, StorageError>
+    where
+        K: Clone,
+        H: Home<K>,
+        R: KeyRep<K, H>,
+    {
+        let plan = locator_path_plan::<I>(R::query_encoding_len(view.key))?;
         // Direct reborrow of the owned `Option<Directory>` field: the branch-local binding is a
-        // plain `&mut Directory`, so no `Result<&mut Directory, _>` or its `?`-desugared
-        // `ControlFlow` enters the translated body. `reserve_path` materializes the directory
-        // before this call, so the `None` arm is the same defensive refusal as before.
+        // plain `&mut Directory`, as in `reserve_bytes`.
         let Some(directory) = &mut self.directory else {
             return Err(StorageError::AllocationFailed);
         };
-        let (retained, staged) = directory
-            .reserve_for::<I, Vec<u8>>(index, &key)
-            .map_err(locator_refusal)?;
-        let receipt = observe_locator_receipt(&plan, &staged, links_capacity, directory);
-        if !receipt.holds() {
-            return Err(StorageError::AllocationFailed);
+        match directory
+            .reserve_or_linked::<I, QueryIdentity<'_, K, H, R>>(index, view)
+            .map_err(locator_refusal)?
+        {
+            FoundOrStaged::Found(existing) => Ok(FoundOrStaged::Found(existing)),
+            FoundOrStaged::Staged(((), staged)) => {
+                let receipt = observe_locator_receipt(&plan, &staged, links_capacity, directory);
+                if !receipt.holds() {
+                    // Refusal after staging: the scratch returns to the idle slot with nothing published.
+                    directory.recycle_staged(staged);
+                    return Err(StorageError::AllocationFailed);
+                }
+                self.staged = Some((handle, staged));
+                Ok(FoundOrStaged::Staged(receipt))
+            }
         }
-        // The retained identity buffer is reserved and released: the table's own carrier is the
-        // authoritative key store, so the directory owns no second copy. `let _ =` drops it without
-        // the `core::mem::drop` external, which the extraction leaves unmodeled.
-        let _ = retained;
-        self.staged = Some((handle, staged));
-        Ok(receipt)
     }
 
     /// Publishes the staged path as the live reverse link at `location`, if one is staged.
     ///
     /// The payload effect has already run when this is called; the directory's `link` performs no
-    /// fallible allocation because every node and edge was reserved before retention.
+    /// fallible allocation because every node and edge was reserved before retention. Publication
+    /// consumes the staged path and recycles its scratch buffer; every arm that cannot publish
+    /// recycles it as well, so no outstanding staged path outlives this call with a live buffer.
     fn publish_for_query<K, H, R>(
         &mut self,
         home: &H,
@@ -503,8 +627,15 @@ impl TableLocator {
             return;
         };
         let encoding_len = R::query_encoding_len(key);
+        let identity_node = staged.identity_path[encoding_len];
         match sigma {
-            Sigma::Elliptic => {}
+            Sigma::Elliptic => {
+                // Unreachable (the elliptic face never stages); the defensive arm still returns
+                // the scratch to the idle slot rather than dropping it.
+                if let Some(directory) = &mut self.directory {
+                    directory.recycle_staged(staged);
+                }
+            }
             Sigma::Parabolic => {
                 let index = home.parabolic_dual(key);
                 let view = QueryIdentity::<K, H, R> {
@@ -514,11 +645,14 @@ impl TableLocator {
                 // Reborrow the owned field directly: the binding is `&mut Directory`, not the
                 // `Option<&mut Directory>` that `Option::as_mut` would form.
                 if let Some(directory) = &mut self.directory {
-                    directory.link::<ParabolicDual, _>(&index, &view, &staged, handle);
+                    directory.link::<ParabolicDual, _>(&index, &view, staged, handle);
                 }
             }
             Sigma::Hyperbolic => {
                 let Some(profile) = self.profile else {
+                    if let Some(directory) = &mut self.directory {
+                        directory.recycle_staged(staged);
+                    }
                     return;
                 };
                 let index = home.hyperbolic_scalar(profile, key);
@@ -527,11 +661,11 @@ impl TableLocator {
                     _carrier: PhantomData,
                 };
                 if let Some(directory) = &mut self.directory {
-                    directory.link::<Residue, _>(&index, &view, &staged, handle);
+                    directory.link::<Residue, _>(&index, &view, staged, handle);
                 }
             }
         }
-        self.record_link(handle, staged.identity_path[encoding_len], location);
+        self.record_link(handle, identity_node, location);
     }
 
     /// Publishes the staged path for a live held carrier, materializing its key on this cold path.
@@ -560,6 +694,16 @@ impl TableLocator {
             self.links[at] = (identity_node, location);
         } else {
             self.links.push((identity_node, location));
+        }
+    }
+
+    /// The terminal handle the current staging will publish under, or `None` when nothing is
+    /// staged. Temporal `O(1)`; spatial `O(1)`. The handle is assigned at reservation and consumed
+    /// unchanged by publication, so this is the handle `record_link` will use.
+    fn staged_handle(&self) -> Option<u32> {
+        match &self.staged {
+            Some((handle, _)) => Some(*handle),
+            None => None,
         }
     }
 
@@ -607,50 +751,11 @@ impl TableLocator {
         }
     }
 
-    /// The terminal handle the committed directory assigns to a query key, or `None`.
-    ///
-    /// Temporal `O(64 + |E|)` directory steps and no key materialization; spatial `O(1)`. This is
-    /// the query-side counterpart of [`TableLocator::linked_handle`], used by the parallel
-    /// directory assembly to find a key already linked without a hold or a second key buffer. A
-    /// miss is `None`, never an absence certificate.
-    fn linked_handle_query<K, H, R>(&self, home: &H, sigma: Sigma, key: &K) -> Option<u32>
-    where
-        K: Clone,
-        H: Home<K>,
-        R: KeyRep<K, H>,
-    {
-        let directory = self.directory.as_ref()?;
-        if matches!(sigma, Sigma::Elliptic) {
-            return None;
-        }
-        let view = QueryIdentity::<K, H, R> {
-            key,
-            _carrier: PhantomData,
-        };
-        match sigma {
-            Sigma::Elliptic => None,
-            Sigma::Parabolic => {
-                let index = home.parabolic_dual(key);
-                match directory.walk::<ParabolicDual, _>(&index, &view) {
-                    Walk::Terminal(handle) => Some(handle),
-                    Walk::Miss { .. } => None,
-                }
-            }
-            Sigma::Hyperbolic => {
-                let profile = self.profile?;
-                let index = home.hyperbolic_scalar(profile, key);
-                match directory.walk::<Residue, _>(&index, &view) {
-                    Walk::Terminal(handle) => Some(handle),
-                    Walk::Miss { .. } => None,
-                }
-            }
-        }
-    }
-
-    /// Rebases one terminal's recorded payload location without touching the directory.
+    /// Sets one terminal's recorded payload location without touching the directory.
     ///
     /// The terminal handle is unchanged by assembly; only the payload location it names moves. A
-    /// handle with no recorded link is left alone. This allocates nothing.
+    /// handle with no recorded link is left alone (the retarget-free callers bounds-check first and
+    /// refuse their own way). This allocates nothing.
     fn set_link_location(&mut self, handle: u32, location: PayloadLocation) {
         // Guarded index plus a copied old pair and a whole-pair write: no `get_mut` result or
         // mutable-reference tuple is formed. An out-of-range handle is a no-op.
@@ -716,78 +821,114 @@ where
     }
 
     /// Reserves and links the directory path of every distinct non-elliptic input key before any
-    /// worker callback.
+    /// worker callback, recording every input entry's terminal handle.
     ///
     /// This is the parallel build's locator half of the joint transaction. Every residue node,
     /// identity node, identity edge, staged path entry and reverse link is reserved here, on the
     /// calling thread, before the scoped fill workers run, so a locator refusal starts no worker and
-    /// runs no hold, clone, merge or relocation. Each distinct key's complete path is linked once: a
-    /// repeat key is found through [`TableLocator::linked_handle_query`] and skipped, so no
-    /// duplicate node or edge is staged or merged. The recorded payload location is a placeholder,
-    /// rebased by [`Self::rebase_directory`] once the assembled payload locations are known.
+    /// runs no hold, clone, merge or relocation. Each distinct key's complete path is linked once:
+    /// [`TableLocator::reserve_or_linked`] finds a repeat key in the same walk that stages a fresh
+    /// one, so a repeat records the existing handle and no duplicate node, edge or link is staged,
+    /// published or merged. `handles` is the caller's pre-reserved per-input table and must have
+    /// `kvs`'s length: entry `i` receives `Some(handle)` for `kvs[i]`'s key (repeated keys record
+    /// the same handle) and `None` for the locator-free elliptic face. The recorded payload
+    /// location is a placeholder, overwritten from these handles by the parallel build's
+    /// recorded-location finalization once the assembled payload locations are known. A length
+    /// mismatch or a reservation without a staged handle is a checked refusal.
     ///
-    /// Temporal `O(|kvs| * (64 + |E|))` directory steps, counted in input entries and key bytes;
+    /// Temporal `O(|kvs| * (64 + |E|))` directory steps, counted in input entries and key bytes —
+    /// exactly one staging walk per input entry, where a repeat key's walk reuses every child;
     /// spatial `O(distinct keys * |E|)` directory storage. This is a cold build-time pass.
     pub(crate) fn preassemble_directory(
         &mut self,
         kvs: &[((H::Faces, K), V)],
+        handles: &mut [Option<u32>],
     ) -> Result<(), StorageError> {
+        if handles.len() != kvs.len() {
+            return Err(StorageError::SizeOverflow);
+        }
         let mut i = 0;
         while i < kvs.len() {
             let (face, key) = &kvs[i].0;
             let sigma = face.sigma();
-            if !matches!(sigma, Sigma::Elliptic)
-                && self
+            // The elliptic face has no locator: it reserves none and its entry stays `None`.
+            let mut handle = None;
+            if !matches!(sigma, Sigma::Elliptic) {
+                let outcome = self
                     .locator
-                    .linked_handle_query::<K, H, R>(&self.home, sigma, key)
-                    .is_none()
-            {
-                self.reserve_locator_path(sigma, key)?;
-                self.locator.publish_for_query::<K, H, R>(
-                    &self.home,
-                    sigma,
-                    key,
-                    PayloadLocation::Spill(0, 0),
-                );
+                    .reserve_or_linked::<K, H, R>(&self.home, sigma, key)?;
+                handle = match outcome {
+                    FoundOrStaged::Found(existing) => Some(existing),
+                    FoundOrStaged::Staged(_) => {
+                        let staged = self
+                            .locator
+                            .staged_handle()
+                            .ok_or(StorageError::AllocationFailed)?;
+                        self.locator.publish_for_query::<K, H, R>(
+                            &self.home,
+                            sigma,
+                            key,
+                            PayloadLocation::Spill(0, 0),
+                        );
+                        Some(staged)
+                    }
+                };
             }
+            handles[i] = handle;
             i += 1;
         }
         Ok(())
     }
+}
 
-    /// Rebases every preassembled terminal to the assembled payload's real location.
+/// Test-only observation surface for the external integration tests in `tests/native_locator/`,
+/// which cannot observe `#[cfg(test)]` items. Gated by the `injection` feature like the other
+/// integration-test seams, so the Charon/Aeneas extraction unit (default features) never compiles
+/// it; production callers see nothing.
+#[cfg(feature = "injection")]
+impl<K, V, H, const N: usize, R> Table<K, V, H, N, R>
+where
+    K: Clone,
+    V: Clone,
+    H: Home<K>,
+    R: KeyRep<K, H>,
+{
+    /// Runs [`Table::preassemble_directory`] over `kvs` and returns its per-input handles, so a
+    /// test can compare a repeat key's handle with its first occurrence's.
     ///
-    /// Runs after the worker regions are assembled into the table and after the last fallible
-    /// reservation, so it allocates nothing: it walks the committed directory for the query key's
-    /// handle, classifies the assembled payload and overwrites the placeholder location. A key that
-    /// is not live or not linked is a checked refusal, not a partial certificate.
+    /// # Errors
     ///
-    /// Temporal `O(|kvs| * (64 + |E| + probe))` directory steps and spill probes, counted in input
-    /// entries and key bytes; spatial `O(1)` beyond the directory already built.
-    pub(crate) fn rebase_directory(
+    /// Returns the same checked refusal [`Table::preassemble_directory`] returns.
+    pub fn preassemble_handles(
         &mut self,
         kvs: &[((H::Faces, K), V)],
-    ) -> Result<(), StorageError> {
-        let mut i = 0;
-        while i < kvs.len() {
-            let (face, key) = &kvs[i].0;
-            let sigma = face.sigma();
-            if !matches!(sigma, Sigma::Elliptic) {
-                let handle = self
-                    .locator
-                    .linked_handle_query::<K, H, R>(&self.home, sigma, key)
-                    .ok_or(StorageError::AllocationFailed)?;
-                let address = Home::address(&self.home, sigma, key);
-                let location = match self.search_decision(sigma, key, &address).location {
-                    SearchLocation::Flat(index) => PayloadLocation::Resident(index),
-                    SearchLocation::Spill(shard, index) => PayloadLocation::Spill(shard, index),
-                    SearchLocation::NoIndex => return Err(StorageError::AllocationFailed),
-                };
-                self.locator.set_link_location(handle, location);
-            }
-            i += 1;
+    ) -> Result<Vec<Option<u32>>, StorageError> {
+        let mut handles = vec![None; kvs.len()];
+        self.preassemble_directory(kvs, &mut handles)?;
+        Ok(handles)
+    }
+
+    /// The countable locator state: the reverse-link count, the hyperbolic and parabolic
+    /// residue-node counts, the identity-node count and the identity-edge count.
+    #[must_use]
+    pub fn locator_counts(&self) -> (usize, usize, usize, usize, usize) {
+        let mut hyperbolic = 0;
+        let mut parabolic = 0;
+        let mut identity = 0;
+        let mut edges = 0;
+        if let Some(directory) = &self.locator.directory {
+            hyperbolic = directory.arena_len::<Residue>();
+            parabolic = directory.arena_len::<ParabolicDual>();
+            identity = directory.identity_node_count();
+            edges = directory.edge_count();
         }
-        Ok(())
+        (
+            self.locator.links.len(),
+            hyperbolic,
+            parabolic,
+            identity,
+            edges,
+        )
     }
 }
 

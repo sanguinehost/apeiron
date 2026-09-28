@@ -1,0 +1,13 @@
+# FRONTIER: APEIRON-ANATIVE-W4-ESHAPE-C | deepseek-flash | ses_f42d9cc3affeEWgKB4SQGSZC3t | src/table.rs,src/coord/locator_core.rs
+TASK_ID	OWNER	SESSION	STATUS	FILES	GATE	RESULT	CONTROL	GRADE
+APEIRON-ANATIVE-W4-I3A_K	Flash	ses_f431ec51	CLOSED	src/coord/address.rs,src/table.rs,examples/reg1/	cargo test	244 passed, Kani ok	0/q, erasure rejected	tested
+APEIRON-ANATIVE-W4-S3	Sol	ses_f431d4df	CLOSED	proof/corpus/Native/LocatorSpec.lean	lake build Native.LocatorSpec	2978 jobs ok	missing-path counterexample	proved
+APEIRON-ANATIVE-W4-SEAM	Flash	ses_f4315ac9	CLOSED	src/coord/locator.rs	cargo test	244 passed	visibility control	tested
+APEIRON-ANATIVE-W4-I4	Flash	ses_f4314a35	CLOSED	src/table.rs,src/table/state.rs,src/table/locator.rs	cargo test	250 passed	empty dir live payload -> reject	tested
+APEIRON-ANATIVE-W4-I5	Flash	ses_f430ebe3	CLOSED	src/table.rs,src/table/resources.rs,src/table/locator.rs	cargo test	253 passed	omit edge reservation -> reject	tested
+APEIRON-ANATIVE-W4-I6	Flash	ses_f4303169	CLOSED	src/table.rs,src/table/locator.rs,src/table/tests.rs	cargo test	256 passed	omit spill-to-flat retarget -> reject	tested
+APEIRON-ANATIVE-W4-ESHAPE-C	Flash	ses_f42d9cc3	ACTIVE	src/table.rs,src/coord/locator_core.rs	cargo test; regen.sh	running	array-size/edge-skip	tested
+APEIRON-ANATIVE-W4-I7	Flash	None	QUEUED	src/table/parallel.rs,src/table/locator.rs,tests/parallel/main.rs	cargo test --test parallel	pending	drop worker links -> reject	tested
+APEIRON-ANATIVE-W4-S2	Sol	None	QUEUED	proof/corpus/Native/LocatorSource.lean,proof/corpus/Native/LocatorCost.lean	lake build Native.LocatorSource Native.LocatorCost	pending	omit terminal relink -> reject	proved
+APEIRON-ANATIVE-W4-I8	Flash	None	QUEUED	src/table.rs,src/table/probe.rs,src/table/tests.rs	cargo test	pending	unknown-to-absent -> reject	tested
+APEIRON-ANATIVE-W4-I9	Flash	None	QUEUED	src/table.rs,src/table/probe.rs,src/table/tests.rs	cargo test	pending	unknown-to-default -> reject	tested

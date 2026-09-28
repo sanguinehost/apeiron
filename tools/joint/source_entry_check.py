@@ -2,7 +2,7 @@
 """Consistency checker for the W18-T1 Slang source-entry fidelity specification.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/spec/slang-source-entry.md`` and ``tools/joint/source_entry_cases.json``
+``docs/contracts/slang-source-entry.md`` and ``tools/joint/source_entry_cases.json``
 are internally complete and that every artifact they name resolves:
 
 * every selected entry carries all nine required fields and stays
@@ -71,7 +71,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "spec" / "slang-source-entry.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "slang-source-entry.md"
 CASES_PATH = HERE.parent / "source_entry_cases.json"
 
 PROFILE_ID = "APEIRON-PROGRAMME-W18-T1"

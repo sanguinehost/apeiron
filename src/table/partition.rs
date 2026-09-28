@@ -25,14 +25,8 @@ use super::{shard, Home, StorageError};
 
 /// Shard-address width in bits.
 ///
-/// Reduced under `cfg(kani)` so CBMC decides the table access path: the 256-shard geometry makes a
-/// symbolic shard index a 256-way mux and the growable path intractable. Production and the Aeneas
-/// extraction keep 8; only `cargo kani` sees 2. The fingerprint/descent extraction from
-/// `place >> 8` is deliberately not moved with it: it is a filter followed by full identity
-/// comparison, so unused placement bits cannot cause a false hit.
-#[cfg(kani)]
-pub(crate) const SHARD_BITS: u32 = 2;
-#[cfg(not(kani))]
+/// The low byte selects one of 256 shards. The fingerprint/descent filter reads higher placement
+/// bits and is followed by full identity comparison.
 pub(crate) const SHARD_BITS: u32 = 8;
 
 /// Number of home shards. A power of two, `1 << SHARD_BITS`.
@@ -46,9 +40,6 @@ const _: () = {
     assert!(SHARDS.is_power_of_two());
     assert!(SHARD_MASK == SHARDS - 1);
 };
-#[cfg(kani)]
-const _: () = assert!(SHARD_BITS == 2 && SHARDS == 4 && SHARD_MASK == 3);
-#[cfg(not(kani))]
 const _: () = assert!(SHARD_BITS == 8 && SHARDS == 256 && SHARD_MASK == 255);
 
 /// Input indices routed into one contiguous per-shard buffer.

@@ -211,208 +211,8 @@ include!("table/state.rs");
 // the same way: they are definitions of the `table` module and read the table's private storage.
 include!("table/locator.rs");
 
-/// Reserves one spill region per shard for a checked rebuild plan.
-///
-/// This is a free function over the carrier `R` and value `V` alone, not a method of the generic
-/// `Table`: the region construction is a separately named, monomorphizable item, so the extraction
-/// pipeline instantiates it from the concrete roots instead of translating the whole `Table`
-/// binder inside the loop. Exactly one implementation exists; both carriers share it. The
-/// reservation order is unchanged: the region directory is reserved first, then each nonempty
-/// shard's region is sized and reserved in shard order, and the first error is returned with no
-/// partial vector. Temporal `O(SHARDS)` checked reservations; spatial `O(SHARDS)` region headers
-/// plus their reserved payload storage.
-fn reserve_plan_regions<R: Clone, V: Clone, const N: usize>(
-    spill_loads: &[usize],
-) -> Result<Vec<Region<R, V>>, StorageError> {
-    let mut regions: Vec<Region<R, V>> = Vec::new();
-    try_reserve_exact(&mut regions, SHARDS)?;
-    let mut reservation_error = None;
-    let mut shard_at = 0;
-    while shard_at < SHARDS && reservation_error.is_none() {
-        let count = spill_loads[shard_at];
-        let region = if count == 0 {
-            Ok(Region::empty())
-        } else {
-            match slots_for(count, N) {
-                Ok(slots) => Region::reserve_empty(slots),
-                Err(error) => Err(error),
-            }
-        };
-        match region {
-            Ok(region) => regions.push(region),
-            Err(error) => reservation_error = Some(error),
-        }
-        shard_at += 1;
-    }
-    match reservation_error {
-        Some(error) => Err(error),
-        None => Ok(regions),
-    }
-}
-
-/// Initializes every reserved spill region with the pending held carrier.
-///
-/// The free-function counterpart of [`reserve_plan_regions`], over `R` and `V` alone: it runs
-/// after the last fallible reservation, allocates nothing and replaces no reserved vector.
-/// Temporal `O(regions)` payload clones; spatial `O(1)` beyond the regions already reserved.
-fn initialize_reserved_regions<R: Clone, V: Clone>(
-    regions: &mut [Region<R, V>],
-    sigma: Sigma,
-    held: &R,
-    default: &V,
-) {
-    let mut shard_at = 0;
-    while shard_at < regions.len() {
-        regions[shard_at].initialize(sigma, held, default);
-        shard_at += 1;
-    }
-}
-
-/// Marks one in-bounds selected flat slot; `None` leaves the bitmap unchanged.
-fn mark_selected_occupied(occupied: &mut [bool], selected: Option<usize>) {
-    if let Some(index) = selected {
-        occupied[index] = true;
-    }
-}
-
-/// Increments one spill load or returns the checked-sizing error without changing that load.
-fn increment_spill_load(spill_loads: &mut [usize], spill: usize) -> Option<StorageError> {
-    match spill_loads[spill].checked_add(1) {
-        Some(count) => {
-            spill_loads[spill] = count;
-            None
-        }
-        None => Some(StorageError::SizeOverflow),
-    }
-}
-
-/// Accounts for a spill only when no flat slot was selected.
-fn account_spill_load(
-    spill_loads: &mut [usize],
-    spill: usize,
-    selected: Option<usize>,
-) -> Option<StorageError> {
-    if selected.is_some() {
-        None
-    } else {
-        increment_spill_load(spill_loads, spill)
-    }
-}
-
-/// Reads one already-prepared spill region.  The caller supplies the routed region and its
-/// initialized capacity; this core does not plan, reserve, or allocate.
-///
-/// The face token is carried to this shared consumer and erased to the stored [`Sigma`] only at
-/// the [`spill_read`] storage boundary.
-pub(crate) fn get_prepared_shard<'a, K, H: FaceCoord<K>, R: KeyRep<K, H>, V>(
-    region: &'a Region<R, V>,
-    face: H::Faces,
-    address: &TableAddress,
-    key: &K,
-    n: usize,
-) -> Option<&'a V> {
-    match spill_read::<K, H, R, V>(region, face.sigma(), address, key, n) {
-        Some(index) => Some(&region.slots[index].2),
-        None => None,
-    }
-}
-
-/// Applies one entry to an already-prepared spill region.
-///
-/// The prepared-resource adapter supplies an initialized region with a vacancy for a new key.
-/// This core performs no fallible allocation and returns `true` exactly for a fresh key.
-pub(crate) fn apply_prepared_shard<K, V, H, R, F, const N: usize>(
-    region: &mut Region<R, V>,
-    merge: &F,
-    default: &V,
-    face: H::Faces,
-    key: &K,
-    value: V,
-    address: &TableAddress,
-) -> Result<bool, StorageError>
-where
-    V: Clone,
-    H: Home<K>,
-    R: KeyRep<K, H>,
-    F: Merge<V>,
-{
-    // Erasure boundary: the typed token becomes the stored `Sigma` here and nowhere earlier.
-    let sigma = face.sigma();
-    match spill_locate::<K, H, R, V>(region, sigma, address, key, N) {
-        SpillSite::Found(index) => {
-            let old = region.slots[index].2.clone();
-            region.slots[index].2 = merge.merge(value, old);
-            Ok(false)
-        }
-        SpillSite::Vacant(index) => {
-            region.publish_live(
-                index,
-                (
-                    sigma,
-                    R::hold(sigma, key, address),
-                    merge.merge(value, default.clone()),
-                ),
-                address.place,
-            );
-            Ok(true)
-        }
-        SpillSite::Grow => Err(StorageError::SizeOverflow),
-    }
-}
-
-/// Reserves a shard through the resource adapter, then applies its stable partition runs.
-/// The allocation is deliberately outside [`apply_prepared_shard`].
-pub(crate) fn build_prepared_shard<K, V, H, R, F, const N: usize>(
-    home: &H,
-    merge: &F,
-    default: &V,
-    input: &[((H::Faces, K), V)],
-    parts: &partition::Parts,
-    shard_at: usize,
-    load: usize,
-) -> Result<Region<R, V>, StorageError>
-where
-    K: Clone,
-    V: Clone,
-    H: Home<K>,
-    R: KeyRep<K, H>,
-    F: Merge<V>,
-{
-    if load == 0 {
-        return Ok(Region::empty());
-    }
-    let first = parts
-        .runs(shard_at)
-        .find_map(|run| match run.first() {
-            Some(value) => Some(*value),
-            None => None,
-        })
-        .ok_or(StorageError::SizeOverflow)?;
-    let ((face, key), _) = &input[first];
-    let address = Home::address(home, face.sigma(), key);
-    // Reserve the complete checked region (tags, payloads, summary) before the first hold or
-    // clone; a refusal here leaves no partial region and runs no callback.
-    let mut region = Region::reserve_empty(slots_for(load, N)?)?;
-    let sigma = face.sigma();
-    let held = R::hold(sigma, key, &address);
-    region.initialize(sigma, &held, default);
-    for run in parts.runs(shard_at) {
-        for &index in run {
-            let ((entry_face, key), value) = &input[index];
-            let address = Home::address(home, entry_face.sigma(), key);
-            apply_prepared_shard::<K, V, H, R, F, N>(
-                &mut region,
-                merge,
-                default,
-                *entry_face,
-                key,
-                value.clone(),
-                &address,
-            )?;
-        }
-    }
-    Ok(region)
-}
+// Textual inclusion preserves the extracted table namespace and free-function identities.
+include!("table/prepared.rs");
 
 /// A total-default table whose compile-time `R` policy selects carried or regenerated keys.
 pub struct Table<K, V, H, const N: usize = 16, R = Stored<K>>
@@ -1226,6 +1026,25 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         }
     }
 
+    /// Returns an unused staged path's scratch buffer to the directory's idle slot.
+    ///
+    /// A found update keeps its existing reverse link, so its staged path is never published; the
+    /// buffer is still returned through [`Directory::recycle_staged`], the entry point the
+    /// publication and refusal paths use, so the next reservation hands out the same allocation
+    /// instead of allocating a fresh one. Temporal `O(1)`; spatial `O(1)`: the buffer is moved
+    /// into the idle slot, never copied.
+    fn recycle_unused_staged_path(&mut self) {
+        let staged = match self.locator.staged.take() {
+            Some((_, staged)) => staged,
+            None => return,
+        };
+        // Staging materializes the directory, so the `None` arm is the same unreachable defensive
+        // shape as in `TableLocator::publish_for_query`.
+        if let Some(directory) = &mut self.locator.directory {
+            directory.recycle_staged(staged);
+        }
+    }
+
     /// Applies the supplied pending classification to the relocated reserved storage, then commits.
     ///
     /// This is the straight-line pending-insertion and commit core.  It consumes the precomputed
@@ -1253,13 +1072,15 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ) {
         match (decision.class, decision.location) {
             (SearchClass::Found, SearchLocation::Flat(index)) => {
-                // A found update keeps its existing reverse link; the staged path is unused.
-                self.locator.staged = None;
+                // A found update keeps its existing reverse link; the staged path is unused and
+                // its scratch returns to the directory's idle slot.
+                self.recycle_unused_staged_path();
                 let old = reserved.resident.slots[index].value.clone();
                 reserved.resident.slots[index].value = merge.merge(value, old);
             }
             (SearchClass::Found, SearchLocation::Spill(spill, index)) => {
-                self.locator.staged = None;
+                // As on the flat arm: the unused staged path recycles, never drops.
+                self.recycle_unused_staged_path();
                 let old = reserved.regions[spill].slots[index].2.clone();
                 reserved.regions[spill].slots[index].2 = merge.merge(value, old);
             }

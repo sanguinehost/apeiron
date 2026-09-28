@@ -970,12 +970,30 @@ pub(crate) enum Output {
 /// applicable strata cell passes and no applicable interval crosses the threshold. Without
 /// `accept` the run is diagnostic and exits 0 on a valid boundary report. `output` selects the
 /// human pair table (the default), the machine-line dump, or silent validation.
+/// Print a wall-clock marker for attribution runs. Stderr only, and outside every timed sample
+/// region, so the registered counts, statistics and output parsing are unchanged.
+pub(crate) fn phase_mark(name: &str, total: std::time::Instant, last: &mut std::time::Instant) {
+    let now = std::time::Instant::now();
+    eprintln!(
+        "phase={name} elapsed_s={:.3} total_s={:.3}",
+        (now - *last).as_secs_f64(),
+        total.elapsed().as_secs_f64()
+    );
+    *last = now;
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one function states the performance campaign's phase sequence"
+)]
 pub(crate) fn run_performance(
     profile: Profile,
     controls: bool,
     accept: bool,
     output: Output,
 ) -> i32 {
+    let t_total = std::time::Instant::now();
+    let mut t_last = t_total;
     let witness = match run_witness(profile) {
         Ok(witness) => witness,
         Err(e) => {
@@ -983,7 +1001,9 @@ pub(crate) fn run_performance(
             return 1;
         }
     };
+    phase_mark("perf.witness", t_total, &mut t_last);
     let strata = strata::run_strata(profile);
+    phase_mark("perf.strata", t_total, &mut t_last);
     let registered = match load_registered_cells() {
         Ok(cells) => cells,
         Err(e) => {
@@ -991,7 +1011,9 @@ pub(crate) fn run_performance(
             return 1;
         }
     };
+    phase_mark("perf.registered", t_total, &mut t_last);
     let report = build_performance_report(&witness, Some(&strata), accept);
+    phase_mark("perf.report", t_total, &mut t_last);
     print_identity(&format!(
         "reg1-performance-{}-shared-fixed16",
         profile.name()
@@ -1011,26 +1033,33 @@ pub(crate) fn run_performance(
             print_report(&report);
         }
         Output::Table => {
+            phase_mark("perf.spatial.begin", t_total, &mut t_last);
             let spatial = spatial::measure(&strata);
+            phase_mark("perf.spatial", t_total, &mut t_last);
             if let Err(e) = spatial::validate(&spatial) {
                 eprintln!("performance spatial validation failed: {e}");
                 return 1;
             }
             let campaign = crate::acceptance::build_campaign(&strata, &registered, &spatial);
+            phase_mark("perf.campaign", t_total, &mut t_last);
             let outcome = crate::acceptance::evaluate(&campaign, profile == Profile::Full);
+            phase_mark("perf.evaluate", t_total, &mut t_last);
             crate::acceptance::print_pair_table(&campaign, &outcome);
             crate::acceptance::print_headline(&outcome);
         }
         Output::Silent => {}
     }
+    phase_mark("perf.output", t_total, &mut t_last);
     if let Err(e) = validate_all(&witness, &report, &strata, &registered, accept) {
         eprintln!("performance validation failed: {e}");
         return 1;
     }
+    phase_mark("perf.validate_all", t_total, &mut t_last);
     if let Err(e) = strata::validate_strata(&strata) {
         eprintln!("strata validation failed: {e}");
         return 1;
     }
+    phase_mark("perf.validate_strata", t_total, &mut t_last);
     if controls {
         for name in CONTROLS {
             match run_control(name, profile) {
@@ -1042,6 +1071,7 @@ pub(crate) fn run_performance(
             }
         }
     }
+    phase_mark("perf.controls", t_total, &mut t_last);
     if accept {
         let outcome = strict_acceptance(&strata);
         if outcome.passed() {

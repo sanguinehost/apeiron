@@ -1,8 +1,0 @@
-error: duplicate key
-  --> ../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1
-   |
-61 | netfold = { path = "../netfold", optional = true }
-   | ^^^^^^^
-    Finished `release` profile [optimized] target(s) in 0.13s
-     Running `target/release/examples/reg1 --check performance --profile full --accept --controls`
-acceptance failed: applicable=650 failing=517 missing=0 unauthorized=0 full_acceptance=false

@@ -2,7 +2,7 @@
 """Consistency checker for the W18-T3 joint table subprofile.
 
 This tool establishes **specification consistency only**. It verifies that
-``docs/spec/joint-table.md`` and ``tools/joint/table_profile_rows.json`` are
+``docs/contracts/joint-table.md`` and ``tools/joint/table_profile_rows.json`` are
 internally complete and that every artifact they name resolves:
 
 * every table subprofile row carries all six required fields and stays
@@ -69,7 +69,7 @@ from jointlib import (
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
-SPEC_PATH = REPO / "docs" / "spec" / "joint-table.md"
+SPEC_PATH = REPO / "docs" / "contracts" / "joint-table.md"
 ROWS_PATH = HERE.parent / "table_profile_rows.json"
 
 PROFILE_ID = "APEIRON-PROGRAMME-W18-T3"

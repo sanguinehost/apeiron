@@ -109,9 +109,9 @@ pub(crate) fn build_correctness_report(w: &CorrectnessWitness) -> Report {
         AxisRecord {
             axis: "coverage",
             status: AxisStatus::Missing,
-            evidence: "coverage census and fractions are unrun; the existing real-source Aeneas \
-                       table extraction/refinement and the Kani harnesses must be counted at \
-                       their stated scopes, and MiniTable must not be attributed as \
+            evidence: "coverage census and fractions are unrun; real-source extraction, bridge \
+                       refinement and executed Rust tests must be counted separately at their \
+                       stated scopes, and model-only evidence must not be attributed as \
                        real-container coverage"
                 .to_string(),
         },

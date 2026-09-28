@@ -38,7 +38,7 @@ working tree.
 
 The harness establishes gate consistency only; it never claims correspondence,
 refinement or proof. The eight stage ids bind to W22..W29 of
-``docs/plan/slang-source-refinement.md``.
+``docs/contracts/slang-source-refinement-plan.md``.
 
 Usage::
 

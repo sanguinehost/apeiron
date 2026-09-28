@@ -8,10 +8,9 @@
 //! - `reg1_required`: the RFC REG-1 surface
 //!   `{get, insert, remove, growth, ordered_merge, commutative_merge, refusal, encode, decode}`.
 //!
-//! Aeneas/structural, checked refinement and bounded real-table Kani are counted separately. A
-//! MiniTable/model harness is recorded but never counted as real-table container coverage. The
-//! fractions are computed from the validated rows, never from a grep count. Every Aeneas/Kani row
-//! is `stale` because neither `cargo kani` nor `proof/regen.sh --check` was run this wave.
+//! Aeneas/structural, checked refinement and executed Rust tests are counted separately. Historical
+//! Kani receipts are not current evidence and are not represented as a coverage dimension. The
+//! fractions are computed from the validated rows, never from a grep count.
 //!
 //! The controls corrupt the parsed registry in memory and require the same validator to reject the
 //! corruption; no source is mutated.
@@ -35,12 +34,12 @@ const WORD_LEAN: &str = include_str!("../../proof/ApeironWord.lean");
 const AXIOM_AUDIT: &str = include_str!("../../proof/corpus/AxiomAudit.lean");
 /// The extraction root, checked for every wrapper a row names.
 const EXTRACT_RS: &str = include_str!("../../proof/extract/lib.rs");
-/// The bounded Kani harnesses, checked for every real-table harness a row names.
-const PROOFS_RS: &str = include_str!("../../src/proofs.rs");
+/// The extraction command, used as the authority for the selected public roots.
+const REGEN_SH: &str = include_str!("../../proof/regen.sh");
 /// The executing table source, checked for every implementation declaration a row names.
 const TABLE_RS: &str = include_str!("../../src/table.rs");
 
-const SCHEMA: &str = "apeiron.reg1.coverage.v1";
+const SCHEMA: &str = "apeiron.reg1.coverage.v2";
 const CURRENT_API: &str = "current_api";
 const REG1_REQUIRED: &str = "reg1_required";
 const CURRENT_API_OPS: [&str; 4] = ["new", "get", "insert_with", "build"];
@@ -59,9 +58,9 @@ const REG1_REQUIRED_OPS: [&str; 8] = [
 /// Sources that carry a theorem or harness attribution and must therefore be digest-bound.
 const REQUIRED_SOURCES: [&str; 9] = [
     "src/table.rs",
-    "src/proofs.rs",
     "proof/ApeironWord.lean",
     "proof/extract/lib.rs",
+    "proof/regen.sh",
     "proof/corpus/AxiomAudit.lean",
     "proof/corpus/TableRefinement.lean",
     "proof/corpus/TableRefinementGeneric.lean",
@@ -303,10 +302,6 @@ struct Row {
     wrapper_module: String,
     admission_theorem: String,
     admission_module: String,
-    admission_kani: String,
-    kani_harness: String,
-    kani_grade: String,
-    kani_model_harness: String,
     test_evidence: String,
     test_grade: String,
     source_path: String,
@@ -318,7 +313,6 @@ struct Row {
 struct Registry {
     schema: String,
     denominators: Vec<(String, Vec<String>)>,
-    model_harnesses: Vec<String>,
     sources: Vec<Source>,
     freshness: Vec<Freshness>,
     exclusions: Vec<Exclusion>,
@@ -375,10 +369,6 @@ fn parse_row(json: &Json) -> Result<Row, String> {
         wrapper_module: str_field(obj, "wrapper_module")?,
         admission_theorem: str_field(obj, "admission_theorem")?,
         admission_module: str_field(obj, "admission_module")?,
-        admission_kani: str_field(obj, "admission_kani")?,
-        kani_harness: str_field(obj, "kani_harness")?,
-        kani_grade: str_field(obj, "kani_grade")?,
-        kani_model_harness: str_field(obj, "kani_model_harness")?,
         test_evidence: str_field(obj, "test_evidence")?,
         test_grade: str_field(obj, "test_grade")?,
         source_path: str_field(obj, "source_path")?,
@@ -399,7 +389,6 @@ fn parse_registry(text: &str) -> Result<Registry, String> {
         denominators.push((name.clone(), string_list(value)?));
     }
 
-    let model_harnesses = string_list(field(obj, "model_harnesses")?)?;
     let sources = arr_field(obj, "sources")?
         .iter()
         .map(parse_source)
@@ -420,7 +409,6 @@ fn parse_registry(text: &str) -> Result<Registry, String> {
     Ok(Registry {
         schema,
         denominators,
-        model_harnesses,
         sources,
         freshness,
         exclusions,
@@ -595,6 +583,58 @@ fn validate_implementation(row: &Row) -> Result<(), String> {
             row.id, row.extraction_root
         ));
     }
+    let selected = match row.id.as_str() {
+        "current-api-get" | "reg1-get" => {
+            Some(("word_stored_table_get_at", "word_stored_table_get_at"))
+        }
+        "current-api-build" | "reg1-ordered_merge" => {
+            Some(("word_stored_table_build_at", "word_stored_table_build_at"))
+        }
+        "reg1-commutative_merge" => Some((
+            "word_stored_table_build_at",
+            "table.WordMerge.Insts.Apeiron_wordTableMergeI64",
+        )),
+        _ => None,
+    };
+    let selected_roots: Vec<&str> = REGEN_SH
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("--start-from crate::"))
+        .filter_map(|rest| rest.strip_suffix(" \\"))
+        .collect();
+    if selected_roots.len() != 43 {
+        return Err(format!(
+            "proof/regen.sh selects {} roots, expected the reviewed set of 43",
+            selected_roots.len()
+        ));
+    }
+    if let Some((root, generated)) = selected {
+        if row.extraction_root != root || row.aeneas_generated != generated {
+            return Err(format!(
+                "row {} does not name the selected current root {root} / {generated}",
+                row.id
+            ));
+        }
+        if row.refinement_grade != "absent" {
+            return Err(format!(
+                "row {} claims current refinement before the selected root is linked",
+                row.id
+            ));
+        }
+        if !selected_roots.contains(&root) {
+            return Err(format!(
+                "row {} extraction root {root} is not selected by proof/regen.sh",
+                row.id
+            ));
+        }
+    } else if row.extraction_root != "absent"
+        || row.aeneas_generated != "absent"
+        || row.aeneas_grade != "absent"
+    {
+        return Err(format!(
+            "row {} attributes structural extraction without a current selected root",
+            row.id
+        ));
+    }
     Ok(())
 }
 
@@ -713,65 +753,6 @@ fn validate_refinement(row: &Row, reg: &Registry) -> Result<(), String> {
         &row.admission_theorem,
         &row.admission_module,
     )?;
-    if row.admission_kani != "absent" {
-        require_source(reg, "src/proofs.rs", &row.id, "admission_kani")?;
-        if !PROOFS_RS.contains(&format!("fn {}", row.admission_kani)) {
-            return Err(format!(
-                "row {} admission harness {} not found in src/proofs.rs",
-                row.id, row.admission_kani
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_kani(row: &Row, reg: &Registry) -> Result<(), String> {
-    if row.kani_model_harness != "absent" && !reg.model_harnesses.contains(&row.kani_model_harness)
-    {
-        return Err(format!(
-            "row {} model harness {} is not in the model list",
-            row.id, row.kani_model_harness
-        ));
-    }
-    match row.kani_grade.as_str() {
-        "bounded-real" => {
-            if row.kani_harness == "absent" {
-                return Err(format!(
-                    "row {} claims real Kani coverage without a harness",
-                    row.id
-                ));
-            }
-            if reg.model_harnesses.contains(&row.kani_harness) {
-                return Err(format!(
-                    "row {} attributes the model harness {} as real-table evidence",
-                    row.id, row.kani_harness
-                ));
-            }
-            if !PROOFS_RS.contains(&format!("fn {}", row.kani_harness)) {
-                return Err(format!(
-                    "row {} harness {} not found in src/proofs.rs",
-                    row.id, row.kani_harness
-                ));
-            }
-            require_source(reg, "src/proofs.rs", &row.id, "kani_harness")?;
-        }
-        "model" => {
-            let listed = reg.model_harnesses.contains(&row.kani_harness)
-                || reg.model_harnesses.contains(&row.kani_model_harness);
-            if !listed {
-                return Err(format!(
-                    "row {} claims model coverage without a listed model harness",
-                    row.id
-                ));
-            }
-        }
-        "none" => {
-            if row.kani_harness != "absent" || row.kani_model_harness != "absent" {
-                return Err(format!("row {} names a harness but grades it none", row.id));
-            }
-        }
-        other => return Err(format!("row {} has kani grade {other}", row.id)),
-    }
     Ok(())
 }
 
@@ -801,16 +782,14 @@ fn validate_test(row: &Row) -> Result<(), String> {
 fn validate_row_status(row: &Row) -> Result<(), String> {
     let aeneas = row.aeneas_grade == "structural";
     let refinement = row.refinement_grade == "checked";
-    let kani = row.kani_grade == "bounded-real";
-    let any =
-        aeneas || refinement || kani || row.kani_grade == "model" || row.test_grade != "absent";
-    let covered = aeneas && refinement && kani;
+    let any = aeneas || refinement || row.test_grade != "absent";
+    let extracted_refined = aeneas && refinement;
     match row.status.as_str() {
-        "covered" if !covered => Err(format!(
-            "row {} is covered without structural, checked and bounded-real evidence",
+        "extracted_refined" if !extracted_refined => Err(format!(
+            "row {} is extracted_refined without structural Aeneas and checked refinement evidence",
             row.id
         )),
-        "partial" if covered || !any => {
+        "partial" if extracted_refined || !any => {
             Err(format!("row {} partial status is inconsistent", row.id))
         }
         "missing" if any => Err(format!("row {} is missing but carries evidence", row.id)),
@@ -831,7 +810,10 @@ fn validate_row(row: &Row, reg: &Registry) -> Result<(), String> {
             row.id
         ));
     }
-    if !matches!(row.status.as_str(), "covered" | "partial" | "missing") {
+    if !matches!(
+        row.status.as_str(),
+        "extracted_refined" | "partial" | "missing"
+    ) {
         return Err(format!("row {} has status {}", row.id, row.status));
     }
     if !matches!(row.freshness.as_str(), "fresh" | "stale" | "unrun") {
@@ -840,7 +822,6 @@ fn validate_row(row: &Row, reg: &Registry) -> Result<(), String> {
     validate_implementation(row)?;
     validate_aeneas(row)?;
     validate_refinement(row, reg)?;
-    validate_kani(row, reg)?;
     validate_test(row)?;
     validate_row_status(row)
 }
@@ -888,15 +869,15 @@ struct DenominatorCensus {
     name: String,
     total: usize,
     aeneas: usize,
-    kani_real: usize,
-    covered: usize,
+    refinement: usize,
+    rust_evidence: usize,
+    extracted_refined: usize,
     partial: usize,
     missing: usize,
 }
 
 struct Census {
     denominators: Vec<DenominatorCensus>,
-    model_excluded: usize,
     fresh: usize,
     stale: usize,
     unrun: usize,
@@ -917,8 +898,12 @@ impl Census {
                 denominator.name, denominator.aeneas, denominator.total
             ));
             tokens.push(format!(
-                "{}/kani_real={}/{}",
-                denominator.name, denominator.kani_real, denominator.total
+                "{}/refinement={}/{}",
+                denominator.name, denominator.refinement, denominator.total
+            ));
+            tokens.push(format!(
+                "{}/rust_evidence={}/{}",
+                denominator.name, denominator.rust_evidence, denominator.total
             ));
         }
         tokens
@@ -940,20 +925,19 @@ fn build_census(reg: &Registry) -> Census {
                 .iter()
                 .filter(|row| row.aeneas_grade == "structural")
                 .count(),
-            kani_real: rows
+            refinement: rows
                 .iter()
-                .filter(|row| row.kani_grade == "bounded-real")
+                .filter(|row| row.refinement_grade == "checked")
                 .count(),
-            covered: rows.iter().filter(|row| row.status == "covered").count(),
+            rust_evidence: rows.iter().filter(|row| row.test_grade != "absent").count(),
+            extracted_refined: rows
+                .iter()
+                .filter(|row| row.status == "extracted_refined")
+                .count(),
             partial: rows.iter().filter(|row| row.status == "partial").count(),
             missing: rows.iter().filter(|row| row.status == "missing").count(),
         });
     }
-    let model_excluded = reg
-        .rows
-        .iter()
-        .filter(|row| row.kani_grade == "model" || row.kani_model_harness != "absent")
-        .count();
     let fresh = reg
         .freshness
         .iter()
@@ -988,7 +972,6 @@ fn build_census(reg: &Registry) -> Census {
         .collect();
     Census {
         denominators,
-        model_excluded,
         fresh,
         stale,
         unrun,
@@ -1003,17 +986,20 @@ fn build_census(reg: &Registry) -> Census {
 
 fn build_coverage_report(census: &Census) -> Report {
     let fractions = census.fraction_tokens().join(" ");
-    let covered: usize = census.denominators.iter().map(|d| d.covered).sum();
+    let extracted_refined: usize = census
+        .denominators
+        .iter()
+        .map(|d| d.extracted_refined)
+        .sum();
     let partial: usize = census.denominators.iter().map(|d| d.partial).sum();
     let missing: usize = census.denominators.iter().map(|d| d.missing).sum();
     let total: usize = census.denominators.iter().map(|d| d.total).sum();
     let exclusion_ids: Vec<String> = census.exclusions.iter().map(|(id, _)| id.clone()).collect();
     let evidence = format!(
-        "fractions: {fractions}; covered={covered}/{total} partial={partial} missing={missing}; \
-         model_attributions_excluded={}; exclusions={}; freshness=fresh={},stale={},unrun={}; \
-         pin=matched={},mismatched={},unpinned={}; cargo kani and proof/regen.sh --check have no \
-         fresh receipt this wave; REG-1/G1 stays OPEN",
-        census.model_excluded,
+        "fractions: {fractions}; extracted_refined={extracted_refined}/{total} partial={partial} missing={missing}; \
+         exclusions={}; freshness=fresh={},stale={},unrun={}; \
+         pin=matched={},mismatched={},unpinned={}; Kani is retired and historical receipts are not \
+         current evidence; REG-1/G1 stays OPEN",
         exclusion_ids.join(","),
         census.fresh,
         census.stale,
@@ -1139,15 +1125,17 @@ fn escape(text: &str) -> String {
 fn print_census(census: &Census) {
     for denominator in &census.denominators {
         println!(
-            "coverage_denominator={} total={} aeneas={}/{} kani_real={}/{} covered={} partial={} \
+            "coverage_denominator={} total={} aeneas={}/{} refinement={}/{} rust_evidence={}/{} extracted_refined={} partial={} \
              missing={}",
             denominator.name,
             denominator.total,
             denominator.aeneas,
             denominator.total,
-            denominator.kani_real,
+            denominator.refinement,
             denominator.total,
-            denominator.covered,
+            denominator.rust_evidence,
+            denominator.total,
+            denominator.extracted_refined,
             denominator.partial,
             denominator.missing
         );
@@ -1155,10 +1143,6 @@ fn print_census(census: &Census) {
     for token in census.fraction_tokens() {
         println!("coverage_fraction={token}");
     }
-    println!(
-        "coverage_model_attributions={} excluded_from_real=true",
-        census.model_excluded
-    );
     println!(
         "coverage_freshness=fresh={} stale={} unrun={}",
         census.fresh, census.stale, census.unrun
@@ -1182,14 +1166,13 @@ fn print_census(census: &Census) {
     for row in &census.rows {
         println!(
             "coverage_row={} denominator={} operation={} status={} aeneas={} refinement={} \
-             kani={} test={} freshness={} note=\"{}\"",
+             test={} freshness={} note=\"{}\"",
             row.id,
             row.denominator,
             row.operation,
             row.status,
             row.aeneas_grade,
             row.refinement_grade,
-            row.kani_grade,
             row.test_grade,
             row.freshness,
             escape(&row.note)
@@ -1200,10 +1183,11 @@ fn print_census(census: &Census) {
 // ── Gate and controls ─────────────────────────────────────────────────────────────────────────
 
 /// The validator controls. Each corrupts the parsed registry in memory; no source is mutated.
-pub(crate) const CONTROLS: [&str; 4] = [
+pub(crate) const CONTROLS: [&str; 5] = [
     "stale-source-digest",
     "failed-command-as-pass",
-    "mini-table-as-real",
+    "test-without-witness",
+    "retired-root-as-current",
     "pin-mismatch-as-fresh",
 ];
 
@@ -1213,8 +1197,9 @@ struct Expected {
     name: &'static str,
     total: usize,
     aeneas: usize,
-    kani_real: usize,
-    covered: usize,
+    refinement: usize,
+    rust_evidence: usize,
+    extracted_refined: usize,
     partial: usize,
     missing: usize,
 }
@@ -1224,19 +1209,21 @@ fn validate_expected_census(census: &Census) -> Result<(), String> {
         Expected {
             name: CURRENT_API,
             total: 4,
-            aeneas: 4,
-            kani_real: 4,
-            covered: 4,
-            partial: 0,
+            aeneas: 2,
+            refinement: 0,
+            rust_evidence: 4,
+            extracted_refined: 0,
+            partial: 4,
             missing: 0,
         },
         Expected {
             name: REG1_REQUIRED,
             total: 8,
-            aeneas: 4,
-            kani_real: 3,
-            covered: 3,
-            partial: 1,
+            aeneas: 3,
+            refinement: 0,
+            rust_evidence: 4,
+            extracted_refined: 0,
+            partial: 4,
             missing: 4,
         },
     ];
@@ -1251,26 +1238,29 @@ fn validate_expected_census(census: &Census) -> Result<(), String> {
         if got.name != want.name
             || got.total != want.total
             || got.aeneas != want.aeneas
-            || got.kani_real != want.kani_real
-            || got.covered != want.covered
+            || got.refinement != want.refinement
+            || got.rust_evidence != want.rust_evidence
+            || got.extracted_refined != want.extracted_refined
             || got.partial != want.partial
             || got.missing != want.missing
         {
             return Err(format!(
-                "denominator {} census total={} aeneas={} kani_real={} covered={} partial={} \
-                 missing={} does not match the expected total={} aeneas={} kani_real={} covered={} \
+                "denominator {} census total={} aeneas={} refinement={} rust_evidence={} extracted_refined={} partial={} \
+                 missing={} does not match the expected total={} aeneas={} refinement={} rust_evidence={} extracted_refined={} \
                  partial={} missing={}",
                 got.name,
                 got.total,
                 got.aeneas,
-                got.kani_real,
-                got.covered,
+                got.refinement,
+                got.rust_evidence,
+                got.extracted_refined,
                 got.partial,
                 got.missing,
                 want.total,
                 want.aeneas,
-                want.kani_real,
-                want.covered,
+                want.refinement,
+                want.rust_evidence,
+                want.extracted_refined,
                 want.partial,
                 want.missing
             ));
@@ -1283,9 +1273,6 @@ fn validate_expected_census(census: &Census) -> Result<(), String> {
 fn validate_registry(reg: &Registry) -> Result<Census, String> {
     if reg.schema != SCHEMA {
         return Err(format!("schema {} is not {SCHEMA}", reg.schema));
-    }
-    if reg.model_harnesses.is_empty() {
-        return Err("model_harnesses must list at least one model harness".to_string());
     }
     validate_denominators(reg)?;
     validate_sources(reg)?;
@@ -1387,22 +1374,30 @@ pub(crate) fn run_control_child(name: &str) -> i32 {
             }
             None => false,
         },
-        "mini-table-as-real" => {
-            let model = registry.model_harnesses.first().cloned();
-            match (
-                model,
-                registry
-                    .rows
-                    .iter_mut()
-                    .find(|row| row.kani_grade == "bounded-real"),
-            ) {
-                (Some(model), Some(row)) => {
-                    row.kani_harness = model;
-                    true
-                }
-                _ => false,
+        "test-without-witness" => match registry
+            .rows
+            .iter_mut()
+            .find(|row| row.test_grade == "absent")
+        {
+            Some(row) => {
+                row.test_grade = "tested".to_string();
+                row.test_evidence = "absent".to_string();
+                true
             }
-        }
+            None => false,
+        },
+        "retired-root-as-current" => match registry
+            .rows
+            .iter_mut()
+            .find(|row| row.id == "current-api-get")
+        {
+            Some(row) => {
+                row.extraction_root = "word_table_get".to_string();
+                row.aeneas_generated = "table.Table.get".to_string();
+                true
+            }
+            None => false,
+        },
         "pin-mismatch-as-fresh" => {
             match registry
                 .sources

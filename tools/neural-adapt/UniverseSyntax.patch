@@ -1,0 +1,11 @@
+--- a/proof/corpus/Substrate/Algebra/Translation/UniverseSyntax.lean
++++ b/proof/corpus/Substrate/Algebra/Translation/UniverseSyntax.lean
+@@ -291,7 +291,7 @@
+     (h : ∀ a b, app₁ a b = app₂ a b) :
+     Term.state app₁ t = Term.state app₂ t :=
+   (fromTerm_unique (stateAlgebra α app₂) (Term.state app₁)
+-      (fun B U => h B U) (fun prev outer => h _ outer)
++      (fun B U => h B U) (fun _prev outer => h _ outer)
+       (fun outer _ => h outer _) t).trans
+     (state_eq_fromTerm_stateAlgebra app₂ t).symm
+ 

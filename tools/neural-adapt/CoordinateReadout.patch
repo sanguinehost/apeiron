@@ -1,0 +1,19 @@
+--- a/proof/corpus/Closures/Engineering/CoordinateReadout.lean
++++ b/proof/corpus/Closures/Engineering/CoordinateReadout.lean
+@@ -109,6 +109,7 @@
+ -- A LOSSY TAG IS NON-INJECTIVE — FALSE POSITIVES FORCE THE KEY COMPARE
+ -- ═══════════════════════════════════════════════════════════════════
+ 
++omit [DecidableEq K] in
+ /-- **A non-injective fingerprint has a false positive.** If `tag` is not injective (a 7-bit control
+     byte over a large key space cannot be), there exist **distinct** keys `a ≠ b` with
+     `addrConfirm tag a b = true`: the tag match does not imply the keys are equal. So the tag alone is
+@@ -399,7 +400,7 @@
+     (hpair : Injective (fun k => (f₁ k, f₂ k))) {k k' : K} (hne : k ≠ k') :
+     f₁ k ≠ f₁ k' ∨ f₂ k ≠ f₂ k' := by
+   by_contra h
+-  push_neg at h
++  push Not at h
+   apply hne
+   apply hpair
+   simp only [h.1, h.2]

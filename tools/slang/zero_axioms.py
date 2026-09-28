@@ -15,6 +15,8 @@ What is checked
 * the audit module's inline `#audit_empty <name> : <type>` lines match the
   registry's names and expected types, so the registry is the authoritative
   registered type rather than a comment;
+* registered child-import closures extend that same source scan to every reached
+  child module; cycles, missing modules and paths outside the registered scope reject;
 * the stage's source files contain no `sorry`, `admit`, `native_decide`,
   `noncomputable` or `classical` token (comments and strings are stripped).
   This is **auxiliary**: Lean does not fail a build for a merely-unused
@@ -129,6 +131,12 @@ class Declaration:
 
 
 @dataclass(frozen=True)
+class SourceImportClosure:
+    root: str
+    allowed_imports: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class StageSpec:
     id: str
     kind: str
@@ -138,6 +146,7 @@ class StageSpec:
     audit_module: str | None
     source_files: tuple[str, ...]
     declarations: tuple[Declaration, ...]
+    source_import_closures: tuple[SourceImportClosure, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -216,6 +225,29 @@ def load_registry(path: Path = REGISTRY_PATH) -> Registry:
             _require(not declarations, f"{where} is a placeholder and must carry no declarations")
             audit_module = None
             source_files = ()
+        closures_raw = raw.get("source_import_closures", [])
+        _require(isinstance(closures_raw, list), f"{where}.source_import_closures must be a list")
+        _require(kind == "active" or not closures_raw, f"{where}: placeholder has an import closure")
+        closures: list[SourceImportClosure] = []
+        for index, scope in enumerate(closures_raw):
+            sw = f"{where}.source_import_closures[{index}]"
+            _require(isinstance(scope, dict) and set(scope) == {"root", "allowed_imports"},
+                     f"{sw} requires root and allowed_imports only")
+            root = _string(scope.get("root"), f"{sw}.root")
+            _require(LEAN_NAME.fullmatch(root) is not None, f"{sw}.root is not a module name")
+            root_path = "proof/corpus/" + root.replace(".", "/") + ".lean"
+            _require(root_path in source_files, f"{sw}.root must be an explicit source file")
+            allowed_raw = scope.get("allowed_imports")
+            _require(isinstance(allowed_raw, list), f"{sw}.allowed_imports must be a list")
+            allowed = tuple(_string(name, f"{sw}.allowed_imports[]") for name in allowed_raw)
+            _require(all(LEAN_NAME.fullmatch(name) is not None for name in allowed),
+                     f"{sw}.allowed_imports contains an invalid module name")
+            _require(len(set(allowed)) == len(allowed), f"{sw}.allowed_imports has duplicates")
+            _require(all(name != root and not name.startswith(root + ".") for name in allowed),
+                     f"{sw}.allowed_imports must not exempt closure members")
+            closures.append(SourceImportClosure(root, allowed))
+        _require(len({scope.root for scope in closures}) == len(closures),
+                 f"{where} has duplicate import-closure roots")
         names = [decl.name for decl in declarations]
         _require(len(names) == len(set(names)), f"{where} has duplicate declaration name(s)")
         stages[stage_id] = StageSpec(
@@ -227,6 +259,7 @@ def load_registry(path: Path = REGISTRY_PATH) -> Registry:
             audit_module=audit_module,
             source_files=source_files,
             declarations=tuple(declarations),
+            source_import_closures=tuple(closures),
         )
     return Registry(
         memory_max=memory_max,
@@ -432,6 +465,101 @@ def failure_lines(output: str) -> str:
     return " | ".join(lines[-3:]) if lines else tail(output)
 
 
+def source_imports(path: Path) -> list[str]:
+    """Read generated Lean's simple import header; O(bytes) time and space.
+
+    Comment stripping visits each byte once; header lines and module tokens are
+    then visited once. Unsupported header forms reject rather than omit imports.
+    """
+    imports: list[str] = []
+    for line in strip_lean(path.read_text(encoding="utf-8")).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        words = line.split()
+        if words[0] == "import":
+            if len(words) == 1 or any(LEAN_NAME.fullmatch(name) is None for name in words[1:]):
+                raise TokenError(f"invalid source import in {path}: {line}")
+            imports.extend(words[1:])
+        elif words[0] in {"prelude", "public", "meta", "private", "protected"}:
+            # Generated files have ordinary imports followed by namespace/definitions.
+            # A private definition ends the header; a qualified import is unsupported.
+            if words[0] == "prelude" or "import" in words:
+                raise TokenError(f"unsupported source import header in {path}: {line}")
+            break
+        elif words[0] in {"namespace", "section", "open", "set_option", "def", "theorem",
+                          "lemma", "abbrev", "example", "instance", "structure", "inductive", "class"}:
+            break
+        else:
+            raise TokenError(f"unsupported source import header in {path}: {line}")
+    return imports
+
+
+def check_source_closure(scope: SourceImportClosure, registry: Registry,
+                         corpus: Path) -> tuple[Path, ...]:
+    """Scan each child module once, with active/done DFS states.
+
+    O(B + E) time and O(B + V + E) space for B source bytes, V modules and E
+    imports: each file is read/scanned once, and each import edge is visited once.
+    """
+    corpus = corpus.resolve()
+    active: set[str] = set()
+    done: set[str] = set()
+    allowed = set(scope.allowed_imports)
+    scanned: list[Path] = []
+    # Enter/leave events avoid a Python recursion limit on a long valid chain.
+    pending = [(scope.root, False)]
+    while pending:
+        name, leaving = pending.pop()
+        if leaving:
+            active.remove(name)
+            done.add(name)
+            continue
+        if name in active:
+            raise TokenError(f"source import cycle at {name}")
+        if name in done:
+            continue
+        path = corpus.joinpath(*name.split(".")).with_suffix(".lean")
+        resolved = path.resolve()
+        if resolved != path or not resolved.is_relative_to(corpus):
+            raise TokenError(f"escaped source import path for {name}: {path}")
+        if not path.is_file():
+            raise TokenError(f"source import missing: {name}: {path}")
+        check_source_tokens(path, registry.forbidden_tokens)
+        imports = source_imports(path)
+        children: list[str] = []
+        for imported in imports:
+            if imported == scope.root or imported.startswith(scope.root + "."):
+                children.append(imported)
+            elif imported in allowed:
+                dependency = corpus.joinpath(*imported.split(".")).with_suffix(".lean")
+                if dependency.resolve() != dependency or not dependency.is_file():
+                    raise TokenError(f"missing or escaped permitted source import: {imported}")
+            else:
+                raise TokenError(f"source import outside registered closure: {imported}")
+        scanned.append(path)
+        active.add(name)
+        pending.append((name, True))
+        pending.extend((child, False) for child in reversed(children))
+    return tuple(scanned)
+
+
+def check_stage_sources(stage: StageSpec, registry: Registry) -> tuple[Path, ...]:
+    """Scan explicit sources and registered children in O(total bytes + edges).
+
+    Existing explicit sources remain included; closure traversal adds every
+    imported child without changing declaration/type coverage.
+    """
+    scanned: list[Path] = []
+    for rel in stage.source_files:
+        path = REPO / rel
+        check_source_tokens(path, registry.forbidden_tokens)
+        scanned.append(path)
+    for scope in stage.source_import_closures:
+        scanned.extend(check_source_closure(scope, registry, CORPUS))
+    return tuple(scanned)
+
+
 # ---------------------------------------------------------------------------
 # Stage audit
 # ---------------------------------------------------------------------------
@@ -448,8 +576,7 @@ def run_baseline(stage: StageSpec, registry: Registry) -> list[str]:
     expected = {decl.name for decl in stage.declarations}
     if not expected:
         raise AuditError(f"stage {stage.id!r} has no registered declarations")
-    for rel in stage.source_files:
-        check_source_tokens(REPO / rel, registry.forbidden_tokens)
+    check_stage_sources(stage, registry)
     check_type_binding(stage, path.read_text(encoding="utf-8"))
     returncode, output = run_lean(registry, stage.audit_module)
     if returncode != 0:
