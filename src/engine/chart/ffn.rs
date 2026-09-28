@@ -192,14 +192,12 @@ pub(crate) fn swiglu_hidden(
     }
 }
 
-/// Apply exact `SwiGLU` independently to rectangular columns with one dispatch over all elements.
+/// Apply exact `SwiGLU` to rectangular columns and return the owned results on success.
 ///
-/// The flat buffer is column-major (`c * n + i`); chunks span columns when needed to fill the
-/// pool. The smallest refused flat index matches serial per-column evaluation. It is copied into
-/// `h` only on success.
-/// For `k` columns of width `n`, shape validation takes `O(k)` length checks; evaluation and
-/// success copy take `O(k * n)` word work. The flat scratch uses `O(k * n)` words. The parallel
-/// path uses one pool dispatch over `ceil(k * n / (2 * pool.width()))`-element chunks.
+/// For `k` columns of width `n`, validation takes `O(k)` length checks and evaluation takes
+/// `O(k * n)` word work. The output uses `k` vector descriptors and `k * n` words. When
+/// `parallel` and `k >= pool.width()`, one pool dispatch schedules whole columns; otherwise
+/// per-column [`swiglu_hidden`] calls preserve its schedule.
 ///
 /// # Errors
 ///
@@ -208,46 +206,38 @@ pub(crate) fn swiglu_hidden(
 pub(crate) fn swiglu_hidden_cols(
     gate: &[Vec<i64>],
     up: &[Vec<i64>],
-    hidden: &mut [Vec<i64>],
     parallel: bool,
-) -> Result<(), FfnError> {
+) -> Result<Vec<Vec<i64>>, FfnError> {
     let columns = gate.len();
-    if columns != up.len() || columns != hidden.len() {
+    if columns != up.len() {
         return Err(FfnError::BadGeometry);
     }
     let width = gate.first().map_or(0, Vec::len);
-    if gate.iter().any(|x| x.len() != width)
-        || up.iter().any(|x| x.len() != width)
-        || hidden.iter().any(|x| x.len() != width)
-    {
+    if gate.iter().any(|x| x.len() != width) || up.iter().any(|x| x.len() != width) {
         return Err(FfnError::BadGeometry);
     }
-    let len = columns.checked_mul(width).ok_or(FfnError::BadGeometry)?;
-    if len == 0 {
-        return Ok(());
+    columns.checked_mul(width).ok_or(FfnError::BadGeometry)?;
+    let mut hidden: Vec<Vec<i64>> = (0..columns).map(|_| vec![0; width]).collect();
+    if width == 0 {
+        return Ok(hidden);
     }
 
-    let mut flat = vec![0i64; len];
-    if parallel {
+    if parallel && columns >= Pool::global().width() {
         let pool = Pool::global();
-        let chunk = flat.len().div_ceil(2 * pool.width()).max(1);
+        // Bound task count independently of the input size; each task still owns whole columns.
+        let task_chunk = columns.div_ceil(64).max(1);
         let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
-        pool.chunks_mut(&mut flat, chunk, &|_c, start, dst| {
-            for (j, out) in dst.iter_mut().enumerate() {
-                let index = start + j;
-                let column = index / width;
-                let channel = index % width;
-                match swiglu_one(gate[column][channel], up[column][channel]) {
-                    Ok(value) => *out = value,
-                    Err(error) => {
-                        let mut slot = first
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        if slot.as_ref().is_none_or(|(earliest, _)| index < *earliest) {
-                            *slot = Some((index, error));
-                        }
-                        return;
+        pool.chunks_mut(&mut hidden, task_chunk, &|_, start, dst| {
+            for (offset, output) in dst.iter_mut().enumerate() {
+                let column = start + offset;
+                if let Err(error) = swiglu_hidden(&gate[column], &up[column], output, false) {
+                    let mut slot = first
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if slot.as_ref().is_none_or(|(earliest, _)| column < *earliest) {
+                        *slot = Some((column, error));
                     }
+                    return;
                 }
             }
         });
@@ -258,16 +248,11 @@ pub(crate) fn swiglu_hidden_cols(
             return Err(error);
         }
     } else {
-        for (index, out) in flat.iter_mut().enumerate() {
-            let column = index / width;
-            let channel = index % width;
-            *out = swiglu_one(gate[column][channel], up[column][channel])?;
+        for column in 0..columns {
+            swiglu_hidden(&gate[column], &up[column], &mut hidden[column], parallel)?;
         }
     }
-    for (dst, src) in hidden.iter_mut().zip(flat.chunks(width)) {
-        dst.copy_from_slice(src);
-    }
-    Ok(())
+    Ok(hidden)
 }
 
 /// The most scoped threads the Q8-activation row-chunked kernel uses.
@@ -989,7 +974,7 @@ mod tests {
 
     #[test]
     fn swiglu_hidden_cols_matches_serial_columns_across_shapes() {
-        for k in [1usize, 2, 3, 64] {
+        for k in [1usize, 2, 3, 64, 129] {
             for n in [7usize, 31, 97] {
                 let gate: Vec<Vec<i64>> = (0..k)
                     .map(|c| {
@@ -1029,13 +1014,11 @@ mod tests {
                 }
 
                 for parallel in [false, true] {
-                    let mut actual = vec![vec![0; n]; k];
                     assert_eq!(
-                        swiglu_hidden_cols(&gate, &up, &mut actual, parallel),
-                        Ok(()),
+                        swiglu_hidden_cols(&gate, &up, parallel),
+                        Ok(expected.clone()),
                         "k={k}, n={n}, parallel={parallel}"
                     );
-                    assert_eq!(actual, expected, "k={k}, n={n}, parallel={parallel}");
                 }
             }
         }
@@ -1043,43 +1026,37 @@ mod tests {
 
     #[test]
     fn swiglu_hidden_cols_checks_empty_and_malformed_geometry_upfront() {
-        let mut no_columns: Vec<Vec<i64>> = Vec::new();
-        assert_eq!(swiglu_hidden_cols(&[], &[], &mut no_columns, true), Ok(()));
+        assert_eq!(swiglu_hidden_cols(&[], &[], true), Ok(vec![]));
 
         let empty_cols = vec![vec![], vec![]];
-        let mut empty_out = empty_cols.clone();
         assert_eq!(
-            swiglu_hidden_cols(&empty_cols, &empty_cols, &mut empty_out, true),
-            Ok(())
+            swiglu_hidden_cols(&empty_cols, &empty_cols, true),
+            Ok(empty_cols.clone())
         );
-        assert_eq!(empty_out, empty_cols);
 
         let gate = vec![vec![ONE; 3], vec![ONE; 2]];
         let up = vec![vec![ONE; 3], vec![ONE; 3]];
-        let mut out = vec![vec![17; 3], vec![19; 3]];
-        let untouched = out.clone();
         assert_eq!(
-            swiglu_hidden_cols(&gate, &up, &mut out, true),
+            swiglu_hidden_cols(&gate, &up, true),
             Err(FfnError::BadGeometry)
         );
-        assert_eq!(out, untouched);
 
         let rect = vec![vec![ONE; 3], vec![ONE; 3]];
         let short_up = vec![vec![ONE; 3]];
         assert_eq!(
-            swiglu_hidden_cols(&rect, &short_up, &mut out, true),
+            swiglu_hidden_cols(&rect, &short_up, true),
             Err(FfnError::BadGeometry)
         );
-        let mut short_out = vec![vec![0; 3]];
+        let ragged_up = vec![vec![ONE; 3], vec![ONE; 2]];
         assert_eq!(
-            swiglu_hidden_cols(&rect, &rect, &mut short_out, true),
+            swiglu_hidden_cols(&rect, &ragged_up, true),
             Err(FfnError::BadGeometry)
         );
     }
 
     #[test]
     fn swiglu_hidden_cols_matches_overflow_refusal_without_publishing_output() {
-        let k = 3;
+        let k = 129;
         let n = 7;
         let mut gate = vec![vec![0; n]; k];
         let mut up = vec![vec![ONE; n]; k];
@@ -1098,13 +1075,7 @@ mod tests {
         }
         assert_eq!(seen_error, Some(expected_error.clone()));
 
-        let mut out = vec![vec![23; n]; k];
-        let untouched = out.clone();
-        assert_eq!(
-            swiglu_hidden_cols(&gate, &up, &mut out, true),
-            Err(expected_error)
-        );
-        assert_eq!(out, untouched);
+        assert_eq!(swiglu_hidden_cols(&gate, &up, true), Err(expected_error));
     }
 
     /// Finite `f16` bit patterns the fixture draws from: `0`, `±0.125`, `±0.25`, `±0.5`, `±1`,
