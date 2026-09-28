@@ -321,3 +321,28 @@ same bounded, locked direct Lean development command and returns a checked proof
 remaining goal. A different-model verifier then reviews the resulting theorem; the lead registers
 and runs the named build plus actual source mutation control. This does not reset or excuse a gate
 timeout: no gate timed out in the first slice, and no incomplete proof is accepted.
+
+### One SwiGLU dispatch over prefill columns
+
+Intent: `step/cols.rs::ffn_cols` currently calls the pooled `swiglu_hidden` separately for every
+column after its batched gate/up projections. Each element is independent; repeated dispatches
+may contribute to the measured FFN cost. The trace does not establish their individual cost.
+
+Spec: one multi-column helper reuses `swiglu_one` exactly. Equal rectangular gate/up dimensions
+are the admissible domain; malformed geometry returns `BadGeometry` before evaluation. For valid
+geometry, output words and the first arithmetic refusal in column-major order equal the existing
+per-column calls. Preserve the single-column executor, the projection kernels, integer rounding,
+source extraction and canonical definitions. Account for any flattened scratch and output copying
+in the function's complexity comment; an extra allocation needs the A/B result, not an assumed gain.
+
+Plan: only after the preceding Rust, extraction, bridge and mutation barriers pass,
+`APEIRON-INFERENCE-W2-T1` gives Luna heads `src/engine/chart/ffn.rs` and
+`src/engine/step/cols.rs` in a fresh isolated worktree. Add a process-cached
+`APEIRON_BATCH_SWIGLU=0|1` schedule switch, default 0 during comparison. Tests call the helper
+explicitly without environment mutation: several column counts, empty/malformed dimensions,
+signed boundaries, successful word equality and failures in different columns. Focused gate:
+`cargo test --locked --lib engine::chart::ffn::tests`, 540 seconds. Control: swap gate/up for one
+flattened element in a disposable copy; the serial oracle must fail and restoration pass.
+Lead owns builds, measurements and integration. Run five quiet rotated A/B rounds of both
+schedules, including four-core settings; keep the candidate only on supported measurements.
+Grade is tested arithmetic equivalence plus measured timing, not a new universal SIMD theorem.
