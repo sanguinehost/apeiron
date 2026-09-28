@@ -15,6 +15,10 @@
 ///
 /// At most 63 doublings.
 #[must_use]
+#[allow(
+    clippy::manual_is_multiple_of,
+    reason = "division and remainder keep this extraction body free of the unmodelled is_multiple_of method"
+)]
 pub fn act_scale(absmax: u64) -> Option<u64> {
     if absmax == 0 {
         return Some(0);
@@ -40,6 +44,10 @@ pub fn act_scale(absmax: u64) -> Option<u64> {
 /// A normal word is `(1024 + f)·2^(e − 25)`, so `(1024 + f)·2^(e + 7)` in Q32.32; a subnormal is
 /// `f·2^−24`, so `f·2^8`.
 #[must_use]
+#[allow(
+    clippy::many_single_char_names,
+    reason = "h/e/f/m/k are the standard half-word, exponent, fraction, significand and scale fields"
+)]
 pub fn f16_split(h: u16) -> Option<(i32, u32)> {
     let e = u32::from((h >> 10) & 0x1f);
     let f = i32::from(h & 0x3ff);

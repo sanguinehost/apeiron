@@ -377,7 +377,9 @@ mod x86 {
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
-        reason = "the payload, geometry, row range, columns, packing, limit and output"
+        clippy::many_single_char_names,
+        clippy::cast_ptr_alignment,
+        reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address"
     )]
     pub(super) unsafe fn rows(
         raw: &[u8],
@@ -498,7 +500,7 @@ mod tests {
                             return 0;
                         }
                         let mag = 1i64 << (20 + (lcg(seed) as u32 % range.max(1)));
-                        (lcg(seed) as i64 % (2 * mag + 1)) - mag
+                        (lcg(seed).cast_signed() % (2 * mag + 1)) - mag
                     })
                     .collect();
                 quant_act(&x).expect("activations quantize")
@@ -577,7 +579,7 @@ mod tests {
         assert_eq!(spread_limit(32), 28);
         assert_eq!(spread_limit(112), 26);
         for blocks in 1..=MAX_BLOCKS {
-            let log = (blocks as f64).log2().ceil() as u32;
+            let log = usize::BITS - (blocks - 1).leading_zeros();
             assert!(30 + spread_limit(blocks) + log <= 63, "{blocks}");
         }
     }
