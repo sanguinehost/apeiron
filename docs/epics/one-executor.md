@@ -302,3 +302,22 @@ and use the repository fixture as the default. The explicit `--ids` option remai
 Gate: byte/hash equality and `cargo test --locked --example engine_profile`, 540 seconds.
 Grade: tested input preservation; no arithmetic or performance claim. A semantic mutation control
 is inapplicable to a byte-identical relocation; exact hash equality checks the complete input.
+
+### Traversal decision and proof escalation
+
+`1790608521-astra-write-traversal` rejects changing the default: five quiet rounds give median
+paired column/row ratios 1.000292 prefill and 0.996381 decode; on four performance cores they are
+1.002071 and 0.966693. Lead-owned integration closes the experiment by removing its candidate
+branch and environment switch, retaining the single-path scalar boundary/refusal tests. Luna heads
+owns `src/engine/mixer.rs` and `src/engine/mixer/tests.rs` in an isolated cleanup worktree; gate
+`cargo test --locked --lib engine::mixer::tests`, 540 seconds. The real coefficient mutation must
+still fail the retained scalar comparison. No performance improvement is claimed.
+
+The Luna proof slice checks `word_f16_split_nonfinite` but reaches its 540-second stop with the
+finite joint pair/value theorem open. The new bounded question is that exact finite theorem, not
+activation scaling or final rounding. A fresh different-model Astra worker owns only
+`Numeric/Pow2Refinement.lean` in the existing task worktree for a 540-second slice. It uses the
+same bounded, locked direct Lean development command and returns a checked proof or smallest
+remaining goal. A different-model verifier then reviews the resulting theorem; the lead registers
+and runs the named build plus actual source mutation control. This does not reset or excuse a gate
+timeout: no gate timed out in the first slice, and no incomplete proof is accepted.
