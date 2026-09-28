@@ -45,6 +45,7 @@ cd "$REPO_DIR"
 CRATE=apeiron_word
 LLBC="$PROOF_DIR/$CRATE.llbc"
 GENERATED=ApeironWord.lean
+EXTRACT_TARGET="$REPO_DIR/target/apeiron-extract"
 
 echo "== tools =="
 echo "charon:  $("$CHARON" version)"
@@ -103,11 +104,15 @@ $REPO_DIR/src/engine/attn.rs
 $REPO_DIR/src/engine/lm_head.rs
 $REPO_DIR/src/engine/sampler.rs
 $REPO_DIR/src/engine/ffn.rs
+$REPO_DIR/src/engine/fused.rs
+$REPO_DIR/src/engine/par.rs
 $REPO_DIR/src/engine/kern/pow2.rs
 $REPO_DIR/src/spirv/mod.rs
 $REPO_DIR/src/spirv/check.rs
 $REPO_DIR/src/policy/mod.rs
 $REPO_DIR/src/policy/decide.rs
+$EXTRACT_DIR/Cargo.toml
+$EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
 "
 for f in $SOURCE_FILES; do
@@ -124,7 +129,7 @@ run_extract() {
     # `--index-to-function-calls`, which lower every array/slice index and repeat in the tree, so
     # it rejects on `core::array::repeat` and `TArray`/`TSlice`. The preset translates the current
     # source; see the anative note.
-    "$CHARON" rustc \
+    "$CHARON" cargo \
         --preset aeneas \
         --dest-file "$llbc" \
         --start-from crate::word_mul \
@@ -196,10 +201,11 @@ run_extract() {
         --start-from crate::word_check_fragment \
         --start-from crate::word_policy_decide \
         -- \
-        --edition 2021 \
-        --crate-type lib \
-        --crate-name "$CRATE" \
-        "$EXTRACT_DIR/lib.rs"
+        --manifest-path "$EXTRACT_DIR/Cargo.toml" \
+        --locked \
+        --offline \
+        --lib \
+        --target-dir "$EXTRACT_TARGET"
     "$AENEAS" -backend lean -dest "$dest_dir" -warnings-as-errors -no-progress-bar "$llbc"
     # Aeneas may leave blanks at line ends; normalize both regeneration and freshness output.
     sed -i 's/[[:blank:]]*$//' "$dest_dir/$GENERATED"
