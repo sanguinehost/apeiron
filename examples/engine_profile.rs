@@ -401,18 +401,168 @@ fn json_text(obj: &str, key: &str) -> Option<String> {
     Some(rest[..rest.find('"')?].to_string())
 }
 
+/// Parses one JSON fragment. Time is O(B) byte scans over the fragment (four numeric keys and
+/// one commit key); space is O(C) for the returned build-commit string of C bytes.
 #[allow(
     clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
     clippy::cast_sign_loss,
-    reason = "llama-bench token and thread counts are small non-negative integers"
+    reason = "validated integral llama-bench counts are bounded before conversion"
 )]
+fn parse_llama_row(obj: &str) -> Result<Option<(LlamaRow, String)>, std::io::Error> {
+    use std::io::{Error as IoError, ErrorKind};
+
+    let parsed = (
+        json_num(obj, "n_prompt"),
+        json_num(obj, "n_gen"),
+        json_num(obj, "n_threads"),
+        json_num(obj, "avg_ts"),
+    );
+    if parsed == (None, None, None, None) {
+        return Ok(None);
+    }
+    let (Some(p), Some(g), Some(t), Some(ts)) = parsed else {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            "malformed llama-bench row",
+        ));
+    };
+    if !p.is_finite()
+        || !g.is_finite()
+        || !t.is_finite()
+        || p < 0.0
+        || g < 0.0
+        || t <= 0.0
+        || p.fract() != 0.0
+        || g.fract() != 0.0
+        || t.fract() != 0.0
+        || p >= usize::MAX as f64
+        || g >= usize::MAX as f64
+        || t >= usize::MAX as f64
+        || !ts.is_finite()
+        || ts <= 0.0
+    {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            "invalid llama-bench row value",
+        ));
+    }
+    let row = LlamaRow {
+        n_prompt: p as usize,
+        n_gen: g as usize,
+        threads: t as usize,
+        tps: ts,
+    };
+    let commit = json_text(obj, "build_commit")
+        .filter(|c| !c.is_empty())
+        .ok_or_else(|| {
+            IoError::new(
+                ErrorKind::InvalidData,
+                "llama-bench row has no build_commit",
+            )
+        })?;
+    Ok(Some((row, commit)))
+}
+
+/// Validates standalone prefill and generation rows. Time is O(B + R + T) expected, where B is
+/// output bytes, R is parsed rows and T is requested thread counts: each output fragment is parsed
+/// once and each row/thread membership check uses a hash set. Space is O(R + T) for rows and sets.
+fn parse_llama_output(
+    text: &str,
+    pp: usize,
+    tg: usize,
+    threads: &str,
+) -> Result<(Vec<LlamaRow>, String), std::io::Error> {
+    use std::collections::HashSet;
+    use std::io::{Error as IoError, ErrorKind};
+
+    let requested: Vec<usize> = threads
+        .split(',')
+        .map(|s| {
+            s.parse::<usize>()
+                .map_err(|e| IoError::new(ErrorKind::InvalidInput, e))
+        })
+        .collect::<Result<_, _>>()?;
+    let requested_set: HashSet<_> = requested.iter().copied().collect();
+    if requested.is_empty() || requested.contains(&0) || requested_set.len() != requested.len() {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "llama thread counts must be nonzero and unique",
+        ));
+    }
+
+    let mut rows = Vec::new();
+    let mut seen = HashSet::new();
+    let mut build_commit: Option<String> = None;
+    for obj in text.split('}') {
+        let Some((row, commit)) = parse_llama_row(obj)? else {
+            continue;
+        };
+        if (row.n_prompt, row.n_gen) != (pp, 0) && (row.n_prompt, row.n_gen) != (0, tg) {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "unexpected llama-bench workload row",
+            ));
+        }
+        if !requested_set.contains(&row.threads) {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "unexpected llama-bench thread count",
+            ));
+        }
+        if !seen.insert((row.n_prompt, row.n_gen, row.threads)) {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "duplicate llama-bench row",
+            ));
+        }
+        if build_commit
+            .as_ref()
+            .is_some_and(|previous| previous != &commit)
+        {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "inconsistent llama-bench build_commit",
+            ));
+        }
+        build_commit = Some(commit);
+        rows.push(row);
+    }
+
+    let expected = requested.len() * 2;
+    if rows.len() != expected {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            format!(
+                "expected {expected} standalone llama-bench rows, found {}",
+                rows.len()
+            ),
+        ));
+    }
+    for &thread_count in &requested {
+        if !seen.contains(&(pp, 0, thread_count)) || !seen.contains(&(0, tg, thread_count)) {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                format!("missing llama-bench pp/tg row at {thread_count} threads"),
+            ));
+        }
+    }
+    Ok((
+        rows,
+        build_commit.expect("nonempty expected row set has a commit"),
+    ))
+}
+
+/// Runs llama-bench and rejects failed or incomplete results. Time is the child benchmark plus
+/// O(B + R + T) expected validation for its B output bytes, R rows and T requested thread counts;
+/// space is O(B + R + T) for captured output and parsed collections.
 fn run_llama(
     bin: &str,
     model: &str,
     pp: usize,
     tg: usize,
     threads: &str,
-) -> (Vec<LlamaRow>, String) {
+) -> Result<(Vec<LlamaRow>, String), Box<dyn Error>> {
     let mut cmd = Command::new(bin);
     cmd.args(["-m", model, "-p", &pp.to_string(), "-n", &tg.to_string()])
         .args(["-r", "1", "-t", threads, "-o", "json"]);
@@ -427,36 +577,29 @@ fn run_llama(
             for cpu in 0..libc::CPU_SETSIZE as usize {
                 libc::CPU_SET(cpu, &mut set);
             }
-            libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &raw const set);
+            if libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &raw const set)
+                != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
             Ok(())
         });
     }
-    let out = cmd.output();
-    let Ok(out) = out else {
-        return (Vec::new(), String::new());
-    };
-    let text = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut rows = Vec::new();
-    let mut commit = String::new();
-    for obj in text.split('}') {
-        if let (Some(p), Some(g), Some(t), Some(ts)) = (
-            json_num(obj, "n_prompt"),
-            json_num(obj, "n_gen"),
-            json_num(obj, "n_threads"),
-            json_num(obj, "avg_ts"),
-        ) {
-            rows.push(LlamaRow {
-                n_prompt: p as usize,
-                n_gen: g as usize,
-                threads: t as usize,
-                tps: ts,
-            });
-            if let Some(c) = json_text(obj, "build_commit") {
-                commit = c;
-            }
-        }
+    let out = cmd.output()?;
+    if !out.status.success() {
+        return Err(format!(
+            "llama-bench failed ({}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        )
+        .into());
     }
-    (rows, commit)
+    Ok(parse_llama_output(
+        &String::from_utf8_lossy(&out.stdout),
+        pp,
+        tg,
+        threads,
+    )?)
 }
 
 // ---- statistics ----------------------------------------------------------------------------
@@ -824,7 +967,7 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         quiet_all &= quiet;
         eprintln!("round {r}: busy {busy:.3} quiet {quiet}");
         let (lrows, commit) = match &a.llama {
-            Some(bin) => run_llama(bin, &a.model, a.pp, a.tg, &a.llama_threads),
+            Some(bin) => run_llama(bin, &a.model, a.pp, a.tg, &a.llama_threads)?,
             None => (Vec::new(), String::new()),
         };
         if !commit.is_empty() {
@@ -1033,6 +1176,52 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     println!("{md}");
     eprintln!("wrote {base}.json and {base}.md");
     Ok(())
+}
+
+#[cfg(test)]
+mod llama_output_tests {
+    use super::parse_llama_output;
+
+    const THREADS: &str = "8,16";
+    const VALID: &str = r#"{"n_prompt":200,"n_gen":0,"n_threads":8,"avg_ts":250.0,"build_commit":"abc"}
+{"n_prompt":0,"n_gen":64,"n_threads":8,"avg_ts":45.0,"build_commit":"abc"}
+{"n_prompt":200,"n_gen":0,"n_threads":16,"avg_ts":400.0,"build_commit":"abc"}
+{"n_prompt":0,"n_gen":64,"n_threads":16,"avg_ts":50.0,"build_commit":"abc"}"#;
+
+    #[test]
+    fn accepts_complete_standalone_rows_with_one_build_commit() {
+        let (rows, commit) = parse_llama_output(VALID, 200, 64, THREADS).unwrap();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(commit, "abc");
+    }
+
+    #[test]
+    fn rejects_missing_duplicate_and_malformed_rows() {
+        let missing = VALID.replace(
+            "{\"n_prompt\":0,\"n_gen\":64,\"n_threads\":16,\"avg_ts\":50.0,\"build_commit\":\"abc\"}",
+            "",
+        );
+        assert!(parse_llama_output(&missing, 200, 64, THREADS).is_err());
+        let duplicate = format!(
+            "{VALID}\n{{\"n_prompt\":200,\"n_gen\":0,\"n_threads\":8,\"avg_ts\":250.0,\"build_commit\":\"abc\"}}"
+        );
+        assert!(parse_llama_output(&duplicate, 200, 64, THREADS).is_err());
+        let malformed = VALID.replace("\"avg_ts\":50.0", "\"avg_ts\":NaN");
+        assert!(parse_llama_output(&malformed, 200, 64, THREADS).is_err());
+        let fractional = VALID.replace("\"n_threads\":16", "\"n_threads\":16.5");
+        assert!(parse_llama_output(&fractional, 200, 64, THREADS).is_err());
+        let oversized = VALID.replace("\"n_threads\":16", "\"n_threads\":1e30");
+        assert!(parse_llama_output(&oversized, 200, 64, THREADS).is_err());
+    }
+
+    #[test]
+    fn rejects_inconsistent_build_commits() {
+        let inconsistent = VALID.replace(
+            "\"avg_ts\":50.0,\"build_commit\":\"abc\"",
+            "\"avg_ts\":50.0,\"build_commit\":\"def\"",
+        );
+        assert!(parse_llama_output(&inconsistent, 200, 64, THREADS).is_err());
+    }
 }
 
 fn main() -> ExitCode {
