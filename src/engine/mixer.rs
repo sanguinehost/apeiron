@@ -63,6 +63,7 @@
 //! Every product is the one checked Q32.32 multiply [`mul_q32`]. Heads are independent, so running
 //! them across the pool is bit-identical to the serial loop.
 
+use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
 use super::chart::ffn::attn_heads;
@@ -246,6 +247,30 @@ impl AffineState {
     }
 }
 
+/// The per-column spare-capacity writers that [`conv_silu_cols`] shares with the pool: element `j`
+/// points at the first unwritten word of output column `j`.
+struct ColWriters(Vec<*mut MaybeUninit<i64>>);
+
+// SAFETY: the dispatch gives task `t` the channel range `[t·per, min(t·per + per, ch))` of every
+// column, so no two tasks write the same word, and `by_col` is neither moved nor reallocated while
+// the pool runs. The disjointness argument is the same one `SendPtr` (engine::chart::pool) uses for
+// its disjoint chunks.
+unsafe impl Sync for ColWriters {}
+
+impl ColWriters {
+    /// Write channel `c` of output column `j`.
+    ///
+    /// # Safety
+    ///
+    /// `j` is a valid column index, `c` is below that column's reserved capacity, and no other
+    /// live writer targets the same `(j, c)` word.
+    #[inline]
+    unsafe fn write(&self, j: usize, c: usize, value: i64) {
+        // SAFETY: the caller guarantees the index and the disjointness.
+        unsafe { self.0[j].add(c).write(MaybeUninit::new(value)) };
+    }
+}
+
 /// The causal depthwise convolution of `k` consecutive columns, then `SiLU`, shifting them into the
 /// state (llama.cpp `build_conv_state`, ggml `ssm_conv`). Over the history
 /// `[conv window rows | xs rows]`, column `j` reads rows `j..j + kernel`; the new window is the
@@ -255,10 +280,13 @@ impl AffineState {
 /// # Complexity
 ///
 /// `O(k · conv_kernel · channels)` `i128` multiply-adds and `k · channels` `SiLU`s over the pool,
-/// plus `O((conv_kernel − 1 + k)·channels)` moves; one dispatch for the block.
+/// `O((conv_kernel − 1)·channels)` window moves, and `k · channels` output words written once with
+/// no channel-major staging buffer or transposing copy. One pool task per `per` channels.
 #[allow(
     clippy::many_single_char_names,
-    reason = "w (taps), x (input), c and t (channel and tap) are the convolution's symbols"
+    clippy::too_many_lines,
+    reason = "w (taps), x (input), c and t (channel and tap) are the convolution's symbols; the
+              direct-to-column store needs the pool frame inline"
 )]
 pub(crate) fn conv_silu_cols(
     layer: &mut AffineLayer,
@@ -287,53 +315,66 @@ pub(crate) fn conv_silu_cols(
             xs[r - cols][c]
         }
     };
-    // Channel-major output: `out[c·k + j]`.
-    let mut out = vec![0i64; ch * k];
+    // Per-column outputs written in place: `by_col[j][c]` is channel `c` of column `j`. Every
+    // column reserves `ch` words, so a task writes its channel's word of each column directly and
+    // no channel-major staging buffer or serial transpose is needed.
+    let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
+    let writers = ColWriters(
+        by_col
+            .iter_mut()
+            .map(|v| v.spare_capacity_mut().as_mut_ptr())
+            .collect(),
+    );
     let first: std::sync::Mutex<Option<(usize, StepError)>> = std::sync::Mutex::new(None);
     let per = ch
         .div_ceil(crate::engine::par::row_chunk_budget(ch))
         .max(64);
-    crate::engine::chart::pool::Pool::global().chunks_mut(&mut out, per * k, &|_, start, dst| {
-        let c0 = start / k;
-        for (i, slot) in dst.iter_mut().enumerate() {
-            let (c, j) = (c0 + i / k, i % k);
+    let tasks = ch.div_ceil(per);
+    crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
+        let c0 = t * per;
+        let c1 = (c0 + per).min(ch);
+        for c in c0..c1 {
             let base = c * kernel;
-            let mut acc: i128 = 0;
-            let mut t = 0usize;
-            let mut acc_ok = true;
-            while t < kernel && acc_ok {
-                let prod = i128::from(w[base + t]) * i128::from(row(j + t, c));
-                match acc.checked_add(prod) {
-                    Some(total) => acc = total,
-                    None => acc_ok = false,
+            for j in 0..k {
+                let mut acc: i128 = 0;
+                let mut tap = 0usize;
+                let mut acc_ok = true;
+                while tap < kernel && acc_ok {
+                    let prod = i128::from(w[base + tap]) * i128::from(row(j + tap, c));
+                    match acc.checked_add(prod) {
+                        Some(total) => acc = total,
+                        None => acc_ok = false,
+                    }
+                    tap += 1;
                 }
-                t += 1;
-            }
-            if !acc_ok {
-                let mut f = first
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if f.as_ref().is_none_or(|(at, _)| c < *at) {
-                    *f = Some((c, StepError::Overflow));
-                }
-                return;
-            }
-            // The shared `round_shift_32` adds 2^31 before shifting; guard that addition here
-            // because this dot may be as large as i128::MAX.
-            let v = match acc.checked_add(1_i128 << 31) {
-                Some(_) => i64::try_from(round_shift_32(acc)).map_err(|_| StepError::Overflow),
-                None => Err(StepError::Overflow),
-            };
-            match v.and_then(|v| silu_fixed(v).map_err(StepError::Ffn)) {
-                Ok(y) => *slot = y,
-                Err(e) => {
+                if !acc_ok {
                     let mut f = first
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if f.as_ref().is_none_or(|(at, _)| c < *at) {
-                        *f = Some((c, e));
+                        *f = Some((c, StepError::Overflow));
                     }
                     return;
+                }
+                // The shared `round_shift_32` adds 2^31 before shifting; guard that addition here
+                // because this dot may be as large as i128::MAX.
+                let v = match acc.checked_add(1_i128 << 31) {
+                    Some(_) => i64::try_from(round_shift_32(acc)).map_err(|_| StepError::Overflow),
+                    None => Err(StepError::Overflow),
+                };
+                match v.and_then(|v| silu_fixed(v).map_err(StepError::Ffn)) {
+                    // SAFETY: `by_col[j]` reserved `ch` words; task `t` writes slot `c` of column
+                    // `j` exactly once and no other task writes slot `c`.
+                    Ok(y) => unsafe { writers.write(j, c, y) },
+                    Err(e) => {
+                        let mut f = first
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if f.as_ref().is_none_or(|(at, _)| c < *at) {
+                            *f = Some((c, e));
+                        }
+                        return;
+                    }
                 }
             }
         }
@@ -344,6 +385,13 @@ pub(crate) fn conv_silu_cols(
     {
         return Err(e);
     }
+    // Every index `0..ch` of every column was written exactly once above; this point is reached
+    // only after a refusal-free dispatch, so the lengths can be published. The refusal path
+    // returns before it, dropping length-0 vectors that never read an unwritten word.
+    for col in &mut by_col {
+        // SAFETY: the dispatch set no refusal, so all `ch` words are initialised.
+        unsafe { col.set_len(ch) };
+    }
     // The new window: the history's last `cols` rows.
     let mut next = vec![0i64; cols * ch];
     for r in 0..cols {
@@ -352,12 +400,6 @@ pub(crate) fn conv_silu_cols(
         }
     }
     layer.conv = next;
-    let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
-    for c in 0..ch {
-        for (j, col) in by_col.iter_mut().enumerate() {
-            col.push(out[c * k + j]);
-        }
-    }
     Ok(by_col)
 }
 
