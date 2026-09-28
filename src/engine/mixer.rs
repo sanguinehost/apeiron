@@ -636,6 +636,30 @@ mod avx2_kern {
 
     /// AVX2 write pass: `S̃[i*dv + j] += mul_q32(k[i], d'[j])` across 4 lanes at a time.
     #[target_feature(enable = "avx2")]
+    pub(super) unsafe fn write_pass_avx2(
+        s: &mut [i64],
+        k: &[i64],
+        d_prime: &[i64],
+        dv: usize,
+    ) -> Result<(), StepError> {
+        write_pass_avx2_order(s, k, d_prime, dv, write_column_major())
+    }
+
+    /// Read the traversal choice once per process; row-major remains the default until measured.
+    fn write_column_major() -> bool {
+        static COLUMN_MAJOR: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *COLUMN_MAJOR.get_or_init(|| {
+            std::env::var("APEIRON_WRITE_COLUMN_MAJOR").is_ok_and(|value| value == "1")
+        })
+    }
+
+    /// Apply the same exact SIMD update in row-major or value-column-major order.
+    ///
+    /// Both loop nests write only `s[i * dv + j]`; column-major loads the fixed four-word
+    /// `d_prime` vector once per outer `j`. For `dk` keys and `dv` values, there are at most
+    /// `dk * dv / 4` vector updates plus `dk * dv` words read by the final scan, with `O(1)` extra
+    /// words and no allocation; `dk` is fixed at 128 on this path.
+    #[target_feature(enable = "avx2")]
     #[allow(
         clippy::cast_ptr_alignment,
         clippy::cast_possible_wrap,
@@ -643,29 +667,47 @@ mod avx2_kern {
         clippy::needless_range_loop,
         reason = "unaligned SIMD load/store and 32-bit integer sign/bit operations"
     )]
-    pub(super) unsafe fn write_pass_avx2(
+    pub(super) unsafe fn write_pass_avx2_order(
         s: &mut [i64],
         k: &[i64],
         d_prime: &[i64],
         dv: usize,
+        column_major: bool,
     ) -> Result<(), StepError> {
         let dk = 128;
-        for i in 0..dk {
-            let ki = k[i];
-            if ki == 0 {
-                continue;
-            }
-            let a_hi = ki >> 32;
-            let a_lo = (ki as u64 & 0xFFFF_FFFF) as i64;
-            let row_ptr = s.as_mut_ptr().add(i * dv);
-            let d_ptr = d_prime.as_ptr();
-
+        if column_major {
             for j in (0..dv).step_by(4) {
-                let b = _mm256_loadu_si256(d_ptr.add(j).cast::<__m256i>());
-                let prod = mul_q32_4x_avx2(a_hi, a_lo, b);
-                let cur = _mm256_loadu_si256(row_ptr.add(j).cast::<__m256i>());
-                let res = _mm256_add_epi64(cur, prod);
-                _mm256_storeu_si256(row_ptr.add(j).cast::<__m256i>(), res);
+                let b = _mm256_loadu_si256(d_prime.as_ptr().add(j).cast::<__m256i>());
+                for i in 0..dk {
+                    let ki = k[i];
+                    if ki == 0 {
+                        continue;
+                    }
+                    let a_hi = ki >> 32;
+                    let a_lo = (ki as u64 & 0xFFFF_FFFF) as i64;
+                    let row_ptr = s.as_mut_ptr().add(i * dv + j);
+                    let prod = mul_q32_4x_avx2(a_hi, a_lo, b);
+                    let cur = _mm256_loadu_si256(row_ptr.cast::<__m256i>());
+                    let res = _mm256_add_epi64(cur, prod);
+                    _mm256_storeu_si256(row_ptr.cast::<__m256i>(), res);
+                }
+            }
+        } else {
+            for i in 0..dk {
+                let ki = k[i];
+                if ki == 0 {
+                    continue;
+                }
+                let a_hi = ki >> 32;
+                let a_lo = (ki as u64 & 0xFFFF_FFFF) as i64;
+                let row_ptr = s.as_mut_ptr().add(i * dv);
+                for j in (0..dv).step_by(4) {
+                    let b = _mm256_loadu_si256(d_prime.as_ptr().add(j).cast::<__m256i>());
+                    let prod = mul_q32_4x_avx2(a_hi, a_lo, b);
+                    let cur = _mm256_loadu_si256(row_ptr.add(j).cast::<__m256i>());
+                    let res = _mm256_add_epi64(cur, prod);
+                    _mm256_storeu_si256(row_ptr.add(j).cast::<__m256i>(), res);
+                }
             }
         }
         for &x in s.iter() {
