@@ -580,6 +580,257 @@ where
     Ok(out)
 }
 
+/// `chunk_matches_oracle`: the chunked composition tracks the per-step oracle within the epic's
+/// bound `ε/(1 − α)` (`Nous.Seq.ChunkedRounding.chunked_discrepancy_uniform_bound`), ε = 1 LSB and
+/// α = 99/100, i.e. 100 LSB, on random heads at chunk lengths 2, 8 and `CHUNK_MAX`.
+#[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    reason = "random synthetic head data; the trial loop is the test"
+)]
+fn chunk_matches_oracle_within_bound() {
+    let dk = 128usize;
+    let dv = 128usize;
+    // α = 99/100: the epic's witness_delta_net_100_lsb instance, bound ε/(1 − α) = 100 LSB.
+    let decay = (0.99 * (1u64 << 32) as f64) as i64;
+    let eps = 1i64;
+    let q_scale = fixed_rsqrt(i64::try_from(dk).expect("dk fits i64") << 32).expect("rsqrt");
+    let mut rng = 0x51ed_2701_9e37_79b9_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let mut max_out_dev = 0i64;
+    let mut max_state_dev = 0i64;
+    for chunk in [2usize, 8, CHUNK_MAX] {
+        for _ in 0..2 {
+            let entry: Vec<i64> = (0..dk * dv).map(|_| word(1 << 30)).collect();
+            let mut q = vec![0i64; chunk * dk];
+            let mut k = vec![0i64; chunk * dk];
+            let mut v = vec![0i64; chunk * dv];
+            let mut beta = vec![0i64; chunk];
+            let decay_step = vec![decay; chunk];
+            for t in 0..chunk {
+                let q_raw: Vec<i64> = (0..dk).map(|_| word(1 << 20)).collect();
+                let k_raw: Vec<i64> = (0..dk).map(|_| word(1 << 20)).collect();
+                let q_hat = l2_normalize(&q_raw, eps).expect("q norm");
+                let k_hat = l2_normalize(&k_raw, eps).expect("k norm");
+                for (i, (&qh, &kh)) in q_hat.iter().zip(&k_hat).enumerate() {
+                    q[t * dk + i] = mul_q32(qh, q_scale).expect("q scale");
+                    k[t * dk + i] = kh;
+                }
+                for jv in 0..dv {
+                    v[t * dv + jv] = word(1 << 33);
+                }
+                beta[t] = word(1 << 31).abs() + (1 << 30);
+            }
+
+            // Oracle: `chunk` one-step calls on the deferred-decay carrier.
+            let mut s_ora = entry.clone();
+            let mut c_ora = 1i64 << 32;
+            let mut want = Vec::with_capacity(chunk * dv);
+            for t in 0..chunk {
+                let o = delta_head_step_ref(
+                    &mut s_ora,
+                    &mut c_ora,
+                    &q[t * dk..(t + 1) * dk],
+                    &k[t * dk..(t + 1) * dk],
+                    &v[t * dv..(t + 1) * dv],
+                    decay_step[t],
+                    beta[t],
+                )
+                .expect("oracle step");
+                want.extend_from_slice(&o);
+            }
+
+            // Candidate: one chunked composition from the same entry.
+            let mut s_chk = entry.clone();
+            let mut c_chk = 1i64 << 32;
+            let got = delta_head_chunk(
+                &mut s_chk,
+                &mut c_chk,
+                &q,
+                &k,
+                &v,
+                &decay_step,
+                &beta,
+                dk,
+                dv,
+                chunk,
+            )
+            .expect("chunk");
+            assert_eq!(c_chk, 1i64 << 32, "chunk exit decay, chunk {chunk}");
+
+            for (a, b) in got.iter().zip(&want) {
+                max_out_dev = max_out_dev.max((a - b).abs());
+            }
+            // Real states: the chunk carries `c = 1`, the oracle its deferred `c_ora`.
+            for (w, &w_ora) in s_chk.iter().zip(&s_ora) {
+                let real_ora = mul_q32(c_ora, w_ora).expect("oracle real state");
+                max_state_dev = max_state_dev.max((w - real_ora).abs());
+            }
+        }
+    }
+    println!("chunk deviation: readout {max_out_dev} LSB, state {max_state_dev} LSB");
+    assert!(
+        max_out_dev <= 100,
+        "readout deviation {max_out_dev} LSB exceeds the 100 LSB bound for alpha = 99/100"
+    );
+    assert!(
+        max_state_dev <= 100,
+        "state deviation {max_state_dev} LSB exceeds the 100 LSB bound for alpha = 99/100"
+    );
+}
+
+/// The chunk kernel is a pure function of its inputs: two calls from the same entry produce the
+/// same readouts, state and exit decay.
+#[test]
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::many_single_char_names,
+    reason = "xorshift words reinterpreted as signed fixed-point test inputs; q, k, v, s, c are \
+              the recurrence's symbols"
+)]
+fn chunk_is_deterministic() {
+    let dk = 16usize;
+    let dv = 16usize;
+    let chunk = 8usize;
+    let mut rng = 0x0f0f_1234_5678_9abc_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let entry: Vec<i64> = (0..dk * dv).map(|_| word(1 << 28)).collect();
+    let q: Vec<i64> = (0..chunk * dk).map(|_| word(1 << 24)).collect();
+    let k: Vec<i64> = (0..chunk * dk).map(|_| word(1 << 24)).collect();
+    let v: Vec<i64> = (0..chunk * dv).map(|_| word(1 << 30)).collect();
+    let decay: Vec<i64> = (0..chunk).map(|_| word(1 << 32).abs()).collect();
+    let beta: Vec<i64> = (0..chunk).map(|_| word(1 << 31).abs()).collect();
+    let run = || {
+        let mut s = entry.clone();
+        let mut c = 1i64 << 32;
+        let o = delta_head_chunk(&mut s, &mut c, &q, &k, &v, &decay, &beta, dk, dv, chunk)
+            .expect("chunk");
+        (o, s, c)
+    };
+    assert_eq!(run(), run(), "chunk kernel is not deterministic");
+}
+
+/// `refuses_on_width`: a chunk outside `1..=CHUNK_MAX`, a state word over [`STATE_BOUND`], a
+/// non-positive deferred decay and a geometry mismatch each refuse, and no refusal writes a state
+/// word.
+#[test]
+#[allow(
+    clippy::many_single_char_names,
+    reason = "q, k, v, s, c, d, b are the recurrence's and the gate's symbols"
+)]
+fn chunk_refuses_on_width() {
+    let (dk, dv, chunk) = (8usize, 8usize, 2usize);
+    let entry = vec![0i64; dk * dv];
+    let q = vec![0i64; chunk * dk];
+    let k = vec![0i64; chunk * dk];
+    let v = vec![0i64; chunk * dv];
+    let decay = vec![1i64 << 32; chunk];
+    let beta = vec![1i64 << 31; chunk];
+    let one = 1i64 << 32;
+
+    // Chunk length over CHUNK_MAX and chunk length zero.
+    for bad in [CHUNK_MAX + 1, 0] {
+        let (mut s, mut c) = (entry.clone(), one);
+        let d = vec![1i64 << 32; bad.max(1)];
+        let b = vec![1i64 << 31; bad.max(1)];
+        let qb = vec![0i64; bad * dk];
+        let kb = vec![0i64; bad * dk];
+        let vb = vec![0i64; bad * dv];
+        let r = delta_head_chunk(&mut s, &mut c, &qb, &kb, &vb, &d, &b, dk, dv, bad);
+        assert!(
+            matches!(r, Err(StepError::BadConfig(_))),
+            "chunk length {bad} must refuse with BadConfig, got {r:?}"
+        );
+        assert_eq!(s, entry, "refusal wrote a state word, chunk length {bad}");
+        assert_eq!(c, one, "refusal wrote the decay, chunk length {bad}");
+    }
+
+    // A state word over STATE_BOUND.
+    let mut wide = entry.clone();
+    wide[0] = STATE_BOUND + 1;
+    let mut c = one;
+    let r = delta_head_chunk(&mut wide, &mut c, &q, &k, &v, &decay, &beta, dk, dv, chunk);
+    assert!(matches!(r, Err(StepError::Overflow)));
+    assert_eq!(wide[0], STATE_BOUND + 1, "refusal wrote a state word");
+    assert_eq!(c, one, "refusal wrote the decay");
+
+    // Non-positive deferred decay.
+    let mut s = entry.clone();
+    let mut c = 0i64;
+    let r = delta_head_chunk(&mut s, &mut c, &q, &k, &v, &decay, &beta, dk, dv, chunk);
+    assert!(matches!(r, Err(StepError::Overflow)));
+    assert_eq!(s, entry, "refusal wrote a state word");
+    assert_eq!(c, 0, "refusal wrote the decay");
+
+    // Geometry mismatch: `v` carries a whole chunk of the wrong value width.
+    let mut s = entry.clone();
+    let mut c = one;
+    let r = delta_head_chunk(
+        &mut s,
+        &mut c,
+        &q,
+        &k,
+        &vec![0i64; chunk * (dv + 4)],
+        &decay,
+        &beta,
+        dk,
+        dv,
+        chunk,
+    );
+    assert!(matches!(r, Err(StepError::BadConfig(_))));
+    assert_eq!(s, entry, "refusal wrote a state word");
+}
+
+/// A one-step chunk is the step: `chunk == 1` reduces to [`delta_head_step_ref`] with bit-identical
+/// readouts and state.
+#[test]
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "xorshift words reinterpreted as signed fixed-point test inputs"
+)]
+fn chunk_c1_equals_step() {
+    let dk = 32usize;
+    let dv = 32usize;
+    let mut rng = 0xdead_beef_cafe_1234_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let entry: Vec<i64> = (0..dk * dv).map(|_| word(1 << 28)).collect();
+    let q: Vec<i64> = (0..dk).map(|_| word(1 << 24)).collect();
+    let k: Vec<i64> = (0..dk).map(|_| word(1 << 24)).collect();
+    let v: Vec<i64> = (0..dv).map(|_| word(1 << 30)).collect();
+    let decay = [word(1 << 32).abs()];
+    let beta = [word(1 << 31).abs()];
+
+    let mut s_ora = entry.clone();
+    let mut c_ora = 1i64 << 32;
+    let want = delta_head_step_ref(&mut s_ora, &mut c_ora, &q, &k, &v, decay[0], beta[0])
+        .expect("oracle step");
+    let mut s_chk = entry.clone();
+    let mut c_chk = 1i64 << 32;
+    let got = delta_head_chunk(&mut s_chk, &mut c_chk, &q, &k, &v, &decay, &beta, dk, dv, 1)
+        .expect("one-step chunk");
+    assert_eq!(got, want, "one-step chunk readout differs from the step");
+    assert_eq!(s_chk, s_ora, "one-step chunk state differs from the step");
+    assert_eq!(c_chk, c_ora, "one-step chunk decay differs from the step");
+}
+
 #[test]
 #[ignore = "microbench: cargo test --release -- --ignored bench_delta_heads_50_steps"]
 #[allow(

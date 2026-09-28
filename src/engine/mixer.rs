@@ -615,6 +615,263 @@ pub(crate) fn delta_head_step_ref(
     Ok(o)
 }
 
+/// Fixed intermediate precision of the chunked state composition, in fractional bits.
+///
+/// Eight guard bits above the Q32.32 carrier: every composed word is rounded to `2^−40`, and the
+/// entry decode, the readouts and the chunk-boundary state are the only roundings that reach
+/// `2^−32`.
+pub const CHUNK_PREC: u32 = 40;
+
+/// Largest admissible chunk length. A `chunk` outside `1..=CHUNK_MAX` refuses with
+/// [`StepError::BadConfig`] before any word is written.
+///
+/// Width derivation at `2^−CHUNK_PREC`: a state word is `|S̃| ≤ 2^56` (the Q32.32
+/// [`STATE_BOUND`] at the guard precision), an injection `≤ 2^56` and a composed coefficient
+/// `≤ 2^40`; the largest accumulator in [`delta_head_chunk`] is `2^96 + log₂(chunk)`, below
+/// `2^127`, so the checked `i128` arithmetic holds for any `chunk < 2^31`. `CHUNK_MAX = 64` is a
+/// throughput choice (the `u` and `D` working sets), not a width limit.
+pub const CHUNK_MAX: usize = 64;
+
+/// Round-to-nearest `v / 2^shift` for `shift >= 1`, ties upward: the [`round_shift_32`]
+/// convention at the chunk precision.
+#[inline]
+fn chunk_round(v: i128, shift: u32) -> i128 {
+    (v + (1_i128 << (shift - 1))) >> shift
+}
+
+/// [`chunk_round`] narrowed to `i64`; a value that leaves the carrier refuses.
+#[inline]
+fn chunk_narrow(v: i128, shift: u32) -> Result<i64, StepError> {
+    i64::try_from(chunk_round(v, shift)).map_err(|_| StepError::Overflow)
+}
+
+/// `round(a·b / 2^{64−CHUNK_PREC})`: two Q32.32 words multiplied at the chunk precision.
+#[inline]
+fn mul_q32_prec(a: i64, b: i64) -> Result<i64, StepError> {
+    chunk_narrow(i128::from(a) * i128::from(b), 64 - CHUNK_PREC)
+}
+
+/// `round(a·b / 2^32)`: a precision-`CHUNK_PREC` word times a Q32.32 word.
+#[inline]
+fn mul_prec_q32(a: i64, b: i64) -> Result<i64, StepError> {
+    chunk_narrow(i128::from(a) * i128::from(b), 32)
+}
+
+/// `round(a·b / 2^CHUNK_PREC)`: two precision-`CHUNK_PREC` words.
+#[inline]
+fn mul_prec(a: i64, b: i64) -> Result<i64, StepError> {
+    chunk_narrow(i128::from(a) * i128::from(b), CHUNK_PREC)
+}
+
+/// `round(⟨a, b⟩ / 2^{64−CHUNK_PREC})`: the Q32.32 inner product at the chunk precision.
+fn dot_q32_prec(a: &[i64], b: &[i64]) -> Result<i64, StepError> {
+    let mut acc: i128 = 0;
+    for (&x, &y) in a.iter().zip(b) {
+        acc = acc
+            .checked_add(i128::from(x) * i128::from(y))
+            .ok_or(StepError::Overflow)?;
+    }
+    chunk_narrow(acc, 64 - CHUNK_PREC)
+}
+
+/// `round(S0ᵀx / 2^32)`: every value column of the `dk × dv` chunk-precision state read against
+/// the `dk`-long Q32.32 vector `x`, at the chunk precision.
+///
+/// # Complexity
+///
+/// `O(dk · dv)` checked `i128` multiply-adds and `O(dv)` outputs.
+fn state_read_prec(s0: &[i64], dv: usize, x: &[i64]) -> Result<Vec<i64>, StepError> {
+    let mut acc = vec![0i128; dv];
+    for (i, &xi) in x.iter().enumerate() {
+        let xw = i128::from(xi);
+        let row = &s0[i * dv..(i + 1) * dv];
+        for (a, &w) in acc.iter_mut().zip(row) {
+            *a = a
+                .checked_add(i128::from(w) * xw)
+                .ok_or(StepError::Overflow)?;
+        }
+    }
+    acc.into_iter().map(|a| chunk_narrow(a, 32)).collect()
+}
+
+/// One head's `chunk`-step Gated `DeltaNet` composition in the chunked (WY/UT) form, at the fixed
+/// intermediate precision [`CHUNK_PREC`], with one rounding to Q32.32 at the chunk boundary.
+///
+/// Inputs: the entry state `s` (`dk × dv` Q32.32, row major) with its deferred decay `c`; per
+/// step `t`, `q[t·dk..]`, `k[t·dk..]`, `v[t·dv..]` and the gates `decay[t]`, `beta[t]`. Output:
+/// `chunk` readouts of `dv` words (`chunk·dv`, step major); `s` and `c` become the composed exit
+/// state (real state at `c = 1`).
+///
+/// With `Q_t = α_t Q_{t−1} + k_t u_tᵀ`, `u_t = β_t(v_t − (α_t Q_{t−1})ᵀk_t)`, `G_t = ∏_{l≤t} α_l`
+/// and `D(t←j) = ∏_{j<l≤t} α_l`, the composition is the forward substitution
+/// `u_t = β_t v_t − α_t β_t G_{t−1}(S_0ᵀk_t) − Σ_{j<t} α_t β_t D(t−1←j)(k_jᵀk_t) u_j`, then
+/// `o_t = G_t(S_0ᵀq_t) + Σ_{j≤t} D(t←j)(k_jᵀq_t) u_j` and
+/// `S_chunk = G_{C−1}S_0 + Σ_j D(C−1←j) k_j u_jᵀ`. Every product is rounded to `2^−CHUNK_PREC` in
+/// checked `i128` (the one fixed bracketing); the entry decode, the readouts and the exit state
+/// are the roundings that reach the Q32.32 carrier. A refusal leaves `s` and `c` untouched.
+/// `chunk == 1` has no composition to amortise and reduces to [`delta_head_step_ref`].
+///
+/// # Complexity
+///
+/// `O(chunk·dk·dv + chunk²·(dk + dv))` checked `i128` multiply-adds over `O(dk·dv + chunk·dv)`
+/// scratch words; the state read and write are each one pass over `dk·dv`.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop,
+    dead_code,
+    reason = "dk, dv, C, G, D, u, o are the recurrence's symbols; geometry, entry state and the \
+              per-step gates are the kernel's input; the chunk path is reached from \
+              engine::mixer::tests until the prefill wiring lands"
+)]
+pub(crate) fn delta_head_chunk(
+    s: &mut [i64],
+    c: &mut i64,
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    decay: &[i64],
+    beta: &[i64],
+    dk: usize,
+    dv: usize,
+    chunk: usize,
+) -> Result<Vec<i64>, StepError> {
+    if chunk == 0 || chunk > CHUNK_MAX || decay.len() != chunk || beta.len() != chunk {
+        return Err(StepError::BadConfig("affine chunk length"));
+    }
+    if dk == 0
+        || dv == 0
+        || s.len() != dk * dv
+        || q.len() != chunk * dk
+        || k.len() != chunk * dk
+        || v.len() != chunk * dv
+    {
+        return Err(StepError::BadConfig("affine head geometry"));
+    }
+    if *c <= 0 {
+        return Err(StepError::Overflow);
+    }
+    for &w in s.iter() {
+        if w.abs() > STATE_BOUND {
+            return Err(StepError::Overflow);
+        }
+    }
+    // A one-step chunk has no composition to amortise: the step oracle is the chunk.
+    if chunk == 1 {
+        return delta_head_step_ref(s, c, q, k, v, decay[0], beta[0]);
+    }
+
+    // Entry state decoded to the chunk precision. `|S̃| ≤ STATE_BOUND` and `c ≤ 1`, so the product
+    // fits i128 and the rounded word fits i64.
+    let s0: Vec<i64> = s
+        .iter()
+        .map(|&w| mul_q32_prec(w, *c))
+        .collect::<Result<_, _>>()?;
+
+    // Cumulative decays `G_t` at the chunk precision.
+    let one = 1i64 << CHUNK_PREC;
+    let mut g = Vec::with_capacity(chunk);
+    let mut g_prev = one;
+    for &a in decay {
+        g_prev = mul_prec_q32(g_prev, a)?;
+        g.push(g_prev);
+    }
+
+    let mut u = vec![0i64; chunk * dv];
+    let mut out = vec![0i64; chunk * dv];
+    for t in 0..chunk {
+        let kt = &k[t * dk..(t + 1) * dk];
+        // The read at step `t` sees the decayed state `α_t Q_{t−1}`: both the entry term and the
+        // substitution coefficient carry `α_t β_t`, the injection term only `β_t`.
+        let alpha_beta = mul_q32_prec(beta[t], decay[t])?;
+        // Right-hand side `β_t v_t − α_t β_t G_{t−1}(S_0ᵀk_t)`.
+        let s0k = state_read_prec(&s0, dv, kt)?;
+        let beta_g = mul_prec(alpha_beta, if t == 0 { one } else { g[t - 1] })?;
+        let mut ut = Vec::with_capacity(dv);
+        for (jv, &vj) in v[t * dv..(t + 1) * dv].iter().enumerate() {
+            let vt = mul_q32_prec(beta[t], vj)?;
+            let sub = mul_prec(beta_g, s0k[jv])?;
+            ut.push(vt.checked_sub(sub).ok_or(StepError::Overflow)?);
+        }
+        // Forward substitution, `D(t−1←t−1) = 1` walking `j` downward.
+        let mut d = one;
+        for j in (0..t).rev() {
+            let dot = dot_q32_prec(&k[j * dk..(j + 1) * dk], kt)?;
+            let coef = mul_prec(mul_prec(alpha_beta, d)?, dot)?;
+            let uj = &u[j * dv..(j + 1) * dv];
+            for (a, &b) in ut.iter_mut().zip(uj) {
+                *a = a
+                    .checked_sub(mul_prec(coef, b)?)
+                    .ok_or(StepError::Overflow)?;
+            }
+            d = mul_prec_q32(d, decay[j])?;
+        }
+        u[t * dv..(t + 1) * dv].copy_from_slice(&ut);
+
+        // Readout `o_t = G_t(S_0ᵀq_t) + Σ_{j≤t} D(t←j)(k_jᵀq_t) u_j`.
+        let qt = &q[t * dk..(t + 1) * dk];
+        let s0q = state_read_prec(&s0, dv, qt)?;
+        let ot = &mut out[t * dv..(t + 1) * dv];
+        for (a, &b) in ot.iter_mut().zip(&s0q) {
+            *a = mul_prec(g[t], b)?;
+        }
+        let mut d = one;
+        for j in (0..=t).rev() {
+            let dot = dot_q32_prec(&k[j * dk..(j + 1) * dk], qt)?;
+            let coef = mul_prec(d, dot)?;
+            let uj = &u[j * dv..(j + 1) * dv];
+            for (a, &b) in ot.iter_mut().zip(uj) {
+                *a = a
+                    .checked_add(mul_prec(coef, b)?)
+                    .ok_or(StepError::Overflow)?;
+            }
+            if j > 0 {
+                d = mul_prec_q32(d, decay[j])?;
+            }
+        }
+    }
+
+    // Composed exit state `S_C = G_{C−1}S_0 + Σ_j D(C−1←j) k_j u_jᵀ`.
+    let mut acc: Vec<i128> = s0
+        .iter()
+        .map(|&w| Ok(i128::from(mul_prec(g[chunk - 1], w)?)))
+        .collect::<Result<_, StepError>>()?;
+    let mut d = one;
+    for j in (0..chunk).rev() {
+        let uj = &u[j * dv..(j + 1) * dv];
+        let kj = &k[j * dk..(j + 1) * dk];
+        for (i, &ki) in kj.iter().enumerate() {
+            for (jv, &b) in uj.iter().enumerate() {
+                let term = mul_prec(d, mul_prec_q32(ki, b)?)?;
+                let slot = &mut acc[i * dv + jv];
+                *slot = slot
+                    .checked_add(i128::from(term))
+                    .ok_or(StepError::Overflow)?;
+            }
+        }
+        if j > 0 {
+            d = mul_prec_q32(d, decay[j])?;
+        }
+    }
+    // Narrow once to Q32.32 and check the width before the state is written.
+    let mut next_s = Vec::with_capacity(dk * dv);
+    for a in acc {
+        let w = chunk_narrow(a, CHUNK_PREC - 32)?;
+        if w.abs() > STATE_BOUND {
+            return Err(StepError::Overflow);
+        }
+        next_s.push(w);
+    }
+    let mut next_o = Vec::with_capacity(chunk * dv);
+    for w in out {
+        next_o.push(chunk_narrow(i128::from(w), CHUNK_PREC - 32)?);
+    }
+    s.copy_from_slice(&next_s);
+    *c = 1i64 << 32;
+    Ok(next_o)
+}
+
 #[cfg(target_arch = "x86_64")]
 mod avx2_kern {
     use super::{StepError, STATE_BOUND};
