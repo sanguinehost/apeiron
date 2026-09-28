@@ -1,4 +1,5 @@
 import AxiomAudit.Core
+import Nous.Model.HyperbolicAttention
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -1079,3 +1080,34 @@ open apeiron_word
 #audit Nous.Model.truncate_length_add_append
 #audit Nous.Model.RollbackWitness.spec_round_witness
 #audit Nous.Model.RollbackWitness.spec_round_witness_all
+
+-- APEIRON-MODEL-ALGEBRA-SPIKE-hyperbolic-attention-spec: vector-level Qwen attention spec
+#audit Nous.Model.ellipticAlign_fst_eq_rhoDot
+#audit Nous.Model.qwenScore_eq_sum_rhoDot
+#audit Nous.Model.qwenScore_eq_rel
+#audit Nous.Model.qwenScore_relative
+#audit Nous.Model.qwenScore_witness
+#audit Nous.Model.ringUpper_flow_one
+#audit Nous.Model.ringLower_flow_one
+#audit Nous.Model.softmax_weight_is_upper_channel
+#audit Nous.Model.channelWeight_flow_one
+#audit Nous.Model.flow_channel_witness
+#audit Nous.Model.oaDenV_fuse
+#audit Nous.Model.oaNumV_fuse
+#audit Nous.Model.oaDenV_scan_acc
+#audit Nous.Model.oaNumV_scan_acc
+#audit Nous.Model.softmax_attention_is_online_spinor_vec
+#audit Nous.Model.softmax_attention_is_online_readout
+#audit Nous.Model.oaDenV_scan_append
+#audit Nous.Model.oaNumV_scan_append
+#audit Nous.Model.streaming_witness
+#audit Nous.Model.exp_linearIndependent
+#audit Nous.Model.exp_kernel_not_finite_rank
+#audit Nous.Model.exp_value_map_injective
+#audit Nous.Model.exp_distinct_witness
+#audit Nous.Model.boost_factor
+#audit Nous.Model.boostScore_eq_dotp
+#audit Nous.Model.boost_finite_rank_recurrence
+#audit Nous.Model.boost_finite_rank_recurrence_vec
+#audit Nous.Model.boost_witness
+#audit Nous.Model.boost_score_witness
