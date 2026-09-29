@@ -110,6 +110,18 @@ fn plane_at(kv: usize, kvh: usize, hd: usize, s: usize, i: usize) -> Result<usiz
     base.checked_add(i).ok_or(AttnError::Overflow)
 }
 
+/// The checked `[base, base + head_dim)` bounds of the `head_dim`-wide row of key `s` in a
+/// position-major plane: the same three `checked.*` index steps as [`plane_at`], with the row end
+/// as one more. The key-outer output pass reads the whole row from `base`, so it computes the
+/// index product once per key instead of once per `(key, component)`.
+fn row_bounds(kv: usize, kvh: usize, hd: usize, s: usize) -> Result<(usize, usize), AttnError> {
+    let base = s.checked_mul(kv).ok_or(AttnError::Overflow)?;
+    let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
+    let base = base.checked_mul(hd).ok_or(AttnError::Overflow)?;
+    let end = base.checked_add(hd).ok_or(AttnError::Overflow)?;
+    Ok((base, end))
+}
+
 /// One Q32.32 causal key score: `row_dot_fixed` of `q` against key `s`, then the load-time `scale`
 /// epilogue. The real `row_dot_fixed`, `checked_mul` and `round_shift_32` bodies are called.
 #[allow(
@@ -171,7 +183,10 @@ fn weight_at(e: i64, total: i128) -> Result<i64, AttnError> {
     Ok(p as i64)
 }
 
-/// One `p_s · v_s` term of the output component `i`.
+/// One `p_s · v_s` term of the output component `i`. Test-only: the key-outer production output
+/// pass folds the same terms into all components at once, and this per-term oracle keeps the
+/// old per-component arithmetic exercised by the output-pin test.
+#[cfg(test)]
 fn value_term(
     vplane: &[i64],
     weights: &[i64],
@@ -191,6 +206,9 @@ fn value_term(
 /// The single-component output accumulation: the checked `i128` sum over the causal prefix, then
 /// one `round_shift_32` epilogue. The position loop carries a `bool` failure flag so no early
 /// return appears inside a loop, the extractable form the pinned fragment admits.
+///
+/// Test-only oracle for the per-component scan the key-outer production pass replaces.
+#[cfg(test)]
 #[allow(
     clippy::cast_possible_truncation,
     reason = "the `as i64` narrowing is range-checked against i128::from(i64::MAX)/i64::MIN \
@@ -772,6 +790,12 @@ impl KvState {
                   four bodies keep the fold's stage order and each carries the extraction \
                   fragment's explicit failure-flag loop shape"
     )]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the `as i64` narrowing is range-checked against i128::from(i64::MAX)/i64::MIN \
+                  immediately before it; `i64::try_from` emits an unmodeled external the fail-closed \
+                  extraction audit rejects"
+    )]
     pub fn attn_head(
         &self,
         layer: usize,
@@ -893,18 +917,60 @@ impl KvState {
             return Err(e);
         }
 
-        // Output: checked i128 value accumulation, one value-path epilogue per component.
+        // Output: one key-outer pass. Each key's `head_dim` row is read contiguously once and its
+        // `weights[s]·v[s, i]` products accumulate into the independent per-component checked
+        // `i128` sums. For each `i` the terms are the same checked products in the same ascending
+        // `s` order as the per-component oracle, so every `acc[i]` is the identical sum and the
+        // single `round_shift_32` epilogue plus its `i64` range check are unchanged; only the
+        // interleaving of independent sums changes (integer addition is associative and
+        // commutative). One `bool` failure flag per loop, and no early return inside a body, keep
+        // the pinned extraction fragment's shape.
         let vplane = &self.v[layer];
-        let mut i = 0usize;
+        let mut acc: Vec<i128> = vec![0i128; hd];
+        let mut s = 0usize;
         let mut ok = true;
         let mut err: Option<AttnError> = None;
-        while i < hd && ok {
-            match value_component(vplane, &weights, kv, kvh, hd, pos, i) {
-                Ok(v) => out[i] = v,
+        while s <= pos && ok {
+            match row_bounds(kv, kvh, hd, s) {
+                Ok((base, end)) => {
+                    let row = &vplane[base..end];
+                    let w = i128::from(weights[s]);
+                    let mut i = 0usize;
+                    while i < hd && ok {
+                        if let Some(term) = w.checked_mul(i128::from(row[i])) {
+                            if let Some(next) = acc[i].checked_add(term) {
+                                acc[i] = next;
+                            } else {
+                                err = Some(AttnError::Overflow);
+                                ok = false;
+                            }
+                        } else {
+                            err = Some(AttnError::Overflow);
+                            ok = false;
+                        }
+                        i += 1;
+                    }
+                }
                 Err(e) => {
                     err = Some(e);
                     ok = false;
                 }
+            }
+            s += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < hd && ok {
+            let rounded = round_shift_32(acc[i]);
+            if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
+                err = Some(AttnError::Overflow);
+                ok = false;
+            } else {
+                out[i] = rounded as i64;
             }
             i += 1;
         }
@@ -933,5 +999,133 @@ impl KvState {
         }
         self.occupied.fill(m);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A deterministic Q32.32 word in `[-4·ONE, 4·ONE)` from a 64-bit LCG state.
+    fn word(state: &mut u64) -> i64 {
+        *state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let wide = i64::try_from(*state >> 1).expect("the top 63 bits fit i64");
+        wide % (8 * ONE) - 4 * ONE
+    }
+
+    /// The per-component oracle of the output stage: the score, softmax and weight stages of
+    /// [`KvState::attn_head`] rebuilt from the live helpers, then one test-only [`value_component`]
+    /// call per output component. This is the scan the key-outer production pass replaces.
+    fn oracle_head(
+        kv: &KvState,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+    ) -> Result<Vec<i64>, AttnError> {
+        let hd = kv.head_dim;
+        let kv_n = kv.n_head_kv;
+        let kvh = q_head / (kv.n_head / kv_n);
+        let kplane = &kv.k[layer];
+        let vplane = &kv.v[layer];
+        let slots = pos + 1;
+        let mut scores: Vec<i64> = Vec::with_capacity(slots);
+        let mut mx = i64::MIN;
+        let mut s = 0usize;
+        while s <= pos {
+            let sc = score_at(kplane, q, kv.scale, kv_n, kvh, hd, s)?;
+            if sc > mx {
+                mx = sc;
+            }
+            scores.push(sc);
+            s += 1;
+        }
+        let mut exps: Vec<i64> = Vec::with_capacity(slots);
+        let mut total: i128 = 0;
+        let mut s = 0usize;
+        while s <= pos {
+            let e = exp_at(scores[s], mx)?;
+            total = total
+                .checked_add(i128::from(e))
+                .ok_or(AttnError::Overflow)?;
+            exps.push(e);
+            s += 1;
+        }
+        if total <= 0 {
+            return Err(AttnError::ZeroSum);
+        }
+        let mut weights: Vec<i64> = Vec::with_capacity(slots);
+        let mut s = 0usize;
+        while s <= pos {
+            weights.push(weight_at(exps[s], total)?);
+            s += 1;
+        }
+        let mut out: Vec<i64> = Vec::with_capacity(hd);
+        let mut i = 0usize;
+        while i < hd {
+            out.push(value_component(vplane, &weights, kv_n, kvh, hd, pos, i)?);
+            i += 1;
+        }
+        Ok(out)
+    }
+
+    #[test]
+    fn attn_head_key_outer_output_matches_component_oracle() {
+        // n_head 4 over n_head_kv 2 gives a GQA group of 2; head_dim 3 is neither 1 nor a power of
+        // two, so several query heads read distinct KV rows over non-trivial causal prefixes.
+        let mut kv = KvState::new(1, 4, 2, 3, 6).expect("geometry");
+        let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut s = 0usize;
+        while s < 6 {
+            let k = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let v = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let q = [word(&mut seed), word(&mut seed), word(&mut seed)];
+        let mut pos = 0usize;
+        while pos < 6 {
+            let mut head = 0usize;
+            while head < 4 {
+                let expected = oracle_head(&kv, 0, head, &q, pos).expect("per-component oracle");
+                let mut got = [0i64; 3];
+                kv.attn_head(0, head, &q, pos, &mut got)
+                    .expect("key-outer read");
+                assert_eq!(got.as_slice(), expected.as_slice(), "pos {pos} head {head}");
+                head += 1;
+            }
+            pos += 1;
+        }
+
+        // A non-`head_dim`-wide output refuses before the output pass runs.
+        assert_eq!(
+            kv.attn_head(0, 0, &q, 0, &mut [0i64; 2]),
+            Err(AttnError::RowLength {
+                expected: 3,
+                got: 2,
+            })
+        );
+        // A position at or past the occupied count refuses before the output pass runs.
+        let len = kv.occupied(0).expect("occupied");
+        assert_eq!(
+            kv.attn_head(0, 0, &q, len, &mut [0i64; 3]),
+            Err(AttnError::PositionOutOfRange { pos: len, len })
+        );
     }
 }
