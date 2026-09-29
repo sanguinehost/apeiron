@@ -103,20 +103,34 @@ impl QuantAct {
     /// Whether [`QuantAct::dequant`] would return a value: every `S_b·xq_j` fits `i64`, checked
     /// without materializing the dequantized vector.
     ///
+    /// A block is decided by the one product `S_b·127`: every code obeys `|xq_j| ≤ 127`, so
+    /// `|S_b·xq_j| ≤ |S_b·127|`, and a fitting `S_b·127` (never `i64::MIN`, since `127 ∤ 2^63`)
+    /// leaves every product of the block in `i64`. Only a block whose `S_b·127` leaves `i64` runs
+    /// the per-element multiply, which decides exactly as the previous per-element loop.
+    ///
     /// # Complexity
     ///
-    /// `O(n)` time and `O(1)` extra space in the activation length `n`; one checked `i64` multiply
-    /// per element, no allocation.
+    /// `O(n)` time in the activation length `n` worst case (every block's bound leaves `i64`) and
+    /// `O(1)` extra space; one checked `i64` multiply per block `b ∈ 0..codes.len().div_ceil(32)`
+    /// plus one per element of a block whose bound left `i64`, no allocation.
     pub(crate) fn dequantizes(&self) -> bool {
-        let mut idx = 0usize;
-        while idx < self.codes.len() {
-            let Some(&scale) = self.scales.get(idx / ACT_QK) else {
+        let mut block = 0usize;
+        while block < self.codes.len().div_ceil(ACT_QK) {
+            let Some(&scale) = self.scales.get(block) else {
                 return false;
             };
-            if scale.checked_mul(i64::from(self.codes[idx])).is_none() {
-                return false;
+            if scale.checked_mul(127).is_none() {
+                let base = block * ACT_QK;
+                let end = (base + ACT_QK).min(self.codes.len());
+                let mut lane = base;
+                while lane < end {
+                    if scale.checked_mul(i64::from(self.codes[lane])).is_none() {
+                        return false;
+                    }
+                    lane += 1;
+                }
             }
-            idx += 1;
+            block += 1;
         }
         true
     }
@@ -183,6 +197,25 @@ impl QuantAct {
     }
 }
 
+/// The quotient `q` and remainder `r` of `m / s` for the code rounding. For a power-of-two `s`
+/// (`pow2`, with `shift = s.trailing_zeros()` and `mask = s.wrapping_sub(1)`) these are the
+/// shift and the mask instead of a hardware `divq`/`remq`; otherwise the checked `u64` division,
+/// whose `s == 0` failure is `0` as in the previous body. Exact for `s = 2^e`, `e ≥ 0`:
+/// `m >> e = m / s` and `m & (2^e − 1) = m % s` in Euclidean division, and `m ≤ 2^63` so the
+/// shift cannot saturate.
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[inline]
+fn act_quot_rem(m: u64, s: u64, pow2: bool, shift: u32, mask: u64) -> (u64, u64) {
+    if pow2 {
+        (m >> shift, m & mask)
+    } else {
+        (m.checked_div(s).unwrap_or(0), m.checked_rem(s).unwrap_or(0))
+    }
+}
+
 /// Quantize a Q32.32 activation vector to one scale per 32-wide block and int8 codes.
 ///
 /// Per block `b` (the last block may be ragged): `absmax_b = max_j |x_j|`,
@@ -235,6 +268,13 @@ pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
             let scale = scale_wide.cast_signed();
             scales.push(scale);
             let s = scale.unsigned_abs();
+            // `act_scale` returns only `0` or a power of two, so for `s != 0` `m / s` and `m % s`
+            // are a shift and a mask, hoisted per block; the guard at `scale_wide` above already
+            // rejected the `2^63` non-power value `act_scale` refuses with. `pow2` is false only
+            // for `s == 0`, whose branch below still emits code `0`.
+            let pow2 = s.is_power_of_two();
+            let shift = s.trailing_zeros();
+            let mask = s.wrapping_sub(1);
             let mut lane = 0usize;
             while lane < take && ok {
                 let value = x[base + lane];
@@ -244,10 +284,10 @@ pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
                     // `floor((2|v| + S) / (2S))` by `u64` quotient/remainder: with
                     // `|v| = q·S + r`, `0 ≤ r < S`, the result is `q + [2r ≥ S]`; `2r < 2S ≤
                     // 2·2^57` and `|v| ≤ 2^63`, so no `u64` step leaves range and the `i128`
-                    // division is not needed. `s != 0` here, so `checked_div` never falls back.
+                    // division is not needed. For the power-of-two `S` `act_scale` returns, the
+                    // quotient and remainder are exact shifts of the same integer values.
                     let m = value.unsigned_abs();
-                    let quotient = m.checked_div(s).unwrap_or(0);
-                    let remainder = m.checked_rem(s).unwrap_or(0);
+                    let (quotient, remainder) = act_quot_rem(m, s, pow2, shift, mask);
                     let magnitude = quotient + u64::from(2 * remainder >= s);
                     let signed = if value < 0 {
                         -i128::from(magnitude)
