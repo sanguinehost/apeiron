@@ -66,6 +66,62 @@ fn conv_silu_cols_refuses_rounding_bias_overflow() {
     assert_eq!(layer.conv, old_window);
 }
 
+/// One `k`-column call equals `k` successive one-column calls on a cloned layer: every output
+/// word and the resulting `layer.conv` window. `channels = 100` is not a multiple of 8, and
+/// `k = 33` exercises the last column, whose window advance has no successor row to load.
+#[test]
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "xorshift words reinterpreted as signed fixed-point test inputs"
+)]
+fn conv_silu_cols_k_columns_equal_k_single_column_calls() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 1,
+        n_v_heads: 1,
+        head_k: 16,
+        head_v: 68,
+    };
+    let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
+    assert_eq!(channels, 100);
+    let mut rng = 0x243f_6a88_85a3_08d3_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let weights: Vec<i64> = (0..g.conv_kernel * channels)
+        .map(|_| word(1 << 20))
+        .collect();
+    let mut state_all = AffineState::with_slices(&g, 1, 1);
+    {
+        let layer = state_all.layer_mut(0).expect("constructed layer");
+        for v in &mut layer.conv {
+            *v = word(1 << 20);
+        }
+    }
+    let mut state_one = state_all.clone();
+    let layer_all = state_all.layer_mut(0).expect("constructed layer");
+    let layer_one = state_one.layer_mut(0).expect("constructed layer");
+    for k in [2usize, 5, 33] {
+        let xs: Vec<Vec<i64>> = (0..k)
+            .map(|_| (0..channels).map(|_| word(1 << 20)).collect())
+            .collect();
+        let cols: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        let got_all =
+            conv_silu_cols(layer_all, &weights, g.conv_kernel, &cols).expect("no overflow");
+        let mut got_one: Vec<Vec<i64>> = Vec::with_capacity(k);
+        for x in &xs {
+            let single = conv_silu_cols(layer_one, &weights, g.conv_kernel, &[x.as_slice()])
+                .expect("no overflow");
+            got_one.push(single.into_iter().next().expect("one column"));
+        }
+        assert_eq!(got_all, got_one, "outputs, k = {k}");
+        assert_eq!(layer_all.conv, layer_one.conv, "window, k = {k}");
+    }
+}
+
 /// Value-column slicing is bit-identical to whole heads: outputs over several multi-column
 /// passes, every slice's state words and its deferred decay, for 2, 4 and 8 slices, pooled
 /// and serial, including renormalisations (a strong decay drives `c` under the threshold).
