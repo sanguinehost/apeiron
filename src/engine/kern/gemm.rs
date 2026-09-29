@@ -191,7 +191,11 @@ unsafe impl Send for SwigluPtrs {}
 unsafe impl Sync for SwigluPtrs {}
 
 /// A row's per-block `(m, k − k_min, 128·Σ q)` and its `k_min` and exponent spread, or `None`
-/// for a non-finite scale.
+/// for a non-finite scale. The scalar definition and the oracle of `x86::row_scales_avx2`.
+#[allow(
+    dead_code,
+    reason = "scalar oracle of x86::row_scales_avx2 and the non-x86_64 definition"
+)]
 fn row_scales(row: &[u8], blocks: usize, out: &mut [(i32, i64, i32)]) -> Option<(u32, u32)> {
     let mut kmin = u32::MAX;
     let mut kmax = 0u32;
@@ -460,13 +464,17 @@ pub(crate) fn gemm_q8_0_swiglu(
 #[cfg(target_arch = "x86_64")]
 mod x86 {
     use super::{
-        exact_dot, finish, row_scales, Packed, QuantAct, LANES, MAX_BLOCKS, Q8_0_BLOCK_BYTES,
+        exact_dot, f16_split, finish, Packed, QuantAct, LANES, MAX_BLOCKS, Q8_0_BLOCK_BYTES,
     };
     use std::arch::x86_64::{
-        __m256i, _mm256_add_epi64, _mm256_castsi256_si128, _mm256_cvtepi32_epi64,
-        _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_mullo_epi32, _mm256_set1_epi32,
-        _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_sllv_epi64, _mm256_storeu_si256,
-        _mm256_sub_epi32,
+        __m128i, __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_andnot_si256,
+        _mm256_blendv_epi8, _mm256_castsi256_si128, _mm256_cmpeq_epi64, _mm256_cmpgt_epi64,
+        _mm256_cvtepi32_epi64, _mm256_cvtepu32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256,
+        _mm256_mullo_epi32, _mm256_or_si256, _mm256_sad_epu8, _mm256_set1_epi32,
+        _mm256_set1_epi64x, _mm256_set1_epi8, _mm256_setzero_si256, _mm256_sllv_epi64,
+        _mm256_srlv_epi64, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_epi64,
+        _mm256_testc_si256, _mm256_xor_si256, _mm_add_epi64, _mm_cvtsi128_si64, _mm_extract_epi64,
+        _mm_loadu_si128,
     };
 
     /// VEX-encoded `vpdpbusd`: four `u8·i8` products added into each `i32` lane.
@@ -579,6 +587,150 @@ mod x86 {
         [a0, a1, b0, b1]
     }
 
+    /// The scalar [`super::row_scales`] with each block's code sum taken as
+    /// `Σ unsigned(c ^ 0x80) − 32·128`: the sign-bit flip is the two's-complement bijection
+    /// `[-128, 127] → [0, 255]`, so `psadbw` sums the unsigned bytes into four 64-bit lanes (at
+    /// most `8·255 = 2040` each, no cross-lane carry), and the `−4096` and the lane fold stay in
+    /// `i32` (the scalar sum lies in `[-4096, 4064]`). The result feeds the same `128·sum` bias
+    /// `group2` subtracts from its `vpdpbusd` accumulator.
+    ///
+    /// # Safety
+    ///
+    /// AVX2; `row` holds `blocks` `Q8_0` blocks and `out` has at least `blocks` slots.
+    ///
+    /// # Complexity
+    ///
+    /// `O(blocks)` vector steps, one block per iteration.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        reason = "unaligned 256-bit load of a block's 32 code bytes"
+    )]
+    pub(super) unsafe fn row_scales_avx2(
+        row: &[u8],
+        blocks: usize,
+        out: &mut [(i32, i64, i32)],
+    ) -> Option<(u32, u32)> {
+        let mut kmin = u32::MAX;
+        let mut kmax = 0u32;
+        let flip = _mm256_set1_epi8(i8::MIN);
+        let zero = _mm256_setzero_si256();
+        for (b, slot) in out.iter_mut().enumerate().take(blocks) {
+            let off = b * Q8_0_BLOCK_BYTES;
+            let (m, k) = f16_split(u16::from_le_bytes([row[off], row[off + 1]]))?;
+            // SAFETY: `off + 2 + 32 ≤ row.len()` for `b < blocks`.
+            let sad = unsafe {
+                let codes = _mm256_loadu_si256(row.as_ptr().add(off + 2).cast::<__m256i>());
+                _mm256_sad_epu8(_mm256_xor_si256(codes, flip), zero)
+            };
+            // Fold the four `u64` `psadbw` lanes.
+            let total = {
+                let pair = _mm_add_epi64(
+                    _mm256_castsi256_si128(sad),
+                    _mm256_extracti128_si256(sad, 1),
+                );
+                _mm_cvtsi128_si64(pair) + _mm_extract_epi64(pair, 1)
+            };
+            // `total ∈ [0, 8160]`, so `total − 4096 ∈ [−4096, 4064]` narrows to `i32` exactly.
+            let sum = i32::try_from(total - 4096).ok()?;
+            *slot = (m, i64::from(k), 128 * sum);
+            kmin = kmin.min(k);
+            kmax = kmax.max(k);
+        }
+        for slot in out.iter_mut().take(blocks) {
+            slot.1 -= i64::from(kmin);
+        }
+        Some((kmin, kmax - kmin))
+    }
+
+    /// [`super::pow2::finish`] of four lanes at once: `round_shift_32(acc·2^s)` with the scalar
+    /// refusal set. Returns the four values and whether all four are defined.
+    ///
+    /// For `s < 32` the sum `acc + 2^(31−s)` is a 128-bit sign-extended pair `(hi, lo)`: `lo` is
+    /// the 64-bit wrapping sum, and the carry out of bit 63, `(a & b) | ((a ^ b) & ~(a + b))`,
+    /// widens `hi` from the accumulator's sign. The arithmetic shift `>> (32−s)` is then
+    /// `srlv(lo) | sllv(hi)`. For `s ≥ 32` the value is `acc << (s − 32)`: it is defined exactly
+    /// when shifting it back recovers `acc`, which excludes every `i64` overflow, and when
+    /// `s − 32 > 63` only `acc = 0` stays defined. Any lane not on its branch computes a
+    /// discarded value.
+    ///
+    /// # Safety
+    ///
+    /// AVX2.
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    unsafe fn finish4(acc: __m256i, s: __m256i) -> (__m256i, bool) {
+        let zero = _mm256_setzero_si256();
+        let one = _mm256_set1_epi64x(1);
+        let c31 = _mm256_set1_epi64x(31);
+        let c32 = _mm256_set1_epi64x(32);
+        let c64 = _mm256_set1_epi64x(64);
+        // s < 32: `down = 32 − s > 0`.
+        let use_a = _mm256_cmpgt_epi64(c32, s);
+        let down = _mm256_sub_epi64(c32, s);
+        let round = _mm256_sllv_epi64(one, _mm256_sub_epi64(down, one));
+        let sum = _mm256_add_epi64(acc, round);
+        let carry = {
+            let both = _mm256_and_si256(acc, round);
+            let diff = _mm256_andnot_si256(sum, _mm256_xor_si256(acc, round));
+            _mm256_cmpgt_epi64(zero, _mm256_or_si256(both, diff))
+        };
+        let hi = _mm256_sub_epi64(_mm256_cmpgt_epi64(zero, acc), carry);
+        let res_a = _mm256_or_si256(
+            _mm256_srlv_epi64(sum, down),
+            _mm256_sllv_epi64(hi, _mm256_sub_epi64(c64, down)),
+        );
+        // s ≥ 32: `up = s − 32`.
+        let use_b = _mm256_cmpgt_epi64(s, c31);
+        let up = _mm256_sub_epi64(s, c32);
+        let shifted = _mm256_sllv_epi64(acc, up);
+        let recovered = {
+            let logical = _mm256_srlv_epi64(shifted, up);
+            let fill =
+                _mm256_sllv_epi64(_mm256_cmpgt_epi64(zero, shifted), _mm256_sub_epi64(c64, up));
+            _mm256_or_si256(logical, fill)
+        };
+        let up_small = _mm256_cmpgt_epi64(c64, up);
+        let valid_b = _mm256_or_si256(
+            _mm256_and_si256(up_small, _mm256_cmpeq_epi64(recovered, acc)),
+            _mm256_andnot_si256(up_small, _mm256_cmpeq_epi64(acc, zero)),
+        );
+        let valid = _mm256_or_si256(use_a, valid_b);
+        let all = _mm256_testc_si256(valid, _mm256_set1_epi64x(-1)) == 1;
+        (_mm256_blendv_epi8(res_a, shifted, use_b), all)
+    }
+
+    /// Eight `finish` values of one row's group, or `None` when any lane refuses. `s` holds at
+    /// least eight lanes of `k_min + e_min(c)`; lanes at or past `k` are don't-cares.
+    ///
+    /// # Safety
+    ///
+    /// AVX2; `acc` holds eight lanes and `s` at least eight.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        reason = "unaligned load of the eight-lane accumulator and shift buffers"
+    )]
+    pub(super) unsafe fn finish8(acc: &[i64; 8], s: &[u32]) -> Option<[i64; 8]> {
+        let mut out = [0i64; 8];
+        let mut all = true;
+        for half in 0..2 {
+            // SAFETY: `half` reads lanes `4·half .. 4·half + 4` of both eight-lane buffers and
+            // writes the same range of `out`.
+            let ok = unsafe {
+                let a = _mm256_loadu_si256(acc.as_ptr().add(4 * half).cast::<__m256i>());
+                let sv = _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                    s.as_ptr().add(4 * half).cast::<__m128i>(),
+                ));
+                let (res, ok) = finish4(a, sv);
+                _mm256_storeu_si256(out.as_mut_ptr().add(4 * half).cast::<__m256i>(), res);
+                ok
+            };
+            all &= ok;
+        }
+        all.then_some(out)
+    }
+
     /// Rows `r0..r0 + rows` against every column, each value stored into its own column's `Vec`
     /// at index `r0 + r + which`; `false` when an output leaves `i64` or a weight scale is
     /// non-finite (the caller then runs the contract path).
@@ -593,7 +745,8 @@ mod x86 {
         clippy::too_many_arguments,
         clippy::many_single_char_names,
         clippy::cast_ptr_alignment,
-        reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address"
+        clippy::too_many_lines,
+        reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address; the scalar and vector epilogues read best together"
     )]
     pub(super) unsafe fn rows(
         raw: &[u8],
@@ -618,8 +771,10 @@ mod x86 {
             let ra = &raw[ia * row_bytes..(ia + 1) * row_bytes];
             let rb = &raw[ib * row_bytes..(ib + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                row_scales(ra, blocks, &mut sa),
-                row_scales(rb, blocks, &mut sb),
+                // SAFETY: `ra`/`rb` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
+                // slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ra, blocks, &mut sa) },
+                unsafe { row_scales_avx2(rb, blocks, &mut sb) },
             ) else {
                 return false;
             };
@@ -642,11 +797,55 @@ mod x86 {
                         _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * i).cast::<__m256i>(), *v);
                     }
                 }
-                for lane in 0..LANES {
-                    let c = g * LANES + lane;
-                    if c >= k {
-                        break;
+                let need_exact_a = spa + p.spread[g] > limit;
+                let need_exact_b = spb + p.spread[g] > limit;
+                let nvalid = (k - g * LANES).min(LANES);
+                // Neither row's (row, group) needs the exact path: one vector `finish` per row.
+                // A lane or group the vector refuses falls back to the scalar epilogue below, so
+                // the refusal set and every stored value are the scalar ones.
+                if !need_exact_a && (!pair || !need_exact_b) {
+                    let mut shifts = [0u32; 2 * LANES];
+                    {
+                        let (lo, hi) = shifts.split_at_mut(LANES);
+                        for (lane, (a, b)) in lo.iter_mut().zip(hi).enumerate().take(nvalid) {
+                            let c = g * LANES + lane;
+                            *a = ka + p.emin[c];
+                            *b = kb + p.emin[c];
+                        }
                     }
+                    let mut acc_a = [0i64; LANES];
+                    acc_a.copy_from_slice(&lanes[..LANES]);
+                    // SAFETY: AVX2 is a target feature of `rows`; both buffers hold 8 lanes.
+                    let fa = unsafe { finish8(&acc_a, &shifts[..LANES]) };
+                    let fb = if pair {
+                        let mut acc_b = [0i64; LANES];
+                        acc_b.copy_from_slice(&lanes[LANES..]);
+                        // SAFETY: as above.
+                        unsafe { finish8(&acc_b, &shifts[LANES..]) }
+                    } else {
+                        Some([0i64; LANES])
+                    };
+                    if let (Some(va), Some(vb)) = (fa, fb) {
+                        for lane in 0..nvalid {
+                            let c = g * LANES + lane;
+                            // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
+                            // ownership makes `r0 + r + which` unique across tasks and in range.
+                            unsafe {
+                                cols.ptrs[c]
+                                    .add(r0 + r)
+                                    .write(std::mem::MaybeUninit::new(va[lane]));
+                                if pair {
+                                    cols.ptrs[c]
+                                        .add(r0 + r + 1)
+                                        .write(std::mem::MaybeUninit::new(vb[lane]));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
+                for lane in 0..nvalid {
+                    let c = g * LANES + lane;
                     for (which, (row, kmin, sp)) in
                         [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
                     {
@@ -721,8 +920,10 @@ mod x86 {
             let ga = &raw_gate[i * row_bytes..(i + 1) * row_bytes];
             let ua = &raw_up[i * row_bytes..(i + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                row_scales(ga, blocks, &mut sa),
-                row_scales(ua, blocks, &mut sb),
+                // SAFETY: `ga`/`ua` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
+                // slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ga, blocks, &mut sa) },
+                unsafe { row_scales_avx2(ua, blocks, &mut sb) },
             ) else {
                 return false;
             };
@@ -900,6 +1101,124 @@ mod tests {
         let raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
         let qs = columns(16, 1024, 4, &mut seed);
         assert!(gemm_q8_0(GGML_TYPE_Q8_0, &raw, 64, 1024, &qs).is_some());
+    }
+
+    /// The vector `finish` (`x86::finish8`) equals the scalar `finish` on every lane: both
+    /// rounding directions, `s == 32`, shifts past 63, and accumulators whose shifted value
+    /// overflows `i64`.
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn finish8_matches_the_scalar_finish() {
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let accs = [
+            0i64,
+            1,
+            -1,
+            2,
+            -2,
+            3,
+            -3,
+            1 << 40,
+            -(1 << 40),
+            i64::MAX,
+            i64::MIN,
+            i64::MAX / 3,
+            (1 << 62) + 12345,
+            -((1 << 62) + 12345),
+        ];
+        let shifts = [
+            0u32, 1, 7, 8, 16, 31, 32, 33, 40, 47, 63, 64, 65, 66, 67, 96,
+        ];
+        for &a in &accs {
+            for &s in &shifts {
+                let got = unsafe { x86::finish8(&[a; 8], &[s; 8]) };
+                let mut want = [0i64; 8];
+                let mut ok = true;
+                for w in &mut want {
+                    match super::finish(a, s) {
+                        Some(v) => *w = v,
+                        None => ok = false,
+                    }
+                }
+                assert_eq!(got, ok.then_some(want), "acc {a} s {s}");
+            }
+        }
+        // Distinct accumulator and shift per lane: the per-lane blend and carry paths.
+        let mut seed = 0x00dd_ccbb_aa99_8877u64;
+        for _ in 0..4096 {
+            let mut a = [0i64; 8];
+            let mut s = [0u32; 8];
+            let mut want = [0i64; 8];
+            let mut ok = true;
+            for l in 0..8 {
+                let mag = 1i64 << (lcg(&mut seed) as u32 % 63);
+                let delta = (lcg(&mut seed) % 1024).cast_signed();
+                a[l] = if lcg(&mut seed) & 1 == 0 {
+                    mag + delta
+                } else {
+                    mag.saturating_neg() + delta
+                };
+                s[l] = (lcg(&mut seed) as u32 % 72) + 1;
+                match super::finish(a[l], s[l]) {
+                    Some(v) => want[l] = v,
+                    None => ok = false,
+                }
+            }
+            assert_eq!(
+                unsafe { x86::finish8(&a, &s) },
+                ok.then_some(want),
+                "a {a:?} s {s:?}"
+            );
+        }
+    }
+
+    /// The AVX2 code sum (`x86::row_scales_avx2`) equals the scalar `row_scales` for the extreme
+    /// byte values, an alternating pattern, a ragged last block and thousands of `LCG` blocks.
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn row_scales_simd_matches_the_scalar_oracle() {
+        const SCALE: u16 = 0x3C00; // f16 1.0: finite, so both definitions return `Some`
+        const B: usize = 5;
+
+        fn row_of(blocks: usize, mut codes: impl FnMut(usize, usize) -> u8) -> Vec<u8> {
+            let mut row = Vec::with_capacity(blocks * Q8_0_BLOCK_BYTES);
+            for b in 0..blocks {
+                row.extend_from_slice(&SCALE.to_le_bytes());
+                for l in 0..32 {
+                    row.push(codes(b, l));
+                }
+            }
+            row
+        }
+
+        if !std::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        let mut cases = vec![
+            row_of(B, |_, _| 0x00),
+            row_of(B, |_, _| 0x80),
+            row_of(B, |_, _| 0x7F),
+            row_of(B, |_, l| if l % 2 == 0 { 0x00 } else { 0xFF }),
+            // The final block alone carries a mixed pattern: the ragged edge of the row.
+            row_of(B, |b, l| if b + 1 == B { (0x40 + l) as u8 } else { 0x00 }),
+        ];
+        let mut seed = 0x0123_4567_89ab_cdefu64;
+        for _ in 0..2048 {
+            cases.push(row_of(B, |_, _| (lcg(&mut seed) % 256) as u8));
+        }
+
+        for row in &cases {
+            let mut simd = vec![(0i32, 0i64, 0i32); B];
+            let mut scalar = vec![(0i32, 0i64, 0i32); B];
+            // SAFETY: AVX2 detected; the row holds `B` blocks and both buffers hold `B` slots.
+            let got = unsafe { x86::row_scales_avx2(row, B, &mut simd) };
+            let want = super::row_scales(row, B, &mut scalar);
+            assert_eq!(got, want);
+            assert_eq!(simd, scalar);
+        }
     }
 
     /// A `rows × n_in` `Q8_0` payload whose every block has the largest finite scale `0x7BFF` and
