@@ -23,16 +23,21 @@
 //!
 //! **Heterogeneous cores.** By default, when the host provides efficiency cores (listed in
 //! `/sys/devices/cpu_atom/cpus`), the pool includes all detected efficiency CPUs as workers pinned
-//! one per efficiency core. When efficiency workers are active, the equal-speed round-robin above
-//! is replaced by a contiguous split weighted by measured single-core speed, participant `k` owning
+//! one per efficiency core. On an equal-weight pool the round-robin above is used. On a
+//! heterogeneous pool the dispatcher picks, per dispatch, whichever of the two candidate
+//! assignments has the smaller modelled makespan `max_i work_i/speed_i` (`Shared::weighted`): the
+//! contiguous split below, or the original round-robin. The contiguous split is weighted by
+//! measured single-core speed, participant `k` owning
 //! `[round(n·Σ_{j<k}w_j/Σw), round(n·Σ_{j≤k}w_j/Σw))`. Performance weight is [`PERF_WEIGHT`] and
 //! efficiency weight `round(PERF_WEIGHT/ρ)` for the ratio ρ of performance to efficiency
-//! single-core speed; the makespan model `max_i work_i/speed_i` is equalised when `work_i ∝ w_i` and
-//! `speed_i ∝ w_i`. Both the dispatcher and each worker compute the same boundary from the
-//! immutable `prefix` table and `n`, so no claim word is needed. Setting `APEIRON_ECORES=0` (or
-//! when the host has no efficiency cores / `APEIRON_PIN=0`) restores the performance-cores-only
-//! pool where weights are all equal and the round-robin path is byte-for-byte the pre-existing one;
-//! an explicit `k` caps efficiency workers at `k`.
+//! single-core speed; the makespan model is equalised when `work_i ∝ w_i` and `speed_i ∝ w_i`.
+//! Both the dispatcher and each worker compute the same choice and boundary from the immutable
+//! `prefix` table and `n`, so no claim word is needed. Below the participant count the round-robin
+//! keeps whole tasks on the performance participants, which the contiguous split can hand to an
+//! efficiency worker; the modelled comparison chooses whichever balances the two. Setting
+//! `APEIRON_ECORES=0` (or when the host has no efficiency cores / `APEIRON_PIN=0`) restores the
+//! performance-cores-only pool where weights are all equal and the round-robin path is
+//! byte-for-byte the pre-existing one; an explicit `k` caps efficiency workers at `k`.
 //!
 //! **Stale-snapshot safety.** `slots[w]` is single-writer (the dispatcher), single-reader (worker
 //! `w`), and strictly increasing. A worker acts only on an epoch different from the one it last
@@ -122,6 +127,21 @@ impl Split {
     }
 }
 
+/// Participant `k`'s share of the homogeneous round-robin split of `n` tasks across `width`
+/// participants: `(start, count)` with `start = k` and `count = ceil((n − k)/width)`, i.e. the
+/// `count` indices `k, k + width, …` below `n`; `(k, 0)` when `k ≥ n`. This is the mapping the
+/// pool used before the weighted split and the fallback [`Shared::weighted`] compares against.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn round_robin_range(k: usize, n: usize, width: usize) -> (usize, usize) {
+    if width == 0 || k >= n {
+        return (k, 0);
+    }
+    (k, (n - k).div_ceil(width))
+}
+
 /// The type-erased job: a `&(dyn Fn(usize) + Sync)` with its lifetime removed. It is read only by
 /// a participant of the epoch that published it, before that epoch's `done` store.
 type Job = *const (dyn Fn(usize) + Sync);
@@ -186,8 +206,63 @@ impl Shared {
         self.split.get().is_some_and(|s| s.heterogeneous)
     }
 
-    /// Run participant `k`'s share of the `n`-task epoch: the contiguous weighted range on a
-    /// heterogeneous pool, indices `k, k + width, …` otherwise.
+    /// Whether the weighted contiguous assignment beats the homogeneous round-robin for an `n`-task
+    /// dispatch. A pure function of `n`, the weight table and the participant count, so the
+    /// dispatcher (publish and join) and every worker compute the same choice with no claim word.
+    ///
+    /// The modelled makespan of an assignment is `max_i work_i / speed_i`, with `speed_i ∝ weight_i`
+    /// and `work_i` the participant's task count. Each side is the exact fraction
+    /// `max_i (count_i · W) / weight_i` (`W = Σ weights`), compared by `u128` cross-multiplication;
+    /// the round-robin is returned only when its makespan is *strictly* smaller, so every tie and
+    /// every large-`n` dispatch stays on the weighted split exactly as before. `n ≤ 1` and a
+    /// homogeneous split always take the round-robin, which the caller owns task 0 of.
+    ///
+    /// # Complexity
+    ///
+    /// `O(participants)` exact integer operations; no floats.
+    fn weighted(&self, n: usize) -> bool {
+        if n <= 1 || !self.heterogeneous() {
+            return false;
+        }
+        let Some(split) = self.split.get() else {
+            return false;
+        };
+        let parts = split.prefix.len() - 1;
+        let Some(&total) = split.prefix.last() else {
+            return false;
+        };
+        if parts == 0 || total == 0 {
+            return false;
+        }
+        let width = self.width.load(Ordering::Relaxed);
+        // Running maxima as exact fractions `num/den`, initialised to 0/1.
+        let (mut w_num, mut w_den) = (0u128, 1u128);
+        let (mut r_num, mut r_den) = (0u128, 1u128);
+        let total = u128::from(total);
+        for k in 0..parts {
+            let weight = u128::from(split.prefix[k + 1] - split.prefix[k]);
+            if weight == 0 {
+                continue;
+            }
+            let (lo, hi) = self.range(k, n);
+            let w_hits = (hi - lo) as u128 * total;
+            if w_hits * w_den > w_num * weight {
+                w_num = w_hits;
+                w_den = weight;
+            }
+            let r_hits = round_robin_range(k, n, width).1 as u128 * total;
+            if r_hits * r_den > r_num * weight {
+                r_num = r_hits;
+                r_den = weight;
+            }
+        }
+        // `r_num/r_den >= w_num/w_den`: the round-robin is not strictly better, keep the weighted
+        // split. A tie keeps the previous (weighted) behaviour, so no existing dispatch changes.
+        r_num * w_den >= w_num * r_den
+    }
+
+    /// Run participant `k`'s share of the `n`-task epoch: the contiguous weighted range when
+    /// [`Shared::weighted`] selects it, indices `k, k + width, …` otherwise.
     ///
     /// # Complexity
     ///
@@ -204,7 +279,7 @@ impl Shared {
                 self.panicked.store(true, Ordering::Relaxed);
             }
         };
-        if self.heterogeneous() {
+        if self.weighted(n) {
             let (lo, hi) = self.range(k, n);
             let mut i = lo;
             while i < hi {
@@ -213,8 +288,9 @@ impl Shared {
             }
         } else {
             let width = self.width.load(Ordering::Relaxed);
-            let mut i = k;
-            while i < n {
+            let (start, count) = round_robin_range(k, n, width);
+            let mut i = start;
+            for _ in 0..count {
                 serve(i);
                 i += width;
             }
@@ -413,9 +489,11 @@ impl Pool {
             reason = "n ≤ MAX_TASKS < 2^20 fits u64"
         )]
         let word = (epoch << IDX_BITS) | n as u64;
-        // A heterogeneous pool publishes to the workers whose weighted range is non-empty; the
-        // equal-weight round-robin publishes to the first `live` workers, each of which owns a task.
-        let live = if sh.heterogeneous() {
+        // One choice per dispatch, computed here and identically inside every worker: a weighted
+        // dispatch publishes to the workers whose weighted range is non-empty and joins exactly
+        // those; the round-robin branch is the pre-`APEIRON_ECORES` code, unchanged.
+        let weighted = sh.weighted(n);
+        let live = if weighted {
             let wake = sh.sleepers.load(Ordering::Acquire) > 0;
             let mut live = 0usize;
             for (w, slot) in sh.slots.iter().enumerate().take(self.threads.len()) {
@@ -444,7 +522,7 @@ impl Pool {
         // The caller is already awake: run its own share before waiting on anyone.
         sh.run_partition(0, n);
         let _wait = crate::engine::trace::span(crate::engine::trace::Phase::PoolWait, n, 0, 0);
-        if sh.heterogeneous() {
+        if weighted {
             for (w, d) in sh.done.iter().enumerate().take(self.threads.len()) {
                 let (lo, hi) = sh.range(w + 1, n);
                 if lo < hi {
@@ -692,9 +770,10 @@ fn worker(sh: &Shared, w: usize) {
                 reason = "n ≤ MAX_TASKS < 2^20 fits usize"
             )]
             let n = (word & IDX_MASK) as usize;
-            // Round-robin participants beyond the last task own nothing; a heterogeneous
-            // participant's weighted range can be non-empty even when `k >= n`, so it always runs.
-            if sh.heterogeneous() || k < n {
+            // Round-robin participants beyond the last task own nothing; a weighted participant's
+            // range can be non-empty even when `k >= n`, so it always runs. The same
+            // `Shared::weighted` the dispatcher used selects which case applies.
+            if sh.weighted(n) || k < n {
                 sh.run_partition(k, n);
             }
             sh.done[w].0.store(epoch, Ordering::Release);
@@ -891,5 +970,182 @@ mod tests {
         // Non-numeric or empty string falls back to 0.
         assert_eq!(resolve_ecores(Some(""), 16), 0);
         assert_eq!(resolve_ecores(Some("invalid"), 16), 0);
+    }
+}
+
+/// Pins for the per-dispatch assignment choice: the two candidate mappings are exact partitions of
+/// the task indices, the chosen one never has the larger modelled makespan, the caller's
+/// participant 0 is never left idle, and the weighted split still wins at the large `n` the
+/// pre-existing behaviour relies on.
+#[cfg(test)]
+mod weighted_split_tests {
+    use super::*;
+
+    /// The real two-class table `Pool::global` builds on this host: the caller plus 7 performance
+    /// workers at [`PERF_WEIGHT`], and 16 efficiency workers at `round(100/2.7) = 37`.
+    fn real_weights() -> Vec<u64> {
+        let mut weights = vec![PERF_WEIGHT; 8];
+        weights.extend(std::iter::repeat_n(37, 16));
+        weights
+    }
+
+    /// A `Shared` with `weights` and no worker threads: enough to exercise the pure `range` and
+    /// `weighted` decisions without spawning a pool.
+    fn shared_with(weights: &[u64]) -> Shared {
+        let workers = weights.len().saturating_sub(1);
+        let split = OnceLock::new();
+        let _ = split.set(Split::new(weights));
+        Shared {
+            slots: (0..workers)
+                .map(|_| CachePadded(AtomicU64::new(0)))
+                .collect(),
+            done: (0..workers)
+                .map(|_| CachePadded(AtomicU64::new(0)))
+                .collect(),
+            job: UnsafeCell::new(None::<Job>),
+            width: AtomicUsize::new(weights.len()),
+            split,
+            panicked: AtomicBool::new(false),
+            sleepers: AtomicUsize::new(0),
+            shutdown: AtomicBool::new(false),
+        }
+    }
+
+    /// The owner of every index `0..n` under one candidate mapping, `usize::MAX` if unowned; also
+    /// asserts the candidate's own ranges are pairwise disjoint.
+    fn coverage(sh: &Shared, n: usize, weighted: bool, width: usize) -> Vec<usize> {
+        let parts = sh.split.get().map_or(0, |s| s.prefix.len() - 1);
+        let mut owner = vec![usize::MAX; n];
+        for k in 0..parts {
+            if weighted {
+                let (lo, hi) = sh.range(k, n);
+                for (i, o) in owner.iter_mut().enumerate().take(hi).skip(lo) {
+                    assert_eq!(*o, usize::MAX, "weighted overlap at {i} (n={n})");
+                    *o = k;
+                }
+            } else {
+                let (start, count) = round_robin_range(k, n, width);
+                let mut i = start;
+                for _ in 0..count {
+                    assert!(i < n, "round-robin index {i} >= n={n}");
+                    assert_eq!(owner[i], usize::MAX, "round-robin overlap at {i} (n={n})");
+                    owner[i] = k;
+                    i += width;
+                }
+            }
+        }
+        owner
+    }
+
+    /// The modelled makespan `max_i (count_i · W) / weight_i` of one candidate, as an exact
+    /// `(numerator, denominator)` fraction. Computed independently of [`Shared::weighted`] so the
+    /// pin tests the selection rather than restating it.
+    fn makespan(sh: &Shared, n: usize, width: usize, weighted: bool) -> (u128, u128) {
+        let split = sh.split.get().expect("split");
+        let total = u128::from(*split.prefix.last().expect("non-empty prefix"));
+        let parts = split.prefix.len() - 1;
+        let (mut num, mut den) = (0u128, 1u128);
+        for k in 0..parts {
+            let weight = u128::from(split.prefix[k + 1] - split.prefix[k]);
+            if weight == 0 {
+                continue;
+            }
+            let count = if weighted {
+                let (lo, hi) = sh.range(k, n);
+                (hi - lo) as u128
+            } else {
+                round_robin_range(k, n, width).1 as u128
+            };
+            let cand = count * total;
+            if cand * den > num * weight {
+                num = cand;
+                den = weight;
+            }
+        }
+        (num, den)
+    }
+
+    #[test]
+    fn weighted_choice_is_exact_and_preserves_large_n() {
+        let weights = real_weights();
+        let width = weights.len();
+        let sh = shared_with(&weights);
+        for n in [
+            1usize, 2, 4, 8, 16, 24, 32, 48, 64, 70, 96, 128, 192, 256, 384, 1024,
+        ] {
+            // (a) both candidates are disjoint partitions of `0..n`.
+            let w_cov = coverage(&sh, n, true, width);
+            let r_cov = coverage(&sh, n, false, width);
+            assert!(
+                w_cov.iter().all(|&o| o != usize::MAX),
+                "weighted leaves an index unowned at n={n}"
+            );
+            assert!(
+                r_cov.iter().all(|&o| o != usize::MAX),
+                "round-robin leaves an index unowned at n={n}"
+            );
+
+            // (b) the chosen assignment is never the slower one under the exact model.
+            let choose_w = sh.weighted(n);
+            let (wn, wd) = makespan(&sh, n, width, true);
+            let (rn, rd) = makespan(&sh, n, width, false);
+            if choose_w {
+                assert!(
+                    wn * rd <= rn * wd,
+                    "chose weighted but it is slower at n={n}: {wn}/{wd} vs {rn}/{rd}"
+                );
+            } else {
+                assert!(
+                    rn * wd <= wn * rd,
+                    "chose round-robin but it is slower at n={n}: {rn}/{rd} vs {wn}/{wd}"
+                );
+            }
+
+            // (c) participant 0 (the caller) always owns task 0.
+            if choose_w {
+                let (lo, hi) = sh.range(0, n);
+                assert!(
+                    lo < hi,
+                    "caller idle under the chosen weighted split at n={n}"
+                );
+            } else {
+                assert!(
+                    round_robin_range(0, n, width).1 > 0,
+                    "caller idle under the chosen round-robin at n={n}"
+                );
+            }
+        }
+
+        // (d) the weighted split is still chosen for the large dispatches it always served.
+        assert!(
+            sh.weighted(1024),
+            "weighted split must be chosen at n = 1024"
+        );
+    }
+
+    #[test]
+    fn round_robin_count_at_width_24() {
+        let width = 24usize;
+        for n in 0..=128usize {
+            let mut total = 0usize;
+            for k in 0..width {
+                let (start, count) = round_robin_range(k, n, width);
+                if count > 0 {
+                    assert!(start < n, "n={n} k={k} count={count}");
+                    assert_eq!(start, k);
+                    assert!(start + (count - 1) * width < n, "stride overruns n={n}");
+                } else {
+                    assert_eq!(start, k);
+                    assert!(k >= n, "n={n} k={k} dropped");
+                }
+                total += count;
+            }
+            assert_eq!(total, n, "round-robin count does not cover n={n}");
+        }
+        assert_eq!(round_robin_range(0, 10, width), (0, 1));
+        assert_eq!(round_robin_range(8, 33, width), (8, 2));
+        assert_eq!(round_robin_range(23, 24, width), (23, 1));
+        assert_eq!(round_robin_range(23, 23, width), (23, 0));
+        assert_eq!(round_robin_range(24, 100, width), (24, 4));
     }
 }
