@@ -414,6 +414,113 @@ fn quant_act_bounds_and_dequant_contract() {
     assert_eq!(huge.dequant(), Some(vec![127i64 << 56; 32]));
 }
 
+/// The integer identity behind the power-of-two scale: for `s = 2^e` the shift/mask quotient and
+/// remainder equal `m / s` and `m % s` at the boundary magnitudes a `u64` activation can reach.
+/// A zero and a non-power-of-two scale keep the checked-division fallback.
+#[test]
+fn act_quot_rem_shift_equals_division_for_power_of_two_scales() {
+    let ms: [u64; 6] = [0, 1, 1 << 31, 1 << 32, 1 << 62, i64::MIN.unsigned_abs()];
+    let ss: [u64; 6] = [0, 1, 2, 1 << 31, 1 << 57, 1 << 62];
+    for &m in &ms {
+        for &s in &ss {
+            let pow2 = s.is_power_of_two();
+            let shift = s.trailing_zeros();
+            let mask = s.wrapping_sub(1);
+            let (quotient, remainder) = act_quot_rem(m, s, pow2, shift, mask);
+            if s == 0 {
+                // `pow2` is false; the checked division's zero-divisor failure is `(0, 0)`.
+                assert!(!pow2);
+                assert_eq!((quotient, remainder), (0, 0), "m {m} s 0");
+            } else {
+                assert!(pow2, "fixture scale {s} must be a power of two");
+                assert_eq!((quotient, remainder), (m / s, m % s), "m {m} s {s}");
+            }
+        }
+    }
+    // A non-power-of-two scale takes the same checked-division fallback.
+    assert_eq!(act_quot_rem(7, 3, false, 0, 2), (2, 1));
+    assert_eq!(
+        act_quot_rem(i64::MIN.unsigned_abs(), 3, false, 0, 2),
+        (i64::MIN.unsigned_abs() / 3, i64::MIN.unsigned_abs() % 3)
+    );
+}
+
+/// The previous per-element `dequantizes` body, as the replica the block fit check must match: it
+/// reads `scales[idx / ACT_QK]` per element and returns `false` at the first missing scale or
+/// overflowing `S_b·xq_j`.
+fn dequantizes_per_element(scales: &[i64], codes: &[i8]) -> bool {
+    let mut idx = 0usize;
+    while idx < codes.len() {
+        let Some(&scale) = scales.get(idx / ACT_QK) else {
+            return false;
+        };
+        if scale.checked_mul(i64::from(codes[idx])).is_none() {
+            return false;
+        }
+        idx += 1;
+    }
+    true
+}
+
+/// The block-constant fit check agrees with the per-element loop on scales around the `i64`
+/// boundary. `S·127` fits for `0, 1, 2, 2^31, i64::MAX/127, i64::MAX/127 + 1`, so those blocks skip
+/// their elements; `S·127` leaves `i64` for `2^62` and for `i64::MAX/126`, whose `S·126` still fits
+/// and which therefore separates the block bound from any smaller one; those blocks fall back to
+/// the per-element check.
+#[test]
+fn dequantizes_block_fit_matches_the_per_element_loop() {
+    let scales: [i64; 8] = [
+        0,
+        1,
+        2,
+        1 << 31,
+        1 << 62,
+        i64::MAX / 127,
+        i64::MAX / 127 + 1,
+        i64::MAX / 126,
+    ];
+    let code_values: [i8; 5] = [0, 1, -1, 127, -127];
+    // One block per scale, each block's codes cycling through the boundary code set.
+    let mut codes: Vec<i8> = Vec::with_capacity(scales.len() * ACT_QK);
+    for _ in &scales {
+        for lane in 0..ACT_QK {
+            codes.push(code_values[lane % code_values.len()]);
+        }
+    }
+    let combined = QuantAct::from_parts(scales.to_vec(), codes.clone());
+    assert_eq!(
+        combined.dequantizes(),
+        dequantizes_per_element(&scales, &codes)
+    );
+
+    // Each scale on its own, so a refusing block cannot hide the blocks after it.
+    for &scale in &scales {
+        let one: Vec<i8> = (0..ACT_QK)
+            .map(|lane| code_values[lane % code_values.len()])
+            .collect();
+        let qa = QuantAct::from_parts(vec![scale], one.clone());
+        assert_eq!(
+            qa.dequantizes(),
+            dequantizes_per_element(&[scale], &one),
+            "scale {scale}"
+        );
+    }
+
+    // A block the fit check clears accepts every code, including the `±127` extremes.
+    let clears = QuantAct::from_parts(vec![i64::MAX / 127], vec![127i8; ACT_QK]);
+    assert!(clears.dequantizes());
+    // `2^62·127` leaves `i64`: the fallback accepts code `1` and rejects the `±127` extremes.
+    let falls_back = QuantAct::from_parts(vec![1i64 << 62], vec![1i8; ACT_QK]);
+    assert!(falls_back.dequantizes());
+    let falls_back_top = QuantAct::from_parts(vec![1i64 << 62], vec![127i8; ACT_QK]);
+    assert!(!falls_back_top.dequantizes());
+
+    // A short `scales` vector refuses, as the per-element `scales.get` did.
+    let short = QuantAct::from_parts(vec![1], vec![0i8; ACT_QK + 1]);
+    assert!(!short.dequantizes());
+    assert!(!dequantizes_per_element(&[1], &[0i8; ACT_QK + 1]));
+}
+
 /// Every refusal class agrees exactly with the reference, including the refusal value.
 #[test]
 fn chart_agrees_with_fixed_on_every_refusal_class() {
