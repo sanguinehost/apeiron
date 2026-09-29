@@ -50,7 +50,7 @@
               l, x are the kernel's standard symbols"
 )]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::engine::chart::pool::Pool;
 use crate::engine::chart::QuantAct;
@@ -60,6 +60,32 @@ use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES, Q8_0_QK};
 
 /// Nibble bytes per block and plane.
 const HALF: usize = Q8_0_QK / 2;
+
+/// One chunk's reduction of the two pooled scans in [`BitplaneHead::argmax`]: the stage-1 seed
+/// (`hi`, `row`) and the stage-2 survivors (`has`, `best`, `best_row`, `count`). Each chunk's
+/// single task writes only its own slot; the calling thread merges the slots in ascending chunk
+/// order, which reproduces the serial scans' lowest-index-first tie-break.
+#[derive(Default)]
+struct ChunkReduce {
+    /// Stage 1: the largest high part in the chunk.
+    hi: i128,
+    /// Stage 1: the lowest row attaining `hi`.
+    row: usize,
+    /// Stage 2: whether the chunk holds a row with `bounds[r].0 >= tau`.
+    has: bool,
+    /// Stage 2: the best rounded logit in the chunk.
+    best: i64,
+    /// Stage 2: the lowest row attaining `best`.
+    best_row: usize,
+    /// Stage 2: the number of rows in the chunk with `bounds[r].0 >= tau`.
+    count: usize,
+}
+
+/// Lock `m`, ignoring poisoning: the pool re-raises a task panic only after every participant has
+/// stopped, so a poisoned slot is never read mid-flight.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// A `Q8_0` head split into its high and low nibble planes, built once at load.
 #[derive(Debug)]
@@ -134,8 +160,9 @@ impl BitplaneHead {
     ///
     /// # Complexity
     ///
-    /// Stage 1: `O(rows·n_in)` nibble multiply-adds over the pool, reading `18/34` of the payload.
-    /// Stage 2: `O((1 + survivors)·n_in)`. `O(rows)` words of per-row bounds.
+    /// Stage 1: `O(rows·n_in)` nibble multiply-adds over the pool, reading `18/34` of the payload,
+    /// plus the chunk-local seed reduction. Stage 2: `O((1 + survivors)·n_in)`, also over the pool.
+    /// `O(rows)` words of per-row bounds and `O(tasks)` chunk slots.
     pub(crate) fn argmax(&self, q: &QuantAct) -> Option<(u32, usize)> {
         if q.codes().len() != self.blocks * Q8_0_QK || q.scales().len() != self.blocks {
             return None;
@@ -164,43 +191,87 @@ impl BitplaneHead {
             pos.push(15 * p);
             neg.push(15 * n);
         }
-        // Stage 1: per row, (rounded upper bound, high part).
+        // Stage 1: per row, (rounded upper bound, high part); each chunk also reduces its own seed.
         let mut bounds = vec![(0i64, 0i128); self.rows];
         let per = self
             .rows
             .div_ceil(crate::engine::par::row_chunk_budget(self.rows))
             .max(1);
+        let tasks = self.rows.div_ceil(per).max(1);
+        // One slot per chunk, written by that chunk's single task; the calling thread merges the
+        // slots in ascending chunk order.
+        let reduced: Vec<Mutex<ChunkReduce>> = (0..tasks)
+            .map(|_| Mutex::new(ChunkReduce::default()))
+            .collect();
         let avx = avx2();
-        Pool::global().chunks_mut(&mut bounds, per, &|_, start, dst| {
-            let mut i = 0usize;
-            while i < dst.len() {
-                dst[i] = self.row_bound(start + i, q, &pos, &neg, avx);
-                i += 1;
+        Pool::global().chunks_mut(&mut bounds, per, &|i, start, dst| {
+            let mut hi_best = i128::MIN;
+            let mut hi_row = start;
+            let mut j = 0usize;
+            while j < dst.len() {
+                let (bound, hi) = self.row_bound(start + j, q, &pos, &neg, avx);
+                dst[j] = (bound, hi);
+                if hi > hi_best {
+                    hi_best = hi;
+                    hi_row = start + j;
+                }
+                j += 1;
             }
+            let mut slot = lock(&reduced[i]);
+            slot.hi = hi_best;
+            slot.row = hi_row;
         });
-        // The seed: the largest upper bound, lowest index.
+        // The seed: the largest upper bound, lowest index. Merging ascending chunks with strict `>`
+        // keeps the earliest chunk's row on an equal high part, and each chunk kept its lowest such
+        // row, so this is the serial first-index-wins maximiser.
         let mut k = 0usize;
-        let mut r = 1usize;
-        while r < self.rows {
-            if bounds[r].1 > bounds[k].1 {
-                k = r;
+        let mut best_hi = i128::MIN;
+        let mut i = 0usize;
+        while i < tasks {
+            let slot = lock(&reduced[i]);
+            if i == 0 || slot.hi > best_hi {
+                best_hi = slot.hi;
+                k = slot.row;
             }
-            r += 1;
+            i += 1;
         }
-        // Stage 2.
+        // Stage 2: each chunk counts its rows with `bounds[r].0 >= tau` and keeps its best rounded
+        // logit (lowest row); the serial result is the ascending merge of the chunk results.
         let tau = round_logit(self.row_exact(k, q, avx));
+        Pool::global().chunks_mut(&mut bounds, per, &|i, start, dst| {
+            let mut count = 0usize;
+            let mut has = false;
+            let mut best = 0i64;
+            let mut best_row = 0usize;
+            let mut j = 0usize;
+            while j < dst.len() {
+                if dst[j].0 >= tau {
+                    count += 1;
+                    let v = round_logit(self.row_exact(start + j, q, avx));
+                    if !has || v > best {
+                        has = true;
+                        best = v;
+                        best_row = start + j;
+                    }
+                }
+                j += 1;
+            }
+            let mut slot = lock(&reduced[i]);
+            slot.has = has;
+            slot.best = best;
+            slot.best_row = best_row;
+            slot.count = count;
+        });
         let mut best: Option<(i64, usize)> = None;
         let mut survivors = 0usize;
-        let mut r = 0usize;
-        while r < self.rows {
-            if bounds[r].0 >= tau {
-                survivors += 1;
-                let v = round_logit(self.row_exact(r, q, avx));
-                if best.is_none_or(|(bv, _)| v > bv) {
-                    best = Some((v, r));
-                }
+        let mut i = 0usize;
+        while i < tasks {
+            let slot = lock(&reduced[i]);
+            survivors += slot.count;
+            if slot.has && best.is_none_or(|(bv, _)| slot.best > bv) {
+                best = Some((slot.best, slot.best_row));
             }
-            r += 1;
+            i += 1;
         }
         let (_, row) = best?;
         Some((u32::try_from(row).ok()?, survivors))
@@ -573,5 +644,124 @@ mod tests {
         assert_eq!(dense[9], dense[40]);
         assert_eq!(argmax_fixed(&dense).expect("argmax"), 9);
         assert_eq!(bp.argmax(&q).expect("bitplane").0, 9);
+    }
+
+    /// The pre-pooling `argmax`: the same geometry and scale checks, the same stage-1 bounds, then
+    /// the two serial scans verbatim. The oracle the pooled version must equal.
+    fn serial_argmax(head: &BitplaneHead, q: &QuantAct) -> Option<(u32, usize)> {
+        if q.codes().len() != head.blocks * Q8_0_QK || q.scales().len() != head.blocks {
+            return None;
+        }
+        if q.scales()
+            .iter()
+            .any(|&sc| i128::from(sc).abs() * 581_152 > i128::from(i64::MAX))
+        {
+            return None;
+        }
+        let mut pos = Vec::with_capacity(head.blocks);
+        let mut neg = Vec::with_capacity(head.blocks);
+        for blk in q.codes().chunks_exact(Q8_0_QK) {
+            let (mut p, mut n) = (0i64, 0i64);
+            for &a in blk {
+                if a > 0 {
+                    p += i64::from(a);
+                } else {
+                    n += i64::from(a);
+                }
+            }
+            pos.push(15 * p);
+            neg.push(15 * n);
+        }
+        let avx = avx2();
+        let mut bounds = vec![(0i64, 0i128); head.rows];
+        let mut r = 0usize;
+        while r < head.rows {
+            bounds[r] = head.row_bound(r, q, &pos, &neg, avx);
+            r += 1;
+        }
+        let mut k = 0usize;
+        let mut r = 1usize;
+        while r < head.rows {
+            if bounds[r].1 > bounds[k].1 {
+                k = r;
+            }
+            r += 1;
+        }
+        let tau = round_logit(head.row_exact(k, q, avx));
+        let mut best: Option<(i64, usize)> = None;
+        let mut survivors = 0usize;
+        let mut r = 0usize;
+        while r < head.rows {
+            if bounds[r].0 >= tau {
+                survivors += 1;
+                let v = round_logit(head.row_exact(r, q, avx));
+                if best.is_none_or(|(bv, _)| v > bv) {
+                    best = Some((v, r));
+                }
+            }
+            r += 1;
+        }
+        let (_, row) = best?;
+        Some((u32::try_from(row).ok()?, survivors))
+    }
+
+    /// `rows` rows of 64 codes: row 0 and row `rows − 1` are identical all-`+127` rows with scale
+    /// 1.0; every other row has scale 0. The maximum high part is therefore tied between the first
+    /// and last row, and their exact logits are equal, so both tie-breaks must resolve to row 0.
+    fn tied_head(rows: usize) -> Vec<u8> {
+        let blocks = 64 / 32;
+        let mut raw = vec![0u8; rows * blocks * 34];
+        for r in 0..rows {
+            for b in 0..blocks {
+                let o = r * blocks * 34 + b * 34;
+                let scale: u16 = if r == 0 || r == rows - 1 {
+                    0x3c00
+                } else {
+                    0x0000
+                };
+                raw[o..o + 2].copy_from_slice(&scale.to_le_bytes());
+                for i in 0..32 {
+                    raw[o + 2 + i] = 127;
+                }
+            }
+        }
+        raw
+    }
+
+    /// The pooled `argmax` equals the serial scans for row counts on either side of the pool
+    /// width, on random heads (every 7th row a copy, so exact-logit ties occur) and on a head
+    /// whose top high part ties between its first and last row.
+    #[test]
+    fn pooled_argmax_matches_the_serial_scan() {
+        let n_in = 64usize;
+        for &rows in &[1usize, 2, 7, 33, 64, 300] {
+            for seed in 1..=4u64 {
+                let raw = head(rows, n_in, 0x51ed * seed + rows as u64);
+                let bp = BitplaneHead::from_q8_0(GGML_TYPE_Q8_0, &raw, rows, n_in).expect("planes");
+                for t in 0..8u64 {
+                    let x = act(n_in, seed * 7919 + t, 1 << (20 + t % 12));
+                    let q = quant_act(&x).expect("quant");
+                    assert!(q8act_fast_bound_ok(n_in, 128, &q, true));
+                    let got = bp.argmax(&q).expect("bitplane");
+                    let want = serial_argmax(&bp, &q).expect("serial");
+                    assert_eq!(got, want, "rows {rows} seed {seed} activation {t}");
+                }
+                // The tied head: the seed high part and the max exact logit are both tied, and
+                // only rows 0 and `rows − 1` survive (row 0 by the lowest index).
+                let tied = tied_head(rows);
+                let bp =
+                    BitplaneHead::from_q8_0(GGML_TYPE_Q8_0, &tied, rows, n_in).expect("planes");
+                let x: Vec<i64> = (0..n_in).map(|i| 1 << (24 + (i % 5))).collect();
+                let q = quant_act(&x).expect("quant");
+                assert!(q8act_fast_bound_ok(n_in, 128, &q, true));
+                let got = bp.argmax(&q).expect("bitplane");
+                assert_eq!(
+                    got,
+                    serial_argmax(&bp, &q).expect("serial"),
+                    "tied rows {rows}"
+                );
+                assert_eq!(got, (0, if rows > 1 { 2 } else { 1 }), "tied rows {rows}");
+            }
+        }
     }
 }
