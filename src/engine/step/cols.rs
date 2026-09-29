@@ -429,7 +429,9 @@ impl Engine {
     ///    `pos₀ + c`;
     /// 2. in token order: append each column's key and value;
     /// 3. per (column, head) (`k·n_head` tasks): attention over positions `0..=pos₀ + c`, then
-    ///    that head's slice of the sigmoid output gate.
+    ///    that head's slice of the sigmoid output gate. The pool task index runs over the fold
+    ///    order ([`fold_col`]) so a contiguous speed-weighted range alternates cheap and expensive
+    ///    columns; a gather restores the block order.
     ///
     /// Column `c` sees exactly the keys the per-column loop had appended when it attended, so the
     /// block is causal and bit-identical (`qwen35_two_columns_equal_two_single_steps`). With
@@ -442,7 +444,12 @@ impl Engine {
     ///
     /// `O(k·n_head·(pos₀ + k)·head_dim)` for the attention over `k·n_head` pool tasks, plus
     /// `O(k·(q_proj + 2·kv_out))` for stages 1–2; three dispatches instead of `k`.
-    #[allow(clippy::too_many_lines, reason = "the three stages read in order")]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::many_single_char_names,
+        reason = "the three stages read in order; c, h, n, q are the column, head, fold and query \
+                  words"
+    )]
     fn softmax_core_block(
         &self,
         layer: usize,
@@ -511,34 +518,63 @@ impl Engine {
         // Stage 3: per (column, head) attention and gate. With `APEIRON_EXACT_SCAN=1` the read is
         // the fused `(m, den, num)` fold; the flag is resolved here, on the calling thread, so the
         // pool workers run one path for the whole dispatch.
+        //
+        // Pool task `t = n·n_head + h` owns fold position `n`, whose key column is `fold_col(n, k)`.
+        // A contiguous range of the speed-weighted split then alternates cheap and expensive columns
+        // instead of taking a monotone run of the cheapest. Each `(c, h)` reads only `prep`, the
+        // read-only KV cache and `last[c]`, so the permutation leaves every word bit-identical; the
+        // gather after the dispatch restores the tip's block order.
         let fused = exact_scan_enabled();
         let mut att = vec![0i64; k * q_out];
         let kv_ro: &KvState = kv;
-        let head = |t: usize, dst: &mut [i64]| -> Result<(), StepError> {
-            let (c, h) = (t / n_head, t % n_head);
+        let first: std::sync::Mutex<Option<(usize, StepError)>> = std::sync::Mutex::new(None);
+        crate::engine::chart::pool::Pool::global().chunks_mut(&mut att, hd, &|t, _start, dst| {
+            let (n, h) = (t / n_head, t % n_head);
+            let c = fold_col(n, k);
             let base = c * stride;
             let q = &prep[base + h * hd..base + (h + 1) * hd];
-            if fused {
+            let r = if fused {
                 kv_ro
                     .attn_head_fused(slot, h, q, last[c], EXACT_SCAN_TILE, dst)
-                    .map_err(StepError::Kv)?;
+                    .map_err(StepError::Kv)
             } else {
                 kv_ro
                     .attn_head(slot, h, q, last[c], dst)
-                    .map_err(StepError::Kv)?;
+                    .map_err(StepError::Kv)
+            };
+            let r = r.and_then(|()| {
+                if gated {
+                    let g0 = base + 2 * kv_out + q_out + h * hd;
+                    apply_sigmoid_gate(dst, &prep[g0..g0 + hd])
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(e) = r {
+                // The refusal key is the pre-fold task index `c·n_head + h`, not the fold index, so
+                // the minimum kept here is the one the tip dispatch reported for the same column.
+                let key = c * n_head + h;
+                let mut slot_min = first
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if slot_min.as_ref().is_none_or(|(at, _)| key < *at) {
+                    *slot_min = Some((key, e));
+                }
             }
-            if gated {
-                let g0 = base + 2 * kv_out + q_out + h * hd;
-                apply_sigmoid_gate(dst, &prep[g0..g0 + hd])?;
-            }
-            Ok(())
-        };
-        if let Some((_, e)) =
-            crate::engine::chart::ffn::attn_heads(k * n_head, hd, &mut att, true, head)
+        });
+        if let Some((_, e)) = first
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
         {
             return Err(e);
         }
-        Ok(att.chunks(q_out).map(<[i64]>::to_vec).collect())
+        // Block `n` holds column `fold_col(n, k)`; gather it back to index `c` with the same `k`
+        // `q_out`-wide contiguous copies the tip's `chunks(q_out).map(to_vec)` performed.
+        let mut atts: Vec<Vec<i64>> = (0..k).map(|_| Vec::new()).collect();
+        for n in 0..k {
+            atts[fold_col(n, k)] = att[n * q_out..(n + 1) * q_out].to_vec();
+        }
+        Ok(atts)
     }
 
     /// One affine-mixer layer over the columns: the four input projections as one group (weights
@@ -757,6 +793,27 @@ impl Engine {
     }
 }
 
+/// The stage-3 fold order: pool task `n` owns key column `fold(n)`.
+///
+/// `n -> c` is a bijection on `0..k`: the even `n = 2j` hit the lower columns `c = j` and the odd
+/// `n = 2j + 1` the upper ones `c = k - 1 - j`. For `k = 2m` the images are `0..m-1` and `m..2m-1`,
+/// for `k = 2m + 1` they are `0..m` and `m+1..2m`; disjoint and covering. A contiguous range of the
+/// speed-weighted pool split therefore alternates cheap and expensive columns: the cost of the
+/// adjacent pair `(2j, 2j+1)` is `(pos₀ + j + 1) + (pos₀ + k - 1 - j + 1) = 2·pos₀ + k + 1`,
+/// independent of `j`, so every contiguous range averages the same key work. Each `(c, h)` result
+/// is a pure function of the read-only inputs, so the permutation leaves all values bit-identical.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn fold_col(n: usize, k: usize) -> usize {
+    if n.is_multiple_of(2) {
+        n / 2
+    } else {
+        k - 1 - n / 2
+    }
+}
+
 /// Each column's `RMSNorm` with gain: serial for one column, one pool task per column for more
 /// (each column's norm is column-local, so the split is bit-identical).
 ///
@@ -792,4 +849,30 @@ fn quant_cols(xs: &[Vec<i64>]) -> Result<Vec<QuantAct>, StepError> {
     quant_acts_pooled(xs).ok_or(StepError::Matvec(MatvecError::Dequant(
         crate::engine::EngineError::FixedOverflow,
     )))
+}
+
+#[cfg(test)]
+mod fold_order {
+    use super::fold_col;
+
+    /// `fold_col` is a bijection on `0..k` and each adjacent fold pair is one cheap and one
+    /// expensive column: their key counts sum to `k + 1` (the exact balance the stage-3 dispatch
+    /// relies on). Mutating the map to `n / 2` duplicates columns and fails this test.
+    #[test]
+    fn fold_col_is_a_balanced_bijection() {
+        for k in 1..=9usize {
+            let mut seen = vec![false; k];
+            for n in 0..k {
+                let c = fold_col(n, k);
+                assert!(c < k, "k={k} n={n}: column {c} out of range");
+                assert!(!seen[c], "k={k} n={n}: column {c} twice");
+                seen[c] = true;
+            }
+            // cost(c) = pos₀ + c + 1 keys; the pos₀ cancels in the pair sum.
+            for j in 0..k / 2 {
+                let cost = fold_col(2 * j, k) + fold_col(2 * j + 1, k) + 2;
+                assert_eq!(cost, k + 1, "k={k} pair {j}: key count");
+            }
+        }
+    }
 }
