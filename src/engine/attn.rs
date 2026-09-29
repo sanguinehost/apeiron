@@ -112,8 +112,10 @@ fn plane_at(kv: usize, kvh: usize, hd: usize, s: usize, i: usize) -> Result<usiz
 
 /// The checked `[base, base + head_dim)` bounds of the `head_dim`-wide row of key `s` in a
 /// position-major plane: the same three `checked.*` index steps as [`plane_at`], with the row end
-/// as one more. The key-outer output pass reads the whole row from `base`, so it computes the
-/// index product once per key instead of once per `(key, component)`.
+/// as one more. Test-only: the index oracle the hoisted `first + s·stride` base in
+/// [`KvState::attn_head`] is pinned against, so the checked chain and the product stay the same
+/// integer.
+#[cfg(test)]
 fn row_bounds(kv: usize, kvh: usize, hd: usize, s: usize) -> Result<(usize, usize), AttnError> {
     let base = s.checked_mul(kv).ok_or(AttnError::Overflow)?;
     let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
@@ -181,6 +183,90 @@ fn weight_at(e: i64, total: i128) -> Result<i64, AttnError> {
         return Err(AttnError::Overflow);
     }
     Ok(p as i64)
+}
+
+/// The round-up `u64` reciprocal `floor(2^64 / total) + 1` of [`weight_at_recip`], or `None` when
+/// `total` leaves the window `2 ..= u64::MAX/2` the two-operand product bound needs.
+///
+/// `floor(2^64/total) + 1` is the classical round-up multiplier: `n2 · recip / 2^64` is then
+/// `floor(n2/total)` or one greater, which the single subtract fixup in [`weight_at_recip`] removes.
+/// The truncated `floor(2^64/total)` reciprocal is one *below* `floor(n2/total)` whenever
+/// `2^64 mod total != 0` and the product lands on the low side (for example `total = 3`, `e = 2`),
+/// and a subtract-only fixup cannot repair that.
+///
+/// # Complexity
+///
+/// O(1) time and space: one `u128` division, one add and two comparisons.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the `total >= 2` guard makes the quotient `<= 2^63`, so both casts are exact; \
+              `i64::try_from`/`u64::try_from` would emit unmodeled externals the fail-closed \
+              extraction audit rejects"
+)]
+fn recip_u64(total: i128) -> Option<u64> {
+    if total < 2 || total > i128::from(u64::MAX / 2) {
+        return None;
+    }
+    let base = ((1u128 << 64) / (total as u128)) as u64;
+    base.checked_add(1)
+}
+
+/// One softmax weight through the `u64` round-up reciprocal: the same
+/// `div_round_nearest(e·2^32, total)` value as [`weight_at`], with the division replaced by one
+/// `u128` multiply and shift.
+///
+/// The fast path applies exactly when `e >= 0`, `e·2^32 + total/2` fits `u64`, and `total` fits the
+/// `recip_u64` window (guaranteed by the caller's `Some`); every other operand — a negative `e`, an
+/// `i128` overflow, or a numerator above `u64::MAX` — delegates to the literal i128 [`weight_at`].
+///
+/// # Complexity
+///
+/// O(1) time and space: one `u128` multiply, one shift and one fixup comparison.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "every `as` is guarded: `e >= 0` fixes the sign of `n`, `n <= i128::from(u64::MAX)` \
+              and the caller's `total <= u64::MAX/2` fix the widths, and the `i64` narrowing is \
+              range-checked against i128::from(i64::MAX)/i64::MIN immediately before it; the \
+              `try_from` forms emit unmodeled externals the fail-closed extraction audit rejects"
+)]
+fn weight_at_recip(e: i64, total: i128, recip: u64) -> Result<i64, AttnError> {
+    let scaled = i128::from(e).checked_mul(i128::from(ONE));
+    let narrowed = match scaled {
+        Some(s) => match s.checked_add(total / 2) {
+            Some(n) => {
+                if e >= 0 {
+                    if n <= i128::from(u64::MAX) {
+                        Some(n as u64)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        },
+        None => None,
+    };
+    match narrowed {
+        Some(n2) => {
+            let d = total as u64;
+            let q = ((u128::from(n2) * u128::from(recip)) >> 64) as u64;
+            let q = if u128::from(q) * u128::from(d) > u128::from(n2) {
+                q - 1
+            } else {
+                q
+            };
+            let p = i128::from(q);
+            if p > i128::from(i64::MAX) || p < i128::from(i64::MIN) {
+                return Err(AttnError::Overflow);
+            }
+            Ok(p as i64)
+        }
+        None => weight_at(e, total),
+    }
 }
 
 /// One `p_s · v_s` term of the output component `i`. Test-only: the key-outer production output
@@ -782,7 +868,7 @@ impl KvState {
     /// # Complexity
     ///
     /// `O((pos + 1) · head_dim)` time in checked integer multiply-adds and `fixed_exp` calls, with
-    /// `O(pos + 1)` scratch space for the scores, exponentials and weights; `out` is `head_dim`
+    /// `O(pos + 1)` scratch space for the scores and exponentials; `out` is `head_dim`
     /// wide.
     #[allow(
         clippy::too_many_lines,
@@ -837,6 +923,12 @@ impl KvState {
         let kvh = q_head / group;
         let kv = self.n_head_kv;
         let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+        // The position-major row `(s·kv + kvh)·hd` is the hoisted `first + s·stride`; the guards
+        // admit only `s <= pos < occupied <= cap`, so `base + hd <= plane.len()` and the product is
+        // exact without a per-key checked chain. One bound check per key is the same refusal the
+        // checked index chain produced.
+        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
 
         // Scores: one Q32.32 dot per causal key, then one epilogue against the load-time scale.
         // Each loop carries a `bool` failure flag and stops on the first refusal, so no early
@@ -848,15 +940,31 @@ impl KvState {
         let mut ok = true;
         let mut err: Option<AttnError> = None;
         while s <= pos && ok {
-            match score_at(kplane, q, self.scale, kv, kvh, hd, s) {
-                Ok(score) => {
-                    if score > mx {
-                        mx = score;
+            let base = first + s * stride;
+            if base > kplane.len().saturating_sub(hd) {
+                err = Some(AttnError::Overflow);
+                ok = false;
+            } else {
+                let end = base + hd;
+                if let Ok(raw) = row_dot_fixed(&kplane[base..end], q) {
+                    if let Some(prod) = i128::from(raw).checked_mul(i128::from(self.scale)) {
+                        let rounded = round_shift_32(prod);
+                        if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
+                            err = Some(AttnError::Overflow);
+                            ok = false;
+                        } else {
+                            let score = rounded as i64;
+                            if score > mx {
+                                mx = score;
+                            }
+                            scores.push(score);
+                        }
+                    } else {
+                        err = Some(AttnError::Overflow);
+                        ok = false;
                     }
-                    scores.push(score);
-                }
-                Err(e) => {
-                    err = Some(e);
+                } else {
+                    err = Some(AttnError::Overflow);
                     ok = false;
                 }
             }
@@ -898,57 +1006,58 @@ impl KvState {
             return Err(AttnError::ZeroSum);
         }
 
-        // Weights: one round-to-nearest division per causal key.
-        let mut weights: Vec<i64> = Vec::with_capacity(slots);
-        let mut s = 0usize;
-        let mut ok = true;
-        let mut err: Option<AttnError> = None;
-        while s <= pos && ok {
-            match weight_at(exps[s], total) {
-                Ok(w) => weights.push(w),
-                Err(e) => {
-                    err = Some(e);
-                    ok = false;
-                }
-            }
-            s += 1;
-        }
-        if let Some(e) = err {
-            return Err(e);
-        }
+        // The weights fold into the output pass: each key's round-to-nearest division is resolved
+        // immediately before that key's row accumulates, replacing the separate `weights` vector
+        // and its pass. The reciprocal and its Option are resolved once per call; the output loop
+        // only picks the fast or the literal i128 path. `exps` are non-negative with `total >= ONE`
+        // here, so the weight never refuses where the old weights pass would have; a refusal at key
+        // `s` is raised with the same `AttnError` at the same ascending key. A refused read still
+        // leaves `out` untouched, because `out` is written only after every key folds.
+        let recip = recip_u64(total);
 
-        // Output: one key-outer pass. Each key's `head_dim` row is read contiguously once and its
-        // `weights[s]·v[s, i]` products accumulate into the independent per-component checked
-        // `i128` sums. For each `i` the terms are the same checked products in the same ascending
-        // `s` order as the per-component oracle, so every `acc[i]` is the identical sum and the
-        // single `round_shift_32` epilogue plus its `i64` range check are unchanged; only the
-        // interleaving of independent sums changes (integer addition is associative and
-        // commutative). One `bool` failure flag per loop, and no early return inside a body, keep
-        // the pinned extraction fragment's shape.
+        // Output: one key-outer pass. Each key's weight is resolved, then its `head_dim` row is read
+        // contiguously once and its `weight·v[s, i]` products accumulate into the independent
+        // per-component checked `i128` sums. For each `i` the terms are the same checked products in
+        // the same ascending `s` order as the per-component oracle, so every `acc[i]` is the
+        // identical sum and the single `round_shift_32` epilogue plus its `i64` range check are
+        // unchanged; only the interleaving of independent sums changes (integer addition is
+        // associative and commutative). One `bool` failure flag per loop, and no early return inside
+        // a body, keep the pinned extraction fragment's shape.
         let vplane = &self.v[layer];
         let mut acc: Vec<i128> = vec![0i128; hd];
         let mut s = 0usize;
         let mut ok = true;
         let mut err: Option<AttnError> = None;
         while s <= pos && ok {
-            match row_bounds(kv, kvh, hd, s) {
-                Ok((base, end)) => {
-                    let row = &vplane[base..end];
-                    let w = i128::from(weights[s]);
-                    let mut i = 0usize;
-                    while i < hd && ok {
-                        if let Some(term) = w.checked_mul(i128::from(row[i])) {
-                            if let Some(next) = acc[i].checked_add(term) {
-                                acc[i] = next;
+            let w = match recip {
+                Some(r) => weight_at_recip(exps[s], total, r),
+                None => weight_at(exps[s], total),
+            };
+            match w {
+                Ok(weight) => {
+                    let base = first + s * stride;
+                    if base > vplane.len().saturating_sub(hd) {
+                        err = Some(AttnError::Overflow);
+                        ok = false;
+                    } else {
+                        let end = base + hd;
+                        let row = &vplane[base..end];
+                        let w = i128::from(weight);
+                        let mut i = 0usize;
+                        while i < hd && ok {
+                            if let Some(term) = w.checked_mul(i128::from(row[i])) {
+                                if let Some(next) = acc[i].checked_add(term) {
+                                    acc[i] = next;
+                                } else {
+                                    err = Some(AttnError::Overflow);
+                                    ok = false;
+                                }
                             } else {
                                 err = Some(AttnError::Overflow);
                                 ok = false;
                             }
-                        } else {
-                            err = Some(AttnError::Overflow);
-                            ok = false;
+                            i += 1;
                         }
-                        i += 1;
                     }
                 }
                 Err(e) => {
@@ -1126,6 +1235,301 @@ mod tests {
         assert_eq!(
             kv.attn_head(0, 0, &q, len, &mut [0i64; 3]),
             Err(AttnError::PositionOutOfRange { pos: len, len })
+        );
+    }
+
+    /// The reciprocal weight path must equal the literal [`weight_at`] oracle (or refuse with the
+    /// same `AttnError`) on the window boundary, the `e = 2^32` argmax fallback, xorshift draws,
+    /// and the parity ties of each total.
+    #[test]
+    fn weight_at_recip_matches_weight_at_oracle() {
+        let totals: [i128; 7] = [
+            2,
+            3,
+            1 << 31,
+            1 << 32,
+            (1 << 32) + 1,
+            1 << 40,
+            i128::from(u64::MAX / 2),
+        ];
+        let mut x = 0x243F_6A88_85A3_08D3_u64;
+        for &total in &totals {
+            let recip = recip_u64(total).expect("total is in the reciprocal window");
+            let total_i64 = i64::try_from(total).expect("total <= i64::MAX");
+            let mut e_values: Vec<i64> = vec![
+                0,
+                1,
+                total_i64 / 2,
+                total_i64 - 1,
+                total_i64,
+                (1 << 32) - 1,
+                1 << 32,
+                -1,
+                i64::MIN,
+            ];
+            let mut draw = 0usize;
+            while draw < 128 {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                e_values.push(i64::try_from(x >> 1).expect("the top 63 bits fit i64"));
+                draw += 1;
+            }
+            // The parity ties: `e << 32` congruent to `total/2` mod total, when such an `e` exists
+            // in the small search window. `total/2` is the oracle's own rounding bias.
+            let half = (total / 2) % total;
+            let mut e = 0i64;
+            while e < 4096 {
+                if (i128::from(e) << 32) % total == half {
+                    e_values.push(e);
+                }
+                e += 1;
+            }
+            for &e in &e_values {
+                let expected = weight_at(e, total);
+                let got = weight_at_recip(e, total, recip);
+                assert_eq!(got, expected, "total {total} e {e}");
+            }
+        }
+        // `recip_u64` refuses outside its window, and the `None` dispatch is the literal oracle.
+        assert!(recip_u64(0).is_none());
+        assert!(recip_u64(1).is_none());
+        assert!(recip_u64(i128::from(u64::MAX)).is_none());
+        let total = i128::from(u64::MAX);
+        let e = 7i64;
+        let dispatched = match recip_u64(total) {
+            Some(r) => weight_at_recip(e, total, r),
+            None => weight_at(e, total),
+        };
+        assert_eq!(dispatched, weight_at(e, total));
+    }
+
+    /// The hoisted `first + s·stride` base must equal the checked index oracles [`row_bounds`] and
+    /// [`plane_at`] on the rows the output test reads.
+    #[test]
+    fn hoisted_row_base_matches_plane_index_oracles() {
+        let kv = 2usize;
+        let hd = 3usize;
+        let stride = kv.checked_mul(hd).expect("stride");
+        let mut kvh = 0usize;
+        while kvh < kv {
+            let first = kvh.checked_mul(hd).expect("first");
+            let mut s = 0usize;
+            while s < 6 {
+                let base = first + s * stride;
+                let (rb_base, rb_end) = row_bounds(kv, kvh, hd, s).expect("row_bounds");
+                assert_eq!(rb_base, base, "kvh {kvh} s {s}");
+                assert_eq!(rb_end, base + hd, "kvh {kvh} s {s}");
+                let mut i = 0usize;
+                while i < hd {
+                    assert_eq!(
+                        plane_at(kv, kvh, hd, s, i).expect("plane_at"),
+                        base + i,
+                        "kvh {kvh} s {s} i {i}"
+                    );
+                    i += 1;
+                }
+                s += 1;
+            }
+            kvh += 1;
+        }
+    }
+
+    /// The round epilogue shared by the two fold-shape helpers: one `round_shift_32` plus the same
+    /// `i64` range check [`KvState::attn_head`] applies.
+    ///
+    /// # Complexity
+    ///
+    /// `O(hd)` time and space: one `head_dim`-wide output.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the `as i64` narrowing is range-checked against i128::from(i64::MAX)/i64::MIN \
+                  immediately before it"
+    )]
+    fn round_acc(acc: &[i128]) -> Result<Vec<i64>, AttnError> {
+        let mut out: Vec<i64> = Vec::with_capacity(acc.len());
+        let mut i = 0usize;
+        while i < acc.len() {
+            let rounded = round_shift_32(acc[i]);
+            if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
+                return Err(AttnError::Overflow);
+            }
+            out.push(rounded as i64);
+            i += 1;
+        }
+        Ok(out)
+    }
+
+    /// The key-outer output fold in the pre-inline shape: the whole prefix's weights are resolved
+    /// into a `Vec` first (the r26 dispatch), then each key's row is read and folded. Test-only
+    /// oracle for the inline shape; the production inline path is [`KvState::attn_head`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(keys · hd)` time, `O(keys + hd)` space (the weights vector and the accumulator).
+    fn weights_vec_fold(
+        vplane: &[i64],
+        exps: &[i64],
+        total: i128,
+        kv: usize,
+        kvh: usize,
+        hd: usize,
+    ) -> Result<Vec<i64>, AttnError> {
+        let recip = recip_u64(total);
+        let mut weights: Vec<i64> = Vec::with_capacity(exps.len());
+        let mut s = 0usize;
+        while s < exps.len() {
+            let w = match recip {
+                Some(r) => weight_at_recip(exps[s], total, r)?,
+                None => weight_at(exps[s], total)?,
+            };
+            weights.push(w);
+            s += 1;
+        }
+        let mut acc: Vec<i128> = vec![0i128; hd];
+        let mut s = 0usize;
+        while s < exps.len() {
+            let base = plane_at(kv, kvh, hd, s, 0)?;
+            if base > vplane.len().saturating_sub(hd) {
+                return Err(AttnError::Overflow);
+            }
+            let row = &vplane[base..base + hd];
+            let w = i128::from(weights[s]);
+            let mut i = 0usize;
+            while i < hd {
+                acc[i] = acc[i]
+                    .checked_add(
+                        w.checked_mul(i128::from(row[i]))
+                            .ok_or(AttnError::Overflow)?,
+                    )
+                    .ok_or(AttnError::Overflow)?;
+                i += 1;
+            }
+            s += 1;
+        }
+        round_acc(&acc)
+    }
+
+    /// The key-outer output fold in the inline shape: each key's weight is resolved immediately
+    /// before its row is read, with no weights buffer. Mirrors the production loop of
+    /// [`KvState::attn_head`] so the two shapes can be compared for the same `exps`/`total`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(keys · hd)` time, `O(hd)` space (no weights vector).
+    fn inline_fold(
+        vplane: &[i64],
+        exps: &[i64],
+        total: i128,
+        kv: usize,
+        kvh: usize,
+        hd: usize,
+    ) -> Result<Vec<i64>, AttnError> {
+        let recip = recip_u64(total);
+        let mut acc: Vec<i128> = vec![0i128; hd];
+        let mut s = 0usize;
+        while s < exps.len() {
+            let w = match recip {
+                Some(r) => weight_at_recip(exps[s], total, r)?,
+                None => weight_at(exps[s], total)?,
+            };
+            let base = plane_at(kv, kvh, hd, s, 0)?;
+            if base > vplane.len().saturating_sub(hd) {
+                return Err(AttnError::Overflow);
+            }
+            let row = &vplane[base..base + hd];
+            let w = i128::from(w);
+            let mut i = 0usize;
+            while i < hd {
+                acc[i] = acc[i]
+                    .checked_add(
+                        w.checked_mul(i128::from(row[i]))
+                            .ok_or(AttnError::Overflow)?,
+                    )
+                    .ok_or(AttnError::Overflow)?;
+                i += 1;
+            }
+            s += 1;
+        }
+        round_acc(&acc)
+    }
+
+    /// The inline weight fold must equal the weights-`Vec` fold for the same scores/exps/total,
+    /// including a total outside the reciprocal window (`recip_u64` returns `None`, so the literal
+    /// [`weight_at`] dispatch runs). `attn_head`'s reachable totals are all `>= ONE` (the argmax key
+    /// contributes `fixed_exp(0) = ONE`), so its dispatch never returns `None`; the `None` case is
+    /// therefore exercised at the fold level, where the two shapes are the only variable.
+    #[test]
+    fn inline_weight_fold_matches_weights_vec_oracle() {
+        // hd 3, kv 2, kvh 1: row `s` starts at `(2·s + 1)·3`, so the two shapes cannot share a
+        // trivial base. Three keys fit the 18-word plane.
+        let (kv, kvh, hd) = (2usize, 1usize, 3usize);
+        let mut vplane = vec![0i64; 3 * kv * hd];
+        let mut seed = 0xDEAD_BEEF_1234_5678_u64;
+        let mut at = 0usize;
+        while at < vplane.len() {
+            vplane[at] = word(&mut seed);
+            at += 1;
+        }
+        let cases: [(&[i64], i128); 4] = [
+            (&[ONE, ONE, ONE / 2], 5 * i128::from(ONE) / 2),
+            (&[ONE, 0, ONE / 4], 5 * i128::from(ONE) / 4),
+            // `total = 1` is below `recip_u64`'s lower window edge, so the dispatch takes `None`.
+            (&[0, 1], 1),
+            // A total above `ONE` but well inside the window.
+            (&[3, 5, 8], 16),
+        ];
+        for (exps, total) in cases {
+            let expected = weights_vec_fold(&vplane, exps, total, kv, kvh, hd);
+            let got = inline_fold(&vplane, exps, total, kv, kvh, hd);
+            assert_eq!(got, expected, "exps {exps:?} total {total}");
+            if total < 2 {
+                assert!(
+                    recip_u64(total).is_none(),
+                    "total {total} leaves the window"
+                );
+            }
+        }
+    }
+
+    /// The first refusing key and its `AttnError` must be the same in the inline and weights-`Vec`
+    /// shapes: a weight refusal at key 1 with key 0 admitted, and a bound refusal at key 1 with a
+    /// one-row-short plane. Both shapes scan keys ascending, so both stop at the same key.
+    #[test]
+    fn first_refusing_key_matches_weights_vec_shape() {
+        let (kv, kvh, hd) = (2usize, 1usize, 3usize);
+        let mut vplane = vec![0i64; 3 * kv * hd];
+        let mut seed = 0x0F1E_2D3C_4B5A_6978_u64;
+        let mut at = 0usize;
+        while at < vplane.len() {
+            vplane[at] = word(&mut seed);
+            at += 1;
+        }
+        // Weight refusal at key 1: key 0's weight is admitted, key 1's `e·2^32` leaves `i64`.
+        let exps = [1i64, i64::MAX];
+        let total = 2i128;
+        assert_eq!(weight_at(exps[0], total), Ok(1i64 << 31));
+        assert_eq!(weight_at(exps[1], total), Err(AttnError::Overflow));
+        assert_eq!(
+            weights_vec_fold(&vplane, &exps, total, kv, kvh, hd),
+            Err(AttnError::Overflow)
+        );
+        assert_eq!(
+            inline_fold(&vplane, &exps, total, kv, kvh, hd),
+            Err(AttnError::Overflow)
+        );
+
+        // Bound refusal at key 1: `short` holds key 0's row but cuts key 1's.
+        let short = &vplane[..kvh * hd + hd];
+        let exps = [ONE, ONE];
+        let total = 2 * i128::from(ONE);
+        assert_eq!(
+            weights_vec_fold(short, &exps, total, kv, kvh, hd),
+            Err(AttnError::Overflow)
+        );
+        assert_eq!(
+            inline_fold(short, &exps, total, kv, kvh, hd),
+            Err(AttnError::Overflow)
         );
     }
 }
