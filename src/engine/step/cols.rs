@@ -19,7 +19,7 @@ use super::{
 };
 use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
 use crate::engine::chart::QuantAct;
-use crate::engine::kern::gemm::gemm_q8_0_swiglu;
+use crate::engine::kern::gemm::{gemm_q8_0_group, gemm_q8_0_swiglu};
 use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
@@ -277,6 +277,26 @@ impl Engine {
         } else {
             None
         };
+        // The parts of a resident `Q8_0` group share `n_in`, so one activation pack and one row
+        // dispatch serve them all. The group defers (`None`) to the per-part loop below, which owns
+        // every refusal; a payload error propagates here in part order, as `proj_cols` would.
+        if let (Some(li), Some(qs)) = (li, qs.as_deref()) {
+            if xs.len() > 1 && self.hadamard().is_none() {
+                let mut payloads = Vec::with_capacity(parts.len());
+                for (i, &p) in parts.iter().enumerate() {
+                    let idx = li.at(p, layer)?;
+                    let (ggml_type, raw) = self.payload_at(idx, outs[i], n_in, Sched::Resident)?;
+                    payloads.push((ggml_type, raw, outs[i]));
+                }
+                let group: Vec<(u32, &[u8], usize)> = payloads
+                    .iter()
+                    .map(|(t, raw, n)| (*t, raw.as_ref(), *n))
+                    .collect();
+                if let Some(cols) = gemm_q8_0_group(&group, n_in, qs) {
+                    return Ok(cols);
+                }
+            }
+        }
         let mut out = Vec::with_capacity(parts.len());
         for (i, &p) in parts.iter().enumerate() {
             out.push(self.proj_cols(
