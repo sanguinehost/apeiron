@@ -339,6 +339,137 @@ pub(crate) fn gemm_q8_0(
     }
 }
 
+/// Several `Q8_0` projections of the same activation with one shared pack and one row dispatch:
+/// `parts[i] = (ggml_type, raw, n_out)` is projection `i` and every part reads the same input width
+/// `n_in` and activation columns `qs`. Returns part `i`'s `k` columns, each equal to the value
+/// [`gemm_q8_0`] produces for that part, or `None` when the caller must run the per-part contract
+/// path (which owns every refusal).
+///
+/// The activation packing depends only on `(qs, blocks)` and every part shares `n_in`, so the pack
+/// is computed once instead of once per part; the parts' row tasks form one pool dispatch through
+/// the prefix sums of `⌈n_out_i / ROWS_PER_TASK⌉`. The same `x86::rows` kernel runs on the same
+/// weight bytes and packed activation with the same `limit`, and each part's row ranges partition
+/// that part's outputs, so the interleaving changes no word.
+///
+/// # Complexity
+///
+/// Temporal `O(Σ n_out_i·n_in·k)` byte multiply-adds plus `O(k·n_in)` packing, over one dispatch of
+/// `Σ⌈n_out_i/ROWS_PER_TASK⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
+/// output, against one pack and one dispatch per part for the per-part path.
+#[must_use]
+pub(crate) fn gemm_q8_0_group(
+    parts: &[(u32, &[u8], usize)],
+    n_in: usize,
+    qs: &[QuantAct],
+) -> Option<Vec<Vec<Vec<i64>>>> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if qs.is_empty()
+            || !n_in.is_multiple_of(ACT_QK)
+            || n_in / ACT_QK > MAX_BLOCKS
+            || !std::is_x86_feature_detected!("avx2")
+            || !std::is_x86_feature_detected!("avxvnni")
+        {
+            return None;
+        }
+        let blocks = n_in / ACT_QK;
+        let row_bytes = blocks * Q8_0_BLOCK_BYTES;
+        for (ggml_type, raw, n_out) in parts {
+            if *ggml_type != GGML_TYPE_Q8_0
+                || *n_out == 0
+                || raw.len() < n_out.checked_mul(row_bytes)?
+            {
+                return None;
+            }
+        }
+        for q in qs {
+            // The columns `matvec_q8act` computes on its fast row, whose value is the exact sum.
+            if q.len() != n_in
+                || q.scales().len() != blocks
+                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
+                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
+            {
+                return None;
+            }
+        }
+        let k = qs.len();
+        // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
+        // without allocating it, and build the prefix sums the task-to-part map reads.
+        let mut starts = Vec::with_capacity(parts.len() + 1);
+        starts.push(0usize);
+        for (_, _, n_out) in parts {
+            n_out.checked_mul(k)?;
+            let next = starts[starts.len() - 1] + n_out.div_ceil(ROWS_PER_TASK);
+            starts.push(next);
+        }
+        let total_tasks = starts[parts.len()];
+        let packed = pack(qs, blocks)?;
+        let limit = spread_limit(blocks);
+        let mut cols: Vec<Vec<Vec<i64>>> = parts
+            .iter()
+            .map(|(_, _, n_out)| (0..k).map(|_| Vec::with_capacity(*n_out)).collect())
+            .collect();
+        let col_ptrs: Vec<ColPtrs> = cols
+            .iter_mut()
+            .map(|part_cols| ColPtrs {
+                ptrs: part_cols
+                    .iter_mut()
+                    .map(|v| v.spare_capacity_mut().as_mut_ptr())
+                    .collect(),
+            })
+            .collect();
+        let col_ptrs = &col_ptrs;
+        let starts = &starts;
+        let bad = std::sync::atomic::AtomicBool::new(false);
+        crate::engine::chart::pool::Pool::global().run(total_tasks, &|t| {
+            // `t` falls in the first part whose task prefix exceeds it; the row range is the
+            // task's `ROWS_PER_TASK` slice of that part.
+            let mut i = 0usize;
+            while i + 1 < parts.len() && t >= starts[i + 1] {
+                i += 1;
+            }
+            let r0 = (t - starts[i]) * ROWS_PER_TASK;
+            let r1 = (r0 + ROWS_PER_TASK).min(parts[i].2);
+            // SAFETY: AVX2 and AVX-VNNI were detected above; `parts[i].1` holds `n_out` rows of
+            // `row_bytes`, the packing covers `blocks` blocks, and `col_ptrs[i]` addresses the rows
+            // `[r0, r1)` of every column of part `i` in that column's own allocation, reserved to
+            // `n_out`.
+            let ok = unsafe {
+                x86::rows(
+                    parts[i].1,
+                    row_bytes,
+                    blocks,
+                    r0,
+                    r1 - r0,
+                    qs,
+                    &packed,
+                    limit,
+                    &col_ptrs[i],
+                )
+            };
+            if !ok {
+                bad.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        if bad.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        for (i, part_cols) in cols.iter_mut().enumerate() {
+            let n_out = parts[i].2;
+            for col in part_cols.iter_mut() {
+                // SAFETY: every index `0..n_out` of every column was written exactly once above.
+                unsafe { col.set_len(n_out) };
+            }
+        }
+        Some(cols)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (parts, n_in, qs);
+        None
+    }
+}
+
 /// `round(silu(gate)·up / 2^32)` in checked integer arithmetic: the fused epilogue's element,
 /// identical to `chart::ffn`'s private `swiglu_one` (the same [`silu_fixed`], checked `i128`
 /// product and one [`round_shift_32`] narrowing).
@@ -1101,6 +1232,102 @@ mod tests {
         let raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
         let qs = columns(16, 1024, 4, &mut seed);
         assert!(gemm_q8_0(GGML_TYPE_Q8_0, &raw, 64, 1024, &qs).is_some());
+    }
+
+    /// Every part of [`gemm_q8_0_group`] equals [`gemm_q8_0`] on the same part: one shared pack and
+    /// one dispatch produce the per-part values bit for bit, across widths, column counts and
+    /// weight-scale mixes. A group refusal implies some part would refuse too, so the caller's
+    /// per-part fallback owns the same values and refusals.
+    #[test]
+    fn gemm_group_equals_the_per_part_gemm() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 0x6772_6f75u64;
+        let scale_sets: [&[u16]; 3] = [
+            &[0x2000, 0x2400, 0x1c00, 0xa000],
+            &[0x0001, 0x03ff, 0x0400, 0x8200],
+            &[0x0000, 0x3c00, 0x0010, 0x7bff],
+        ];
+        // Non-increasing output widths: a task always reads within its part's rows, so a mutation
+        // that misroutes a part's weights stays in bounds and shows as a value difference.
+        let outs = [40usize, 18, 5, 1];
+        let mut saw_value = false;
+        for &(n_in, k) in &[(32usize, 1usize), (64, 3), (256, 7), (1024, 9)] {
+            for (si, scales) in scale_sets.iter().enumerate() {
+                let raws: Vec<Vec<u8>> = outs
+                    .iter()
+                    .map(|&n| payload(n, n_in, scales, &mut seed))
+                    .collect();
+                let qs = columns(k, n_in, 8, &mut seed);
+                let parts: Vec<(u32, &[u8], usize)> = raws
+                    .iter()
+                    .zip(outs)
+                    .map(|(r, n)| (GGML_TYPE_Q8_0, r.as_slice(), n))
+                    .collect();
+                let want: Vec<Option<Vec<Vec<i64>>>> = parts
+                    .iter()
+                    .map(|&(t, r, n)| gemm_q8_0(t, r, n, n_in, &qs))
+                    .collect();
+                match gemm_q8_0_group(&parts, n_in, &qs) {
+                    Some(cols) => {
+                        saw_value = true;
+                        for (i, w) in want.iter().enumerate() {
+                            assert_eq!(
+                                cols[i],
+                                w.clone().expect("group value needs a per-part value"),
+                                "part {i} n_in {n_in} k {k} scales {si}"
+                            );
+                        }
+                    }
+                    None => assert!(
+                        want.iter().any(Option::is_none),
+                        "group deferred where every part has a value: n_in {n_in} k {k} scales {si}"
+                    ),
+                }
+            }
+        }
+        assert!(
+            saw_value,
+            "the group must take its fast path on ordinary inputs"
+        );
+    }
+
+    /// A group defers (`None`) when one part's payload is short or carries a non-finite block
+    /// scale, so the caller runs the per-part contract path; the same part alone still produces a
+    /// value, so the refusal is not vacuous.
+    #[test]
+    fn gemm_group_defers_on_a_short_or_non_finite_part() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 0x5f6f_7274u64;
+        let (n_in, k, n_out) = (64usize, 2usize, 16usize);
+        let scales = &[0x2000, 0x2400, 0x1c00, 0xa000];
+        let good0 = payload(n_out, n_in, scales, &mut seed);
+        let good1 = payload(n_out, n_in, scales, &mut seed);
+        let qs = columns(k, n_in, 4, &mut seed);
+        assert!(gemm_q8_0(GGML_TYPE_Q8_0, &good0, n_out, n_in, &qs).is_some());
+
+        // One byte short of `n_out·row_bytes`.
+        let short = &good1[..good1.len() - 1];
+        let parts = [
+            (GGML_TYPE_Q8_0, good0.as_slice(), n_out),
+            (GGML_TYPE_Q8_0, short, n_out),
+        ];
+        assert!(gemm_q8_0_group(&parts, n_in, &qs).is_none(), "short part");
+
+        // A non-finite (`f16` +inf) scale in the second part's first block; `rows` refuses it.
+        let mut bad = good1.clone();
+        bad[0..2].copy_from_slice(&0x7C00u16.to_le_bytes());
+        let parts = [
+            (GGML_TYPE_Q8_0, good0.as_slice(), n_out),
+            (GGML_TYPE_Q8_0, bad.as_slice(), n_out),
+        ];
+        assert!(
+            gemm_q8_0_group(&parts, n_in, &qs).is_none(),
+            "non-finite scale"
+        );
     }
 
     /// The vector `finish` (`x86::finish8`) equals the scalar `finish` on every lane: both
