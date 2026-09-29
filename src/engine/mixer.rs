@@ -345,14 +345,23 @@ pub(crate) fn conv_silu_cols(
     crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
         let c0 = t * per;
         let c1 = (c0 + per).min(ch);
+        // The channel's `kernel` taps and its sliding `kernel`-row history, in task-local
+        // buffers: the raw output stores through `writers.write` may alias `w` and `xs` to LLVM,
+        // so a value read from either is reloaded per column; a task-local buffer is not.
+        let mut taps = vec![0i64; kernel];
+        let mut hist = vec![0i64; kernel];
         for c in c0..c1 {
             let base = c * kernel;
+            taps.copy_from_slice(&w[base..base + kernel]);
+            for (t, slot) in hist.iter_mut().enumerate() {
+                *slot = row(t, c);
+            }
             for j in 0..k {
                 let mut acc: i128 = 0;
                 let mut tap = 0usize;
                 let mut acc_ok = true;
                 while tap < kernel && acc_ok {
-                    let prod = i128::from(w[base + tap]) * i128::from(row(j + tap, c));
+                    let prod = i128::from(taps[tap]) * i128::from(hist[tap]);
                     match acc.checked_add(prod) {
                         Some(total) => acc = total,
                         None => acc_ok = false,
@@ -387,6 +396,13 @@ pub(crate) fn conv_silu_cols(
                         }
                         return;
                     }
+                }
+                // Slide the history window one column: after the shift `hist[t]` holds
+                // `row(j + 1 + t, c)`, the next column's window. The last column has no successor
+                // row, so it leaves `hist` as it is.
+                if j + 1 < k {
+                    hist.copy_within(1..kernel, 0);
+                    hist[kernel - 1] = row(j + kernel, c);
                 }
             }
         }
