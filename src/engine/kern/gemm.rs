@@ -41,11 +41,14 @@ const ACT_QK: usize = 32;
 /// Columns per packed group: one 32-bit lane each in a 256-bit register.
 const LANES: usize = 8;
 /// Weight rows per pool task.
-const ROWS_PER_TASK: usize = 16;
+pub(super) const ROWS_PER_TASK: usize = 16;
 /// The widest row the stack scratch holds, in blocks (`n_in ≤ 16384`).
 const MAX_BLOCKS: usize = 512;
 
 use super::pow2::{f16_split, finish};
+#[cfg(test)]
+#[path = "gemm_attrib.rs"]
+mod attrib;
 
 /// The largest total exponent spread whose `i64` accumulation of `blocks` terms `|m·D| < 2^30`
 /// cannot overflow: `30 + spread + ⌈log₂ blocks⌉ ≤ 63`.
@@ -173,6 +176,36 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     })
 }
 
+/// Whether every column is one `matvec_q8act` computes on its fast row, whose value is the exact
+/// sum: length `n_in`, `blocks` scales, `Σ|S_b·xq_j|` exact ([`ActMagnitude::Exact`]) and the
+/// fast-bound of `q8act_fast_bound_ok`.
+///
+/// The exact-magnitude test is implied by the bound, so only the bound runs. With `n_in ≤
+/// MAX_BLOCKS·ACT_QK = 2^14` (checked by every caller) and `scales.len() == blocks`, the bound's
+/// `s_max·32·128·127 ≤ i64::MAX` gives `|S_b·xq_j| ≤ 128·s_max < i64::MAX` for every `|xq_j| ≤ 128`,
+/// so every checked product is `Some`, and `Σ_j |S_b·xq_j| < 2^14·2^63 < i128::MAX`, so no checked
+/// add overflows. `ActMagnitude::Exact` is therefore true whenever the bound holds, and the
+/// predicate equals the former `len ∧ scales ∧ Exact ∧ bound` conjunction. `debug_assertions`
+/// builds re-check the implication on every accepted column.
+///
+/// # Complexity
+///
+/// `O(k·blocks)` scalar `i128` compares (one `q8act_fast_bound_ok` per column, `blocks = n_in/32`),
+/// `O(1)` space. The removed `magnitude()` pass was `O(k·n_in)` checked `i64`/`i128` operations,
+/// serial ahead of the pool dispatch: 191 µs of a 405 µs `ffn_down` call at k = 64, `n_in` = 3584.
+fn fast_columns_ok(n_in: usize, blocks: usize, qs: &[QuantAct]) -> bool {
+    qs.iter().all(|q| {
+        let ok = q.len() == n_in
+            && q.scales().len() == blocks
+            && crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true);
+        debug_assert!(
+            !ok || matches!(q.magnitude(), ActMagnitude::Exact(_)),
+            "the fast bound implies an exact magnitude"
+        );
+        ok
+    })
+}
+
 /// The row kernel's output pointers, one per column, each into that column's `Vec<i64>` reserved
 /// to `n_out`. Task `t` writes rows `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_out))` of every
 /// column; the row ranges partition `0..n_out`, so no two tasks write the same element and no two
@@ -277,6 +310,10 @@ pub(crate) fn gemm_q8_0(
 ) -> Option<Vec<Vec<i64>>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter(probe_hooks::Kind::Gemm, n_in, &[(raw, n_out)], qs);
+        #[cfg(test)]
+        attrib::mark(0);
         if ggml_type != GGML_TYPE_Q8_0
             || qs.is_empty()
             || n_out == 0
@@ -292,18 +329,15 @@ pub(crate) fn gemm_q8_0(
         if raw.len() < n_out.checked_mul(row_bytes)? {
             return None;
         }
-        for q in qs {
-            // The columns `matvec_q8act` computes on its fast row, whose value is the exact sum.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let k = qs.len();
+        #[cfg(test)]
+        attrib::mark(1);
         let packed = pack(qs, blocks)?;
+        #[cfg(test)]
+        attrib::mark(2);
         let limit = spread_limit(blocks);
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
         // without allocating it, so the overflow still routes to the contract path.
@@ -316,9 +350,15 @@ pub(crate) fn gemm_q8_0(
                 .collect(),
         };
         let bad = std::sync::atomic::AtomicBool::new(false);
+        #[cfg(test)]
+        attrib::mark(3);
+        #[cfg(test)]
+        attrib::dispatch_begin();
         crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(ROWS_PER_TASK), &|t| {
             let r0 = t * ROWS_PER_TASK;
             let r1 = ((t + 1) * ROWS_PER_TASK).min(n_out);
+            #[cfg(test)]
+            let _rec = attrib::task(t, r1 - r0, (r1 - r0) * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows, the packing
             // covers `packed.groups` groups of `blocks` blocks, and `ptrs` addresses the rows
             // `[r0, r1)` of every column in that column's own `Vec`, reserved to `n_out`.
@@ -339,6 +379,8 @@ pub(crate) fn gemm_q8_0(
                 bad.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+        #[cfg(test)]
+        attrib::dispatch_end();
         if bad.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
@@ -346,6 +388,10 @@ pub(crate) fn gemm_q8_0(
             // SAFETY: every index `0..n_out` of every column was written exactly once above.
             unsafe { col.set_len(n_out) };
         }
+        #[cfg(test)]
+        attrib::mark(4);
+        #[cfg(test)]
+        hook.ok();
         Some(cols)
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -380,6 +426,8 @@ pub(crate) fn gemm_q8_0_group(
 ) -> Option<Vec<Vec<Vec<i64>>>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter_group(n_in, parts, qs);
         if qs.is_empty()
             || !n_in.is_multiple_of(ACT_QK)
             || n_in / ACT_QK > MAX_BLOCKS
@@ -398,15 +446,8 @@ pub(crate) fn gemm_q8_0_group(
                 return None;
             }
         }
-        for q in qs {
-            // The columns `matvec_q8act` computes on its fast row, whose value is the exact sum.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let k = qs.len();
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
@@ -477,6 +518,8 @@ pub(crate) fn gemm_q8_0_group(
                 unsafe { col.set_len(n_out) };
             }
         }
+        #[cfg(test)]
+        hook.ok();
         Some(cols)
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -548,6 +591,13 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
 ) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter(
+            probe_hooks::Kind::Swiglu,
+            n_in,
+            &[(raw_gate, n_ff), (raw_up, n_ff)],
+            qs,
+        );
         if qs.is_empty()
             || n_ff == 0
             || !n_in.is_multiple_of(ACT_QK)
@@ -567,15 +617,8 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
         // The output is `n_ff·k` words; guard the product as `gemm_q8_0` guards its interleaving
         // buffer.
         n_ff.checked_mul(k)?;
-        for q in qs {
-            // The same fast-row preconditions `gemm_q8_0` requires of every column.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
@@ -590,9 +633,13 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
         let bad = std::sync::atomic::AtomicBool::new(false);
         let first: std::sync::Mutex<Option<(usize, usize, FfnError)>> = std::sync::Mutex::new(None);
         let first_ref = &first;
+        #[cfg(test)]
+        attrib::dispatch_begin();
         crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(ROWS_PER_TASK), &|t| {
             let r0 = t * ROWS_PER_TASK;
             let rows = (n_ff - r0).min(ROWS_PER_TASK);
+            #[cfg(test)]
+            let _rec = attrib::task(t, rows, 2 * rows * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; both payloads hold `n_ff` rows and the
             // packing covers `packed.groups` groups of `blocks` blocks; task `t` owns hidden indices
             // `[r0, r0 + rows)` and writes each column's own allocation there.
@@ -606,6 +653,8 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
                 bad.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+        #[cfg(test)]
+        attrib::dispatch_end();
         if bad.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
@@ -613,8 +662,12 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
         {
+            #[cfg(test)]
+            hook.ok();
             Some(Err(e))
         } else {
+            #[cfg(test)]
+            hook.ok();
             for col in &mut cols {
                 unsafe { col.set_len(n_ff) };
             }
@@ -630,6 +683,8 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
 
 #[cfg(target_arch = "x86_64")]
 mod x86 {
+    #[cfg(test)]
+    use super::probe_hooks;
     use super::{
         exact_dot, f16_split, finish, Packed, QuantAct, LANES, MAX_BLOCKS, Q8_0_BLOCK_BYTES,
     };
@@ -1164,6 +1219,8 @@ mod x86 {
             std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
         };
         let mut lanes2 = [0i64; 16];
+        #[cfg(test)]
+        let pc = probe_hooks::Local::new();
         let mut r = 0usize;
         while r < rows {
             let pair = r + 1 < rows;
@@ -1183,6 +1240,8 @@ mod x86 {
             while g + 1 < p.groups {
                 let acc = unsafe {
                     if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_NOSHIFT);
                         group2_x2_noshift(
                             ra,
                             rb,
@@ -1193,6 +1252,8 @@ mod x86 {
                             p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
                         )
                     } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_SHIFT);
                         group2_x2(
                             ra,
                             rb,
@@ -1209,6 +1270,8 @@ mod x86 {
                 for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
                     let need_exact_a = spa + p.spread[sub_g] > limit;
                     let need_exact_b = spb + p.spread[sub_g] > limit;
+                    #[cfg(test)]
+                    pc.spreads(spa + p.spread[sub_g], pair.then_some(spb + p.spread[sub_g]));
                     let nvalid = (k - sub_g * LANES).min(LANES);
                     if !need_exact_a && (!pair || !need_exact_b) {
                         let base_c = sub_g * LANES;
@@ -1283,9 +1346,17 @@ mod x86 {
                                     }
                                 }
                             }
+                            #[cfg(test)]
+                            pc.add(probe_hooks::FAST_OK);
                             continue;
                         }
                     }
+                    #[cfg(test)]
+                    pc.add(if need_exact_a || (pair && need_exact_b) {
+                        probe_hooks::EXACT_SPREAD
+                    } else {
+                        probe_hooks::FAST_REFUSED
+                    });
                     unsafe {
                         for (i, v) in acc_chunk.iter().enumerate() {
                             _mm256_storeu_si256(
@@ -1321,6 +1392,8 @@ mod x86 {
                 g += 2;
             }
             if g < p.groups {
+                #[cfg(test)]
+                pc.add(probe_hooks::TAIL_G2);
                 let acc = unsafe {
                     group2(
                         ra,
@@ -1339,6 +1412,8 @@ mod x86 {
                 }
                 let need_exact_a = spa + p.spread[g] > limit;
                 let need_exact_b = spb + p.spread[g] > limit;
+                #[cfg(test)]
+                pc.spreads(spa + p.spread[g], pair.then_some(spb + p.spread[g]));
                 let nvalid = (k - g * LANES).min(LANES);
                 if !need_exact_a && (!pair || !need_exact_b) {
                     let mut shifts = [0u32; 2 * LANES];
@@ -1361,6 +1436,8 @@ mod x86 {
                         Some([0i64; LANES])
                     };
                     if let (Some(va), Some(vb)) = (fa, fb) {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_OK);
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
                             unsafe {
@@ -1375,6 +1452,8 @@ mod x86 {
                             }
                         }
                     } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_REFUSED);
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
                             for (which, (row, kmin, sp)) in
@@ -1400,6 +1479,8 @@ mod x86 {
                         }
                     }
                 } else {
+                    #[cfg(test)]
+                    pc.add(probe_hooks::EXACT_SPREAD);
                     for lane in 0..nvalid {
                         let c = g * LANES + lane;
                         for (which, (row, kmin, sp)) in
@@ -1424,6 +1505,10 @@ mod x86 {
                         }
                     }
                 }
+            }
+            #[cfg(test)]
+            if !pair {
+                pc.add(probe_hooks::ODD_ROW);
             }
             r += if pair { 2 } else { 1 };
         }
@@ -1478,6 +1563,8 @@ mod x86 {
             std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
         };
         let mut lanes = [0i64; 16];
+        #[cfg(test)]
+        let pc = probe_hooks::Local::new();
         let mut r = 0usize;
         while r < rows {
             let i = r0 + r;
@@ -1493,6 +1580,12 @@ mod x86 {
             };
             let eval_sub_g = |sub_g: usize, gate_arr: &[i64; 8], up_arr: &[i64; 8]| {
                 let active = (k - sub_g * LANES).min(LANES);
+                #[cfg(test)]
+                pc.add(if carrier == super::Carrier::F32 {
+                    probe_hooks::SWIGLU_F32
+                } else {
+                    probe_hooks::SWIGLU_Q32
+                });
                 if carrier == super::Carrier::F32 {
                     let mut buf = [0i64; 8];
                     match unsafe {
@@ -1549,6 +1642,8 @@ mod x86 {
             while g + 1 < p.groups {
                 let acc = unsafe {
                     if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_NOSHIFT);
                         group2_x2_noshift(
                             ga,
                             ua,
@@ -1559,6 +1654,8 @@ mod x86 {
                             p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
                         )
                     } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_SHIFT);
                         group2_x2(
                             ga,
                             ua,
@@ -1575,6 +1672,8 @@ mod x86 {
                 for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
                     let need_exact_a = spa + p.spread[sub_g] > limit;
                     let need_exact_b = spb + p.spread[sub_g] > limit;
+                    #[cfg(test)]
+                    pc.spreads(spa + p.spread[sub_g], Some(spb + p.spread[sub_g]));
                     let active = (k - sub_g * LANES).min(LANES);
                     let mut gate_arr = [0i64; 8];
                     let mut up_arr = [0i64; 8];
@@ -1627,10 +1726,18 @@ mod x86 {
                             );
                             _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
                             _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                            #[cfg(test)]
+                            pc.add(probe_hooks::FAST_OK);
                             fast_ok = true;
                         }
                     }
                     if !fast_ok {
+                        #[cfg(test)]
+                        pc.add(if need_exact_a || need_exact_b {
+                            probe_hooks::EXACT_SPREAD
+                        } else {
+                            probe_hooks::FAST_REFUSED
+                        });
                         unsafe {
                             for (idx, v) in acc_chunk.iter().enumerate() {
                                 _mm256_storeu_si256(
@@ -1676,6 +1783,10 @@ mod x86 {
                 };
                 let need_exact_a = spa + p.spread[g] > limit;
                 let need_exact_b = spb + p.spread[g] > limit;
+                #[cfg(test)]
+                pc.spreads(spa + p.spread[g], Some(spb + p.spread[g]));
+                #[cfg(test)]
+                pc.add(probe_hooks::TAIL_G2);
                 let active = (k - g * LANES).min(LANES);
                 let mut gate_arr = [0i64; 8];
                 let mut up_arr = [0i64; 8];
@@ -1725,10 +1836,18 @@ mod x86 {
                         _mm256_storeu_si256(gate_arr.as_mut_ptr().add(4).cast::<__m256i>(), vg1);
                         _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
                         _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_OK);
                         fast_ok = true;
                     }
                 }
                 if !fast_ok {
+                    #[cfg(test)]
+                    pc.add(if need_exact_a || need_exact_b {
+                        probe_hooks::EXACT_SPREAD
+                    } else {
+                        probe_hooks::FAST_REFUSED
+                    });
                     unsafe {
                         for (idx, v) in acc.iter().enumerate() {
                             _mm256_storeu_si256(
@@ -1763,6 +1882,21 @@ mod x86 {
         true
     }
 }
+
+/// Test-only accessors for `kern::gemm_probe`.
+#[cfg(test)]
+pub(crate) fn probe_pack_ok(qs: &[QuantAct], blocks: usize) -> bool {
+    pack(qs, blocks).is_some()
+}
+
+/// Test-only: [`spread_limit`] for `kern::gemm_probe`.
+#[cfg(test)]
+pub(crate) fn probe_limit(blocks: usize) -> u32 {
+    spread_limit(blocks)
+}
+
+#[cfg(test)]
+use super::gemm_probe::hooks as probe_hooks;
 
 #[cfg(test)]
 mod tests {
@@ -1813,6 +1947,51 @@ mod tests {
                 quant_act(&x).expect("activations quantize")
             })
             .collect()
+    }
+
+    /// `fast_columns_ok` equals the former `len ∧ scales ∧ Exact ∧ bound` predicate on columns whose
+    /// magnitude straddles the bound (`s_max·32·128·127 ≤ i64::MAX` fails from scale ≈ 2^44), with
+    /// the extreme code `-128` present, and both outcomes occur.
+    #[test]
+    fn fast_columns_predicate_equals_the_magnitude_form() {
+        let n_in = 256;
+        let mut seed = 0x5eed_0f00_dbad_cafe_u64;
+        let (mut yes, mut no) = (0usize, 0usize);
+        for shift in (20..=62).step_by(2) {
+            for trial in 0..24 {
+                let x: Vec<i64> = (0..n_in)
+                    .map(|j| {
+                        let mag = 1i64 << (shift + i64::from(trial % 2 == 1 && j % 32 == 5));
+                        if j == 0 {
+                            -mag
+                        } else {
+                            (lcg(&mut seed).cast_signed() % (2 * (mag / 2) + 1)) - mag / 2
+                        }
+                    })
+                    .collect();
+                let Some(q) = quant_act(&x) else { continue };
+                let old = q.len() == n_in
+                    && q.scales().len() == n_in / ACT_QK
+                    && matches!(q.magnitude(), ActMagnitude::Exact(_))
+                    && crate::engine::chart::q8act_fast_bound_ok(n_in, 128, &q, true);
+                let new = fast_columns_ok(n_in, n_in / ACT_QK, std::slice::from_ref(&q));
+                assert_eq!(old, new, "shift {shift} trial {trial}");
+                yes += usize::from(new);
+                no += usize::from(!new);
+            }
+        }
+        assert!(yes > 0 && no > 0, "both outcomes must occur: {yes} / {no}");
+        let q = quant_act(&vec![1i64 << 30; n_in]).expect("quantizes");
+        assert!(!fast_columns_ok(
+            n_in + 32,
+            n_in / ACT_QK + 1,
+            std::slice::from_ref(&q)
+        ));
+        assert!(!fast_columns_ok(
+            n_in,
+            n_in / ACT_QK + 1,
+            std::slice::from_ref(&q)
+        ));
     }
 
     #[test]

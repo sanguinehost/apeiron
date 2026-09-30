@@ -769,13 +769,19 @@ fn run_arms(a: &Args) -> Result<(), Box<dyn Error>> {
         for i in 0..n {
             let arm = (i + r) % n;
             let (name, env) = &a.arms[arm];
-            let mut cmd = Command::new(&exe);
+            // `EXE=<path>` selects another engine_profile build for this arm (a binary A/B in one
+            // interleaved run); it is not passed to the child's environment.
+            let arm_exe = env
+                .iter()
+                .find(|(k, _)| k == "EXE")
+                .map_or_else(|| exe.clone(), |(_, v)| std::path::PathBuf::from(v));
+            let mut cmd = Command::new(&arm_exe);
             cmd.args(["--child", "--model", &a.model, "--ids", &a.ids])
                 .args(["--pp", &a.pp.to_string(), "--tg", &a.tg.to_string()]);
             if let Some(rows) = a.spec {
                 cmd.args(["--spec", &rows.to_string()]);
             }
-            for (k, v) in env {
+            for (k, v) in env.iter().filter(|(k, _)| k != "EXE") {
                 cmd.env(k, v);
             }
             let out = cmd.output()?;

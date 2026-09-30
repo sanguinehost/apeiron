@@ -4,6 +4,8 @@
 
 pub(crate) mod bitplane;
 pub(crate) mod gemm;
+#[cfg(test)]
+mod gemm_probe;
 pub(crate) mod lut;
 pub(crate) mod matmat;
 pub(crate) mod pow2;
