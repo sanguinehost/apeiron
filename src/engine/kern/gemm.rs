@@ -42,6 +42,41 @@ const ACT_QK: usize = 32;
 const LANES: usize = 8;
 /// Weight rows per pool task.
 pub(super) const ROWS_PER_TASK: usize = 16;
+
+/// Test-only override of [`task_rows`] (`0` = none), for the task-shape sweep in `gemm_attrib`.
+#[cfg(test)]
+pub(super) static TASK_ROWS_OVERRIDE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Weight rows per task of a single-projection call whose `n_out` is at most [`NARROW_ROWS`].
+const NARROW_ROWS_PER_TASK: usize = 4;
+/// Widest single projection that takes [`NARROW_ROWS_PER_TASK`] (`n_out = 1024`: down, `attn_output`,
+/// `ssm_out` of the prefill).
+const NARROW_ROWS: usize = 1024;
+
+/// Weight rows per pool task for a part of `n_out` rows in a call of `parts` projections.
+///
+/// A 1024-row projection at 16 rows per task is 64 tasks; the pool's static weighted split over
+/// 8 P + 16 E participants leaves 4-5 tasks on a P core and 1-2 on an E core, so the slowest
+/// participant runs 1.28-1.44x the mean busy time. At 4 rows per task (256 tasks, an even row
+/// count so every task keeps whole row pairs) each participant's share differs from its weighted
+/// share by less than one task of a quarter the size. Each output row is computed independently, so
+/// the partition changes no word.
+#[inline]
+fn task_rows(n_out: usize, parts: usize) -> usize {
+    #[cfg(test)]
+    {
+        let o = TASK_ROWS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed);
+        if o != 0 {
+            return o;
+        }
+    }
+    if parts == 1 && n_out <= NARROW_ROWS {
+        NARROW_ROWS_PER_TASK
+    } else {
+        ROWS_PER_TASK
+    }
+}
 /// The widest row the stack scratch holds, in blocks (`n_in ≤ 16384`).
 const MAX_BLOCKS: usize = 512;
 
@@ -207,7 +242,7 @@ fn fast_columns_ok(n_in: usize, blocks: usize, qs: &[QuantAct]) -> bool {
 }
 
 /// The row kernel's output pointers, one per column, each into that column's `Vec<i64>` reserved
-/// to `n_out`. Task `t` writes rows `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_out))` of every
+/// to `n_out`. Task `t` writes rows `[t·task_rows, min((t+1)·task_rows, n_out))` of every
 /// column; the row ranges partition `0..n_out`, so no two tasks write the same element and no two
 /// tasks alias.
 #[cfg(target_arch = "x86_64")]
@@ -225,7 +260,7 @@ unsafe impl Sync for ColPtrs {}
 
 /// The fused `SwiGLU` epilogue's output pointers, one per column, each into that column's
 /// `Vec<i64>` pre-sized to `n_ff`. Task `t` writes hidden indices
-/// `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_ff))` of every column; the row ranges partition
+/// `[t·task_rows, min((t+1)·task_rows, n_ff))` of every column; the row ranges partition
 /// `0..n_ff`, so no two tasks write the same element.
 #[cfg(target_arch = "x86_64")]
 struct SwigluPtrs {
@@ -298,7 +333,7 @@ pub(crate) fn exact_dot(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> 
 /// Temporal `O(n_out·n_in·k)` byte multiply-adds, 32 per `vpdpbusd`, plus `O(n_out·blocks·k/8)`
 /// vector epilogue steps; the weights are read once per call, and each row's codes are reused
 /// from L1 across the `⌈k/8⌉` groups. The activation pack runs over `⌈k/8⌉` pool tasks and the
-/// row kernel over `⌈n_out/ROWS_PER_TASK⌉`, each task storing its rows straight into the
+/// row kernel over `⌈n_out/task_rows⌉`, each task storing its rows straight into the
 /// per-column vectors. Spatial `O(k·n_in)` packed activation bytes plus `O(n_out·k)` output.
 #[must_use]
 pub(crate) fn gemm_q8_0(
@@ -354,9 +389,10 @@ pub(crate) fn gemm_q8_0(
         attrib::mark(3);
         #[cfg(test)]
         attrib::dispatch_begin();
-        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(ROWS_PER_TASK), &|t| {
-            let r0 = t * ROWS_PER_TASK;
-            let r1 = ((t + 1) * ROWS_PER_TASK).min(n_out);
+        let rpt = task_rows(n_out, 1);
+        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(rpt), &|t| {
+            let r0 = t * rpt;
+            let r1 = ((t + 1) * rpt).min(n_out);
             #[cfg(test)]
             let _rec = attrib::task(t, r1 - r0, (r1 - r0) * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows, the packing
@@ -409,14 +445,14 @@ pub(crate) fn gemm_q8_0(
 ///
 /// The activation packing depends only on `(qs, blocks)` and every part shares `n_in`, so the pack
 /// is computed once instead of once per part; the parts' row tasks form one pool dispatch through
-/// the prefix sums of `⌈n_out_i / ROWS_PER_TASK⌉`. The same `x86::rows` kernel runs on the same
+/// the prefix sums of `⌈n_out_i / task_rows⌉`. The same `x86::rows` kernel runs on the same
 /// weight bytes and packed activation with the same `limit`, and each part's row ranges partition
 /// that part's outputs, so the interleaving changes no word.
 ///
 /// # Complexity
 ///
 /// Temporal `O(Σ n_out_i·n_in·k)` byte multiply-adds plus `O(k·n_in)` packing, over one dispatch of
-/// `Σ⌈n_out_i/ROWS_PER_TASK⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
+/// `Σ⌈n_out_i/task_rows⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
 /// output, against one pack and one dispatch per part for the per-part path.
 #[must_use]
 pub(crate) fn gemm_q8_0_group(
@@ -456,7 +492,7 @@ pub(crate) fn gemm_q8_0_group(
         starts.push(0usize);
         for (_, _, n_out) in parts {
             n_out.checked_mul(k)?;
-            let next = starts[starts.len() - 1] + n_out.div_ceil(ROWS_PER_TASK);
+            let next = starts[starts.len() - 1] + n_out.div_ceil(task_rows(*n_out, parts.len()));
             starts.push(next);
         }
         let total_tasks = starts[parts.len()];
@@ -480,13 +516,14 @@ pub(crate) fn gemm_q8_0_group(
         let bad = std::sync::atomic::AtomicBool::new(false);
         crate::engine::chart::pool::Pool::global().run(total_tasks, &|t| {
             // `t` falls in the first part whose task prefix exceeds it; the row range is the
-            // task's `ROWS_PER_TASK` slice of that part.
+            // task's `task_rows` slice of that part.
             let mut i = 0usize;
             while i + 1 < parts.len() && t >= starts[i + 1] {
                 i += 1;
             }
-            let r0 = (t - starts[i]) * ROWS_PER_TASK;
-            let r1 = (r0 + ROWS_PER_TASK).min(parts[i].2);
+            let rpt = task_rows(parts[i].2, parts.len());
+            let r0 = (t - starts[i]) * rpt;
+            let r1 = (r0 + rpt).min(parts[i].2);
             // SAFETY: AVX2 and AVX-VNNI were detected above; `parts[i].1` holds `n_out` rows of
             // `row_bytes`, the packing covers `blocks` blocks, and `col_ptrs[i]` addresses the rows
             // `[r0, r1)` of every column of part `i` in that column's own allocation, reserved to
@@ -566,7 +603,7 @@ fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
 /// # Complexity
 ///
 /// Temporal `O(n_ff·n_in·k)` exact multiply-adds — the gate and up dots — plus `O(n_ff·k)`
-/// `swiglu_one` evaluations over `⌈n_ff/ROWS_PER_TASK⌉` pool tasks in one dispatch. Spatial
+/// `swiglu_one` evaluations over `⌈n_ff/task_rows⌉` pool tasks in one dispatch. Spatial
 /// `O(k·n_in)` packed activation bytes plus `O(n_ff·k)` output; no `n_ff·k` gate or up matrix.
 #[must_use]
 pub(crate) fn gemm_q8_0_swiglu(
@@ -635,9 +672,10 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
         let first_ref = &first;
         #[cfg(test)]
         attrib::dispatch_begin();
-        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(ROWS_PER_TASK), &|t| {
-            let r0 = t * ROWS_PER_TASK;
-            let rows = (n_ff - r0).min(ROWS_PER_TASK);
+        let rpt = task_rows(n_ff, 2);
+        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(rpt), &|t| {
+            let r0 = t * rpt;
+            let rows = (n_ff - r0).min(rpt);
             #[cfg(test)]
             let _rec = attrib::task(t, rows, 2 * rows * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; both payloads hold `n_ff` rows and the
