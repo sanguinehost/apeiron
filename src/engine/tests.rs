@@ -460,7 +460,8 @@ fn attn_head_distinct_scores_pin_the_scale() {
     // total = 1.5*ONE. With v0 = 0 and v1 = [ONE, 0, 0, 0],
     // p1 = round(ONE*2^32 / (1.5*ONE)) = round(2^32/3*2) = 2863311531, and out[0] = p1.
     const LN2_Q32: i64 = 2_977_044_472;
-    let mut kv = KvState::new(1, 1, 1, 4, 4).expect("geometry");
+    let mut kv =
+        KvState::with_carrier(1, 1, 1, 4, 4, super::mixer::Carrier::Q32).expect("geometry");
     assert_eq!(kv.append(0, &[0, 0, 0, 0], &[0, 0, 0, 0]), Ok(0));
     assert_eq!(
         kv.append(0, &[2 * LN2_Q32, 0, 0, 0], &[ONE, 0, 0, 0]),
@@ -575,7 +576,8 @@ fn attn_saturates_out_of_window_exp_and_refuses_dot_overflow() {
     // head_dim 1, scale ONE. q = 64*ONE against keys 64*ONE and -64*ONE gives shifted scores
     // 0 and -8192*ONE; the second saturates its numerator to 0, so the query attends the first
     // key exactly.
-    let mut kv = KvState::new(1, 1, 1, 1, 2).expect("geometry");
+    let mut kv =
+        KvState::with_carrier(1, 1, 1, 1, 2, super::mixer::Carrier::Q32).expect("geometry");
     assert_eq!(kv.append(0, &[64 * ONE], &[ONE]), Ok(0));
     assert_eq!(kv.append(0, &[-64 * ONE], &[ONE]), Ok(1));
     let q = [64 * ONE];
@@ -586,7 +588,8 @@ fn attn_saturates_out_of_window_exp_and_refuses_dot_overflow() {
     assert!(kv.attn_head(0, 0, &q, 0, &mut out).is_ok());
 
     // A dot whose i128 accumulation leaves range refuses rather than wrapping.
-    let mut big = KvState::new(1, 1, 1, 3, 1).expect("geometry");
+    let mut big =
+        KvState::with_carrier(1, 1, 1, 3, 1, super::mixer::Carrier::Q32).expect("geometry");
     assert_eq!(big.append(0, &[i64::MAX; 3], &[0, 0, 0]), Ok(0));
     assert_eq!(
         big.attn_head(0, 0, &[i64::MAX; 3], 0, &mut [0i64; 3]),
@@ -641,7 +644,8 @@ fn attn_word(state: &mut u64) -> i64 {
 
 #[test]
 fn attn_fused_den_num_are_independent_of_tile_count() {
-    let mut kv = KvState::new(1, 2, 1, 4, 8).expect("geometry");
+    let mut kv =
+        KvState::with_carrier(1, 2, 1, 4, 8, super::mixer::Carrier::Q32).expect("geometry");
     let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
     let mut s = 0usize;
     while s < 8 {
@@ -764,7 +768,8 @@ fn attn_head_fused_uses_the_global_max_across_tiles() {
 
 #[test]
 fn attn_fused_refuses_zero_sum_and_zero_tile() {
-    let mut kv = KvState::new(1, 1, 1, 1, 2).expect("geometry");
+    let mut kv =
+        KvState::with_carrier(1, 1, 1, 1, 2, super::mixer::Carrier::Q32).expect("geometry");
     assert_eq!(kv.append(0, &[ONE], &[ONE]), Ok(0));
     assert_eq!(kv.append(0, &[ONE], &[ONE]), Ok(1));
     let q = [ONE];
@@ -1391,7 +1396,11 @@ fn engine_step_greedy_decode_is_deterministic() {
     );
     assert_eq!(ids, vec![0, 0, 0, 0, 0, 0, 0, 0], "recorded generated ids");
     assert_eq!(
-        checksums[0], 0x483c_6d3e_ce96_8247,
+        checksums[0],
+        match ka.carrier() {
+            super::mixer::Carrier::Q32 => 0x483c_6d3e_ce96_8247,
+            super::mixer::Carrier::F32 => 12_301_219_398_411_439_768,
+        },
         "recorded first-step logits checksum"
     );
 
