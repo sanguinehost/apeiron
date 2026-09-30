@@ -74,7 +74,9 @@ use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_sigmoid, fixed_softplus};
 use crate::numeric::fixed_rsqrt::{fixed_rsqrt, isqrt};
 
+mod conv_f32;
 pub(crate) mod f32_carrier;
+use conv_f32::conv_silu_cols_f32;
 
 /// Threshold below which the central decay scalar `c` is folded back into `S̃` (2⁻⁸ in Q32.32).
 pub const RENORM_THRESHOLD: i64 = 1 << 24;
@@ -238,13 +240,25 @@ pub(crate) struct StagedConv {
     pub(crate) ch: usize,
 }
 
+/// One f32 conv output buffer per [`AffineState`], written by layer `owner`'s conv and read by
+/// that layer's heads before the next layer's conv overwrites it. `k == 0` marks it invalid;
+/// otherwise `buf` holds `k` columns of layer `owner`. Capacity is kept at its high-water mark.
+#[derive(Debug, Default)]
+pub(crate) struct ConvF32Shared {
+    pub(crate) buf: Vec<f32>,
+    pub(crate) owner: usize,
+    pub(crate) k: usize,
+}
+
 #[derive(Debug)]
 pub struct AffineLayer {
     pub conv: ConvState,
     pub heads: Vec<Mutex<AffineHead>>,
     pub slices: usize,
-    pub(crate) conv_out_f32: Mutex<Vec<f32>>,
-    pub(crate) conv_out_f32_k: std::sync::atomic::AtomicUsize,
+    /// Index of this layer in its [`AffineState`]; the tag `conv_shared` checks.
+    pub(crate) slot: usize,
+    /// The f32 conv output buffer shared by every layer of one [`AffineState`].
+    pub(crate) conv_shared: std::sync::Arc<Mutex<ConvF32Shared>>,
     pub(crate) staged_conv: Mutex<Option<StagedConv>>,
     pub(crate) conv_w_packed: Mutex<Vec<f32>>,
     pub(crate) conv_w_scalar: Mutex<Vec<f32>>,
@@ -311,16 +325,8 @@ impl Clone for AffineLayer {
                     )
                 })
                 .collect(),
-            conv_out_f32: Mutex::new(
-                self.conv_out_f32
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone(),
-            ),
-            conv_out_f32_k: std::sync::atomic::AtomicUsize::new(
-                self.conv_out_f32_k
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            ),
+            slot: self.slot,
+            conv_shared: std::sync::Arc::new(Mutex::new(ConvF32Shared::default())),
             staged_conv: Mutex::new(
                 self.staged_conv
                     .lock()
@@ -360,8 +366,10 @@ impl Clone for AffineLayer {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone_from(&s);
         }
-        self.conv_out_f32_k
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.conv_shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .k = 0;
         *self
             .staged_conv
             .lock()
@@ -373,9 +381,22 @@ impl Clone for AffineLayer {
 ///
 /// Its size is `O(1)` in the context length: per layer, `(k − 1)·channels + n_v_heads·head_k·head_v`
 /// Q32.32 words. For Qwen3.5-0.8B that is 18 layers × (3·6144 + 16·128·128) words ≈ 38 MiB.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AffineState {
     layers: Vec<AffineLayer>,
+}
+
+impl Clone for AffineState {
+    /// The clone owns its own conv buffer, shared by its layers only (a layer's own clone starts
+    /// with a private one).
+    fn clone(&self) -> Self {
+        let mut layers = self.layers.clone();
+        let shared = std::sync::Arc::new(Mutex::new(ConvF32Shared::default()));
+        for l in &mut layers {
+            l.conv_shared = std::sync::Arc::clone(&shared);
+        }
+        AffineState { layers }
+    }
 }
 
 impl AffineState {
@@ -411,8 +432,9 @@ impl AffineState {
         let conv_len = g.conv_kernel.saturating_sub(1) * channels;
         let slices = slices.max(1);
         let slice_len = g.head_k * (g.head_v / slices);
+        let shared = std::sync::Arc::new(Mutex::new(ConvF32Shared::default()));
         let layers = (0..n_layers)
-            .map(|_| AffineLayer {
+            .map(|slot| AffineLayer {
                 conv: match carrier {
                     Carrier::Q32 => ConvState::Q32(vec![0; conv_len]),
                     Carrier::F32 => ConvState::F32(vec![0.0f32; conv_len]),
@@ -421,8 +443,8 @@ impl AffineState {
                     .map(|_| Mutex::new(AffineHead::with_carrier(slice_len, carrier)))
                     .collect(),
                 slices,
-                conv_out_f32: Mutex::new(Vec::new()),
-                conv_out_f32_k: std::sync::atomic::AtomicUsize::new(0),
+                slot,
+                conv_shared: std::sync::Arc::clone(&shared),
                 staged_conv: Mutex::new(None),
                 conv_w_packed: Mutex::new(Vec::new()),
                 conv_w_scalar: Mutex::new(Vec::new()),
@@ -847,267 +869,6 @@ fn conv_silu_cols_q32(
         }
     }
     *layer.conv.as_q32_mut() = next;
-    Ok(by_col)
-}
-
-#[allow(
-    dead_code,
-    reason = "standalone f32 conv path for benchmarks and tests"
-)]
-struct F32ColWriters(*mut f32, usize);
-unsafe impl Send for F32ColWriters {}
-unsafe impl Sync for F32ColWriters {}
-impl F32ColWriters {
-    #[inline]
-    #[allow(
-        dead_code,
-        reason = "standalone f32 conv path for benchmarks and tests"
-    )]
-    unsafe fn write(&self, j: usize, c: usize, value: f32) {
-        unsafe { *self.0.add(j * self.1 + c) = value };
-    }
-}
-
-#[allow(
-    dead_code,
-    clippy::many_single_char_names,
-    clippy::too_many_lines,
-    clippy::needless_range_loop,
-    clippy::wildcard_imports,
-    reason = "standalone f32 conv path for benchmarks and tests; w, x, c, t symbols"
-)]
-fn conv_silu_cols_f32(
-    layer: &mut AffineLayer,
-    w: &[i64],
-    kernel: usize,
-    xs: &[&[i64]],
-) -> Result<Vec<Vec<i64>>, StepError> {
-    let k = xs.len();
-    let ch = xs.first().map_or(0, |x| x.len());
-    let cols = kernel
-        .checked_sub(1)
-        .ok_or(StepError::BadConfig("conv_kernel"))?;
-    if k == 0
-        || xs.iter().any(|x| x.len() != ch)
-        || w.len() != kernel * ch
-        || layer.conv.len() != cols * ch
-    {
-        return Err(StepError::BadConfig("conv geometry"));
-    }
-
-    let mut xs_f32 = vec![0.0f32; k * ch];
-
-    let window_storage: Vec<f32>;
-    let window_f32: &[f32] = match &layer.conv {
-        ConvState::F32(v) => v.as_slice(),
-        ConvState::Q32(v) => {
-            window_storage = v.iter().copied().map(f32_carrier::q32_to_f32).collect();
-            &window_storage
-        }
-    };
-
-    let mut by_col_f32 = vec![0.0f32; k * ch];
-    let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
-    let writers = ColWriters(
-        by_col
-            .iter_mut()
-            .map(|v| v.spare_capacity_mut().as_mut_ptr())
-            .collect(),
-    );
-    let f32_writers = F32ColWriters(by_col_f32.as_mut_ptr(), ch);
-    let xs_f32_writers = F32ColWriters(xs_f32.as_mut_ptr(), ch);
-
-    let convert_input_channels = |c0: usize, c1: usize| {
-        for (j, x_col) in xs.iter().enumerate() {
-            for c in c0..c1 {
-                let f = f32_carrier::q32_to_f32(x_col[c]);
-                unsafe { xs_f32_writers.write(j, c, f) };
-            }
-        }
-    };
-
-    let process_channels = |c0: usize, c1: usize| -> Result<(), StepError> {
-        let is_avx2 = kernel == 4
-            && std::is_x86_feature_detected!("avx2")
-            && std::is_x86_feature_detected!("fma");
-
-        let mut c = c0;
-        if is_avx2 {
-            while c + 8 <= c1 {
-                #[cfg(target_arch = "x86_64")]
-                unsafe {
-                    use std::arch::x86_64::*;
-                    let mut t0 = [0.0f32; 8];
-                    let mut t1 = [0.0f32; 8];
-                    let mut t2 = [0.0f32; 8];
-                    let mut t3 = [0.0f32; 8];
-                    for lane in 0..8 {
-                        let base = (c + lane) * 4;
-                        t0[lane] = f32_carrier::q32_to_f32(w[base]);
-                        t1[lane] = f32_carrier::q32_to_f32(w[base + 1]);
-                        t2[lane] = f32_carrier::q32_to_f32(w[base + 2]);
-                        t3[lane] = f32_carrier::q32_to_f32(w[base + 3]);
-                    }
-                    let v_tap0 = _mm256_loadu_ps(t0.as_ptr());
-                    let v_tap1 = _mm256_loadu_ps(t1.as_ptr());
-                    let v_tap2 = _mm256_loadu_ps(t2.as_ptr());
-                    let v_tap3 = _mm256_loadu_ps(t3.as_ptr());
-
-                    for j in 0..k {
-                        let p0 = if j < cols {
-                            window_f32.as_ptr().add(j * ch + c)
-                        } else {
-                            xs_f32.as_ptr().add((j - cols) * ch + c)
-                        };
-                        let p1 = if j + 1 < cols {
-                            window_f32.as_ptr().add((j + 1) * ch + c)
-                        } else {
-                            xs_f32.as_ptr().add((j + 1 - cols) * ch + c)
-                        };
-                        let p2 = if j + 2 < cols {
-                            window_f32.as_ptr().add((j + 2) * ch + c)
-                        } else {
-                            xs_f32.as_ptr().add((j + 2 - cols) * ch + c)
-                        };
-                        let p3 = if j + 3 < cols {
-                            window_f32.as_ptr().add((j + 3) * ch + c)
-                        } else {
-                            xs_f32.as_ptr().add((j + 3 - cols) * ch + c)
-                        };
-
-                        let v_h0 = _mm256_loadu_ps(p0);
-                        let v_h1 = _mm256_loadu_ps(p1);
-                        let v_h2 = _mm256_loadu_ps(p2);
-                        let v_h3 = _mm256_loadu_ps(p3);
-
-                        let vy = f32_carrier::conv_silu_tap4_avx2(
-                            v_tap0, v_tap1, v_tap2, v_tap3, v_h0, v_h1, v_h2, v_h3,
-                        );
-                        let mut buf_y = [0.0f32; 8];
-                        _mm256_storeu_ps(buf_y.as_mut_ptr(), vy);
-
-                        for lane in 0..8 {
-                            let y_val = buf_y[lane];
-                            let y_q32 = f32_carrier::f32_readout_to_q32(y_val)?;
-                            writers.write(j, c + lane, y_q32);
-                            f32_writers.write(j, c + lane, y_val);
-                        }
-                    }
-                }
-                c += 8;
-            }
-        }
-
-        while c < c1 {
-            let base = c * kernel;
-            let mut taps = vec![0.0f32; kernel];
-            for (slot, &w_val) in taps.iter_mut().zip(&w[base..base + kernel]) {
-                *slot = f32_carrier::q32_to_f32(w_val);
-            }
-            let row = |r: usize| {
-                if r < cols {
-                    window_f32[r * ch + c]
-                } else {
-                    xs_f32[(r - cols) * ch + c]
-                }
-            };
-            let mut hist = vec![0.0f32; kernel];
-            for (idx, slot) in hist.iter_mut().enumerate() {
-                *slot = row(idx);
-            }
-            for j in 0..k {
-                let mut acc = 0.0f32;
-                for tap in 0..kernel {
-                    acc = taps[tap].mul_add(hist[tap], acc);
-                }
-                if !acc.is_finite() {
-                    return Err(StepError::Overflow);
-                }
-                let y = f32_carrier::silu_f32_scalar(acc);
-                let y_q32 = f32_carrier::f32_readout_to_q32(y)?;
-                unsafe {
-                    writers.write(j, c, y_q32);
-                    f32_writers.write(j, c, y);
-                }
-                if j + 1 < k {
-                    hist.copy_within(1..kernel, 0);
-                    hist[kernel - 1] = row(j + kernel);
-                }
-            }
-            c += 1;
-        }
-        Ok(())
-    };
-
-    if k == 1 {
-        convert_input_channels(0, ch);
-        process_channels(0, ch)?;
-    } else {
-        let pool_w = crate::engine::chart::pool::Pool::global().width();
-        let target_tasks = (4 * pool_w).max(96);
-        let per = (ch.div_ceil(target_tasks)).max(8).div_ceil(8) * 8;
-        let tasks = ch.div_ceil(per);
-        let first: std::sync::Mutex<Option<StepError>> = std::sync::Mutex::new(None);
-        crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
-            let c0 = t * per;
-            let c1 = (c0 + per).min(ch);
-            if c0 >= c1 {
-                return;
-            }
-            convert_input_channels(c0, c1);
-            if let Err(e) = process_channels(c0, c1) {
-                let mut f = first
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if f.is_none() {
-                    *f = Some(e);
-                }
-            }
-        });
-        if let Some(e) = first.into_inner().unwrap_or_default() {
-            return Err(e);
-        }
-    }
-
-    for col in &mut by_col {
-        unsafe { col.set_len(ch) };
-    }
-
-    match &mut layer.conv {
-        ConvState::F32(window) => {
-            if k >= cols {
-                window.copy_from_slice(&xs_f32[(k - cols) * ch..k * ch]);
-            } else {
-                window.copy_within(k * ch..cols * ch, 0);
-                window[(cols - k) * ch..cols * ch].copy_from_slice(&xs_f32[..k * ch]);
-            }
-        }
-        ConvState::Q32(window) => {
-            let mut next = vec![0i64; cols * ch];
-            for r in 0..cols {
-                for c in 0..ch {
-                    next[r * ch + c] = if k + r < cols {
-                        window[(k + r) * ch + c]
-                    } else {
-                        xs[k + r - cols][c]
-                    };
-                }
-            }
-            *window = next;
-        }
-    }
-
-    {
-        let mut guard = layer
-            .conv_out_f32
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *guard = by_col_f32;
-        layer
-            .conv_out_f32_k
-            .store(k, std::sync::atomic::Ordering::Release);
-    }
-
     Ok(by_col)
 }
 
@@ -2403,16 +2164,14 @@ fn delta_heads_cols_impl(
         }
 
         let conv_f32_guard = layer
-            .conv_out_f32
+            .conv_shared
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let conv_f32: Option<&[f32]> = if layer
-            .conv_out_f32_k
-            .load(std::sync::atomic::Ordering::Acquire)
-            == k
-            && conv_f32_guard.len() == k * (2 * key_dim + val_dim)
+        let conv_f32: Option<&[f32]> = if conv_f32_guard.owner == layer.slot
+            && conv_f32_guard.k == k
+            && conv_f32_guard.buf.len() == k * (2 * key_dim + val_dim)
         {
-            Some(&conv_f32_guard[..])
+            Some(&conv_f32_guard.buf[..])
         } else {
             None
         };

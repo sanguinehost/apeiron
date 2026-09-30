@@ -14,7 +14,9 @@
 //! 3. `reps` rounds. Each round waits for the host to be quiet (busy fraction from `/proc/stat`
 //!    over one second below `max-busy`, at most 120 s; the observed value is recorded either
 //!    way), then runs, interleaved, `llama-bench` over each thread count and this engine's
-//!    workloads, so drift hits both sides alike.
+//!    workloads, so drift hits both sides alike. Each side warms up immediately before it is
+//!    measured: `llama-bench` runs its default warm-up per test, and this engine runs one
+//!    unrecorded `pp` and `tg` before its measured `pp` and `tg`.
 //!    - `pp`: [`Engine::prefill_state`] over the first `pp` prompt ids from an empty state.
 //!    - `tg`: `tg` greedy [`Engine::next_token_state`] steps from position 0.
 //!    - `spec` (with `--spec`): [`Engine::generate_speculative`] of `tg` tokens from the first
@@ -1001,6 +1003,10 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         };
         let lp = best(&|x| x.n_prompt > 0);
         let lt = best(&|x| x.n_gen > 0);
+        // Unrecorded warm-up right before the measured workloads, matching `llama-bench`'s
+        // default per-test warm-up run (the `--llama` wrapper does not pass `--no-warmup`).
+        run_pp(&engine, &ids)?;
+        run_tg(&engine, first, a.tg)?;
         let p = run_pp(&engine, &ids)?;
         let t = run_tg(&engine, first, a.tg)?;
         let s = match a.spec {

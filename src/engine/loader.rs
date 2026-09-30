@@ -913,6 +913,26 @@ fn build_table(header: &GgufHeader, file_len: u64) -> Result<TensorTable, Engine
     Ok(TensorTable { entries })
 }
 
+/// Keep freed per-call buffers (columns, packs, conv caches; each under 64 MiB) in the glibc heap
+/// instead of returning them to the kernel. Under the default dynamic thresholds a freed buffer is
+/// trimmed or unmapped and the next layer's call faults its pages in again (W6-T11b: ~77K minor
+/// faults per pp200 run, ~3.7 faults per page; with the thresholds held, ~9K). Process-wide and
+/// set once; a refused `mallopt` leaves the default and changes no result.
+fn hold_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // SAFETY: `mallopt` only sets allocator parameters; it is called before any engine
+            // buffer exists and takes plain integers.
+            unsafe {
+                libc::mallopt(libc::M_MMAP_THRESHOLD, 64 << 20);
+                libc::mallopt(libc::M_TRIM_THRESHOLD, 1 << 30);
+            }
+        });
+    }
+}
+
 impl Engine {
     /// Open a GGUF file, resolve the config and build the checked tensor table.
     ///
@@ -923,6 +943,7 @@ impl Engine {
     /// vocabulary cross-check failure, a missing `token_embd.weight`, or a tensor extent that
     /// leaves the file.
     pub fn open(path: &str) -> Result<Engine, EngineError> {
+        hold_heap();
         let g = Gguf::open(path)?;
         let config = resolve_config(&g.header)?;
         let hadamard = hadamard_meta(&g.header)?;
