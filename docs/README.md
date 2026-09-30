@@ -84,3 +84,9 @@ autonomous run log.
 
 The full old → new map (102 paths) is in `docs/moved.tsv`. Merged epic files name their source files
 on their second line.
+
+
+## Next inference epics (draft)
+
+- [GPU prefill from verified integer primitives](epics/gpu-prefill.md): resident-buffer execution and the existing SPIR-V refinement boundary.
+- [Resource-guided evolution and cross-model transfer](epics/resource-guided-evolution.md): explain transferred gains, source-connected costs and an explicit Evolver interface.
