@@ -448,7 +448,7 @@ impl AffineState {
 
 /// The per-column spare-capacity writers that [`conv_silu_cols`] shares with the pool: element `j`
 /// points at the first unwritten word of output column `j`.
-struct ColWriters(Vec<*mut MaybeUninit<i64>>);
+pub(crate) struct ColWriters(pub(crate) Vec<*mut MaybeUninit<i64>>);
 
 // SAFETY: the dispatch gives task `t` the channel range `[t·per, min(t·per + per, ch))` of every
 // column, so no two tasks write the same word, and `by_col` is neither moved nor reallocated while
@@ -467,6 +467,21 @@ impl ColWriters {
     unsafe fn write(&self, j: usize, c: usize, value: i64) {
         // SAFETY: the caller guarantees the index and the disjointness.
         unsafe { self.0[j].add(c).write(MaybeUninit::new(value)) };
+    }
+
+    /// Write a contiguous slice of channels starting at `offset` in output column `j`.
+    ///
+    /// # Safety
+    ///
+    /// `j` is a valid column index, `offset + slice.len()` is within that column's reserved
+    /// capacity, and no other live writer targets the same channel range of column `j`.
+    #[inline]
+    unsafe fn write_slice(&self, j: usize, offset: usize, slice: &[i64]) {
+        // SAFETY: the caller guarantees the index and disjointness.
+        unsafe {
+            let dst_ptr = self.0[j].add(offset).cast::<i64>();
+            std::ptr::copy_nonoverlapping(slice.as_ptr(), dst_ptr, slice.len());
+        }
     }
 }
 
@@ -881,12 +896,6 @@ fn conv_silu_cols_f32(
     }
 
     let mut xs_f32 = vec![0.0f32; k * ch];
-    for (j, x_col) in xs.iter().enumerate() {
-        let dst_row = &mut xs_f32[j * ch..(j + 1) * ch];
-        for (dst, &src) in dst_row.iter_mut().zip(*x_col) {
-            *dst = f32_carrier::q32_to_f32(src);
-        }
-    }
 
     let window_storage: Vec<f32>;
     let window_f32: &[f32] = match &layer.conv {
@@ -906,6 +915,16 @@ fn conv_silu_cols_f32(
             .collect(),
     );
     let f32_writers = F32ColWriters(by_col_f32.as_mut_ptr(), ch);
+    let xs_f32_writers = F32ColWriters(xs_f32.as_mut_ptr(), ch);
+
+    let convert_input_channels = |c0: usize, c1: usize| {
+        for (j, x_col) in xs.iter().enumerate() {
+            for c in c0..c1 {
+                let f = f32_carrier::q32_to_f32(x_col[c]);
+                unsafe { xs_f32_writers.write(j, c, f) };
+            }
+        }
+    };
 
     let process_channels = |c0: usize, c1: usize| -> Result<(), StepError> {
         let is_avx2 = kernel == 4
@@ -1021,15 +1040,21 @@ fn conv_silu_cols_f32(
     };
 
     if k == 1 {
+        convert_input_channels(0, ch);
         process_channels(0, ch)?;
     } else {
-        let per = (ch.div_ceil(crate::engine::par::row_chunk_budget(ch))).max(128);
-        let per = per.div_ceil(8) * 8;
+        let pool_w = crate::engine::chart::pool::Pool::global().width();
+        let target_tasks = (4 * pool_w).max(96);
+        let per = (ch.div_ceil(target_tasks)).max(8).div_ceil(8) * 8;
         let tasks = ch.div_ceil(per);
         let first: std::sync::Mutex<Option<StepError>> = std::sync::Mutex::new(None);
         crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
             let c0 = t * per;
             let c1 = (c0 + per).min(ch);
+            if c0 >= c1 {
+                return;
+            }
+            convert_input_channels(c0, c1);
             if let Err(e) = process_channels(c0, c1) {
                 let mut f = first
                     .lock()
@@ -2181,6 +2206,136 @@ fn conv_silu_channel_range(
     Ok(())
 }
 
+/// Stage 2 in f32: per-(head, column block) RMS norm × `ssm_norm` × SiLU(z) gate, writing directly
+/// into the per-column output vectors via [`ColWriters`] without an intermediate flat `out` buffer
+/// or serial reassembly.
+///
+/// # Task decomposition
+///
+/// We divide `k` columns into `min(8, k)` column blocks of width `per_col = ceil(k / col_blocks)`.
+/// With `n_v_heads` value heads, this gives up to `16 * 8 = 128` tasks, keeping all participants
+/// in the pool busy (avoiding the 8-worker idle gap of 16-task head dispatches on a 24-wide pool)
+/// with fine-grained load balancing between P and E cores.
+///
+/// # Safety
+///
+/// Each task `t` owns a disjoint `(head h, column block b)` slice: head `h` targets channels
+/// `[h·head_v, (h+1)·head_v)` of columns `[c0, c1)`. Because `val_dim = n_v_heads · head_v` and
+/// column blocks partition `0..k` disjointly, no two tasks write to the same `(column, channel)`
+/// word. Each output column reserves capacity `val_dim`, and all words are written before
+/// setting the length.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    clippy::needless_range_loop,
+    reason = "Stage 2 heads arguments match the affine layer geometry and carrier buffers"
+)]
+pub(crate) fn stage2_heads_cols_f32(
+    raw_f32: &[f32],
+    cols: &[AffineCol<'_>],
+    ssm_norm_f: &[f32],
+    eps_f: f32,
+    n_v_heads: usize,
+    head_v: usize,
+    slices: usize,
+    k: usize,
+    parallel: bool,
+) -> Result<Vec<Vec<i64>>, StepError> {
+    let val_dim = n_v_heads * head_v;
+    let w = head_v / slices;
+    let mut cols_out: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(val_dim)).collect();
+    let writers = ColWriters(
+        cols_out
+            .iter_mut()
+            .map(|v| v.spare_capacity_mut().as_mut_ptr())
+            .collect(),
+    );
+
+    let col_blocks = 8.min(k).max(1);
+    let per_col = k.div_ceil(col_blocks);
+    let num_b = k.div_ceil(per_col);
+    let n_tasks = n_v_heads * num_b;
+
+    let run_task = |t: usize| -> Result<(), (usize, usize, StepError)> {
+        let h = t / num_b;
+        let b = t % num_b;
+        let c0 = b * per_col;
+        let c1 = (c0 + per_col).min(k);
+        if c0 >= c1 {
+            return Ok(());
+        }
+
+        let vr = h * head_v..(h + 1) * head_v;
+        let mut o_vec;
+        let mut o_stack = [0.0f32; 256];
+        let o_slice = if head_v <= 256 {
+            &mut o_stack[..head_v]
+        } else {
+            o_vec = vec![0.0f32; head_v];
+            &mut o_vec[..]
+        };
+
+        let mut dcol_vec;
+        let mut dcol_stack = [0i64; 256];
+        let dcol_slice = if head_v <= 256 {
+            &mut dcol_stack[..head_v]
+        } else {
+            dcol_vec = vec![0i64; head_v];
+            &mut dcol_vec[..]
+        };
+
+        for c in c0..c1 {
+            for sl in 0..slices {
+                let at = (h * slices + sl) * k * w + c * w;
+                o_slice[sl * w..(sl + 1) * w].copy_from_slice(&raw_f32[at..at + w]);
+            }
+            let zh = &cols[c].1[vr.clone()];
+            f32_carrier::stage2_gated_norm_f32(o_slice, zh, ssm_norm_f, eps_f, dcol_slice)
+                .map_err(|e| (h, c, e))?;
+
+            // SAFETY: task `t` owns head `h` (channels `[h·head_v, (h+1)·head_v)`) and column
+            // range `[c0, c1)` containing column `c`. No other task writes to channel
+            // `h·head_v + i` of column `c`, and `cols_out[c]` has capacity `val_dim`.
+            unsafe { writers.write_slice(c, h * head_v, dcol_slice) };
+        }
+        Ok(())
+    };
+
+    if parallel {
+        let first: std::sync::Mutex<Option<(usize, usize, StepError)>> =
+            std::sync::Mutex::new(None);
+        crate::engine::chart::pool::Pool::global().run(n_tasks, &|t| {
+            if let Err(e) = run_task(t) {
+                let mut slot = first
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if slot
+                    .as_ref()
+                    .is_none_or(|&(prev_h, prev_c, _)| (e.0, e.1) < (prev_h, prev_c))
+                {
+                    *slot = Some(e);
+                }
+            }
+        });
+        if let Some((_, _, e)) = first.into_inner().unwrap_or_default() {
+            return Err(e);
+        }
+    } else {
+        for t in 0..n_tasks {
+            if let Err((_, _, e)) = run_task(t) {
+                return Err(e);
+            }
+        }
+    }
+
+    for col in &mut cols_out {
+        // SAFETY: every refusal-free dispatch wrote all `val_dim` words of every column.
+        unsafe { col.set_len(val_dim) };
+    }
+
+    Ok(cols_out)
+}
+
 #[allow(
     clippy::too_many_arguments,
     clippy::too_many_lines,
@@ -2262,7 +2417,6 @@ fn delta_heads_cols_impl(
             None
         };
 
-        let mut out = vec![0i64; k * val_dim];
         let ssm_norm_f: Vec<f32> = p
             .norm
             .iter()
@@ -2272,6 +2426,7 @@ fn delta_heads_cols_impl(
 
         if k == 1 {
             if let Some(ref staged) = staged_opt {
+                let mut out = vec![0i64; val_dim];
                 let packed_guard = layer
                     .conv_w_packed
                     .lock()
@@ -2518,6 +2673,7 @@ fn delta_heads_cols_impl(
         }
 
         if k == 1 {
+            let mut out = vec![0i64; val_dim];
             // Fused Stage 1 + Stage 2 for decode (k = 1) fallback:
             let fused_head_step = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
                 let kh = h % g.n_k_heads;
@@ -2671,41 +2827,17 @@ fn delta_heads_cols_impl(
             return Err(e);
         }
 
-        // Stage 2 in f32: per-head RMS norm × ssm_norm × SiLU(z) gate, converting to Q32.32 once
-        let gate_norm_f32 = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
-            let vr = h * g.head_v..(h + 1) * g.head_v;
-            let mut o_vec;
-            let mut o_stack = [0.0f32; 256];
-            let o_slice = if g.head_v <= 256 {
-                &mut o_stack[..g.head_v]
-            } else {
-                o_vec = vec![0.0f32; g.head_v];
-                &mut o_vec[..]
-            };
-            for (c, (_, z, ..)) in cols.iter().enumerate() {
-                for sl in 0..slices {
-                    let at = (h * slices + sl) * k * w + c * w;
-                    o_slice[sl * w..(sl + 1) * w].copy_from_slice(&raw_f32[at..at + w]);
-                }
-                let zh = &z[vr.clone()];
-                let dcol = &mut dst[c * g.head_v..(c + 1) * g.head_v];
-                f32_carrier::stage2_gated_norm_f32(o_slice, zh, &ssm_norm_f, eps_f, dcol)?;
-            }
-            Ok(())
-        };
-        if let Some((_, e)) =
-            attn_heads(g.n_v_heads, k * g.head_v, &mut out, parallel, gate_norm_f32)
-        {
-            return Err(e);
-        }
-
-        let mut cols_out: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(val_dim)).collect();
-        for h in 0..g.n_v_heads {
-            for (c, col) in cols_out.iter_mut().enumerate() {
-                let at = h * k * g.head_v + c * g.head_v;
-                col.extend_from_slice(&out[at..at + g.head_v]);
-            }
-        }
+        let cols_out = stage2_heads_cols_f32(
+            &raw_f32,
+            cols,
+            &ssm_norm_f,
+            eps_f,
+            g.n_v_heads,
+            g.head_v,
+            slices,
+            k,
+            parallel,
+        )?;
         *layer
             .staged_conv
             .lock()
