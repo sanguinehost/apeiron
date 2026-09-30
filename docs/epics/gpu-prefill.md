@@ -1,116 +1,136 @@
-# GPU prefill from verified integer primitives
+# GPU prefill through Fold's existing SPIR-V machinery
 
 ## Intent
 
-Owner: lead. Status: draft for architecture review; no implementation dispatch. Base: measured CPU
-prefill stack `04d206013f70f245dfdaf2619c0b1846d10b9922`; integration receipt lives in artifacts/gain-integration. Planning exception:
-lead owns this document, resource-guided-evolution.md and one additive docs/README.md index entry.
+Owner: lead. Status: source-bound integration plan; no implementation dispatch.
+Main merge: `01de89d020954897f48e9863f806ac9df0bbf5af`, with the tested CPU runtime and fixtures.
+Fold source: `/home/socol/Workspace/fold`, `d497161f32e0d366220f2065ec36e680bd9aed86`;
+read-only source review and digests: artifacts/gain-integration/fold-gpu-reuse.md.
+Documentation exception: lead owns this document, resource-guided-evolution.md and
+artifacts/gain-integration/fold-plan-review.md in the supplied checkout; no build lane.
 
-The hybrid prefill work exceeds its 2x target on the retained pp200/pp512 receipts and also improves
-dense models. Move the reusable computation to GPU execution while retaining that shared structure.
-The host exposes an RTX 5080 with Vulkan 1.4.351, driver 615.71.09 and 16303 MiB; hardware availability is
-an observed capability, not a throughput result. Existing docs/epics/gpu-spv.md owns the integer
-fragment semantics/checker refinement. This epic consumes that boundary rather than replacing it.
+The hybrid CPU prefill work exceeds its 2x target on the retained pp200/pp512 receipts and also
+improves dense models. Carry that shared algebraic structure into GPU execution using Fold's
+existing performant implementation. Dense improvements are a transfer result, with no dense 2x gate.
 
-First structural hypothesis: compile a prefill block into a resident-buffer dispatch graph so weight
-packing, activation packing and intermediate lifetimes are shared across operators and tokens.
-Measure the whole prompt, including dispatch, synchronisation and required data transfer. A fast
-isolated dot product is insufficient to choose the graph. Dense models use the same primitive
-interfaces and remain useful validation workloads without acquiring a 2x requirement.
+Fold already supplies register-tiled integer-dot projections, fused batch glue, tiled attention,
+hybrid decode and a resident dense prefill graph. Its retained RTX 5080 GEMV comparison records
+f16 SPIR-V at 155.9 versus cuBLAS 154.1 microseconds for 8192 squared, and 137.8 versus 131.1 for
+4096 by 14336: 1.2% and 5.1% time overhead at matched shapes/carrier. Q4 DP4A records 61.0/53.0
+microseconds, 2.53x/2.47x versus that f16 baseline with a different carrier. These are historical
+kernel receipts in /home/socol/Workspace/fold/hashtrinity/bench/results_gpu.633ea8b.md,
+not new whole-prefill measurements. Source and protocol details are in fold-gpu-receipts.md.
 
-Alternatives: a per-operator port loses the opportunity to share buffers/packing; adopting cooperative
-matrices immediately introduces a different fragment/concurrency boundary before the existing one is
-closed. Both remain later candidates if measured bottlenecks justify them.
+The structural starting point is existing two-axis reuse: one weight load serves several tokens,
+and one activation load serves several rows. The resident GpuPrefillStack already carries
+intermediates through a whole dense layer stack with one submit/drain per chunk. Extend that
+mechanism to Apeiron's packing, session state and hybrid recurrence after establishing their
+correspondence. GpuPrefill's projection-only route remains a distinct baseline with per-projection
+transfers; it is not the resident stack. Do not schedule construction of another GPU backend.
 
-Completion: one registered integer projection block in a resident-buffer dispatch graph; exact
-CPU/GPU integer outputs and committed state, explicit refusing cases,
-source-connected primitive links, rejecting controls and five quiet paired end-to-end receipts at
-pp200/pp512. Report each model separately. Performance success is improvement on the registered GPU
-baseline; no CPU-to-GPU ratio is assumed. Whole Rust/proof barriers remain required at closure.
+Alternatives: rebuilding the emitter/runtime repeats existing work; per-operator offload retains
+unnecessary transfers; replacing the float scale epilogue with fixed point changes existing
+arithmetic. Use existing capabilities where they fit, and isolate each additional proof profile.
+Programme direction requires performance-preserving consolidation, not slower extraction substitutes.
+
+Completion: one source-bound resident prefill integration contract and an admitted, measured
+transformation on its registered domain, preserving outputs/state/refusals under the selected
+numeric contract. Register the hybrid coverage and pp200/pp512 success criterion before execution.
+Measure cold upload and retained residency separately; count transfers, launches, synchronization,
+readback and continuation. Report GPU improvement against its registered GPU baseline.
 
 ## Specification
 
-| interface | contract / authority |
-|---|---|
-| Quantised integer dot | Actual packed inputs/accumulator widths, overflow and scale/refusal semantics; shared dp4a_gemv_spec at the realised canonical ring face |
-| Emitted words | src/spirv/check.rs check_fragment; concrete word stream bound by hash; Spirv.Check header is present, full soundness and concrete module denotation remain obligations |
-| Buffer graph | Explicit shapes/strides, read/write regions, live ranges, device residency and constructor-derived capacities; no hidden host allocation or overlapping writes |
-| Dispatch | Actual group counts, row guards and supported opcodes; reuse Spirv.Dp4a accessChain_in_bounds at its stated model scope |
-| Carrier | Integer fixed-point v0; the current served float epilogue is a separately named migration/error-model task, not silently included in the integer theorem |
-| Resource record | Packing/copy bytes, allocations, dispatches, workgroups, scratch/peak-live bytes and operation counts; supplied to resource-guided-evolution.md |
+Every Fold path below resolves under /home/socol/Workspace/fold/; inspected APIs and digests are in
+artifacts/gain-integration/fold-gpu-reuse.md. Apeiron owns the reusable primitives/refinements under
+docs/direction.md. Selecting code for consolidation allocates a separate bounded migration task;
+this document changes neither sibling source nor the programme boundary.
 
-CPU and GPU bodies must refine the same named primitive spec. A model word theorem does not prove an
-emitter, Vulkan driver, shader compiler or device. Modular-word reassociation does not license binary32
-reassociation. Barriers, atomics, subgroups and cooperative matrices open separate fragment tasks.
-Driver lowering, device execution, clocks and measurement provenance remain the platform boundary.
+| interface | existing source and contract to retain |
+|---|---|
+| Kernel selection | modelfold/src/simt_nn/spec.rs GemvSpec; typed carrier, scale face, mapping, fusion and reduction, with legalize refusal |
+| Projection | modelfold/src/simt/superblock.rs gemv_dp4a_batch_rt_module; rt rows by bt tokens; exact packed lanes and existing float scale/bias association |
+| Binding ABI | W, XQ, OUT, DM, XS, SX; K divisible by 32, positive dimensions/tiles, checked sizes, padded token extent and guarded live-row stores |
+| Batch operators | modelfold/src/simt_nn/batch.rs norm/quantize, SwiGLU, QKV/RoPE and last-row gather; actual emitted bodies and operation order |
+| Dense resident graph | bedrock/src/serve/gpu.rs GpuPrefillStack; constructor domain, one drain/chunk, KV mirror/continuation, LogitRows All/Last and explicit refusal |
+| Hybrid state | simt_nn/deltanet.rs and GpuDecode's existing recurrent buffers; convolution history, decay/beta, normalization, state reset and gated readout |
+| Model/session adapter | Apeiron Q8 packing versus Fold per-32 chart; named conversion or incompatibility, stable identity, ownership and constructor-derived capacities |
+| Resource record | Executing graph's arithmetic, chart/packing bytes, uploads/readbacks, allocations, dispatches/drains, peak-live storage and critical path |
+
+GpuPrefillStack's constructor currently selects uniform dense fused QKV; it does not provide
+hybrid batched DeltaNet prefill. Existing hybrid decode kernels supply the recurrence source,
+while batched recurrence scheduling is the additional contract. Dense integration validates shared
+machinery; hybrid prefill remains the objective.
+
+Proof profiles follow actual components. Spirv.gpu_dp4a_word_refines_cpu_word links model integer
+words to dp4a_gemv_spec; actual CPU/emitted-body links remain open. Existing DP4A shaders have
+integer dots followed by float epilogues. Preserve their association and register separately the
+integer exact observation and the full float contract; an argmax match is not full-output equality.
+Batch norms, attention and DeltaNet use barriers/workgroup memory; cooperative matrices and
+physical addresses have additional profiles. Extend each required profile without silently widening
+the existing checker. docs/epics/gpu-spv.md retains checker ownership and its composition residuals.
+
+Mapped result lifetime, exclusive submission and buffer reclamation need an explicit adapter
+contract. Fold's Copy Buffer handles have no Drop; lifecycle/reclamation is not inferred from
+word proofs. Driver/compiler lowering, device execution and measurement provenance remain external
+trust. Source/refinement/resource work may establish prerequisites without an optimization worker.
 
 ## Plan
 
-One owner per path, private task targets; no inference optimization worker before mandatory admission.
-The user's Luna/Sol assignment applies: Luna owns bounded source/refinement/resource work,
-Sol supplies independent review, and the lead integrates.
-Each implementation task is written after its preceding proof/cost prerequisite passes, owns at most
-three files and has one focused gate plus a rejecting control. Gates below are task targets, not
-historical approvals. Every invocation is bounded at 540 s including lock waiting and descendants;
-Lean uses the repository lane lock, 12 GiB/no swap and LEAN_NUM_THREADS=1.
+The user's Luna/Sol assignment applies: Luna owns bounded work, Sol reviews Luna artifacts,
+and a different-model independent reviewer checks lead-written boundary changes. Lead integrates.
+Each implementation task owns at most three files, one focused gate and an attributable control.
+Every gate is bounded at 540 s including descendants/lock waiting; Lean uses the repository lock,
+12 GiB/no swap and LEAN_NUM_THREADS=1. No new timing or runtime change is allocated here.
 
-| order | bounded task / owner | owned paths | gate and negative control |
+| order | task / owner | owned paths | gate and rejecting control |
 |---|---|---|---|
-| 1 | Fragment prerequisite; lead, `APEIRON-GPU-PREFILL-W1-T1` | artifacts/gain-integration/gpu-fragment-prerequisite.md | `timeout 540s cargo test --test gpu_spv_check --locked`; existing malformed-word tests reject; source-mutation control is a separate required GPU-SPV task |
-| 2 | Close checker components; Luna bounded proof worker | Select at most 3 files from proof/corpus/Spirv/CheckScan*.lean, CheckApplyShape*.lean, Check.lean after exact source review | Existing gpu-spv.md decomposition; lake build named component; change real shape/refusal in throwaway extraction and require attributable red |
-| 3 | Bind one concrete integer primitive; Luna bounded source/refinement worker | Exact extraction/bridge paths selected by gate-first task | MISSING concrete emitted-module/CPU-body refinement gate; establish it before allocating a kernel writer |
-| 4 | Register resource correspondence; lead + Sol independent reviewer | Exact source-cost bridge and registry payload, selected after step 3 | Production-path positive admission and rejecting/restoration controls; typed reachable witness and universal preservation/improvement |
-| 5 | Resident block dispatch; admitted Luna kernel worker | GPU host/kernel paths selected from measured residency boundary; at most 3 | MISSING constructor-to-prefill CPU/GPU state/output/refusal gate; corrupt stride/row guard/binding must reject |
-| 6 | Matched prefill receipt; lead | Benchmark runner and identity manifest; at most 3 | Five paired quiet rounds per registered workload with all outputs; transfer/launch omitted from timer must fail the harness control |
+| 1 | Source-bound adapter design; Luna, Sol review; APEIRON-GPU-PREFILL-W1-T2 | New adapter contract, identity manifest and focused checker, at most 3 paths selected before dispatch | MISSING packing/state/ABI correspondence gate; create it first; wrong lane signedness, stride, session identity and padded extent must reject |
+| 2 | Actual primitive refinement; Luna, Sol review | Real source extraction/refinement pair and control, at most 3 selected paths | MISSING selected CPU/emitted-body link; integer core and unchanged float epilogue carry distinct observations; source mutation must fail the named link |
+| 3 | Existing graph cost correspondence; Luna, Sol review | Source-bound graph/resource pair and control, at most 3 | MISSING constructor-reachable success/refusal and cost gate; omitted packing, transfer or drain must reject; consume resource-guided-evolution.md |
+| 4 | Production admission contract; lead plus independent reviewer | Bound contract/proof/source identities, at most 3 | Production-path launcher positive, attributable refusal and restoration; preservation and strict improvement in registered resource model |
+| 5 | Adapter or hybrid schedule implementation; admitted worker | Existing primitives plus adapter/schedule paths selected by accepted contract, at most 3 | MISSING actual CPU/GPU observation/state/refusal and continuation gate; wrong binding, row store or recurrent reset must reject |
+| 6 | Matched whole-prefill validation; lead | Registered runner/manifest/receipt, at most 3 | Five quiet paired rounds per workload, fixed cold/resident policy; omitted upload, sync or readback must fail harness control |
 
-Do not allocate steps 3–6 from this draft until their source paths, red commands and independent
-architecture decision exist. The first deliverable is a fresh capability/fragment receipt and exact
-checker residual, not a new GPU runtime. Reuse the existing GPU epic's accepted premises; any boundary
-change goes to independent review. No canonical migration, pin change or model training is included.
-
-SCOPE: gpu-prefill.md, resource-guided-evolution.md, artifacts/gain-integration/sol-epic-review.md;
-       Sol review in the supplied checkout, base e33977aa72534ad56775110be99cf002ca96fa37.
-       Lead separately owns docs/README.md; no build lane acquired.
-REGISTER: planning; source proof, GPU throughput and implementation admission excluded.
-CORPUS: Spirv.checkFragment_header and Spirv.gpu_dp4a_word_refines_cpu_word read with their
-        explicit residuals; no fresh Lean acceptance implied by citation.
-REFERENCE: /home/socol/Workspace/apeiron/docs/epics/gpu-spv.md and proof/corpus/Spirv/Dp4a.lean.
-GATE: timeout 60s document checks recorded in artifacts/gain-integration/sol-epic-review.md;
-      baseline pending, missing-Intent control must reject; runtime/cost gates MISSING as above.
-GRADE: anchor/planning; GPU capability observation separate, historical CPU receipts unchanged.
+Reuse existing Fold runtime and schedule before designing new ones. Register the numeric, shape and
+hybrid state domain before allocating implementation. Refresh performance on that exact identity;
+isolated kernel timings cannot establish the end-to-end result. No canonical migration, pin change,
+training or Intent source change is included.
 
 ### First executable prerequisite
 
-After the integration owner releases `target/`, run the existing focused checker test above,
-record source/extraction/fixture sha256 and actual tools, and report the exact decoder residual.
-The captured `tests/gpu_spv_check.rs` module has 676 words and a dynamic float epilogue; acceptance
-is syntax coverage, not integer-execution refinement. The integer executing subset has 37 opcodes
-and the served checker admits 42; no admitted float opcode acquires a value theorem.
+Write the source-bound adapter contract comparing actual Apeiron Q8/float production paths with
+Fold's six-binding per-32 ABI and resident stack. Establish stable model/session identity, checked
+sizes, ownership, successful/refusing witnesses, KV continuation and recurrent-state reset. Select
+one actual source-cost seam and its executable red gate; do not start a kernel writer from a citation.
 
-The first gate-first design task owns only the prerequisite receipt and this epic, selects one
-integer projection's source, shapes, output/refusal type and concrete module, and writes its missing
-refinement gate and control. It does not start a kernel writer. Full checker composition remains
-in `gpu-spv.md`; do not duplicate its proof ownership here. That document's contract table labels
-targets `proved` while its verification table and actual source say open; lead reconciliation is
-required before relying on those table rows for dispatch.
+Existing capability and syntax receipts remain useful: RTX 5080, Vulkan 1.4.351, integer-dot support;
+the captured 676-word module passes spirv-val. Its dynamic float epilogue is not covered by an
+integer-only execution theorem. Checker composition stays in gpu-spv.md; its contract/verification
+claim labels need reconciliation before relying on those rows for dispatch. A complete new backend
+or whole-SPIR-V proof is not the prerequisite for this read-only correspondence task.
 
 ### Exit obligations
 
 | obligation | grade / current status | closing evidence |
 |---|---|---|
-| One constructor-reachable integer block and concrete module | proved / open | CPU-body and decoded-module links to `Spirv.dp4a_gemv_spec`; exact gate MISSING |
-| Resident graph observations | tested / open | constructor, shape/stride/live-region, output/state/refusal tests and binding mutation; gate MISSING |
-| Implementation admission | proved + tested / closed to dispatch | registered actual-source/cost contract and production positive/refusal/restoration |
-| End-to-end pp200/pp512 | measured / open | five quiet paired rounds including required uploads, launches, synchronization and readback; fixed residency policy |
-| Shared local barrier | tested + proved / unrun | AGENTS.md §6 Rust gates, regeneration freshness, `lake build` in both proof packages, all named controls |
-| Trust and source size | planning / open | source/tool digests, ≤1,500 lines per owned source, ≤12 immediate sources per directory, local checker ≤5,000 physical lines; external trust inventory |
+| Existing GPU source and measured starting point | anchor + historical measured / retained | Fold revision, source digests, exact matched GEMV receipt and reusable resident/hybrid APIs |
+| Adapter domain and production body links | proved + tested / open | Actual packing/numeric/constructor relations and emitted-body refinement; focused gate MISSING |
+| Resident/hybrid state and resource correspondence | proved + tested / open | Reachable state, output/refusal/continuation, loop/graph cost and source mutation; gate MISSING |
+| Implementation admission | proved + tested / closed to dispatch | Independent contract verdict; production positive, rejection and restoration |
+| End-to-end hybrid pp200/pp512 | measured / open | Five quiet paired rounds including all required transfers/launches/drains; pre-registered success criterion |
+| Shared barrier and trust | tested + proved / unrun | AGENTS.md Rust gates, real-source regeneration freshness, both Lean builds and controls; source-size/TCB inventory |
 
-Pre-register the GPU baseline before graph changes and report cold upload and retained-residency
-results separately. A throughput improvement is a measured result of the named protocol. A new
-carrier/quality observation is a separate contract and verdict; it cannot discharge exact integer
-preservation. No whole-model GPU implementation or concurrency fragment is allocated by this epic.
+SCOPE: docs/epics/gpu-prefill.md, docs/epics/resource-guided-evolution.md,
+       artifacts/gain-integration/fold-plan-review.md; lead documentation exception on main 01de89d.
+REGISTER: planning; inference implementation, new proof acceptance and throughput excluded.
+CORPUS: Spirv.gpu_dp4a_word_refines_cpu_word at its model domain; actual Fold sources read.
+REFERENCE: /home/socol/Workspace/fold/bedrock/src/serve/gpu.rs and
+           /home/socol/Workspace/fold/modelfold/src/simt/superblock.rs.
+GATE: timeout 60s document/source check and throwaway missing-Intent control,
+      recorded in artifacts/gain-integration/fold-plan-review.md; baseline lacks Fold reuse contract.
+GRADE: anchor/planning; historical measurements retain workload/carrier/protocol identities.
 
-Native agents may establish separately scoped source/refinement/resource prerequisites. Every
-inference optimization implementation worker, including Luna, must execute its registered worker
-argv through `python3 tools/dispatch/admit.py --launch <proposal.json>` in its task worktree.
-A native route the launcher cannot execute remains blocked; direct native dispatch is no bypass.
+Every inference optimization implementation worker, including native agents, must execute its
+registered argv through python3 tools/dispatch/admit.py --launch <proposal.json> in its task worktree.
+A route the launcher cannot execute is not admitted; direct native dispatch is no bypass.

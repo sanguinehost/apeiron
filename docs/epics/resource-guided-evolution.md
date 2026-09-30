@@ -4,7 +4,8 @@
 
 Owner: lead. Status: draft; no synthesis or inference implementation dispatch. Base: `04d206013f70f245dfdaf2619c0b1846d10b9922` measured
 CPU gains and the separately checked Rust/Aeneas admission core. Lead documentation ownership and
-three-file exception are recorded in gpu-prefill.md. Intent's active review remains owned by thread
+three-file exception are recorded in gpu-prefill.md. The CPU stack is now merged on main
+at 01de89d; historical measured source and current integration identities remain separate. Intent's active review remains owned by thread
 01a0f458-538e-7470-ae35-6c7779b474cc; this plan changes no Intent source.
 
 Hybrid-path optimisation also improves dense models without a separate dense optimisation campaign:
@@ -18,6 +19,21 @@ SKI/DAG search is a consumer of that record, not a general synthesizer in this e
 its observation contract and resource derivation; proof eliminates invalid or dominated candidates
 before hardware evaluation. Hardware measurements calibrate the remaining envelopes. The SKI basis
 supplies a term representation; sharing, effects, schedule and resource usage remain explicit.
+
+Include Fold's already executing GPU graphs in this same census, rather than treating GPU as a
+future backend. Source d497161f32e0d366220f2065ec36e680bd9aed86 already supplies GemvSpec,
+row/token-tiled projections, a resident dense prefill stack and hybrid decode recurrence. Review and
+digests are in artifacts/gain-integration/fold-gpu-reuse.md; retained performance protocols are in
+fold-gpu-receipts.md. The shared principle is reuse: weight loads across tokens, activation loads
+across rows, scale/packing work across operators and resident state across dispatches. Prove the
+resource change of the actual loop/graph before selecting an implementation candidate.
+
+Fold's typed kernel configuration is an existing finite search space for resource-guided choices.
+Use its carrier/layout/mapping/fusion/reduction constraints as the initial synthesis domain, then
+map admissible choices into typed SKI/DAG terms with explicit effects and sharing. Algebraic
+normalization can merge equivalent computations; hardware cost selects a realization under named
+shape/register/storage premises. Do not silently normalize float association. Batch recurrence
+may offer a distinct algebraic scheduling seam once its real state/rounding contract is registered.
 
 Alternatives: end-to-end speed alone gives little transferable explanation; primitive operation
 counts alone miss memory/dispatch/codegen; an untyped rewrite search can duplicate state updates or
@@ -34,7 +50,7 @@ checks transfer prediction. No universal hardware speed or complete search claim
 |---|---|
 | Primitive | Named actual Rust body/extraction, exact canonical denotation, admissible domain, outputs/state/refusals and audited refinement |
 | Term/graph | Typed application plus explicit shared nodes, effects, storage layout and schedule; no implicit copying/elimination of stateful work |
-| Resource semantics | Separate counts for arithmetic, packing/copy bytes, allocations, dispatches, peak-live storage and dependency critical path; derive from executing loops/branches |
+| Resource semantics | Separate arithmetic, packing/copy bytes, allocations, uploads/readbacks, dispatches/drains, peak-live storage and dependency critical path; derive from actual CPU loops and Fold resident graphs |
 | Platform envelope | Named CPU/GPU/tool identity, calibrated latency/bandwidth/dispatch intervals and working-set assumptions; model result separated from measured latency |
 | Candidate certificate | Reachable joint witness, universal observation/refusal preservation and strict registered resource improvement, as required by proof/DispatchAdmission.lean |
 | Selection | Reject invalid domains, failed preservation, wrong source bindings or incompatible measurements before comparing admissible candidates |
@@ -54,8 +70,8 @@ equivalence theorem. A candidate cannot alter its own trusted evaluator or selec
 ## Plan
 
 Each row becomes a ≤3-file, one-gate task with an isolated worktree and Arc before edits. The user's Luna/Sol assignment applies: Luna owns bounded source/refinement/resource work,
-Sol supplies independent review, and the lead integrates. Registered contract/boundary changes
-require Sol's fresh independent verdict. Inference implementation remains behind tools/dispatch/admit.py --launch; registry is empty.
+Sol reviews Luna artifacts, and the lead integrates. Lead-written boundary changes receive
+a different-model independent verdict. Inference implementation remains behind tools/dispatch/admit.py --launch; registry is empty.
 Source/refinement/cost tasks establish its prerequisites. Gate budgets include all descendants and
 lock waiting, at most 540 s, with standard Lean lane/memory/thread limits.
 
@@ -69,7 +85,7 @@ lock waiting, at most 540 s, with standard Lean lane/memory/thread limits.
 | 6 | Evolver consumption; Intent owner after handoff | No Intent paths allocated here | MISSING jointly approved immutable observation/receipt interface and adversarial candidate control; oracle repairs close in their existing thread |
 
 First deliverable: an exact inventory of shared hot-path work and one tractable source-cost proof
-target, not a general synthesizer. Then expose the same resource interface to CPU/GPU graphs. Proof
+target, not a general synthesizer. Expose the same resource interface to CPU paths and the existing Fold GPU graphs. Proof
 checking, universal preservation under registered premises and deterministic rejection are the formal
 claims; search completeness, evaluator security, IO authenticity, compiler/device behaviour and
 hardware performance each need their own evidence. This epic does not silently widen the admission
@@ -82,6 +98,14 @@ Create the three census artifacts above without changing inference implementatio
 and `archived-ratios.json`; an integrated candidate has a separate digest and is not measured merely
 by inheriting that revision's ratios. The existing ratios are against llama.cpp `0324696b8` on
 Intel Core i9-14900KF, with measured thread choices 8/16/24/32, not before/after ablation ratios.
+
+GPU census source: /home/socol/Workspace/fold/modelfold/src/simt/superblock.rs,
+modelfold/src/simt_nn/spec.rs, simt_nn/batch.rs, simt_nn/deltanet.rs and
+bedrock/src/serve/gpu.rs. Record chart/carrier and tile shape, existing per-projection versus resident
+schedule, owner/dev_len transitions, last-row versus all-logit mode, upload/readback bytes and queue
+drains. A successful CPU fallback is not successful GPU coverage; require an executed-path witness.
+Keep the existing dense graph distinct from the additional hybrid batched recurrence contract.
+Fold's typed legalize domain is a useful first candidate-domain witness, not a runtime refinement.
 
 Inventory shared production paths `src/engine/step/cols.rs`, `src/engine/kern/matmat.rs`,
 `src/engine/kern/gemm.rs` and `src/engine/chart/pool.rs` at that identity. Record columns/rows/block
