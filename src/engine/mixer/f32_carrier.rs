@@ -765,6 +765,58 @@ pub(crate) fn f32_readout_to_q32(o: f32) -> Result<i64, StepError> {
     Ok((scaled + 0.5_f64.copysign(scaled)) as i64)
 }
 
+/// [`f32_readout_to_q32`] over 8 lanes, written to `dst[0..8]`.
+///
+/// Lanes with `|o · 2^32| < 2^51` take the vector path: `⌊|s| + 0.5⌋` (the same f64 sum
+/// `f32_readout_to_q32` truncates, so the same word), moved to `i64` by the `1.5 · 2^52`
+/// mantissa offset, sign restored. A block holding any other lane (large, infinite or NaN) is
+/// read out lane by lane with the scalar function, so refusals are identical.
+///
+/// # Safety
+///
+/// AVX2 is available and `dst` is valid for 8 `i64` writes.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "unaligned 256-bit stores (`_mm256_storeu_si256`) take any address"
+)]
+#[inline]
+pub(crate) unsafe fn readout8_avx2(vy: __m256, dst: *mut i64) -> Result<(), StepError> {
+    let scale = _mm256_set1_pd(4_294_967_296.0);
+    let sign = _mm256_set1_pd(-0.0);
+    let limit = _mm256_set1_pd(2_251_799_813_685_248.0);
+    let half = _mm256_set1_pd(0.5);
+    let magic = _mm256_set1_pd(6_755_399_441_055_744.0);
+    let magic_bits = _mm256_castpd_si256(magic);
+    let zero = _mm256_setzero_si256();
+    let lo = _mm256_mul_pd(_mm256_cvtps_pd(_mm256_castps256_ps128(vy)), scale);
+    let hi = _mm256_mul_pd(_mm256_cvtps_pd(_mm256_extractf128_ps::<1>(vy)), scale);
+    let abs_lo = _mm256_andnot_pd(sign, lo);
+    let abs_hi = _mm256_andnot_pd(sign, hi);
+    let ok = _mm256_movemask_pd(_mm256_cmp_pd::<_CMP_LT_OQ>(abs_lo, limit))
+        & _mm256_movemask_pd(_mm256_cmp_pd::<_CMP_LT_OQ>(abs_hi, limit));
+    if ok != 0xF {
+        let mut b = [0.0f32; 8];
+        _mm256_storeu_ps(b.as_mut_ptr(), vy);
+        for (i, &o) in b.iter().enumerate() {
+            *dst.add(i) = f32_readout_to_q32(o)?;
+        }
+        return Ok(());
+    }
+    let word = |s: __m256d, a: __m256d| -> __m256i {
+        let f = _mm256_round_pd::<{ _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC }>(_mm256_add_pd(
+            a, half,
+        ));
+        let m = _mm256_sub_epi64(_mm256_castpd_si256(_mm256_add_pd(f, magic)), magic_bits);
+        let neg = _mm256_cmpgt_epi64(zero, _mm256_castpd_si256(s));
+        _mm256_sub_epi64(_mm256_xor_si256(m, neg), neg)
+    };
+    _mm256_storeu_si256(dst.cast::<__m256i>(), word(lo, abs_lo));
+    _mm256_storeu_si256(dst.add(4).cast::<__m256i>(), word(hi, abs_hi));
+    Ok(())
+}
+
 /// Convert a Q32.32 fixed point `i64` to `f32` ($x / 2^{32}$).
 #[inline]
 #[allow(
