@@ -74,28 +74,51 @@ use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_sigmoid, fixed_softplus};
 use crate::numeric::fixed_rsqrt::{fixed_rsqrt, isqrt};
 
+pub(crate) mod f32_carrier;
+
 /// Threshold below which the central decay scalar `c` is folded back into `S̃` (2⁻⁸ in Q32.32).
 pub const RENORM_THRESHOLD: i64 = 1 << 24;
 
 /// Upper bound on `|S̃|` ensuring products fit within `i128` and SIMD `i64` accumulation without overflow.
 pub const STATE_BOUND: i64 = 1 << 48;
 
-/// State for a single affine head: the unscaled accumulator `s` and the deferred scalar decay `c`.
+/// State for a single affine head: unscaled accumulator `s` and deferred scalar decay `c` for Q32.32,
+/// or IEEE binary32 state matrix for F32.
+#[derive(Debug)]
+pub enum HeadState {
+    Q32 { s: Vec<i64>, c: i64 },
+    F32 { s: Vec<f32> },
+}
+
+/// State for a single affine head.
 #[derive(Debug)]
 pub struct AffineHead {
-    /// The unscaled state matrix `S̃`, `head_k × head_v` elements, row `i` major.
-    pub s: Vec<i64>,
-    /// The deferred scalar decay factor `c`, in Q32.32 (starts at `1.0 = 1 << 32`).
-    pub c: i64,
+    pub state: HeadState,
 }
 
 impl AffineHead {
-    /// New zeroed head state with `c = 1.0`.
+    /// New zeroed head state with `c = 1.0` in Q32.32.
+    #[allow(dead_code, reason = "convenience constructor for Q32 head")]
     #[must_use]
     pub fn new(len: usize) -> Self {
-        AffineHead {
-            s: vec![0; len],
-            c: 1i64 << 32,
+        Self::with_carrier(len, Carrier::Q32)
+    }
+
+    /// New head state configured for the given carrier.
+    #[must_use]
+    pub fn with_carrier(len: usize, carrier: Carrier) -> Self {
+        match carrier {
+            Carrier::Q32 => AffineHead {
+                state: HeadState::Q32 {
+                    s: vec![0; len],
+                    c: 1i64 << 32,
+                },
+            },
+            Carrier::F32 => AffineHead {
+                state: HeadState::F32 {
+                    s: vec![0.0f32; len],
+                },
+            },
         }
     }
 }
@@ -103,16 +126,31 @@ impl AffineHead {
 impl Clone for AffineHead {
     fn clone(&self) -> Self {
         AffineHead {
-            s: self.s.clone(),
-            c: self.c,
+            state: match &self.state {
+                HeadState::Q32 { s, c } => HeadState::Q32 {
+                    s: s.clone(),
+                    c: *c,
+                },
+                HeadState::F32 { s } => HeadState::F32 { s: s.clone() },
+            },
         }
     }
 
-    /// In-place copy reusing `s`'s buffer: the speculative rollback copies both the state and the
+    /// In-place copy reusing the state buffer: the speculative rollback copies both the state and the
     /// deferred decay `c`, so a renormalisation inside a rejected column is undone too.
     fn clone_from(&mut self, src: &Self) {
-        self.s.clone_from(&src.s);
-        self.c = src.c;
+        match (&mut self.state, &src.state) {
+            (HeadState::Q32 { s: dst_s, c: dst_c }, HeadState::Q32 { s: src_s, c: src_c }) => {
+                dst_s.clone_from(src_s);
+                *dst_c = *src_c;
+            }
+            (HeadState::F32 { s: dst_s }, HeadState::F32 { s: src_s }) => {
+                dst_s.clone_from(src_s);
+            }
+            _ => {
+                *self = src.clone();
+            }
+        }
     }
 }
 
@@ -128,11 +166,88 @@ impl Clone for AffineHead {
 /// slice is itself a head of value width `w`, and slicing is bit-identical to the whole head
 /// (`sliced_heads_equal_whole_heads`). Each slice sits behind its own lock, so the pooled step
 /// hands each task exactly one slice without sharing. The lock is uncontended.
+/// State for the causal depthwise convolution: Q32.32 integer words or IEEE binary32 floats.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConvState {
+    Q32(Vec<i64>),
+    F32(Vec<f32>),
+}
+
+#[allow(dead_code, reason = "typed conv state accessors")]
+impl ConvState {
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Q32(v) => v.len(),
+            Self::F32(v) => v.len(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn as_q32_slice(&self) -> &[i64] {
+        match self {
+            Self::Q32(v) => v,
+            Self::F32(_) => panic!("expected Q32 conv state"),
+        }
+    }
+
+    pub fn as_q32_mut(&mut self) -> &mut Vec<i64> {
+        match self {
+            Self::Q32(v) => v,
+            Self::F32(_) => panic!("expected Q32 conv state"),
+        }
+    }
+
+    pub fn as_f32_slice(&self) -> &[f32] {
+        match self {
+            Self::F32(v) => v,
+            Self::Q32(_) => panic!("expected F32 conv state"),
+        }
+    }
+
+    pub fn as_f32_mut(&mut self) -> &mut Vec<f32> {
+        match self {
+            Self::F32(v) => v,
+            Self::Q32(_) => panic!("expected F32 conv state"),
+        }
+    }
+}
+
+/// One affine layer's state.
+///
+/// - `conv`: the last `conv_kernel − 1` input columns, oldest first, `(k − 1)·channels` values.
+/// - `heads`: `slices` [`AffineHead`]s per value head, head `h`'s slice `t` at `h·slices + t`,
+///   each the `head_k × (head_v / slices)` value columns `t·w..(t + 1)·w` of the head, row `i`
+///   (key index) major.
+///
+/// The delta rule is separable by value column: column `j` of the update, of `o` and of `S̃` reads
+/// only column `j` and the head's shared scalars (`k`, `q̃`, `β`, the decay and hence `c`). So a
+/// slice is itself a head of value width `w`, and slicing is bit-identical to the whole head
+/// (`sliced_heads_equal_whole_heads`). Each slice sits behind its own lock, so the pooled step
+/// hands each task exactly one slice without sharing. The lock is uncontended.
+#[derive(Debug, Clone)]
+pub(crate) struct StagedConv {
+    pub(crate) xs_f32: Vec<f32>,
+    pub(crate) window_f32: Vec<f32>,
+    #[allow(dead_code, reason = "kept for debugging and dimension checks")]
+    pub(crate) k: usize,
+    pub(crate) ch: usize,
+}
+
 #[derive(Debug)]
 pub struct AffineLayer {
-    conv: Vec<i64>,
-    heads: Vec<Mutex<AffineHead>>,
-    slices: usize,
+    pub conv: ConvState,
+    pub heads: Vec<Mutex<AffineHead>>,
+    pub slices: usize,
+    pub(crate) conv_out_f32: Mutex<Vec<f32>>,
+    pub(crate) conv_out_f32_k: std::sync::atomic::AtomicUsize,
+    pub(crate) staged_conv: Mutex<Option<StagedConv>>,
+    pub(crate) conv_w_packed: Mutex<Vec<f32>>,
+    pub(crate) conv_w_scalar: Mutex<Vec<f32>>,
 }
 
 /// Value-column slices per affine head: four 32-column slices of a 128-wide head keep a slice's
@@ -165,6 +280,21 @@ pub(crate) fn exact_scan() -> bool {
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Carrier {
+    Q32,
+    F32,
+}
+
+/// Reads `APEIRON_F32_CARRIER` once via `OnceLock`. "1" resolves to `Carrier::F32`, else `Carrier::Q32`.
+pub(crate) fn carrier_from_env() -> Carrier {
+    static CARRIER: std::sync::OnceLock<Carrier> = std::sync::OnceLock::new();
+    *CARRIER.get_or_init(|| match std::env::var("APEIRON_F32_CARRIER").as_deref() {
+        Ok("1") => Carrier::F32,
+        _ => Carrier::Q32,
+    })
+}
+
 impl Clone for AffineLayer {
     fn clone(&self) -> Self {
         AffineLayer {
@@ -181,13 +311,45 @@ impl Clone for AffineLayer {
                     )
                 })
                 .collect(),
+            conv_out_f32: Mutex::new(
+                self.conv_out_f32
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            ),
+            conv_out_f32_k: std::sync::atomic::AtomicUsize::new(
+                self.conv_out_f32_k
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            staged_conv: Mutex::new(
+                self.staged_conv
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            ),
+            conv_w_packed: Mutex::new(
+                self.conv_w_packed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            ),
+            conv_w_scalar: Mutex::new(
+                self.conv_w_scalar
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            ),
         }
     }
 
     /// Copy `src` into `self` reusing every buffer: no allocation once the shapes match (the
     /// speculative decoder's per-round rollback snapshot).
     fn clone_from(&mut self, src: &Self) {
-        self.conv.clone_from(&src.conv);
+        match (&mut self.conv, &src.conv) {
+            (ConvState::Q32(dst), ConvState::Q32(src_conv)) => dst.clone_from(src_conv),
+            (ConvState::F32(dst), ConvState::F32(src_conv)) => dst.clone_from(src_conv),
+            _ => self.conv = src.conv.clone(),
+        }
         if self.heads.len() != src.heads.len() {
             *self = src.clone();
             return;
@@ -198,6 +360,12 @@ impl Clone for AffineLayer {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone_from(&s);
         }
+        self.conv_out_f32_k
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        *self
+            .staged_conv
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 }
 
@@ -218,7 +386,7 @@ impl AffineState {
     /// `O(n_layers · state words)` zeroed words, allocated once.
     #[must_use]
     pub fn new(g: &AffineGeom, n_layers: usize) -> AffineState {
-        Self::with_slices(g, n_layers, head_slices(g.head_v))
+        Self::with_slices_carrier(g, n_layers, head_slices(g.head_v), carrier_from_env())
     }
 
     /// Zeroed state whose heads are split into `slices` value-column slices (1 is the whole head).
@@ -228,17 +396,36 @@ impl AffineState {
     /// As [`AffineState::new`].
     #[must_use]
     pub fn with_slices(g: &AffineGeom, n_layers: usize, slices: usize) -> AffineState {
+        Self::with_slices_carrier(g, n_layers, slices, carrier_from_env())
+    }
+
+    /// Zeroed state configured with explicit slice count and carrier.
+    #[must_use]
+    pub(crate) fn with_slices_carrier(
+        g: &AffineGeom,
+        n_layers: usize,
+        slices: usize,
+        carrier: Carrier,
+    ) -> AffineState {
         let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
         let conv_len = g.conv_kernel.saturating_sub(1) * channels;
         let slices = slices.max(1);
         let slice_len = g.head_k * (g.head_v / slices);
         let layers = (0..n_layers)
             .map(|_| AffineLayer {
-                conv: vec![0; conv_len],
+                conv: match carrier {
+                    Carrier::Q32 => ConvState::Q32(vec![0; conv_len]),
+                    Carrier::F32 => ConvState::F32(vec![0.0f32; conv_len]),
+                },
                 heads: (0..g.n_v_heads * slices)
-                    .map(|_| Mutex::new(AffineHead::new(slice_len)))
+                    .map(|_| Mutex::new(AffineHead::with_carrier(slice_len, carrier)))
                     .collect(),
                 slices,
+                conv_out_f32: Mutex::new(Vec::new()),
+                conv_out_f32_k: std::sync::atomic::AtomicUsize::new(0),
+                staged_conv: Mutex::new(None),
+                conv_w_packed: Mutex::new(Vec::new()),
+                conv_w_scalar: Mutex::new(Vec::new()),
             })
             .collect();
         AffineState { layers }
@@ -306,6 +493,223 @@ pub(crate) fn conv_silu_cols(
     kernel: usize,
     xs: &[&[i64]],
 ) -> Result<Vec<Vec<i64>>, StepError> {
+    match layer.conv {
+        ConvState::Q32(_) => conv_silu_cols_q32(layer, w, kernel, xs),
+        // Decode (k = 1) fuses conv+SiLU into the pooled heads dispatch. Prefill (k > 1) keeps
+        // the per-column conv: the staged path holds the window per layer and cost 2x prefill
+        //.
+        ConvState::F32(_) if xs.len() > 1 => conv_silu_cols_f32(layer, w, kernel, xs),
+        ConvState::F32(_) => conv_silu_cols_f32_stage(layer, w, kernel, xs),
+    }
+}
+
+#[allow(dead_code, reason = "callable by tests and benchmark harnesses")]
+pub(crate) fn conv_silu_cols_carrier(
+    layer: &mut AffineLayer,
+    w: &[i64],
+    kernel: usize,
+    xs: &[&[i64]],
+    carrier: Carrier,
+) -> Result<Vec<Vec<i64>>, StepError> {
+    match carrier {
+        Carrier::Q32 => conv_silu_cols_q32(layer, w, kernel, xs),
+        Carrier::F32 => conv_silu_cols_f32(layer, w, kernel, xs),
+    }
+}
+
+/// The decode (`k = 1`) f32 arm of [`conv_silu_cols`]: returns the complete column outputs and
+/// stages the pre-call window and the converted inputs for the fused heads dispatch of
+/// [`delta_heads_cols_impl`].
+///
+/// The returned words are the same convolution the fused dispatch computes per channel range, so a
+/// `k`-column call equals `k` one-column calls (`conv_silu_cols_k_columns_equal_k_single_column_calls`);
+/// a placeholder would make that identity hold only vacuously.
+///
+/// # Complexity
+///
+/// `O(conv_kernel · channels)` f32 multiply-adds and `SiLU` evaluations,
+/// `O((conv_kernel − 1)·channels)` window
+/// moves, and `channels` Q32 readouts per column, pooled over channel ranges; the same per-column
+/// work `conv_silu_channel_range` does for a head's channel range, taken once over
+/// `[0, channels)`. Taps come from the layer's packed cache, so no Q32 tap conversion runs on this
+/// path.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the complete-column store, the window advance and the stage are one decode step"
+)]
+fn conv_silu_cols_f32_stage(
+    layer: &mut AffineLayer,
+    w: &[i64],
+    kernel: usize,
+    xs: &[&[i64]],
+) -> Result<Vec<Vec<i64>>, StepError> {
+    let k = xs.len();
+    let ch = xs.first().map_or(0, |x| x.len());
+    let cols = kernel
+        .checked_sub(1)
+        .ok_or(StepError::BadConfig("conv_kernel"))?;
+    if k == 0
+        || xs.iter().any(|x| x.len() != ch)
+        || w.len() != kernel * ch
+        || layer.conv.len() != cols * ch
+    {
+        return Err(StepError::BadConfig("conv geometry"));
+    }
+
+    layer.ensure_packed_w(w, ch, kernel);
+
+    let mut xs_f32 = vec![0.0f32; k * ch];
+    for (j, x_col) in xs.iter().enumerate() {
+        let dst_row = &mut xs_f32[j * ch..(j + 1) * ch];
+        for (dst, &src) in dst_row.iter_mut().zip(*x_col) {
+            *dst = f32_carrier::q32_to_f32(src);
+        }
+    }
+
+    // This call's history: the window as it stood before the window advance below, plus the
+    // converted inputs. The convolution and the fused heads both read this history.
+    let window_f32: Vec<f32> = match &layer.conv {
+        ConvState::F32(v) => v.clone(),
+        ConvState::Q32(v) => v.iter().copied().map(f32_carrier::q32_to_f32).collect(),
+    };
+
+    let by_col: Vec<Vec<i64>> = if kernel == 4 {
+        // The complete columns, over every channel, with the packed taps. The per-column SiLU and
+        // the f32 readout are the ones `conv_silu_cols_f32` applies, so the k-column calls of the
+        // wave-4 arm and these one-column calls agree bit for bit. Channel ranges go to the pool:
+        // serial, the `ch` readouts alone cost more than the decode step they exist for.
+        let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
+        {
+            let packed_guard = layer
+                .conv_w_packed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let scalar_guard = layer
+                .conv_w_scalar
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let packed: &[f32] = &packed_guard;
+            let scalar: &[f32] = &scalar_guard;
+            let window: &[f32] = &window_f32;
+            let xsf: &[f32] = &xs_f32;
+            let writers = ColWriters(
+                by_col
+                    .iter_mut()
+                    .map(|v| v.spare_capacity_mut().as_mut_ptr())
+                    .collect(),
+            );
+            let first: std::sync::Mutex<Option<StepError>> = std::sync::Mutex::new(None);
+            let per = ch
+                .div_ceil(crate::engine::par::row_chunk_budget(ch))
+                .max(128);
+            let per = per.div_ceil(8) * 8;
+            let tasks = ch.div_ceil(per).max(1);
+            crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
+                let c0 = t * per;
+                let c1 = (c0 + per).min(ch);
+                if c0 >= c1 {
+                    return;
+                }
+                let width = c1 - c0;
+                let mut cols_f32 = vec![0.0f32; k * width];
+                let res = conv_silu_channel_range(
+                    packed,
+                    scalar,
+                    window,
+                    xsf,
+                    ch,
+                    k,
+                    c0,
+                    c1,
+                    &mut cols_f32,
+                )
+                .and_then(|()| {
+                    for (j, col) in cols_f32.chunks(width).enumerate() {
+                        for (i, &y) in col.iter().enumerate() {
+                            let v = f32_carrier::f32_readout_to_q32(y)?;
+                            // SAFETY: task `t` owns channels `[c0, c1)` of every column, each
+                            // `by_col[j]` reserved `ch` words, and no other task writes `c0 + i`.
+                            unsafe { writers.write(j, c0 + i, v) };
+                        }
+                    }
+                    Ok(())
+                });
+                if let Err(e) = res {
+                    let mut f = first
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if f.is_none() {
+                        *f = Some(e);
+                    }
+                }
+            });
+            if let Some(e) = first.into_inner().unwrap_or_default() {
+                return Err(e);
+            }
+        }
+        for col in &mut by_col {
+            // SAFETY: every refusal-free dispatch wrote all `ch` words of every column.
+            unsafe { col.set_len(ch) };
+        }
+
+        match &mut layer.conv {
+            ConvState::F32(window) => {
+                if k >= cols {
+                    window.copy_from_slice(&xs_f32[(k - cols) * ch..k * ch]);
+                } else {
+                    window.copy_within(k * ch..cols * ch, 0);
+                    window[(cols - k) * ch..cols * ch].copy_from_slice(&xs_f32[..k * ch]);
+                }
+            }
+            ConvState::Q32(window) => {
+                let mut next = vec![0i64; cols * ch];
+                for r in 0..cols {
+                    for c in 0..ch {
+                        next[r * ch + c] = if k + r < cols {
+                            window[(k + r) * ch + c]
+                        } else {
+                            xs[k + r - cols][c]
+                        };
+                    }
+                }
+                *window = next;
+            }
+        }
+        by_col
+    } else {
+        // No packed cache exists outside the 4-tap kernel: the wave-4 f32 kernel computes the
+        // complete columns, advances the window and refreshes the f32 column cache.
+        conv_silu_cols_f32(layer, w, kernel, xs)?
+    };
+
+    {
+        let mut guard = layer
+            .staged_conv
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = Some(StagedConv {
+            xs_f32,
+            window_f32,
+            k,
+            ch,
+        });
+    }
+
+    Ok(by_col)
+}
+
+#[allow(
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    reason = "w (taps), x (input), c and t (channel and tap) are the convolution's symbols; the
+              direct-to-column store needs the pool frame inline"
+)]
+fn conv_silu_cols_q32(
+    layer: &mut AffineLayer,
+    w: &[i64],
+    kernel: usize,
+    xs: &[&[i64]],
+) -> Result<Vec<Vec<i64>>, StepError> {
     let k = xs.len();
     let ch = xs.first().map_or(0, |x| x.len());
     let cols = kernel
@@ -319,7 +723,7 @@ pub(crate) fn conv_silu_cols(
         return Err(StepError::BadConfig("conv geometry"));
     }
     // History row `r`: window row `r` for `r < cols`, else column `r − cols`.
-    let window = &layer.conv;
+    let window = layer.conv.as_q32_slice();
     let row = |r: usize, c: usize| {
         if r < cols {
             window[r * ch + c]
@@ -427,7 +831,258 @@ pub(crate) fn conv_silu_cols(
             next[r * ch + c] = row(k + r, c);
         }
     }
-    layer.conv = next;
+    *layer.conv.as_q32_mut() = next;
+    Ok(by_col)
+}
+
+#[allow(
+    dead_code,
+    reason = "standalone f32 conv path for benchmarks and tests"
+)]
+struct F32ColWriters(*mut f32, usize);
+unsafe impl Send for F32ColWriters {}
+unsafe impl Sync for F32ColWriters {}
+impl F32ColWriters {
+    #[inline]
+    #[allow(
+        dead_code,
+        reason = "standalone f32 conv path for benchmarks and tests"
+    )]
+    unsafe fn write(&self, j: usize, c: usize, value: f32) {
+        unsafe { *self.0.add(j * self.1 + c) = value };
+    }
+}
+
+#[allow(
+    dead_code,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    clippy::needless_range_loop,
+    clippy::wildcard_imports,
+    reason = "standalone f32 conv path for benchmarks and tests; w, x, c, t symbols"
+)]
+fn conv_silu_cols_f32(
+    layer: &mut AffineLayer,
+    w: &[i64],
+    kernel: usize,
+    xs: &[&[i64]],
+) -> Result<Vec<Vec<i64>>, StepError> {
+    let k = xs.len();
+    let ch = xs.first().map_or(0, |x| x.len());
+    let cols = kernel
+        .checked_sub(1)
+        .ok_or(StepError::BadConfig("conv_kernel"))?;
+    if k == 0
+        || xs.iter().any(|x| x.len() != ch)
+        || w.len() != kernel * ch
+        || layer.conv.len() != cols * ch
+    {
+        return Err(StepError::BadConfig("conv geometry"));
+    }
+
+    let mut xs_f32 = vec![0.0f32; k * ch];
+    for (j, x_col) in xs.iter().enumerate() {
+        let dst_row = &mut xs_f32[j * ch..(j + 1) * ch];
+        for (dst, &src) in dst_row.iter_mut().zip(*x_col) {
+            *dst = f32_carrier::q32_to_f32(src);
+        }
+    }
+
+    let window_storage: Vec<f32>;
+    let window_f32: &[f32] = match &layer.conv {
+        ConvState::F32(v) => v.as_slice(),
+        ConvState::Q32(v) => {
+            window_storage = v.iter().copied().map(f32_carrier::q32_to_f32).collect();
+            &window_storage
+        }
+    };
+
+    let mut by_col_f32 = vec![0.0f32; k * ch];
+    let mut by_col: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(ch)).collect();
+    let writers = ColWriters(
+        by_col
+            .iter_mut()
+            .map(|v| v.spare_capacity_mut().as_mut_ptr())
+            .collect(),
+    );
+    let f32_writers = F32ColWriters(by_col_f32.as_mut_ptr(), ch);
+
+    let process_channels = |c0: usize, c1: usize| -> Result<(), StepError> {
+        let is_avx2 = kernel == 4
+            && std::is_x86_feature_detected!("avx2")
+            && std::is_x86_feature_detected!("fma");
+
+        let mut c = c0;
+        if is_avx2 {
+            while c + 8 <= c1 {
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    use std::arch::x86_64::*;
+                    let mut t0 = [0.0f32; 8];
+                    let mut t1 = [0.0f32; 8];
+                    let mut t2 = [0.0f32; 8];
+                    let mut t3 = [0.0f32; 8];
+                    for lane in 0..8 {
+                        let base = (c + lane) * 4;
+                        t0[lane] = f32_carrier::q32_to_f32(w[base]);
+                        t1[lane] = f32_carrier::q32_to_f32(w[base + 1]);
+                        t2[lane] = f32_carrier::q32_to_f32(w[base + 2]);
+                        t3[lane] = f32_carrier::q32_to_f32(w[base + 3]);
+                    }
+                    let v_tap0 = _mm256_loadu_ps(t0.as_ptr());
+                    let v_tap1 = _mm256_loadu_ps(t1.as_ptr());
+                    let v_tap2 = _mm256_loadu_ps(t2.as_ptr());
+                    let v_tap3 = _mm256_loadu_ps(t3.as_ptr());
+
+                    for j in 0..k {
+                        let p0 = if j < cols {
+                            window_f32.as_ptr().add(j * ch + c)
+                        } else {
+                            xs_f32.as_ptr().add((j - cols) * ch + c)
+                        };
+                        let p1 = if j + 1 < cols {
+                            window_f32.as_ptr().add((j + 1) * ch + c)
+                        } else {
+                            xs_f32.as_ptr().add((j + 1 - cols) * ch + c)
+                        };
+                        let p2 = if j + 2 < cols {
+                            window_f32.as_ptr().add((j + 2) * ch + c)
+                        } else {
+                            xs_f32.as_ptr().add((j + 2 - cols) * ch + c)
+                        };
+                        let p3 = if j + 3 < cols {
+                            window_f32.as_ptr().add((j + 3) * ch + c)
+                        } else {
+                            xs_f32.as_ptr().add((j + 3 - cols) * ch + c)
+                        };
+
+                        let v_h0 = _mm256_loadu_ps(p0);
+                        let v_h1 = _mm256_loadu_ps(p1);
+                        let v_h2 = _mm256_loadu_ps(p2);
+                        let v_h3 = _mm256_loadu_ps(p3);
+
+                        let vy = f32_carrier::conv_silu_tap4_avx2(
+                            v_tap0, v_tap1, v_tap2, v_tap3, v_h0, v_h1, v_h2, v_h3,
+                        );
+                        let mut buf_y = [0.0f32; 8];
+                        _mm256_storeu_ps(buf_y.as_mut_ptr(), vy);
+
+                        for lane in 0..8 {
+                            let y_val = buf_y[lane];
+                            let y_q32 = f32_carrier::f32_readout_to_q32(y_val)?;
+                            writers.write(j, c + lane, y_q32);
+                            f32_writers.write(j, c + lane, y_val);
+                        }
+                    }
+                }
+                c += 8;
+            }
+        }
+
+        while c < c1 {
+            let base = c * kernel;
+            let mut taps = vec![0.0f32; kernel];
+            for (slot, &w_val) in taps.iter_mut().zip(&w[base..base + kernel]) {
+                *slot = f32_carrier::q32_to_f32(w_val);
+            }
+            let row = |r: usize| {
+                if r < cols {
+                    window_f32[r * ch + c]
+                } else {
+                    xs_f32[(r - cols) * ch + c]
+                }
+            };
+            let mut hist = vec![0.0f32; kernel];
+            for (idx, slot) in hist.iter_mut().enumerate() {
+                *slot = row(idx);
+            }
+            for j in 0..k {
+                let mut acc = 0.0f32;
+                for tap in 0..kernel {
+                    acc = taps[tap].mul_add(hist[tap], acc);
+                }
+                if !acc.is_finite() {
+                    return Err(StepError::Overflow);
+                }
+                let y = f32_carrier::silu_f32_scalar(acc);
+                let y_q32 = f32_carrier::f32_readout_to_q32(y)?;
+                unsafe {
+                    writers.write(j, c, y_q32);
+                    f32_writers.write(j, c, y);
+                }
+                if j + 1 < k {
+                    hist.copy_within(1..kernel, 0);
+                    hist[kernel - 1] = row(j + kernel);
+                }
+            }
+            c += 1;
+        }
+        Ok(())
+    };
+
+    if k == 1 {
+        process_channels(0, ch)?;
+    } else {
+        let per = (ch.div_ceil(crate::engine::par::row_chunk_budget(ch))).max(128);
+        let per = per.div_ceil(8) * 8;
+        let tasks = ch.div_ceil(per);
+        let first: std::sync::Mutex<Option<StepError>> = std::sync::Mutex::new(None);
+        crate::engine::chart::pool::Pool::global().run(tasks, &|t| {
+            let c0 = t * per;
+            let c1 = (c0 + per).min(ch);
+            if let Err(e) = process_channels(c0, c1) {
+                let mut f = first
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if f.is_none() {
+                    *f = Some(e);
+                }
+            }
+        });
+        if let Some(e) = first.into_inner().unwrap_or_default() {
+            return Err(e);
+        }
+    }
+
+    for col in &mut by_col {
+        unsafe { col.set_len(ch) };
+    }
+
+    match &mut layer.conv {
+        ConvState::F32(window) => {
+            if k >= cols {
+                window.copy_from_slice(&xs_f32[(k - cols) * ch..k * ch]);
+            } else {
+                window.copy_within(k * ch..cols * ch, 0);
+                window[(cols - k) * ch..cols * ch].copy_from_slice(&xs_f32[..k * ch]);
+            }
+        }
+        ConvState::Q32(window) => {
+            let mut next = vec![0i64; cols * ch];
+            for r in 0..cols {
+                for c in 0..ch {
+                    next[r * ch + c] = if k + r < cols {
+                        window[(k + r) * ch + c]
+                    } else {
+                        xs[k + r - cols][c]
+                    };
+                }
+            }
+            *window = next;
+        }
+    }
+
+    {
+        let mut guard = layer
+            .conv_out_f32
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = by_col_f32;
+        layer
+            .conv_out_f32_k
+            .store(k, std::sync::atomic::Ordering::Release);
+    }
+
     Ok(by_col)
 }
 
@@ -1350,11 +2005,180 @@ pub(crate) fn delta_heads_cols(
     parallel: bool,
     snapshot: Option<&AffineLayer>,
 ) -> Result<Vec<Vec<i64>>, StepError> {
+    let carrier = carrier_from_env();
+    delta_heads_cols_carrier(layer, g, p, cols, eps, parallel, snapshot, carrier)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the layer state, geometry, parameters, columns, snapshot and carrier are the step's input"
+)]
+pub(crate) fn delta_heads_cols_carrier(
+    layer: &AffineLayer,
+    g: &AffineGeom,
+    p: &AffineVectors,
+    cols: &[AffineCol<'_>],
+    eps: i64,
+    parallel: bool,
+    snapshot: Option<&AffineLayer>,
+    carrier: Carrier,
+) -> Result<Vec<Vec<i64>>, StepError> {
     // A one-column block has no composition to amortise, and the speculative rollback copy is
     // materialised per step, so both keep the per-step path whatever the flag says.
-    let chunked = exact_scan() && cols.len() > 1 && snapshot.is_none();
-    delta_heads_cols_impl(layer, g, p, cols, eps, parallel, snapshot, chunked)
+    let chunked = carrier == Carrier::Q32 && exact_scan() && cols.len() > 1 && snapshot.is_none();
+    delta_heads_cols_impl(layer, g, p, cols, eps, parallel, snapshot, chunked, carrier)
         .map(|(out, _raw)| out)
+}
+
+fn attn_heads_f32<E, F>(
+    n_head: usize,
+    hd: usize,
+    out: &mut [f32],
+    parallel: bool,
+    head: F,
+) -> Option<(usize, E)>
+where
+    F: Fn(usize, &mut [f32]) -> Result<(), E> + Sync,
+    E: Send,
+{
+    if !parallel {
+        let mut h = 0usize;
+        while h < n_head {
+            let lo = h * hd;
+            if let Err(e) = head(h, &mut out[lo..lo + hd]) {
+                return Some((h, e));
+            }
+            h += 1;
+        }
+        return None;
+    }
+    let pool = crate::engine::chart::pool::Pool::global();
+    let first: std::sync::Mutex<Option<(usize, E)>> = std::sync::Mutex::new(None);
+    pool.chunks_mut(out, hd, &|c, _start, dst| {
+        if let Err(e) = head(c, dst) {
+            let mut slot = first
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if slot.is_none() {
+                *slot = Some((c, e));
+            }
+        }
+    });
+    first.into_inner().unwrap_or_default()
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    clippy::needless_range_loop,
+    reason = "channel-range causal conv+silu; taps, history, and channels"
+)]
+fn conv_silu_channel_range(
+    packed_w: &[f32],
+    scalar_w: &[f32],
+    window: &[f32],
+    xs: &[f32],
+    ch: usize,
+    k: usize,
+    c0: usize,
+    c1: usize,
+    out: &mut [f32],
+) -> Result<(), StepError> {
+    let cols = 3usize;
+    let width = c1 - c0;
+    let is_avx2 = std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma");
+
+    let mut c = c0;
+    if is_avx2 && packed_w.len() >= 4 * ch {
+        while c + 8 <= c1 {
+            let c_offset = c - c0;
+            let blk = c / 8;
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                use std::arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps};
+                let v_tap0 = _mm256_loadu_ps(packed_w.as_ptr().add(blk * 32));
+                let v_tap1 = _mm256_loadu_ps(packed_w.as_ptr().add(blk * 32 + 8));
+                let v_tap2 = _mm256_loadu_ps(packed_w.as_ptr().add(blk * 32 + 16));
+                let v_tap3 = _mm256_loadu_ps(packed_w.as_ptr().add(blk * 32 + 24));
+
+                for j in 0..k {
+                    let p0 = if j < cols {
+                        window.as_ptr().add(j * ch + c)
+                    } else {
+                        xs.as_ptr().add((j - cols) * ch + c)
+                    };
+                    let p1 = if j + 1 < cols {
+                        window.as_ptr().add((j + 1) * ch + c)
+                    } else {
+                        xs.as_ptr().add((j + 1 - cols) * ch + c)
+                    };
+                    let p2 = if j + 2 < cols {
+                        window.as_ptr().add((j + 2) * ch + c)
+                    } else {
+                        xs.as_ptr().add((j + 2 - cols) * ch + c)
+                    };
+                    let p3 = if j + 3 < cols {
+                        window.as_ptr().add((j + 3) * ch + c)
+                    } else {
+                        xs.as_ptr().add((j + 3 - cols) * ch + c)
+                    };
+
+                    let v_h0 = _mm256_loadu_ps(p0);
+                    let v_h1 = _mm256_loadu_ps(p1);
+                    let v_h2 = _mm256_loadu_ps(p2);
+                    let v_h3 = _mm256_loadu_ps(p3);
+
+                    let vy = f32_carrier::conv_silu_tap4_avx2(
+                        v_tap0, v_tap1, v_tap2, v_tap3, v_h0, v_h1, v_h2, v_h3,
+                    );
+                    _mm256_storeu_ps(out.as_mut_ptr().add(j * width + c_offset), vy);
+                }
+            }
+            c += 8;
+        }
+    }
+
+    while c < c1 {
+        let c_offset = c - c0;
+        let base = c * 4;
+        let taps = [
+            scalar_w[base],
+            scalar_w[base + 1],
+            scalar_w[base + 2],
+            scalar_w[base + 3],
+        ];
+        for j in 0..k {
+            let h0 = if j < cols {
+                window[j * ch + c]
+            } else {
+                xs[(j - cols) * ch + c]
+            };
+            let h1 = if j + 1 < cols {
+                window[(j + 1) * ch + c]
+            } else {
+                xs[(j + 1 - cols) * ch + c]
+            };
+            let h2 = if j + 2 < cols {
+                window[(j + 2) * ch + c]
+            } else {
+                xs[(j + 2 - cols) * ch + c]
+            };
+            let h3 = if j + 3 < cols {
+                window[(j + 3) * ch + c]
+            } else {
+                xs[(j + 3 - cols) * ch + c]
+            };
+
+            let y = f32_carrier::conv_silu_tap4_scalar(taps, [h0, h1, h2, h3]);
+            if !y.is_finite() {
+                return Err(StepError::Overflow);
+            }
+            out[j * width + c_offset] = y;
+        }
+        c += 1;
+    }
+
+    Ok(())
 }
 
 #[allow(
@@ -1375,6 +2199,7 @@ fn delta_heads_cols_impl(
     parallel: bool,
     snapshot: Option<&AffineLayer>,
     chunked: bool,
+    carrier: Carrier,
 ) -> Result<(Vec<Vec<i64>>, Vec<i64>), StepError> {
     let key_dim = g.n_k_heads * g.head_k;
     let val_dim = g.n_v_heads * g.head_v;
@@ -1393,6 +2218,499 @@ fn delta_heads_cols_impl(
     let n_tasks = g.n_v_heads * slices;
     if layer.heads.len() != n_tasks || snapshot.is_some_and(|s| s.heads.len() != n_tasks) {
         return Err(StepError::BadConfig("affine layer heads"));
+    }
+    let hk = g.head_k;
+
+    // IEEE binary32 carrier path: when carrier == Carrier::F32, evaluate stages 0, 0.5, 1, 2
+    // entirely in single-precision floating point, carrying f32 end-to-end between stages.
+    if carrier == Carrier::F32 {
+        let eps_f = f32_carrier::q32_to_f32(eps);
+        if !eps_f.is_finite() || eps_f <= 0.0 {
+            return Err(StepError::BadConfig("l2 norm eps"));
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "g.head_k is small (typically <= 256)"
+        )]
+        let q_scale = 1.0f32 / (g.head_k as f32).sqrt();
+        if !q_scale.is_finite() {
+            return Err(StepError::Overflow);
+        }
+
+        let staged_opt = layer
+            .staged_conv
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+
+        if let Some(ref staged) = staged_opt {
+            layer.ensure_packed_w(&p.conv, staged.ch, 4);
+        }
+
+        let conv_f32_guard = layer
+            .conv_out_f32
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let conv_f32: Option<&[f32]> = if layer
+            .conv_out_f32_k
+            .load(std::sync::atomic::Ordering::Acquire)
+            == k
+            && conv_f32_guard.len() == k * (2 * key_dim + val_dim)
+        {
+            Some(&conv_f32_guard[..])
+        } else {
+            None
+        };
+
+        let mut out = vec![0i64; k * val_dim];
+        let ssm_norm_f: Vec<f32> = p
+            .norm
+            .iter()
+            .copied()
+            .map(f32_carrier::q32_to_f32)
+            .collect();
+
+        if k == 1 {
+            if let Some(ref staged) = staged_opt {
+                let packed_guard = layer
+                    .conv_w_packed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let scalar_guard = layer
+                    .conv_w_scalar
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+                let fused_head_step = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
+                    let kh = h % g.n_k_heads;
+                    let mut q_stack = [0.0f32; 128];
+                    let mut k_stack = [0.0f32; 128];
+                    let mut v_stack = [0.0f32; 128];
+
+                    let q_buf = if hk <= 128 {
+                        &mut q_stack[..hk]
+                    } else {
+                        return Err(StepError::BadConfig("head_k > 128"));
+                    };
+                    let k_buf = if hk <= 128 {
+                        &mut k_stack[..hk]
+                    } else {
+                        return Err(StepError::BadConfig("head_k > 128"));
+                    };
+                    let v_buf = if g.head_v <= 128 {
+                        &mut v_stack[..g.head_v]
+                    } else {
+                        return Err(StepError::BadConfig("head_v > 128"));
+                    };
+
+                    // 1. Convolve q for key head kh
+                    let q_c0 = kh * hk;
+                    conv_silu_channel_range(
+                        &packed_guard,
+                        &scalar_guard,
+                        &staged.window_f32,
+                        &staged.xs_f32,
+                        staged.ch,
+                        1,
+                        q_c0,
+                        q_c0 + hk,
+                        q_buf,
+                    )?;
+                    f32_carrier::l2_normalize_f32_in_place(q_buf, eps_f, q_scale)?;
+
+                    // 2. Convolve k for key head kh
+                    let k_c0 = key_dim + kh * hk;
+                    conv_silu_channel_range(
+                        &packed_guard,
+                        &scalar_guard,
+                        &staged.window_f32,
+                        &staged.xs_f32,
+                        staged.ch,
+                        1,
+                        k_c0,
+                        k_c0 + hk,
+                        k_buf,
+                    )?;
+                    f32_carrier::l2_normalize_f32_in_place(k_buf, eps_f, 1.0f32)?;
+
+                    // 3. Convolve v for value head h
+                    let v_c0 = 2 * key_dim + h * g.head_v;
+                    conv_silu_channel_range(
+                        &packed_guard,
+                        &scalar_guard,
+                        &staged.window_f32,
+                        &staged.xs_f32,
+                        staged.ch,
+                        1,
+                        v_c0,
+                        v_c0 + g.head_v,
+                        v_buf,
+                    )?;
+
+                    // 4. Gates
+                    let dt_f = f32_carrier::q32_to_f32(p.dt[h]);
+                    let ssm_a_f = f32_carrier::q32_to_f32(p.a[h]);
+                    let b_f = f32_carrier::q32_to_f32(cols[0].2[h]);
+                    let a_f = f32_carrier::q32_to_f32(cols[0].3[h]);
+                    let beta_f = f32_carrier::sigmoid_f32(b_f);
+                    let sp = f32_carrier::softplus_f32(a_f + dt_f);
+                    let decay_f = f32_carrier::exp_f32(ssm_a_f * sp);
+                    if !beta_f.is_finite() || !decay_f.is_finite() {
+                        return Err(StepError::Overflow);
+                    }
+
+                    // 5. DeltaNet recurrence for each slice
+                    let mut o_stack = [0.0f32; 256];
+                    let o_slice = if g.head_v <= 256 {
+                        &mut o_stack[..g.head_v]
+                    } else {
+                        return Err(StepError::BadConfig("head_v > 256"));
+                    };
+
+                    for sl in 0..slices {
+                        let t = h * slices + sl;
+                        let mut guard = layer.heads[t]
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let HeadState::F32 { s: ref mut s_f32 } = guard.state else {
+                            return Err(StepError::BadConfig("affine carrier"));
+                        };
+                        let v_slice = &v_buf[sl * w..(sl + 1) * w];
+                        let out_slice = &mut o_slice[sl * w..(sl + 1) * w];
+                        f32_carrier::delta_step_f32_avx2(
+                            s_f32, out_slice, q_buf, k_buf, v_slice, decay_f, beta_f,
+                        );
+                    }
+
+                    // 6. Stage 2 Gated Norm
+                    let vr = h * g.head_v..(h + 1) * g.head_v;
+                    let zh = &cols[0].1[vr];
+                    f32_carrier::stage2_gated_norm_f32(o_slice, zh, &ssm_norm_f, eps_f, dst)?;
+                    Ok(())
+                };
+
+                let res = attn_heads(g.n_v_heads, g.head_v, &mut out, parallel, fused_head_step);
+                drop(packed_guard);
+                drop(scalar_guard);
+                *layer
+                    .staged_conv
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+
+                if let Some((_, e)) = res {
+                    return Err(e);
+                }
+                return Ok((vec![out], Vec::new()));
+            }
+        }
+
+        // Stage 0 in f32: L2-normalize q and k, scale q by 1/sqrt(head_k)
+        let mut qk_f32 = vec![0.0f32; k * 2 * key_dim];
+        let norm_qk_f32 = |kh: usize, dst: &mut [f32]| -> Result<(), StepError> {
+            let kr = kh * hk..(kh + 1) * hk;
+            if let Some(ref staged) = staged_opt {
+                let packed_guard = layer
+                    .conv_w_packed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let scalar_guard = layer
+                    .conv_w_scalar
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut q_col = vec![0.0f32; k * hk];
+                let mut k_col = vec![0.0f32; k * hk];
+                conv_silu_channel_range(
+                    &packed_guard,
+                    &scalar_guard,
+                    &staged.window_f32,
+                    &staged.xs_f32,
+                    staged.ch,
+                    k,
+                    kr.start,
+                    kr.end,
+                    &mut q_col,
+                )?;
+                conv_silu_channel_range(
+                    &packed_guard,
+                    &scalar_guard,
+                    &staged.window_f32,
+                    &staged.xs_f32,
+                    staged.ch,
+                    k,
+                    key_dim + kr.start,
+                    key_dim + kr.end,
+                    &mut k_col,
+                )?;
+                for c in 0..k {
+                    let d = &mut dst[c * 2 * hk..(c + 1) * 2 * hk];
+                    let (d_q, d_k) = d.split_at_mut(hk);
+                    d_q.copy_from_slice(&q_col[c * hk..(c + 1) * hk]);
+                    f32_carrier::l2_normalize_f32_in_place(d_q, eps_f, q_scale)?;
+                    d_k.copy_from_slice(&k_col[c * hk..(c + 1) * hk]);
+                    f32_carrier::l2_normalize_f32_in_place(d_k, eps_f, 1.0f32)?;
+                }
+            } else {
+                for (c, (conv, ..)) in cols.iter().enumerate() {
+                    let d = &mut dst[c * 2 * hk..(c + 1) * 2 * hk];
+                    let (d_q, d_k) = d.split_at_mut(hk);
+                    if let Some(cf) = conv_f32 {
+                        let col =
+                            &cf[c * (2 * key_dim + val_dim)..(c + 1) * (2 * key_dim + val_dim)];
+                        let (q_all, rest) = col.split_at(key_dim);
+                        d_q.copy_from_slice(&q_all[kr.clone()]);
+                        f32_carrier::l2_normalize_f32_in_place(d_q, eps_f, q_scale)?;
+                        d_k.copy_from_slice(&rest[kr.clone()]);
+                        f32_carrier::l2_normalize_f32_in_place(d_k, eps_f, 1.0f32)?;
+                    } else {
+                        let (q_all, rest) = conv.split_at(key_dim);
+                        for (y, &x) in d_q.iter_mut().zip(&q_all[kr.clone()]) {
+                            *y = f32_carrier::q32_to_f32(x);
+                        }
+                        f32_carrier::l2_normalize_f32_in_place(d_q, eps_f, q_scale)?;
+                        for (y, &x) in d_k.iter_mut().zip(&rest[kr.clone()]) {
+                            *y = f32_carrier::q32_to_f32(x);
+                        }
+                        f32_carrier::l2_normalize_f32_in_place(d_k, eps_f, 1.0f32)?;
+                    }
+                }
+            }
+            Ok(())
+        };
+
+        if k == 1 {
+            for kh in 0..g.n_k_heads {
+                norm_qk_f32(kh, &mut qk_f32[kh * 2 * hk..(kh + 1) * 2 * hk])?;
+            }
+        } else if let Some((_, e)) =
+            attn_heads_f32(g.n_k_heads, k * 2 * hk, &mut qk_f32, parallel, norm_qk_f32)
+        {
+            return Err(e);
+        }
+
+        // Stage 0.5 in f32: β = sigmoid(b) and α = exp(ssm_a · softplus(a + dt))
+        let mut bd_f32 = vec![0.0f32; g.n_v_heads * k * 2];
+        let head_gates_f32 = |h: usize, dst: &mut [f32]| -> Result<(), StepError> {
+            let dt_f = f32_carrier::q32_to_f32(p.dt[h]);
+            let ssm_a_f = f32_carrier::q32_to_f32(p.a[h]);
+            for (c, (_, _, b, a)) in cols.iter().enumerate() {
+                let b_f = f32_carrier::q32_to_f32(b[h]);
+                let a_f = f32_carrier::q32_to_f32(a[h]);
+                let beta = f32_carrier::sigmoid_f32(b_f);
+                let sp = f32_carrier::softplus_f32(a_f + dt_f);
+                let decay = f32_carrier::exp_f32(ssm_a_f * sp);
+                if !beta.is_finite() || !decay.is_finite() {
+                    return Err(StepError::Overflow);
+                }
+                dst[c * 2] = beta;
+                dst[c * 2 + 1] = decay;
+            }
+            Ok(())
+        };
+
+        if k == 1 {
+            for h in 0..g.n_v_heads {
+                head_gates_f32(h, &mut bd_f32[h * 2..(h + 1) * 2])?;
+            }
+        } else if let Some((_, e)) =
+            attn_heads_f32(g.n_v_heads, k * 2, &mut bd_f32, parallel, head_gates_f32)
+        {
+            return Err(e);
+        }
+
+        if k == 1 {
+            // Fused Stage 1 + Stage 2 for decode (k = 1) fallback:
+            let fused_head_step = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
+                let kh = h % g.n_k_heads;
+                let at = kh * 2 * hk;
+                let (q_tilde, k_hat) = qk_f32[at..at + 2 * hk].split_at(hk);
+                let beta_f = bd_f32[h * 2];
+                let decay_f = bd_f32[h * 2 + 1];
+
+                let mut o_stack = [0.0f32; 256];
+                let mut o_vec;
+                let o_slice = if g.head_v <= 256 {
+                    &mut o_stack[..g.head_v]
+                } else {
+                    o_vec = vec![0.0f32; g.head_v];
+                    &mut o_vec[..]
+                };
+
+                for sl in 0..slices {
+                    let t = h * slices + sl;
+                    let vr = h * g.head_v + sl * w..h * g.head_v + (sl + 1) * w;
+                    let mut guard = layer.heads[t]
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let HeadState::F32 { s: ref mut s_f32 } = guard.state else {
+                        return Err(StepError::BadConfig("affine carrier"));
+                    };
+                    let mut v_stack = [0.0f32; 128];
+                    let mut v_vec;
+                    let v_slice = if w <= 128 {
+                        &mut v_stack[..w]
+                    } else {
+                        v_vec = vec![0.0f32; w];
+                        &mut v_vec[..]
+                    };
+
+                    if let Some(cf) = conv_f32 {
+                        let v_col = &cf[2 * key_dim + vr.start..2 * key_dim + vr.end];
+                        v_slice.copy_from_slice(v_col);
+                    } else {
+                        let v_col = &cols[0].0[2 * key_dim + vr.start..2 * key_dim + vr.end];
+                        for (dst_v, &src_v) in v_slice.iter_mut().zip(v_col) {
+                            *dst_v = f32_carrier::q32_to_f32(src_v);
+                        }
+                    }
+
+                    let out_slice = &mut o_slice[sl * w..(sl + 1) * w];
+                    f32_carrier::delta_step_f32_avx2(
+                        s_f32, out_slice, q_tilde, k_hat, v_slice, decay_f, beta_f,
+                    );
+                }
+
+                let vr = h * g.head_v..(h + 1) * g.head_v;
+                let zh = &cols[0].1[vr];
+                f32_carrier::stage2_gated_norm_f32(o_slice, zh, &ssm_norm_f, eps_f, dst)?;
+                Ok(())
+            };
+
+            if let Some((_, e)) =
+                attn_heads(g.n_v_heads, g.head_v, &mut out, parallel, fused_head_step)
+            {
+                return Err(e);
+            }
+
+            return Ok((vec![out], Vec::new()));
+        }
+
+        // Stage 1 in f32: DeltaNet recurrence writing directly into raw_f32
+        let mut raw_f32 = vec![0.0f32; k * val_dim];
+        let update_f32 = |t: usize, dst: &mut [f32]| -> Result<(), StepError> {
+            let (h, sl) = (t / slices, t % slices);
+            let kh = h % g.n_k_heads;
+            let vr = h * g.head_v + sl * w..h * g.head_v + (sl + 1) * w;
+            let mut guard = layer.heads[t]
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let HeadState::F32 { s: ref mut s_f32 } = guard.state else {
+                return Err(StepError::BadConfig("affine carrier"));
+            };
+
+            let v_staged_col = if let Some(ref staged) = staged_opt {
+                let packed_guard = layer
+                    .conv_w_packed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let scalar_guard = layer
+                    .conv_w_scalar
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut vc = vec![0.0f32; k * w];
+                conv_silu_channel_range(
+                    &packed_guard,
+                    &scalar_guard,
+                    &staged.window_f32,
+                    &staged.xs_f32,
+                    staged.ch,
+                    k,
+                    2 * key_dim + vr.start,
+                    2 * key_dim + vr.end,
+                    &mut vc,
+                )?;
+                Some(vc)
+            } else {
+                None
+            };
+
+            let mut v_vec;
+            let mut v_stack = [0.0f32; 128];
+            let v_slice = if w <= 128 {
+                &mut v_stack[..w]
+            } else {
+                v_vec = vec![0.0f32; w];
+                &mut v_vec[..]
+            };
+
+            for (c, (conv, ..)) in cols.iter().enumerate() {
+                if c == 1 {
+                    if let Some(snap) = snapshot {
+                        let mut snap_guard = snap.heads[t]
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if let HeadState::F32 { s: ref mut snap_s } = snap_guard.state {
+                            snap_s.clone_from(s_f32);
+                        }
+                    }
+                }
+                let at = kh * k * 2 * hk + c * 2 * hk;
+                let (q_tilde, k_hat) = qk_f32[at..at + 2 * hk].split_at(hk);
+                if let Some(ref vc) = v_staged_col {
+                    v_slice.copy_from_slice(&vc[c * w..(c + 1) * w]);
+                } else if let Some(cf) = conv_f32 {
+                    let col = &cf[c * (2 * key_dim + val_dim)..(c + 1) * (2 * key_dim + val_dim)];
+                    let v_col = &col[2 * key_dim + vr.start..2 * key_dim + vr.end];
+                    v_slice.copy_from_slice(v_col);
+                } else {
+                    let v_col = &conv[2 * key_dim + vr.start..2 * key_dim + vr.end];
+                    for (dst_v, &src_v) in v_slice.iter_mut().zip(v_col) {
+                        *dst_v = f32_carrier::q32_to_f32(src_v);
+                    }
+                }
+                let beta_f = bd_f32[h * k * 2 + c * 2];
+                let decay_f = bd_f32[h * k * 2 + c * 2 + 1];
+
+                let out_slice = &mut dst[c * w..(c + 1) * w];
+                f32_carrier::delta_step_f32_avx2(
+                    s_f32, out_slice, q_tilde, k_hat, v_slice, decay_f, beta_f,
+                );
+            }
+            Ok(())
+        };
+        if let Some((_, e)) = attn_heads_f32(n_tasks, k * w, &mut raw_f32, parallel, update_f32) {
+            return Err(e);
+        }
+
+        // Stage 2 in f32: per-head RMS norm × ssm_norm × SiLU(z) gate, converting to Q32.32 once
+        let gate_norm_f32 = |h: usize, dst: &mut [i64]| -> Result<(), StepError> {
+            let vr = h * g.head_v..(h + 1) * g.head_v;
+            let mut o_vec;
+            let mut o_stack = [0.0f32; 256];
+            let o_slice = if g.head_v <= 256 {
+                &mut o_stack[..g.head_v]
+            } else {
+                o_vec = vec![0.0f32; g.head_v];
+                &mut o_vec[..]
+            };
+            for (c, (_, z, ..)) in cols.iter().enumerate() {
+                for sl in 0..slices {
+                    let at = (h * slices + sl) * k * w + c * w;
+                    o_slice[sl * w..(sl + 1) * w].copy_from_slice(&raw_f32[at..at + w]);
+                }
+                let zh = &z[vr.clone()];
+                let dcol = &mut dst[c * g.head_v..(c + 1) * g.head_v];
+                f32_carrier::stage2_gated_norm_f32(o_slice, zh, &ssm_norm_f, eps_f, dcol)?;
+            }
+            Ok(())
+        };
+        if let Some((_, e)) =
+            attn_heads(g.n_v_heads, k * g.head_v, &mut out, parallel, gate_norm_f32)
+        {
+            return Err(e);
+        }
+
+        let mut cols_out: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(val_dim)).collect();
+        for h in 0..g.n_v_heads {
+            for (c, col) in cols_out.iter_mut().enumerate() {
+                let at = h * k * g.head_v + c * g.head_v;
+                col.extend_from_slice(&out[at..at + g.head_v]);
+            }
+        }
+        *layer
+            .staged_conv
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        return Ok((cols_out, Vec::new()));
     }
     let head_k_fixed = i64::try_from(g.head_k)
         .ok()
@@ -1448,6 +2766,7 @@ fn delta_heads_cols_impl(
         let mut guard = layer.heads[t]
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         // Chunked path: the slice's whole block through one composed affine map per `<= CHUNK_MAX`
         // columns. `delta_head_chunk` decodes the entry state, keeps chunk-internal products at
         // `2^-CHUNK_PREC` and rounds to Q32.32 once at the chunk boundary; its exit state is the
@@ -1455,7 +2774,13 @@ fn delta_heads_cols_impl(
         // per-step call reads as the unscaled `S̃` at `c = 1`. A refusal before a chunk boundary
         // writes nothing.
         if chunked {
-            let AffineHead { s, c: scale } = &mut *guard;
+            let HeadState::Q32 {
+                ref mut s,
+                c: ref mut scale,
+            } = guard.state
+            else {
+                return Err(StepError::BadConfig("affine carrier"));
+            };
             let mut q_buf = vec![0i64; CHUNK_MAX * hk];
             let mut k_buf = vec![0i64; CHUNK_MAX * hk];
             let mut v_buf = vec![0i64; CHUNK_MAX * w];
@@ -1508,7 +2833,13 @@ fn delta_heads_cols_impl(
             let beta = bd[h * k * 2 + c * 2];
             let decay = bd[h * k * 2 + c * 2 + 1];
             let v = &conv[2 * key_dim + vr.start..2 * key_dim + vr.end];
-            let AffineHead { s, c: scale } = &mut *guard;
+            let HeadState::Q32 {
+                ref mut s,
+                c: ref mut scale,
+            } = guard.state
+            else {
+                return Err(StepError::BadConfig("affine carrier"));
+            };
             let o = delta_head_step(s, scale, q_tilde, k_hat, v, decay, beta)?;
             dst[c * w..(c + 1) * w].copy_from_slice(&o);
         }
@@ -1555,14 +2886,76 @@ fn delta_heads_cols_impl(
 }
 
 impl AffineLayer {
+    #[allow(
+        clippy::similar_names,
+        clippy::needless_range_loop,
+        reason = "converts and packs Q32 conv weights into tap-major AVX2 format once per layer"
+    )]
+    pub(crate) fn ensure_packed_w(&self, w: &[i64], ch: usize, kernel: usize) {
+        if kernel != 4 {
+            return;
+        }
+        let mut packed = self
+            .conv_w_packed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if packed.len() == 4 * ch {
+            return;
+        }
+        let mut scalar = self
+            .conv_w_scalar
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let mut p = vec![0.0f32; 4 * ch];
+        let mut s = vec![0.0f32; 4 * ch];
+
+        for c in 0..ch {
+            let base = c * 4;
+            s[base] = f32_carrier::q32_to_f32(w[base]);
+            s[base + 1] = f32_carrier::q32_to_f32(w[base + 1]);
+            s[base + 2] = f32_carrier::q32_to_f32(w[base + 2]);
+            s[base + 3] = f32_carrier::q32_to_f32(w[base + 3]);
+        }
+
+        for b in 0..ch / 8 {
+            for lane in 0..8 {
+                let c = b * 8 + lane;
+                let base = c * 4;
+                p[b * 32 + lane] = s[base];
+                p[b * 32 + 8 + lane] = s[base + 1];
+                p[b * 32 + 16 + lane] = s[base + 2];
+                p[b * 32 + 24 + lane] = s[base + 3];
+            }
+        }
+
+        *packed = p;
+        *scalar = s;
+    }
+
     /// The rollback point's conv half: `src`'s window after one more column `x0`, i.e. its rows
     /// `1..` followed by `x0`, written in place.
     pub(crate) fn snapshot_conv_after(&mut self, src: &AffineLayer, x0: &[i64]) {
         let ch = x0.len();
-        self.conv.clear();
-        if src.conv.len() >= ch && ch > 0 {
-            self.conv.extend_from_slice(&src.conv[ch..]);
-            self.conv.extend_from_slice(x0);
+        match (&mut self.conv, &src.conv) {
+            (ConvState::Q32(dst), ConvState::Q32(src_conv)) => {
+                dst.clear();
+                if src_conv.len() >= ch && ch > 0 {
+                    dst.extend_from_slice(&src_conv[ch..]);
+                    dst.extend_from_slice(x0);
+                }
+            }
+            (ConvState::F32(dst), ConvState::F32(src_conv)) => {
+                dst.clear();
+                if src_conv.len() >= ch && ch > 0 {
+                    dst.extend_from_slice(&src_conv[ch..]);
+                    dst.reserve(ch);
+                    for &x in x0 {
+                        dst.push(f32_carrier::q32_to_f32(x));
+                    }
+                }
+            }
+            _ => panic!("mismatched conv states in snapshot_conv_after"),
         }
     }
 }

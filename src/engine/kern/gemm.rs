@@ -31,6 +31,7 @@
 //! [`matvec_q8act`]: crate::engine::chart::matvec_q8act
 
 use crate::engine::chart::{ActMagnitude, QuantAct};
+use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::engine::value::round_shift_32;
 use crate::engine::{silu_fixed, FfnError};
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
@@ -92,10 +93,10 @@ unsafe impl Sync for PackPtr {}
 fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     let k = qs.len();
     let groups = k.div_ceil(LANES);
-    let mut words = vec![0x8080_8080u32; groups * blocks * 8 * LANES];
-    let mut shift = vec![0i64; groups * blocks * LANES];
-    let mut emin = vec![0u32; k];
-    let mut spread = vec![0u32; groups];
+    let mut words = Vec::with_capacity(groups * blocks * 8 * LANES);
+    let mut shift = Vec::with_capacity(groups * blocks * LANES);
+    let mut emin = Vec::with_capacity(k);
+    let mut spread = Vec::with_capacity(groups);
     let refused = std::sync::atomic::AtomicBool::new(false);
     let ptr = PackPtr {
         words: words.as_mut_ptr(),
@@ -132,12 +133,21 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
                 group_spread = group_spread.max(sh);
                 for quad in 0..8 {
                     let at = b * ACT_QK + 4 * quad;
-                    let mut w = 0u32;
-                    for (i, &x) in codes[at..at + 4].iter().enumerate() {
-                        w |= u32::from(x.cast_unsigned() ^ 0x80) << (8 * i);
-                    }
+                    let raw_w = unsafe { codes.as_ptr().add(at).cast::<u32>().read_unaligned() };
+                    let w = raw_w ^ 0x8080_8080;
                     // SAFETY: as for `shift`; the word has no other writer.
                     unsafe { *pk.words.add(((g * blocks + b) * 8 + quad) * LANES + lane) = w };
+                }
+            }
+        }
+        for pad_lane in (hi_c - lo_c)..LANES {
+            for b in 0..blocks {
+                unsafe {
+                    *pk.shift.add((g * blocks + b) * LANES + pad_lane) = 0;
+                    for quad in 0..8 {
+                        *pk.words
+                            .add(((g * blocks + b) * 8 + quad) * LANES + pad_lane) = 0x8080_8080;
+                    }
                 }
             }
         }
@@ -147,6 +157,12 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     });
     if refused.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
+    }
+    unsafe {
+        words.set_len(groups * blocks * 8 * LANES);
+        shift.set_len(groups * blocks * LANES);
+        emin.set_len(k);
+        spread.set_len(groups);
     }
     Some(Packed {
         groups,
@@ -517,6 +533,19 @@ pub(crate) fn gemm_q8_0_swiglu(
     n_in: usize,
     qs: &[QuantAct],
 ) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
+    gemm_q8_0_swiglu_carrier(raw_gate, raw_up, n_ff, n_in, qs, carrier_from_env())
+}
+
+/// The fused `[W_gate; W_up]` projection with the `SwiGLU` epilogue under explicit [`Carrier`].
+#[must_use]
+pub(crate) fn gemm_q8_0_swiglu_carrier(
+    raw_gate: &[u8],
+    raw_up: &[u8],
+    n_ff: usize,
+    n_in: usize,
+    qs: &[QuantAct],
+    carrier: Carrier,
+) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
     #[cfg(target_arch = "x86_64")]
     {
         if qs.is_empty()
@@ -550,9 +579,12 @@ pub(crate) fn gemm_q8_0_swiglu(
         }
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
-        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; n_ff]).collect();
+        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_ff)).collect();
         let ptrs = SwigluPtrs {
-            ptrs: cols.iter_mut().map(Vec::as_mut_ptr).collect(),
+            ptrs: cols
+                .iter_mut()
+                .map(|v| v.spare_capacity_mut().as_mut_ptr().cast::<i64>())
+                .collect(),
         };
         let out = &ptrs;
         let bad = std::sync::atomic::AtomicBool::new(false);
@@ -567,7 +599,7 @@ pub(crate) fn gemm_q8_0_swiglu(
             let ok = unsafe {
                 x86::rows_swiglu(
                     raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, &packed, limit, out,
-                    first_ref,
+                    first_ref, carrier,
                 )
             };
             if !ok {
@@ -577,17 +609,21 @@ pub(crate) fn gemm_q8_0_swiglu(
         if bad.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
-        match first
+        if let Some((_, _, e)) = first
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
         {
-            Some((_, _, e)) => Some(Err(e)),
-            None => Some(Ok(cols)),
+            Some(Err(e))
+        } else {
+            for col in &mut cols {
+                unsafe { col.set_len(n_ff) };
+            }
+            Some(Ok(cols))
         }
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        let _ = (raw_gate, raw_up, n_ff, n_in, qs);
+        let _ = (raw_gate, raw_up, n_ff, n_in, qs, carrier);
         None
     }
 }
@@ -641,7 +677,7 @@ mod x86 {
         clippy::cast_ptr_alignment,
         reason = "unaligned 256-bit loads and 32-bit weight-word reads"
     )]
-    unsafe fn group2(
+    pub(super) unsafe fn group2(
         ra: &[u8],
         rb: &[u8],
         sa: &[(i32, i64, i32)],
@@ -716,6 +752,233 @@ mod x86 {
             }
         }
         [a0, a1, b0, b1]
+    }
+
+    /// The 16 columns of two groups against two rows when all exponents agree (no per-block shift).
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        clippy::too_many_arguments,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        reason = "unaligned 256-bit loads and 32-bit weight-word reads"
+    )]
+    pub(super) unsafe fn group2_x2_noshift(
+        ra: &[u8],
+        rb: &[u8],
+        sa: &[(i32, i64, i32)],
+        sb: &[(i32, i64, i32)],
+        blocks: usize,
+        words_g0: *const u32,
+        words_g1: *const u32,
+    ) -> [__m256i; 8] {
+        let (mut a0_0, mut a1_0, mut b0_0, mut b1_0) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        let (mut a0_1, mut a1_1, mut b0_1, mut b1_1) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for b in 0..blocks {
+            // SAFETY: in range by caller's geometry.
+            unsafe {
+                let ca = ra.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let cb = rb.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let wb0 = words_g0.add(b * 8 * LANES);
+                let wb1 = words_g1.add(b * 8 * LANES);
+                let mut da0 = _mm256_setzero_si256();
+                let mut da1 = _mm256_setzero_si256();
+                let mut db0 = _mm256_setzero_si256();
+                let mut db1 = _mm256_setzero_si256();
+                for quad in 0..8 {
+                    let act0 = _mm256_loadu_si256(wb0.add(quad * LANES).cast::<__m256i>());
+                    let act1 = _mm256_loadu_si256(wb1.add(quad * LANES).cast::<__m256i>());
+                    let wa = _mm256_set1_epi32(ca.add(4 * quad).cast::<i32>().read_unaligned());
+                    da0 = dpbusd(da0, act0, wa);
+                    da1 = dpbusd(da1, act1, wa);
+                    let wb = _mm256_set1_epi32(cb.add(4 * quad).cast::<i32>().read_unaligned());
+                    db0 = dpbusd(db0, act0, wb);
+                    db1 = dpbusd(db1, act1, wb);
+                }
+                let (ma, _ka, ba) = sa[b];
+                let ba_v = _mm256_set1_epi32(ba);
+                let ma_v = _mm256_set1_epi32(ma);
+
+                let ta0 = _mm256_mullo_epi32(_mm256_sub_epi32(da0, ba_v), ma_v);
+                a0_0 = _mm256_add_epi64(a0_0, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta0)));
+                a1_0 = _mm256_add_epi64(
+                    a1_0,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta0, 1)),
+                );
+
+                let ta1 = _mm256_mullo_epi32(_mm256_sub_epi32(da1, ba_v), ma_v);
+                a0_1 = _mm256_add_epi64(a0_1, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta1)));
+                a1_1 = _mm256_add_epi64(
+                    a1_1,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta1, 1)),
+                );
+
+                let (mb, _kb, bb) = sb[b];
+                let bb_v = _mm256_set1_epi32(bb);
+                let mb_v = _mm256_set1_epi32(mb);
+
+                let tb0 = _mm256_mullo_epi32(_mm256_sub_epi32(db0, bb_v), mb_v);
+                b0_0 = _mm256_add_epi64(b0_0, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb0)));
+                b1_0 = _mm256_add_epi64(
+                    b1_0,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb0, 1)),
+                );
+
+                let tb1 = _mm256_mullo_epi32(_mm256_sub_epi32(db1, bb_v), mb_v);
+                b0_1 = _mm256_add_epi64(b0_1, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb1)));
+                b1_1 = _mm256_add_epi64(
+                    b1_1,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb1, 1)),
+                );
+            }
+        }
+        [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
+    }
+
+    /// The 16 columns of two groups against two rows: each row's `i64` accumulators,
+    /// returning `[a0_g0, a1_g0, b0_g0, b1_g0, a0_g1, a1_g1, b0_g1, b1_g1]`.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        clippy::too_many_arguments,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        reason = "unaligned 256-bit loads and 32-bit weight-word reads"
+    )]
+    pub(super) unsafe fn group2_x2(
+        ra: &[u8],
+        rb: &[u8],
+        sa: &[(i32, i64, i32)],
+        sb: &[(i32, i64, i32)],
+        blocks: usize,
+        words_g0: *const u32,
+        words_g1: *const u32,
+        shift_g0: *const i64,
+        shift_g1: *const i64,
+    ) -> [__m256i; 8] {
+        let (mut a0_0, mut a1_0, mut b0_0, mut b1_0) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        let (mut a0_1, mut a1_1, mut b0_1, mut b1_1) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for b in 0..blocks {
+            // SAFETY: in range by caller's geometry.
+            unsafe {
+                let ca = ra.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let cb = rb.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let wb0 = words_g0.add(b * 8 * LANES);
+                let wb1 = words_g1.add(b * 8 * LANES);
+                let mut da0 = _mm256_setzero_si256();
+                let mut da1 = _mm256_setzero_si256();
+                let mut db0 = _mm256_setzero_si256();
+                let mut db1 = _mm256_setzero_si256();
+                for quad in 0..8 {
+                    let act0 = _mm256_loadu_si256(wb0.add(quad * LANES).cast::<__m256i>());
+                    let act1 = _mm256_loadu_si256(wb1.add(quad * LANES).cast::<__m256i>());
+                    let wa = _mm256_set1_epi32(ca.add(4 * quad).cast::<i32>().read_unaligned());
+                    da0 = dpbusd(da0, act0, wa);
+                    da1 = dpbusd(da1, act1, wa);
+                    let wb = _mm256_set1_epi32(cb.add(4 * quad).cast::<i32>().read_unaligned());
+                    db0 = dpbusd(db0, act0, wb);
+                    db1 = dpbusd(db1, act1, wb);
+                }
+                let (ma, ka, ba) = sa[b];
+                let ba_v = _mm256_set1_epi32(ba);
+                let ma_v = _mm256_set1_epi32(ma);
+                let kav = _mm256_set1_epi64x(ka);
+
+                let ta0 = _mm256_mullo_epi32(_mm256_sub_epi32(da0, ba_v), ma_v);
+                let sh0_0 = _mm256_loadu_si256(shift_g0.add(b * LANES).cast::<__m256i>());
+                let sh0_1 = _mm256_loadu_si256(shift_g0.add(b * LANES + 4).cast::<__m256i>());
+                a0_0 = _mm256_add_epi64(
+                    a0_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta0)),
+                        _mm256_add_epi64(sh0_0, kav),
+                    ),
+                );
+                a1_0 = _mm256_add_epi64(
+                    a1_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta0, 1)),
+                        _mm256_add_epi64(sh0_1, kav),
+                    ),
+                );
+
+                let ta1 = _mm256_mullo_epi32(_mm256_sub_epi32(da1, ba_v), ma_v);
+                let sh1_0 = _mm256_loadu_si256(shift_g1.add(b * LANES).cast::<__m256i>());
+                let sh1_1 = _mm256_loadu_si256(shift_g1.add(b * LANES + 4).cast::<__m256i>());
+                a0_1 = _mm256_add_epi64(
+                    a0_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta1)),
+                        _mm256_add_epi64(sh1_0, kav),
+                    ),
+                );
+                a1_1 = _mm256_add_epi64(
+                    a1_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta1, 1)),
+                        _mm256_add_epi64(sh1_1, kav),
+                    ),
+                );
+
+                let (mb, kb, bb) = sb[b];
+                let bb_v = _mm256_set1_epi32(bb);
+                let mb_v = _mm256_set1_epi32(mb);
+                let kbv = _mm256_set1_epi64x(kb);
+
+                let tb0 = _mm256_mullo_epi32(_mm256_sub_epi32(db0, bb_v), mb_v);
+                b0_0 = _mm256_add_epi64(
+                    b0_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb0)),
+                        _mm256_add_epi64(sh0_0, kbv),
+                    ),
+                );
+                b1_0 = _mm256_add_epi64(
+                    b1_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb0, 1)),
+                        _mm256_add_epi64(sh0_1, kbv),
+                    ),
+                );
+
+                let tb1 = _mm256_mullo_epi32(_mm256_sub_epi32(db1, bb_v), mb_v);
+                b0_1 = _mm256_add_epi64(
+                    b0_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb1)),
+                        _mm256_add_epi64(sh1_0, kbv),
+                    ),
+                );
+                b1_1 = _mm256_add_epi64(
+                    b1_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb1, 1)),
+                        _mm256_add_epi64(sh1_1, kbv),
+                    ),
+                );
+            }
+        }
+        [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
     }
 
     /// The scalar [`super::row_scales`] with each block's code sum taken as
@@ -875,6 +1138,7 @@ mod x86 {
     #[allow(
         clippy::too_many_arguments,
         clippy::many_single_char_names,
+        clippy::similar_names,
         clippy::cast_ptr_alignment,
         clippy::too_many_lines,
         reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address; the scalar and vector epilogues read best together"
@@ -891,9 +1155,15 @@ mod x86 {
         cols: &super::ColPtrs,
     ) -> bool {
         let k = qs.len();
-        let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut sb = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut lanes = [0i64; 16];
+        let mut sa = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let mut sb = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let sa_slice = unsafe {
+            std::slice::from_raw_parts_mut(sa.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let sb_slice = unsafe {
+            std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let mut lanes2 = [0i64; 16];
         let mut r = 0usize;
         while r < rows {
             let pair = r + 1 < rows;
@@ -902,38 +1172,174 @@ mod x86 {
             let ra = &raw[ia * row_bytes..(ia + 1) * row_bytes];
             let rb = &raw[ib * row_bytes..(ib + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                // SAFETY: `ra`/`rb` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
-                // slots (`blocks ≤ MAX_BLOCKS`).
-                unsafe { row_scales_avx2(ra, blocks, &mut sa) },
-                unsafe { row_scales_avx2(rb, blocks, &mut sb) },
+                // SAFETY: `ra`/`rb` hold `blocks` Q8_0 blocks and `sa_slice`/`sb_slice` have
+                // `blocks` slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ra, blocks, sa_slice) },
+                unsafe { row_scales_avx2(rb, blocks, sb_slice) },
             ) else {
                 return false;
             };
-            for g in 0..p.groups {
-                // SAFETY: the group's words and shifts are in range of the packing.
+            let mut g = 0usize;
+            while g + 1 < p.groups {
+                let acc = unsafe {
+                    if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        group2_x2_noshift(
+                            ra,
+                            rb,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                        )
+                    } else {
+                        group2_x2(
+                            ra,
+                            rb,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                            p.shift.as_ptr().add(g * blocks * LANES),
+                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+                        )
+                    }
+                };
+                for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+                    let need_exact_a = spa + p.spread[sub_g] > limit;
+                    let need_exact_b = spb + p.spread[sub_g] > limit;
+                    let nvalid = (k - sub_g * LANES).min(LANES);
+                    if !need_exact_a && (!pair || !need_exact_b) {
+                        let base_c = sub_g * LANES;
+                        let sv0 = if base_c + 4 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            let take = k.saturating_sub(base_c).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let sv1 = if base_c + 8 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            if base_c + 4 < k {
+                                let take = (k - (base_c + 4)).min(4);
+                                tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                            }
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let (va0, oka0) = finish4(
+                            acc_chunk[0],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (va1, oka1) = finish4(
+                            acc_chunk[1],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vb0, okb0) = if pair {
+                            finish4(
+                                acc_chunk[2],
+                                _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                            )
+                        } else {
+                            (_mm256_setzero_si256(), true)
+                        };
+                        let (vb1, okb1) = if pair {
+                            finish4(
+                                acc_chunk[3],
+                                _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                            )
+                        } else {
+                            (_mm256_setzero_si256(), true)
+                        };
+                        if oka0 && oka1 && okb0 && okb1 {
+                            let mut out_a = [0i64; 8];
+                            let mut out_b = [0i64; 8];
+                            _mm256_storeu_si256(out_a.as_mut_ptr().cast::<__m256i>(), va0);
+                            _mm256_storeu_si256(out_a.as_mut_ptr().add(4).cast::<__m256i>(), va1);
+                            if pair {
+                                _mm256_storeu_si256(out_b.as_mut_ptr().cast::<__m256i>(), vb0);
+                                _mm256_storeu_si256(
+                                    out_b.as_mut_ptr().add(4).cast::<__m256i>(),
+                                    vb1,
+                                );
+                            }
+                            for lane in 0..nvalid {
+                                let c = base_c + lane;
+                                unsafe {
+                                    cols.ptrs[c]
+                                        .add(r0 + r)
+                                        .write(std::mem::MaybeUninit::new(out_a[lane]));
+                                    if pair {
+                                        cols.ptrs[c]
+                                            .add(r0 + r + 1)
+                                            .write(std::mem::MaybeUninit::new(out_b[lane]));
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    unsafe {
+                        for (i, v) in acc_chunk.iter().enumerate() {
+                            _mm256_storeu_si256(
+                                lanes2.as_mut_ptr().add(4 * i).cast::<__m256i>(),
+                                *v,
+                            );
+                        }
+                    }
+                    for lane in 0..nvalid {
+                        let c = sub_g * LANES + lane;
+                        for (which, (row, kmin, sp)) in
+                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        {
+                            if which == 1 && !pair {
+                                continue;
+                            }
+                            let v = if sp + p.spread[sub_g] > limit {
+                                exact_dot(row, blocks, &qs[c])
+                            } else {
+                                finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                            };
+                            let Some(v) = v else {
+                                return false;
+                            };
+                            unsafe {
+                                cols.ptrs[c]
+                                    .add(r0 + r + which)
+                                    .write(std::mem::MaybeUninit::new(v));
+                            }
+                        }
+                    }
+                }
+                g += 2;
+            }
+            if g < p.groups {
                 let acc = unsafe {
                     group2(
                         ra,
                         rb,
-                        &sa[..blocks],
-                        &sb[..blocks],
+                        sa_slice,
+                        sb_slice,
                         blocks,
                         p.words.as_ptr().add(g * blocks * 8 * LANES),
                         p.shift.as_ptr().add(g * blocks * LANES),
                     )
                 };
-                // SAFETY: `lanes` holds 16 `i64`.
                 unsafe {
                     for (i, v) in acc.iter().enumerate() {
-                        _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * i).cast::<__m256i>(), *v);
+                        _mm256_storeu_si256(lanes2.as_mut_ptr().add(4 * i).cast::<__m256i>(), *v);
                     }
                 }
                 let need_exact_a = spa + p.spread[g] > limit;
                 let need_exact_b = spb + p.spread[g] > limit;
                 let nvalid = (k - g * LANES).min(LANES);
-                // Neither row's (row, group) needs the exact path: one vector `finish` per row.
-                // A lane or group the vector refuses falls back to the scalar epilogue below, so
-                // the refusal set and every stored value are the scalar ones.
                 if !need_exact_a && (!pair || !need_exact_b) {
                     let mut shifts = [0u32; 2 * LANES];
                     {
@@ -945,13 +1351,11 @@ mod x86 {
                         }
                     }
                     let mut acc_a = [0i64; LANES];
-                    acc_a.copy_from_slice(&lanes[..LANES]);
-                    // SAFETY: AVX2 is a target feature of `rows`; both buffers hold 8 lanes.
+                    acc_a.copy_from_slice(&lanes2[..LANES]);
                     let fa = unsafe { finish8(&acc_a, &shifts[..LANES]) };
                     let fb = if pair {
                         let mut acc_b = [0i64; LANES];
-                        acc_b.copy_from_slice(&lanes[LANES..]);
-                        // SAFETY: as above.
+                        acc_b.copy_from_slice(&lanes2[LANES..]);
                         unsafe { finish8(&acc_b, &shifts[LANES..]) }
                     } else {
                         Some([0i64; LANES])
@@ -959,8 +1363,6 @@ mod x86 {
                     if let (Some(va), Some(vb)) = (fa, fb) {
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
-                            // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
-                            // ownership makes `r0 + r + which` unique across tasks and in range.
                             unsafe {
                                 cols.ptrs[c]
                                     .add(r0 + r)
@@ -972,31 +1374,53 @@ mod x86 {
                                 }
                             }
                         }
-                        continue;
-                    }
-                }
-                for lane in 0..nvalid {
-                    let c = g * LANES + lane;
-                    for (which, (row, kmin, sp)) in
-                        [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
-                    {
-                        if which == 1 && !pair {
-                            continue;
+                    } else {
+                        for lane in 0..nvalid {
+                            let c = g * LANES + lane;
+                            for (which, (row, kmin, sp)) in
+                                [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                            {
+                                if which == 1 && !pair {
+                                    continue;
+                                }
+                                let v = if sp + p.spread[g] > limit {
+                                    exact_dot(row, blocks, &qs[c])
+                                } else {
+                                    finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                                };
+                                let Some(v) = v else {
+                                    return false;
+                                };
+                                unsafe {
+                                    cols.ptrs[c]
+                                        .add(r0 + r + which)
+                                        .write(std::mem::MaybeUninit::new(v));
+                                }
+                            }
                         }
-                        let v = if sp + p.spread[g] > limit {
-                            exact_dot(row, blocks, &qs[c])
-                        } else {
-                            finish(lanes[8 * which + lane], kmin + p.emin[c])
-                        };
-                        let Some(v) = v else {
-                            return false;
-                        };
-                        // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
-                        // ownership makes `r0 + r + which` unique across tasks and in range.
-                        unsafe {
-                            cols.ptrs[c]
-                                .add(r0 + r + which)
-                                .write(std::mem::MaybeUninit::new(v));
+                    }
+                } else {
+                    for lane in 0..nvalid {
+                        let c = g * LANES + lane;
+                        for (which, (row, kmin, sp)) in
+                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        {
+                            if which == 1 && !pair {
+                                continue;
+                            }
+                            let v = if sp + p.spread[g] > limit {
+                                exact_dot(row, blocks, &qs[c])
+                            } else {
+                                finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                            };
+                            let Some(v) = v else {
+                                return false;
+                            };
+                            unsafe {
+                                cols.ptrs[c]
+                                    .add(r0 + r + which)
+                                    .write(std::mem::MaybeUninit::new(v));
+                            }
                         }
                     }
                 }
@@ -1023,7 +1447,9 @@ mod x86 {
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
+        clippy::too_many_lines,
         clippy::many_single_char_names,
+        clippy::similar_names,
         clippy::cast_ptr_alignment,
         reason = "p/k/r/c/g/i name the packing, columns, row offset, output column, group and hidden \
                   index; _mm256_storeu_si256 accepts the unaligned lane buffer"
@@ -1040,10 +1466,17 @@ mod x86 {
         limit: u32,
         out: &super::SwigluPtrs,
         first: &std::sync::Mutex<Option<(usize, usize, crate::engine::FfnError)>>,
+        carrier: super::Carrier,
     ) -> bool {
         let k = qs.len();
-        let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut sb = [(0i32, 0i64, 0i32); MAX_BLOCKS];
+        let mut sa = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let mut sb = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let sa_slice = unsafe {
+            std::slice::from_raw_parts_mut(sa.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let sb_slice = unsafe {
+            std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
         let mut lanes = [0i64; 16];
         let mut r = 0usize;
         while r < rows {
@@ -1051,66 +1484,279 @@ mod x86 {
             let ga = &raw_gate[i * row_bytes..(i + 1) * row_bytes];
             let ua = &raw_up[i * row_bytes..(i + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                // SAFETY: `ga`/`ua` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
-                // slots (`blocks ≤ MAX_BLOCKS`).
-                unsafe { row_scales_avx2(ga, blocks, &mut sa) },
-                unsafe { row_scales_avx2(ua, blocks, &mut sb) },
+                // SAFETY: `ga`/`ua` hold `blocks` Q8_0 blocks and `sa_slice`/`sb_slice` have
+                // `blocks` slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ga, blocks, sa_slice) },
+                unsafe { row_scales_avx2(ua, blocks, sb_slice) },
             ) else {
                 return false;
             };
-            for g in 0..p.groups {
-                // SAFETY: the group's words and shifts are in range of the packing.
+            let eval_sub_g = |sub_g: usize, gate_arr: &[i64; 8], up_arr: &[i64; 8]| {
+                let active = (k - sub_g * LANES).min(LANES);
+                if carrier == super::Carrier::F32 {
+                    let mut buf = [0i64; 8];
+                    match unsafe {
+                        crate::engine::chart::ffn::swiglu_f32_avx2_8_into(
+                            gate_arr, up_arr, &mut buf,
+                        )
+                    } {
+                        Ok(()) => {
+                            for (lane, &val) in buf.iter().enumerate().take(active) {
+                                let c = sub_g * LANES + lane;
+                                // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                                // other task's, so this element has one writer.
+                                unsafe { *out.ptrs[c].add(i) = val };
+                            }
+                        }
+                        Err((fail_lane, e)) => {
+                            for (lane, &val) in buf.iter().enumerate().take(fail_lane.min(active)) {
+                                let c = sub_g * LANES + lane;
+                                unsafe { *out.ptrs[c].add(i) = val };
+                            }
+                            if fail_lane < active {
+                                let c = sub_g * LANES + fail_lane;
+                                let mut slot = first
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
+                                    *slot = Some((c, i, e));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for lane in 0..active {
+                        let c = sub_g * LANES + lane;
+                        match super::swiglu_one(gate_arr[lane], up_arr[lane]) {
+                            Ok(h) => {
+                                // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                                // other task's, so this element has one writer.
+                                unsafe { *out.ptrs[c].add(i) = h };
+                            }
+                            Err(e) => {
+                                let mut slot = first
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
+                                    *slot = Some((c, i, e));
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            let mut g = 0usize;
+            while g + 1 < p.groups {
+                let acc = unsafe {
+                    if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        group2_x2_noshift(
+                            ga,
+                            ua,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                        )
+                    } else {
+                        group2_x2(
+                            ga,
+                            ua,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                            p.shift.as_ptr().add(g * blocks * LANES),
+                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+                        )
+                    }
+                };
+                for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+                    let need_exact_a = spa + p.spread[sub_g] > limit;
+                    let need_exact_b = spb + p.spread[sub_g] > limit;
+                    let active = (k - sub_g * LANES).min(LANES);
+                    let mut gate_arr = [0i64; 8];
+                    let mut up_arr = [0i64; 8];
+                    let mut fast_ok = false;
+                    if !need_exact_a && !need_exact_b {
+                        let base_c = sub_g * LANES;
+                        let sv0 = if base_c + 4 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            let take = k.saturating_sub(base_c).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let sv1 = if base_c + 8 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            if base_c + 4 < k {
+                                let take = (k - (base_c + 4)).min(4);
+                                tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                            }
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let (vg0, okg0) = finish4(
+                            acc_chunk[0],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vg1, okg1) = finish4(
+                            acc_chunk[1],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vu0, oku0) = finish4(
+                            acc_chunk[2],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                        );
+                        let (vu1, oku1) = finish4(
+                            acc_chunk[3],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                        );
+                        if okg0 && okg1 && oku0 && oku1 {
+                            _mm256_storeu_si256(gate_arr.as_mut_ptr().cast::<__m256i>(), vg0);
+                            _mm256_storeu_si256(
+                                gate_arr.as_mut_ptr().add(4).cast::<__m256i>(),
+                                vg1,
+                            );
+                            _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
+                            _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                            fast_ok = true;
+                        }
+                    }
+                    if !fast_ok {
+                        unsafe {
+                            for (idx, v) in acc_chunk.iter().enumerate() {
+                                _mm256_storeu_si256(
+                                    lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(),
+                                    *v,
+                                );
+                            }
+                        }
+                        for lane in 0..active {
+                            let c = sub_g * LANES + lane;
+                            let gate = if spa + p.spread[sub_g] > limit {
+                                exact_dot(ga, blocks, &qs[c])
+                            } else {
+                                finish(lanes[lane], ka + p.emin[c])
+                            };
+                            let up = if spb + p.spread[sub_g] > limit {
+                                exact_dot(ua, blocks, &qs[c])
+                            } else {
+                                finish(lanes[8 + lane], kb + p.emin[c])
+                            };
+                            let (Some(gate), Some(up)) = (gate, up) else {
+                                return false;
+                            };
+                            gate_arr[lane] = gate;
+                            up_arr[lane] = up;
+                        }
+                    }
+                    eval_sub_g(sub_g, &gate_arr, &up_arr);
+                }
+                g += 2;
+            }
+            if g < p.groups {
                 let acc = unsafe {
                     group2(
                         ga,
                         ua,
-                        &sa[..blocks],
-                        &sb[..blocks],
+                        sa_slice,
+                        sb_slice,
                         blocks,
                         p.words.as_ptr().add(g * blocks * 8 * LANES),
                         p.shift.as_ptr().add(g * blocks * LANES),
                     )
                 };
-                // SAFETY: `lanes` holds 16 `i64`.
-                unsafe {
-                    for (idx, v) in acc.iter().enumerate() {
-                        _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(), *v);
+                let need_exact_a = spa + p.spread[g] > limit;
+                let need_exact_b = spb + p.spread[g] > limit;
+                let active = (k - g * LANES).min(LANES);
+                let mut gate_arr = [0i64; 8];
+                let mut up_arr = [0i64; 8];
+                let mut fast_ok = false;
+                if !need_exact_a && !need_exact_b {
+                    let base_c = g * LANES;
+                    let sv0 = if base_c + 4 <= k {
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                            p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                        ))
+                    } else {
+                        let mut tmp = [0u32; 4];
+                        let take = k.saturating_sub(base_c).min(4);
+                        tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                    };
+                    let sv1 = if base_c + 8 <= k {
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                            p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                        ))
+                    } else {
+                        let mut tmp = [0u32; 4];
+                        if base_c + 4 < k {
+                            let take = (k - (base_c + 4)).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                        }
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                    };
+                    let (vg0, okg0) = finish4(
+                        acc[0],
+                        _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                    );
+                    let (vg1, okg1) = finish4(
+                        acc[1],
+                        _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                    );
+                    let (vu0, oku0) = finish4(
+                        acc[2],
+                        _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                    );
+                    let (vu1, oku1) = finish4(
+                        acc[3],
+                        _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                    );
+                    if okg0 && okg1 && oku0 && oku1 {
+                        _mm256_storeu_si256(gate_arr.as_mut_ptr().cast::<__m256i>(), vg0);
+                        _mm256_storeu_si256(gate_arr.as_mut_ptr().add(4).cast::<__m256i>(), vg1);
+                        _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
+                        _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                        fast_ok = true;
                     }
                 }
-                for lane in 0..LANES {
-                    let c = g * LANES + lane;
-                    if c >= k {
-                        break;
+                if !fast_ok {
+                    unsafe {
+                        for (idx, v) in acc.iter().enumerate() {
+                            _mm256_storeu_si256(
+                                lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(),
+                                *v,
+                            );
+                        }
                     }
-                    let gate = if spa + p.spread[g] > limit {
-                        exact_dot(ga, blocks, &qs[c])
-                    } else {
-                        finish(lanes[lane], ka + p.emin[c])
-                    };
-                    let up = if spb + p.spread[g] > limit {
-                        exact_dot(ua, blocks, &qs[c])
-                    } else {
-                        finish(lanes[8 + lane], kb + p.emin[c])
-                    };
-                    let (Some(gate), Some(up)) = (gate, up) else {
-                        return false;
-                    };
-                    match super::swiglu_one(gate, up) {
-                        Ok(h) => {
-                            // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
-                            // other task's, so this element has one writer.
-                            unsafe { *out.ptrs[c].add(i) = h };
-                        }
-                        Err(e) => {
-                            let mut slot = first
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
-                                *slot = Some((c, i, e));
-                            }
-                        }
+                    for lane in 0..active {
+                        let c = g * LANES + lane;
+                        let gate = if spa + p.spread[g] > limit {
+                            exact_dot(ga, blocks, &qs[c])
+                        } else {
+                            finish(lanes[lane], ka + p.emin[c])
+                        };
+                        let up = if spb + p.spread[g] > limit {
+                            exact_dot(ua, blocks, &qs[c])
+                        } else {
+                            finish(lanes[8 + lane], kb + p.emin[c])
+                        };
+                        let (Some(gate), Some(up)) = (gate, up) else {
+                            return false;
+                        };
+                        gate_arr[lane] = gate;
+                        up_arr[lane] = up;
                     }
                 }
+                eval_sub_g(g, &gate_arr, &up_arr);
             }
             r += 1;
         }
@@ -1575,15 +2221,60 @@ mod tests {
         // `127·2^24` quantizes on the power-of-two grid with code `127`: gate and up are ≈5.7e17,
         // so `silu(gate)·up / 2^32` leaves `i64`.
         let q = quant_act(&vec![127i64 << 24; n_in]).expect("dequantizes");
-        let gate = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("gate contract");
-        let up = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("up contract");
+        let qs = [q];
+        let gate = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &qs[0]).expect("gate contract");
+        let up = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &qs[0]).expect("up contract");
         let mut want = vec![0i64; n_ff];
         let refuse = crate::engine::chart::ffn::swiglu_hidden(&gate, &up, &mut want, false);
         assert_eq!(refuse, Err(FfnError::Overflow), "the fixture must refuse");
         assert_eq!(
-            gemm_q8_0_swiglu(&raw, &raw, n_ff, n_in, &[q]),
+            gemm_q8_0_swiglu(&raw, &raw, n_ff, n_in, &qs),
             Some(Err(FfnError::Overflow))
         );
+        assert_eq!(
+            gemm_q8_0_swiglu_carrier(&raw, &raw, n_ff, n_in, &qs, Carrier::F32),
+            Some(Err(FfnError::Overflow))
+        );
+    }
+
+    #[test]
+    fn swiglu_fused_f32_tracks_q32_oracle() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 42u64;
+        let g_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let u_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let qs = columns(8, 1024, 4, &mut seed);
+
+        let q32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::Q32)
+            .expect("runs")
+            .expect("ok");
+        let f32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::F32)
+            .expect("runs")
+            .expect("ok");
+
+        let mut max_abs = 0.0f64;
+        let mut max_rel = 0.0f64;
+        for (q_col, f_col) in q32_res.iter().zip(&f32_res) {
+            for (&q, &f) in q_col.iter().zip(f_col) {
+                let q_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(q));
+                let f_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(f));
+                let diff = (q_flt - f_flt).abs();
+                if diff > max_abs {
+                    max_abs = diff;
+                }
+                let mag = q_flt.abs().max(f_flt.abs());
+                if mag > 1e-4 {
+                    let rel = diff / mag;
+                    if rel > max_rel {
+                        max_rel = rel;
+                    }
+                }
+            }
+        }
+        println!("fused swiglu f32 vs q32: max |Δ| = {max_abs:.6e}, max rel = {max_rel:.6e}");
+        assert!(max_rel < 1e-3, "relative error {max_rel:e} exceeded 1e-3");
     }
 
     #[test]
@@ -1594,6 +2285,49 @@ mod tests {
         for blocks in 1..=MAX_BLOCKS {
             let log = usize::BITS - (blocks - 1).leading_zeros();
             assert!(30 + spread_limit(blocks) + log <= 63, "{blocks}");
+        }
+    }
+
+    #[test]
+    #[ignore = "release-only microbench: cargo test --release --lib bench_q8_0_gemm_shapes -- --ignored --nocapture"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "benchmarking metrics on exact integer shapes"
+    )]
+    fn bench_q8_0_gemm_shapes() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let shapes = [
+            (1024usize, 3584usize),
+            (3584usize, 1024usize),
+            (1024usize, 6144usize),
+        ];
+        let k = 64usize;
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let scales = &[0x2000, 0x2400, 0x1c00, 0xa000];
+        for &(n_in, n_out) in &shapes {
+            let raw = payload(n_out, n_in, scales, &mut seed);
+            let qs = columns(k, n_in, 8, &mut seed);
+            // Warmup
+            let _ = gemm_q8_0(GGML_TYPE_Q8_0, &raw, n_out, n_in, &qs).expect("runs");
+            let macs = (n_out as f64) * (n_in as f64) * (k as f64);
+            let mut best_dur = std::time::Duration::MAX;
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let res = gemm_q8_0(GGML_TYPE_Q8_0, &raw, n_out, n_in, &qs).expect("runs");
+                let dur = start.elapsed();
+                std::hint::black_box(&res);
+                if dur < best_dur {
+                    best_dur = dur;
+                }
+            }
+            let gmacs = (macs / best_dur.as_secs_f64()) / 1e9;
+            println!(
+                "{n_in}->{n_out} k={k}: best_ms = {:.3} ms, throughput = {:.2} GMAC/s",
+                best_dur.as_secs_f64() * 1000.0,
+                gmacs
+            );
         }
     }
 }

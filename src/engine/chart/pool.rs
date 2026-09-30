@@ -97,6 +97,64 @@ pub(crate) enum WorkerClass {
     Efficiency,
 }
 
+/// The largest task count for which `weighted(n)` is precomputed in [`Split`].
+pub(crate) const WEIGHTED_TABLE_MAX: usize = 1024;
+
+/// Contiguous task range `[lo, hi)` under a speed-weighted split with `prefix` weights:
+/// `lo = round(n·prefix[k]/W)`, `hi = round(n·prefix[k+1]/W)` with `W = prefix[last]`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "lo and hi are bounded by n ≤ MAX_TASKS < 2^20, so the u64 quotient fits usize"
+)]
+fn range_with_prefix(prefix: &[u64], k: usize, n: usize) -> (usize, usize) {
+    let Some(&total) = prefix.last() else {
+        return (0, 0);
+    };
+    if total == 0 {
+        return (0, 0);
+    }
+    let n = n as u64;
+    let half = total / 2;
+    let lo = (n * prefix[k] + half) / total;
+    let hi = (n * prefix[k + 1] + half) / total;
+    (lo as usize, hi as usize)
+}
+
+/// Pure makespan model decision: whether the weighted contiguous split beats round-robin for `n`.
+fn compute_weighted(prefix: &[u64], width: usize, heterogeneous: bool, n: usize) -> bool {
+    if n <= 1 || !heterogeneous {
+        return false;
+    }
+    let parts = prefix.len().saturating_sub(1);
+    let Some(&total) = prefix.last() else {
+        return false;
+    };
+    if parts == 0 || total == 0 {
+        return false;
+    }
+    let (mut w_num, mut w_den) = (0u128, 1u128);
+    let (mut r_num, mut r_den) = (0u128, 1u128);
+    let total = u128::from(total);
+    for k in 0..parts {
+        let weight = u128::from(prefix[k + 1] - prefix[k]);
+        if weight == 0 {
+            continue;
+        }
+        let (lo, hi) = range_with_prefix(prefix, k, n);
+        let w_hits = (hi - lo) as u128 * total;
+        if w_hits * w_den > w_num * weight {
+            w_num = w_hits;
+            w_den = weight;
+        }
+        let r_hits = round_robin_range(k, n, width).1 as u128 * total;
+        if r_hits * r_den > r_num * weight {
+            r_num = r_hits;
+            r_den = weight;
+        }
+    }
+    r_num * w_den >= w_num * r_den
+}
+
 /// The immutable speed-weighted split shared by the dispatcher and every worker.
 struct Split {
     /// `prefix[k]` is the total weight of participants `0..k`; `prefix[participants]` is the whole
@@ -105,6 +163,8 @@ struct Split {
     /// Whether the participant weights differ; `false` selects the round-robin path, which is the
     /// pre-`APEIRON_ECORES` behaviour.
     heterogeneous: bool,
+    /// Precomputed `weighted(n)` decisions for `n` in `0..=WEIGHTED_TABLE_MAX`.
+    weighted_table: Box<[bool]>,
 }
 
 impl Split {
@@ -120,9 +180,15 @@ impl Split {
         let heterogeneous = weights
             .first()
             .is_some_and(|first| weights.iter().any(|w| w != first));
+        let width = weights.len();
+        let mut table = Vec::with_capacity(WEIGHTED_TABLE_MAX + 1);
+        for n in 0..=WEIGHTED_TABLE_MAX {
+            table.push(compute_weighted(&prefix, width, heterogeneous, n));
+        }
         Self {
             prefix,
             heterogeneous,
+            weighted_table: table.into_boxed_slice(),
         }
     }
 }
@@ -149,23 +215,26 @@ type Job = *const (dyn Fn(usize) + Sync);
 struct Shared {
     /// `slots[w] = (epoch << IDX_BITS) | n`, written only by the dispatcher.
     slots: Vec<CachePadded<AtomicU64>>,
-    /// `done[w] = epoch` once worker `w` finished its partition of that epoch.
-    done: Vec<CachePadded<AtomicU64>>,
+    /// Completion counter for the active dispatch: initialized to live worker count, decremented by
+    /// finishing workers (`Release`), dispatcher spins on this line (`Acquire`).
+    remaining: CachePadded<AtomicUsize>,
     /// The job of the live epoch; read by every participant, written only between epochs.
-    job: UnsafeCell<Option<Job>>,
+    /// Cache-padded to isolate per-dispatch dispatcher writes from spinning workers.
+    job: CachePadded<UnsafeCell<Option<Job>>>,
+    /// Whether any task panicked; cache-padded to avoid false sharing with spin fields.
+    panicked: CachePadded<AtomicBool>,
     /// Participants in a dispatch (workers plus the caller); written once, before the first
     /// dispatch.
     width: AtomicUsize,
     /// The speed-weighted split, set after the workers that actually spawned are known and before
     /// the first dispatch. `None` (only reachable before that store) selects the round-robin path.
     split: OnceLock<Split>,
-    panicked: AtomicBool,
     sleepers: AtomicUsize,
     shutdown: AtomicBool,
 }
 
 // SAFETY: `job` is written only by the dispatcher between epochs (no participant can be reading:
-// each stores `done[w] == epoch` before the dispatcher proceeds) and read only by participants of
+// each decrements `remaining` before the dispatcher proceeds) and read only by participants of
 // the live epoch; every other field is atomic.
 unsafe impl Sync for Shared {}
 // SAFETY: as above; the raw job pointer is only dereferenced under the epoch protocol.
@@ -180,95 +249,44 @@ impl Shared {
     /// # Complexity
     ///
     /// `O(1)`.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "lo and hi are bounded by n ≤ MAX_TASKS < 2^20, so the u64 quotient fits usize"
-    )]
     fn range(&self, k: usize, n: usize) -> (usize, usize) {
         let Some(split) = self.split.get() else {
             return (0, 0);
         };
-        let Some(&total) = split.prefix.last() else {
-            return (0, 0);
-        };
-        if total == 0 {
-            return (0, 0);
-        }
-        let n = n as u64;
-        let half = total / 2;
-        let lo = (n * split.prefix[k] + half) / total;
-        let hi = (n * split.prefix[k + 1] + half) / total;
-        (lo as usize, hi as usize)
-    }
-
-    /// Whether the live split weights participants differently.
-    fn heterogeneous(&self) -> bool {
-        self.split.get().is_some_and(|s| s.heterogeneous)
+        range_with_prefix(&split.prefix, k, n)
     }
 
     /// Whether the weighted contiguous assignment beats the homogeneous round-robin for an `n`-task
-    /// dispatch. A pure function of `n`, the weight table and the participant count, so the
-    /// dispatcher (publish and join) and every worker compute the same choice with no claim word.
-    ///
-    /// The modelled makespan of an assignment is `max_i work_i / speed_i`, with `speed_i ∝ weight_i`
-    /// and `work_i` the participant's task count. Each side is the exact fraction
-    /// `max_i (count_i · W) / weight_i` (`W = Σ weights`), compared by `u128` cross-multiplication;
-    /// the round-robin is returned only when its makespan is *strictly* smaller, so every tie and
-    /// every large-`n` dispatch stays on the weighted split exactly as before. `n ≤ 1` and a
-    /// homogeneous split always take the round-robin, which the caller owns task 0 of.
+    /// dispatch. Looked up in `O(1)` from precomputed table for `n <= WEIGHTED_TABLE_MAX`, evaluated
+    /// dynamically otherwise.
     ///
     /// # Complexity
     ///
-    /// `O(participants)` exact integer operations; no floats.
+    /// `O(1)` table lookup for `n ≤ 1024`; `O(participants)` integer operations otherwise.
     fn weighted(&self, n: usize) -> bool {
-        if n <= 1 || !self.heterogeneous() {
-            return false;
-        }
         let Some(split) = self.split.get() else {
             return false;
         };
-        let parts = split.prefix.len() - 1;
-        let Some(&total) = split.prefix.last() else {
-            return false;
-        };
-        if parts == 0 || total == 0 {
-            return false;
+        if let Some(&choice) = split.weighted_table.get(n) {
+            choice
+        } else {
+            compute_weighted(
+                &split.prefix,
+                self.width.load(Ordering::Relaxed),
+                split.heterogeneous,
+                n,
+            )
         }
-        let width = self.width.load(Ordering::Relaxed);
-        // Running maxima as exact fractions `num/den`, initialised to 0/1.
-        let (mut w_num, mut w_den) = (0u128, 1u128);
-        let (mut r_num, mut r_den) = (0u128, 1u128);
-        let total = u128::from(total);
-        for k in 0..parts {
-            let weight = u128::from(split.prefix[k + 1] - split.prefix[k]);
-            if weight == 0 {
-                continue;
-            }
-            let (lo, hi) = self.range(k, n);
-            let w_hits = (hi - lo) as u128 * total;
-            if w_hits * w_den > w_num * weight {
-                w_num = w_hits;
-                w_den = weight;
-            }
-            let r_hits = round_robin_range(k, n, width).1 as u128 * total;
-            if r_hits * r_den > r_num * weight {
-                r_num = r_hits;
-                r_den = weight;
-            }
-        }
-        // `r_num/r_den >= w_num/w_den`: the round-robin is not strictly better, keep the weighted
-        // split. A tie keeps the previous (weighted) behaviour, so no existing dispatch changes.
-        r_num * w_den >= w_num * r_den
     }
 
     /// Run participant `k`'s share of the `n`-task epoch: the contiguous weighted range when
-    /// [`Shared::weighted`] selects it, indices `k, k + width, …` otherwise.
+    /// `weighted` selects it, indices `k, k + width, …` otherwise.
     ///
     /// # Complexity
     ///
     /// `O(tasks owned)` job calls, each wrapped in `catch_unwind`.
-    fn run_partition(&self, k: usize, n: usize) {
-        let job = unsafe { *self.job.get() };
+    fn run_partition(&self, k: usize, n: usize, weighted: bool) {
+        let job = unsafe { *self.job.0.get() };
         let Some(job) = job else {
             return;
         };
@@ -276,10 +294,10 @@ impl Shared {
         let f = unsafe { &*job };
         let serve = |i: usize| {
             if catch_unwind(AssertUnwindSafe(|| f(i))).is_err() {
-                self.panicked.store(true, Ordering::Relaxed);
+                self.panicked.0.store(true, Ordering::Relaxed);
             }
         };
-        if self.weighted(n) {
+        if weighted {
             let (lo, hi) = self.range(k, n);
             let mut i = lo;
             while i < hi {
@@ -329,16 +347,13 @@ impl Pool {
         let slots = (0..classes.len())
             .map(|_| CachePadded(AtomicU64::new(0)))
             .collect();
-        let done = (0..classes.len())
-            .map(|_| CachePadded(AtomicU64::new(0)))
-            .collect();
         let shared = Arc::new(Shared {
             slots,
-            done,
-            job: UnsafeCell::new(None),
+            remaining: CachePadded(AtomicUsize::new(0)),
+            job: CachePadded(UnsafeCell::new(None)),
             width: AtomicUsize::new(1),
             split: OnceLock::new(),
-            panicked: AtomicBool::new(false),
+            panicked: CachePadded(AtomicBool::new(false)),
             sleepers: AtomicUsize::new(0),
             shutdown: AtomicBool::new(false),
         });
@@ -481,9 +496,9 @@ impl Pool {
         // worker has finished, so `f` outlives its use.
         unsafe {
             let erased: Job = std::mem::transmute::<&(dyn Fn(usize) + Sync), Job>(f);
-            *sh.job.get() = Some(erased);
+            *sh.job.0.get() = Some(erased);
         }
-        sh.panicked.store(false, Ordering::Relaxed);
+        sh.panicked.0.store(false, Ordering::Relaxed);
         #[allow(
             clippy::cast_possible_truncation,
             reason = "n ≤ MAX_TASKS < 2^20 fits u64"
@@ -494,55 +509,54 @@ impl Pool {
         // those; the round-robin branch is the pre-`APEIRON_ECORES` code, unchanged.
         let weighted = sh.weighted(n);
         let live = if weighted {
-            let wake = sh.sleepers.load(Ordering::Acquire) > 0;
-            let mut live = 0usize;
-            for (w, slot) in sh.slots.iter().enumerate().take(self.threads.len()) {
+            let mut count = 0usize;
+            for w in 0..self.threads.len() {
                 let (lo, hi) = sh.range(w + 1, n);
                 if lo < hi {
-                    slot.0.store(word, Ordering::Release);
-                    if wake {
-                        self.threads[w].unpark();
-                    }
-                    live += 1;
+                    count += 1;
                 }
             }
-            live
+            count
         } else {
-            let live = self.threads.len().min(n - 1);
-            for slot in sh.slots.iter().take(live) {
-                slot.0.store(word, Ordering::Release);
-            }
-            if live > 0 && sh.sleepers.load(Ordering::Acquire) > 0 {
-                for t in self.threads.iter().take(live) {
-                    t.unpark();
-                }
-            }
-            live
+            self.threads.len().min(n.saturating_sub(1))
         };
-        // The caller is already awake: run its own share before waiting on anyone.
-        sh.run_partition(0, n);
-        let _wait = crate::engine::trace::span(crate::engine::trace::Phase::PoolWait, n, 0, 0);
-        if weighted {
-            for (w, d) in sh.done.iter().enumerate().take(self.threads.len()) {
-                let (lo, hi) = sh.range(w + 1, n);
-                if lo < hi {
-                    while d.0.load(Ordering::Acquire) != epoch {
-                        std::hint::spin_loop();
+        sh.remaining.0.store(live, Ordering::Release);
+        if live > 0 {
+            let wake = sh.sleepers.load(Ordering::Acquire) > 0;
+            if weighted {
+                for (w, slot) in sh.slots.iter().enumerate().take(self.threads.len()) {
+                    let (lo, hi) = sh.range(w + 1, n);
+                    if lo < hi {
+                        slot.0.store(word, Ordering::Release);
+                        if wake {
+                            self.threads[w].unpark();
+                        }
+                    }
+                }
+            } else {
+                for slot in sh.slots.iter().take(live) {
+                    slot.0.store(word, Ordering::Release);
+                }
+                if wake {
+                    for t in self.threads.iter().take(live) {
+                        t.unpark();
                     }
                 }
             }
-        } else {
-            for d in sh.done.iter().take(live) {
-                while d.0.load(Ordering::Acquire) != epoch {
-                    std::hint::spin_loop();
-                }
+        }
+        // The caller is already awake: run its own share before waiting on anyone.
+        sh.run_partition(0, n, weighted);
+        let _wait = crate::engine::trace::span(crate::engine::trace::Phase::PoolWait, n, 0, 0);
+        if live > 0 {
+            while sh.remaining.0.load(Ordering::Acquire) != 0 {
+                std::hint::spin_loop();
             }
         }
         // SAFETY: every published participant finished; no worker can claim in this epoch any more.
         unsafe {
-            *sh.job.get() = None;
+            *sh.job.0.get() = None;
         }
-        if sh.panicked.load(Ordering::Relaxed) {
+        if sh.panicked.0.load(Ordering::Relaxed) {
             resume_unwind(Box::new("a Q8Act pool task panicked"));
         }
     }
@@ -770,18 +784,16 @@ fn worker(sh: &Shared, w: usize) {
                 reason = "n ≤ MAX_TASKS < 2^20 fits usize"
             )]
             let n = (word & IDX_MASK) as usize;
-            // Round-robin participants beyond the last task own nothing; a weighted participant's
-            // range can be non-empty even when `k >= n`, so it always runs. The same
-            // `Shared::weighted` the dispatcher used selects which case applies.
-            if sh.weighted(n) || k < n {
-                sh.run_partition(k, n);
+            let weighted = sh.weighted(n);
+            if weighted || k < n {
+                sh.run_partition(k, n, weighted);
             }
-            sh.done[w].0.store(epoch, Ordering::Release);
+            sh.remaining.0.fetch_sub(1, Ordering::Release);
             idle_since = Instant::now();
             spins = 0;
             continue;
         }
-        if sh.shutdown.load(Ordering::Acquire) {
+        if spins.is_multiple_of(1024) && sh.shutdown.load(Ordering::Acquire) {
             return;
         }
         std::hint::spin_loop();
@@ -999,15 +1011,33 @@ mod weighted_split_tests {
             slots: (0..workers)
                 .map(|_| CachePadded(AtomicU64::new(0)))
                 .collect(),
-            done: (0..workers)
-                .map(|_| CachePadded(AtomicU64::new(0)))
-                .collect(),
-            job: UnsafeCell::new(None::<Job>),
+            remaining: CachePadded(AtomicUsize::new(0)),
+            job: CachePadded(UnsafeCell::new(None::<Job>)),
             width: AtomicUsize::new(weights.len()),
             split,
-            panicked: AtomicBool::new(false),
+            panicked: CachePadded(AtomicBool::new(false)),
             sleepers: AtomicUsize::new(0),
             shutdown: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn table_equals_function_over_n_0_to_1024() {
+        let weights = real_weights();
+        let sh = shared_with(&weights);
+        let split = sh.split.get().expect("split");
+        for n in 0..=WEIGHTED_TABLE_MAX {
+            let func_val = compute_weighted(&split.prefix, weights.len(), split.heterogeneous, n);
+            let tab_val = split.weighted_table[n];
+            assert_eq!(
+                tab_val, func_val,
+                "table differs from compute_weighted at n={n}"
+            );
+            assert_eq!(
+                sh.weighted(n),
+                func_val,
+                "sh.weighted differs from compute_weighted at n={n}"
+            );
         }
     }
 
@@ -1147,5 +1177,78 @@ mod weighted_split_tests {
         assert_eq!(round_robin_range(23, 24, width), (23, 1));
         assert_eq!(round_robin_range(23, 23, width), (23, 0));
         assert_eq!(round_robin_range(24, 100, width), (24, 4));
+    }
+
+    #[test]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_lossless,
+        reason = "timing benchmark nanosecond conversions"
+    )]
+    #[ignore = "release-only pool microbench: cargo test --release --lib bench_pool_dispatch_latency -- --ignored --nocapture"]
+    fn bench_pool_dispatch_latency() {
+        let pool = Pool::global();
+        println!("Pool width: {}", pool.width());
+
+        // Warm up
+        for _ in 0..5000 {
+            pool.run(1, &|_| {});
+            pool.run(24, &|_| {});
+            pool.run(48, &|_| {});
+        }
+
+        let runs = 5;
+        let reps = 20_000;
+
+        let mut best_empty_1 = f64::INFINITY;
+        let mut best_empty_24 = f64::INFINITY;
+        let mut best_48 = f64::INFINITY;
+
+        for r in 0..runs {
+            let t0 = Instant::now();
+            for _ in 0..reps {
+                pool.run(1, &|_| {});
+            }
+            let el_1 = t0.elapsed().as_nanos() as f64 / reps as f64;
+            if el_1 < best_empty_1 {
+                best_empty_1 = el_1;
+            }
+
+            let t0 = Instant::now();
+            for _ in 0..reps {
+                pool.run(24, &|_| {});
+            }
+            let el_24 = t0.elapsed().as_nanos() as f64 / reps as f64;
+            if el_24 < best_empty_24 {
+                best_empty_24 = el_24;
+            }
+
+            let t0 = Instant::now();
+            for _ in 0..reps {
+                pool.run(48, &|_| {});
+            }
+            let el_48 = t0.elapsed().as_nanos() as f64 / reps as f64;
+            if el_48 < best_48 {
+                best_48 = el_48;
+            }
+            println!(
+                "Run {r}: n=1: {:.2} ns ({:.3} us), n=24: {:.2} ns ({:.3} us), n=48: {:.2} ns ({:.3} us)",
+                el_1,
+                el_1 / 1000.0,
+                el_24,
+                el_24 / 1000.0,
+                el_48,
+                el_48 / 1000.0
+            );
+        }
+        println!(
+            "BEST of 5: n=1: {:.2} ns ({:.3} us), n=24: {:.2} ns ({:.3} us), n=48: {:.2} ns ({:.3} us)",
+            best_empty_1,
+            best_empty_1 / 1000.0,
+            best_empty_24,
+            best_empty_24 / 1000.0,
+            best_48,
+            best_48 / 1000.0
+        );
     }
 }
