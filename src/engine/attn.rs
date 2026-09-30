@@ -3,9 +3,13 @@
 use super::matvec::row_dot_fixed;
 use super::value::{div_round_nearest, round_shift_32};
 use super::ONE;
+use crate::engine::mixer::f32_carrier::q32_to_f32;
+use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 use std::cell::Cell;
+
+pub mod f32_core;
 
 // Test seam for `APEIRON_EXACT_SCAN`: a per-thread override of the flag, `None` falling through
 // to the process value. The process parse lives in `src/engine/step/cols.rs` where the flag is
@@ -77,7 +81,26 @@ pub enum AttnError {
     ZeroSum,
 }
 
-/// The single-token key/value cache of port-map row 5: one flat Q32.32 plane per layer.
+/// Typed storage for key and value planes: either Q32.32 fixed-point `i64` or binary32 `f32`.
+#[derive(Debug, Clone)]
+pub enum KvStorage {
+    /// Fixed-point Q32.32 key and value planes.
+    Q32 {
+        /// Position-major key planes, one per layer.
+        k: Vec<Vec<i64>>,
+        /// Position-major value planes, one per layer.
+        v: Vec<Vec<i64>>,
+    },
+    /// Native binary32 floating-point key and value planes.
+    F32 {
+        /// Position-major key planes, one per layer.
+        k: Vec<Vec<f32>>,
+        /// Position-major value planes, one per layer.
+        v: Vec<Vec<f32>>,
+    },
+}
+
+/// The single-token key/value cache of port-map row 5: one flat Q32.32 or binary32 plane per layer.
 ///
 /// Keys and values are stored position-major, so position `p` carries all `n_head_kv` rows
 /// contiguously and the row for `(p, kv_head)` is the `head_dim` values at
@@ -87,6 +110,7 @@ pub enum AttnError {
 /// `0..=pos`.
 #[derive(Debug, Clone)]
 pub struct KvState {
+    carrier: Carrier,
     n_layer: usize,
     n_head: usize,
     n_head_kv: usize,
@@ -94,8 +118,7 @@ pub struct KvState {
     cap: usize,
     scale: i64,
     occupied: Vec<usize>,
-    k: Vec<Vec<i64>>,
-    v: Vec<Vec<i64>>,
+    storage: KvStorage,
 }
 
 /// The Q32.32 position-major value of `(s, kvh, i)` in a layer's key or value plane.
@@ -436,7 +459,10 @@ impl KvState {
         let kv = self.n_head_kv;
         let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
         let mut scores: Vec<i64> = Vec::with_capacity(slots);
-        let kplane = &self.k[layer];
+        let kplane = match &self.storage {
+            KvStorage::Q32 { k, .. } => &k[layer],
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
         let mut s = 0usize;
         let mut ok = true;
         let mut err: Option<AttnError> = None;
@@ -475,7 +501,10 @@ impl KvState {
     ) -> Result<AttnFusedState, AttnError> {
         let hd = self.head_dim;
         let kv = self.n_head_kv;
-        let vplane = &self.v[layer];
+        let vplane = match &self.storage {
+            KvStorage::Q32 { v, .. } => &v[layer],
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
         let count = scores.len();
         let mut den: i128 = 0;
         let mut num: Vec<i128> = vec![0i128; hd];
@@ -638,6 +667,9 @@ impl KvState {
         if tile == 0 {
             return Err(AttnError::BadGeometry);
         }
+        if self.carrier == Carrier::F32 {
+            return self.attn_head_f32(layer, q_head, q, pos, out);
+        }
         if out.len() != self.head_dim {
             return Err(AttnError::RowLength {
                 expected: self.head_dim,
@@ -666,7 +698,8 @@ impl KvState {
     }
 
     /// Allocate a zeroed cache for `n_layer` layers, `n_head` query heads, `n_head_kv` KV heads,
-    /// `head_dim` values per head and at most `cap` positions per layer.
+    /// `head_dim` values per head and at most `cap` positions per layer, resolving the carrier
+    /// from the process environment (`carrier_from_env()`).
     ///
     /// The load-time score scale `fixed_rsqrt(head_dim)` is computed once here, from the same
     /// integer kernel the executing path uses; `head_dim` is admitted in the `fixed_rsqrt` window.
@@ -686,6 +719,32 @@ impl KvState {
         n_head_kv: usize,
         head_dim: usize,
         cap: usize,
+    ) -> Result<KvState, AttnError> {
+        Self::with_carrier(
+            n_layer,
+            n_head,
+            n_head_kv,
+            head_dim,
+            cap,
+            carrier_from_env(),
+        )
+    }
+
+    /// Allocate a zeroed cache with an explicitly specified numerical [`Carrier`].
+    ///
+    /// Under [`Carrier::Q32`], allocates Q32.32 `i64` planes. Under [`Carrier::F32`], allocates
+    /// native binary32 `f32` planes (50% memory footprint, zero per-call float conversion).
+    ///
+    /// # Errors
+    ///
+    /// Same geometry and range refusals as [`KvState::new`].
+    pub(crate) fn with_carrier(
+        n_layer: usize,
+        n_head: usize,
+        n_head_kv: usize,
+        head_dim: usize,
+        cap: usize,
+        carrier: Carrier,
     ) -> Result<KvState, AttnError> {
         if n_layer == 0 || n_head == 0 || n_head_kv == 0 || head_dim == 0 || cap == 0 {
             return Err(AttnError::BadGeometry);
@@ -719,10 +778,22 @@ impl KvState {
             },
             None => return Err(AttnError::Overflow),
         };
-        let blank = vec![0i64; plane];
-        let k = vec![blank.clone(); n_layer];
-        let v = vec![blank; n_layer];
+        let storage = match carrier {
+            Carrier::Q32 => {
+                let blank = vec![0i64; plane];
+                let k = vec![blank.clone(); n_layer];
+                let v = vec![blank; n_layer];
+                KvStorage::Q32 { k, v }
+            }
+            Carrier::F32 => {
+                let blank = vec![0.0f32; plane];
+                let k = vec![blank.clone(); n_layer];
+                let v = vec![blank; n_layer];
+                KvStorage::F32 { k, v }
+            }
+        };
         Ok(KvState {
+            carrier,
             n_layer,
             n_head,
             n_head_kv,
@@ -730,9 +801,18 @@ impl KvState {
             cap,
             scale,
             occupied: vec![0usize; n_layer],
-            k,
-            v,
+            storage,
         })
+    }
+
+    /// The numerical carrier for this key/value cache.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "public-in-crate accessor for the resolved carrier"
+    )]
+    pub(crate) fn carrier(&self) -> Carrier {
+        self.carrier
     }
 
     /// The configured layer count.
@@ -841,8 +921,30 @@ impl KvState {
         // admitted `pos < cap`, so no reachable input changes branch.
         let base = pos.checked_mul(width).ok_or(AttnError::Overflow)?;
         let end = base.checked_add(width).ok_or(AttnError::Overflow)?;
-        self.k[layer][base..end].copy_from_slice(k_rows);
-        self.v[layer][base..end].copy_from_slice(v_rows);
+        match &mut self.storage {
+            KvStorage::Q32 { k, v } => {
+                k[layer][base..end].copy_from_slice(k_rows);
+                v[layer][base..end].copy_from_slice(v_rows);
+            }
+            KvStorage::F32 { k, v } => {
+                let k_dst = &mut k[layer][base..end];
+                for (dst, &src) in k_dst.iter_mut().zip(k_rows.iter()) {
+                    let f = q32_to_f32(src);
+                    if !f.is_finite() {
+                        return Err(AttnError::Overflow);
+                    }
+                    *dst = f;
+                }
+                let v_dst = &mut v[layer][base..end];
+                for (dst, &src) in v_dst.iter_mut().zip(v_rows.iter()) {
+                    let f = q32_to_f32(src);
+                    if !f.is_finite() {
+                        return Err(AttnError::Overflow);
+                    }
+                    *dst = f;
+                }
+            }
+        }
         self.occupied[layer] = pos.checked_add(1).ok_or(AttnError::Overflow)?;
         Ok(pos)
     }
@@ -890,6 +992,9 @@ impl KvState {
         pos: usize,
         out: &mut [i64],
     ) -> Result<(), AttnError> {
+        if self.carrier == Carrier::F32 {
+            return self.attn_head_f32(layer, q_head, q, pos, out);
+        }
         let hd = self.head_dim;
         if layer >= self.n_layer {
             return Err(AttnError::LayerOutOfRange {
@@ -919,6 +1024,10 @@ impl KvState {
         if pos >= len {
             return Err(AttnError::PositionOutOfRange { pos, len });
         }
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
         let group = self.n_head / self.n_head_kv;
         let kvh = q_head / group;
         let kv = self.n_head_kv;
@@ -935,7 +1044,6 @@ impl KvState {
         // return appears inside a body; the refusals, arithmetic and order are unchanged.
         let mut scores: Vec<i64> = Vec::with_capacity(slots);
         let mut mx = i64::MIN;
-        let kplane = &self.k[layer];
         let mut s = 0usize;
         let mut ok = true;
         let mut err: Option<AttnError> = None;
@@ -1023,7 +1131,6 @@ impl KvState {
         // unchanged; only the interleaving of independent sums changes (integer addition is
         // associative and commutative). One `bool` failure flag per loop, and no early return inside
         // a body, keep the pinned extraction fragment's shape.
-        let vplane = &self.v[layer];
         let mut acc: Vec<i128> = vec![0i128; hd];
         let mut s = 0usize;
         let mut ok = true;
@@ -1089,6 +1196,133 @@ impl KvState {
         Ok(())
     }
 
+    /// Read one query head at position `pos` over the causal prefix `0..=pos` in binary32 (f32).
+    ///
+    /// Reads slices directly from the native binary32 KV cache with zero per-call float conversion,
+    /// executes the online-softmax attention core via [`f32_core::attn_core_f32_strided`], and
+    /// converts output components back to Q32.32 via round-to-nearest. Refuses non-finite numbers
+    /// and out-of-range outputs with [`AttnError::Overflow`].
+    ///
+    /// # Errors
+    ///
+    /// Same guard chain as [`KvState::attn_head`]: [`AttnError::LayerOutOfRange`],
+    /// [`AttnError::HeadOutOfRange`], [`AttnError::RowLength`], [`AttnError::PositionOutOfRange`],
+    /// [`AttnError::Overflow`] on non-finite floats or overflow, and [`AttnError::ZeroSum`] if
+    /// the softmax sum is not positive.
+    ///
+    /// # Complexity
+    ///
+    /// `O((pos + 1) · head_dim)` time: dot products and value accumulations.
+    /// Zero heap allocation on hot path for `head_dim <= 256`.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::similar_names,
+        reason = "Q32.32 to f32 conversions and stack scratch buffers"
+    )]
+    pub fn attn_head_f32(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+        out: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if q_head >= self.n_head {
+            return Err(AttnError::HeadOutOfRange {
+                head: q_head,
+                n_head: self.n_head,
+            });
+        }
+        if q.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: q.len(),
+            });
+        }
+        if out.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: out.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let kvh = q_head / group;
+        let kv = self.n_head_kv;
+
+        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
+
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::Q32 { .. } => return Err(AttnError::BadGeometry),
+        };
+
+        let last_base = first + pos * stride;
+        if last_base > kplane.len().saturating_sub(hd)
+            || last_base > vplane.len().saturating_sub(hd)
+        {
+            return Err(AttnError::Overflow);
+        }
+
+        // Convert query q from Q32.32 to f32. Use stack buffer for hd <= 256.
+        let mut q_stack = [0.0f32; 256];
+        let mut q_heap;
+        let q_f32: &mut [f32] = if hd <= 256 {
+            &mut q_stack[..hd]
+        } else {
+            q_heap = vec![0.0f32; hd];
+            &mut q_heap[..]
+        };
+        for i in 0..hd {
+            let f = q32_to_f32(q[i]);
+            if !f.is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            q_f32[i] = f;
+        }
+
+        let scale = 1.0f32 / (hd as f32).sqrt();
+
+        // Output buffer for f32 core. Use stack buffer for hd <= 256.
+        let mut out_stack = [0.0f32; 256];
+        let mut out_heap;
+        let out_f32: &mut [f32] = if hd <= 256 {
+            &mut out_stack[..hd]
+        } else {
+            out_heap = vec![0.0f32; hd];
+            &mut out_heap[..]
+        };
+
+        f32_core::attn_core_f32_strided(
+            q_f32,
+            &kplane[first..],
+            &vplane[first..],
+            hd,
+            stride,
+            pos,
+            scale,
+            out_f32,
+        )?;
+
+        for i in 0..hd {
+            out[i] = f32_core::f32_to_q32_checked(out_f32[i])?;
+        }
+
+        Ok(())
+    }
+
     /// Rewind every layer to `m` positions. Causal attention makes the rows at `0..m` independent
     /// of later appends, so the rewound state equals one that stopped at `m`; rows at `m..` stay in
     /// the planes and the next [`KvState::append`] overwrites position `m`.
@@ -1112,6 +1346,11 @@ impl KvState {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::similar_names,
+    clippy::too_many_lines,
+    reason = "test harnesses, carrier comparisons and multi-token sequence setups"
+)]
 mod tests {
     use super::*;
 
@@ -1137,8 +1376,10 @@ mod tests {
         let hd = kv.head_dim;
         let kv_n = kv.n_head_kv;
         let kvh = q_head / (kv.n_head / kv_n);
-        let kplane = &kv.k[layer];
-        let vplane = &kv.v[layer];
+        let (kplane, vplane) = match &kv.storage {
+            KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
         let slots = pos + 1;
         let mut scores: Vec<i64> = Vec::with_capacity(slots);
         let mut mx = i64::MIN;
@@ -1184,7 +1425,7 @@ mod tests {
     fn attn_head_key_outer_output_matches_component_oracle() {
         // n_head 4 over n_head_kv 2 gives a GQA group of 2; head_dim 3 is neither 1 nor a power of
         // two, so several query heads read distinct KV rows over non-trivial causal prefixes.
-        let mut kv = KvState::new(1, 4, 2, 3, 6).expect("geometry");
+        let mut kv = KvState::with_carrier(1, 4, 2, 3, 6, Carrier::Q32).expect("geometry");
         let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
         let mut s = 0usize;
         while s < 6 {
@@ -1236,6 +1477,59 @@ mod tests {
             kv.attn_head(0, 0, &q, len, &mut [0i64; 3]),
             Err(AttnError::PositionOutOfRange { pos: len, len })
         );
+    }
+
+    #[test]
+    fn attn_head_f32_carrier_matches_oracle() {
+        let mut kv_q32 = KvState::with_carrier(1, 4, 2, 3, 6, Carrier::Q32).expect("geometry");
+        let mut kv_f32 = KvState::with_carrier(1, 4, 2, 3, 6, Carrier::F32).expect("geometry");
+        let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut s = 0usize;
+        while s < 6 {
+            let k = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let v = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            assert_eq!(kv_q32.append(0, &k, &v), Ok(s));
+            assert_eq!(kv_f32.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let q = [word(&mut seed), word(&mut seed), word(&mut seed)];
+        let mut pos = 0usize;
+        while pos < 6 {
+            let mut head = 0usize;
+            while head < 4 {
+                let mut got_q32 = [0i64; 3];
+                let mut got_f32 = [0i64; 3];
+                kv_q32
+                    .attn_head(0, head, &q, pos, &mut got_q32)
+                    .expect("q32 read");
+                kv_f32
+                    .attn_head(0, head, &q, pos, &mut got_f32)
+                    .expect("f32 read");
+                for (&g, &e) in got_f32.iter().zip(got_q32.iter()) {
+                    let diff = (g - e).abs();
+                    assert!(
+                        diff <= 2000,
+                        "pos {pos} head {head}: got_f32 {g} got_q32 {e} diff {diff}"
+                    );
+                }
+                head += 1;
+            }
+            pos += 1;
+        }
     }
 
     /// The reciprocal weight path must equal the literal [`weight_at`] oracle (or refuse with the
@@ -1531,5 +1825,157 @@ mod tests {
             inline_fold(short, &exps, total, kv, kvh, hd),
             Err(AttnError::Overflow)
         );
+    }
+
+    #[test]
+    fn carrier_explicit_selection() {
+        let kv_q32 = KvState::with_carrier(1, 2, 2, 8, 4, Carrier::Q32).expect("geometry q32");
+        let kv_f32 = KvState::with_carrier(1, 2, 2, 8, 4, Carrier::F32).expect("geometry f32");
+        assert_eq!(kv_q32.carrier(), Carrier::Q32);
+        assert_eq!(kv_f32.carrier(), Carrier::F32);
+        assert!(matches!(kv_q32.storage, KvStorage::Q32 { .. }));
+        assert!(matches!(kv_f32.storage, KvStorage::F32 { .. }));
+
+        let k = [0i64; 16];
+        let v = [0i64; 16];
+        let mut kv_q32 = kv_q32;
+        let mut kv_f32 = kv_f32;
+        kv_q32.append(0, &k, &v).expect("append q32");
+        kv_f32.append(0, &k, &v).expect("append f32");
+
+        let q = [0i64; 8];
+        let mut out_q32 = [0i64; 8];
+        let mut out_f32 = [0i64; 8];
+        kv_q32
+            .attn_head(0, 0, &q, 0, &mut out_q32)
+            .expect("read q32");
+        kv_f32
+            .attn_head(0, 0, &q, 0, &mut out_f32)
+            .expect("read f32");
+        assert_eq!(out_q32, out_f32);
+    }
+
+    #[test]
+    fn truncate_and_rollback_hold_for_both_carriers() {
+        for &carrier in &[Carrier::Q32, Carrier::F32] {
+            let mut kv = KvState::with_carrier(1, 2, 2, 4, 8, carrier).expect("geometry");
+            let mut seed = 0x1234_5678_9ABC_DEF0_u64;
+
+            let mut k_tokens = Vec::new();
+            let mut v_tokens = Vec::new();
+            for _ in 0..6 {
+                let k = [
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                ];
+                let v = [
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                    word(&mut seed),
+                ];
+                k_tokens.push(k);
+                v_tokens.push(v);
+            }
+
+            for s in 0..6 {
+                assert_eq!(kv.append(0, &k_tokens[s], &v_tokens[s]), Ok(s));
+            }
+            assert_eq!(kv.occupied(0), Ok(6));
+
+            // Truncate to 3 positions
+            assert_eq!(kv.truncate(3), Ok(()));
+            assert_eq!(kv.occupied(0), Ok(3));
+
+            // Append 2 replacement tokens
+            let new_k1 = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let new_v1 = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let new_k2 = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let new_v2 = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            assert_eq!(kv.append(0, &new_k1, &new_v1), Ok(3));
+            assert_eq!(kv.append(0, &new_k2, &new_v2), Ok(4));
+            assert_eq!(kv.occupied(0), Ok(5));
+
+            // Create a fresh kv state that directly appended the exact same sequence
+            let mut fresh = KvState::with_carrier(1, 2, 2, 4, 8, carrier).expect("geometry");
+            for s in 0..3 {
+                assert_eq!(fresh.append(0, &k_tokens[s], &v_tokens[s]), Ok(s));
+            }
+            assert_eq!(fresh.append(0, &new_k1, &new_v1), Ok(3));
+            assert_eq!(fresh.append(0, &new_k2, &new_v2), Ok(4));
+
+            let q = [
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+                word(&mut seed),
+            ];
+            let mut out_rewound = [0i64; 4];
+            let mut out_direct = [0i64; 4];
+
+            kv.attn_head(0, 0, &q, 4, &mut out_rewound)
+                .expect("rewound read");
+            fresh
+                .attn_head(0, 0, &q, 4, &mut out_direct)
+                .expect("direct read");
+
+            assert_eq!(
+                out_rewound, out_direct,
+                "carrier {carrier:?} rewound vs direct mismatch"
+            );
+
+            // Truncate past occupied refuses and changes nothing
+            assert_eq!(
+                kv.truncate(6),
+                Err(AttnError::PositionOutOfRange { pos: 6, len: 5 })
+            );
+            assert_eq!(kv.occupied(0), Ok(5));
+        }
     }
 }
