@@ -9,19 +9,19 @@ fn conv_silu_cols_refuses_i128_accumulator_overflow() {
         head_k: 1,
         head_v: 1,
     };
-    let mut state = AffineState::with_slices(&g, 1, 1);
+    let mut state = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer = state.layer_mut(0).expect("constructed layer");
     let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
     let scale = 1_i64 << 62;
     for r in 0..g.conv_kernel - 1 {
         let value = if r < 9 { scale } else { -scale };
-        layer.conv[r * channels..(r + 1) * channels].fill(value);
+        layer.conv.as_q32_mut()[r * channels..(r + 1) * channels].fill(value);
     }
     let weights = vec![scale; g.conv_kernel * channels];
     let input = vec![-scale; channels];
     let old_window = layer.conv.clone();
 
-    let result = conv_silu_cols(layer, &weights, g.conv_kernel, &[&input]);
+    let result = conv_silu_cols_carrier(layer, &weights, g.conv_kernel, &[&input], Carrier::Q32);
 
     assert!(matches!(result, Err(StepError::Overflow)));
     assert_eq!(layer.conv, old_window);
@@ -30,11 +30,17 @@ fn conv_silu_cols_refuses_i128_accumulator_overflow() {
     let safe_scale = 1_i64 << 60;
     for r in 0..g.conv_kernel - 1 {
         let value = if r < 9 { safe_scale } else { -safe_scale };
-        layer.conv[r * channels..(r + 1) * channels].fill(value);
+        layer.conv.as_q32_mut()[r * channels..(r + 1) * channels].fill(value);
     }
     let safe_weights = vec![safe_scale; g.conv_kernel * channels];
     let safe_input = vec![-safe_scale; channels];
-    let result = conv_silu_cols(layer, &safe_weights, g.conv_kernel, &[&safe_input]);
+    let result = conv_silu_cols_carrier(
+        layer,
+        &safe_weights,
+        g.conv_kernel,
+        &[&safe_input],
+        Carrier::Q32,
+    );
     assert_eq!(result, Ok(vec![vec![0; channels]]));
 }
 
@@ -47,11 +53,11 @@ fn conv_silu_cols_refuses_rounding_bias_overflow() {
         head_k: 1,
         head_v: 1,
     };
-    let mut state = AffineState::with_slices(&g, 1, 1);
+    let mut state = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer = state.layer_mut(0).expect("constructed layer");
     let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
-    layer.conv[0] = i64::MIN;
-    layer.conv[channels] = i64::MAX;
+    layer.conv.as_q32_mut()[0] = i64::MIN;
+    layer.conv.as_q32_mut()[channels] = i64::MAX;
     let mut weights = vec![0; g.conv_kernel * channels];
     weights[0] = i64::MIN;
     weights[1] = i64::MAX;
@@ -60,7 +66,7 @@ fn conv_silu_cols_refuses_rounding_bias_overflow() {
     input[0] = i64::MAX;
     let old_window = layer.conv.clone();
 
-    let result = conv_silu_cols(layer, &weights, g.conv_kernel, &[&input]);
+    let result = conv_silu_cols_carrier(layer, &weights, g.conv_kernel, &[&input], Carrier::Q32);
 
     assert!(matches!(result, Err(StepError::Overflow)));
     assert_eq!(layer.conv, old_window);
@@ -97,8 +103,17 @@ fn conv_silu_cols_k_columns_equal_k_single_column_calls() {
     let mut state_all = AffineState::with_slices(&g, 1, 1);
     {
         let layer = state_all.layer_mut(0).expect("constructed layer");
-        for v in &mut layer.conv {
-            *v = word(1 << 20);
+        match &mut layer.conv {
+            ConvState::Q32(conv) => {
+                for v in conv {
+                    *v = word(1 << 20);
+                }
+            }
+            ConvState::F32(conv) => {
+                for v in conv {
+                    *v = f32_carrier::q32_to_f32(word(1 << 20));
+                }
+            }
         }
     }
     let mut state_one = state_all.clone();
@@ -176,7 +191,7 @@ fn sliced_heads_equal_whole_heads() {
         })
         .collect();
     let run = |slices: usize, parallel: bool| {
-        let mut st = AffineState::with_slices(&g, 1, slices);
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
         let layer = st.layer_mut(0).expect("layer");
         let mut outs = Vec::new();
         for pass in &passes {
@@ -184,21 +199,12 @@ fn sliced_heads_equal_whole_heads() {
                 .iter()
                 .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
                 .collect();
-            outs.push(delta_heads_cols(layer, &g, &p, &cols, 1, parallel, None).expect("step"));
+            outs.push(
+                delta_heads_cols_carrier(layer, &g, &p, &cols, 1, parallel, None, Carrier::Q32)
+                    .expect("step"),
+            );
         }
-        // Every head's state in whole-head layout, with each slice's `c`.
-        let w = g.head_v / slices;
-        let mut words = vec![0i64; g.n_v_heads * g.head_k * g.head_v];
-        let mut scales = Vec::new();
-        for (t, m) in layer.heads.iter().enumerate() {
-            let head = m.lock().expect("head");
-            let (h, sl) = (t / slices, t % slices);
-            for i in 0..g.head_k {
-                let at = h * g.head_k * g.head_v + i * g.head_v + sl * w;
-                words[at..at + w].copy_from_slice(&head.s[i * w..(i + 1) * w]);
-            }
-            scales.push((h, head.c));
-        }
+        let (words, scales) = layer_state_words(layer, &g, slices);
         (outs, words, scales)
     };
     let (want_out, want_words, want_scales) = run(1, false);
@@ -264,20 +270,21 @@ fn shared_decay_table_equals_per_column_gates() {
             ]
         })
         .collect();
-    let eps = 1i64;
+    let eps = 4295i64;
 
     // Sliced/whole path: the per-(head, column) β/decay table.
-    let mut st = AffineState::with_slices(&g, 1, 1);
+    let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer = st.layer_mut(0).expect("layer");
     let col_refs: Vec<AffineCol<'_>> = cols
         .iter()
         .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
         .collect();
-    let shared = delta_heads_cols(layer, &g, &p, &col_refs, eps, true, None).expect("step");
+    let shared = delta_heads_cols_carrier(layer, &g, &p, &col_refs, eps, true, None, Carrier::Q32)
+        .expect("step");
 
     // Oracle: `delta_heads_custom` recomputes β = σ(b_h), α = exp(a_h · softplus(ssm + dt_h))
     // per call, so a corrupted table entry cannot agree with it.
-    let mut st_o = AffineState::with_slices(&g, 1, 1);
+    let mut st_o = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer_o = st_o.layer_mut(0).expect("layer");
     let step =
         |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
@@ -647,7 +654,13 @@ where
             let mut head_guard = layer.heads[h]
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let AffineHead { s, c } = &mut *head_guard;
+            let HeadState::Q32 {
+                ref mut s,
+                ref mut c,
+            } = head_guard.state
+            else {
+                return Err(StepError::BadConfig("affine carrier"));
+            };
             (step_fn.clone())(s, c, &q_tilde, &k_hat, &v_all[vr.clone()], decay, beta)?
         };
         let normed = rms_norm_fixed(&o, eps).map_err(StepError::Norm)?;
@@ -683,7 +696,7 @@ fn chunk_matches_oracle_within_bound() {
     let dv = 128usize;
     // α = 99/100: the epic's witness_delta_net_100_lsb instance, bound ε/(1 − α) = 100 LSB.
     let decay = (0.99 * (1u64 << 32) as f64) as i64;
-    let eps = 1i64;
+    let eps = 4295i64;
     let q_scale = fixed_rsqrt(i64::try_from(dk).expect("dk fits i64") << 32).expect("rsqrt");
     let mut rng = 0x51ed_2701_9e37_79b9_u64;
     let mut word = |bound: i64| {
@@ -975,11 +988,14 @@ fn layer_state_words(
     for (t, m) in layer.heads.iter().enumerate() {
         let head = m.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (h, sl) = (t / slices, t % slices);
+        let HeadState::Q32 { ref s, c } = head.state else {
+            panic!("expected Q32 head state");
+        };
         for i in 0..g.head_k {
             let at = h * g.head_k * g.head_v + i * g.head_v + sl * w;
-            words[at..at + w].copy_from_slice(&head.s[i * w..(i + 1) * w]);
+            words[at..at + w].copy_from_slice(&s[i * w..(i + 1) * w]);
         }
-        scales.push((h, head.c));
+        scales.push((h, c));
     }
     (words, scales)
 }
@@ -1000,20 +1016,30 @@ fn exact_scan_off_is_bit_identical_to_the_per_step_oracle() {
         head_v: 128,
     };
     let slices = 1usize;
-    let eps = 1i64;
+    let eps = 4295i64;
     let (p, cols) = random_affine_block(&g, 3, 0x0f0f_0f0f_1234_5678);
 
-    let mut st_off = AffineState::with_slices(&g, 1, slices);
+    let mut st_off = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
     let layer_off = st_off.layer_mut(0).expect("layer");
     let refs: Vec<AffineCol<'_>> = cols
         .iter()
         .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
         .collect();
-    let (out_off, _raw_off) =
-        delta_heads_cols_impl(layer_off, &g, &p, &refs, eps, true, None, false).expect("per-step");
+    let (out_off, _raw_off) = delta_heads_cols_impl(
+        layer_off,
+        &g,
+        &p,
+        &refs,
+        eps,
+        true,
+        None,
+        false,
+        Carrier::Q32,
+    )
+    .expect("per-step");
     let (words_off, scales_off) = layer_state_words(layer_off, &g, slices);
 
-    let mut st_o = AffineState::with_slices(&g, 1, slices);
+    let mut st_o = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
     let layer_o = st_o.layer_mut(0).expect("oracle layer");
     let step =
         |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
@@ -1041,6 +1067,88 @@ fn exact_scan_off_is_bit_identical_to_the_per_step_oracle() {
     );
 }
 
+/// f32 carrier tracks the Q32 per-step oracle within acceptable numerical tolerance.
+#[test]
+#[allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::uninlined_format_args,
+    reason = "test harnesses comparing f32 vs q32 parity and formatting stats"
+)]
+fn f32_carrier_tracks_q32_per_step_oracle() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 128,
+        head_v: 128,
+    };
+    let slices = 1usize;
+    let eps = 4295i64;
+    let (p, cols) = random_affine_block(&g, 3, 0x0f0f_0f0f_1234_5678);
+
+    let mut st_f32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+    let layer_f32 = st_f32.layer_mut(0).expect("layer");
+    let refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+    let (out_f32, _raw_f32) = delta_heads_cols_impl(
+        layer_f32,
+        &g,
+        &p,
+        &refs,
+        eps,
+        true,
+        None,
+        false,
+        Carrier::F32,
+    )
+    .expect("f32 step");
+
+    let mut st_o = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+    let layer_o = st_o.layer_mut(0).expect("oracle layer");
+    let step =
+        |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
+            delta_head_step(s, c, q, k, v, decay, beta)
+        };
+    let mut out_oracle = Vec::with_capacity(cols.len());
+    for [conv, z, b, a] in &cols {
+        out_oracle.push(
+            delta_heads_custom(layer_o, &g, &p, conv, z, b, a, eps, true, step).expect("oracle"),
+        );
+    }
+
+    let mut max_abs_diff = 0.0f64;
+    let mut max_rel_diff = 0.0f64;
+    for (col_f32, col_q32) in out_f32.iter().zip(&out_oracle) {
+        for (&yf, &yq) in col_f32.iter().zip(col_q32) {
+            let ff = (yf as f64) / 4_294_967_296.0;
+            let fq = (yq as f64) / 4_294_967_296.0;
+            let diff = (ff - fq).abs();
+            if diff > max_abs_diff {
+                max_abs_diff = diff;
+            }
+            let denom = ff.abs().max(fq.abs());
+            if denom > 1e-6 {
+                let rel = diff / denom;
+                if rel > max_rel_diff {
+                    max_rel_diff = rel;
+                }
+            }
+        }
+    }
+    println!("f32_carrier vs Q32 oracle: max |Δo| = {max_abs_diff:.6e}, max relative diff = {max_rel_diff:.6e}");
+    assert!(
+        max_abs_diff < 1e-3,
+        "max absolute readout deviation {max_abs_diff:e} exceeded 1e-3"
+    );
+    assert!(
+        max_rel_diff < 1e-3,
+        "max relative readout deviation {max_rel_diff:e} exceeded 1e-3"
+    );
+}
+
 /// `chunk_matches_oracle` at the wiring: a `CHUNK_MAX + 6`-column block run through the chunked
 /// stage-1 path agrees with the per-step path on every readout and on the real exit state within
 /// the epic's `ε/(1 − α)` bound (`Nous.Seq.ChunkedRounding.chunked_discrepancy_uniform_bound`).
@@ -1058,7 +1166,7 @@ fn exact_scan_on_agrees_with_per_step_within_bound() {
         head_v: 128,
     };
     let slices = 1usize;
-    let eps = 1i64;
+    let eps = 4295i64;
     let (p, cols) = random_affine_block(&g, CHUNK_MAX + 6, 0x9e37_79b9_7f4a_7c15);
     let refs: Vec<AffineCol<'_>> = cols
         .iter()
@@ -1066,10 +1174,11 @@ fn exact_scan_on_agrees_with_per_step_within_bound() {
         .collect();
 
     let run = |chunked: bool| {
-        let mut st = AffineState::with_slices(&g, 1, slices);
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
         let layer = st.layer_mut(0).expect("layer");
-        let (out, raw) = delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, chunked)
-            .expect("wiring step");
+        let (out, raw) =
+            delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, chunked, Carrier::Q32)
+                .expect("wiring step");
         let (words, scales) = layer_state_words(layer, &g, slices);
         (out, raw, words, scales)
     };
@@ -1127,17 +1236,18 @@ fn exact_scan_chunked_is_slice_separable() {
         head_k: 128,
         head_v: 128,
     };
-    let eps = 1i64;
+    let eps = 4295i64;
     let (p, cols) = random_affine_block(&g, 5, 0x1357_9bdf_0246_8ace);
     let refs: Vec<AffineCol<'_>> = cols
         .iter()
         .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
         .collect();
     let run = |slices: usize| {
-        let mut st = AffineState::with_slices(&g, 1, slices);
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
         let layer = st.layer_mut(0).expect("layer");
-        let (out, _raw) = delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, true)
-            .expect("chunked step");
+        let (out, _raw) =
+            delta_heads_cols_impl(layer, &g, &p, &refs, eps, true, None, true, Carrier::Q32)
+                .expect("chunked step");
         let (words, scales) = layer_state_words(layer, &g, slices);
         assert!(
             scales.iter().all(|&(_, c)| c == 1i64 << 32),
@@ -1175,7 +1285,7 @@ fn bench_delta_heads_50_steps() {
     let z = vec![1_122_334_455_i64; val_dim];
     let b = vec![556_677_889_i64; g.n_v_heads];
     let a = vec![998_877_665_i64; g.n_v_heads];
-    let eps = 1i64;
+    let eps = 4295i64;
 
     let p = AffineVectors {
         conv: vec![0; g.conv_kernel * (2 * key_dim + val_dim)],
@@ -1187,7 +1297,7 @@ fn bench_delta_heads_50_steps() {
     let n_steps = 50;
 
     // 1. Measure v0 (today's baseline)
-    let mut st_v0 = AffineState::with_slices(&g, 1, 1);
+    let mut st_v0 = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer_v0 = st_v0.layer_mut(0).unwrap();
     let step_v0 =
         |s: &mut [i64], _c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
@@ -1208,7 +1318,7 @@ fn bench_delta_heads_50_steps() {
     let median_v0 = times_v0[n_steps / 2];
 
     // 2. Measure ref (new scalar reference)
-    let mut st_ref = AffineState::with_slices(&g, 1, 1);
+    let mut st_ref = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
     let layer_ref = st_ref.layer_mut(0).unwrap();
     let step_ref =
         |s: &mut [i64], c: &mut i64, q: &[i64], k: &[i64], v: &[i64], decay: i64, beta: i64| {
@@ -1229,7 +1339,7 @@ fn bench_delta_heads_50_steps() {
     let median_ref = times_ref[n_steps / 2];
 
     // 3. Measure fast (AVX2 SIMD)
-    let mut st_fast = AffineState::new(&g, 1);
+    let mut st_fast = AffineState::with_slices_carrier(&g, 1, head_slices(g.head_v), Carrier::Q32);
     let layer_fast = st_fast.layer_mut(0).unwrap();
     for _ in 0..5 {
         let _ = delta_heads(layer_fast, &g, &p, &conv, &z, &b, &a, eps, true).unwrap();
@@ -1246,4 +1356,708 @@ fn bench_delta_heads_50_steps() {
     println!(
         "MICROBENCH delta_heads (16 heads pooled, 50 steps):\n  v0 (baseline): {median_v0} µs\n  ref (scalar):   {median_ref} µs\n  fast (AVX2):    {median_fast} µs"
     );
+}
+
+#[test]
+#[ignore = "timing benchmark: cargo test --release --lib bench_delta_heads_cols_f32_vs_q32 -- --ignored --nocapture"]
+#[allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    clippy::unreadable_literal,
+    clippy::uninlined_format_args,
+    reason = "timing benchmark harness comparing Q32 vs F32 full DeltaNet stages"
+)]
+fn bench_delta_heads_cols_f32_vs_q32() {
+    use std::time::Instant;
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 16,
+        n_v_heads: 16,
+        head_k: 128,
+        head_v: 128,
+    };
+    let k = 200; // prefill 200 tokens
+    let eps = 4295i64;
+    let slices = head_slices(g.head_v);
+
+    let (p, cols) = random_affine_block(&g, k, 0x1234_5678_9ABC_DEF0);
+    let col_refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+
+    let runs = 5;
+
+    // Warmup Q32
+    let mut st_q32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+    let layer_q32 = st_q32.layer_mut(0).unwrap();
+    let _ = delta_heads_cols_impl(
+        layer_q32,
+        &g,
+        &p,
+        &col_refs,
+        eps,
+        false,
+        None,
+        false,
+        Carrier::Q32,
+    )
+    .unwrap();
+
+    let mut best_q32_us = f64::INFINITY;
+    for run in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        let (out, _) = delta_heads_cols_impl(
+            layer,
+            &g,
+            &p,
+            &col_refs,
+            eps,
+            false,
+            None,
+            false,
+            Carrier::Q32,
+        )
+        .unwrap();
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0;
+        std::hint::black_box(out);
+        println!(
+            "  Q32 run {run}: {dur_us:.2} µs ({:.3} ms)",
+            dur_us / 1000.0
+        );
+        if dur_us < best_q32_us {
+            best_q32_us = dur_us;
+        }
+    }
+
+    // Warmup F32
+    let mut st_f32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+    let layer_f32 = st_f32.layer_mut(0).unwrap();
+    let _ = delta_heads_cols_impl(
+        layer_f32,
+        &g,
+        &p,
+        &col_refs,
+        eps,
+        false,
+        None,
+        false,
+        Carrier::F32,
+    )
+    .unwrap();
+
+    let mut best_f32_us = f64::INFINITY;
+    for run in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        let (out, _) = delta_heads_cols_impl(
+            layer,
+            &g,
+            &p,
+            &col_refs,
+            eps,
+            false,
+            None,
+            false,
+            Carrier::F32,
+        )
+        .unwrap();
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0;
+        std::hint::black_box(out);
+        println!(
+            "  F32 run {run}: {dur_us:.2} µs ({:.3} ms)",
+            dur_us / 1000.0
+        );
+        if dur_us < best_f32_us {
+            best_f32_us = dur_us;
+        }
+    }
+
+    let speedup = best_q32_us / best_f32_us;
+    println!(
+        "\n=== DeltaNet Stages (0, 0.5, 1, 2) Timing (k={k} tokens, single-thread, best of {runs}) ==="
+    );
+    println!("  Q32.32: {:.3} ms", best_q32_us / 1000.0);
+    println!("  F32:    {:.3} ms", best_f32_us / 1000.0);
+    println!("  Speedup: {speedup:.2}x");
+}
+
+#[test]
+#[allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::uninlined_format_args,
+    reason = "test harnesses comparing f32 vs q32 parity and formatting stats"
+)]
+fn f32_conv_silu_tracks_q32_oracle() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 2,
+        n_v_heads: 4,
+        head_k: 16,
+        head_v: 32,
+    };
+    let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
+    let mut rng = 0x5a5a_5a5a_3c3c_3c3c_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng.cast_signed() % bound
+    };
+    let weights: Vec<i64> = (0..g.conv_kernel * channels)
+        .map(|_| word(1 << 30))
+        .collect();
+    let k = 10;
+    let xs: Vec<Vec<i64>> = (0..k)
+        .map(|_| (0..channels).map(|_| word(1 << 30)).collect())
+        .collect();
+    let col_refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+
+    let mut st_q32 = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
+    let layer_q32 = st_q32.layer_mut(0).expect("layer");
+    let mut st_f32 = AffineState::with_slices_carrier(&g, 1, 1, Carrier::F32);
+    let layer_f32 = st_f32.layer_mut(0).expect("layer");
+
+    let out_q32 =
+        conv_silu_cols_carrier(layer_q32, &weights, g.conv_kernel, &col_refs, Carrier::Q32)
+            .expect("q32 conv");
+    let out_f32 =
+        conv_silu_cols_carrier(layer_f32, &weights, g.conv_kernel, &col_refs, Carrier::F32)
+            .expect("f32 conv");
+
+    let mut max_abs_diff = 0.0f64;
+    let mut max_rel_diff = 0.0f64;
+    for (col_f, col_q) in out_f32.iter().zip(&out_q32) {
+        for (&yf, &yq) in col_f.iter().zip(col_q) {
+            let ff = (yf as f64) / 4_294_967_296.0;
+            let fq = (yq as f64) / 4_294_967_296.0;
+            let diff = (ff - fq).abs();
+            if diff > max_abs_diff {
+                max_abs_diff = diff;
+            }
+            let denom = ff.abs().max(fq.abs());
+            if denom > 1e-6 {
+                let rel = diff / denom;
+                if rel > max_rel_diff {
+                    max_rel_diff = rel;
+                }
+            }
+        }
+    }
+    println!("f32 conv+silu vs Q32 oracle: max |Δo| = {max_abs_diff:.6e}, max relative diff = {max_rel_diff:.6e}");
+    assert!(
+        max_abs_diff < 1e-3,
+        "max absolute conv deviation {max_abs_diff:e} exceeded 1e-3"
+    );
+    assert!(
+        max_rel_diff < 1e-3,
+        "max relative conv deviation {max_rel_diff:e} exceeded 1e-3"
+    );
+}
+
+#[test]
+#[ignore = "timing benchmark: cargo test --release --lib bench_conv_silu_f32_prefill_and_decode -- --ignored --nocapture"]
+#[allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::too_many_lines,
+    clippy::uninlined_format_args,
+    reason = "timing benchmark harness comparing Q32 vs F32 conv_silu"
+)]
+fn bench_conv_silu_f32_prefill_and_decode() {
+    use std::time::Instant;
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 16,
+        n_v_heads: 16,
+        head_k: 128,
+        head_v: 128,
+    };
+    let channels = 2 * g.n_k_heads * g.head_k + g.n_v_heads * g.head_v;
+    let mut rng = 0x5a5a_5a5a_3c3c_3c3c_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng.cast_signed() % bound
+    };
+    let weights: Vec<i64> = (0..g.conv_kernel * channels)
+        .map(|_| word(1 << 30))
+        .collect();
+
+    // 1. Decode benchmark (k = 1, 200 reps)
+    let decode_reps = 200;
+    let decode_xs: Vec<Vec<i64>> = (0..decode_reps)
+        .map(|_| (0..channels).map(|_| word(1 << 30)).collect())
+        .collect();
+
+    let runs = 5;
+
+    // Decode Q32
+    let mut best_decode_q32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        for x in &decode_xs {
+            let out = conv_silu_cols_carrier(
+                layer,
+                &weights,
+                g.conv_kernel,
+                &[x.as_slice()],
+                Carrier::Q32,
+            )
+            .unwrap();
+            std::hint::black_box(out);
+        }
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0 / (decode_reps as f64);
+        if dur_us < best_decode_q32_us {
+            best_decode_q32_us = dur_us;
+        }
+    }
+
+    // Decode F32
+    let mut best_decode_f32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::F32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        for x in &decode_xs {
+            let out = conv_silu_cols_carrier(
+                layer,
+                &weights,
+                g.conv_kernel,
+                &[x.as_slice()],
+                Carrier::F32,
+            )
+            .unwrap();
+            std::hint::black_box(out);
+        }
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0 / (decode_reps as f64);
+        if dur_us < best_decode_f32_us {
+            best_decode_f32_us = dur_us;
+        }
+    }
+
+    // 2. Prefill benchmark (k = 200)
+    let k_prefill = 200;
+    let prefill_xs: Vec<Vec<i64>> = (0..k_prefill)
+        .map(|_| (0..channels).map(|_| word(1 << 30)).collect())
+        .collect();
+    let prefill_refs: Vec<&[i64]> = prefill_xs.iter().map(Vec::as_slice).collect();
+
+    // Prefill Q32
+    let mut best_prefill_q32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::Q32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        let out =
+            conv_silu_cols_carrier(layer, &weights, g.conv_kernel, &prefill_refs, Carrier::Q32)
+                .unwrap();
+        std::hint::black_box(out);
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0;
+        if dur_us < best_prefill_q32_us {
+            best_prefill_q32_us = dur_us;
+        }
+    }
+
+    // Prefill F32
+    let mut best_prefill_f32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, 1, Carrier::F32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        let out =
+            conv_silu_cols_carrier(layer, &weights, g.conv_kernel, &prefill_refs, Carrier::F32)
+                .unwrap();
+        std::hint::black_box(out);
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0;
+        if dur_us < best_prefill_f32_us {
+            best_prefill_f32_us = dur_us;
+        }
+    }
+
+    println!("\n=== Conv+SiLU Timing (channels={channels}, kernel=4, best of {runs}) ===");
+    println!(
+        "  Decode (k=1) Q32: {:.2} µs/token ({:.4} ms/token)",
+        best_decode_q32_us,
+        best_decode_q32_us / 1000.0
+    );
+    println!(
+        "  Decode (k=1) F32: {:.2} µs/token ({:.4} ms/token)",
+        best_decode_f32_us,
+        best_decode_f32_us / 1000.0
+    );
+    println!(
+        "  Decode Speedup:   {:.2}x",
+        best_decode_q32_us / best_decode_f32_us
+    );
+    println!(
+        "  Prefill (k=200) Q32: {:.2} µs/token ({:.3} ms total)",
+        best_prefill_q32_us / (k_prefill as f64),
+        best_prefill_q32_us / 1000.0
+    );
+    println!(
+        "  Prefill (k=200) F32: {:.2} µs/token ({:.3} ms total)",
+        best_prefill_f32_us / (k_prefill as f64),
+        best_prefill_f32_us / 1000.0
+    );
+    println!(
+        "  Prefill Speedup:     {:.2}x",
+        best_prefill_q32_us / best_prefill_f32_us
+    );
+}
+
+#[test]
+#[ignore = "timing benchmark: cargo test --release --lib bench_affine_heads_f32_decode -- --ignored --nocapture"]
+#[allow(
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::too_many_lines,
+    clippy::uninlined_format_args,
+    reason = "timing benchmark harness comparing Q32 vs F32 decode heads"
+)]
+fn bench_affine_heads_f32_decode() {
+    use std::time::Instant;
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 16,
+        n_v_heads: 16,
+        head_k: 128,
+        head_v: 128,
+    };
+    let eps = 4295i64;
+    let slices = head_slices(g.head_v);
+    let (p, cols) = random_affine_block(&g, 1, 0x1234_5678_9ABC_DEF0);
+    let col_refs: Vec<AffineCol<'_>> = cols
+        .iter()
+        .map(|[c, z, b, a]| (c.as_slice(), z.as_slice(), b.as_slice(), a.as_slice()))
+        .collect();
+
+    let runs = 5;
+    let reps = 200;
+
+    let mut best_q32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            let (out, _) = delta_heads_cols_impl(
+                layer,
+                &g,
+                &p,
+                &col_refs,
+                eps,
+                true,
+                None,
+                false,
+                Carrier::Q32,
+            )
+            .unwrap();
+            std::hint::black_box(out);
+        }
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0 / (reps as f64);
+        if dur_us < best_q32_us {
+            best_q32_us = dur_us;
+        }
+    }
+
+    let mut best_f32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            let (out, _) = delta_heads_cols_impl(
+                layer,
+                &g,
+                &p,
+                &col_refs,
+                eps,
+                true,
+                None,
+                false,
+                Carrier::F32,
+            )
+            .unwrap();
+            std::hint::black_box(out);
+        }
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0 / (reps as f64);
+        if dur_us < best_f32_us {
+            best_f32_us = dur_us;
+        }
+    }
+
+    // Fused conv + DeltaNet decode
+    let key_dim = g.n_k_heads * g.head_k;
+    let val_dim = g.n_v_heads * g.head_v;
+    let channels = 2 * key_dim + val_dim;
+    let mut rng = 0x5a5a_1234_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+    let raw_input: Vec<i64> = (0..channels).map(|_| word(1 << 30)).collect();
+    let z_in: Vec<i64> = (0..val_dim).map(|_| word(1 << 30)).collect();
+    let b_in: Vec<i64> = (0..g.n_v_heads).map(|_| word(1 << 30).abs()).collect();
+    let a_in: Vec<i64> = vec![0i64; g.n_v_heads];
+
+    let mut best_fused_f32_us = f64::INFINITY;
+    for _ in 0..runs {
+        let mut st = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+        let layer = st.layer_mut(0).unwrap();
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            let conv_staged =
+                conv_silu_cols(layer, &p.conv, g.conv_kernel, &[raw_input.as_slice()]).unwrap();
+            let col_fused: Vec<AffineCol<'_>> = vec![(
+                conv_staged[0].as_slice(),
+                z_in.as_slice(),
+                b_in.as_slice(),
+                a_in.as_slice(),
+            )];
+            let (out, _) = delta_heads_cols_impl(
+                layer,
+                &g,
+                &p,
+                &col_fused,
+                eps,
+                true,
+                None,
+                false,
+                Carrier::F32,
+            )
+            .unwrap();
+            std::hint::black_box(out);
+        }
+        let dur_us = t0.elapsed().as_secs_f64() * 1_000_000.0 / (reps as f64);
+        if dur_us < best_fused_f32_us {
+            best_fused_f32_us = dur_us;
+        }
+    }
+
+    println!("\n=== Affine Heads Decode Timing (k=1, best of {runs}) ===");
+    println!(
+        "  Q32 (per layer): {:.2} µs/token ({:.4} ms/token for 18 layers)",
+        best_q32_us,
+        best_q32_us * 18.0 / 1000.0
+    );
+    println!(
+        "  F32 unfused (per layer): {:.2} µs/token ({:.4} ms/token for 18 layers)",
+        best_f32_us,
+        best_f32_us * 18.0 / 1000.0
+    );
+    println!(
+        "  F32 fused conv+DeltaNet (per layer): {:.2} µs/token ({:.4} ms/token for 18 layers)",
+        best_fused_f32_us,
+        best_fused_f32_us * 18.0 / 1000.0
+    );
+    println!("  Speedup vs Q32:  {:.2}x", best_q32_us / best_fused_f32_us);
+}
+
+#[test]
+#[allow(
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "test comparing Q32 vs F32 fused conv+deltanet"
+)]
+fn test_fused_conv_deltanet_tracks_oracle_at_k1() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 16,
+        n_v_heads: 16,
+        head_k: 128,
+        head_v: 128,
+    };
+    let key_dim = g.n_k_heads * g.head_k;
+    let val_dim = g.n_v_heads * g.head_v;
+    let ch = 2 * key_dim + val_dim;
+    let slices = 1usize;
+    let eps = 4295i64;
+
+    let mut rng = 0xbeef_cafe_1234_5678_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+
+    let sp = fixed_softplus(0).expect("softplus(0)");
+    let target = 0.98f64;
+    let ssm_a = (target.ln() * (1u64 << 32) as f64 * (1u64 << 32) as f64 / sp as f64) as i64;
+
+    let p = AffineVectors {
+        conv: (0..g.conv_kernel * ch).map(|_| word(1 << 30)).collect(),
+        dt: vec![0i64; g.n_v_heads],
+        a: vec![ssm_a; g.n_v_heads],
+        norm: vec![1i64 << 32; g.head_v],
+    };
+
+    let raw_input: Vec<i64> = (0..ch).map(|_| word(1 << 30)).collect();
+    let z: Vec<i64> = (0..val_dim).map(|_| word(1 << 30)).collect();
+    let b: Vec<i64> = (0..g.n_v_heads).map(|_| word(1 << 30).abs()).collect();
+    let a: Vec<i64> = vec![0i64; g.n_v_heads];
+
+    let mut st_q32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+    let layer_q32 = st_q32.layer_mut(0).expect("layer");
+    let conv_q32 = conv_silu_cols(layer_q32, &p.conv, g.conv_kernel, &[raw_input.as_slice()])
+        .expect("q32 conv");
+    let cols_q32: Vec<AffineCol<'_>> = vec![(
+        conv_q32[0].as_slice(),
+        z.as_slice(),
+        b.as_slice(),
+        a.as_slice(),
+    )];
+    let out_q32 =
+        delta_heads_cols_carrier(layer_q32, &g, &p, &cols_q32, eps, true, None, Carrier::Q32)
+            .expect("q32 heads");
+
+    let mut st_f32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+    let layer_f32 = st_f32.layer_mut(0).expect("layer");
+    let conv_f32 = conv_silu_cols(layer_f32, &p.conv, g.conv_kernel, &[raw_input.as_slice()])
+        .expect("f32 conv");
+    let cols_f32: Vec<AffineCol<'_>> = vec![(
+        conv_f32[0].as_slice(),
+        z.as_slice(),
+        b.as_slice(),
+        a.as_slice(),
+    )];
+    let out_f32 =
+        delta_heads_cols_carrier(layer_f32, &g, &p, &cols_f32, eps, true, None, Carrier::F32)
+            .expect("f32 heads");
+
+    let mut max_abs_diff = 0.0f64;
+    for (yf, yq) in out_f32[0].iter().zip(&out_q32[0]) {
+        let ff = (*yf as f64) / 4_294_967_296.0;
+        let fq = (*yq as f64) / 4_294_967_296.0;
+        let diff = (ff - fq).abs();
+        if diff > max_abs_diff {
+            max_abs_diff = diff;
+        }
+    }
+    println!("fused conv+deltanet k=1 vs Q32 oracle: max |Δo| = {max_abs_diff:.6e}");
+    assert!(max_abs_diff < 1e-3, "max abs diff {max_abs_diff:e} >= 1e-3");
+}
+
+#[test]
+#[allow(
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "test comparing Q32 vs F32 fused conv+deltanet"
+)]
+fn test_fused_conv_deltanet_tracks_oracle_at_k5() {
+    let g = AffineGeom {
+        conv_kernel: 4,
+        n_k_heads: 16,
+        n_v_heads: 16,
+        head_k: 128,
+        head_v: 128,
+    };
+    let key_dim = g.n_k_heads * g.head_k;
+    let val_dim = g.n_v_heads * g.head_v;
+    let ch = 2 * key_dim + val_dim;
+    let slices = 1usize;
+    let eps = 4295i64;
+    let k = 5;
+
+    let mut rng = 0xcafe_beef_8765_4321_u64;
+    let mut word = |bound: i64| {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng as i64) % bound
+    };
+
+    let sp = fixed_softplus(0).expect("softplus(0)");
+    let target = 0.98f64;
+    let ssm_a = (target.ln() * (1u64 << 32) as f64 * (1u64 << 32) as f64 / sp as f64) as i64;
+
+    let p = AffineVectors {
+        conv: (0..g.conv_kernel * ch).map(|_| word(1 << 30)).collect(),
+        dt: vec![0i64; g.n_v_heads],
+        a: vec![ssm_a; g.n_v_heads],
+        norm: vec![1i64 << 32; g.head_v],
+    };
+
+    let raw_inputs: Vec<Vec<i64>> = (0..k)
+        .map(|_| (0..ch).map(|_| word(1 << 30)).collect())
+        .collect();
+    let raw_refs: Vec<&[i64]> = raw_inputs.iter().map(Vec::as_slice).collect();
+
+    let z: Vec<Vec<i64>> = (0..k)
+        .map(|_| (0..val_dim).map(|_| word(1 << 30)).collect())
+        .collect();
+    let b: Vec<Vec<i64>> = (0..k)
+        .map(|_| (0..g.n_v_heads).map(|_| word(1 << 30).abs()).collect())
+        .collect();
+    let a: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; g.n_v_heads]).collect();
+
+    let mut st_q32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::Q32);
+    let layer_q32 = st_q32.layer_mut(0).expect("layer");
+    let conv_q32 = conv_silu_cols(layer_q32, &p.conv, g.conv_kernel, &raw_refs).expect("q32 conv");
+    let cols_q32: Vec<AffineCol<'_>> = (0..k)
+        .map(|c| {
+            (
+                conv_q32[c].as_slice(),
+                z[c].as_slice(),
+                b[c].as_slice(),
+                a[c].as_slice(),
+            )
+        })
+        .collect();
+    let out_q32 =
+        delta_heads_cols_carrier(layer_q32, &g, &p, &cols_q32, eps, true, None, Carrier::Q32)
+            .expect("q32 heads");
+
+    let mut st_f32 = AffineState::with_slices_carrier(&g, 1, slices, Carrier::F32);
+    let layer_f32 = st_f32.layer_mut(0).expect("layer");
+    let conv_f32 = conv_silu_cols(layer_f32, &p.conv, g.conv_kernel, &raw_refs).expect("f32 conv");
+    let cols_f32: Vec<AffineCol<'_>> = (0..k)
+        .map(|c| {
+            (
+                conv_f32[c].as_slice(),
+                z[c].as_slice(),
+                b[c].as_slice(),
+                a[c].as_slice(),
+            )
+        })
+        .collect();
+    let out_f32 =
+        delta_heads_cols_carrier(layer_f32, &g, &p, &cols_f32, eps, true, None, Carrier::F32)
+            .expect("f32 heads");
+
+    let mut max_abs_diff = 0.0f64;
+    for c in 0..k {
+        for (yf, yq) in out_f32[c].iter().zip(&out_q32[c]) {
+            let ff = (*yf as f64) / 4_294_967_296.0;
+            let fq = (*yq as f64) / 4_294_967_296.0;
+            let diff = (ff - fq).abs();
+            if diff > max_abs_diff {
+                max_abs_diff = diff;
+            }
+        }
+    }
+    println!("fused conv+deltanet k=5 vs Q32 oracle: max |Δo| = {max_abs_diff:.6e}");
+    assert!(max_abs_diff < 1e-3, "max abs diff {max_abs_diff:e} >= 1e-3");
 }

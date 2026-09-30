@@ -348,7 +348,8 @@ impl Engine {
 
 /// Prefill block width: the columns one pass carries, so the `Q8_0` weights are read once per
 /// block and the power-of-two GEMM (`kern::gemm`) reuses each weight row across them.
-/// `APEIRON_PREFILL_COLS` overrides it (read once).
+/// `APEIRON_PREFILL_COLS` overrides it (read once). Default 256: a 200-token prompt is one block
+/// (receipts `1790772852-w6-t08-width-after-5arms`, `1790774715-w6-integ-ab1`).
 pub(crate) fn prefill_block() -> usize {
     static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *N.get_or_init(|| {
@@ -356,7 +357,7 @@ pub(crate) fn prefill_block() -> usize {
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
-            .unwrap_or(64)
+            .unwrap_or(256)
     })
 }
 
@@ -462,19 +463,10 @@ fn split_query_gate(
 ///
 /// # Complexity
 ///
-/// `O(att.len())` sigmoid evaluations and products.
+/// `O(att.len())` sigmoid evaluations and products; the body is [`attn_block::sigmoid_gate`],
+/// word-equal to the `fixed_sigmoid` + `mul_q32` loop.
 fn apply_sigmoid_gate(att: &mut [i64], gate: &[i64]) -> Result<(), StepError> {
-    if att.len() != gate.len() {
-        return Err(StepError::BadConfig("gate width"));
-    }
-    let mut i = 0usize;
-    while i < att.len() {
-        let s =
-            crate::numeric::fixed_ln::fixed_sigmoid(gate[i]).map_err(|_| StepError::Overflow)?;
-        att[i] = super::value::mul_q32(att[i], s).ok_or(StepError::Overflow)?;
-        i += 1;
-    }
-    Ok(())
+    attn_block::sigmoid_gate(att, gate)
 }
 
 /// `vectors.apply_qk_norms` plus the two per-vector `RoPE` rotations, over the pool when
@@ -501,8 +493,7 @@ fn qk_norm_and_rope(
         // The composed geometry is a whole number of `hd`-wide heads; anything else keeps the
         // serial refusals unchanged.
         vectors.apply_qk_norms(layer, query, key, hd, eps)?;
-        rotate_head_prefixes(rope, query, hd, pos)?;
-        return rotate_head_prefixes(rope, key, hd, pos);
+        return attn_block::rotate_pair_prefixes(rope, query, key, hd, pos);
     }
     let qk = vectors.qk_norms_of(layer);
     let qk_q = qk.and_then(|n| n[0].as_deref());
@@ -1513,7 +1504,7 @@ impl Engine {
         )
     }
 
-    /// Prefill `tokens` in blocks of [`prefill_block`] columns (weights read once per block),
+    /// Prefill `tokens` in blocks of near-equal width bounded by [`prefill_block`],
     /// returning every position's output-normed final state; exactly the states of one-token
     /// steps (`qwen35_two_columns_equal_two_single_steps`).
     ///
@@ -1530,8 +1521,25 @@ impl Engine {
         tokens: &[u32],
         mode: KernelMode,
     ) -> Result<Vec<Vec<i64>>, StepError> {
+        self.prefill_cols_width(st, tokens, mode, prefill_block())
+    }
+
+    pub(crate) fn prefill_cols_width(
+        &self,
+        st: &mut DecodeState,
+        tokens: &[u32],
+        mode: KernelMode,
+        w: usize,
+    ) -> Result<Vec<Vec<i64>>, StepError> {
         let mut out = Vec::with_capacity(tokens.len());
-        for block in tokens.chunks(prefill_block()) {
+        let num_blocks = tokens.len().div_ceil(w.max(1));
+        let base = tokens.len().checked_div(num_blocks).unwrap_or(0);
+        let rem = tokens.len().checked_rem(num_blocks).unwrap_or(0);
+        let mut start = 0;
+        for i in 0..num_blocks {
+            let size = if i < rem { base + 1 } else { base };
+            let block = &tokens[start..start + size];
+            start += size;
             out.extend(self.compose_cols(
                 &mut st.kv,
                 st.affine.as_mut(),
@@ -1556,11 +1564,69 @@ impl Engine {
         tokens: &[u32],
         mode: KernelMode,
     ) -> Result<u32, StepError> {
-        let (last, head) = tokens
-            .split_last()
-            .ok_or(StepError::BadConfig("empty prompt"))?;
-        self.prefill_cols(st, head, mode)?;
-        self.next_token_state(st, *last, mode)
+        self.prefill_state_with_width(st, tokens, mode, prefill_block())
+    }
+
+    pub(crate) fn prefill_state_with_width(
+        &self,
+        st: &mut DecodeState,
+        tokens: &[u32],
+        mode: KernelMode,
+        w: usize,
+    ) -> Result<u32, StepError> {
+        if tokens.is_empty() {
+            return Err(StepError::BadConfig("empty prompt"));
+        }
+        let num_blocks = tokens.len().div_ceil(w.max(1));
+        let base = tokens.len() / num_blocks;
+        let rem = tokens.len() % num_blocks;
+        let mut start = 0;
+        let mut last_col = None;
+        for i in 0..num_blocks {
+            let size = if i < rem { base + 1 } else { base };
+            let block = &tokens[start..start + size];
+            start += size;
+            let cols = self.compose_cols(
+                &mut st.kv,
+                st.affine.as_mut(),
+                block,
+                Sched::Resident,
+                mode,
+                mode == KernelMode::Q8Act,
+                None,
+            )?;
+            if i + 1 == num_blocks {
+                last_col = cols.into_iter().last();
+            }
+        }
+        let xf = last_col.ok_or(StepError::BadConfig("empty prompt"))?;
+        self.head_greedy_state(&xf, mode)
+    }
+
+    /// Greedily select the next token from an output-normed final state.
+    fn head_greedy_state(&self, xf: &[i64], mode: KernelMode) -> Result<u32, StepError> {
+        let (vocab, n_embd) = (self.config.vocab_size, self.config.n_embd);
+        let _head = super::trace::span(
+            super::trace::Phase::Head,
+            1,
+            super::trace::q8_bytes(vocab, n_embd),
+            super::trace::macs(vocab, n_embd, 1),
+        );
+        if mode == KernelMode::Q8Act && bitplane_enabled() {
+            if let Some(bp) = self.bitplane_head() {
+                if let Some(q) = super::chart::ffn::quant_act_pooled(xf) {
+                    if super::chart::q8act_fast_bound_ok(xf.len(), 128, &q, true) {
+                        if let Some((token, _)) = bp.argmax(&q) {
+                            return Ok(token);
+                        }
+                    }
+                }
+            }
+        }
+        let logits = self
+            .lm_head_fixed_sched(xf, Sched::Resident, mode)
+            .map_err(StepError::LmHead)?;
+        argmax_fixed(&logits).map_err(StepError::Sampler)
     }
 
     /// The greedy next token of one decode step over any schedule. In `Q8Act` with a `Q8_0` head it
@@ -1590,30 +1656,7 @@ impl Engine {
             mode,
             mode == KernelMode::Q8Act,
         )?;
-        let (vocab, n_embd) = (self.config.vocab_size, self.config.n_embd);
-        let _head = super::trace::span(
-            super::trace::Phase::Head,
-            1,
-            super::trace::q8_bytes(vocab, n_embd),
-            super::trace::macs(vocab, n_embd, 1),
-        );
-        // The bit-plane head is exact and, with the batched stage 1, faster than the dense head
-        // on Qwen3.5 (3.01 vs 3.28 ms, median 18 survivors); `APEIRON_BITPLANE=0` forces dense.
-        if mode == KernelMode::Q8Act && bitplane_enabled() {
-            if let Some(bp) = self.bitplane_head() {
-                if let Some(q) = super::chart::ffn::quant_act_pooled(&xf) {
-                    if super::chart::q8act_fast_bound_ok(xf.len(), 128, &q, true) {
-                        if let Some((token, _)) = bp.argmax(&q) {
-                            return Ok(token);
-                        }
-                    }
-                }
-            }
-        }
-        let logits = self
-            .lm_head_fixed_sched(&xf, Sched::Resident, mode)
-            .map_err(StepError::LmHead)?;
-        argmax_fixed(&logits).map_err(StepError::Sampler)
+        self.head_greedy_state(&xf, mode)
     }
 }
 
@@ -1627,12 +1670,16 @@ pub struct DecodeState {
     pub affine: Option<AffineState>,
 }
 
+pub(crate) mod attn_block;
 #[path = "step/cols.rs"]
 mod cols;
 #[path = "step/spec.rs"]
 mod spec;
 pub use spec::{MtpState, SpecStats};
 
+#[cfg(test)]
+#[path = "step/prefill_tests.rs"]
+mod prefill_tests;
 #[cfg(test)]
 #[path = "step/tests.rs"]
 mod tests;

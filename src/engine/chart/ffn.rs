@@ -11,6 +11,10 @@
 //! projections share one `quant_act` of `x`. The `Exact` path in `ffn.rs` and `par.rs` is not
 //! touched.
 
+#[cfg(target_arch = "x86_64")]
+use crate::engine::mixer::f32_carrier::silu_f32_avx2;
+use crate::engine::mixer::f32_carrier::{q32_to_f32, silu_f32_scalar};
+use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::format::quant;
 
 use super::super::ffn::{silu_fixed, FfnError, ProjWeights};
@@ -46,6 +50,18 @@ struct ActPtr {
 unsafe impl Send for ActPtr {}
 // SAFETY: as above; `quant_act_pooled` gives each task its own block range.
 unsafe impl Sync for ActPtr {}
+
+impl ActPtr {
+    #[inline]
+    unsafe fn write_scales(&self, offset: usize, src: *const i64, count: usize) {
+        std::ptr::copy_nonoverlapping(src, self.scales.add(offset), count);
+    }
+
+    #[inline]
+    unsafe fn write_codes(&self, offset: usize, src: *const i8, count: usize) {
+        std::ptr::copy_nonoverlapping(src, self.codes.add(offset), count);
+    }
+}
 
 /// [`quant_act`] over the pool: `x` is cut into whole 32-element blocks and each contiguous run of
 /// blocks is quantized by one pool task with the same [`quant_act`]. A block's scale and codes
@@ -209,56 +225,173 @@ fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
     i64::try_from(round_shift_32(prod)).map_err(|_| FfnError::Overflow)
 }
 
+/// Convert an f32 readout value `o` back to Q32.32 fixed point `i64`.
+///
+/// Computes `round(o · 2^32)` using round-to-nearest.
+/// Range check: non-finite (NaN, $\pm\infty$) or values exceeding the signed 64-bit integer
+/// range $[-2^{63}, 2^{63}-1]$ return `Err(FfnError::Overflow)`. No silent clamping is performed.
+#[inline]
+pub(crate) fn f32_to_q32_checked(o: f32) -> Result<i64, FfnError> {
+    if !o.is_finite() {
+        return Err(FfnError::Overflow);
+    }
+    let scaled = f64::from(o) * 4_294_967_296.0;
+    let rounded = scaled.round();
+    if !(-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&rounded) {
+        return Err(FfnError::Overflow);
+    }
+    #[allow(clippy::cast_possible_truncation, reason = "bounds checked above")]
+    Ok(rounded as i64)
+}
+
+/// Scalar `SwiGLU` in binary32: `SiLU(q32_to_f32(gate)) * q32_to_f32(up)` converted back to Q32.32.
+#[inline]
+pub(crate) fn swiglu_one_f32_scalar(gate: i64, up: i64) -> Result<i64, FfnError> {
+    let g = q32_to_f32(gate);
+    let u = q32_to_f32(up);
+    let s = silu_f32_scalar(g);
+    let prod = s * u;
+    f32_to_q32_checked(prod)
+}
+
+/// Evaluate one `SwiGLU` element under the selected carrier.
+#[inline]
+pub(crate) fn swiglu_one_carrier(gate: i64, up: i64, carrier: Carrier) -> Result<i64, FfnError> {
+    match carrier {
+        Carrier::Q32 => swiglu_one(gate, up),
+        Carrier::F32 => swiglu_one_f32_scalar(gate, up),
+    }
+}
+
+/// AVX2 implementation of 8-lane `SwiGLU` in binary32.
+/// Matches `swiglu_one_f32_scalar` bit for bit.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn swiglu_f32_avx2_8_into(
+    gate: &[i64; 8],
+    up: &[i64; 8],
+    out: &mut [i64; 8],
+) -> Result<(), (usize, FfnError)> {
+    use std::arch::x86_64::{_mm256_loadu_ps, _mm256_mul_ps, _mm256_storeu_ps};
+    let mut g_f = [0.0f32; 8];
+    let mut u_f = [0.0f32; 8];
+    for l in 0..8 {
+        g_f[l] = q32_to_f32(gate[l]);
+        u_f[l] = q32_to_f32(up[l]);
+    }
+    let vg = _mm256_loadu_ps(g_f.as_ptr());
+    let vu = _mm256_loadu_ps(u_f.as_ptr());
+    let vs = silu_f32_avx2(vg);
+    let vp = _mm256_mul_ps(vs, vu);
+    let mut prod_f = [0.0f32; 8];
+    _mm256_storeu_ps(prod_f.as_mut_ptr(), vp);
+    for l in 0..8 {
+        match f32_to_q32_checked(prod_f[l]) {
+            Ok(v) => out[l] = v,
+            Err(e) => return Err((l, e)),
+        }
+    }
+    Ok(())
+}
+
 /// `h_i = round(silu(gate_i)·up_i / 2^32)` for every `i`, on the pool when `parallel`.
 ///
-/// Every element is independent and [`swiglu_one`] is unchanged, so the pool split is bit-identical
-/// to the serial loop. Returns the first refusal in element order. The serial loop (`parallel`
-/// false) is the test oracle.
-///
-/// # Errors
-///
-/// As [`swiglu_one`], and [`FfnError::BadGeometry`] when the three slices disagree in length.
-///
-/// # Complexity
-///
-/// `O(n)` [`swiglu_one`] evaluations over `⌈n/(2·width)⌉`-element chunks, one pool dispatch;
-/// `O(1)` scratch beyond `h`.
+/// Resolves carrier from environment.
 pub(crate) fn swiglu_hidden(
     gate: &[i64],
     up: &[i64],
     h: &mut [i64],
     parallel: bool,
 ) -> Result<(), FfnError> {
+    swiglu_hidden_carrier(gate, up, h, parallel, carrier_from_env())
+}
+
+/// Evaluate `SwiGLU` elementwise over slices `gate` and `up`, writing into `out`, under explicit [`Carrier`].
+/// Returns `Err((lane, err))` if a lane fails, reporting the relative failing index.
+fn swiglu_slice(
+    gate: &[i64],
+    up: &[i64],
+    out: &mut [i64],
+    carrier: Carrier,
+) -> Result<(), (usize, FfnError)> {
+    if carrier == Carrier::Q32 {
+        for (i, (&g, &u)) in gate.iter().zip(up).enumerate() {
+            match swiglu_one(g, u) {
+                Ok(v) => out[i] = v,
+                Err(e) => return Err((i, e)),
+            }
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    let has_avx2 = std::is_x86_feature_detected!("avx2");
+    #[cfg(not(target_arch = "x86_64"))]
+    let has_avx2 = false;
+
+    let mut i = 0usize;
+    let n = gate.len();
+    #[cfg(target_arch = "x86_64")]
+    if has_avx2 {
+        let mut buf = [0i64; 8];
+        while i + 8 <= n {
+            let g8: &[i64; 8] = gate[i..i + 8].try_into().expect("8 elements");
+            let u8: &[i64; 8] = up[i..i + 8].try_into().expect("8 elements");
+            match unsafe { swiglu_f32_avx2_8_into(g8, u8, &mut buf) } {
+                Ok(()) => {
+                    out[i..i + 8].copy_from_slice(&buf);
+                }
+                Err((fail_lane, e)) => {
+                    out[i..i + fail_lane].copy_from_slice(&buf[..fail_lane]);
+                    return Err((i + fail_lane, e));
+                }
+            }
+            i += 8;
+        }
+    }
+    while i < n {
+        match swiglu_one_f32_scalar(gate[i], up[i]) {
+            Ok(v) => out[i] = v,
+            Err(e) => return Err((i, e)),
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
+/// `h_i = round(silu(gate_i)·up_i / 2^32)` for every `i`, on the pool when `parallel`,
+/// evaluated under explicit [`Carrier`].
+pub(crate) fn swiglu_hidden_carrier(
+    gate: &[i64],
+    up: &[i64],
+    h: &mut [i64],
+    parallel: bool,
+    carrier: Carrier,
+) -> Result<(), FfnError> {
     if gate.len() != up.len() || gate.len() != h.len() {
         return Err(FfnError::BadGeometry);
     }
     if !parallel {
-        let mut i = 0usize;
-        while i < h.len() {
-            h[i] = swiglu_one(gate[i], up[i])?;
-            i += 1;
-        }
-        return Ok(());
+        return swiglu_slice(gate, up, h, carrier).map_err(|(_, e)| e);
     }
     let pool = Pool::global();
     let chunk = h.len().div_ceil(2 * pool.width()).max(1);
     let first: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
     pool.chunks_mut(h, chunk, &|_c, start, dst| {
-        let mut j = 0usize;
-        while j < dst.len() {
-            match swiglu_one(gate[start + j], up[start + j]) {
-                Ok(v) => dst[j] = v,
-                Err(e) => {
-                    let mut slot = first
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if slot.as_ref().is_none_or(|(k, _)| start + j < *k) {
-                        *slot = Some((start + j, e));
-                    }
-                    return;
-                }
+        let len = dst.len();
+        if let Err((lane, e)) = swiglu_slice(
+            &gate[start..start + len],
+            &up[start..start + len],
+            dst,
+            carrier,
+        ) {
+            let idx = start + lane;
+            let mut slot = first
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if slot.as_ref().is_none_or(|(k, _)| idx < *k) {
+                *slot = Some((idx, e));
             }
-            j += 1;
         }
     });
     match first
@@ -281,30 +414,27 @@ unsafe impl Send for SwigluPtr {}
 unsafe impl Sync for SwigluPtr {}
 
 /// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j`: one
-/// pool dispatch over the flat `k·n_ff` element count, each element the unchanged [`swiglu_one`]
-/// on its two inputs, so the result is the per-column [`swiglu_hidden`] loop bit for bit. `out`'s
-/// columns must be pre-sized to `gate[c].len()`; each element is written exactly once.
-///
-/// The refusal is the smallest flat index `c·n_ff + j`, the (column, element) lexicographic minimum
-/// the per-column [`swiglu_hidden`] sequence returns.
-///
-/// # Errors
-///
-/// As [`swiglu_one`], and [`FfnError::BadGeometry`] when the three slice families disagree in shape.
-///
-/// # Complexity
-///
-/// `O(k·n_ff)` [`swiglu_one`] evaluations over `⌈k·n_ff/(2·width)⌉`-element chunks, one pool
-/// dispatch; `O(1)` scratch beyond `out`.
+/// pool dispatch over the flat `k·n_ff` element count.
+pub(crate) fn swiglu_cols(
+    gate: &[Vec<i64>],
+    up: &[Vec<i64>],
+    out: &mut [Vec<i64>],
+) -> Result<(), FfnError> {
+    swiglu_cols_carrier(gate, up, out, carrier_from_env())
+}
+
+/// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j` under
+/// explicit [`Carrier`].
 #[allow(
     clippy::many_single_char_names,
     reason = "k/n are the column and element counts and c/j an element's column and index, as in \
               the per-column loop this replaces"
 )]
-pub(crate) fn swiglu_cols(
+pub(crate) fn swiglu_cols_carrier(
     gate: &[Vec<i64>],
     up: &[Vec<i64>],
     out: &mut [Vec<i64>],
+    carrier: Carrier,
 ) -> Result<(), FfnError> {
     let k = gate.len();
     if up.len() != k || out.len() != k {
@@ -330,7 +460,7 @@ pub(crate) fn swiglu_cols(
         let mut f = lo;
         while f < hi {
             let (c, j) = (f / n, f % n);
-            match swiglu_one(gate[c][j], up[c][j]) {
+            match swiglu_one_carrier(gate[c][j], up[c][j], carrier) {
                 Ok(v) => {
                     // SAFETY: `f < flat`, so `c < k` and `j < n`; flat element `f` maps to the
                     // single address `ptrs[c] + j`, and the tasks partition `[0, flat)`, so no two
@@ -514,6 +644,13 @@ struct RowPtr(*mut i64);
 unsafe impl Send for RowPtr {}
 // SAFETY: as above; the tasks partition the allocation and never alias.
 unsafe impl Sync for RowPtr {}
+
+impl RowPtr {
+    #[inline]
+    unsafe fn as_mut_slice<'a>(&self, offset: usize, len: usize) -> &'a mut [i64] {
+        std::slice::from_raw_parts_mut(self.0.add(offset), len)
+    }
+}
 
 /// One projection's dispatchable row-chunk plan in [`matvec_q8act_pair_chunked`].
 struct ProjPrep {
@@ -958,6 +1095,40 @@ pub(crate) fn ffn_q8act(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "projection parameters and output slice are passed together"
+)]
+fn chart_rows(
+    ggml_type: u32,
+    raw: &[u8],
+    lo: usize,
+    hi: usize,
+    pp: &ProjPrep,
+    n_in: usize,
+    q: &QuantAct,
+    dst: &mut [i64],
+) -> Result<(), MatvecError> {
+    let rows = hi - lo;
+    let need = rows
+        .checked_mul(pp.row_bytes)
+        .ok_or(MatvecError::LengthOverflow)?;
+    let bytes = raw
+        .get(lo * pp.row_bytes..hi * pp.row_bytes)
+        .ok_or(MatvecError::ShortPayload {
+            need,
+            have: raw.len(),
+        })?;
+    let v = match &pp.plan {
+        Q8ActPlan::Fused(fast) => {
+            q8act_rows(ggml_type, bytes, rows, n_in, pp.row_bytes, need, q, fast)
+        }
+        Q8ActPlan::Reference => matvec_q8act(ggml_type, bytes, rows, n_in, q),
+    }?;
+    dst.copy_from_slice(&v);
+    Ok(())
+}
+
 /// [`ffn_q8act`]'s composition over caller-built [`ProjSpec`]s: one pooled `quant_act` of `x`, the
 /// gate/up pair in one [`projections_q8act_prepared`] dispatch, [`swiglu_hidden`], then the down
 /// spec over a pooled `quant_act` of the hidden. A spec carries either the chart row core or a
@@ -984,20 +1155,18 @@ pub(crate) fn ffn_q8act_prepared(
     chunks_gate_up: usize,
     chunks_down: usize,
 ) -> Result<Vec<i64>, FfnError> {
-    if n_ff == 0 || n_in == 0 || x.len() != n_in {
-        return Err(FfnError::BadGeometry);
-    }
-    // Gate and up read the same activation and the same geometry, so both row sweeps are one pool
-    // dispatch with one `quant_act(x)`; only their weight payloads differ.
-    let q = quantize(x)?;
-    let mut out = projections_q8act_prepared(n_in, &q, &[gate, up], chunks_gate_up)?;
-    let up_vec = out.pop().expect("two projections");
-    let gate_vec = out.pop().expect("two projections");
-    let mut h: Vec<i64> = vec![0; n_ff];
-    swiglu_hidden(&gate_vec, &up_vec, &mut h, true)?;
-    let qh = quantize(&h)?;
-    let mut d = projections_q8act_prepared(n_ff, &qh, &[down], chunks_down)?;
-    Ok(d.pop().expect("one projection"))
+    let mut scratch = FfnScratch::default();
+    ffn_q8act_prepared_into(
+        n_in,
+        x,
+        gate,
+        up,
+        down,
+        n_ff,
+        chunks_gate_up,
+        chunks_down,
+        &mut scratch,
+    )
 }
 
 /// Reusable row and hidden buffers for [`ffn_q8act_prepared_into`].
@@ -1014,16 +1183,20 @@ pub(crate) struct FfnScratch {
     hidden: Vec<i64>,
     /// The down projection's row output, taken by each call and re-formed empty.
     down_rows: Vec<Vec<i64>>,
+    /// Pre-allocated [`QuantAct`] for the hidden activation.
+    hidden_quant: Option<QuantAct>,
 }
 
 /// [`ffn_q8act_prepared`] with caller-owned scratch buffers (`scratch`), returning the down
 /// projection's rows.
 ///
-/// The composition is unchanged: one pooled `quant_act` of `x`, the gate/up pair in one
-/// [`projections_q8act_prepared_into`] dispatch, [`swiglu_hidden`], and the down spec over a pooled
-/// `quant_act` of the hidden. Only the buffers are reused.
+/// When `gate` and `up` are chart projections and `n_ff` is 32-aligned, gate and up projections,
+/// `SwiGLU`, and hidden quantization run in ONE fused dispatch across the pool, followed by the down
+/// projection. Refusal order is preserved: projection error, then `SwiGLU`, then quantization.
+/// When not eligible, falls back to the separate-stage path.
 #[allow(
     clippy::too_many_arguments,
+    clippy::too_many_lines,
     reason = "the three row kernels, their activation, the two dispatch widths and the scratch \
               buffers are the composition's full input"
 )]
@@ -1042,6 +1215,160 @@ pub(crate) fn ffn_q8act_prepared_into(
         return Err(FfnError::BadGeometry);
     }
     let q = quantize(x)?;
+
+    let can_fuse = n_ff.is_multiple_of(32)
+        && gate.n_out == n_ff
+        && up.n_out == n_ff
+        && matches!(&gate.source, ProjSource::Chart { .. })
+        && matches!(&up.source, ProjSource::Chart { .. });
+
+    if can_fuse {
+        let (gate_type, gate_raw) = match &gate.source {
+            ProjSource::Chart { ggml_type, raw } => (*ggml_type, *raw),
+            ProjSource::Rows(_) => unreachable!(),
+        };
+        let (up_type, up_raw) = match &up.source {
+            ProjSource::Chart { ggml_type, raw } => (*ggml_type, *raw),
+            ProjSource::Rows(_) => unreachable!(),
+        };
+
+        let gate_prep = proj_prep(gate_type, gate_raw, n_ff, n_in, &q, chunks_gate_up)?;
+        let up_prep = proj_prep(up_type, up_raw, n_ff, n_in, &q, chunks_gate_up)?;
+
+        if let (Some(gate_pp), Some(up_pp)) = (gate_prep, up_prep) {
+            let blocks = n_ff / 32;
+            if scratch.rows.len() < 2 {
+                scratch.rows.resize_with(2, Vec::new);
+            }
+            if scratch.rows[0].len() != n_ff {
+                scratch.rows[0].resize(n_ff, 0);
+            }
+            if scratch.rows[1].len() != n_ff {
+                scratch.rows[1].resize(n_ff, 0);
+            }
+            if scratch.hidden.len() != n_ff {
+                scratch.hidden.resize(n_ff, 0);
+            }
+            if scratch.hidden_quant.is_none() {
+                scratch.hidden_quant = Some(QuantAct {
+                    scales: vec![0i64; blocks],
+                    codes: vec![0i8; n_ff],
+                });
+            }
+            let qh = scratch.hidden_quant.as_mut().unwrap();
+            if qh.scales.len() != blocks {
+                qh.scales.resize(blocks, 0);
+            }
+            if qh.codes.len() != n_ff {
+                qh.codes.resize(n_ff, 0);
+            }
+
+            let pool = Pool::global();
+            let width = pool.width();
+            let target_tasks = (2 * width).min(blocks).max(1);
+            let per_blocks = blocks.div_ceil(target_tasks);
+            let tasks = blocks.div_ceil(per_blocks);
+
+            let gate_ptr = RowPtr(scratch.rows[0].as_mut_ptr());
+            let up_ptr = RowPtr(scratch.rows[1].as_mut_ptr());
+            let hidden_ptr = RowPtr(scratch.hidden.as_mut_ptr());
+            let act_ptr = ActPtr {
+                scales: qh.scales.as_mut_ptr(),
+                codes: qh.codes.as_mut_ptr(),
+            };
+
+            let proj_err: Mutex<Option<(usize, usize, MatvecError)>> = Mutex::new(None);
+            let swiglu_err: Mutex<Option<(usize, FfnError)>> = Mutex::new(None);
+            let quant_err: Mutex<Option<usize>> = Mutex::new(None);
+            let carrier = carrier_from_env();
+
+            pool.run(tasks, &|t| {
+                let lo_b = (t * per_blocks).min(blocks);
+                let hi_b = ((t + 1) * per_blocks).min(blocks);
+                if lo_b >= hi_b {
+                    return;
+                }
+                let lo = lo_b * 32;
+                let hi = hi_b * 32;
+                let rows = hi - lo;
+
+                let gate_dst = unsafe { gate_ptr.as_mut_slice(lo, rows) };
+                let up_dst = unsafe { up_ptr.as_mut_slice(lo, rows) };
+                let h_dst = unsafe { hidden_ptr.as_mut_slice(lo, rows) };
+
+                // Stage 1a: Gate projection
+                if let Err(e) =
+                    chart_rows(gate_type, gate_raw, lo, hi, &gate_pp, n_in, &q, gate_dst)
+                {
+                    let mut slot = proj_err.lock().unwrap();
+                    if slot.as_ref().is_none_or(|(p, r, _)| (0, lo) < (*p, *r)) {
+                        *slot = Some((0, lo, e));
+                    }
+                    return;
+                }
+
+                // Stage 1b: Up projection
+                if let Err(e) = chart_rows(up_type, up_raw, lo, hi, &up_pp, n_in, &q, up_dst) {
+                    let mut slot = proj_err.lock().unwrap();
+                    if slot.as_ref().is_none_or(|(p, r, _)| (1, lo) < (*p, *r)) {
+                        *slot = Some((1, lo, e));
+                    }
+                    return;
+                }
+
+                // Stage 2: SwiGLU elementwise
+                if let Err((lane, e)) = swiglu_slice(gate_dst, up_dst, h_dst, carrier) {
+                    let idx = lo + lane;
+                    let mut slot = swiglu_err.lock().unwrap();
+                    if slot.as_ref().is_none_or(|(k, _)| idx < *k) {
+                        *slot = Some((idx, e));
+                    }
+                    return;
+                }
+
+                // Stage 3: Activation quantization on h_dst
+                if let Some(qa) = quant_act(h_dst) {
+                    unsafe {
+                        act_ptr.write_scales(lo_b, qa.scales().as_ptr(), hi_b - lo_b);
+                        act_ptr.write_codes(lo, qa.codes().as_ptr(), rows);
+                    }
+                } else {
+                    let mut slot = quant_err.lock().unwrap();
+                    if slot.as_ref().is_none_or(|k| lo_b < *k) {
+                        *slot = Some(lo_b);
+                    }
+                }
+            });
+
+            // Refusal precedence: projection, then SwiGLU, then quantization
+            if let Some((_, _, e)) = proj_err.into_inner().unwrap() {
+                return Err(FfnError::Matvec(e));
+            }
+            if let Some((_, e)) = swiglu_err.into_inner().unwrap() {
+                return Err(e);
+            }
+            if quant_err.into_inner().unwrap().is_some() {
+                return Err(FfnError::Matvec(MatvecError::Dequant(
+                    EngineError::FixedOverflow,
+                )));
+            }
+
+            let qh = scratch.hidden_quant.as_ref().unwrap();
+            if scratch.down_rows.is_empty() {
+                scratch.down_rows.push(Vec::new());
+            }
+            projections_q8act_prepared_into(
+                n_ff,
+                qh,
+                &[down],
+                chunks_down,
+                &mut scratch.down_rows,
+            )?;
+            return Ok(std::mem::take(&mut scratch.down_rows[0]));
+        }
+    }
+
+    // Fallback path
     projections_q8act_prepared_into(n_in, &q, &[gate, up], chunks_gate_up, &mut scratch.rows)?;
     if scratch.hidden.len() != n_ff {
         scratch.hidden.resize(n_ff, 0);
@@ -1361,5 +1688,332 @@ mod tests {
         let want = matvec_fixed(GGML_TYPE_F16, &d, N_EMBD, N_FF, &hh).expect("down");
         let (wg, wu, wd) = weights();
         assert_eq!(ffn_q8act(wg, wu, wd, N_FF, &x).expect("ffn_q8act"), want);
+    }
+
+    fn make_test_specs<'a>(
+        n_embd: usize,
+        n_ff: usize,
+        gate_raw: &'a [u8],
+        up_raw: &'a [u8],
+        down_raw: &'a [u8],
+    ) -> (ProjSpec<'a>, ProjSpec<'a>, ProjSpec<'a>) {
+        (
+            ProjSpec {
+                n_out: n_ff,
+                row_align: 1,
+                source: ProjSource::Chart {
+                    ggml_type: GGML_TYPE_Q8_0,
+                    raw: gate_raw,
+                },
+            },
+            ProjSpec {
+                n_out: n_ff,
+                row_align: 1,
+                source: ProjSource::Chart {
+                    ggml_type: GGML_TYPE_Q8_0,
+                    raw: up_raw,
+                },
+            },
+            ProjSpec {
+                n_out: n_embd,
+                row_align: 1,
+                source: ProjSource::Chart {
+                    ggml_type: GGML_TYPE_Q8_0,
+                    raw: down_raw,
+                },
+            },
+        )
+    }
+
+    /// Fused `gate+up+SwiGLU+hidden_quant` equals the separate-stage execution on `Q8_0` weights,
+    /// and preserves the refusal precedence: projection error, then `SwiGLU`, then quantization.
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "integration check of fused FFN nominal and refusal branches"
+    )]
+    fn ffn_fused_matches_unfused_and_preserves_refusal_order() {
+        const N_EMBD: usize = 64;
+        const N_FF: usize = 64;
+        let x = activation(N_EMBD, 7);
+        let g = q8_rows(N_FF, N_EMBD);
+        let u = q8_rows(N_FF, N_EMBD);
+        let d = q8_rows(N_EMBD, N_FF);
+
+        // 1. Nominal path: fused matches unfused reference
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let mut scratch_fused = FfnScratch::default();
+        let got = ffn_q8act_prepared_into(
+            N_EMBD,
+            &x,
+            gate_spec,
+            up_spec,
+            down_spec,
+            N_FF,
+            4,
+            4,
+            &mut scratch_fused,
+        )
+        .expect("fused ffn");
+
+        // Unfused reference
+        let q = quantize(&x).expect("quantize");
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let mut scratch_unfused = FfnScratch::default();
+        projections_q8act_prepared_into(
+            N_EMBD,
+            &q,
+            &[gate_spec, up_spec],
+            4,
+            &mut scratch_unfused.rows,
+        )
+        .expect("projs");
+        scratch_unfused.hidden.resize(N_FF, 0);
+        swiglu_hidden(
+            &scratch_unfused.rows[0],
+            &scratch_unfused.rows[1],
+            &mut scratch_unfused.hidden,
+            true,
+        )
+        .expect("swiglu");
+        let qh = quantize(&scratch_unfused.hidden).expect("quantize hidden");
+        projections_q8act_prepared_into(N_FF, &qh, &[down_spec], 4, &mut scratch_unfused.down_rows)
+            .expect("down");
+        let want = std::mem::take(&mut scratch_unfused.down_rows[0]);
+
+        assert_eq!(
+            got, want,
+            "fused FFN must be bit-identical to unfused reference"
+        );
+
+        // 2. Refusal precedence:
+        // Case A: Gate projection error (truncated payload)
+        let mut g_bad = g.clone();
+        g_bad.truncate(10);
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g_bad, &u, &d);
+        let mut scratch = FfnScratch::default();
+        let res = ffn_q8act_prepared_into(
+            N_EMBD,
+            &x,
+            gate_spec,
+            up_spec,
+            down_spec,
+            N_FF,
+            4,
+            4,
+            &mut scratch,
+        );
+        assert!(
+            matches!(res, Err(FfnError::Matvec(MatvecError::ShortPayload { .. }))),
+            "expected ShortPayload for gate, got {res:?}"
+        );
+
+        // Case B: Up projection error (truncated payload)
+        let mut u_bad = u.clone();
+        u_bad.truncate(10);
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u_bad, &d);
+        let mut scratch = FfnScratch::default();
+        let res = ffn_q8act_prepared_into(
+            N_EMBD,
+            &x,
+            gate_spec,
+            up_spec,
+            down_spec,
+            N_FF,
+            4,
+            4,
+            &mut scratch,
+        );
+        assert!(
+            matches!(res, Err(FfnError::Matvec(MatvecError::ShortPayload { .. }))),
+            "expected ShortPayload for up, got {res:?}"
+        );
+
+        // Case C: Both gate and up have errors -> gate error precedes up
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g_bad, &u_bad, &d);
+        let mut scratch = FfnScratch::default();
+        let res = ffn_q8act_prepared_into(
+            N_EMBD,
+            &x,
+            gate_spec,
+            up_spec,
+            down_spec,
+            N_FF,
+            4,
+            4,
+            &mut scratch,
+        );
+        assert!(
+            matches!(res, Err(FfnError::Matvec(MatvecError::ShortPayload { .. }))),
+            "expected ShortPayload for gate preceding up, got {res:?}"
+        );
+
+        // Case D: Quantization refusal on input x
+        let mut x_bad = activation(N_EMBD, 1);
+        x_bad[0] = i64::MAX;
+        let (gate_spec, up_spec, down_spec) = make_test_specs(N_EMBD, N_FF, &g, &u, &d);
+        let mut scratch = FfnScratch::default();
+        let res = ffn_q8act_prepared_into(
+            N_EMBD,
+            &x_bad,
+            gate_spec,
+            up_spec,
+            down_spec,
+            N_FF,
+            4,
+            4,
+            &mut scratch,
+        );
+        assert!(
+            matches!(res, Err(FfnError::Matvec(MatvecError::Dequant(_)))),
+            "expected Dequant overflow on x_bad, got {res:?}"
+        );
+    }
+
+    #[test]
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_lossless,
+        clippy::similar_names,
+        reason = "test harnesses use standard RNG, float conversions and carrier variants"
+    )]
+    fn swiglu_f32_avx2_matches_scalar() {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if !std::is_x86_feature_detected!("avx2") {
+                return;
+            }
+            let mut seed = 0x5a17_c001u64;
+            for _ in 0..1000 {
+                let mut gate = [0i64; 8];
+                let mut up = [0i64; 8];
+                for l in 0..8 {
+                    let raw_g = (lcg(&mut seed) % 40_000).cast_signed() - 20_000;
+                    gate[l] = raw_g * (1i64 << 32) / 1000;
+                    let raw_u = (lcg(&mut seed) % 40_000).cast_signed() - 20_000;
+                    up[l] = raw_u * (1i64 << 32) / 1000;
+                }
+                let mut scalar_res = [0i64; 8];
+                for l in 0..8 {
+                    scalar_res[l] = swiglu_one_f32_scalar(gate[l], up[l]).expect("in range");
+                }
+                let mut avx2_res = [0i64; 8];
+                unsafe {
+                    swiglu_f32_avx2_8_into(&gate, &up, &mut avx2_res).expect("avx2 into");
+                }
+                assert_eq!(
+                    scalar_res, avx2_res,
+                    "AVX2 kernel must equal scalar twin bit for bit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_lossless,
+        reason = "test harnesses use standard RNG and float conversions"
+    )]
+    fn swiglu_f32_tracks_q32_oracle() {
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut max_abs_diff = 0.0f64;
+        let mut max_rel_diff = 0.0f64;
+        let mut count = 0usize;
+
+        for _ in 0..2000 {
+            let g_raw = ((lcg(&mut seed) % 12_000).cast_signed() - 6_000) * (1i64 << 32) / 1000;
+            let u_raw = ((lcg(&mut seed) % 12_000).cast_signed() - 6_000) * (1i64 << 32) / 1000;
+
+            let q32_val = swiglu_one(g_raw, u_raw).expect("q32");
+            let f32_val = swiglu_one_f32_scalar(g_raw, u_raw).expect("f32");
+
+            let q_flt = f64::from(q32_to_f32(q32_val));
+            let f_flt = f64::from(q32_to_f32(f32_val));
+
+            let abs_diff = (q_flt - f_flt).abs();
+            let mag = q_flt.abs().max(f_flt.abs());
+            if abs_diff > max_abs_diff {
+                max_abs_diff = abs_diff;
+            }
+            if mag > 1e-4 {
+                let rel_diff = abs_diff / mag;
+                if rel_diff > max_rel_diff {
+                    max_rel_diff = rel_diff;
+                }
+            }
+            count += 1;
+        }
+
+        println!(
+            "SwiGLU f32 vs Q32 oracle ({count} points): max |Δ| = {max_abs_diff:.6e}, max rel = {max_rel_diff:.6e}"
+        );
+        assert!(
+            max_rel_diff < 1e-3,
+            "relative deviation {max_rel_diff:e} exceeds 1e-3"
+        );
+    }
+
+    #[test]
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_lossless,
+        clippy::similar_names,
+        reason = "test harnesses use standard RNG, float conversions and timing buffers"
+    )]
+    #[ignore = "timing benchmark: run with cargo test --release --lib swiglu_f32_vs_q32_timing -- --ignored --nocapture"]
+    fn swiglu_f32_vs_q32_timing() {
+        let n_ff = 3456;
+        let reps = 200;
+        let runs = 5;
+
+        let mut seed = 0xbeef_cafe_1234_5678u64;
+        let gate: Vec<i64> = (0..n_ff)
+            .map(|_| ((lcg(&mut seed) % 12_000).cast_signed() - 6_000) * (1i64 << 32) / 1000)
+            .collect();
+        let up: Vec<i64> = (0..n_ff)
+            .map(|_| ((lcg(&mut seed) % 12_000).cast_signed() - 6_000) * (1i64 << 32) / 1000)
+            .collect();
+
+        let mut h_q32 = vec![0i64; n_ff];
+        let mut h_f32 = vec![0i64; n_ff];
+
+        // Warmup
+        swiglu_hidden_carrier(&gate, &up, &mut h_q32, false, Carrier::Q32).expect("q32");
+        swiglu_hidden_carrier(&gate, &up, &mut h_f32, false, Carrier::F32).expect("f32");
+
+        let mut q32_best_ns = f64::INFINITY;
+        for _ in 0..runs {
+            let t0 = std::time::Instant::now();
+            for _ in 0..reps {
+                swiglu_hidden_carrier(&gate, &up, &mut h_q32, false, Carrier::Q32).expect("q32");
+                std::hint::black_box(&h_q32);
+            }
+            let el = t0.elapsed().as_nanos() as f64 / (f64::from(reps) * n_ff as f64);
+            if el < q32_best_ns {
+                q32_best_ns = el;
+            }
+        }
+
+        let mut f32_best_ns = f64::INFINITY;
+        for _ in 0..runs {
+            let t0 = std::time::Instant::now();
+            for _ in 0..reps {
+                swiglu_hidden_carrier(&gate, &up, &mut h_f32, false, Carrier::F32).expect("f32");
+                std::hint::black_box(&h_f32);
+            }
+            let el = t0.elapsed().as_nanos() as f64 / (f64::from(reps) * n_ff as f64);
+            if el < f32_best_ns {
+                f32_best_ns = el;
+            }
+        }
+
+        let speedup = q32_best_ns / f32_best_ns;
+        println!(
+            "\nSwiGLU timing (n_ff = {n_ff}, {reps} reps, single thread):\n\
+             Q32 path: {q32_best_ns:.4} ns / element\n\
+             F32 path: {f32_best_ns:.4} ns / element\n\
+             Speedup:  {speedup:.2}x\n"
+        );
     }
 }

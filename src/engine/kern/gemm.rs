@@ -31,6 +31,7 @@
 //! [`matvec_q8act`]: crate::engine::chart::matvec_q8act
 
 use crate::engine::chart::{ActMagnitude, QuantAct};
+use crate::engine::mixer::{carrier_from_env, Carrier};
 use crate::engine::value::round_shift_32;
 use crate::engine::{silu_fixed, FfnError};
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
@@ -40,11 +41,49 @@ const ACT_QK: usize = 32;
 /// Columns per packed group: one 32-bit lane each in a 256-bit register.
 const LANES: usize = 8;
 /// Weight rows per pool task.
-const ROWS_PER_TASK: usize = 16;
+pub(super) const ROWS_PER_TASK: usize = 16;
+
+/// Test-only override of [`task_rows`] (`0` = none), for the task-shape sweep in `gemm_attrib`.
+#[cfg(test)]
+pub(super) static TASK_ROWS_OVERRIDE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Weight rows per task of a single-projection call whose `n_out` is at most [`NARROW_ROWS`].
+const NARROW_ROWS_PER_TASK: usize = 4;
+/// Widest single projection that takes [`NARROW_ROWS_PER_TASK`] (`n_out = 1024`: down, `attn_output`,
+/// `ssm_out` of the prefill).
+const NARROW_ROWS: usize = 1024;
+
+/// Weight rows per pool task for a part of `n_out` rows in a call of `parts` projections.
+///
+/// A 1024-row projection at 16 rows per task is 64 tasks; the pool's static weighted split over
+/// 8 P + 16 E participants leaves 4-5 tasks on a P core and 1-2 on an E core, so the slowest
+/// participant runs 1.28-1.44x the mean busy time. At 4 rows per task (256 tasks, an even row
+/// count so every task keeps whole row pairs) each participant's share differs from its weighted
+/// share by less than one task of a quarter the size. Each output row is computed independently, so
+/// the partition changes no word.
+#[inline]
+fn task_rows(n_out: usize, parts: usize) -> usize {
+    #[cfg(test)]
+    {
+        let o = TASK_ROWS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed);
+        if o != 0 {
+            return o;
+        }
+    }
+    if parts == 1 && n_out <= NARROW_ROWS {
+        NARROW_ROWS_PER_TASK
+    } else {
+        ROWS_PER_TASK
+    }
+}
 /// The widest row the stack scratch holds, in blocks (`n_in ≤ 16384`).
 const MAX_BLOCKS: usize = 512;
 
 use super::pow2::{f16_split, finish};
+#[cfg(test)]
+#[path = "gemm_attrib.rs"]
+mod attrib;
 
 /// The largest total exponent spread whose `i64` accumulation of `blocks` terms `|m·D| < 2^30`
 /// cannot overflow: `30 + spread + ⌈log₂ blocks⌉ ≤ 63`.
@@ -92,10 +131,10 @@ unsafe impl Sync for PackPtr {}
 fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     let k = qs.len();
     let groups = k.div_ceil(LANES);
-    let mut words = vec![0x8080_8080u32; groups * blocks * 8 * LANES];
-    let mut shift = vec![0i64; groups * blocks * LANES];
-    let mut emin = vec![0u32; k];
-    let mut spread = vec![0u32; groups];
+    let mut words = Vec::with_capacity(groups * blocks * 8 * LANES);
+    let mut shift = Vec::with_capacity(groups * blocks * LANES);
+    let mut emin = Vec::with_capacity(k);
+    let mut spread = Vec::with_capacity(groups);
     let refused = std::sync::atomic::AtomicBool::new(false);
     let ptr = PackPtr {
         words: words.as_mut_ptr(),
@@ -132,12 +171,21 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
                 group_spread = group_spread.max(sh);
                 for quad in 0..8 {
                     let at = b * ACT_QK + 4 * quad;
-                    let mut w = 0u32;
-                    for (i, &x) in codes[at..at + 4].iter().enumerate() {
-                        w |= u32::from(x.cast_unsigned() ^ 0x80) << (8 * i);
-                    }
+                    let raw_w = unsafe { codes.as_ptr().add(at).cast::<u32>().read_unaligned() };
+                    let w = raw_w ^ 0x8080_8080;
                     // SAFETY: as for `shift`; the word has no other writer.
                     unsafe { *pk.words.add(((g * blocks + b) * 8 + quad) * LANES + lane) = w };
+                }
+            }
+        }
+        for pad_lane in (hi_c - lo_c)..LANES {
+            for b in 0..blocks {
+                unsafe {
+                    *pk.shift.add((g * blocks + b) * LANES + pad_lane) = 0;
+                    for quad in 0..8 {
+                        *pk.words
+                            .add(((g * blocks + b) * 8 + quad) * LANES + pad_lane) = 0x8080_8080;
+                    }
                 }
             }
         }
@@ -148,6 +196,12 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     if refused.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
+    unsafe {
+        words.set_len(groups * blocks * 8 * LANES);
+        shift.set_len(groups * blocks * LANES);
+        emin.set_len(k);
+        spread.set_len(groups);
+    }
     Some(Packed {
         groups,
         words,
@@ -157,8 +211,38 @@ fn pack(qs: &[QuantAct], blocks: usize) -> Option<Packed> {
     })
 }
 
+/// Whether every column is one `matvec_q8act` computes on its fast row, whose value is the exact
+/// sum: length `n_in`, `blocks` scales, `Σ|S_b·xq_j|` exact ([`ActMagnitude::Exact`]) and the
+/// fast-bound of `q8act_fast_bound_ok`.
+///
+/// The exact-magnitude test is implied by the bound, so only the bound runs. With `n_in ≤
+/// MAX_BLOCKS·ACT_QK = 2^14` (checked by every caller) and `scales.len() == blocks`, the bound's
+/// `s_max·32·128·127 ≤ i64::MAX` gives `|S_b·xq_j| ≤ 128·s_max < i64::MAX` for every `|xq_j| ≤ 128`,
+/// so every checked product is `Some`, and `Σ_j |S_b·xq_j| < 2^14·2^63 < i128::MAX`, so no checked
+/// add overflows. `ActMagnitude::Exact` is therefore true whenever the bound holds, and the
+/// predicate equals the former `len ∧ scales ∧ Exact ∧ bound` conjunction. `debug_assertions`
+/// builds re-check the implication on every accepted column.
+///
+/// # Complexity
+///
+/// `O(k·blocks)` scalar `i128` compares (one `q8act_fast_bound_ok` per column, `blocks = n_in/32`),
+/// `O(1)` space. The removed `magnitude()` pass was `O(k·n_in)` checked `i64`/`i128` operations,
+/// serial ahead of the pool dispatch: 191 µs of a 405 µs `ffn_down` call at k = 64, `n_in` = 3584.
+fn fast_columns_ok(n_in: usize, blocks: usize, qs: &[QuantAct]) -> bool {
+    qs.iter().all(|q| {
+        let ok = q.len() == n_in
+            && q.scales().len() == blocks
+            && crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true);
+        debug_assert!(
+            !ok || matches!(q.magnitude(), ActMagnitude::Exact(_)),
+            "the fast bound implies an exact magnitude"
+        );
+        ok
+    })
+}
+
 /// The row kernel's output pointers, one per column, each into that column's `Vec<i64>` reserved
-/// to `n_out`. Task `t` writes rows `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_out))` of every
+/// to `n_out`. Task `t` writes rows `[t·task_rows, min((t+1)·task_rows, n_out))` of every
 /// column; the row ranges partition `0..n_out`, so no two tasks write the same element and no two
 /// tasks alias.
 #[cfg(target_arch = "x86_64")]
@@ -176,7 +260,7 @@ unsafe impl Sync for ColPtrs {}
 
 /// The fused `SwiGLU` epilogue's output pointers, one per column, each into that column's
 /// `Vec<i64>` pre-sized to `n_ff`. Task `t` writes hidden indices
-/// `[t·ROWS_PER_TASK, min((t+1)·ROWS_PER_TASK, n_ff))` of every column; the row ranges partition
+/// `[t·task_rows, min((t+1)·task_rows, n_ff))` of every column; the row ranges partition
 /// `0..n_ff`, so no two tasks write the same element.
 #[cfg(target_arch = "x86_64")]
 struct SwigluPtrs {
@@ -249,7 +333,7 @@ pub(crate) fn exact_dot(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> 
 /// Temporal `O(n_out·n_in·k)` byte multiply-adds, 32 per `vpdpbusd`, plus `O(n_out·blocks·k/8)`
 /// vector epilogue steps; the weights are read once per call, and each row's codes are reused
 /// from L1 across the `⌈k/8⌉` groups. The activation pack runs over `⌈k/8⌉` pool tasks and the
-/// row kernel over `⌈n_out/ROWS_PER_TASK⌉`, each task storing its rows straight into the
+/// row kernel over `⌈n_out/task_rows⌉`, each task storing its rows straight into the
 /// per-column vectors. Spatial `O(k·n_in)` packed activation bytes plus `O(n_out·k)` output.
 #[must_use]
 pub(crate) fn gemm_q8_0(
@@ -261,6 +345,10 @@ pub(crate) fn gemm_q8_0(
 ) -> Option<Vec<Vec<i64>>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter(probe_hooks::Kind::Gemm, n_in, &[(raw, n_out)], qs);
+        #[cfg(test)]
+        attrib::mark(0);
         if ggml_type != GGML_TYPE_Q8_0
             || qs.is_empty()
             || n_out == 0
@@ -276,18 +364,15 @@ pub(crate) fn gemm_q8_0(
         if raw.len() < n_out.checked_mul(row_bytes)? {
             return None;
         }
-        for q in qs {
-            // The columns `matvec_q8act` computes on its fast row, whose value is the exact sum.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let k = qs.len();
+        #[cfg(test)]
+        attrib::mark(1);
         let packed = pack(qs, blocks)?;
+        #[cfg(test)]
+        attrib::mark(2);
         let limit = spread_limit(blocks);
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
         // without allocating it, so the overflow still routes to the contract path.
@@ -300,9 +385,16 @@ pub(crate) fn gemm_q8_0(
                 .collect(),
         };
         let bad = std::sync::atomic::AtomicBool::new(false);
-        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(ROWS_PER_TASK), &|t| {
-            let r0 = t * ROWS_PER_TASK;
-            let r1 = ((t + 1) * ROWS_PER_TASK).min(n_out);
+        #[cfg(test)]
+        attrib::mark(3);
+        #[cfg(test)]
+        attrib::dispatch_begin();
+        let rpt = task_rows(n_out, 1);
+        crate::engine::chart::pool::Pool::global().run(n_out.div_ceil(rpt), &|t| {
+            let r0 = t * rpt;
+            let r1 = ((t + 1) * rpt).min(n_out);
+            #[cfg(test)]
+            let _rec = attrib::task(t, r1 - r0, (r1 - r0) * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; `raw` holds `n_out` rows, the packing
             // covers `packed.groups` groups of `blocks` blocks, and `ptrs` addresses the rows
             // `[r0, r1)` of every column in that column's own `Vec`, reserved to `n_out`.
@@ -323,6 +415,8 @@ pub(crate) fn gemm_q8_0(
                 bad.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+        #[cfg(test)]
+        attrib::dispatch_end();
         if bad.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
@@ -330,6 +424,10 @@ pub(crate) fn gemm_q8_0(
             // SAFETY: every index `0..n_out` of every column was written exactly once above.
             unsafe { col.set_len(n_out) };
         }
+        #[cfg(test)]
+        attrib::mark(4);
+        #[cfg(test)]
+        hook.ok();
         Some(cols)
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -347,14 +445,14 @@ pub(crate) fn gemm_q8_0(
 ///
 /// The activation packing depends only on `(qs, blocks)` and every part shares `n_in`, so the pack
 /// is computed once instead of once per part; the parts' row tasks form one pool dispatch through
-/// the prefix sums of `⌈n_out_i / ROWS_PER_TASK⌉`. The same `x86::rows` kernel runs on the same
+/// the prefix sums of `⌈n_out_i / task_rows⌉`. The same `x86::rows` kernel runs on the same
 /// weight bytes and packed activation with the same `limit`, and each part's row ranges partition
 /// that part's outputs, so the interleaving changes no word.
 ///
 /// # Complexity
 ///
 /// Temporal `O(Σ n_out_i·n_in·k)` byte multiply-adds plus `O(k·n_in)` packing, over one dispatch of
-/// `Σ⌈n_out_i/ROWS_PER_TASK⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
+/// `Σ⌈n_out_i/task_rows⌉` tasks; spatial `O(k·n_in)` packed bytes plus `O((Σ n_out_i)·k)`
 /// output, against one pack and one dispatch per part for the per-part path.
 #[must_use]
 pub(crate) fn gemm_q8_0_group(
@@ -364,6 +462,8 @@ pub(crate) fn gemm_q8_0_group(
 ) -> Option<Vec<Vec<Vec<i64>>>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter_group(n_in, parts, qs);
         if qs.is_empty()
             || !n_in.is_multiple_of(ACT_QK)
             || n_in / ACT_QK > MAX_BLOCKS
@@ -382,15 +482,8 @@ pub(crate) fn gemm_q8_0_group(
                 return None;
             }
         }
-        for q in qs {
-            // The columns `matvec_q8act` computes on its fast row, whose value is the exact sum.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let k = qs.len();
         // The deleted `inter` buffer refused when `n_out·k` overflowed `usize`; keep that refusal
@@ -399,7 +492,7 @@ pub(crate) fn gemm_q8_0_group(
         starts.push(0usize);
         for (_, _, n_out) in parts {
             n_out.checked_mul(k)?;
-            let next = starts[starts.len() - 1] + n_out.div_ceil(ROWS_PER_TASK);
+            let next = starts[starts.len() - 1] + n_out.div_ceil(task_rows(*n_out, parts.len()));
             starts.push(next);
         }
         let total_tasks = starts[parts.len()];
@@ -423,13 +516,14 @@ pub(crate) fn gemm_q8_0_group(
         let bad = std::sync::atomic::AtomicBool::new(false);
         crate::engine::chart::pool::Pool::global().run(total_tasks, &|t| {
             // `t` falls in the first part whose task prefix exceeds it; the row range is the
-            // task's `ROWS_PER_TASK` slice of that part.
+            // task's `task_rows` slice of that part.
             let mut i = 0usize;
             while i + 1 < parts.len() && t >= starts[i + 1] {
                 i += 1;
             }
-            let r0 = (t - starts[i]) * ROWS_PER_TASK;
-            let r1 = (r0 + ROWS_PER_TASK).min(parts[i].2);
+            let rpt = task_rows(parts[i].2, parts.len());
+            let r0 = (t - starts[i]) * rpt;
+            let r1 = (r0 + rpt).min(parts[i].2);
             // SAFETY: AVX2 and AVX-VNNI were detected above; `parts[i].1` holds `n_out` rows of
             // `row_bytes`, the packing covers `blocks` blocks, and `col_ptrs[i]` addresses the rows
             // `[r0, r1)` of every column of part `i` in that column's own allocation, reserved to
@@ -461,6 +555,8 @@ pub(crate) fn gemm_q8_0_group(
                 unsafe { col.set_len(n_out) };
             }
         }
+        #[cfg(test)]
+        hook.ok();
         Some(cols)
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -507,7 +603,7 @@ fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
 /// # Complexity
 ///
 /// Temporal `O(n_ff·n_in·k)` exact multiply-adds — the gate and up dots — plus `O(n_ff·k)`
-/// `swiglu_one` evaluations over `⌈n_ff/ROWS_PER_TASK⌉` pool tasks in one dispatch. Spatial
+/// `swiglu_one` evaluations over `⌈n_ff/task_rows⌉` pool tasks in one dispatch. Spatial
 /// `O(k·n_in)` packed activation bytes plus `O(n_ff·k)` output; no `n_ff·k` gate or up matrix.
 #[must_use]
 pub(crate) fn gemm_q8_0_swiglu(
@@ -517,8 +613,28 @@ pub(crate) fn gemm_q8_0_swiglu(
     n_in: usize,
     qs: &[QuantAct],
 ) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
+    gemm_q8_0_swiglu_carrier(raw_gate, raw_up, n_ff, n_in, qs, carrier_from_env())
+}
+
+/// The fused `[W_gate; W_up]` projection with the `SwiGLU` epilogue under explicit [`Carrier`].
+#[must_use]
+pub(crate) fn gemm_q8_0_swiglu_carrier(
+    raw_gate: &[u8],
+    raw_up: &[u8],
+    n_ff: usize,
+    n_in: usize,
+    qs: &[QuantAct],
+    carrier: Carrier,
+) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
     #[cfg(target_arch = "x86_64")]
     {
+        #[cfg(test)]
+        let hook = probe_hooks::enter(
+            probe_hooks::Kind::Swiglu,
+            n_in,
+            &[(raw_gate, n_ff), (raw_up, n_ff)],
+            qs,
+        );
         if qs.is_empty()
             || n_ff == 0
             || !n_in.is_multiple_of(ACT_QK)
@@ -538,62 +654,75 @@ pub(crate) fn gemm_q8_0_swiglu(
         // The output is `n_ff·k` words; guard the product as `gemm_q8_0` guards its interleaving
         // buffer.
         n_ff.checked_mul(k)?;
-        for q in qs {
-            // The same fast-row preconditions `gemm_q8_0` requires of every column.
-            if q.len() != n_in
-                || q.scales().len() != blocks
-                || !matches!(q.magnitude(), ActMagnitude::Exact(_))
-                || !crate::engine::chart::q8act_fast_bound_ok(n_in, 128, q, true)
-            {
-                return None;
-            }
+        if !fast_columns_ok(n_in, blocks, qs) {
+            return None;
         }
         let packed = pack(qs, blocks)?;
         let limit = spread_limit(blocks);
-        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; n_ff]).collect();
+        let mut cols: Vec<Vec<i64>> = (0..k).map(|_| Vec::with_capacity(n_ff)).collect();
         let ptrs = SwigluPtrs {
-            ptrs: cols.iter_mut().map(Vec::as_mut_ptr).collect(),
+            ptrs: cols
+                .iter_mut()
+                .map(|v| v.spare_capacity_mut().as_mut_ptr().cast::<i64>())
+                .collect(),
         };
         let out = &ptrs;
         let bad = std::sync::atomic::AtomicBool::new(false);
         let first: std::sync::Mutex<Option<(usize, usize, FfnError)>> = std::sync::Mutex::new(None);
         let first_ref = &first;
-        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(ROWS_PER_TASK), &|t| {
-            let r0 = t * ROWS_PER_TASK;
-            let rows = (n_ff - r0).min(ROWS_PER_TASK);
+        #[cfg(test)]
+        attrib::dispatch_begin();
+        let rpt = task_rows(n_ff, 2);
+        crate::engine::chart::pool::Pool::global().run(n_ff.div_ceil(rpt), &|t| {
+            let r0 = t * rpt;
+            let rows = (n_ff - r0).min(rpt);
+            #[cfg(test)]
+            let _rec = attrib::task(t, rows, 2 * rows * row_bytes, packed.words.len() * 4);
             // SAFETY: AVX2 and AVX-VNNI were detected above; both payloads hold `n_ff` rows and the
             // packing covers `packed.groups` groups of `blocks` blocks; task `t` owns hidden indices
             // `[r0, r0 + rows)` and writes each column's own allocation there.
             let ok = unsafe {
                 x86::rows_swiglu(
                     raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, &packed, limit, out,
-                    first_ref,
+                    first_ref, carrier,
                 )
             };
             if !ok {
                 bad.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+        #[cfg(test)]
+        attrib::dispatch_end();
         if bad.load(std::sync::atomic::Ordering::Relaxed) {
             return None;
         }
-        match first
+        if let Some((_, _, e)) = first
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
         {
-            Some((_, _, e)) => Some(Err(e)),
-            None => Some(Ok(cols)),
+            #[cfg(test)]
+            hook.ok();
+            Some(Err(e))
+        } else {
+            #[cfg(test)]
+            hook.ok();
+            for col in &mut cols {
+                unsafe { col.set_len(n_ff) };
+            }
+            Some(Ok(cols))
         }
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        let _ = (raw_gate, raw_up, n_ff, n_in, qs);
+        let _ = (raw_gate, raw_up, n_ff, n_in, qs, carrier);
         None
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 mod x86 {
+    #[cfg(test)]
+    use super::probe_hooks;
     use super::{
         exact_dot, f16_split, finish, Packed, QuantAct, LANES, MAX_BLOCKS, Q8_0_BLOCK_BYTES,
     };
@@ -641,7 +770,7 @@ mod x86 {
         clippy::cast_ptr_alignment,
         reason = "unaligned 256-bit loads and 32-bit weight-word reads"
     )]
-    unsafe fn group2(
+    pub(super) unsafe fn group2(
         ra: &[u8],
         rb: &[u8],
         sa: &[(i32, i64, i32)],
@@ -716,6 +845,233 @@ mod x86 {
             }
         }
         [a0, a1, b0, b1]
+    }
+
+    /// The 16 columns of two groups against two rows when all exponents agree (no per-block shift).
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        clippy::too_many_arguments,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        reason = "unaligned 256-bit loads and 32-bit weight-word reads"
+    )]
+    pub(super) unsafe fn group2_x2_noshift(
+        ra: &[u8],
+        rb: &[u8],
+        sa: &[(i32, i64, i32)],
+        sb: &[(i32, i64, i32)],
+        blocks: usize,
+        words_g0: *const u32,
+        words_g1: *const u32,
+    ) -> [__m256i; 8] {
+        let (mut a0_0, mut a1_0, mut b0_0, mut b1_0) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        let (mut a0_1, mut a1_1, mut b0_1, mut b1_1) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for b in 0..blocks {
+            // SAFETY: in range by caller's geometry.
+            unsafe {
+                let ca = ra.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let cb = rb.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let wb0 = words_g0.add(b * 8 * LANES);
+                let wb1 = words_g1.add(b * 8 * LANES);
+                let mut da0 = _mm256_setzero_si256();
+                let mut da1 = _mm256_setzero_si256();
+                let mut db0 = _mm256_setzero_si256();
+                let mut db1 = _mm256_setzero_si256();
+                for quad in 0..8 {
+                    let act0 = _mm256_loadu_si256(wb0.add(quad * LANES).cast::<__m256i>());
+                    let act1 = _mm256_loadu_si256(wb1.add(quad * LANES).cast::<__m256i>());
+                    let wa = _mm256_set1_epi32(ca.add(4 * quad).cast::<i32>().read_unaligned());
+                    da0 = dpbusd(da0, act0, wa);
+                    da1 = dpbusd(da1, act1, wa);
+                    let wb = _mm256_set1_epi32(cb.add(4 * quad).cast::<i32>().read_unaligned());
+                    db0 = dpbusd(db0, act0, wb);
+                    db1 = dpbusd(db1, act1, wb);
+                }
+                let (ma, _ka, ba) = sa[b];
+                let ba_v = _mm256_set1_epi32(ba);
+                let ma_v = _mm256_set1_epi32(ma);
+
+                let ta0 = _mm256_mullo_epi32(_mm256_sub_epi32(da0, ba_v), ma_v);
+                a0_0 = _mm256_add_epi64(a0_0, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta0)));
+                a1_0 = _mm256_add_epi64(
+                    a1_0,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta0, 1)),
+                );
+
+                let ta1 = _mm256_mullo_epi32(_mm256_sub_epi32(da1, ba_v), ma_v);
+                a0_1 = _mm256_add_epi64(a0_1, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta1)));
+                a1_1 = _mm256_add_epi64(
+                    a1_1,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta1, 1)),
+                );
+
+                let (mb, _kb, bb) = sb[b];
+                let bb_v = _mm256_set1_epi32(bb);
+                let mb_v = _mm256_set1_epi32(mb);
+
+                let tb0 = _mm256_mullo_epi32(_mm256_sub_epi32(db0, bb_v), mb_v);
+                b0_0 = _mm256_add_epi64(b0_0, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb0)));
+                b1_0 = _mm256_add_epi64(
+                    b1_0,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb0, 1)),
+                );
+
+                let tb1 = _mm256_mullo_epi32(_mm256_sub_epi32(db1, bb_v), mb_v);
+                b0_1 = _mm256_add_epi64(b0_1, _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb1)));
+                b1_1 = _mm256_add_epi64(
+                    b1_1,
+                    _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb1, 1)),
+                );
+            }
+        }
+        [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
+    }
+
+    /// The 16 columns of two groups against two rows: each row's `i64` accumulators,
+    /// returning `[a0_g0, a1_g0, b0_g0, b1_g0, a0_g1, a1_g1, b0_g1, b1_g1]`.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        clippy::too_many_arguments,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        reason = "unaligned 256-bit loads and 32-bit weight-word reads"
+    )]
+    pub(super) unsafe fn group2_x2(
+        ra: &[u8],
+        rb: &[u8],
+        sa: &[(i32, i64, i32)],
+        sb: &[(i32, i64, i32)],
+        blocks: usize,
+        words_g0: *const u32,
+        words_g1: *const u32,
+        shift_g0: *const i64,
+        shift_g1: *const i64,
+    ) -> [__m256i; 8] {
+        let (mut a0_0, mut a1_0, mut b0_0, mut b1_0) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        let (mut a0_1, mut a1_1, mut b0_1, mut b1_1) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for b in 0..blocks {
+            // SAFETY: in range by caller's geometry.
+            unsafe {
+                let ca = ra.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let cb = rb.as_ptr().add(b * Q8_0_BLOCK_BYTES + 2);
+                let wb0 = words_g0.add(b * 8 * LANES);
+                let wb1 = words_g1.add(b * 8 * LANES);
+                let mut da0 = _mm256_setzero_si256();
+                let mut da1 = _mm256_setzero_si256();
+                let mut db0 = _mm256_setzero_si256();
+                let mut db1 = _mm256_setzero_si256();
+                for quad in 0..8 {
+                    let act0 = _mm256_loadu_si256(wb0.add(quad * LANES).cast::<__m256i>());
+                    let act1 = _mm256_loadu_si256(wb1.add(quad * LANES).cast::<__m256i>());
+                    let wa = _mm256_set1_epi32(ca.add(4 * quad).cast::<i32>().read_unaligned());
+                    da0 = dpbusd(da0, act0, wa);
+                    da1 = dpbusd(da1, act1, wa);
+                    let wb = _mm256_set1_epi32(cb.add(4 * quad).cast::<i32>().read_unaligned());
+                    db0 = dpbusd(db0, act0, wb);
+                    db1 = dpbusd(db1, act1, wb);
+                }
+                let (ma, ka, ba) = sa[b];
+                let ba_v = _mm256_set1_epi32(ba);
+                let ma_v = _mm256_set1_epi32(ma);
+                let kav = _mm256_set1_epi64x(ka);
+
+                let ta0 = _mm256_mullo_epi32(_mm256_sub_epi32(da0, ba_v), ma_v);
+                let sh0_0 = _mm256_loadu_si256(shift_g0.add(b * LANES).cast::<__m256i>());
+                let sh0_1 = _mm256_loadu_si256(shift_g0.add(b * LANES + 4).cast::<__m256i>());
+                a0_0 = _mm256_add_epi64(
+                    a0_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta0)),
+                        _mm256_add_epi64(sh0_0, kav),
+                    ),
+                );
+                a1_0 = _mm256_add_epi64(
+                    a1_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta0, 1)),
+                        _mm256_add_epi64(sh0_1, kav),
+                    ),
+                );
+
+                let ta1 = _mm256_mullo_epi32(_mm256_sub_epi32(da1, ba_v), ma_v);
+                let sh1_0 = _mm256_loadu_si256(shift_g1.add(b * LANES).cast::<__m256i>());
+                let sh1_1 = _mm256_loadu_si256(shift_g1.add(b * LANES + 4).cast::<__m256i>());
+                a0_1 = _mm256_add_epi64(
+                    a0_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(ta1)),
+                        _mm256_add_epi64(sh1_0, kav),
+                    ),
+                );
+                a1_1 = _mm256_add_epi64(
+                    a1_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(ta1, 1)),
+                        _mm256_add_epi64(sh1_1, kav),
+                    ),
+                );
+
+                let (mb, kb, bb) = sb[b];
+                let bb_v = _mm256_set1_epi32(bb);
+                let mb_v = _mm256_set1_epi32(mb);
+                let kbv = _mm256_set1_epi64x(kb);
+
+                let tb0 = _mm256_mullo_epi32(_mm256_sub_epi32(db0, bb_v), mb_v);
+                b0_0 = _mm256_add_epi64(
+                    b0_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb0)),
+                        _mm256_add_epi64(sh0_0, kbv),
+                    ),
+                );
+                b1_0 = _mm256_add_epi64(
+                    b1_0,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb0, 1)),
+                        _mm256_add_epi64(sh0_1, kbv),
+                    ),
+                );
+
+                let tb1 = _mm256_mullo_epi32(_mm256_sub_epi32(db1, bb_v), mb_v);
+                b0_1 = _mm256_add_epi64(
+                    b0_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_castsi256_si128(tb1)),
+                        _mm256_add_epi64(sh1_0, kbv),
+                    ),
+                );
+                b1_1 = _mm256_add_epi64(
+                    b1_1,
+                    _mm256_sllv_epi64(
+                        _mm256_cvtepi32_epi64(_mm256_extracti128_si256(tb1, 1)),
+                        _mm256_add_epi64(sh1_1, kbv),
+                    ),
+                );
+            }
+        }
+        [a0_0, a1_0, b0_0, b1_0, a0_1, a1_1, b0_1, b1_1]
     }
 
     /// The scalar [`super::row_scales`] with each block's code sum taken as
@@ -875,6 +1231,7 @@ mod x86 {
     #[allow(
         clippy::too_many_arguments,
         clippy::many_single_char_names,
+        clippy::similar_names,
         clippy::cast_ptr_alignment,
         clippy::too_many_lines,
         reason = "p/k/r/c/v name the packed inputs, columns, row offset, output column and SIMD value; _mm256_storeu_si256 explicitly accepts the unaligned lane-buffer address; the scalar and vector epilogues read best together"
@@ -891,9 +1248,17 @@ mod x86 {
         cols: &super::ColPtrs,
     ) -> bool {
         let k = qs.len();
-        let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut sb = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut lanes = [0i64; 16];
+        let mut sa = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let mut sb = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let sa_slice = unsafe {
+            std::slice::from_raw_parts_mut(sa.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let sb_slice = unsafe {
+            std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let mut lanes2 = [0i64; 16];
+        #[cfg(test)]
+        let pc = probe_hooks::Local::new();
         let mut r = 0usize;
         while r < rows {
             let pair = r + 1 < rows;
@@ -902,38 +1267,192 @@ mod x86 {
             let ra = &raw[ia * row_bytes..(ia + 1) * row_bytes];
             let rb = &raw[ib * row_bytes..(ib + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                // SAFETY: `ra`/`rb` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
-                // slots (`blocks ≤ MAX_BLOCKS`).
-                unsafe { row_scales_avx2(ra, blocks, &mut sa) },
-                unsafe { row_scales_avx2(rb, blocks, &mut sb) },
+                // SAFETY: `ra`/`rb` hold `blocks` Q8_0 blocks and `sa_slice`/`sb_slice` have
+                // `blocks` slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ra, blocks, sa_slice) },
+                unsafe { row_scales_avx2(rb, blocks, sb_slice) },
             ) else {
                 return false;
             };
-            for g in 0..p.groups {
-                // SAFETY: the group's words and shifts are in range of the packing.
+            let mut g = 0usize;
+            while g + 1 < p.groups {
+                let acc = unsafe {
+                    if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_NOSHIFT);
+                        group2_x2_noshift(
+                            ra,
+                            rb,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                        )
+                    } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_SHIFT);
+                        group2_x2(
+                            ra,
+                            rb,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                            p.shift.as_ptr().add(g * blocks * LANES),
+                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+                        )
+                    }
+                };
+                for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+                    let need_exact_a = spa + p.spread[sub_g] > limit;
+                    let need_exact_b = spb + p.spread[sub_g] > limit;
+                    #[cfg(test)]
+                    pc.spreads(spa + p.spread[sub_g], pair.then_some(spb + p.spread[sub_g]));
+                    let nvalid = (k - sub_g * LANES).min(LANES);
+                    if !need_exact_a && (!pair || !need_exact_b) {
+                        let base_c = sub_g * LANES;
+                        let sv0 = if base_c + 4 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            let take = k.saturating_sub(base_c).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let sv1 = if base_c + 8 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            if base_c + 4 < k {
+                                let take = (k - (base_c + 4)).min(4);
+                                tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                            }
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let (va0, oka0) = finish4(
+                            acc_chunk[0],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (va1, oka1) = finish4(
+                            acc_chunk[1],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vb0, okb0) = if pair {
+                            finish4(
+                                acc_chunk[2],
+                                _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                            )
+                        } else {
+                            (_mm256_setzero_si256(), true)
+                        };
+                        let (vb1, okb1) = if pair {
+                            finish4(
+                                acc_chunk[3],
+                                _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                            )
+                        } else {
+                            (_mm256_setzero_si256(), true)
+                        };
+                        if oka0 && oka1 && okb0 && okb1 {
+                            let mut out_a = [0i64; 8];
+                            let mut out_b = [0i64; 8];
+                            _mm256_storeu_si256(out_a.as_mut_ptr().cast::<__m256i>(), va0);
+                            _mm256_storeu_si256(out_a.as_mut_ptr().add(4).cast::<__m256i>(), va1);
+                            if pair {
+                                _mm256_storeu_si256(out_b.as_mut_ptr().cast::<__m256i>(), vb0);
+                                _mm256_storeu_si256(
+                                    out_b.as_mut_ptr().add(4).cast::<__m256i>(),
+                                    vb1,
+                                );
+                            }
+                            for lane in 0..nvalid {
+                                let c = base_c + lane;
+                                unsafe {
+                                    cols.ptrs[c]
+                                        .add(r0 + r)
+                                        .write(std::mem::MaybeUninit::new(out_a[lane]));
+                                    if pair {
+                                        cols.ptrs[c]
+                                            .add(r0 + r + 1)
+                                            .write(std::mem::MaybeUninit::new(out_b[lane]));
+                                    }
+                                }
+                            }
+                            #[cfg(test)]
+                            pc.add(probe_hooks::FAST_OK);
+                            continue;
+                        }
+                    }
+                    #[cfg(test)]
+                    pc.add(if need_exact_a || (pair && need_exact_b) {
+                        probe_hooks::EXACT_SPREAD
+                    } else {
+                        probe_hooks::FAST_REFUSED
+                    });
+                    unsafe {
+                        for (i, v) in acc_chunk.iter().enumerate() {
+                            _mm256_storeu_si256(
+                                lanes2.as_mut_ptr().add(4 * i).cast::<__m256i>(),
+                                *v,
+                            );
+                        }
+                    }
+                    for lane in 0..nvalid {
+                        let c = sub_g * LANES + lane;
+                        for (which, (row, kmin, sp)) in
+                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        {
+                            if which == 1 && !pair {
+                                continue;
+                            }
+                            let v = if sp + p.spread[sub_g] > limit {
+                                exact_dot(row, blocks, &qs[c])
+                            } else {
+                                finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                            };
+                            let Some(v) = v else {
+                                return false;
+                            };
+                            unsafe {
+                                cols.ptrs[c]
+                                    .add(r0 + r + which)
+                                    .write(std::mem::MaybeUninit::new(v));
+                            }
+                        }
+                    }
+                }
+                g += 2;
+            }
+            if g < p.groups {
+                #[cfg(test)]
+                pc.add(probe_hooks::TAIL_G2);
                 let acc = unsafe {
                     group2(
                         ra,
                         rb,
-                        &sa[..blocks],
-                        &sb[..blocks],
+                        sa_slice,
+                        sb_slice,
                         blocks,
                         p.words.as_ptr().add(g * blocks * 8 * LANES),
                         p.shift.as_ptr().add(g * blocks * LANES),
                     )
                 };
-                // SAFETY: `lanes` holds 16 `i64`.
                 unsafe {
                     for (i, v) in acc.iter().enumerate() {
-                        _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * i).cast::<__m256i>(), *v);
+                        _mm256_storeu_si256(lanes2.as_mut_ptr().add(4 * i).cast::<__m256i>(), *v);
                     }
                 }
                 let need_exact_a = spa + p.spread[g] > limit;
                 let need_exact_b = spb + p.spread[g] > limit;
+                #[cfg(test)]
+                pc.spreads(spa + p.spread[g], pair.then_some(spb + p.spread[g]));
                 let nvalid = (k - g * LANES).min(LANES);
-                // Neither row's (row, group) needs the exact path: one vector `finish` per row.
-                // A lane or group the vector refuses falls back to the scalar epilogue below, so
-                // the refusal set and every stored value are the scalar ones.
                 if !need_exact_a && (!pair || !need_exact_b) {
                     let mut shifts = [0u32; 2 * LANES];
                     {
@@ -945,22 +1464,20 @@ mod x86 {
                         }
                     }
                     let mut acc_a = [0i64; LANES];
-                    acc_a.copy_from_slice(&lanes[..LANES]);
-                    // SAFETY: AVX2 is a target feature of `rows`; both buffers hold 8 lanes.
+                    acc_a.copy_from_slice(&lanes2[..LANES]);
                     let fa = unsafe { finish8(&acc_a, &shifts[..LANES]) };
                     let fb = if pair {
                         let mut acc_b = [0i64; LANES];
-                        acc_b.copy_from_slice(&lanes[LANES..]);
-                        // SAFETY: as above.
+                        acc_b.copy_from_slice(&lanes2[LANES..]);
                         unsafe { finish8(&acc_b, &shifts[LANES..]) }
                     } else {
                         Some([0i64; LANES])
                     };
                     if let (Some(va), Some(vb)) = (fa, fb) {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_OK);
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
-                            // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
-                            // ownership makes `r0 + r + which` unique across tasks and in range.
                             unsafe {
                                 cols.ptrs[c]
                                     .add(r0 + r)
@@ -972,34 +1489,64 @@ mod x86 {
                                 }
                             }
                         }
-                        continue;
+                    } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_REFUSED);
+                        for lane in 0..nvalid {
+                            let c = g * LANES + lane;
+                            for (which, (row, kmin, sp)) in
+                                [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                            {
+                                if which == 1 && !pair {
+                                    continue;
+                                }
+                                let v = if sp + p.spread[g] > limit {
+                                    exact_dot(row, blocks, &qs[c])
+                                } else {
+                                    finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                                };
+                                let Some(v) = v else {
+                                    return false;
+                                };
+                                unsafe {
+                                    cols.ptrs[c]
+                                        .add(r0 + r + which)
+                                        .write(std::mem::MaybeUninit::new(v));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    #[cfg(test)]
+                    pc.add(probe_hooks::EXACT_SPREAD);
+                    for lane in 0..nvalid {
+                        let c = g * LANES + lane;
+                        for (which, (row, kmin, sp)) in
+                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        {
+                            if which == 1 && !pair {
+                                continue;
+                            }
+                            let v = if sp + p.spread[g] > limit {
+                                exact_dot(row, blocks, &qs[c])
+                            } else {
+                                finish(lanes2[8 * which + lane], kmin + p.emin[c])
+                            };
+                            let Some(v) = v else {
+                                return false;
+                            };
+                            unsafe {
+                                cols.ptrs[c]
+                                    .add(r0 + r + which)
+                                    .write(std::mem::MaybeUninit::new(v));
+                            }
+                        }
                     }
                 }
-                for lane in 0..nvalid {
-                    let c = g * LANES + lane;
-                    for (which, (row, kmin, sp)) in
-                        [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
-                    {
-                        if which == 1 && !pair {
-                            continue;
-                        }
-                        let v = if sp + p.spread[g] > limit {
-                            exact_dot(row, blocks, &qs[c])
-                        } else {
-                            finish(lanes[8 * which + lane], kmin + p.emin[c])
-                        };
-                        let Some(v) = v else {
-                            return false;
-                        };
-                        // SAFETY: `cols.ptrs[c]` addresses column `c`'s allocation, and task
-                        // ownership makes `r0 + r + which` unique across tasks and in range.
-                        unsafe {
-                            cols.ptrs[c]
-                                .add(r0 + r + which)
-                                .write(std::mem::MaybeUninit::new(v));
-                        }
-                    }
-                }
+            }
+            #[cfg(test)]
+            if !pair {
+                pc.add(probe_hooks::ODD_ROW);
             }
             r += if pair { 2 } else { 1 };
         }
@@ -1023,7 +1570,9 @@ mod x86 {
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
+        clippy::too_many_lines,
         clippy::many_single_char_names,
+        clippy::similar_names,
         clippy::cast_ptr_alignment,
         reason = "p/k/r/c/g/i name the packing, columns, row offset, output column, group and hidden \
                   index; _mm256_storeu_si256 accepts the unaligned lane buffer"
@@ -1040,83 +1589,352 @@ mod x86 {
         limit: u32,
         out: &super::SwigluPtrs,
         first: &std::sync::Mutex<Option<(usize, usize, crate::engine::FfnError)>>,
+        carrier: super::Carrier,
     ) -> bool {
         let k = qs.len();
-        let mut sa = [(0i32, 0i64, 0i32); MAX_BLOCKS];
-        let mut sb = [(0i32, 0i64, 0i32); MAX_BLOCKS];
+        let mut sa = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let mut sb = [const { std::mem::MaybeUninit::<(i32, i64, i32)>::uninit() }; MAX_BLOCKS];
+        let sa_slice = unsafe {
+            std::slice::from_raw_parts_mut(sa.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
+        let sb_slice = unsafe {
+            std::slice::from_raw_parts_mut(sb.as_mut_ptr().cast::<(i32, i64, i32)>(), blocks)
+        };
         let mut lanes = [0i64; 16];
+        #[cfg(test)]
+        let pc = probe_hooks::Local::new();
         let mut r = 0usize;
         while r < rows {
             let i = r0 + r;
             let ga = &raw_gate[i * row_bytes..(i + 1) * row_bytes];
             let ua = &raw_up[i * row_bytes..(i + 1) * row_bytes];
             let (Some((ka, spa)), Some((kb, spb))) = (
-                // SAFETY: `ga`/`ua` hold `blocks` Q8_0 blocks and `sa`/`sb` have `MAX_BLOCKS`
-                // slots (`blocks ≤ MAX_BLOCKS`).
-                unsafe { row_scales_avx2(ga, blocks, &mut sa) },
-                unsafe { row_scales_avx2(ua, blocks, &mut sb) },
+                // SAFETY: `ga`/`ua` hold `blocks` Q8_0 blocks and `sa_slice`/`sb_slice` have
+                // `blocks` slots (`blocks ≤ MAX_BLOCKS`).
+                unsafe { row_scales_avx2(ga, blocks, sa_slice) },
+                unsafe { row_scales_avx2(ua, blocks, sb_slice) },
             ) else {
                 return false;
             };
-            for g in 0..p.groups {
-                // SAFETY: the group's words and shifts are in range of the packing.
+            let eval_sub_g = |sub_g: usize, gate_arr: &[i64; 8], up_arr: &[i64; 8]| {
+                let active = (k - sub_g * LANES).min(LANES);
+                #[cfg(test)]
+                pc.add(if carrier == super::Carrier::F32 {
+                    probe_hooks::SWIGLU_F32
+                } else {
+                    probe_hooks::SWIGLU_Q32
+                });
+                if carrier == super::Carrier::F32 {
+                    let mut buf = [0i64; 8];
+                    match unsafe {
+                        crate::engine::chart::ffn::swiglu_f32_avx2_8_into(
+                            gate_arr, up_arr, &mut buf,
+                        )
+                    } {
+                        Ok(()) => {
+                            for (lane, &val) in buf.iter().enumerate().take(active) {
+                                let c = sub_g * LANES + lane;
+                                // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                                // other task's, so this element has one writer.
+                                unsafe { *out.ptrs[c].add(i) = val };
+                            }
+                        }
+                        Err((fail_lane, e)) => {
+                            for (lane, &val) in buf.iter().enumerate().take(fail_lane.min(active)) {
+                                let c = sub_g * LANES + lane;
+                                unsafe { *out.ptrs[c].add(i) = val };
+                            }
+                            if fail_lane < active {
+                                let c = sub_g * LANES + fail_lane;
+                                let mut slot = first
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
+                                    *slot = Some((c, i, e));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for lane in 0..active {
+                        let c = sub_g * LANES + lane;
+                        match super::swiglu_one(gate_arr[lane], up_arr[lane]) {
+                            Ok(h) => {
+                                // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                                // other task's, so this element has one writer.
+                                unsafe { *out.ptrs[c].add(i) = h };
+                            }
+                            Err(e) => {
+                                let mut slot = first
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
+                                    *slot = Some((c, i, e));
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            let mut g = 0usize;
+            while g + 1 < p.groups {
+                let acc = unsafe {
+                    if spa == 0 && spb == 0 && p.spread[g] == 0 && p.spread[g + 1] == 0 {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_NOSHIFT);
+                        group2_x2_noshift(
+                            ga,
+                            ua,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                        )
+                    } else {
+                        #[cfg(test)]
+                        pc.add(probe_hooks::X2_SHIFT);
+                        group2_x2(
+                            ga,
+                            ua,
+                            sa_slice,
+                            sb_slice,
+                            blocks,
+                            p.words.as_ptr().add(g * blocks * 8 * LANES),
+                            p.words.as_ptr().add((g + 1) * blocks * 8 * LANES),
+                            p.shift.as_ptr().add(g * blocks * LANES),
+                            p.shift.as_ptr().add((g + 1) * blocks * LANES),
+                        )
+                    }
+                };
+                for (sub_g, acc_chunk) in [(g, &acc[..4]), (g + 1, &acc[4..])] {
+                    let need_exact_a = spa + p.spread[sub_g] > limit;
+                    let need_exact_b = spb + p.spread[sub_g] > limit;
+                    #[cfg(test)]
+                    pc.spreads(spa + p.spread[sub_g], Some(spb + p.spread[sub_g]));
+                    let active = (k - sub_g * LANES).min(LANES);
+                    let mut gate_arr = [0i64; 8];
+                    let mut up_arr = [0i64; 8];
+                    let mut fast_ok = false;
+                    if !need_exact_a && !need_exact_b {
+                        let base_c = sub_g * LANES;
+                        let sv0 = if base_c + 4 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            let take = k.saturating_sub(base_c).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let sv1 = if base_c + 8 <= k {
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                                p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                            ))
+                        } else {
+                            let mut tmp = [0u32; 4];
+                            if base_c + 4 < k {
+                                let take = (k - (base_c + 4)).min(4);
+                                tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                            }
+                            _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                        };
+                        let (vg0, okg0) = finish4(
+                            acc_chunk[0],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vg1, okg1) = finish4(
+                            acc_chunk[1],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                        );
+                        let (vu0, oku0) = finish4(
+                            acc_chunk[2],
+                            _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                        );
+                        let (vu1, oku1) = finish4(
+                            acc_chunk[3],
+                            _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                        );
+                        if okg0 && okg1 && oku0 && oku1 {
+                            _mm256_storeu_si256(gate_arr.as_mut_ptr().cast::<__m256i>(), vg0);
+                            _mm256_storeu_si256(
+                                gate_arr.as_mut_ptr().add(4).cast::<__m256i>(),
+                                vg1,
+                            );
+                            _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
+                            _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                            #[cfg(test)]
+                            pc.add(probe_hooks::FAST_OK);
+                            fast_ok = true;
+                        }
+                    }
+                    if !fast_ok {
+                        #[cfg(test)]
+                        pc.add(if need_exact_a || need_exact_b {
+                            probe_hooks::EXACT_SPREAD
+                        } else {
+                            probe_hooks::FAST_REFUSED
+                        });
+                        unsafe {
+                            for (idx, v) in acc_chunk.iter().enumerate() {
+                                _mm256_storeu_si256(
+                                    lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(),
+                                    *v,
+                                );
+                            }
+                        }
+                        for lane in 0..active {
+                            let c = sub_g * LANES + lane;
+                            let gate = if spa + p.spread[sub_g] > limit {
+                                exact_dot(ga, blocks, &qs[c])
+                            } else {
+                                finish(lanes[lane], ka + p.emin[c])
+                            };
+                            let up = if spb + p.spread[sub_g] > limit {
+                                exact_dot(ua, blocks, &qs[c])
+                            } else {
+                                finish(lanes[8 + lane], kb + p.emin[c])
+                            };
+                            let (Some(gate), Some(up)) = (gate, up) else {
+                                return false;
+                            };
+                            gate_arr[lane] = gate;
+                            up_arr[lane] = up;
+                        }
+                    }
+                    eval_sub_g(sub_g, &gate_arr, &up_arr);
+                }
+                g += 2;
+            }
+            if g < p.groups {
                 let acc = unsafe {
                     group2(
                         ga,
                         ua,
-                        &sa[..blocks],
-                        &sb[..blocks],
+                        sa_slice,
+                        sb_slice,
                         blocks,
                         p.words.as_ptr().add(g * blocks * 8 * LANES),
                         p.shift.as_ptr().add(g * blocks * LANES),
                     )
                 };
-                // SAFETY: `lanes` holds 16 `i64`.
-                unsafe {
-                    for (idx, v) in acc.iter().enumerate() {
-                        _mm256_storeu_si256(lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(), *v);
+                let need_exact_a = spa + p.spread[g] > limit;
+                let need_exact_b = spb + p.spread[g] > limit;
+                #[cfg(test)]
+                pc.spreads(spa + p.spread[g], Some(spb + p.spread[g]));
+                #[cfg(test)]
+                pc.add(probe_hooks::TAIL_G2);
+                let active = (k - g * LANES).min(LANES);
+                let mut gate_arr = [0i64; 8];
+                let mut up_arr = [0i64; 8];
+                let mut fast_ok = false;
+                if !need_exact_a && !need_exact_b {
+                    let base_c = g * LANES;
+                    let sv0 = if base_c + 4 <= k {
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                            p.emin.as_ptr().add(base_c).cast::<__m128i>(),
+                        ))
+                    } else {
+                        let mut tmp = [0u32; 4];
+                        let take = k.saturating_sub(base_c).min(4);
+                        tmp[..take].copy_from_slice(&p.emin[base_c..base_c + take]);
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                    };
+                    let sv1 = if base_c + 8 <= k {
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(
+                            p.emin.as_ptr().add(base_c + 4).cast::<__m128i>(),
+                        ))
+                    } else {
+                        let mut tmp = [0u32; 4];
+                        if base_c + 4 < k {
+                            let take = (k - (base_c + 4)).min(4);
+                            tmp[..take].copy_from_slice(&p.emin[base_c + 4..base_c + 4 + take]);
+                        }
+                        _mm256_cvtepu32_epi64(_mm_loadu_si128(tmp.as_ptr().cast::<__m128i>()))
+                    };
+                    let (vg0, okg0) = finish4(
+                        acc[0],
+                        _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(ka))),
+                    );
+                    let (vg1, okg1) = finish4(
+                        acc[1],
+                        _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(ka))),
+                    );
+                    let (vu0, oku0) = finish4(
+                        acc[2],
+                        _mm256_add_epi64(sv0, _mm256_set1_epi64x(i64::from(kb))),
+                    );
+                    let (vu1, oku1) = finish4(
+                        acc[3],
+                        _mm256_add_epi64(sv1, _mm256_set1_epi64x(i64::from(kb))),
+                    );
+                    if okg0 && okg1 && oku0 && oku1 {
+                        _mm256_storeu_si256(gate_arr.as_mut_ptr().cast::<__m256i>(), vg0);
+                        _mm256_storeu_si256(gate_arr.as_mut_ptr().add(4).cast::<__m256i>(), vg1);
+                        _mm256_storeu_si256(up_arr.as_mut_ptr().cast::<__m256i>(), vu0);
+                        _mm256_storeu_si256(up_arr.as_mut_ptr().add(4).cast::<__m256i>(), vu1);
+                        #[cfg(test)]
+                        pc.add(probe_hooks::FAST_OK);
+                        fast_ok = true;
                     }
                 }
-                for lane in 0..LANES {
-                    let c = g * LANES + lane;
-                    if c >= k {
-                        break;
+                if !fast_ok {
+                    #[cfg(test)]
+                    pc.add(if need_exact_a || need_exact_b {
+                        probe_hooks::EXACT_SPREAD
+                    } else {
+                        probe_hooks::FAST_REFUSED
+                    });
+                    unsafe {
+                        for (idx, v) in acc.iter().enumerate() {
+                            _mm256_storeu_si256(
+                                lanes.as_mut_ptr().add(4 * idx).cast::<__m256i>(),
+                                *v,
+                            );
+                        }
                     }
-                    let gate = if spa + p.spread[g] > limit {
-                        exact_dot(ga, blocks, &qs[c])
-                    } else {
-                        finish(lanes[lane], ka + p.emin[c])
-                    };
-                    let up = if spb + p.spread[g] > limit {
-                        exact_dot(ua, blocks, &qs[c])
-                    } else {
-                        finish(lanes[8 + lane], kb + p.emin[c])
-                    };
-                    let (Some(gate), Some(up)) = (gate, up) else {
-                        return false;
-                    };
-                    match super::swiglu_one(gate, up) {
-                        Ok(h) => {
-                            // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
-                            // other task's, so this element has one writer.
-                            unsafe { *out.ptrs[c].add(i) = h };
-                        }
-                        Err(e) => {
-                            let mut slot = first
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            if slot.as_ref().is_none_or(|(c0, i0, _)| (c, i) < (*c0, *i0)) {
-                                *slot = Some((c, i, e));
-                            }
-                        }
+                    for lane in 0..active {
+                        let c = g * LANES + lane;
+                        let gate = if spa + p.spread[g] > limit {
+                            exact_dot(ga, blocks, &qs[c])
+                        } else {
+                            finish(lanes[lane], ka + p.emin[c])
+                        };
+                        let up = if spb + p.spread[g] > limit {
+                            exact_dot(ua, blocks, &qs[c])
+                        } else {
+                            finish(lanes[8 + lane], kb + p.emin[c])
+                        };
+                        let (Some(gate), Some(up)) = (gate, up) else {
+                            return false;
+                        };
+                        gate_arr[lane] = gate;
+                        up_arr[lane] = up;
                     }
                 }
+                eval_sub_g(g, &gate_arr, &up_arr);
             }
             r += 1;
         }
         true
     }
 }
+
+/// Test-only accessors for `kern::gemm_probe`.
+#[cfg(test)]
+pub(crate) fn probe_pack_ok(qs: &[QuantAct], blocks: usize) -> bool {
+    pack(qs, blocks).is_some()
+}
+
+/// Test-only: [`spread_limit`] for `kern::gemm_probe`.
+#[cfg(test)]
+pub(crate) fn probe_limit(blocks: usize) -> u32 {
+    spread_limit(blocks)
+}
+
+#[cfg(test)]
+use super::gemm_probe::hooks as probe_hooks;
 
 #[cfg(test)]
 mod tests {
@@ -1167,6 +1985,51 @@ mod tests {
                 quant_act(&x).expect("activations quantize")
             })
             .collect()
+    }
+
+    /// `fast_columns_ok` equals the former `len ∧ scales ∧ Exact ∧ bound` predicate on columns whose
+    /// magnitude straddles the bound (`s_max·32·128·127 ≤ i64::MAX` fails from scale ≈ 2^44), with
+    /// the extreme code `-128` present, and both outcomes occur.
+    #[test]
+    fn fast_columns_predicate_equals_the_magnitude_form() {
+        let n_in = 256;
+        let mut seed = 0x5eed_0f00_dbad_cafe_u64;
+        let (mut yes, mut no) = (0usize, 0usize);
+        for shift in (20..=62).step_by(2) {
+            for trial in 0..24 {
+                let x: Vec<i64> = (0..n_in)
+                    .map(|j| {
+                        let mag = 1i64 << (shift + i64::from(trial % 2 == 1 && j % 32 == 5));
+                        if j == 0 {
+                            -mag
+                        } else {
+                            (lcg(&mut seed).cast_signed() % (2 * (mag / 2) + 1)) - mag / 2
+                        }
+                    })
+                    .collect();
+                let Some(q) = quant_act(&x) else { continue };
+                let old = q.len() == n_in
+                    && q.scales().len() == n_in / ACT_QK
+                    && matches!(q.magnitude(), ActMagnitude::Exact(_))
+                    && crate::engine::chart::q8act_fast_bound_ok(n_in, 128, &q, true);
+                let new = fast_columns_ok(n_in, n_in / ACT_QK, std::slice::from_ref(&q));
+                assert_eq!(old, new, "shift {shift} trial {trial}");
+                yes += usize::from(new);
+                no += usize::from(!new);
+            }
+        }
+        assert!(yes > 0 && no > 0, "both outcomes must occur: {yes} / {no}");
+        let q = quant_act(&vec![1i64 << 30; n_in]).expect("quantizes");
+        assert!(!fast_columns_ok(
+            n_in + 32,
+            n_in / ACT_QK + 1,
+            std::slice::from_ref(&q)
+        ));
+        assert!(!fast_columns_ok(
+            n_in,
+            n_in / ACT_QK + 1,
+            std::slice::from_ref(&q)
+        ));
     }
 
     #[test]
@@ -1575,15 +2438,60 @@ mod tests {
         // `127·2^24` quantizes on the power-of-two grid with code `127`: gate and up are ≈5.7e17,
         // so `silu(gate)·up / 2^32` leaves `i64`.
         let q = quant_act(&vec![127i64 << 24; n_in]).expect("dequantizes");
-        let gate = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("gate contract");
-        let up = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &q).expect("up contract");
+        let qs = [q];
+        let gate = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &qs[0]).expect("gate contract");
+        let up = matvec_q8act(GGML_TYPE_Q8_0, &raw, n_ff, n_in, &qs[0]).expect("up contract");
         let mut want = vec![0i64; n_ff];
         let refuse = crate::engine::chart::ffn::swiglu_hidden(&gate, &up, &mut want, false);
         assert_eq!(refuse, Err(FfnError::Overflow), "the fixture must refuse");
         assert_eq!(
-            gemm_q8_0_swiglu(&raw, &raw, n_ff, n_in, &[q]),
+            gemm_q8_0_swiglu(&raw, &raw, n_ff, n_in, &qs),
             Some(Err(FfnError::Overflow))
         );
+        assert_eq!(
+            gemm_q8_0_swiglu_carrier(&raw, &raw, n_ff, n_in, &qs, Carrier::F32),
+            Some(Err(FfnError::Overflow))
+        );
+    }
+
+    #[test]
+    fn swiglu_fused_f32_tracks_q32_oracle() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 42u64;
+        let g_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let u_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let qs = columns(8, 1024, 4, &mut seed);
+
+        let q32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::Q32)
+            .expect("runs")
+            .expect("ok");
+        let f32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::F32)
+            .expect("runs")
+            .expect("ok");
+
+        let mut max_abs = 0.0f64;
+        let mut max_rel = 0.0f64;
+        for (q_col, f_col) in q32_res.iter().zip(&f32_res) {
+            for (&q, &f) in q_col.iter().zip(f_col) {
+                let q_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(q));
+                let f_flt = f64::from(crate::engine::mixer::f32_carrier::q32_to_f32(f));
+                let diff = (q_flt - f_flt).abs();
+                if diff > max_abs {
+                    max_abs = diff;
+                }
+                let mag = q_flt.abs().max(f_flt.abs());
+                if mag > 1e-4 {
+                    let rel = diff / mag;
+                    if rel > max_rel {
+                        max_rel = rel;
+                    }
+                }
+            }
+        }
+        println!("fused swiglu f32 vs q32: max |Δ| = {max_abs:.6e}, max rel = {max_rel:.6e}");
+        assert!(max_rel < 1e-3, "relative error {max_rel:e} exceeded 1e-3");
     }
 
     #[test]
@@ -1594,6 +2502,49 @@ mod tests {
         for blocks in 1..=MAX_BLOCKS {
             let log = usize::BITS - (blocks - 1).leading_zeros();
             assert!(30 + spread_limit(blocks) + log <= 63, "{blocks}");
+        }
+    }
+
+    #[test]
+    #[ignore = "release-only microbench: cargo test --release --lib bench_q8_0_gemm_shapes -- --ignored --nocapture"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "benchmarking metrics on exact integer shapes"
+    )]
+    fn bench_q8_0_gemm_shapes() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let shapes = [
+            (1024usize, 3584usize),
+            (3584usize, 1024usize),
+            (1024usize, 6144usize),
+        ];
+        let k = 64usize;
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let scales = &[0x2000, 0x2400, 0x1c00, 0xa000];
+        for &(n_in, n_out) in &shapes {
+            let raw = payload(n_out, n_in, scales, &mut seed);
+            let qs = columns(k, n_in, 8, &mut seed);
+            // Warmup
+            let _ = gemm_q8_0(GGML_TYPE_Q8_0, &raw, n_out, n_in, &qs).expect("runs");
+            let macs = (n_out as f64) * (n_in as f64) * (k as f64);
+            let mut best_dur = std::time::Duration::MAX;
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let res = gemm_q8_0(GGML_TYPE_Q8_0, &raw, n_out, n_in, &qs).expect("runs");
+                let dur = start.elapsed();
+                std::hint::black_box(&res);
+                if dur < best_dur {
+                    best_dur = dur;
+                }
+            }
+            let gmacs = (macs / best_dur.as_secs_f64()) / 1e9;
+            println!(
+                "{n_in}->{n_out} k={k}: best_ms = {:.3} ms, throughput = {:.2} GMAC/s",
+                best_dur.as_secs_f64() * 1000.0,
+                gmacs
+            );
         }
     }
 }
