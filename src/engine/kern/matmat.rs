@@ -326,9 +326,27 @@ fn per_column(
 /// `q8act_fast_bound_ok(…, narrow = true)` predicate, re-derived here from the public `scales()`
 /// accessor so this file edits no other module.
 ///
+/// The exact-magnitude test is implied by [`fast_bound_ok`] for both supported families (`Q8_0` with
+/// `top = 128` and `Q5_0` with `top = 16`), so only [`fast_bound_ok`] runs:
+/// - With `scales.len() == blocks` and `q.len() == n_in`, every scale lookup is in-bounds.
+/// - The narrow condition `s_max·(32·top·127) ≤ i64::MAX` bounds every product:
+///   for `Q8_0` (`top = 128`), `32·128·127 = 520,192`, so `|S_b·xq_j| ≤ 128·s_max ≤ i64::MAX / 4064 < i64::MAX`;
+///   for `Q5_0` (`top = 16`), `32·16·127 = 65,024`, so `|S_b·xq_j| ≤ 128·s_max ≤ i64::MAX / 508 < i64::MAX`.
+///   In both families, for every code `|xq_j| ≤ 128`, every checked `i64` product is `Some`
+///   (ruling out `NoQ32`).
+/// - The sum of at most `2^14` terms (with `n_in ≤ MAX_BLOCKS·32 = 2^14` on this route, and
+///   `fast_bound_ok`'s `bound = n_in·F16_MAX_FIXED·top·127·s_max < i128::MAX` where
+///   `F16_MAX_FIXED·top·127 > 128` for both families) guarantees
+///   `Σ_j |S_b·xq_j| ≤ n_in·128·s_max < bound < i128::MAX`.
+///   Thus no checked add overflows `i128` (ruling out `TotalOverflow`).
+///
+/// `ActMagnitude::Exact` is therefore strictly implied by `fast_bound_ok` for both families.
+/// `debug_assertions` builds re-check the implication on every accepted column.
+///
 /// # Complexity
 ///
-/// `O(k·n_in)` time in the per-column [`QuantAct::magnitude`], `O(1)` extra space.
+/// `O(k·blocks)` scalar `i128` compares in [`fast_bound_ok`], `O(1)` extra space.
+/// The removed `magnitude()` pass was `O(k·n_in)` checked `i64`/`i128` operations on the calling thread.
 fn fast_family(ggml_type: u32, n_in: usize, qs: &[QuantAct]) -> Option<Family> {
     let family = match ggml_type {
         GGML_TYPE_Q8_0 => Family::Q8_0,
@@ -349,13 +367,13 @@ fn fast_family(ggml_type: u32, n_in: usize, qs: &[QuantAct]) -> Option<Family> {
         if q.len() != n_in || q.scales().len() != blocks {
             return None;
         }
-        match q.magnitude() {
-            ActMagnitude::Exact(_) => {}
-            ActMagnitude::NoQ32 | ActMagnitude::TotalOverflow => return None,
-        }
         if !fast_bound_ok(n_in, top, q) {
             return None;
         }
+        debug_assert!(
+            matches!(q.magnitude(), ActMagnitude::Exact(_)),
+            "fast_bound_ok implies an exact magnitude"
+        );
         c += 1;
     }
     Some(family)
@@ -997,6 +1015,120 @@ mod tests {
                     blk += 1;
                 }
             }
+        }
+    }
+
+    /// `fast_family`'s per-column predicate equals the former `len ∧ scales ∧ Exact ∧ bound`
+    /// conjunction for both `Q8_0` (top = 128) and `Q5_0` (top = 16):
+    /// - on random columns across scale shifts,
+    /// - at the adversarial bound edge (`s_max = i64::MAX / (32·top·127)` and `s_max + 1`),
+    /// - with zero scales,
+    /// - with saturated codes (`±127`, `-128`),
+    /// - on length and block-count mismatches.
+    #[test]
+    fn fast_family_predicate_equals_the_magnitude_form() {
+        let n_in = 256usize;
+        let blocks = n_in / ACT_QK;
+        let cases = [(GGML_TYPE_Q8_0, 128i128), (GGML_TYPE_Q5_0, 16i128)];
+        for &(ggml_type, top) in &cases {
+            let mut seed = 0x5eed_0f00_dbad_cafe_u64;
+            let (mut yes, mut no) = (0usize, 0usize);
+            // 1. Random columns across scale shifts.
+            for shift in (20..=62).step_by(2) {
+                for trial in 0..24 {
+                    let x: Vec<i64> = (0..n_in)
+                        .map(|j| {
+                            let exp = (shift + i64::from(trial % 2 == 1 && j % 32 == 5)).min(62);
+                            let mag = 1i64 << exp;
+                            if j == 0 {
+                                -mag
+                            } else {
+                                (next_rand(&mut seed).cast_signed() % (2 * (mag / 2) + 1)) - mag / 2
+                            }
+                        })
+                        .collect();
+                    let Some(q) = quant_act(&x) else { continue };
+                    let old = q.len() == n_in
+                        && q.scales().len() == blocks
+                        && matches!(q.magnitude(), ActMagnitude::Exact(_))
+                        && crate::engine::chart::q8act_fast_bound_ok(n_in, top, &q, true);
+                    let new = fast_family(ggml_type, n_in, std::slice::from_ref(&q)).is_some();
+                    assert_eq!(old, new, "type {ggml_type} shift {shift} trial {trial}");
+                    yes += usize::from(new);
+                    no += usize::from(!new);
+                }
+            }
+            assert!(
+                yes > 0 && no > 0,
+                "type {ggml_type}: both outcomes must occur: {yes} / {no}"
+            );
+
+            // 2. Adversarial scales at the bound edge: s_max and s_max + 1.
+            let s_max = (i64::MAX as i128 / (32 * top * 127)) as i64;
+            for &s in &[s_max, s_max + 1, -s_max, -(s_max + 1)] {
+                let q = QuantAct::from_parts(vec![s; blocks], vec![127i8; n_in]);
+                let old = q.len() == n_in
+                    && q.scales().len() == blocks
+                    && matches!(q.magnitude(), ActMagnitude::Exact(_))
+                    && crate::engine::chart::q8act_fast_bound_ok(n_in, top, &q, true);
+                let new = fast_family(ggml_type, n_in, std::slice::from_ref(&q)).is_some();
+                assert_eq!(old, new, "type {ggml_type} edge scale {s}");
+                if s.abs() == s_max {
+                    assert!(new, "type {ggml_type} scale {s} must be accepted");
+                } else {
+                    assert!(!new, "type {ggml_type} scale {s} must be refused");
+                }
+            }
+
+            // 3. Zero scales and saturated codes.
+            let zero_q = QuantAct::from_parts(vec![0i64; blocks], vec![0i8; n_in]);
+            let old_zero = zero_q.len() == n_in
+                && zero_q.scales().len() == blocks
+                && matches!(zero_q.magnitude(), ActMagnitude::Exact(_))
+                && crate::engine::chart::q8act_fast_bound_ok(n_in, top, &zero_q, true);
+            let new_zero = fast_family(ggml_type, n_in, std::slice::from_ref(&zero_q)).is_some();
+            assert_eq!(old_zero, new_zero, "type {ggml_type} zero scale");
+            assert!(new_zero, "type {ggml_type} zero scale must be accepted");
+
+            for &sat_code in &[127i8, -127i8, -128i8] {
+                let sat_q = QuantAct::from_parts(vec![s_max; blocks], vec![sat_code; n_in]);
+                let old_sat = sat_q.len() == n_in
+                    && sat_q.scales().len() == blocks
+                    && matches!(sat_q.magnitude(), ActMagnitude::Exact(_))
+                    && crate::engine::chart::q8act_fast_bound_ok(n_in, top, &sat_q, true);
+                let new_sat = fast_family(ggml_type, n_in, std::slice::from_ref(&sat_q)).is_some();
+                assert_eq!(
+                    old_sat, new_sat,
+                    "type {ggml_type} saturated code {sat_code} at s_max"
+                );
+                assert!(
+                    new_sat,
+                    "type {ggml_type} saturated code {sat_code} at s_max must be accepted"
+                );
+
+                let sat_q_over =
+                    QuantAct::from_parts(vec![s_max + 1; blocks], vec![sat_code; n_in]);
+                let old_over = sat_q_over.len() == n_in
+                    && sat_q_over.scales().len() == blocks
+                    && matches!(sat_q_over.magnitude(), ActMagnitude::Exact(_))
+                    && crate::engine::chart::q8act_fast_bound_ok(n_in, top, &sat_q_over, true);
+                let new_over =
+                    fast_family(ggml_type, n_in, std::slice::from_ref(&sat_q_over)).is_some();
+                assert_eq!(
+                    old_over, new_over,
+                    "type {ggml_type} saturated code {sat_code} at s_max + 1"
+                );
+                assert!(
+                    !new_over,
+                    "type {ggml_type} saturated code {sat_code} at s_max + 1 must be refused"
+                );
+            }
+
+            // 4. Length and block-count mismatches.
+            let bad_len = QuantAct::from_parts(vec![1i64; blocks], vec![1i8; n_in + ACT_QK]);
+            assert!(fast_family(ggml_type, n_in, std::slice::from_ref(&bad_len)).is_none());
+            let bad_blocks = QuantAct::from_parts(vec![1i64; blocks + 1], vec![1i8; n_in]);
+            assert!(fast_family(ggml_type, n_in, std::slice::from_ref(&bad_blocks)).is_none());
         }
     }
 
