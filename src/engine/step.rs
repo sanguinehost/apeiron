@@ -463,19 +463,10 @@ fn split_query_gate(
 ///
 /// # Complexity
 ///
-/// `O(att.len())` sigmoid evaluations and products.
+/// `O(att.len())` sigmoid evaluations and products; the body is [`attn_block::sigmoid_gate`],
+/// word-equal to the `fixed_sigmoid` + `mul_q32` loop.
 fn apply_sigmoid_gate(att: &mut [i64], gate: &[i64]) -> Result<(), StepError> {
-    if att.len() != gate.len() {
-        return Err(StepError::BadConfig("gate width"));
-    }
-    let mut i = 0usize;
-    while i < att.len() {
-        let s =
-            crate::numeric::fixed_ln::fixed_sigmoid(gate[i]).map_err(|_| StepError::Overflow)?;
-        att[i] = super::value::mul_q32(att[i], s).ok_or(StepError::Overflow)?;
-        i += 1;
-    }
-    Ok(())
+    attn_block::sigmoid_gate(att, gate)
 }
 
 /// `vectors.apply_qk_norms` plus the two per-vector `RoPE` rotations, over the pool when
@@ -502,8 +493,7 @@ fn qk_norm_and_rope(
         // The composed geometry is a whole number of `hd`-wide heads; anything else keeps the
         // serial refusals unchanged.
         vectors.apply_qk_norms(layer, query, key, hd, eps)?;
-        rotate_head_prefixes(rope, query, hd, pos)?;
-        return rotate_head_prefixes(rope, key, hd, pos);
+        return attn_block::rotate_pair_prefixes(rope, query, key, hd, pos);
     }
     let qk = vectors.qk_norms_of(layer);
     let qk_q = qk.and_then(|n| n[0].as_deref());
@@ -1680,6 +1670,7 @@ pub struct DecodeState {
     pub affine: Option<AffineState>,
 }
 
+pub(crate) mod attn_block;
 #[path = "step/cols.rs"]
 mod cols;
 #[path = "step/spec.rs"]

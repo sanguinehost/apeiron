@@ -33,6 +33,8 @@
 use std::arch::x86_64::*;
 
 use crate::engine::attn::AttnError;
+#[cfg(target_arch = "x86_64")]
+use crate::engine::mixer::f32_carrier::exp_f32_avx2;
 use crate::engine::mixer::f32_carrier::exp_f32_scalar;
 
 /// Convert a binary32 float back to Q32.32 fixed-point `i64` using round-to-nearest.
@@ -215,6 +217,107 @@ pub fn attn_core_f32_strided_scalar(
     Ok(())
 }
 
+/// Key positions scored together by [`attn_tile8_avx2`].
+const TILE: usize = 8;
+
+/// Score, softmax-update and accumulate the `TILE` key positions `s..s + TILE` (`s >= 1`).
+///
+/// Bit-identical to `TILE` consecutive iterations of the single-position loop in
+/// [`attn_core_f32_strided_avx2_inner`]: each score is the same 8-lane FMA chain (the eight chains
+/// run interleaved, so the latency of one is hidden by the others), the running maximum is the
+/// same sequential recurrence, the two `exp` calls per position are the lane-wise
+/// [`exp_f32_avx2`] (equal to [`exp_f32_scalar`] bit for bit), the denominator is the same
+/// sequential `mul_add` chain, and each accumulator chunk takes the same `fma(acc, alpha_j, w_j *
+/// v_j)` sequence in position order (chunk-outer, position-inner, so the chunk stays in a register
+/// across the tile). A non-finite score refuses with [`AttnError::Overflow`] before any of the
+/// tile's state is written.
+///
+/// # Complexity
+///
+/// `O(TILE · head_dim)` FMAs and `O(1)` vector `exp` calls per tile: per position `head_dim / 8`
+/// FMAs for the score and `2 · head_dim / 8` vector ops for the accumulator. No allocation.
+///
+/// # Safety
+///
+/// Requires AVX2 and FMA; `k` and `v` hold rows `0..s + TILE` at `stride`, each `head_dim` wide.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::many_single_char_names,
+    reason = "explicit strided geometry, lane loops pin the operation order"
+)]
+unsafe fn attn_tile8_avx2(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    head_dim: usize,
+    stride: usize,
+    s: usize,
+    scale: f32,
+    m: &mut f32,
+    den: &mut f32,
+    acc_vec: &mut [__m256],
+) -> Result<(), AttnError> {
+    let chunks = head_dim / 8;
+    let kp = k.as_ptr().add(s * stride);
+    let vp = v.as_ptr().add(s * stride);
+    let qp = q.as_ptr();
+    let mut dots = [_mm256_setzero_ps(); TILE];
+    for c in 0..chunks {
+        let vq = _mm256_loadu_ps(qp.add(c * 8));
+        for j in 0..TILE {
+            let vk = _mm256_loadu_ps(kp.add(j * stride + c * 8));
+            dots[j] = _mm256_fmadd_ps(vq, vk, dots[j]);
+        }
+    }
+    let mut score = [0.0f32; TILE];
+    for j in 0..TILE {
+        let mut lanes = [0.0f32; 8];
+        _mm256_storeu_ps(lanes.as_mut_ptr(), dots[j]);
+        let raw =
+            lanes[0] + lanes[1] + lanes[2] + lanes[3] + lanes[4] + lanes[5] + lanes[6] + lanes[7];
+        score[j] = raw * scale;
+        if !score[j].is_finite() {
+            return Err(AttnError::Overflow);
+        }
+    }
+    let mut prev = [0.0f32; TILE];
+    let mut next = [0.0f32; TILE];
+    let mut run = *m;
+    for j in 0..TILE {
+        prev[j] = run;
+        if score[j] > run {
+            run = score[j];
+        }
+        next[j] = run;
+    }
+    let vnext = _mm256_loadu_ps(next.as_ptr());
+    let valpha = exp_f32_avx2(_mm256_sub_ps(_mm256_loadu_ps(prev.as_ptr()), vnext));
+    let vw = exp_f32_avx2(_mm256_sub_ps(_mm256_loadu_ps(score.as_ptr()), vnext));
+    let mut alpha = [0.0f32; TILE];
+    let mut w = [0.0f32; TILE];
+    _mm256_storeu_ps(alpha.as_mut_ptr(), valpha);
+    _mm256_storeu_ps(w.as_mut_ptr(), vw);
+    let mut d = *den;
+    for j in 0..TILE {
+        d = d.mul_add(alpha[j], w[j]);
+    }
+    for c in 0..chunks {
+        let mut a = acc_vec[c];
+        for j in 0..TILE {
+            let vv = _mm256_loadu_ps(vp.add(j * stride + c * 8));
+            let prod = _mm256_mul_ps(_mm256_set1_ps(w[j]), vv);
+            a = _mm256_fmadd_ps(a, _mm256_set1_ps(alpha[j]), prod);
+        }
+        acc_vec[c] = a;
+    }
+    *m = run;
+    *den = d;
+    Ok(())
+}
+
 /// AVX2+FMA SIMD implementation of the binary32 online-softmax attention core with strided K/V layout.
 ///
 /// Processes 8 value components per vector. Matches [`attn_core_f32_strided_scalar`] bit for bit.
@@ -271,7 +374,14 @@ unsafe fn attn_core_f32_strided_avx2_inner(
         acc_vec[c] = v_val;
     }
 
-    for s in 1..count {
+    let mut s = 1usize;
+    while s + TILE <= count {
+        attn_tile8_avx2(
+            q, k, v, head_dim, stride, s, scale, &mut m, &mut den, acc_vec,
+        )?;
+        s += TILE;
+    }
+    while s < count {
         let base = s * stride;
         let k_row = &k[base..base + head_dim];
         let v_ptr = v.as_ptr().add(base);
@@ -297,6 +407,7 @@ unsafe fn attn_core_f32_strided_avx2_inner(
             acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], v_alpha, prod);
         }
         m = m_next;
+        s += 1;
     }
 
     if den <= 0.0 || !den.is_finite() {
@@ -410,6 +521,12 @@ pub fn attn_core_f32_scalar(
     clippy::uninlined_format_args,
     clippy::cast_possible_truncation,
     clippy::needless_range_loop,
+    clippy::many_single_char_names,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::manual_is_multiple_of,
+    clippy::semicolon_if_nothing_returned,
+    clippy::items_after_statements,
     reason = "test harnesses, random generators, timing loops and numerical verification"
 )]
 pub(crate) mod tests {
@@ -745,5 +862,358 @@ pub(crate) mod tests {
         println!(
             "f32 native KV cache:    {best_f32:.4} ns per (pos × hd) (speedup: {speedup:.2}x)"
         );
+    }
+
+    /// The tiled AVX2 core equals the scalar twin on every tile boundary, at score magnitudes that
+    /// move the running maximum often and underflow `exp`, and refuses a non-finite key at any
+    /// position with the scalar twin's error.
+    #[test]
+    fn test_attn_core_tiled_equals_scalar_on_tile_edges() {
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
+            let mut rng = SimpleRng::new(0x7117_ED00_0000_0001);
+            let cfgs = [
+                (256usize, 512usize, 0usize),
+                (256, 512, 1),
+                (256, 512, 8),
+                (256, 512, 9),
+                (256, 512, 10),
+                (256, 512, 16),
+                (256, 512, 17),
+                (256, 512, 100),
+                (256, 512, 199),
+                (128, 128, 40),
+                (64, 192, 63),
+                (8, 8, 33),
+            ];
+            for amp in [0.5f32, 2.0, 6.0, 20.0] {
+                for &(hd, stride, pos) in &cfgs {
+                    let total = pos * stride + hd;
+                    let mut q = vec![0.0f32; hd];
+                    let mut k = vec![0.0f32; total];
+                    let mut v = vec![0.0f32; total];
+                    for x in &mut q {
+                        *x = rng.next_f32_range(-amp, amp);
+                    }
+                    for x in &mut k {
+                        *x = rng.next_f32_range(-amp, amp);
+                    }
+                    for x in &mut v {
+                        *x = rng.next_f32_range(-4.0, 4.0);
+                    }
+                    let scale = 1.0f32 / (hd as f32).sqrt();
+                    let mut a = vec![0.0f32; hd];
+                    let mut b = vec![0.0f32; hd];
+                    let ra =
+                        attn_core_f32_strided_scalar(&q, &k, &v, hd, stride, pos, scale, &mut a);
+                    let rb = unsafe {
+                        attn_core_f32_strided_avx2_inner(&q, &k, &v, hd, stride, pos, scale, &mut b)
+                    };
+                    assert_eq!(ra, rb, "hd {hd} pos {pos} amp {amp}");
+                    if ra.is_ok() {
+                        for i in 0..hd {
+                            assert_eq!(
+                                a[i].to_bits(),
+                                b[i].to_bits(),
+                                "hd {hd} pos {pos} amp {amp} i {i}"
+                            );
+                        }
+                    }
+                    if pos >= 2 {
+                        for bad in [1usize, pos / 2, pos] {
+                            let mut k2 = k.clone();
+                            k2[bad * stride + 3] = f32::INFINITY;
+                            let ra = attn_core_f32_strided_scalar(
+                                &q, &k2, &v, hd, stride, pos, scale, &mut a,
+                            );
+                            let rb = unsafe {
+                                attn_core_f32_strided_avx2_inner(
+                                    &q, &k2, &v, hd, stride, pos, scale, &mut b,
+                                )
+                            };
+                            assert_eq!(ra, Err(AttnError::Overflow));
+                            assert_eq!(rb, Err(AttnError::Overflow), "bad {bad} pos {pos}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Segment attribution of one prefill attention layer call (`k = 200`, `pos0 = 0`, the
+    /// Qwen3.5-0.8B geometry: 8 query heads, 2 KV heads, head dim 256, rotary width 64, gated
+    /// query) over the pool, mirroring the three stages of `softmax_core_block`.
+    /// `cargo test --release --lib --locked attn_layer_segments -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing harness: run under the exclusive host lock"]
+    fn attn_layer_segments_k200() {
+        use crate::engine::chart::ffn::attn_heads;
+        use crate::engine::chart::pool::Pool;
+        use crate::engine::loader::qk_norm_heads;
+        use crate::engine::rope::RopeTable;
+        use crate::engine::step::attn_block::{rotate_pair_prefixes, sigmoid_gate};
+        use crate::engine::value::mul_q32;
+        use crate::numeric::fixed_ln::fixed_sigmoid;
+        use std::time::Instant;
+
+        let (k, nh, nkv, hd, rot) = (200usize, 8usize, 2usize, 256usize, 64usize);
+        let (q_out, kv_out) = (nh * hd, nkv * hd);
+        let stride = 2 * q_out + 2 * kv_out;
+        let one = 1i64 << 32;
+        let mut rng = SimpleRng::new(0xA77E_0001);
+        let mut word =
+            |lo: f32, hi: f32| (f64::from(rng.next_f32_range(lo, hi)) * 4_294_967_296.0) as i64;
+        // Per column `[q | gate]` interleaved per head as the gated `attn_q` output, then k, v.
+        let qfull: Vec<Vec<i64>> = (0..k)
+            .map(|_| (0..2 * q_out).map(|_| word(-2.0, 2.0)).collect())
+            .collect();
+        let kraw: Vec<Vec<i64>> = (0..k)
+            .map(|_| (0..kv_out).map(|_| word(-2.0, 2.0)).collect())
+            .collect();
+        let vraw: Vec<Vec<i64>> = (0..k)
+            .map(|_| (0..kv_out).map(|_| word(-2.0, 2.0)).collect())
+            .collect();
+        let gain: Vec<i64> = (0..hd).map(|_| one + word(-0.1, 0.1)).collect();
+        let eps = one / 1_000_000;
+        let rope = RopeTable::new(10_000_000.0, rot).expect("rope");
+        let mut kv = KvState::with_carrier(1, nh, nkv, hd, 256, Carrier::F32).expect("kv");
+        let pool = Pool::global();
+
+        let mut prep = vec![0i64; k * stride];
+        let mut att = vec![0i64; k * q_out];
+        let mut last = vec![0usize; k];
+        let fold = |n: usize| if n % 2 == 0 { n / 2 } else { k - 1 - n / 2 };
+
+        let stage1 = |prep: &mut [i64]| {
+            let f = |c: usize, dst: &mut [i64]| -> Result<(), ()> {
+                let (mut query, mut key, value) = (Vec::new(), kraw[c].clone(), vraw[c].clone());
+                let mut gate = Vec::new();
+                for h in 0..nh {
+                    query.extend_from_slice(&qfull[c][h * 2 * hd..h * 2 * hd + hd]);
+                    gate.extend_from_slice(&qfull[c][h * 2 * hd + hd..(h + 1) * 2 * hd]);
+                }
+                qk_norm_heads(Some(&gain), &mut query, hd, eps).map_err(|_| ())?;
+                qk_norm_heads(Some(&gain), &mut key, hd, eps).map_err(|_| ())?;
+                rotate_pair_prefixes(&rope, &mut query, &mut key, hd, c as u32).map_err(|_| ())?;
+                let (dq, rest) = dst.split_at_mut(q_out);
+                let (dk, rest) = rest.split_at_mut(kv_out);
+                let (dv, dg) = rest.split_at_mut(kv_out);
+                dq.copy_from_slice(&query);
+                dk.copy_from_slice(&key);
+                dv.copy_from_slice(&value);
+                dg.copy_from_slice(&gate);
+                Ok(())
+            };
+            assert!(attn_heads(k, stride, prep, true, f).is_none());
+        };
+        // Split of stage 1: norm only and rope only (same pool dispatch, same clones).
+        let stage1_part = |prep: &mut [i64], do_norm: bool, do_rope: u8| {
+            let f = |c: usize, dst: &mut [i64]| -> Result<(), ()> {
+                let (mut query, mut key) = (qfull[c][..q_out].to_vec(), kraw[c].clone());
+                if do_norm {
+                    qk_norm_heads(Some(&gain), &mut query, hd, eps).map_err(|_| ())?;
+                    qk_norm_heads(Some(&gain), &mut key, hd, eps).map_err(|_| ())?;
+                }
+                if do_rope == 1 {
+                    let pos = c as u32;
+                    for base in (0..q_out).step_by(hd) {
+                        rope.rotate_one(&mut query[base..base + rot], pos)
+                            .map_err(|_| ())?;
+                    }
+                    for base in (0..kv_out).step_by(hd) {
+                        rope.rotate_one(&mut key[base..base + rot], pos)
+                            .map_err(|_| ())?;
+                    }
+                } else if do_rope == 2 {
+                    rotate_pair_prefixes(&rope, &mut query, &mut key, hd, c as u32)
+                        .map_err(|_| ())?;
+                }
+                dst[..q_out].copy_from_slice(&query);
+                dst[q_out..q_out + kv_out].copy_from_slice(&key);
+                Ok(())
+            };
+            assert!(attn_heads(k, stride, prep, true, f).is_none());
+        };
+        let append_all = |kv: &mut KvState, prep: &[i64], last: &mut [usize]| {
+            kv.truncate(0).unwrap();
+            for c in 0..k {
+                let b = c * stride;
+                last[c] = kv
+                    .append(
+                        0,
+                        &prep[b + q_out..b + q_out + kv_out],
+                        &prep[b + q_out + kv_out..b + q_out + 2 * kv_out],
+                    )
+                    .unwrap();
+            }
+        };
+        let attn_all =
+            |kv: &KvState, prep: &[i64], last: &[usize], att: &mut [i64], gated: bool| {
+                pool.chunks_mut(att, hd, &|t, _s, dst| {
+                    let (n, h) = (t / nh, t % nh);
+                    let c = fold(n);
+                    let b = c * stride;
+                    kv.attn_head(0, h, &prep[b + h * hd..b + (h + 1) * hd], last[c], dst)
+                        .unwrap();
+                    if gated {
+                        let g0 = b + 2 * kv_out + q_out + h * hd;
+                        sigmoid_gate(dst, &prep[g0..g0 + hd]).unwrap();
+                    }
+                });
+            };
+        let gate_only = |prep: &[i64], att: &mut [i64], fast: bool| {
+            pool.chunks_mut(att, hd, &|t, _s, dst| {
+                let (n, h) = (t / nh, t % nh);
+                let b = fold(n) * stride;
+                let g0 = b + 2 * kv_out + q_out + h * hd;
+                if fast {
+                    sigmoid_gate(dst, &prep[g0..g0 + hd]).unwrap();
+                } else {
+                    for i in 0..hd {
+                        let s = fixed_sigmoid(prep[g0 + i]).unwrap();
+                        dst[i] = mul_q32(dst[i], s).unwrap();
+                    }
+                }
+            });
+        };
+        // core only: q cvt + online softmax, result discarded into a per-task stack buffer.
+        let core_only =
+            |kv: &KvState, prep: &[i64], last: &[usize], att: &mut [i64], readout: bool| {
+                let (kp, vp) = match &kv.storage {
+                    crate::engine::attn::KvStorage::F32 { k, v } => (&k[0][..], &v[0][..]),
+                    crate::engine::attn::KvStorage::Q32 { .. } => unreachable!(),
+                };
+                pool.chunks_mut(att, hd, &|t, _s, dst| {
+                    let (n, h) = (t / nh, t % nh);
+                    let c = fold(n);
+                    let b = c * stride;
+                    let mut qf = [0.0f32; 256];
+                    for i in 0..hd {
+                        qf[i] = crate::engine::mixer::f32_carrier::q32_to_f32(prep[b + h * hd + i]);
+                    }
+                    let first = (h / (nh / nkv)) * hd;
+                    let mut of = [0.0f32; 256];
+                    attn_core_f32_strided(
+                        &qf[..hd],
+                        &kp[first..],
+                        &vp[first..],
+                        hd,
+                        nkv * hd,
+                        last[c],
+                        1.0 / 16.0,
+                        &mut of[..hd],
+                    )
+                    .unwrap();
+                    if readout {
+                        for i in 0..hd {
+                            dst[i] = f32_to_q32_checked(of[i]).unwrap();
+                        }
+                    } else {
+                        dst[0] = of[0].to_bits() as i64;
+                    }
+                });
+            };
+        let empty_dispatch = |att: &mut [i64]| {
+            pool.chunks_mut(att, hd, &|t, _s, dst| {
+                dst[0] = t as i64;
+            });
+        };
+        let tail = |att: &[i64]| -> Vec<Vec<i64>> {
+            let mut atts: Vec<Vec<i64>> = (0..k).map(|_| Vec::new()).collect();
+            for n in 0..k {
+                atts[fold(n)] = att[n * q_out..(n + 1) * q_out].to_vec();
+            }
+            atts
+        };
+
+        // One full composed call, in the stage order of `softmax_core_block`.
+        let full =
+            |kv: &mut KvState, prep: &mut Vec<i64>, att: &mut Vec<i64>, last: &mut Vec<usize>| {
+                let mut p = vec![0i64; k * stride];
+                stage1(&mut p);
+                append_all(kv, &p, last);
+                let mut a = vec![0i64; k * q_out];
+                attn_all(kv, &p, last, &mut a, true);
+                let t = tail(&a);
+                std::hint::black_box(&t);
+                *prep = p;
+                *att = a;
+            };
+
+        fn med(v: &mut [f64]) -> f64 {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[v.len() / 2]
+        }
+        let reps = 25usize;
+        let mut rows: Vec<(&str, f64)> = Vec::new();
+        macro_rules! seg {
+            ($name:expr, $body:block) => {{
+                let mut ts = Vec::new();
+                for r in 0..reps + 3 {
+                    let t0 = Instant::now();
+                    $body;
+                    if r >= 3 {
+                        ts.push(t0.elapsed().as_secs_f64() * 1e3);
+                    }
+                }
+                rows.push(($name, med(&mut ts)));
+            }};
+        }
+        stage1(&mut prep);
+        append_all(&mut kv, &prep, &mut last);
+        seg!("full composed call", {
+            full(&mut kv, &mut prep, &mut att, &mut last)
+        });
+        stage1(&mut prep);
+        append_all(&mut kv, &prep, &mut last);
+        seg!("stage1 (clone+split+qk norm+rope), pooled 200 tasks", {
+            stage1(&mut prep)
+        });
+        seg!("  stage1 norm only", { stage1_part(&mut prep, true, 0) });
+        seg!("  stage1 rope only (per-head fixed_sin_cos, old)", {
+            stage1_part(&mut prep, false, 1)
+        });
+        seg!("  stage1 rope only (shared sin/cos, new)", {
+            stage1_part(&mut prep, false, 2)
+        });
+        seg!("  stage1 clones/copies only", {
+            stage1_part(&mut prep, false, 0)
+        });
+        seg!("prep calloc 200x5120 i64", {
+            std::hint::black_box(vec![0i64; k * stride]);
+        });
+        seg!("stage2 kv append x200 (serial)", {
+            append_all(&mut kv, &prep, &mut last)
+        });
+        seg!("stage3 attn (q cvt+core+readout), no gate", {
+            attn_all(&kv, &prep, &last, &mut att, false)
+        });
+        seg!("  core only (q cvt + softmax), no readout", {
+            core_only(&kv, &prep, &last, &mut att, false)
+        });
+        seg!("  core + readout", {
+            core_only(&kv, &prep, &last, &mut att, true)
+        });
+        seg!("stage3 output gate only, oracle loop (old)", {
+            gate_only(&prep, &mut att, false)
+        });
+        seg!("stage3 output gate only, sigmoid_gate (new)", {
+            gate_only(&prep, &mut att, true)
+        });
+        seg!("stage3 attn + gate", {
+            attn_all(&kv, &prep, &last, &mut att, true)
+        });
+        seg!("empty 1600-task dispatch", { empty_dispatch(&mut att) });
+        seg!("att calloc 200x2048 i64", {
+            std::hint::black_box(vec![0i64; k * q_out]);
+        });
+        seg!("tail: 200 to_vec gather", {
+            std::hint::black_box(tail(&att));
+        });
+        println!("--- attn layer segments, k={k} pos0=0 (median of {reps}, ms/call) ---");
+        let total = rows[0].1;
+        for (n, ms) in &rows {
+            println!("{ms:8.3} ms  {:5.1}%  {n}", 100.0 * ms / total);
+        }
     }
 }
