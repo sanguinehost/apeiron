@@ -237,7 +237,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 pub(super) const MODEL: &str = "~/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf";
-const IDS: &str = "~/q35-t5/prompt2.ids";
+pub(super) const IDS: &str = "~/q35-t5/prompt2.ids";
 const MODEL_SHA_PREFIX: &str = "37ae482d";
 
 // ---- host -------------------------------------------------------------------------------------
@@ -328,7 +328,7 @@ impl Load {
     }
 }
 
-fn loadavg() -> String {
+pub(super) fn loadavg() -> String {
     std::fs::read_to_string("/proc/loadavg")
         .unwrap_or_default()
         .trim()
@@ -336,7 +336,7 @@ fn loadavg() -> String {
 }
 
 /// Mean `scaling_cur_freq` (MHz) of cpus `lo..hi`.
-fn mean_mhz(lo: usize, hi: usize) -> f64 {
+pub(super) fn mean_mhz(lo: usize, hi: usize) -> f64 {
     let mut sum = 0.0;
     let mut n = 0.0;
     for c in lo..hi {
@@ -355,7 +355,7 @@ fn mean_mhz(lo: usize, hi: usize) -> f64 {
     }
 }
 
-fn freq_line() -> String {
+pub(super) fn freq_line() -> String {
     format!(
         "MHz P(cpu0-15) {:.0} E(cpu16-31) {:.0}",
         mean_mhz(0, 16),
@@ -431,7 +431,7 @@ pub(super) unsafe fn raw(p: &Part) -> &'static [u8] {
 }
 
 /// Runs one call through the production entry point and drops its output.
-fn run_call(c: &Call, qs: &[QuantAct]) -> bool {
+pub(super) fn run_call(c: &Call, qs: &[QuantAct]) -> bool {
     // SAFETY: the caller keeps the engine alive for the whole probe.
     unsafe {
         match c.kind {
@@ -474,7 +474,7 @@ fn run_call(c: &Call, qs: &[QuantAct]) -> bool {
     }
 }
 
-fn weight_bytes(c: &Call) -> u64 {
+pub(super) fn weight_bytes(c: &Call) -> u64 {
     c.parts
         .iter()
         .map(|p| (p.n_out * c.n_in / 32 * Q8_0_BLOCK_BYTES) as u64)
@@ -488,7 +488,7 @@ fn macs(c: &Call, k: usize) -> f64 {
         .sum()
 }
 
-fn tensor_names(e: &Engine) -> BTreeMap<usize, String> {
+pub(super) fn tensor_names(e: &Engine) -> BTreeMap<usize, String> {
     let mut m = BTreeMap::new();
     for t in e.table().entries() {
         if let Some(nb) = t.n_bytes {
@@ -500,7 +500,7 @@ fn tensor_names(e: &Engine) -> BTreeMap<usize, String> {
     m
 }
 
-fn strip_layer(n: &str) -> String {
+pub(super) fn strip_layer(n: &str) -> String {
     let mut it = n.splitn(3, '.');
     match (it.next(), it.next(), it.next()) {
         (Some("blk"), Some(l), Some(rest)) if l.parse::<usize>().is_ok() => format!("blk.*.{rest}"),
@@ -508,7 +508,7 @@ fn strip_layer(n: &str) -> String {
     }
 }
 
-fn layer_of(n: &str) -> usize {
+pub(super) fn layer_of(n: &str) -> usize {
     n.split('.')
         .nth(1)
         .and_then(|l| l.parse().ok())

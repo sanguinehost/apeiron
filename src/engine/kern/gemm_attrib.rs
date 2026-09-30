@@ -14,6 +14,9 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::needless_range_loop,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    clippy::borrow_as_ptr,
     reason = "measurement instrument: metrics on exact integer shapes, printed tables, test-only"
 )]
 
@@ -443,6 +446,537 @@ fn gemm_attrib_real_inputs() {
                     c.n_in
                 );
                 print_summary(&format!("{name} k={k} rpt={rpt}"), &s, reps);
+            }
+        }
+    }
+}
+
+// ---- in-engine versus isolated replay, at the production block width -------------------------
+
+/// Samples mean cpufreq (MHz) of the P and E cores every 5 ms until finished; samples carry [`now`].
+struct FreqSampler {
+    stop: std::sync::Arc<AtomicBool>,
+    h: Option<std::thread::JoinHandle<Vec<(u64, f64, f64)>>>,
+}
+
+impl FreqSampler {
+    fn start() -> Self {
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        let h = std::thread::spawn(move || {
+            let mut v = Vec::new();
+            while !s2.load(Relaxed) {
+                let t = now();
+                let p = crate::engine::kern::gemm_probe::mean_mhz(0, 16);
+                let e = crate::engine::kern::gemm_probe::mean_mhz(16, 32);
+                v.push((t, p, e));
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            v
+        });
+        Self { stop, h: Some(h) }
+    }
+    fn finish(mut self) -> Vec<(u64, f64, f64)> {
+        self.stop.store(true, Relaxed);
+        self.h.take().map(|h| h.join().unwrap()).unwrap_or_default()
+    }
+}
+
+/// `(minor faults, voluntary context switches, involuntary context switches)` of this process.
+fn rusage() -> (i64, i64, i64) {
+    // SAFETY: `getrusage` fills a caller-owned struct; all-zero is a valid initial value.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    (u.ru_minflt, u.ru_nvcsw, u.ru_nivcsw)
+}
+
+fn mean_in(v: &[(u64, f64, f64)], a: u64, b: u64) -> (f64, f64, usize) {
+    let s: Vec<_> = v.iter().filter(|x| x.0 >= a && x.0 < b).collect();
+    let n = s.len().max(1) as f64;
+    (
+        s.iter().map(|x| x.1).sum::<f64>() / n,
+        s.iter().map(|x| x.2).sum::<f64>() / n,
+        s.len(),
+    )
+}
+
+/// `(label, n_out sum, k, macs, ns)` of one recorded call.
+type Row = (String, usize, usize, f64, u64);
+
+fn rows_of(
+    cap: &[crate::engine::kern::gemm_probe::hooks::Call],
+    names: &std::collections::BTreeMap<usize, String>,
+) -> Vec<Row> {
+    use crate::engine::kern::gemm_probe::strip_layer;
+    cap.iter()
+        .map(|c| {
+            let n: Vec<String> = c
+                .parts
+                .iter()
+                .map(|p| strip_layer(names.get(&p.ptr).map_or("?", String::as_str)))
+                .collect();
+            let macs: f64 = c
+                .parts
+                .iter()
+                .map(|p| p.n_out as f64 * c.n_in as f64 * c.k as f64)
+                .sum();
+            (
+                format!("{:?} {} n_in={}", c.kind, n.join("+"), c.n_in),
+                c.parts.iter().map(|p| p.n_out).sum(),
+                c.k,
+                macs,
+                c.ns,
+            )
+        })
+        .collect()
+}
+
+fn by_label(rows: &[Row]) -> std::collections::BTreeMap<String, (usize, f64, f64)> {
+    let mut m = std::collections::BTreeMap::new();
+    for r in rows {
+        let e = m.entry(r.0.clone()).or_insert((0usize, 0.0f64, 0.0f64));
+        e.0 += 1;
+        e.1 += r.3;
+        e.2 += r.4 as f64;
+    }
+    m
+}
+
+/// In-engine GEMM calls at the production block width against an isolated back-to-back replay of
+/// the same calls (same weights, same columns, same order), plus the cold-start ramp.
+///
+/// Run: `APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_attrib_inengine -- --ignored --nocapture`.
+#[test]
+#[ignore = "release-only instrument: see the doc comment"]
+fn gemm_attrib_inengine() {
+    use crate::engine::kern::gemm_probe::{
+        hooks, loadavg, rebuild, run_call, tensor_names, wait_quiet, Load,
+    };
+    use crate::engine::loader::Engine;
+    use crate::engine::KernelMode;
+    if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+        println!("gemm_attrib_inengine: host lacks AVX-VNNI");
+        return;
+    }
+    let e = Engine::open(crate::engine::kern::gemm_probe::MODEL).expect("open model");
+    let ids = crate::engine::kern::gemm_probe::read_ids();
+    let names = tensor_names(&e);
+    let prefill = |e: &Engine| {
+        let mut st = e.state(ids.len() + 1).expect("state");
+        e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
+            .expect("prefill");
+    };
+    println!(
+        "== gemm_attrib_inengine == pp{} block {} pool width {}",
+        ids.len(),
+        crate::engine::step::prefill_block(),
+        crate::engine::chart::pool::Pool::global().width()
+    );
+    prefill(&e);
+    hooks::start(2);
+    prefill(&e);
+    let cap = hooks::stop();
+    println!("captured {} GEMM calls per prefill", cap.len());
+    let reps: usize = std::env::var("APEIRON_ATTRIB_REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(6);
+    // ---- A. in-engine: cold start after the idle gate, then hot repeats --------------------
+    let sampler = FreqSampler::start();
+    let (quiet, busy) = wait_quiet();
+    println!("gate quiet={quiet} busy={busy:.3} load {}", loadavg());
+    let mut runs: Vec<(Vec<Row>, u64, u64)> = Vec::new();
+    let mut ru: Vec<(i64, i64, i64)> = Vec::new();
+    let mut foreign = 0.0f64;
+    for _ in 0..reps {
+        let l = Load::begin();
+        let r0 = rusage();
+        hooks::start(1);
+        let t0 = now();
+        prefill(&e);
+        let t1 = now();
+        let c = hooks::stop();
+        let r1 = rusage();
+        ru.push((r1.0 - r0.0, r1.1 - r0.1, r1.2 - r0.2));
+        foreign = foreign.max(l.foreign());
+        runs.push((rows_of(&c, &names), t0, t1));
+    }
+    let samples = sampler.finish();
+    println!(
+        "-- A. in-engine prefill, consecutive after the idle gate (max foreign {foreign:.3}) --"
+    );
+    for (i, (rows, t0, t1)) in runs.iter().enumerate() {
+        let gemm_ns: u64 = rows.iter().map(|r| r.4).sum();
+        let macs: f64 = rows.iter().map(|r| r.3).sum();
+        let (p, en, n) = mean_in(&samples, *t0, *t1);
+        let wall = (t1 - t0) as f64 / 1e6;
+        println!(
+            "prefill {i}: wall {wall:.1} ms ({:.0} tok/s) gemm-call sum {:.1} ms = {:.1} GMAC/s; MHz P {p:.0} E {en:.0} ({n} samples); minor faults {} vol-cs {} invol-cs {}",
+            ids.len() as f64 / wall * 1e3,
+            gemm_ns as f64 / 1e6,
+            macs / gemm_ns as f64,
+            ru[i].0,
+            ru[i].1,
+            ru[i].2
+        );
+    }
+    for (tag, idx) in [("cold(0)", 0usize), ("hot(last)", reps - 1)] {
+        let rows = &runs[idx].0;
+        println!("  {tag}: per class, GMAC/s over the first / middle / last third of that class's calls:");
+        let mut cls: std::collections::BTreeMap<String, Vec<(usize, f64, u64)>> =
+            std::collections::BTreeMap::new();
+        for (i, r) in rows.iter().enumerate() {
+            cls.entry(r.0.clone()).or_default().push((i, r.3, r.4));
+        }
+        for (l, v) in &cls {
+            let n = v.len();
+            let third = |lo: usize, hi: usize| {
+                let (m, ns) = v[lo..hi]
+                    .iter()
+                    .fold((0.0, 0u64), |a, x| (a.0 + x.1, a.1 + x.2));
+                m / ns.max(1) as f64
+            };
+            let (a, b) = (n / 3, 2 * n / 3);
+            println!(
+                "    {l}: {n} calls, {:.1} / {:.1} / {:.1} GMAC/s, total {:.2} ms",
+                third(0, a.max(1)),
+                third(a, b.max(a + 1)),
+                third(b, n),
+                v.iter().map(|x| x.2).sum::<u64>() as f64 / 1e6
+            );
+        }
+    }
+    // ---- B. isolated replay of the same calls in the same order -----------------------------
+    let rebuilt: Vec<_> = cap.iter().map(|c| rebuild(&c.cols).0).collect();
+    let mut rep_runs: Vec<Vec<Row>> = Vec::new();
+    let mut rforeign = 0.0f64;
+    let (quiet, busy) = wait_quiet();
+    println!("-- B. isolated replay, same calls/order/weights, back to back (gate quiet={quiet} busy={busy:.3}) --");
+    for _ in 0..reps {
+        let l = Load::begin();
+        hooks::start(1);
+        for (c, qs) in cap.iter().zip(&rebuilt) {
+            run_call(c, qs);
+        }
+        let c = hooks::stop();
+        rforeign = rforeign.max(l.foreign());
+        rep_runs.push(rows_of(&c, &names));
+    }
+    println!("max foreign {rforeign:.3}");
+    let hot_in = by_label(&runs[reps - 1].0);
+    let cold_in = by_label(&runs[0].0);
+    let hot_rep = by_label(&rep_runs[reps - 1]);
+    println!("class: calls | in-engine cold ms, GMAC/s | in-engine hot ms, GMAC/s | replay hot ms, GMAC/s | hot in-engine / replay");
+    for (l, (n, m, ns)) in &hot_in {
+        let (_, _, cns) = cold_in[l];
+        let (_, rm, rns) = hot_rep[l];
+        println!(
+            "  {l}: {n} | {:.2} {:.1} | {:.2} {:.1} | {:.2} {:.1} | {:.3}",
+            cns / 1e6,
+            m / cns,
+            ns / 1e6,
+            m / ns,
+            rns / 1e6,
+            rm / rns,
+            ns / rns
+        );
+    }
+    let tot = |m: &std::collections::BTreeMap<String, (usize, f64, f64)>| {
+        m.values().fold((0.0, 0.0), |a, x| (a.0 + x.1, a.1 + x.2))
+    };
+    let (im, ins) = tot(&hot_in);
+    let (rm, rns) = tot(&hot_rep);
+    println!(
+        "TOTAL hot in-engine {:.2} ms {:.1} GMAC/s | replay {:.2} ms {:.1} GMAC/s | ratio {:.3}",
+        ins / 1e6,
+        im / ins,
+        rns / 1e6,
+        rm / rns,
+        ins / rns
+    );
+    // ---- C. traced prefill: phase ms against the hooked GEMM-call ms of the same pass ---------
+    let (quiet, busy) = wait_quiet();
+    println!("-- C. traced prefill (gate quiet={quiet} busy={busy:.3}) --");
+    for _ in 0..2 {
+        prefill(&e);
+    }
+    for pass in 0..3 {
+        let l = Load::begin();
+        crate::engine::trace::set_enabled(true);
+        crate::engine::trace::reset();
+        hooks::start(1);
+        let t0 = now();
+        prefill(&e);
+        let t1 = now();
+        let c = hooks::stop();
+        let stats = crate::engine::trace::snapshot();
+        crate::engine::trace::set_enabled(false);
+        let foreign = l.foreign();
+        let wall = (t1 - t0) as f64 / 1e6;
+        println!(
+            "traced pass {pass}: wall {wall:.1} ms ({:.0} tok/s), foreign {foreign:.3}",
+            ids.len() as f64 / wall * 1e3
+        );
+        if pass == 2 {
+            for s in stats.iter().filter(|s| !s.encloses) {
+                println!(
+                    "  phase {:<16} {:>8.2} ms calls {:>4} {}",
+                    s.name,
+                    s.ns as f64 / 1e6,
+                    s.calls,
+                    if s.macs > 0 {
+                        format!("{:.1} GMAC/s", s.macs as f64 / s.ns as f64)
+                    } else {
+                        String::new()
+                    }
+                );
+            }
+            for (l, (n, m, ns)) in by_label(&rows_of(&c, &names)) {
+                println!(
+                    "  hooked {l}: {n} calls {:.2} ms {:.1} GMAC/s",
+                    ns / 1e6,
+                    m / ns
+                );
+            }
+        }
+    }
+}
+
+/// Task-shape sweep at the production block width: for the six prefill shape classes, time the
+/// real call (layer-12 weights, real columns, k = `APEIRON_ATTRIB_K`, default 200) under each
+/// rows-per-task in `APEIRON_ATTRIB_RPT` (default `2,4,8,16,32`), rotating the order every round.
+///
+/// Run: `APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_attrib_shapes -- --ignored --nocapture`.
+#[test]
+#[ignore = "release-only instrument: see the doc comment"]
+fn gemm_attrib_shapes() {
+    use crate::engine::kern::gemm::TASK_ROWS_OVERRIDE;
+    use crate::engine::kern::gemm_probe::{
+        hooks, rebuild, run_call, take_k, tensor_names, wait_quiet, Load,
+    };
+    use crate::engine::loader::Engine;
+    use crate::engine::KernelMode;
+    if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+        println!("gemm_attrib_shapes: host lacks AVX-VNNI");
+        return;
+    }
+    let env_list = |k: &str, d: &str| -> Vec<usize> {
+        std::env::var(k)
+            .unwrap_or_else(|_| d.to_string())
+            .split(',')
+            .filter_map(|x| x.parse().ok())
+            .collect()
+    };
+    let ks = env_list("APEIRON_ATTRIB_K", "200");
+    let rpts = env_list("APEIRON_ATTRIB_RPT", "2,4,8,16,32");
+    let rounds: usize = std::env::var("APEIRON_ATTRIB_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(9);
+    let per: usize = std::env::var("APEIRON_ATTRIB_PER")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15);
+    if std::env::var("APEIRON_ATTRIB_NOTHP").is_ok() {
+        // SAFETY: `prctl(PR_SET_THP_DISABLE)` only changes this process's THP policy.
+        unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, 1, 0, 0, 0) };
+    }
+    // The engine keeps each call's outputs alive while other allocations sit above them, so the
+    // heap is never trimmed between GEMM calls; without this, run_call's immediate drop trims and
+    // the next call takes ~1400 page faults inside its tasks (measured: 2.8 ms vs 1.44 ms swiglu).
+    // SAFETY: `mallopt` only sets allocator parameters.
+    unsafe {
+        libc::mallopt(libc::M_TRIM_THRESHOLD, 1 << 30);
+        libc::mallopt(libc::M_TOP_PAD, 64 << 20);
+    }
+    let e = Engine::open(crate::engine::kern::gemm_probe::MODEL).expect("open model");
+    let ids = crate::engine::kern::gemm_probe::read_ids();
+    let names = tensor_names(&e);
+    let mut st = e.state(ids.len() + 1).expect("state");
+    e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
+        .expect("warm");
+    hooks::start(2);
+    let mut st = e.state(ids.len() + 1).expect("state");
+    e.prefill_state(&mut st, &ids, KernelMode::Q8Act)
+        .expect("prefill");
+    let cap = hooks::stop();
+    let nth: usize = std::env::var("APEIRON_ATTRIB_NTH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    let mut seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut picks = Vec::new();
+    for (i, r) in rows_of(&cap, &names).iter().enumerate() {
+        let n = seen.entry(r.0.clone()).or_insert(0);
+        *n += 1;
+        if *n == nth {
+            picks.push(i);
+        }
+    }
+    let shapes: Vec<String> = std::env::var("APEIRON_ATTRIB_SHAPES")
+        .map(|v| v.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    println!(
+        "== gemm_attrib_shapes == pool width {} rounds {rounds} calls/round {per}",
+        crate::engine::chart::pool::Pool::global().width()
+    );
+    for &ci in &picks {
+        let c = &cap[ci];
+        let label = rows_of(std::slice::from_ref(c), &names).remove(0).0;
+        let short = label.split_whitespace().next().unwrap_or("").to_string()
+            + &format!(
+                " n_in={} n_out={:?}",
+                c.n_in,
+                c.parts.iter().map(|p| p.n_out).collect::<Vec<_>>()
+            );
+        if !shapes.is_empty() && !shapes.iter().any(|s| label.contains(s.as_str())) {
+            continue;
+        }
+        for &k in &ks {
+            let cols = take_k(&c.cols, k);
+            let (qs, _) = rebuild(&cols);
+            // `APEIRON_ATTRIB_COPY=huge|small`: run on a copy of the weights in a 2 MiB-aligned
+            // mapping with MADV_HUGEPAGE (`huge`) or MADV_NOHUGEPAGE (`small`).
+            let copied = std::env::var("APEIRON_ATTRIB_COPY").ok().map(|m| {
+                let huge = m == "huge";
+                let parts = c
+                    .parts
+                    .iter()
+                    .map(|p| {
+                        let al = 2usize << 20;
+                        let len = p.len.div_ceil(al) * al;
+                        // SAFETY: anonymous private mapping, leaked for the test's lifetime; the
+                        // copy reads `p.len` bytes of the live engine buffer into it.
+                        unsafe {
+                            let m = libc::mmap(
+                                std::ptr::null_mut(),
+                                len + al,
+                                libc::PROT_READ | libc::PROT_WRITE,
+                                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                                -1,
+                                0,
+                            );
+                            assert_ne!(m, libc::MAP_FAILED);
+                            let base = (m as usize).div_ceil(al) * al;
+                            libc::madvise(
+                                base as *mut libc::c_void,
+                                len,
+                                if huge {
+                                    libc::MADV_HUGEPAGE
+                                } else {
+                                    libc::MADV_NOHUGEPAGE
+                                },
+                            );
+                            std::ptr::copy_nonoverlapping(
+                                p.ptr as *const u8,
+                                base as *mut u8,
+                                p.len,
+                            );
+                            hooks::Part {
+                                ptr: base,
+                                len: p.len,
+                                n_out: p.n_out,
+                            }
+                        }
+                    })
+                    .collect();
+                hooks::Call {
+                    kind: c.kind,
+                    n_in: c.n_in,
+                    k: c.k,
+                    parts,
+                    cols: Vec::new(),
+                    ctr: [0; hooks::N_CTR],
+                    ok: false,
+                    ns: 0,
+                }
+            });
+            let call = copied.as_ref().unwrap_or(c);
+            let macs: f64 = c
+                .parts
+                .iter()
+                .map(|p| p.n_out as f64 * c.n_in as f64 * k as f64)
+                .sum();
+            let mut samples: Vec<Vec<f64>> = vec![Vec::new(); rpts.len()];
+            let mut clean_flags: Vec<Vec<bool>> = vec![Vec::new(); rpts.len()];
+            let mut walls: Vec<Vec<(f64, f64)>> = vec![Vec::new(); rpts.len()];
+            let mut foreign = 0.0f64;
+            let (quiet, busy) = wait_quiet();
+            for r in 0..rounds {
+                for j in 0..rpts.len() {
+                    let ix = (j + r) % rpts.len();
+                    TASK_ROWS_OVERRIDE.store(rpts[ix], Relaxed);
+                    for _ in 0..3 {
+                        run_call(call, &qs);
+                    }
+                    let mut v = Vec::with_capacity(per);
+                    let mut last_f = 1.0;
+                    let mut last_wall = 0.0;
+                    let mut last_faults = 0.0;
+                    for attempt in 0..4 {
+                        let l = Load::begin();
+                        v.clear();
+                        let mut wall_sum = 0.0;
+                        let f0 = rusage().0;
+                        for _ in 0..per {
+                            hooks::start(1);
+                            let t = Instant::now();
+                            run_call(call, &qs);
+                            wall_sum += t.elapsed().as_secs_f64() * 1e3;
+                            let c = hooks::stop();
+                            v.push(c[0].ns as f64 / 1e6);
+                        }
+                        last_wall = wall_sum / per as f64;
+                        last_faults = (rusage().0 - f0) as f64 / per as f64;
+                        let f = l.foreign();
+                        last_f = f;
+                        foreign = foreign.max(f);
+                        if f < 0.05 || attempt == 3 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    samples[ix].push(v[v.len() / 2]);
+                    clean_flags[ix].push(last_f < 0.05);
+                    walls[ix].push((last_wall, last_faults));
+                }
+            }
+            TASK_ROWS_OVERRIDE.store(0, Relaxed);
+            println!(
+                "-- {short} k={k} (gate quiet={quiet} busy={busy:.3}; max foreign {foreign:.3})"
+            );
+            let med = |v: &Vec<f64>| {
+                let mut s = v.clone();
+                s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                s[s.len() / 2]
+            };
+            let bix = rpts.iter().position(|&x| x == 16).unwrap_or(0);
+            let base = samples[bix].clone();
+            for (ix, &rpt) in rpts.iter().enumerate() {
+                let good: Vec<usize> = (0..rounds)
+                    .filter(|&r| clean_flags[ix][r] && clean_flags[bix][r])
+                    .collect();
+                let m = med(&good.iter().map(|&r| samples[ix][r]).collect());
+                let ratios: Vec<f64> = good.iter().map(|&r| base[r] / samples[ix][r]).collect();
+                let ratios = if ratios.is_empty() {
+                    vec![f64::NAN]
+                } else {
+                    ratios
+                };
+                let w = walls[ix].last().copied().unwrap_or((0.0, 0.0));
+                let tasks: Vec<usize> = c.parts.iter().map(|p| p.n_out.div_ceil(rpt)).collect();
+                println!(
+                    "   rpt {rpt:>3} tasks {tasks:?}: median over {} clean rounds {m:.4} ms = {:.1} GMAC/s; speedup vs rpt16 per-round median {:.3} (min {:.3} max {:.3}); last-round wall incl. drop {:.3} ms, minor faults/call {:.0}",
+                    good.len(),
+                    macs / m / 1e6,
+                    med(&ratios),
+                    ratios.iter().copied().fold(f64::INFINITY, f64::min),
+                    ratios.iter().copied().fold(0.0, f64::max),
+                    w.0,
+                    w.1
+                );
             }
         }
     }
