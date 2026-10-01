@@ -133,3 +133,21 @@ CORPUS: actual chart::quant_act, QuantAct::dequantizes and gemm::exact_dot read;
 REFERENCE: /home/socol/Workspace/apeiron/src/engine/chart/mod.rs.
 GATE: MISSING initially; gate-first timeout540 python3 tools/gpu/quantizer_gate.py, from task worktree.
 GRADE: tested target; universal source/cost link and GPU throughput remain open.
+
+The narrowed representation task is APEIRON-GPU-PREFILL-W3-T2, Sol, in an isolated worktree:
+`proof/native/NarrowSource.lean`, `proof/native/NarrowRefinement.lean`,
+`proof/native/narrow_gate.py`. Dispatch requires the independent Luna verdict on the exact Charon
+sysroot, `nightly-2026-08-18`; the shell-default Rust sysroot is a different source identity.
+The real error is a single-field `TryFromIntError(IntErrorKind)` struct. A reviewed file-local
+alias may represent its extracted tuple erasure; the shared Unit model and tool pins stay fixed.
+The adapter rejects LLBC field/variant drift and preserves every generated conversion operation.
+Universal inclusive-range success, lower/upper refusal, boundary witnesses and closed-cone audits
+are required. The gate freshly extracts the actual std conversion, checks bridge/source identity,
+checks Lean and independently mutates lower/upper generated guards, then restores both.
+
+SCOPE: proof/native/NarrowSource.lean, NarrowRefinement.lean, narrow_gate.py; actual std narrowing.
+REGISTER: extraction/type representation/range refinement; no inference implementation change.
+CORPUS: actual std conversion and Aeneas IScalar.cast_inBounds_spec; no canonical ring claim.
+REFERENCE: /home/socol/Workspace/apeiron/target/aeneas-model/lean/Aeneas/Std/Scalar/Casts.lean.
+GATE: MISSING initially; gate-first python3 proof/native/narrow_gate.py --controls, whole budget540s.
+GRADE: proved target for this scalar conversion only; shader and aggregate source-cost links open.
