@@ -637,8 +637,12 @@ shares only — the release binary carries no DWARF and fp unwinding truncates) 
 block in `matches()` at 27.81% of `spill_read` self time, whose hottest instruction is the dependent
 address formation for the 24-byte-stride slot payload. The candidate slot-order change was refuted
 by an interleaved measurement (E6.W2c: delta −0.19 ± 0.75 ns/key, and both instantiations
-instruction-identical in disassembly), so that route is closed; the remaining candidates are
-structural, and a flat open-addressed spill region prototype is next (E6.W2d).
+instruction-identical in disassembly), so that route is closed. The structural route is confirmed:
+a flat open-addressed spill region prototype measured 1.17 ns/key against the canonical 7.90 in the
+same process (6.7×, below the resident anchor; E6.W2d), so the port's target is the descent — one
+load per probe step where the canonical carries dependent header loads, stack round-trips and a
+serial summary bit-loop. The port's absence/Grow contract is with Sol (E6 escalation), and a
+verification re-measure runs as E6.W2e.
 
 **The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
 bits the shard selector reads, so a population folding those bits matched every lane of every
