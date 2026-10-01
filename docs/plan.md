@@ -476,6 +476,95 @@ extracted or measured result, and no speed recovery is claimed.
    foundation, the joint primitive correspondence and the named profiles are also required before
    the next large implementation opens.
 
+## Phasing: epics, waves, tasks — draft for review
+
+**Fleet assumption.** About 50 agents available, 10 lanes, and **at most 3 simultaneous heavy Lean
+checks** (about 44 GiB; ten 12 GiB scopes would reserve 120 GiB). Isolated caches; one owner per
+file; one writer per shared build product.
+
+**Vocabulary.** `epic → wave → task → subtask`. A **wave** is a parallel batch: its tasks hold
+disjoint files and run concurrently, and the wave closes only when every task's gate and its control
+are green on the same source/tool identity. A **task** owns ≤3 files, one gate, one control and one
+arc. A **subtask** is one agent's unit inside a task — one file edit and one gate run. IDs are
+`APEIRON-<EPIC>-W<wave>-T<task>`; every wave below names its files and gate, so nothing is a bare
+code.
+
+**Lane budget.** Each wave declares agents (≤50), lanes used (≤10) and heavy Lean checks (≤3). A wave
+wanting more than 3 heavy checks splits into sub-waves; a wave whose tasks are gate-heavy but not
+Lean-heavy (cargo, docs, schema) can use all 10 lanes.
+
+**Anti-duplication.** Before dispatch the wave's file sets are intersected mechanically; two tasks
+naming one file is a planning error, not a merge. Two tasks over one source body is the same error:
+`Table::relocate_all` was modelled twice (`StoredRelocateAll`, `RegenRelocateAll`) and one was
+wasted. The wave table is the check, and `gate docs check` automates it once wired.
+
+### E1 — Gate and receipt machinery (Rust, `tools/gate`)
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | freeze the conformance record for the 34 `proof/resource/*_gate.py`: green markers, named mutation red | `docs/artifacts.toml`, `tools/gate/conformance.json` | record matches a re-run of a sample | 4 | 0 |
+| W2 | extract `admit` through Charon/Aeneas and refine it | `proof/gate/Admission*.lean`, `tools/gate/core.rs` | `proof/regen.sh --check` on the gate root | 1 | 1 |
+| W3 | manifest schema + loader; adapter (fs, hashing, subprocess, locks, budget) | `docs/artifacts.toml`, `tools/gate/adapter.rs`, `tools/gate/main.rs` | `cargo test --manifest-path tools/gate/Cargo.toml` | 2 | 0 |
+| W4 | aggregate `gate docs check --controls`; wire into dispatch and the wave barrier | `tools/gate/main.rs`, `docs/plan.md` | the aggregate on the repo, controls red then green | 1 | 0 |
+| W5 | pilot: RowDot under the standard cone via `tools/gate`, parity with its deleted script | `proof/resource/RowDot.gate.toml` | parity + retirement receipt | 1 | 1 |
+| W6 | migrate the remaining 33, batched 5 per wave | `proof/resource/<module>.gate.toml` | each equals its frozen record | 5/wave | ≤2 |
+| W7 | delete every `*_gate.py`; reject new ones | `proof/resource/` | none remain; rejection control | 2 | 0 |
+
+### E2 — Receipt consolidation (option C)
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | fold the per-run wrappers and the stray lane docs into indexed receipts (bench done; reviews, intent-lane docs remain) | `docs/evidence/`, `artifacts/<kind>/ledger.jsonl` | every receipt has an index row | 4 | 0 |
+| W2 | reachability gate for removals | `tools/rooting/retire_check.py` | deletion without a receipt is refused | 1 | 0 |
+| W3 | delete the absorbed documents; classify the root junk | `docs/`, repo root | no dangling citation | 2 | 0 |
+
+### E3 — Source-cost models (the outstanding returns)
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | LmHead `row_body_visit` bind blocker | `proof/resource/LmHeadResource.lean` | `LmHead_gate.py --controls` | 1 | 1 |
+| W2 | `regen_relocate_entry` gate + commit (returned) | `proof/resource/RegenRelocateEntry*` | its gate | 1 | 0 |
+| W3 | `exact_dot` loop work measure (bind over a pattern binder) | `proof/resource/ExactDotResource.lean` | its gate + mutation | 1 | 1 |
+| W4 | `matvec` and `RowDotAdmission` completion | `proof/resource/MatvecResource.lean`, `RowDotAdmission.lean` | their gates | 2 | 2 |
+| W5 | `RegenRelocateAll` closed as a duplicate of `StoredRelocateAll` | — | retirement receipt, no second model | 1 | 0 |
+
+### E4 — Extraction freshness
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | move `dequant_f32_row` into `src/engine/f32_convert.rs`; point `loader.rs` at it | `src/engine/{mod,f32_convert,loader}.rs` | `cargo build --manifest-path proof/extract/Cargo.toml` exit 0 | 1 | 0 |
+| W2 | close the `SOURCE_FILES` digest gap for the mirrored sources | `proof/regen.sh` | digest list covers every mirrored path | 1 | 0 |
+| W3 | clear the E0514 sysroot mismatch; regenerate `ApeironWord.lean` | `proof/ApeironWord.lean` | `proof/regen.sh --check` | 1 | 1 |
+| W4 | attn-family re-proof against the regenerated root | `proof/corpus/` | `cd proof/corpus && lake build` | 1 | 1 |
+
+### E5 — Apeiron–Intent engine
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | the three corrections: D7 rebase epoch, D2 cost bound, loop-brief target | `intent/docs/EVOLVER.md`, `intent/crates/intent-core/src/selection.rs`, `docs/epics/apeiron-intent-loop.md` | each names its new statement and its control | 3 | 0 |
+| W2 | Ring 6 gate `ring6_selection.rs` with its four controls | `intent/crates/intent-cli/tests/ring6_selection.rs` | `cargo test -p intent-cli --test ring6_selection` | 1 | 0 |
+| W3 | evaluator and isolation repairs (Ring 2 `--unshare-pid`) | `intent/crates/` | the named probes | 2 | 0 |
+| W4 | runtime linkage and canonical rooting of the admission cores | `intent/Cargo.toml`, `intent/crates/intent-core/` | executing-source correspondence to `Apeiron.Table` | 2 | 1 |
+| W5 | calibration: ≥30 paired incumbent reruns | `intent/runs/`, receipts | registered population, no protocol change | 1 | 0 |
+| W6 | five candidate screens (matched settings, one cap per cell) | `intent/runs/` | each candidate's own control | 5 | 0 |
+| W7 | one complete improvement cycle | receipts under `artifacts/` | the full acceptance barrier | 2 | 0 |
+| W8 | second cycle driven by the first cycle's evidence | as W7 | as W7 | 2 | 0 |
+
+### Dependencies and the critical path
+
+`E4.W1 → E4.W3 → E4.W4` gates any new extraction. `E1.W2 → E1.W4` gates dispatch wiring.
+`E1.W5 → E1.W6` gates the script deletion. `E5.W2 → E5.W7` gates an accepted cycle. `E3` and `E2`
+run in parallel with all of these: they are cargo- and document-bound, not Lean-bound, so they use
+lanes the Lean waves leave free.
+
+### Questions for review
+
+1. Is 3 heavy Lean checks the right cap, or should the measurement scale to the source of the 44 GiB?
+2. Does `E1.W6` batch at 5 modules per wave, or is 10 lanes with ≤2 heavy the better packing?
+3. Should `E3.W5` delete `RegenRelocateAllSource.lean` now, or retain it until `StoredRelocateAll`'s
+   gate is re-run under the new driver?
+4. Does `E5` start before `E4` closes, given Ring 6 needs no extraction?
+
 ## Outstanding obligations
 
 Each item is open, not a completed result:
