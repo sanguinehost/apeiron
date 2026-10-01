@@ -252,3 +252,48 @@ The next bounded proof task connects a costed trace to the actual generated inne
 handwritten32B recurrence alone is model evidence. No runtime optimization is allocated from it.
 Signed cooperative block tiles and guarded exponent factoring remain read-only candidates;
 capability properties and fixture eligibility establish no throughput ratio.
+
+## Finite loop-trace prerequisite
+
+Intent: the actual extracted exact_dot loops call Aeneas.Std.loop, whose WP theorem proves a
+postcondition without a counted trace. A recurrence over a substitute body cannot establish
+source cost. Add a reusable finite trace which observes the actual body and prove its value
+projection to that exact loop definition before using it for Rust lane counts.
+
+Spec: for any state/result types, deterministic Result-valued body and state charge in Nat,
+a finite trace has continuation edges observed from body, then success or failure. Count the
+charge at every visited body state, including the terminal/failing state. Prove result projection
+and uniqueness of result/count. Divergence has no finite trace and is excluded from this finite
+certificate; do not claim universal termination. Joint witnesses cover zero-continuation success,
+continuation success, immediate and later failure. An inductively proved countdown family with
+charge1 on continuation states and0 on termination has n charged visits; instantiate n=32.
+This is a generic Aeneas model theorem, not a Rust extraction, constructor, lane-denotation,
+resource-improvement or hardware claim. Actual loop/source cost remains a following task.
+
+Plan: APEIRON-GPU-PREFILL-W4-T1, Sol writer, Luna independent verifier, owns only
+proof/native/LoopTrace.lean and proof/native/loop_trace_gate.py in its isolated task worktree.
+Gate-first task: `python3 proof/native/loop_trace_gate.py --controls`, one540s budget including
+lane wait and all descendants; Lean12GiB/no swap/one thread. Bind the actual pinned
+Aeneas/Std/Primitives.lean, dependency/model sources, tool identities and owned artifacts;
+validate source identity before private COW use, then freshly compile/audit all owned declarations
+under the closed cone. Change the actual private loop's done branch from `ok x` to `fail .panic`:
+mutant model compiles but named projection/success witness must fail; restore exact bytes,
+recompile model and recheck proof. No shared model or inference changes. A malformed proof or
+unrelated build failure is not that negative control. Absent gate starts red; runtime feasibility
+within540s remains unmeasured until the full invocation exits. Root owns merge and cache lane.
+
+SCOPE: LoopTrace.lean and loop_trace_gate.py; finite trace of actual Aeneas loop and projection.
+REGISTER: generic model/count refinement infrastructure; no Rust or GPU cost certificate.
+CORPUS: Aeneas/Std/Primitives.lean loop and Aeneas/Std/WP.lean loop.spec_decr_nat read; no existing trace/count theorem found.
+REFERENCE: /home/socol/Workspace/apeiron/target/aeneas-model/lean/Aeneas/Std/Primitives.lean.
+GATE: MISSING; gate-first python3 proof/native/loop_trace_gate.py --controls;540s whole invocation.
+GRADE: proved target for generic finite loop model; Rust/source-resource and performance open.
+
+Independent Luna accepts this generic finite scope in
+/tmp/opencode/native-loop-trace-plan-review.md. Result is an ITree representation; preserve the
+exact failure error and failing-state charge, rather than replacing it with Option. A private
+lean_lib NativeLoopTrace rooted at LoopTrace supports the focused
+`lake build NativeLoopTrace:leanArts` import-closure gate. It freshly rebuilds the actual
+Primitives import after every mutation/restoration. The actual loop source SHA256 is
+702946866c83fa0bb8b9d2a248c14164d38aa15e1eebd67caf4f39b0076d0ff8.
+No generic finite witness proves termination, reachability or a cost for Rust exact_dot.
