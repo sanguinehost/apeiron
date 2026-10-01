@@ -519,7 +519,7 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
-| W1 | fold the per-run wrappers and the stray lane docs into indexed receipts (bench done; reviews, intent-lane docs remain) | `docs/evidence/`, `artifacts/<kind>/ledger.jsonl` | every receipt has an index row | 4 | 0 |
+| W1 | index the evidence receipts — **landed** `003bfad` (66 rows: 61 receipt, 2 log, 3 figure) at `docs/evidence/ledger.jsonl`; the index sits beside the files it indexes and records the kind per row, rather than being split across `artifacts/<kind>/`. Remaining: fold the per-run wrappers and the stray lane docs (bench done; reviews, intent-lane docs remain) | `docs/evidence/ledger.jsonl`, `docs/evidence/` | every receipt has exactly one index row | 4 | 0 |
 | W2 | reachability gate for removals | `tools/rooting/retire_check.py` | deletion without a receipt is refused | 1 | 0 |
 | W3 | delete the absorbed documents; classify the root junk | `docs/`, repo root | no dangling citation | 2 | 0 |
 
