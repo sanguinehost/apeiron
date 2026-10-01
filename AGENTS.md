@@ -256,13 +256,20 @@ cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Proof regeneration (requires the pinned Aeneas/Charon under `target/aeneas/` or `AENEAS_HOME`):
+Proof regeneration (requires the pinned Aeneas/Charon under `target/aeneas/` or `AENEAS_HOME`, plus
+the patched Lean backend that `proof/lakefile.lean:19` requires):
 
 ```sh
+proof/model-patches.sh     # build target/aeneas-model/lean from the backend plus the model patch
 proof/regen.sh             # extract, audit, build
 proof/regen.sh --check     # fail on drift from the committed ApeironWord.lean
 AENEAS_HOME=/path/to/aeneas proof/regen.sh
 ```
+
+`proof/model-patches.sh` takes no arguments, has no `--check`, and rebuilds
+`target/aeneas-model/lean` in place; `proof/README.md` carries the ordered route from a clean
+checkout. Step 2 cannot be skipped: `target/` is gitignored, so neither tree exists in a fresh
+clone.
 
 Bridge build (canonical corpus plus the refinement package):
 
