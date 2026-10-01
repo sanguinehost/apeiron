@@ -219,3 +219,47 @@ F4, Penglai P3–P5, Song S9) that need no heavy Lean. That is how 10 lanes stay
    current evidence only?
 4. Is the per-repo barrier order the right cross-repo rule, or does a shared wave counter run across
    all repos?
+
+### 9.1 Owner decisions on the phasing
+
+1. **Song — dispatch the inventories now.** A0/K2 work continues alongside bounded inventories for
+   A1–A7 and B6. An inventory identifies actual source paths, dependencies, missing gates and the next
+   independent tasks; implementation waves open as those prerequisites clear.
+2. **Penglai 7 — one bounded spike alongside 5/6**, with a precise question and a stop condition. Its
+   return establishes a usable contract, a counterexample or the smallest missing derivation.
+   Milestone closure stays separate from exploratory results.
+3. **Webfold — current evidence first, the rest retained.** Dispatch repairs with reproducible
+   counterexamples first; give historical or unmeasured high-impact findings bounded *reproduction*
+   tasks (age alone does not discharge them); deduplicate overlapping findings by mechanism and
+   affected population before counting tasks.
+4. **Per-epic dependency barriers, one global resource scheduler.** The scheduler owns memory, cache
+   ownership, file ownership and verification capacity. Independent epics in one repository run
+   concurrently; cross-repository dependencies create explicit connecting barriers. A shared wave
+   counter adds little.
+
+### 9.2 Corrections before dispatch
+
+- **The task totals are estimates.** A 540 s gate ceiling does not establish an hour per wave:
+  implementation, proof search, retries and integration also consume time. Forecast completion from
+  the drained wave's observed turnaround and acceptance rate. "One full pass" means every obligation
+  gets a **disposition** — accepted, rejected, blocked or explicitly deferred.
+- **E3 is substantial Lean work.** Source-cost proofs and `RowDotAdmission` are not cargo/document
+  fillers. Classify each task's actual resource demand; keep three heavy Lean checks as the initial
+  cap and adjust from measured peaks.
+- **Do not delete `RegenRelocateAll` for sharing a source body.** Compare carrier assumptions,
+  domains, refusals and claimed resource properties; reuse a common extraction where appropriate and
+  retain distinct obligations where the contracts differ.
+- **Ecosystem coverage is implicit.** Add explicit disposition rows for `sanguine`/`sanguine-apeiron`,
+  `TorchLean` and Whispering Tides; a Song application profile covers one interface slice, not the
+  application programme.
+- **Replace the per-child gate placeholders before dispatch.** Each task needs its exact command,
+  owned paths, rejecting control, budget and prerequisite identities. These tables are the programme
+  map; that registry is the executable schedule.
+
+### 9.3 First batch
+
+Prioritise the Rust gate/receipt machinery, extraction repair, Intent's selection controls and Song's
+verification integrity; fill independent capacity with Penglai and Webfold work. Integrate
+continuously and replenish from ready tasks. Progress is accepted, reusable results — and completed
+improvement cycles — across the ecosystem. The main architectural choices are settled: most remaining
+work proceeds through bounded tasks without re-escalating to the owner.
