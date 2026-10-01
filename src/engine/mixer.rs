@@ -300,12 +300,13 @@ pub(crate) enum Carrier {
     F32,
 }
 
-/// Reads `APEIRON_F32_CARRIER` once via `OnceLock`. "1" resolves to `Carrier::F32`, else `Carrier::Q32`.
+/// Reads `APEIRON_F32_CARRIER` once via `OnceLock`. The `f32` carrier is the default
+/// (it is the path the prefill receipts measure); `"0"` selects the Q32.32 carrier.
 pub(crate) fn carrier_from_env() -> Carrier {
     static CARRIER: std::sync::OnceLock<Carrier> = std::sync::OnceLock::new();
     *CARRIER.get_or_init(|| match std::env::var("APEIRON_F32_CARRIER").as_deref() {
-        Ok("1") => Carrier::F32,
-        _ => Carrier::Q32,
+        Ok("0") => Carrier::Q32,
+        _ => Carrier::F32,
     })
 }
 
