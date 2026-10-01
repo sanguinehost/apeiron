@@ -297,3 +297,21 @@ lean_lib NativeLoopTrace rooted at LoopTrace supports the focused
 Primitives import after every mutation/restoration. The actual loop source SHA256 is
 702946866c83fa0bb8b9d2a248c14164d38aa15e1eebd67caf4f39b0076d0ff8.
 No generic finite witness proves termination, reachability or a cost for Rust exact_dot.
+
+The first finite-trace gate exits0 in13.553s but remains unaccepted: independent Luna identifies
+omitted AeneasMeta sources in the prepared9574-file manifest, including the directly imported
+BvEnumToBitVec helper. Retain that receipt as provenance-incomplete. Root prepares a supplemental
+manifest from the immutable pinned Aeneas git blobs, including AeneasMeta.lean and every
+AeneasMeta/**/*.lean file; compare both named-cache and main model bytes to those blobs. A
+corrupted prepared-source digest must reject; restoring the expected digest passes. Sol then
+extends only loop_trace_gate.py to validate the supplemental source population, freshly rebuild
+and bind the imported helper's artifact, and rerun the complete projection/semantic-control gate.
+The finite Trace contract and theorem source stay unchanged. Luna reviews the corrected frozen
+candidate. No performance/admission claim follows from either receipt.
+
+SCOPE: target/native-step-model-cache/meta-source-identity.json preparation; root-owned cache provenance only.
+REGISTER: source/tool dependency identity; no proof or cache receipt substitutes for fresh checking.
+CORPUS: pinned505b6ca35217e7be5c96c3e2f8045edfbdf47291 backends/lean/AeneasMeta sources.
+REFERENCE: /home/socol/Workspace/aeneas; pinned git blobs, not mutable HEAD.
+GATE: timeout60 supplemental source-identity preparation/check; injected digest mismatch rejects/restores.
+GRADE: tested prepared identity target; generic trace acceptance requires its fresh repaired gate.
