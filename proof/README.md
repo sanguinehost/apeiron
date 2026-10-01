@@ -585,19 +585,26 @@ reproducibility of a patched tool build.
 
 ### Patched tool sources
 
-The two source changes the patched binaries were built from are under `proof/patches/`, each pinned
-to its upstream base:
+`proof/patches/` holds **three** patches, not two: two are source changes to the tool build, and the
+third is a Lean-library change to the backend that the patched binaries never compile in.
 
-| patch | base commit | base git tree |
-| --- | --- | --- |
-| `patches/charon-repeat-optional-trait.patch` | `b104e24fea7d721b71e6c39fd70f26ff20bc0980` | `784a177101bbfd956047ac2ee1b7335d4c057b7b` |
-| `patches/aeneas-array-repeat.patch` | `505b6ca35217e7be5c96c3e2f8045edfbdf47291` | `af23d5d9d866050c2158700cedab07501443bcdd` |
+| patch | base | applied by | rebuilds binaries |
+| --- | --- | --- | --- |
+| `patches/charon-repeat-optional-trait.patch` | Charon `b104e24fea7d721b71e6c39fd70f26ff20bc0980`, tree `784a177101bbfd956047ac2ee1b7335d4c057b7b` | `install-patches.sh` | yes |
+| `patches/aeneas-array-repeat.patch` | Aeneas `505b6ca35217e7be5c96c3e2f8045edfbdf47291`, tree `af23d5d9d866050c2158700cedab07501443bcdd` | `install-patches.sh` | yes |
+| `patches/aeneas-lean-model.patch` | installed `backends/lean` from the pinned archive above (no git base) | `model-patches.sh` | no |
 
-`patches/PINS` records, for each base, the commit, the git tree and the sha256 of every base file
-the patch modifies. The patch files are the exact `git diff` of the source working trees the
-patched binaries were built from; patch sha256
+`patches/PINS` records, for each of the two upstream bases, the commit, the git tree and the sha256
+of every base file the patch modifies — 9 base files, 6 under Charon and 3 under Aeneas. The two
+tool-build patch files are the exact `git diff` of the source working trees the patched binaries were
+built from; patch sha256
 `c6099150efe8416a0495205a6bdf23925b9c79f2ecd6ca7a25335d0ae89e21c9` (Charon) and
-`7c8920f3fe994cc6e1f5f05108318297e2869165e578bdb960279833f3f5d9f0` (Aeneas).
+`7c8920f3fe994cc6e1f5f05108318297e2869165e578bdb960279833f3f5d9f0` (Aeneas). The model patch is not
+listed in `PINS` and `install-patches.sh` does not apply it: its base is the unpacked archive, not a
+git checkout, so the archive digest above is what pins it. It touches 8 files under `Aeneas/Std`
+(`Vec.lean`, `String.lean`, `Core/{Cmp,CoreOption,CoreResult}.lean`,
+`Scalar/{Casts,Ops}.lean`, `Scalar/WrappingOps/Shl.lean`); sha256
+`64054e6b2d7f71f1a1c6a40d10e61f8e6b69163c23bc52f1bc5ef9f756540575`.
 
 `install-patches.sh` locates a source checkout, verifies its `HEAD` commit, git tree and base file
 digests against `PINS`, then checks or applies both patches. The Charon source defaults to
@@ -617,6 +624,37 @@ of local edits. It exits nonzero on a base commit, tree or file-digest mismatch,
 does not apply. Install mode applies the patches to the checkout and skips a patch already applied;
 the two modes were exercised against a fresh checkout of both pinned revisions, and the applied
 working-tree diff is byte-identical to the patch files.
+
+### Route from a clean checkout to a built `proof/`
+
+`proof/lakefile.lean:19` is `require aeneas from "../target/aeneas-model/lean"`, and the committed
+`proof/lake-manifest.json:9` records `"dir": "../target/aeneas-model/lean"` for that package. `/target`
+is gitignored, so a clean checkout has neither `target/aeneas/` nor `target/aeneas-model/`, and the
+order is fixed:
+
+| step | command | what performs it |
+| --- | --- | --- |
+| 1. install the pinned tools | unpack the archive above into `target/aeneas/`, or point `AENEAS_HOME` at an installation | manual unpack; `regen.sh:18` defaults `AENEAS_HOME` to `target/aeneas` and, when it is set elsewhere, `regen.sh:19-24` symlinks `target/aeneas` to it |
+| 2. materialise the patched Lean model | `proof/model-patches.sh` | copies `${AENEAS_HOME:-$REPO_DIR/target/aeneas}/backends/lean` to `target/aeneas-model/lean` and applies `patches/aeneas-lean-model.patch` with `patch -p1 --forward` |
+| 3. extract, audit and build `proof/` | `proof/regen.sh`, or `proof/regen.sh --check` | extraction reads `LEAN_BACKEND="$AENEAS_HOME/backends/lean"` (`regen.sh:29`), the unpatched installed backend; its `lake build` (`regen.sh:270`) resolves the `aeneas` path dependency from step 2 |
+| 4. build the bridge | `cd proof/corpus && lake build` | `proof/corpus/lakefile.lean` |
+
+Step 2 precedes step 3 because `lake` resolves `../target/aeneas-model/lean` before any module is
+built, and `regen.sh` does not create it. `model-patches.sh` parses no arguments: it has no `--help`
+and no `--check`, and it always removes and rebuilds the destination. It symlinks
+`proof/.lake/packages` to `target/aeneas-model/lean/.lake/packages`; `ln -sfn` succeeds on an absent
+target, so the symlink is created before step 3 populates that directory.
+
+The model exists because the pinned release does not model the externals the growable table reaches
+and carries no `Vec` capacity: `proof/lakefile.lean:14-18` lists them (`Vec` capacity,
+`try_reserve`/`try_reserve_exact`/`truncate`/`clear`, `Ord::max` taking its `Ord` instance, and
+`Option::{as_ref,Try::branch,Try::from_residual}` / `Result::is_err`). Extraction runs against the
+unpatched backend and the model supplies the missing Lean definitions, so step 2 changes the built
+package, not the generated file. `proof/strip-modeled-axioms.py`, run by `regen.sh` after generation,
+removes the axiom stubs the model now supplies.
+
+Run Lean from the package directory, as `cd proof/corpus && lake build`; never `lake -d` from a
+directory without that package's `lean-toolchain` (`AGENTS.md` §10).
 
 ## What this does not establish
 

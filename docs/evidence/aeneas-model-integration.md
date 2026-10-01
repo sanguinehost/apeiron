@@ -21,8 +21,8 @@ in `proof/` completes 1708 jobs.
 
 ### Tool model patch — `proof/patches/aeneas-lean-model.patch` (sha256 `81ae0e16…`)
 Applied by `proof/model-patches.sh` to build `target/aeneas-model/lean` from the installed backend
-(`target/aeneas/backends/lean`), which `proof/lakefile.lean` now requires. It is a **Lean-library**
-change; no Charon/Aeneas OCaml rebuild. Four files:
+(`target/aeneas/backends/lean`), which `proof/lakefile.lean:19` now requires. It is a **Lean-library**
+change; no Charon/Aeneas OCaml rebuild. Four files at the recorded base:
 
 - `Aeneas/Std/Vec.lean`: `Vec` carries `cap : Usize`; `eq_iff`/`ext` become value ∧ capacity;
   `from`/`ofSlice`/`with_capacity`/`set*`/`update`/`clone`/`index_mut` maintain it; adds
@@ -33,6 +33,14 @@ change; no Charon/Aeneas OCaml rebuild. Four files:
 - `Aeneas/Std/Core/CoreOption.lean`: models `Option.as_ref`, `Option.Try.branch`,
   `Option.Try.from_residual`.
 - `Aeneas/Std/Core/CoreResult.lean`: models `Result.is_err`.
+
+The patch has since grown past this receipt's base: it now touches 8 files, adding
+`Aeneas/Std/Scalar/{Casts,Ops}.lean`, `Aeneas/Std/Scalar/WrappingOps/Shl.lean` and
+`Aeneas/Std/String.lean` (`rg -o '^\+\+\+ b/(\S+)' -r '$1' proof/patches/aeneas-lean-model.patch |
+sort -u`), at sha256 `64054e6b2d7f71f1a1c6a40d10e61f8e6b69163c23bc52f1bc5ef9f756540575`. The file list
+and digest above are the state at the recorded base, not the current file. The build route from a
+clean checkout is in `proof/README.md` §"Route from a clean checkout to a built `proof/`"; this
+receipt is not the route.
 
 ### Source fixes (semantics-preserving)
 - `src/coord/locator_core.rs:73`: the associated type bound `Retained: Clone + Eq` becomes
