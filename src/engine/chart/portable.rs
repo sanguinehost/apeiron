@@ -2,10 +2,7 @@
 //! fallback and the equality oracle for `x86`. Every function here is a plain scalar loop whose
 //! result is the exact value the corresponding `#[target_feature(enable = "avx2")]` core returns;
 //! that equality is `tested` (`chart::tests`), not extracted.
-use crate::format::quant::{
-    self, Q4_K_BLOCK_BYTES, Q4_K_SCALE_SIZE, Q5_0_BLOCK_BYTES, Q5_0_QK, Q6_K_BLOCK_BYTES,
-    Q8_0_BLOCK_BYTES, Q8_0_QK,
-};
+use crate::format::quant::QK_K;
 
 use super::ACT_QK;
 
@@ -238,70 +235,63 @@ pub(super) fn group_xsum(xq: &[i8], xbase: usize, take: usize) -> i32 {
     acc
 }
 
-/// Portable `Q8_0` fast row (no AVX2): one 32-lane dot per block and one `i128` fold of
-/// `S_b·(d_b·I_b)` per block.
+/// Portable `Q8_0` fast row (no AVX2).
 ///
 /// # Complexity
 ///
 /// `O(n_in)` time in exact integer multiply-adds, `O(1)` extra space.
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
 pub(super) fn q8_0_row_portable(
     row: &[u8],
     blocks: usize,
     codes: &[i8],
     scales: &[i64],
 ) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut blk = 0usize;
-    while blk < blocks {
-        let off = blk * Q8_0_BLOCK_BYTES;
-        let bits = u16::from_le_bytes([row[off], row[off + 1]]);
-        let d = f16_to_fixed_fast(bits)?;
-        let code_window = &row[off + 2..off + 2 + Q8_0_QK];
-        let xbase = blk * ACT_QK;
-        let dot = portable_u8_i8_dot(code_window, &codes[xbase..xbase + ACT_QK]);
-        // `|S_b·I_b| ≤ S_max·(32·128·127) ≤ i64::MAX` by [`q8act_fast_bound_ok`].
-        let scaled_dot = scales[blk] * i64::from(dot);
-        acc += i128::from(d) * i128::from(scaled_dot);
-        blk += 1;
-    }
-    Some(acc)
+    super::q8act_accumulate_row_portable::<super::Q8_0Decoder>(
+        row,
+        blocks * ACT_QK,
+        codes,
+        scales,
+        &[],
+    )
 }
 
-/// Portable `Q5_0` fast row (no AVX2): one 32-lane fifth-bit decode plus dot per block and one
-/// `i128` fold of `S_b·(d_b·I_b)` per block.
+/// Portable `Q5_0` fast row (no AVX2).
 ///
 /// # Complexity
 ///
 /// `O(n_in)` time in exact integer multiply-adds, `O(1)` extra space.
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
 pub(super) fn q5_0_row_portable(
     row: &[u8],
     blocks: usize,
     codes: &[i8],
     scales: &[i64],
 ) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut blk = 0usize;
-    while blk < blocks {
-        let off = blk * Q5_0_BLOCK_BYTES;
-        let bits = u16::from_le_bytes([row[off], row[off + 1]]);
-        let d = f16_to_fixed_fast(bits)?;
-        let qh = &row[off + 2..off + 6];
-        let qs = &row[off + 6..off + 6 + Q5_0_QK / 2];
-        let xbase = blk * ACT_QK;
-        let dot = portable_q5_0_dot(qh, qs, &codes[xbase..xbase + ACT_QK]);
-        // `|S_b·I_b| ≤ S_max·(32·16·127) ≤ i64::MAX` by [`q8act_fast_bound_ok`].
-        let scaled_dot = scales[blk] * i64::from(dot);
-        acc += i128::from(d) * i128::from(scaled_dot);
-        blk += 1;
-    }
-    Some(acc)
+    super::q8act_accumulate_row_portable::<super::Q5_0Decoder>(
+        row,
+        blocks * ACT_QK,
+        codes,
+        scales,
+        &[],
+    )
 }
 
-/// Portable `Q4_K` fast row: `w = d·sc·q − dmin·m`, one `i128` fold per 64-weight pair.
+/// Portable `Q4_K` fast row.
 ///
 /// # Complexity
 ///
 /// `O(n_in)` time, `O(1)` extra space.
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
 pub(super) fn q4_k_row_portable(
     row: &[u8],
     pairs: usize,
@@ -309,84 +299,35 @@ pub(super) fn q4_k_row_portable(
     act_scales: &[i64],
     xsums: &[i32],
 ) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut pp = 0usize;
-    let mut d: i64 = 0;
-    let mut dmin: i64 = 0;
-    let mut sc = [0u8; Q4_K_SCALE_SIZE];
-    while pp < pairs {
-        let b = pp / 4;
-        let p = pp % 4;
-        let off = b * Q4_K_BLOCK_BYTES;
-        // `d`, `dmin` and the twelve packed `(scale, min)` bytes depend only on the 256-weight
-        // block, so the block's first pair decodes them and the loop carries them to the other
-        // three instead of re-reading and re-decoding the same four header bytes per pair.
-        if p == 0 {
-            d = f16_to_fixed_fast(u16::from_le_bytes([row[off], row[off + 1]]))?;
-            dmin = f16_to_fixed_fast(u16::from_le_bytes([row[off + 2], row[off + 3]]))?;
-            sc.copy_from_slice(&row[off + 4..off + 16]);
-        }
-        let (sl, ml) = quant::q4_k_scale_min(&sc, 2 * p);
-        let (sh, mh) = quant::q4_k_scale_min(&sc, 2 * p + 1);
-        let slope_lo = d * i64::from(sl);
-        let intercept_lo = dmin * i64::from(ml);
-        let slope_hi = d * i64::from(sh);
-        let intercept_hi = dmin * i64::from(mh);
-        let g_lo = 2 * pp;
-        let g_hi = g_lo + 1;
-        let qs = &row[off + 16 + 32 * p..off + 16 + 32 * p + 32];
-        let (dot_lo, dot_hi) = portable_q4_k_window_dots(
-            qs,
-            &codes[g_lo * ACT_QK..g_lo * ACT_QK + ACT_QK],
-            &codes[g_hi * ACT_QK..g_hi * ACT_QK + ACT_QK],
-        );
-        let inner_lo = i128::from(slope_lo) * i128::from(dot_lo)
-            - i128::from(intercept_lo) * i128::from(xsums[g_lo]);
-        let inner_hi = i128::from(slope_hi) * i128::from(dot_hi)
-            - i128::from(intercept_hi) * i128::from(xsums[g_hi]);
-        acc += i128::from(act_scales[g_lo]) * inner_lo + i128::from(act_scales[g_hi]) * inner_hi;
-        pp += 1;
-    }
-    Some(acc)
+    super::q8act_accumulate_row_portable::<super::Q4_KDecoder>(
+        row,
+        pairs * 64,
+        codes,
+        act_scales,
+        xsums,
+    )
 }
 
-/// Portable `Q6_K` fast row: `w = d·sc·q`, one `i128` fold per 16-weight group; the block codes are
-/// decoded once with the proved accessor.
+/// Portable `Q6_K` fast row.
 ///
 /// # Complexity
 ///
 /// `O(n_in)` time, `O(QK_K)` extra space per block.
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
 pub(super) fn q6_k_row_portable(
     row: &[u8],
     blocks: usize,
     codes: &[i8],
     act_scales: &[i64],
 ) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut block = 0usize;
-    while block < blocks {
-        let off = block * Q6_K_BLOCK_BYTES;
-        let scale = f16_to_fixed_fast(u16::from_le_bytes([
-            row[off + Q6_K_BLOCK_BYTES - 2],
-            row[off + Q6_K_BLOCK_BYTES - 1],
-        ]))?;
-        let blk = &row[off..off + Q6_K_BLOCK_BYTES];
-        let block_codes = quant::q6_k_codes(blk).ok()?;
-        let mut group = 0usize;
-        while group < 16 {
-            let mut dot = 0i64;
-            let mut lane = 0usize;
-            while lane < 16 {
-                dot += i64::from(block_codes[16 * group + lane])
-                    * i64::from(codes[(block * 16 + group) * 16 + lane]);
-                lane += 1;
-            }
-            let sc = i64::from(blk[192 + group].cast_signed());
-            let act_scale = act_scales[block * 8 + group / 2];
-            acc += i128::from(act_scale) * i128::from(scale) * i128::from(sc * dot);
-            group += 1;
-        }
-        block += 1;
-    }
-    Some(acc)
+    super::q8act_accumulate_row_portable::<super::Q6_KDecoder>(
+        row,
+        blocks * QK_K,
+        codes,
+        act_scales,
+        &[],
+    )
 }
