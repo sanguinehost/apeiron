@@ -612,22 +612,27 @@ its names or formulas — and the G1 acceptance cells (`docs/direction.md:283-28
 comparators each required cell is measured against. A 9.35x gap on the plain distinct baseline,
 where nothing is adversarial, is that requirement unmet.
 
-**What the gap is not.** On the distinct baseline the canonical table does 1.00 sweep step, 1.00 tag
-match and 1.00 full compare per key, so the 9.73 ns is not probe geometry; it is outside the loop.
-Candidate causes, to be **measured** rather than argued: the placement word and address computation,
-region and shard indirection, the `direct_word` resident-or-spill decision (the harness used
-`direct_word: None`, which sends every key through the spill path), `Sigma` handling, and bounds or
-`Option` shape. The insert ratio is separately allocation-dominated and is not evidence about the
-probe.
+**Attributed, not argued** (E6.W1 and E6.W1b, scratch tree at `30180f4`, same harness): the
+resident read is at parity with the predecessor — 1.0625 against 1.0521 ns/key, ratio 1.01 — and
+the gap is **entirely the spill read path**, which the harness reached because its `IdentityHome`
+returns `direct_word: None`. With an injecting certificate on every key the `read_stats` counters
+are all zero, proving `spill_read` is never entered, against 1.00 sweep step/key on the spill
+control. The read prologue, region indirection and the bit scan are refuted as contributors by the
+same run (256 regions to 1: −0.74 ns/key; `least_set_lane` already lowers to `tzcnt`).
+E6.W2's port is therefore about the spill read only, and it **cannot assume residency**: the
+resident extent is 256 words and the density rule admits only lane 1 at 192 live keys, so the
+injective certificate is 8 bits; a `place < 2^32` population is not a resident population. The
+insert column is ~100x in every arm and is locator reservation, not the probe.
 
-**The adversarial column is a filter defect, not geometry**, and is a separate task: `tag(place)`
-reads the same low 16 bits the shard selector reads, so a population folding those bits matches
-every lane of every visited group — group steps stay bounded at 7.17 against 1.00 while full
-compares reach 107.25.
+**The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
+bits the shard selector reads, so a population folding those bits matched every lane of every
+visited group. The spread top-bits fix takes full compares per key from 107.25 to 1.3646 under the
+starving identity home, with the raw formula retained in the harness as a live control column
+(`distinct_fingerprints_raw`).
 
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
-| W1 | attribution: where the 9.73 ns goes, by building variants (placement, indirection, `direct_word`, `Sigma`, bounds) and measuring each through the same harness | `examples/table_cost_probe.rs` and its variants | the harness: counters plus ns per key | 1 | 0 |
+| W1 | attribution — **done** (E6.W1 and E6.W1b): resident parity 1.01; the gap is the spill read; residency is not free (an 8-bit certificate at 192 live keys) | `examples/table_cost_probe.rs` and its variants | the harness: counters plus ns per key | 1 | 0 |
 | W2 | the port: bring the predecessor's hot path into apeiron under the canonical definitions — a port with a named target, not a re-derivation | `src/table*.rs` | the harness at parity in the baseline column | 1 | 0 |
 | W3 | refinement: the placement word and the tag are on the extracted path, so a change carries `regen.sh --check` and any Lean-side correction | `proof/ApeironWord.lean`, `proof/resource/*` | `proof/regen.sh --check` | 1 | 1 |
 | W4 | the gate of record: a numeric target in the harness rather than a one-off measurement, plus the comparator cells G1 already names | `examples/table_cost_probe.rs`, the G1 cells | the harness and the G1 cells | 1 | 0 |

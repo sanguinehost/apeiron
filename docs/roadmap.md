@@ -486,17 +486,19 @@ merely its names or formulas — and the G1 acceptance cells already name the co
 required cell is measured against. What was missing is the measurement that says how far short the
 current table falls on the **plain** baseline, where no adversary chooses keys.
 
-On that baseline the table performs one sweep step, one tag match and one full key compare per
-lookup, so the 9.73 ns is not probe geometry: it is outside the loop. The candidate causes are the
-placement word and address computation, region and shard indirection, the resident-or-spill
-decision, `Sigma` handling, and bounds or `Option` shape — each to be measured by building the
-variant and reading the harness, not argued from the source. The insert column is separately
-allocation-dominated and is not evidence about the probe.
+The attribution is now measured. With a certified word on every key the canonical table reads at
+1.0625 ns/key against the predecessor's 1.0521 — parity, 1.01 — and with `direct_word: None` every
+key falls through the spill read, which is where the whole gap sits; the counters show `spill_read`
+entering not at all on the resident arm against one sweep step per key on the spill control.
+Region indirection is worth 0.74 ns/key, the bit-scan is already a `tzcnt`, and the insert column
+is locator reservation rather than the probe. What follows for the port: it is a spill-read port,
+and it cannot assume residency — the resident extent is 256 words, so 192 live keys admit an 8-bit
+injecting certificate, not a 32-bit one.
 
-The adversarial column is a different defect with a different fix: the group fingerprint reads the
-same low 16 bits the shard selector reads, so a key population that folds those bits matches every
-lane of every visited group. Group steps stay bounded (7.17 against 1.00) while full compares reach
-107.25 — geometry intact, filter starved.
+The adversarial column was a filter defect, now closed: the group fingerprint read the same low 16
+bits as the shard selector, so a population folding those bits matched every lane of every visited
+group. The spread top-bits fingerprint (`55421fa`) takes full compares per key from 107.25 to
+1.3646 under the starving home, and the raw formula stays in the harness as a live control column.
 
 Plan: [plan.md E6](plan.md), waves W1 attribution, W2 the port, W3 refinement under the extraction,
 W4 the gate of record.
