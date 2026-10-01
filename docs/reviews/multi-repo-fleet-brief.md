@@ -32,6 +32,11 @@ edit against four contradictory authorities.
 - Lanes: every compile/gate runs as `lane <command…>` (box-wide pool, auto-acquires and waits).
 - Handoff: paths + sha256 + gate command + exit + red/restore evidence + budget + one question.
 - Coordinator re-runs each gate on the frozen submission before commit; workers never commit.
+- **Search with a working tool.** `find` and `grep` are shadowed by broken shims on this box
+  (`/home/socol/.local/bin/find`, findutils 4.4.2, exits 0 and returns nothing on a populated
+  directory). Use `rg`, `rg --files`, `ls -R` or shell globs, and state the command behind any claim
+  of absence — a shimmed search produces confident false negatives, and has already cost one false
+  "the corpus has 0 Lean files" finding in this campaign.
 
 ## 3 · Per-repo deltas
 

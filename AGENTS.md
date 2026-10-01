@@ -177,6 +177,21 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
    `../sanguine-apeiron/proof/Apeiron/`; its audits are `Audit.lean` and `AuditCarrier.lean`.
    Rust representation theorems live in `proof/corpus/`, audited by `AxiomAudit.lean`.
    Record the resolved corpus revision; a sibling path or `@grade` alone proves nothing.
+
+   **Search the lineage and the sibling repos before commissioning a primitive.** A primitive this
+   tree lacks very often already exists — most likely in the older corpus (`../sanguine`,
+   `../sanguine-apeiron`), sometimes solved in a different sibling repo entirely. That form is a
+   **port with a named target**, not a new derivation, and the spec phase records the search: the
+   declaration found, its revision and digest, and what the port must add. Only absence everywhere
+   authorizes making one — and then the spec says so explicitly, because "we made it" is a claim
+   about prior art as much as about code. The search is a command over the loaded in-tree lineage plus
+   `~/Workspace/*` (fleet brief §9 names the repositories), not a recollection.
+
+   **Use a search tool that works here.** `find` is shadowed by a broken shim on this box
+   (`/home/socol/.local/bin/find`, findutils 4.4.2): it exits 0 and returns **nothing** on directories
+   that plainly hold files, so a `find`-based absence check is unsound and has already produced one
+   false "the corpus has 0 Lean files" claim. Use `rg --files`, `ls -R`, or a shell glob, and state the
+   command in a claim of absence. `grep` is likewise shadowed/mangling; `rg` is the working tool.
  5. **Fail-closed axiom cone.** `proof/regen.sh` audits the extraction for `axiom`/`sorry`/`admit`;
     `proof/corpus/AxiomAudit.lean` `#audit`s each headline and throws on anything outside
     `{propext, Classical.choice, Quot.sound}`. A `sorry` is a build failure, not a note. The Slang
