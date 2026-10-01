@@ -144,6 +144,10 @@ name = "table_cost_probe"
 path = "examples/table_cost_probe.rs"
 
 [[example]]
+name = "spill_read_probe"
+path = "examples/spill_read_probe.rs"
+
+[[example]]
 name = "counter_check"
 path = "examples/support/counter_check.rs"
 
