@@ -140,3 +140,82 @@ Dispatch rule between R4 and the driver's arrival: cap the swarm at the number o
 gates the lead can re-run inside the wall-clock budget (§10) and whose files are disjoint; a full
 ten-lane dispatch needs R1–R6 green first. A review that finds a missing gate, theorem, digest or
 measurement records the residual obligation rather than waiving it.
+
+## 9 · Programme phasing (draft for review)
+
+The apeiron lane's detail is in `docs/plan.md` §Phasing. This is the whole programme, sized to the
+fleet.
+
+**Assumptions.** ~50 agents, 10 lanes, at most 3 simultaneous heavy Lean checks, one owner per file,
+every wave a barrier. A wave's gates run inside the 540 s cap; with integration a wave of about ten
+tasks costs under an hour, so a four-day window holds roughly 30–40 wave-slots — up to about 350
+bounded tasks. The open programme below is ~280–320 bounded tasks: **one full pass of the ecosystem
+in the window, not a fraction of it**, which is the argument for the plan being cross-repo.
+
+**Every epic cites the document it comes from.** No task is invented.
+
+### Song — `docs/ROADMAP.md` §2 (~45 tasks)
+
+| wave | content | gate |
+|---|---|---|
+| S1 | A0 verification integrity children A0.1–A0.5 (K1, K2, K6) — the implemented/partial remainder | each child's reproducible completion command |
+| S2 | A0.6 parser semantics P2–P6 refinements + the emitted obligation stream | `./song check` + the P-series controls |
+| S3 | A0.7–A0.9, K11, D1, P1–P5, O2 | per child |
+| S4 | A0.10 census lane (1,244 items: 548 raw, 696 region) | the census gate |
+| S5 | K2.1.1 Slang driver utility library — **gate MISSING**, first task is the red fixture | red fixture walks the closure from Slang alone |
+| S6 | K2.1.2→K2.1.4 build/chain driver in Slang, then the Slang gate driver | `song build` verdicts equal the shell chain's |
+| S7 | A1 memory-authority inventory → A1.x creation | inventory receipt, then the new children's gates |
+| S8 | A3 translation-trust inventory (K8/K13) → A3.x; R5 | inventory receipt |
+| S9 | A5 interface probes; A6 application profiles (wl_term, a pinned Whispering Tides slice) | probe / profile gates |
+| S10 | B6.1–B6.4 verifier acceptance | the verifier gate |
+
+### Penglai — `docs/substrate-port-scope.md` §7 (~30 tasks)
+
+| wave | content | gate |
+|---|---|---|
+| P1 | milestone 5 closure: independent orbit/globe/margin fixtures, the f64 error/enclosure bridge, corpus Kepler composition, final-margin `RefinesWithin` | milestone-5 exit table |
+| P2 | milestone 6: data-permission/estimator gate first, then the affine/catchment folds | data-license, calibration and latency gates |
+| P3 | worldgen lanes `WORLDGEN-W2-T1/T2`, `WORLD-W1-T1/T2` | per-lane |
+| P4 | water lanes `WATER-W2-T2/W3-T1/W4-T1` + the 3-D spike | per-lane |
+| P5 | `ISLAND-MATERIALS-W1-T1` (red 101), `TREE-W1` S1–S6 | per-lane |
+| P6 | milestone 7 (temporal/material/three-factor) — the major unknown, spike-first | derivation and measurement gates |
+
+### Webfold — `docs/REPAIR-LEDGER.md` Repair order (~125 tasks)
+
+| wave | content | gate |
+|---|---|---|
+| F1 | network and service boundaries: APP-SSRF-01/02, APP-PROXY-01, APP-FLARE-01/03, APP-BOUND-01, APP-MCP-01, RT-02/03/04/05/06/21, CLI-02/05/07 (14 items) | per-hop address checks + negative connection/resource controls |
+| F2 | runtime correctness and bounds: RT-07…RT-26, CORE-06/08/10–14/17–23, CLI-03/04/06/09–12 (~30 items) | real callers, bounded counterexamples, mutants |
+| F3 | page counterexamples 158/208/279/511 as a post-hoc set | explicit page-purpose policy |
+| F4 | evidence and portability: independent annotations, structural scorer, BUILD-02/03, EVAL-05 | holdout evidence, not aggregate pass |
+| F5 | formal obligations PROOF-01..07 | source-connected statements + deletion/fault controls |
+
+### Apeiron — `docs/plan.md` §Phasing (~45 tasks)
+
+Epics E1 gate machinery, E2 receipt consolidation, E3 source-cost returns, E4 extraction freshness,
+E5 the Apeiron–Intent engine. The `E4.W1→W3→W4` and `E1.W2→W4`, `E1.W5→W6`, `E5.W2→W7` chains are the
+critical path; `E2` and `E3` are cargo- and document-bound and fill the lanes the Lean waves leave.
+
+### Intent — `docs/DIRECTION.md`, `docs/EVOLVER.md` (~20 tasks)
+
+The three corrections (D7 rebase epoch, D2 cost bound, loop-brief target), the Ring 6 gate with its
+four controls, evaluator/isolation repairs, the runtime linkage and canonical rooting, the ≥30-pair
+calibration, five candidate screens, one accepted cycle, then a second cycle on the first cycle's
+evidence.
+
+### Packing across repos
+
+Each repo's waves are independent except where a repo's own barrier orders them; the fleet packs one
+wave per repo per slot and fills remaining lanes from the cargo/document waves (Apeiron E2/E3, Webfold
+F4, Penglai P3–P5, Song S9) that need no heavy Lean. That is how 10 lanes stay busy without exceeding
+3 simultaneous heavy checks.
+
+### Questions for review
+
+1. Song's A1–A6 are "not dispatch-ready" pending inventories — dispatch the inventory tasks now, or
+   keep Song at A0/K2.1/B6 only for this window?
+2. Penglai 7 is the major unknown; is it spike-first in this window or deferred behind 5/6?
+3. Webfold's 117 findings include 14 historical and 18 unmeasured — does the window take the 85 with
+   current evidence only?
+4. Is the per-repo barrier order the right cross-repo rule, or does a shared wave counter run across
+   all repos?
