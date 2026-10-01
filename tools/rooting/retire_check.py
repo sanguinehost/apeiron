@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rejecting retirement gate for the binned Slang derivation route.
+"""Rejecting gate for the binned Slang derivation route and for removal records.
 
 The binned route is:
 
@@ -14,6 +14,15 @@ This runner fails while any part of that route is still present or still
 referenced, so a reintroduced file or import cannot pass silently. ``--check``
 scans the whole tree; ``--paths`` is the per-batch gate used as the binned files
 are removed in bounded batches.
+
+It also refuses an unregistered removal. ``tools/rooting/removals.json`` is the
+removal registry; ``AGENTS.md`` section 10 (failure register, consolidation row)
+requires that a removal name its replacement or the retained obligation,
+inventory its affected consumers and carry reachability evidence, and that a
+deletion record carry a discharge receipt rather than being a bare ``rm``. The
+registry schema is documented in that file's ``note`` field; each record has
+``id``, ``kind``, ``removed``, ``replacement``, ``retained_obligation``,
+``consumers``, ``reachability`` (``{cwd, argv}``) and ``receipt``.
 
 What is checked
 ===============
@@ -30,14 +39,40 @@ What is checked
   (``Slang/Generated/Trace``, ``Slang.Generated.Trace``, ``Slang.Derivation``)
   or emits an unbounded recursion/heartbeat option (``maxHeartbeats 0``,
   ``maxRecDepth 1000000``);
+* ``M1`` removal record names no replacement and no retained obligation;
+* ``M2`` removal record's consumer inventory is empty, or a consumer path does
+  not resolve under the repository root;
+* ``M3`` removal record's reachability evidence names no command, or a command
+  whose ``cwd`` is not a directory in the tree, or whose repo-relative file
+  token does not resolve;
+* ``M4`` removal record carries no receipt id: a bare deletion record;
 * ``S`` surface: a reference surface the gate must read is missing.
+
+Structure is strict and loud: a record that is not an object, a duplicate id, a
+``kind`` outside ``migration``/``retirement``, or a wrongly typed field is a
+data error (exit 2). Content is what ``M1``-``M4`` refuse (exit 1).
+
+Trust boundary
+==============
+The gate reads the tree and the registry. It resolves no ``PATH`` entry, so an
+external program named in a reachability ``argv`` is not checked for existence
+(only its ``cwd`` and its repo-relative file tokens are); it does not check that
+a removed path is now absent (``removed`` is recorded for the receipt, and
+``R1`` is what gates absence for the binned route); it does not resolve a
+``receipt`` id to a ``docs/evidence/ledger.jsonl`` row; it runs no command, so a
+named command is evidence of record, not evidence of its exit status; and it
+cannot see a deletion that was never registered, because there is no record to
+refuse and no baseline of the previous tree to diff. That last exclusion is the
+open obligation: this gate reads the registry, not history. No network, no
+clock, no Lean, no Rust.
 
 Isolation
 =========
 ``--self-test`` and ``--controls`` materialise synthetic fixtures under the
 system temporary directory and never read or write the repository tree; the
-working tree is never mutated. ``--paths`` and ``--check`` are read-only. No
-Lean, Rust or network is used.
+working tree is never mutated. The ``--controls`` removal mutation runs against
+an in-memory copy of the real registry, so no file is written either.
+``--paths`` and ``--check`` are read-only.
 
 Usage::
 
@@ -47,9 +82,10 @@ Usage::
     python3 tools/rooting/retire_check.py --check
     python3 tools/rooting/retire_check.py --paths proof/corpus/Slang/Derivation/Steps.lean
 
-Exit status: 0 when the route is retired and every control passes; 1 when a
-binned path or an active reference remains, or a fixture control survives; 2 on
-a usage or data error.
+Exit status: 0 when the route is retired, every removal record is admissible
+and every control passes; 1 when a binned path or an active reference remains,
+a removal record is refused, or a fixture control survives; 2 on a usage or data
+error.
 """
 
 from __future__ import annotations
@@ -57,15 +93,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Sequence
 
 HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
 CASES_PATH = HERE.parent / "retire_cases.json"
+REMOVALS_PATH = HERE.parent / "removals.json"
 
 EXIT_OK = 0
 EXIT_REJECT = 1
@@ -73,6 +112,14 @@ EXIT_USAGE = 2
 
 # The one owned path reintroduced by the --controls mutation.
 CONTROL_MUTATION = "proof/corpus/Slang/Derivation/Steps.lean"
+
+# The field the --controls removal mutation drops from the first real record.
+CONTROL_RECEIPT_FIELD = "receipt"
+
+# A repo-relative file token: no leading dash, no scheme, at least one separator
+# or a bare name, and a file extension. Flags, package names and directory
+# arguments carry no extension and are not resolved.
+_FILE_TOKEN = re.compile(r"^[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*\.[A-Za-z0-9]+$")
 
 
 class GateError(Exception):
@@ -127,6 +174,45 @@ class Config:
     rules: tuple[tuple[str, str, str], ...]
     clean_files: tuple[tuple[str, str], ...]
     cases: tuple[Case, ...]
+
+
+@dataclass(frozen=True)
+class Command:
+    cwd: str
+    argv: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Removal:
+    id: str
+    kind: str
+    removed: tuple[str, ...]
+    replacement: tuple[str, ...]
+    retained_obligation: str
+    consumers: tuple[str, ...]
+    reachability: tuple[Command, ...]
+    receipt: str
+
+
+@dataclass(frozen=True)
+class RemovalCase:
+    name: str
+    rule: str
+    expect: str
+    entry: str
+    drop: tuple[str, ...]
+    set_fields: tuple[tuple[str, Any], ...]
+    action: str
+    path: str
+    text: str
+
+
+@dataclass(frozen=True)
+class RemovalConfig:
+    rules: tuple[tuple[str, str, str], ...]
+    clean_files: tuple[tuple[str, str], ...]
+    entries: tuple[Removal, ...]
+    cases: tuple[RemovalCase, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +341,185 @@ def load_config(path: Path = CASES_PATH) -> Config:
 
 
 # ---------------------------------------------------------------------------
+# Removal records
+# ---------------------------------------------------------------------------
+
+def _optional_list(value: object, where: str) -> list[object]:
+    """A list that may be absent or empty; type errors are still data errors."""
+    if value is None:
+        return []
+    _require(isinstance(value, list), f"{where} must be a list")
+    return list(value)
+
+
+def _optional_text(value: object, where: str) -> str:
+    """A string that may be absent or empty; a present value must be a string.
+
+    Empty is content, not structure: a migration names no retained obligation and
+    a bare deletion record carries no receipt id, so both reach M1 and M4.
+    """
+    if value is None:
+        return ""
+    _require(isinstance(value, str), f"{where} must be a string")
+    return value  # type: ignore[return-value]
+
+
+def _string_tuple(value: object, where: str) -> tuple[str, ...]:
+    return tuple(_string(entry, f"{where}[]") for entry in _optional_list(value, where))
+
+
+def _command(value: object, where: str) -> Command:
+    _require(isinstance(value, dict), f"{where} must be an object")
+    argv = _optional_list(value.get("argv"), f"{where}.argv")
+    for index, token in enumerate(argv):
+        _require(isinstance(token, str), f"{where}.argv[{index}] must be a string")
+    return Command(cwd=_optional_text(value.get("cwd"), f"{where}.cwd"), argv=tuple(argv))
+
+
+def removal_from_raw(raw: object, where: str) -> Removal:
+    """One removal record. ``id`` and ``kind`` are structure; the rest is content.
+
+    Content fields default when absent so that M1-M4 see the absence instead of
+    a load error: the rules, not the loader, refuse an incomplete record.
+    """
+    _require(isinstance(raw, dict), f"{where} must be an object")
+    kind = _string(raw.get("kind"), f"{where}.kind")
+    _require(kind in ("migration", "retirement"), f"{where}.kind must be migration or retirement")
+    reachability_raw = _optional_list(raw.get("reachability"), f"{where}.reachability")
+    return Removal(
+        id=_string(raw.get("id"), f"{where}.id"),
+        kind=kind,
+        removed=_string_tuple(raw.get("removed"), f"{where}.removed"),
+        replacement=_string_tuple(raw.get("replacement"), f"{where}.replacement"),
+        retained_obligation=_optional_text(
+            raw.get("retained_obligation"), f"{where}.retained_obligation"
+        ),
+        consumers=_string_tuple(raw.get("consumers"), f"{where}.consumers"),
+        reachability=tuple(
+            _command(entry, f"{where}.reachability[{index}]")
+            for index, entry in enumerate(reachability_raw)
+        ),
+        receipt=_optional_text(raw.get("receipt"), f"{where}.receipt"),
+    )
+
+
+def _unique(removals: Sequence[Removal]) -> None:
+    seen: set[str] = set()
+    for removal in removals:
+        _require(removal.id not in seen, f"duplicate removal id: {removal.id}")
+        seen.add(removal.id)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise DataError(f"file missing: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DataError(f"{path.name} is not valid JSON: {exc}") from exc
+    _require(isinstance(data, dict), f"{path.name} must be an object")
+    return data
+
+
+def _rule_triples(data: dict[str, Any], where: str) -> tuple[tuple[str, str, str], ...]:
+    rules_raw = data.get("rules")
+    _require(isinstance(rules_raw, list) and rules_raw, f"{where}.rules must be nonempty")
+    rules: list[tuple[str, str, str]] = []
+    for index, raw in enumerate(rules_raw):
+        spot = f"{where}.rules[{index}]"
+        _require(isinstance(raw, dict), f"{spot} must be an object")
+        rules.append(
+            (
+                _string(raw.get("id"), f"{spot}.id"),
+                _string(raw.get("title"), f"{spot}.title"),
+                _string(raw.get("description"), f"{spot}.description"),
+            )
+        )
+    return tuple(rules)
+
+
+def load_removals(path: Path = REMOVALS_PATH) -> RemovalConfig:
+    """The removal registry: rules, records and the synthetic self-test."""
+    data = _read_json(path)
+    _require(data.get("schema") == 1, "removals schema must be 1")
+
+    entries_raw = data.get("removals")
+    _require(isinstance(entries_raw, list), "removals must be a list")
+    entries = tuple(
+        removal_from_raw(raw, f"removals[{index}]") for index, raw in enumerate(entries_raw)
+    )
+    _unique(entries)
+
+    self_test_raw = data.get("self_test")
+    _require(isinstance(self_test_raw, dict), "self_test must be an object")
+    clean_raw = self_test_raw.get("clean")
+    _require(isinstance(clean_raw, dict), "self_test.clean must be an object")
+    files_raw = clean_raw.get("files")
+    _require(isinstance(files_raw, dict) and files_raw, "self_test.clean.files must be nonempty")
+    clean_files: list[tuple[str, str]] = []
+    for rel, text in files_raw.items():
+        _require(isinstance(rel, str) and rel, "self_test.clean.files key must be a path")
+        clean_files.append((rel, _string(text, f"self_test.clean.files[{rel}]")))
+
+    entries_clean_raw = self_test_raw.get("entries")
+    _require(
+        isinstance(entries_clean_raw, list) and entries_clean_raw,
+        "self_test.entries must be nonempty",
+    )
+    fixture = tuple(
+        removal_from_raw(raw, f"self_test.entries[{index}]")
+        for index, raw in enumerate(entries_clean_raw)
+    )
+    _unique(fixture)
+
+    cases_raw = self_test_raw.get("cases")
+    _require(isinstance(cases_raw, list) and cases_raw, "self_test.cases must be nonempty")
+    cases: list[RemovalCase] = []
+    for index, raw in enumerate(cases_raw):
+        spot = f"self_test.cases[{index}]"
+        _require(isinstance(raw, dict), f"{spot} must be an object")
+        expect = _string(raw.get("expect"), f"{spot}.expect")
+        _require(expect in ("reject", "accept"), f"{spot}.expect must be reject or accept")
+        action = _string(raw.get("action"), f"{spot}.action")
+        _require(action in ("write", "append", "delete", "none"), f"{spot}.action is invalid")
+        set_raw = raw.get("set")
+        _require(set_raw is None or isinstance(set_raw, dict), f"{spot}.set must be an object")
+        set_fields = tuple(sorted((set_raw or {}).items()))
+        cases.append(
+            RemovalCase(
+                name=_string(raw.get("name"), f"{spot}.name"),
+                rule=str(raw.get("rule", "")),
+                expect=expect,
+                entry=str(raw.get("entry", "")),
+                drop=_string_tuple(raw.get("drop"), f"{spot}.drop"),
+                set_fields=set_fields,
+                action=action,
+                path=str(raw.get("path", "")),
+                text=str(raw.get("text", "")),
+            )
+        )
+
+    return RemovalConfig(
+        rules=_rule_triples(data, "registry"),
+        clean_files=tuple(clean_files),
+        entries=fixture,
+        cases=tuple(cases),
+    )
+
+
+def read_registry(path: Path = REMOVALS_PATH) -> tuple[tuple[Removal, ...], str]:
+    """The real records and the source text, for an attributable line number."""
+    data = _read_json(path)
+    entries_raw = data.get("removals")
+    _require(isinstance(entries_raw, list), "removals must be a list")
+    entries = tuple(
+        removal_from_raw(raw, f"removals[{index}]") for index, raw in enumerate(entries_raw)
+    )
+    _unique(entries)
+    return entries, path.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # Route predicates and reference surfaces
 # ---------------------------------------------------------------------------
 
@@ -365,6 +630,151 @@ def find_references(cfg: Config, root: Path, relative: str) -> list[tuple[str, s
 
 
 # ---------------------------------------------------------------------------
+# Removal rules
+# ---------------------------------------------------------------------------
+
+def resolve_under(root: Path, relative: str) -> Path | None:
+    """The absolute path of a repo-relative entry, or None when it escapes root."""
+    candidate = Path(relative)
+    if candidate.is_absolute():
+        return None
+    try:
+        base = root.resolve(strict=False)
+        resolved = (base / candidate).resolve(strict=False)
+    except OSError:
+        return None
+    if resolved == base or base in resolved.parents:
+        return resolved
+    return None
+
+
+def entry_line(source: str, entry_id: str) -> int:
+    """The 1-based line of the record's id in the registry text, else 0."""
+    needle = f'"id": "{entry_id}"'
+    for number, line in enumerate(source.splitlines(), 1):
+        if needle in line:
+            return number
+    return 0
+
+
+def file_tokens(argv: Sequence[str]) -> list[str]:
+    """Repo-relative file tokens in an argv; flags, schemes and bare names are not files."""
+    return [
+        token
+        for token in argv
+        if not token.startswith("-") and "://" not in token and _FILE_TOKEN.match(token)
+    ]
+
+
+def scan_removals(
+    entries: Sequence[Removal], root: Path, source: str, text: str
+) -> list[Violation]:
+    """Every M1-M4 violation in the removal records, each naming its record."""
+    violations: list[Violation] = []
+    for removal in entries:
+        line = entry_line(text, removal.id)
+        where = source
+
+        if not removal.replacement and not removal.retained_obligation:
+            violations.append(
+                Violation(
+                    "M1",
+                    where,
+                    line,
+                    f"removal record {removal.id!r} (kind={removal.kind}) names no replacement "
+                    "and no retained obligation: it is neither a migration nor an authorized "
+                    "retirement",
+                )
+            )
+
+        if not removal.consumers:
+            violations.append(
+                Violation(
+                    "M2",
+                    where,
+                    line,
+                    f"removal record {removal.id!r} has an empty consumer inventory",
+                )
+            )
+        else:
+            for consumer in removal.consumers:
+                resolved = resolve_under(root, consumer)
+                if resolved is None or not resolved.exists():
+                    violations.append(
+                        Violation(
+                            "M2",
+                            where,
+                            line,
+                            f"removal record {removal.id!r} names a consumer that does not "
+                            f"resolve: {consumer}",
+                        )
+                    )
+
+        if not removal.reachability:
+            violations.append(
+                Violation(
+                    "M3",
+                    where,
+                    line,
+                    f"removal record {removal.id!r} names no reachability command",
+                )
+            )
+        else:
+            for index, command in enumerate(removal.reachability):
+                if not command.argv:
+                    violations.append(
+                        Violation(
+                            "M3",
+                            where,
+                            line,
+                            f"removal record {removal.id!r} reachability[{index}] has an "
+                            "empty argv",
+                        )
+                    )
+                    continue
+                base = (
+                    resolve_under(root, command.cwd)
+                    if command.cwd
+                    else resolve_under(root, ".")
+                )
+                if base is None or not base.is_dir():
+                    violations.append(
+                        Violation(
+                            "M3",
+                            where,
+                            line,
+                            f"removal record {removal.id!r} reachability[{index}] cwd is not a "
+                            f"directory in the tree: {command.cwd or '.'}",
+                        )
+                    )
+                    continue
+                for token in file_tokens(command.argv):
+                    resolved = resolve_under(base, token)
+                    if resolved is None or not resolved.exists():
+                        shown = " ".join(command.argv)
+                        violations.append(
+                            Violation(
+                                "M3",
+                                where,
+                                line,
+                                f"removal record {removal.id!r} reachability[{index}] names a "
+                                f"path that does not resolve: {token} (command: {shown})",
+                            )
+                        )
+
+        if not removal.receipt.strip():
+            violations.append(
+                Violation(
+                    "M4",
+                    where,
+                    line,
+                    f"bare deletion record {removal.id!r} carries no receipt id",
+                )
+            )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Synthetic fixtures
 # ---------------------------------------------------------------------------
 
@@ -444,7 +854,131 @@ def self_test(cfg: Config) -> int:
     return EXIT_OK
 
 
-def controls(cfg: Config) -> int:
+def _apply_removal_case(
+    cfg: RemovalConfig, case: RemovalCase
+) -> tuple[Removal, ...] | None:
+    """The fixture records with one record seeded: fields dropped, then fields set."""
+    if not case.entry:
+        return cfg.entries
+    records: list[Removal] = []
+    found = False
+    for removal in cfg.entries:
+        if removal.id != case.entry:
+            records.append(removal)
+            continue
+        found = True
+        raw: dict[str, Any] = {
+            "id": removal.id,
+            "kind": removal.kind,
+            "removed": list(removal.removed),
+            "replacement": list(removal.replacement),
+            "retained_obligation": removal.retained_obligation,
+            "consumers": list(removal.consumers),
+            "reachability": [{"cwd": c.cwd, "argv": list(c.argv)} for c in removal.reachability],
+            "receipt": removal.receipt,
+        }
+        for field in case.drop:
+            raw.pop(field, None)
+        for field, value in case.set_fields:
+            raw[field] = value
+        records.append(removal_from_raw(raw, f"self_test.cases[{case.name}].set[{field}]"))
+    if not found:
+        raise DataError(f"case {case.name!r} names an unknown fixture record: {case.entry}")
+    return tuple(records)
+
+
+def removal_self_test(rem: RemovalConfig) -> int:
+    """Materialise the synthetic tree and refuse every seeded removal defect."""
+    failures: list[str] = []
+    names: list[str] = []
+    base = Path(tempfile.mkdtemp(prefix="retire-removal-clean-"))
+    try:
+        _materialize(base, rem.clean_files)
+        source = "removals.json#self_test"
+        clean = scan_removals(rem.entries, base, source, _registry_text(rem.entries))
+        if clean:
+            print(f"SELF-TEST FAIL clean removal registry: {clean[0].render()}")
+            return EXIT_REJECT
+        print("SELF-TEST GREEN clean removal registry")
+
+        for case in rem.cases:
+            try:
+                entries = _apply_removal_case(rem, case)
+            except GateError as exc:
+                failures.append(f"{case.name}: {exc}")
+                print(f"SELF-TEST FAIL {case.name}: {exc}")
+                continue
+            root = base
+            work: Path | None = None
+            if case.action != "none":
+                work = Path(tempfile.mkdtemp(prefix="retire-removal-case-"))
+                shutil.copytree(base, work, dirs_exist_ok=True)
+                _apply_case(work, Case("", "", "none", case.action, case.path, case.text))
+                root = work
+            records = entries or ()
+            try:
+                violations = scan_removals(records, root, source, _registry_text(records))
+                rules = sorted({violation.rule for violation in violations})
+                if case.expect == "reject":
+                    if not violations:
+                        failures.append(f"{case.name}: survived, expected rule {case.rule}")
+                        print(f"SELF-TEST FAIL {case.name}: survived")
+                    elif case.rule and case.rule not in rules:
+                        failures.append(
+                            f"{case.name}: rejected by {rules}, expected {case.rule}"
+                        )
+                        print(
+                            f"SELF-TEST FAIL {case.name}: rejected by {rules}, "
+                            f"expected {case.rule}"
+                        )
+                    else:
+                        print(f"SELF-TEST RED  {case.name}: {violations[0].render()}")
+                        names.append(f"{case.rule} {case.name}")
+                elif violations:
+                    failures.append(f"{case.name}: rejected, expected acceptance")
+                    print(f"SELF-TEST FAIL {case.name}: {violations[0].render()}")
+                else:
+                    print(f"SELF-TEST GREEN {case.name}")
+            finally:
+                if work is not None:
+                    shutil.rmtree(work, ignore_errors=True)
+
+        if failures:
+            print(f"SELF-TEST FAIL: {len(failures)} removal case(s) failed")
+            return EXIT_REJECT
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+    reject_count = sum(1 for case in rem.cases if case.expect == "reject")
+    accept_count = sum(1 for case in rem.cases if case.expect == "accept")
+    print(f"SELF-TEST PASS: {reject_count} removal record fixture(s) rejected: {', '.join(names)}")
+    print(f"SELF-TEST PASS: {accept_count} removal registry fixture(s) accepted")
+    return EXIT_OK
+
+
+def _registry_text(entries: Sequence[Removal]) -> str:
+    return json.dumps(
+        [
+            {
+                "id": removal.id,
+                "kind": removal.kind,
+                "removed": list(removal.removed),
+                "replacement": list(removal.replacement),
+                "retained_obligation": removal.retained_obligation,
+                "consumers": list(removal.consumers),
+                "reachability": [
+                    {"cwd": command.cwd, "argv": list(command.argv)}
+                    for command in removal.reachability
+                ],
+                "receipt": removal.receipt,
+            }
+            for removal in entries
+        ],
+        indent=2,
+    )
+
+
+def controls(cfg: Config, rem: RemovalConfig) -> int:
     base = Path(tempfile.mkdtemp(prefix="retire-check-base-"))
     work = Path(tempfile.mkdtemp(prefix="retire-check-mutant-"))
     try:
@@ -473,6 +1007,43 @@ def controls(cfg: Config) -> int:
     finally:
         shutil.rmtree(base, ignore_errors=True)
         shutil.rmtree(work, ignore_errors=True)
+
+    # Removal mutation: the real registry, in memory, with the receipt dropped from
+    # its first record. A bare deletion record must be refused; no file is written.
+    try:
+        entries, text = read_registry()
+        if not entries:
+            print("CONTROL removal baseline: no record in the registry to mutate", file=sys.stderr)
+            return EXIT_REJECT
+        first = entries[0]
+        bare = Removal(
+            id=first.id,
+            kind=first.kind,
+            removed=first.removed,
+            replacement=first.replacement,
+            retained_obligation=first.retained_obligation,
+            consumers=first.consumers,
+            reachability=first.reachability,
+            receipt="",
+        )
+        mutated_records = (bare,) + entries[1:]
+        mutated = scan_removals(mutated_records, REPO, "tools/rooting/removals.json", text)
+        if not any(violation.rule == "M4" for violation in mutated):
+            print(
+                "CONTROL removal mutation: SURVIVED (M4 not raised)", file=sys.stderr
+            )
+            return EXIT_REJECT
+        print(f"CONTROL removal mutation: RED :: {mutated[0].render()}")
+        if scan_removals(entries, REPO, "tools/rooting/removals.json", text):
+            print(
+                "CONTROL removal restored: RED :: the real registry is not clean",
+                file=sys.stderr,
+            )
+            return EXIT_REJECT
+        print("CONTROL removal restored: GREEN")
+    except GateError as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return EXIT_USAGE
 
     print("CONTROLS PASS: baseline green, mutation red, restored green")
     return EXIT_OK
@@ -532,10 +1103,16 @@ def check_paths(cfg: Config, root: Path, raw_paths: list[str]) -> int:
     return EXIT_OK
 
 
-def check(cfg: Config, root: Path) -> int:
+def check(cfg: Config, rem: RemovalConfig, root: Path) -> int:
     violations = scan_tree(cfg, root)
+    entries, text = read_registry()
+    violations = violations + scan_removals(entries, root, "tools/rooting/removals.json", text)
     if not violations:
-        print("CHECK CLEAN: the binned Slang derivation route is retired")
+        print(
+            "CHECK CLEAN: the binned Slang derivation route is retired and every "
+            f"removal record in tools/rooting/removals.json is admissible "
+            f"({len(entries)} record(s))"
+        )
         return EXIT_OK
     for violation in violations:
         print(violation.render())
@@ -551,7 +1128,7 @@ def check(cfg: Config, root: Path) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
-def cmd_list(cfg: Config) -> int:
+def cmd_list(cfg: Config, rem: RemovalConfig) -> int:
     print("Binned route (must be absent):")
     for prefix in cfg.binned_prefixes:
         names = dict(cfg.binned_files).get(prefix, ())
@@ -568,13 +1145,37 @@ def cmd_list(cfg: Config) -> int:
     for rule_id, title, description in cfg.rules:
         print(f"  {rule_id}: {title}")
         print(f"     {description}")
+    entries, _ = read_registry()
+    print(f"Removal records (tools/rooting/removals.json, {len(entries)} record(s)):")
+    for removal in entries:
+        disposition = (
+            f"migration -> {', '.join(removal.replacement)}"
+            if removal.replacement
+            else "retirement, retained obligation recorded"
+        )
+        commands = "; ".join(
+            f"cd {command.cwd or '.'} && {' '.join(command.argv)}"
+            for command in removal.reachability
+        )
+        print(f"  {removal.id} [{removal.kind}]: {disposition}")
+        print(f"    removed: {', '.join(removal.removed) or '(none)'}")
+        print(f"    consumers: {', '.join(removal.consumers)}")
+        print(f"    reachability: {commands}")
+        print(f"    receipt: {removal.receipt}")
+    print("Removal rules:")
+    for rule_id, title, description in rem.rules:
+        print(f"  {rule_id}: {title}")
+        print(f"     {description}")
     return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="retire_check.py",
-        description="Rejecting retirement gate for the binned Slang derivation route.",
+        description=(
+            "Rejecting gate for the binned Slang derivation route (R1-R6) and for "
+            "removal records (M1-M4)."
+        ),
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--list", action="store_true", help="list the binned route and reference forms")
@@ -586,15 +1187,19 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         cfg = load_config()
+        rem = load_removals()
         if args.list:
-            return cmd_list(cfg)
+            return cmd_list(cfg, rem)
         if args.self_test:
-            return self_test(cfg)
+            status = self_test(cfg)
+            if status != EXIT_OK:
+                return status
+            return removal_self_test(rem)
         if args.controls:
-            return controls(cfg)
+            return controls(cfg, rem)
         if args.paths:
             return check_paths(cfg, REPO, args.paths)
-        return check(cfg, REPO)
+        return check(cfg, rem, REPO)
     except GateError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_USAGE

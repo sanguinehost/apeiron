@@ -1,0 +1,294 @@
+{
+  "schema": 1,
+  "note": "Removal records for tools/rooting/retire_check.py rules M1-M4 (AGENTS.md section 10, failure register row 'Consolidation lost files': a removal is a migration or an authorized retirement; name the replacement or the retained obligation, inventory affected consumers, and gate reachability; no bare rm). SCHEMA. Top level: schema (1), note (this text), rules (the M1-M4 id/title/description triples the gate prints under --list), removals (the records), self_test (the synthetic tree, the accepted fixture registry and one seeded defect per rejected record, so --self-test and --controls need no network, clock, Lean or Rust). Each record: id (nonempty, unique, the key every diagnostic names); kind ('migration' | 'retirement'); removed (repo-relative paths the removal deleted, recorded for the receipt - absence is not gated here, R1 gates the binned route); replacement (repo-relative paths that take over the removed ones; empty for a retirement); retained_obligation (what stays open instead of a replacement; empty for a migration); consumers (nonempty repo-relative inventory of what consumed the removed paths - every entry must resolve); reachability (nonempty list of {cwd, argv}; cwd is a repo-relative directory that must resolve, argv is the exact command, and every repo-relative file token in argv must resolve - the gate does not resolve PATH, so an external program name is not checked); receipt (nonempty discharge receipt id: a docs/evidence/ledger.jsonl id where the ledger carries one, else the governing document path that authorizes the removal). Rules: M1 refuses a record naming neither replacement nor retained obligation; M2 refuses an empty consumer inventory or a consumer path that does not resolve; M3 refuses reachability evidence naming no command, or a command whose cwd or repo-relative file token does not resolve; M4 refuses a deletion record carrying no receipt id. Structure is strict (a nonobject record, a duplicate id, a bad kind or a wrong field type is a data error, exit 2); content is what M1-M4 refuse (exit 1).",
+  "rules": [
+    {
+      "id": "M1",
+      "title": "Removal names no replacement and no retained obligation",
+      "description": "A record in tools/rooting/removals.json has an empty replacement list and an empty retained_obligation: nothing takes over the removed paths and nothing is recorded as staying open, so the removal is neither a migration nor an authorized retirement."
+    },
+    {
+      "id": "M2",
+      "title": "Consumer inventory empty or unresolvable",
+      "description": "A removal record carries no consumers, or names a consumer path that does not resolve under the repository root, so the affected consumers were never inventoried."
+    },
+    {
+      "id": "M3",
+      "title": "Reachability evidence absent or unresolvable",
+      "description": "A removal record names no reachability command, or names a command whose cwd is not a directory in the tree, or whose repo-relative file token does not resolve. An external program name is not resolved: PATH lookup is outside this gate."
+    },
+    {
+      "id": "M4",
+      "title": "Bare deletion record",
+      "description": "A removal record carries no receipt id, so the deletion is a bare rm with no discharge receipt (docs/evidence/ledger.jsonl id, or the governing document that authorizes it)."
+    }
+  ],
+  "removals": [
+    {
+      "id": "kani-harness-retirement",
+      "kind": "retirement",
+      "note": "User-directed retirement of Kani (AGENTS.md section 6). src/proofs.rs and its src/lib.rs wiring are deleted and the alternate geometry is out of src/table/partition.rs; receipt kani-retirement.",
+      "removed": [
+        "src/proofs.rs"
+      ],
+      "replacement": [],
+      "retained_obligation": "The symbolic population is not replaced: src/table/probe.rs retains five ordinary concrete regressions, which are grade tested, not the retired population. Universal read-path links in Growable/{Scan,Representation,Search}.lean, SearchDecisionCorrect and the allocator adapter stay open; retiring Kani closes none of them (docs/evidence/kani-retirement.md).",
+      "consumers": [
+        "src/lib.rs",
+        "src/table/partition.rs",
+        "src/table/probe.rs",
+        "docs/evidence/kani-retirement.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "cargo",
+            "test",
+            "--workspace",
+            "--all-features",
+            "--locked",
+            "--lib"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "cargo",
+            "run",
+            "--release",
+            "--locked",
+            "--example",
+            "reg1",
+            "--",
+            "--check",
+            "coverage",
+            "--controls"
+          ]
+        }
+      ],
+      "receipt": "kani-retirement"
+    },
+    {
+      "id": "bench-receipt-consolidation",
+      "kind": "migration",
+      "note": "Commit 8252efa folded 54 per-run receipts (27 runs) from docs/evidence/bench/ into the indexed ledger; each run id is the original filename, so old links resolve as bench-ledger.md#<id>. The removed directory itself does not exist.",
+      "removed": [
+        "docs/evidence/bench/"
+      ],
+      "replacement": [
+        "docs/evidence/bench-ledger.md",
+        "docs/evidence/bench-ledger.json"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "docs/evidence/bench-ledger.md",
+        "docs/evidence/bench-ledger.json",
+        "docs/evidence/ledger.jsonl"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "bench-ledger"
+    },
+    {
+      "id": "slang-derivation-route-retirement",
+      "kind": "retirement",
+      "note": "The unrooted Slang derivation tower and the generated trace outputs are binned, not revived (docs/contracts/slang-source-refinement-plan.md). Rules R1-R6 of this file are the reachability evidence. tools/slang/trace_check.py carried the binned Run/Derives acceptance and is itself absent, so it is not a consumer.",
+      "removed": [
+        "proof/corpus/Slang/Derivation/",
+        "proof/corpus/Slang/Generated/Trace/"
+      ],
+      "replacement": [],
+      "retained_obligation": "The Run/Derives acceptance in tools/slang/trace_check.py is deleted with the route and no substitute claims it; rules R2-R6 in tools/rooting/retire_check.py reject a reintroduced file, import, Lake root, registry row, acceptance or producer reference, and the Slang source-refinement chain regenerates witnesses from tools/slang/export.py.",
+      "consumers": [
+        "proof/corpus/lakefile.lean",
+        "tools/slang/zero_axioms.json",
+        "tools/slang/export.py",
+        "tools/rooting/retire_cases.json",
+        "docs/contracts/slang-source-refinement-plan.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--self-test"
+          ]
+        }
+      ],
+      "receipt": "docs/contracts/slang-source-refinement-plan.md"
+    }
+  ],
+  "self_test": {
+    "note": "Synthetic tree and registry. The tree carries every path the clean fixture record resolves against, so a violation is attributable to the seeded defect and not to a missing fixture. No repository tree is read or written; no network, clock, Lean or Rust.",
+    "clean": {
+      "files": {
+        "Cargo.toml": "[package]\nname = \"slab\"\nversion = \"0.0.0\"\n",
+        "proof/lane.md": "# Synthetic lane directory\n\nPresent so a clean fixture cwd resolves.\n",
+        "src/table/probe.rs": "// production probe body, retained after the harness deletion\n",
+        "tools/slab/probe_gate.py": "#!/usr/bin/env python3\n\"\"\"Synthetic reachability gate for the self-test tree.\"\"\"\nimport sys\n\n\ndef main():\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n"
+      }
+    },
+    "entries": [
+      {
+        "id": "slab-probe-harness-retirement",
+        "kind": "retirement",
+        "note": "Clean fixture record: a retained obligation, a resolving consumer inventory and two resolvable commands.",
+        "removed": [
+          "tools/slab/probe_harness.rs"
+        ],
+        "replacement": [],
+        "retained_obligation": "The concrete regression in src/table/probe.rs is grade tested, not the retired symbolic population; the read-path links stay open.",
+        "consumers": [
+          "src/table/probe.rs",
+          "tools/slab/probe_gate.py"
+        ],
+        "reachability": [
+          {
+            "cwd": ".",
+            "argv": [
+              "python3",
+              "tools/slab/probe_gate.py",
+              "--check"
+            ]
+          },
+          {
+            "cwd": "proof",
+            "argv": [
+              "cargo",
+              "build"
+            ]
+          }
+        ],
+        "receipt": "slab-retirement"
+      }
+    ],
+    "cases": [
+      {
+        "name": "removal names no replacement and no retained obligation",
+        "rule": "M1",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [
+          "replacement",
+          "retained_obligation"
+        ],
+        "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "removal carries an empty consumer inventory",
+        "rule": "M2",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [
+          "consumers"
+        ],
+        "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "removal names a consumer that does not resolve",
+        "rule": "M2",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [],
+        "set": {
+          "consumers": [
+            "src/table/absent_probe.rs"
+          ]
+        },
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "removal carries no reachability command",
+        "rule": "M3",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [
+          "reachability"
+        ],
+        "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "removal names a reachability command that does not resolve",
+        "rule": "M3",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [],
+        "set": {
+          "reachability": [
+            {
+              "cwd": ".",
+              "argv": [
+                "python3",
+                "tools/slab/absent_gate.py",
+                "--check"
+              ]
+            }
+          ]
+        },
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "bare deletion record without a receipt id",
+        "rule": "M4",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [
+          "receipt"
+        ],
+        "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "clean removal registry accepted",
+        "rule": "",
+        "expect": "accept",
+        "entry": "",
+        "drop": [],
+        "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      }
+    ]
+  }
+}
