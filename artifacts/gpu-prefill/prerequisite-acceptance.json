@@ -1,0 +1,498 @@
+{
+  "schema": "apeiron-prerequisite-acceptance-1",
+  "integration": "01de89d020954897f48e9863f806ac9df0bbf5af",
+  "commits": {
+    "census": "fa497d0",
+    "scalar": "8b6db81",
+    "adapter": "57db58f",
+    "reviews": "43ce65c"
+  },
+  "grades": {
+    "scalar": "proved: actual source, closed cone, loop rank; no hardware timing",
+    "adapter": "source-bound model; checker tested; empty/allocation-overflow refusals untested",
+    "census": "source model; checker tested; no hardware speed claim"
+  },
+  "scalar_original_receipt": "/tmp/opencode/actscale-resource/source-n6xbipa5-receipt.json",
+  "scalar": {
+    "exit": 0,
+    "seconds": 12.681500206999772,
+    "budget": 540,
+    "argv": [
+      "/usr/bin/python3",
+      "/home/socol/Workspace/apeiron/proof/resource/gate.py",
+      "--check",
+      "--controls"
+    ],
+    "lane": "/tmp/opencode/apeiron-lane.lock",
+    "memory_max": "12G",
+    "swap_max": 0,
+    "threads": 1,
+    "deadline": "1790814089.2995477",
+    "records": [
+      {
+        "label": "rustc-version",
+        "argv": [
+          "rustc",
+          "--version"
+        ],
+        "exit": 0,
+        "seconds": 0.01559906699549174,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-rustc-version.log",
+        "log_sha256": "09466837797c6561b65d5294275c1270ac21b2dc54cea618ae2406e06b027495",
+        "log_text": "rustc 1.97.0-nightly (17584a181 2026-04-13)\n"
+      },
+      {
+        "label": "cargo-version",
+        "argv": [
+          "cargo",
+          "--version"
+        ],
+        "exit": 0,
+        "seconds": 0.016134488003444858,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-cargo-version.log",
+        "log_sha256": "e43cc98c7807845c35fb0d78a16cf9766f46d280585b9ea4c637b20c82800599",
+        "log_text": "cargo 1.97.0-nightly (eb94155a9 2026-04-09)\n"
+      },
+      {
+        "label": "lean-version",
+        "argv": [
+          "lean",
+          "--version"
+        ],
+        "exit": 0,
+        "seconds": 0.06490528200083645,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-lean-version.log",
+        "log_sha256": "7358d1800c240e8e514006267c1ecd0c9b49d6963d95e93fc5dbaf35dfdddfd0",
+        "log_text": "Lean (version 4.31.0-nightly-2026-04-13, x86_64-unknown-linux-gnu, commit d76e5a1886956bb38dc6bd2868260550dc66c309, Release)\n"
+      },
+      {
+        "label": "fresh-lock",
+        "argv": [
+          "cargo",
+          "generate-lockfile",
+          "--offline"
+        ],
+        "exit": 0,
+        "seconds": 0.033389600001100916,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-fresh-lock.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log_text": ""
+      },
+      {
+        "label": "fresh-rust-tests",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target"
+        ],
+        "exit": 0,
+        "seconds": 0.16404842300107703,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-fresh-rust-tests.log",
+        "log_sha256": "ed84e5fd4703fcf0ea6f1ddbd5e3e915542df57a6b6685d39a5875bfe427ce76",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/fresh)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s\n     Running unittests lib.rs (/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target/debug/deps/act_scale_source-dedab9b2481e05ed)\n\nrunning 2 tests\ntest pow2::tests::act_scale_is_the_least_covering_power_of_two ... ok\ntest pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+      },
+      {
+        "label": "fresh-charon",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/charon",
+          "cargo",
+          "--sysroot",
+          "default",
+          "--preset",
+          "aeneas",
+          "--dest-file",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/fresh/act_scale_source.llbc",
+          "--start-from",
+          "crate::scale",
+          "--",
+          "--manifest-path",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/fresh/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/charon-target"
+        ],
+        "exit": 0,
+        "seconds": 0.16495187999680638,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-fresh-charon.log",
+        "log_sha256": "abd03865a5fa05844af5e2cedf57e2ed29c616a4aaa6d4fcf00fd3076c81bc54",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/fresh)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s\n"
+      },
+      {
+        "label": "fresh-aeneas",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/aeneas",
+          "-backend",
+          "lean",
+          "-dest",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/fresh",
+          "-warnings-as-errors",
+          "-no-progress-bar",
+          "-all-computable",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/fresh/act_scale_source.llbc"
+        ],
+        "exit": 0,
+        "seconds": 0.3647822049970273,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-fresh-aeneas.log",
+        "log_sha256": "faade4d55f9149f2b39e0db836236a174b37344135926f908ae3c0d308216c6b",
+        "log_text": "[\u001b[92mInfo\u001b[39m ] Imported: /tmp/opencode/actscale-resource/source-n6xbipa5/fresh/act_scale_source.llbc\n[\u001b[92mInfo\u001b[39m ] Generated: /tmp/opencode/actscale-resource/source-n6xbipa5/fresh/ActScaleSource.lean\n[\u001b[92mInfo\u001b[39m ] Total execution time: 0.225701 seconds\n"
+      },
+      {
+        "label": "fresh-proof",
+        "argv": [
+          "lake",
+          "build",
+          "ActScaleResource"
+        ],
+        "exit": 0,
+        "seconds": 4.219450049000443,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-fresh-proof.log",
+        "log_sha256": "fab646e568c27784212f5bb3b4b980d092f56f8ef4cedda45dd095c980ad3ab9",
+        "log_text": "\u26a0 [1600/1706] Replayed Aeneas.Std.Vec\nwarning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:\n  Vec.from\n\nHint: Omit it from the simp argument list.\n  simp [Vec.set, V\u0335e\u0335c\u0335.\u0335f\u0335r\u0335o\u0335m\u0335,\u0335 \u0335Slice.set, Slice.setAtNat]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n\u2714 [1705/1706] Built ActScaleSource (815ms)\n\u2139 [1706/1706] Built ActScaleResource (1.1s)\ninfo: ActScaleResource.lean:235:0: ActScaleResource.body_step: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:236:0: ActScaleResource.body_exit: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:237:0: ActScaleResource.initial_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:238:0: ActScaleResource.zero_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:239:0: ActScaleResource.loop_spec: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:240:0: ActScaleResource.positive_loop_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:241:0: ActScaleResource.scale_positive: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:242:0: ActScaleResource.scale_never_none: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:244:0: ACT_SCALE_KERNEL_OK\nBuild completed successfully (1706 jobs).\n"
+      },
+      {
+        "label": "mutant-lock",
+        "argv": [
+          "cargo",
+          "generate-lockfile",
+          "--offline"
+        ],
+        "exit": 0,
+        "seconds": 0.015552156997728162,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-mutant-lock.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log_text": ""
+      },
+      {
+        "label": "mutant-rust-tests",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target"
+        ],
+        "exit": 101,
+        "seconds": 0.1136527839989867,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-mutant-rust-tests.log",
+        "log_sha256": "99a3a134807c2faad86de7a42c7b2f5f03d2eef472faa3b62157fcea199a34bf",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/mutant)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s\n     Running unittests lib.rs (/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target/debug/deps/act_scale_source-dedab9b2481e05ed)\n\nrunning 2 tests\ntest pow2::tests::act_scale_is_the_least_covering_power_of_two ... FAILED\ntest pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok\n\nfailures:\n\n---- pow2::tests::act_scale_is_the_least_covering_power_of_two stdout ----\n\nthread 'pow2::tests::act_scale_is_the_least_covering_power_of_two' (3349872) panicked at /tmp/opencode/actscale-resource/source-n6xbipa5/pow2.rs:127:21:\nassertion failed: s.is_power_of_two()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    pow2::tests::act_scale_is_the_least_covering_power_of_two\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `--lib`\n"
+      },
+      {
+        "label": "mutant-charon",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/charon",
+          "cargo",
+          "--sysroot",
+          "default",
+          "--preset",
+          "aeneas",
+          "--dest-file",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/mutant/act_scale_source.llbc",
+          "--start-from",
+          "crate::scale",
+          "--",
+          "--manifest-path",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/mutant/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/charon-target"
+        ],
+        "exit": 0,
+        "seconds": 0.16378079999412876,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-mutant-charon.log",
+        "log_sha256": "86b045220cc62ebe5b0d41415667974d5319b6caa137c8c5fb7604c80d29007c",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/mutant)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s\n"
+      },
+      {
+        "label": "mutant-aeneas",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/aeneas",
+          "-backend",
+          "lean",
+          "-dest",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/mutant",
+          "-warnings-as-errors",
+          "-no-progress-bar",
+          "-all-computable",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/mutant/act_scale_source.llbc"
+        ],
+        "exit": 0,
+        "seconds": 0.3642454340006225,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-mutant-aeneas.log",
+        "log_sha256": "e5283c954429dea7d75d33e147cc118687633ad7b94dc97989107ff7187cdfa5",
+        "log_text": "[\u001b[92mInfo\u001b[39m ] Imported: /tmp/opencode/actscale-resource/source-n6xbipa5/mutant/act_scale_source.llbc\n[\u001b[92mInfo\u001b[39m ] Generated: /tmp/opencode/actscale-resource/source-n6xbipa5/mutant/ActScaleSource.lean\n[\u001b[92mInfo\u001b[39m ] Total execution time: 0.240510 seconds\n"
+      },
+      {
+        "label": "mutant-proof",
+        "argv": [
+          "lake",
+          "build",
+          "ActScaleResource"
+        ],
+        "exit": 1,
+        "seconds": 2.5173667940034647,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-mutant-proof.log",
+        "log_sha256": "be0130a09383ab2f9aac06eb132358dddefa5b4ed0b3db68fc41bd59053a01c5",
+        "log_text": "\u26a0 [1599/1660] Replayed Aeneas.Std.Vec\nwarning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:\n  Vec.from\n\nHint: Omit it from the simp argument list.\n  simp [Vec.set, V\u0335e\u0335c\u0335.\u0335f\u0335r\u0335o\u0335m\u0335,\u0335 \u0335Slice.set, Slice.setAtNat]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n\u2714 [1705/1706] Built ActScaleSource (805ms)\n\u2716 [1706/1706] Building ActScaleResource (1.0s)\ntrace: .> LEAN_PATH=/home/socol/Workspace/apeiron/proof/.lake/packages/Cli/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/batteries/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/Qq/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/aesop/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/importGraph/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/plausible/.lake/build/lib/lean:/home/socol/Workspace/apeiron/proof/.lake/packages/mathlib/.lake/build/lib/lean:/home/socol/Workspace/apeiron/target/aeneas-model/lean/.lake/build/lib/lean:/tmp/opencode/actscale-resource/source-n6xbipa5/lean/.lake/build/lib/lean /home/socol/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /tmp/opencode/actscale-resource/source-n6xbipa5/lean/ActScaleResource.lean -o /tmp/opencode/actscale-resource/source-n6xbipa5/lean/.lake/build/lib/lean/ActScaleResource.olean -i /tmp/opencode/actscale-resource/source-n6xbipa5/lean/.lake/build/lib/lean/ActScaleResource.ilean -c /tmp/opencode/actscale-resource/source-n6xbipa5/lean/.lake/build/ir/ActScaleResource.c --setup /tmp/opencode/actscale-resource/source-n6xbipa5/lean/.lake/build/ir/ActScaleResource.setup.json --json\nerror: ActScaleResource.lean:47:23: Tactic `rewrite` failed: Did not find an occurrence of the pattern\n  s * 2#u64\nin the target expression\n  (do\n      let s1 \u2190 s * 3#u64\n      let steps1 \u2190 steps + 1#u32\n      ok (ControlFlow.cont (s1, steps1))) =\n    ok (ControlFlow.cont (s', steps'))\n\ncase refine_1\nneed s : U64\nsteps : U32\nhscale : \u2191s = 2 ^ \u2191steps\nhneed : \u2191s < \u2191need\nhsteps : \u2191steps < 62\nhpow : 2 ^ \u2191steps \u2264 2 ^ 61\nhmul : \u2191s * \u21912#u64 \u2264 U64.max\nhadd : \u2191steps + \u21911#u32 \u2264 U32.max\ns' : UScalar UScalarTy.U64\nhmul' : s * 2#u64 = ok s'\nhs' : \u2191s' = \u2191s * \u21912#u64\nsteps' : UScalar UScalarTy.U32\nhadd' : steps + 1#u32 = ok steps'\nhsteps' : \u2191steps' = \u2191steps + \u21911#u32\nhs : \u2191s' = 2 * \u2191s\nht : \u2191steps' = \u2191steps + 1\nhguard : steps < 62#u32\n\u22a2 (do\n      let s1 \u2190 s * 3#u64\n      let steps1 \u2190 steps + 1#u32\n      ok (ControlFlow.cont (s1, steps1))) =\n    ok (ControlFlow.cont (s', steps'))\nerror: ActScaleResource.lean:235:0: ActScaleResource.body_step: forbidden axioms [sorryAx]\ninfo: ActScaleResource.lean:236:0: ActScaleResource.body_exit: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:237:0: ActScaleResource.initial_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:238:0: ActScaleResource.zero_witness: axioms [propext, Classical.choice, Quot.sound]\nerror: ActScaleResource.lean:239:0: ActScaleResource.loop_spec: forbidden axioms [sorryAx]\nerror: ActScaleResource.lean:240:0: ActScaleResource.positive_loop_witness: forbidden axioms [sorryAx]\nerror: ActScaleResource.lean:241:0: ActScaleResource.scale_positive: forbidden axioms [sorryAx]\nerror: ActScaleResource.lean:242:0: ActScaleResource.scale_never_none: forbidden axioms [sorryAx]\ninfo: ActScaleResource.lean:244:0: ACT_SCALE_KERNEL_OK\nerror: Lean exited with code 1\nSome required targets logged failures:\n- ActScaleResource\nerror: build failed\n"
+      },
+      {
+        "label": "restored-lock",
+        "argv": [
+          "cargo",
+          "generate-lockfile",
+          "--offline"
+        ],
+        "exit": 0,
+        "seconds": 0.03380273400398437,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-restored-lock.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log_text": ""
+      },
+      {
+        "label": "restored-rust-tests",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target"
+        ],
+        "exit": 0,
+        "seconds": 0.16454407200217247,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-restored-rust-tests.log",
+        "log_sha256": "abcdf599eabdd3f2d1d92cb63a49c438d6429f71739dc11822372b34647f4f71",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/restored)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s\n     Running unittests lib.rs (/tmp/opencode/actscale-resource/source-n6xbipa5/rust-target/debug/deps/act_scale_source-dedab9b2481e05ed)\n\nrunning 2 tests\ntest pow2::tests::act_scale_is_the_least_covering_power_of_two ... ok\ntest pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+      },
+      {
+        "label": "restored-charon",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/charon",
+          "cargo",
+          "--sysroot",
+          "default",
+          "--preset",
+          "aeneas",
+          "--dest-file",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/restored/act_scale_source.llbc",
+          "--start-from",
+          "crate::scale",
+          "--",
+          "--manifest-path",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/restored/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--target-dir",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/charon-target"
+        ],
+        "exit": 0,
+        "seconds": 0.21544350500334986,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-restored-charon.log",
+        "log_sha256": "05aaa6d310d8ff9be357f6a4a0129ebd3ebfd30b7fdeaf6dc0e3bb79b82f67a9",
+        "log_text": "   Compiling act_scale_source v0.0.0 (/tmp/opencode/actscale-resource/source-n6xbipa5/restored)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s\n"
+      },
+      {
+        "label": "restored-aeneas",
+        "argv": [
+          "/home/socol/Workspace/apeiron/target/aeneas/aeneas",
+          "-backend",
+          "lean",
+          "-dest",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/restored",
+          "-warnings-as-errors",
+          "-no-progress-bar",
+          "-all-computable",
+          "/tmp/opencode/actscale-resource/source-n6xbipa5/restored/act_scale_source.llbc"
+        ],
+        "exit": 0,
+        "seconds": 0.4145481489977101,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-restored-aeneas.log",
+        "log_sha256": "2a35232734ef3b46ef94e22416d416c67b525e7879fccc1574a2ee2bb4b1d8e5",
+        "log_text": "[\u001b[92mInfo\u001b[39m ] Imported: /tmp/opencode/actscale-resource/source-n6xbipa5/restored/act_scale_source.llbc\n[\u001b[92mInfo\u001b[39m ] Generated: /tmp/opencode/actscale-resource/source-n6xbipa5/restored/ActScaleSource.lean\n[\u001b[92mInfo\u001b[39m ] Total execution time: 0.241158 seconds\n"
+      },
+      {
+        "label": "restored-proof",
+        "argv": [
+          "lake",
+          "build",
+          "ActScaleResource"
+        ],
+        "exit": 0,
+        "seconds": 3.620697348997055,
+        "log": "/tmp/opencode/actscale-resource/source-n6xbipa5-restored-proof.log",
+        "log_sha256": "29d9b54c4de45b372cc75ca08193a81c34e3354743f684d6d24e79f4964e1e89",
+        "log_text": "\u26a0 [1599/1678] Replayed Aeneas.Std.Vec\nwarning: Aeneas/Std/Vec.lean:322:19: This simp argument is unused:\n  Vec.from\n\nHint: Omit it from the simp argument list.\n  simp [Vec.set, V\u0335e\u0335c\u0335.\u0335f\u0335r\u0335o\u0335m\u0335,\u0335 \u0335Slice.set, Slice.setAtNat]\n\nNote: This linter can be disabled with `set_option linter.unusedSimpArgs false`\n\u2714 [1705/1706] Built ActScaleSource (841ms)\n\u2139 [1706/1706] Built ActScaleResource (1.1s)\ninfo: ActScaleResource.lean:235:0: ActScaleResource.body_step: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:236:0: ActScaleResource.body_exit: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:237:0: ActScaleResource.initial_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:238:0: ActScaleResource.zero_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:239:0: ActScaleResource.loop_spec: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:240:0: ActScaleResource.positive_loop_witness: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:241:0: ActScaleResource.scale_positive: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:242:0: ActScaleResource.scale_never_none: axioms [propext, Classical.choice, Quot.sound]\ninfo: ActScaleResource.lean:244:0: ACT_SCALE_KERNEL_OK\nBuild completed successfully (1706 jobs).\n"
+      }
+    ],
+    "sha256": {
+      "/home/socol/Workspace/apeiron/target/aeneas/charon-driver": "207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297",
+      "/home/socol/Workspace/apeiron/target/aeneas-model/lean/lean-toolchain": "efac0b94923b2d8b6840cd35be9177ad0fc5ab2332f4f4311c98712cee92fdee",
+      "/home/socol/Workspace/apeiron/proof/dispatch/lean-toolchain": "efac0b94923b2d8b6840cd35be9177ad0fc5ab2332f4f4311c98712cee92fdee",
+      "/home/socol/Workspace/apeiron/src/engine/kern/pow2.rs": "1f005c6807c1c87513c8c16654da3664614d9ced783616bd040fbfec8548d3b8",
+      "/home/socol/Workspace/apeiron/proof/resource/gate.py": "7aa523f89ff97f9a37a3d6581be6331e90f590801c17b05dddea5ef083b3597f",
+      "/home/socol/Workspace/apeiron/proof/resource/ActScaleSource.lean": "65e36c2f0673aea5855b4f06c8ae5f57f0944cd1b93f2597aba02128aa52e8fd",
+      "/home/socol/Workspace/apeiron/proof/resource/ActScaleResource.lean": "64e4391987209a095920321d0d12c3cfb3f91247bcf17de887a73577b2bbe809",
+      "/home/socol/Workspace/apeiron/target/aeneas/charon": "747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e",
+      "/home/socol/Workspace/apeiron/target/aeneas/aeneas": "33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a",
+      "/home/socol/Workspace/apeiron/proof/dispatch/lake-manifest.json": "9ccd1a96f2830caad41af223939c42ed7fede9e8ae6e2ce0223e8b6e86e54314"
+    },
+    "trust": "Aeneas/Charon, compiler, IO/process/dependencies; scalar source/resource claim excludes GPU/hardware timing"
+  },
+  "model_gates": [
+    {
+      "argv": [
+        "timeout",
+        "120s",
+        "python3",
+        "artifacts/gpu-prefill/adapter-gate.py",
+        "--check",
+        "--controls"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.09063633299956564,
+      "stdout": "SOURCE_BOUND_MODEL_CHECK_PASS\nCONTROL_RED empty-sources SOURCE_SET_INCOMPLETE\nCONTROL_RESTORED empty-sources\nCONTROL_RED wrong-source SOURCE_DIGEST\nCONTROL_RESTORED wrong-source\nCONTROL_RED signedness SIGNED_WEIGHT_RECODE\nCONTROL_RESTORED signedness\nCONTROL_RED weight-stride WEIGHT_STRIDE\nCONTROL_RESTORED weight-stride\nCONTROL_RED dm-stride DM_STRIDE\nCONTROL_RESTORED dm-stride\nCONTROL_RED padded-extent PADDED_EXTENT\nCONTROL_RESTORED padded-extent\nCONTROL_RED padded-observation PADDED_OUTPUT_OBSERVATION\nCONTROL_RESTORED padded-observation\nCONTROL_RED original-input-xs XS_SX_RECONSTRUCTION\nCONTROL_RESTORED original-input-xs\nCONTROL_RED wrong-sx XS_SX_RECONSTRUCTION\nCONTROL_RESTORED wrong-sx\nCONTROL_RED foreign-generation SESSION_GUARD_DOMAIN\nCONTROL_RESTORED foreign-generation\nCONTROL_RED stale-prefix SESSION_GUARD_DOMAIN\nCONTROL_RESTORED stale-prefix\nCONTROL_RED old-dm-contract DM_CONTRACT\nCONTROL_RESTORED old-dm-contract\nCONTROL_RED old-xs-contract XS_SX_CONTRACT\nCONTROL_RESTORED old-xs-contract\nCONTROL_RED old-state-contract CONTINUATION_CONTRACT\nCONTROL_RESTORED old-state-contract\nGRADE source-bound model; checker tested; Rust/GPU refinement OPEN elapsed=0.058\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "timeout",
+        "60s",
+        "python3",
+        "artifacts/gain-integration/resource-census.py",
+        "--check",
+        "--controls"
+      ],
+      "cwd": "/home/socol/Workspace/apeiron",
+      "exit": 0,
+      "seconds": 0.8171080280008027,
+      "stdout": "PASS baseline: 17 live/retained sources, 4 GGUF workload directories, packing/tile/graph counts match\nPASS control wrong-source: rejected SOURCE_BINDING\nPASS restore wrong-source\nPASS control wrong-shape: rejected SHAPE_BINDING\nPASS restore wrong-shape\nPASS control omitted-packing: rejected PACKING_OR_COST\nPASS restore omitted-packing\nPASS held-out: exact logical load reduction 0.674157303; equal dots/stores\nGRADE model; checker/control execution tested; no Rust/SPIR-V proof or hardware measurement\nelapsed_seconds=0.774778\n",
+      "stderr": ""
+    }
+  ],
+  "sha256": {
+    "proof/resource/gate.py": "7aa523f89ff97f9a37a3d6581be6331e90f590801c17b05dddea5ef083b3597f",
+    "proof/resource/ActScaleSource.lean": "65e36c2f0673aea5855b4f06c8ae5f57f0944cd1b93f2597aba02128aa52e8fd",
+    "proof/resource/ActScaleResource.lean": "64e4391987209a095920321d0d12c3cfb3f91247bcf17de887a73577b2bbe809",
+    "artifacts/gpu-prefill/adapter-gate.py": "2115a62e46a2ad529d7c7bcb15475aaf179981aa71c8cd3c33ffc7a590f8c6ce",
+    "artifacts/gpu-prefill/adapter-identities.json": "8f7040c36033e77ab3352f42d75756459c41c2cd5c146c29ce8977d210bdb335",
+    "artifacts/gpu-prefill/adapter-contract.md": "3d0a7441fba1a029a3530dba3779994382f538e22c21d83bd20dd067b1a1a52e",
+    "artifacts/gain-integration/resource-census.py": "2a2e8f9cb6f78b6e4c0e4d15a02bc7484bbb3b1567a3a021c47c8c5d020ef389",
+    "artifacts/gain-integration/resource-census.json": "189aac3e9c4e1506c53e5dc4e2b604a6c2989111d6e369d0bc31bdc1ce59c672",
+    "artifacts/gain-integration/resource-transfer.md": "48b74fa8cda5f03be3d25f25a39f5b7d16a9f0c17e2f344585c8bc3fab4f2c30",
+    "artifacts/gpu-prefill/actscale-review.md": "84d06d961e885f684782aa4bf4270a6dd85f0a5940c59aff7e2aacce9c8a9b05",
+    "artifacts/gpu-prefill/adapter-final-review.md": "0ff46fc62165d4630555ec772b9238cb600e887f5ca9192103da9d3606e94aef",
+    "artifacts/gain-integration/resource-census-review.md": "70ff4b9dc1cf590006574eba6114c7e120d2c379c6a0c0900d60a1f690302368"
+  },
+  "original_failures_retained": [
+    "resource census worker preparation 539/480 seconds; original slice unclosed",
+    "initial adapter independent review 185/180 seconds; original review slice unclosed",
+    "initial adapter checker admitted four model defects; repaired and re-reviewed"
+  ],
+  "next": "Establish exact_dot actual extraction closure and numeric/refusal domain before allocating GPU projection proof or implementation.",
+  "record_gate": {
+    "argv": [
+      "timeout",
+      "60s",
+      "python3",
+      "-c",
+      "import hashlib,json,copy\nfrom pathlib import Path\nr=json.loads(Path(\"artifacts/gpu-prefill/prerequisite-acceptance.json\").read_text())\ndef validate(r):\n assert r[\"scalar\"][\"exit\"]==0 and r[\"scalar\"][\"seconds\"]<r[\"scalar\"][\"budget\"]<=540\n for p,h in r[\"sha256\"].items(): assert hashlib.sha256(Path(p).read_bytes()).hexdigest()==h,p\n for p,h in r[\"scalar\"][\"sha256\"].items(): assert hashlib.sha256(Path(p).read_bytes()).hexdigest()==h,p\n stages={s[\"label\"]:s for s in r[\"scalar\"][\"records\"]}\n for label in (\"fresh-proof\",\"restored-proof\",\"fresh-rust-tests\",\"restored-rust-tests\"):\n  assert stages[label][\"exit\"]==0\n assert stages[\"mutant-proof\"][\"exit\"]==1 and \"error:\" in stages[\"mutant-proof\"][\"log_text\"]\n assert \"ACT_SCALE_KERNEL_OK\" in stages[\"fresh-proof\"][\"log_text\"]\n for s in stages.values(): assert hashlib.sha256(s[\"log_text\"].encode()).hexdigest()==s[\"log_sha256\"]\n assert len(r[\"model_gates\"])==2 and all(g[\"exit\"]==0 for g in r[\"model_gates\"])\n assert r[\"model_gates\"][0][\"stdout\"].count(\"CONTROL_RED \")==14\n assert r[\"model_gates\"][0][\"stdout\"].count(\"CONTROL_RESTORED \")==14\n for f in (\"docs/epics/gpu-prefill.md\",\"docs/epics/resource-guided-evolution.md\"):\n  t=Path(f).read_text();assert \"prerequisite-acceptance.json\" in t and \"58 doublings\" in t and \"remain open\" in t\nvalidate(r);print(\"PREREQUISITE_RECEIPT_PASS\")\nbad=copy.deepcopy(r);bad[\"scalar\"][\"records\"]=[]\ntry: validate(bad)\nexcept (AssertionError,KeyError): print(\"CONTROL_RED missing-proof-evidence\")\nelse: raise RuntimeError(\"missing evidence control falsely passed\")\nvalidate(r);print(\"CONTROL_RESTORED missing-proof-evidence\")\n"
+    ],
+    "grade": "tested documentation/evidence consistency; preserves focused result scopes",
+    "exit": 0,
+    "stdout": "PREREQUISITE_RECEIPT_PASS\nCONTROL_RED missing-proof-evidence\nCONTROL_RESTORED missing-proof-evidence\n"
+  },
+  "independent_record_verdict": {
+    "reviewer": "Luna /root/actscale_review",
+    "decision": "ACCEPT documentation and focused evidence scopes; no correction",
+    "gate_exit": 0,
+    "gate_stdout": "PREREQUISITE_RECEIPT_PASS\nCONTROL_RED missing-proof-evidence\nCONTROL_RESTORED missing-proof-evidence\n",
+    "scope": "read-only 2 epic documents and acceptance record; no proof build or implementation"
+  },
+  "owned_task_cleanup": {
+    "archive": "/tmp/opencode/gpu-prerequisite-task-snapshots.tar.gz",
+    "paths": [
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2",
+        "path": "artifacts/gpu-prefill/adapter-contract.md",
+        "archive_entry": "worktree-agent-APEIRON-GPU-PREFILL-W1-T2/artifacts/gpu-prefill/adapter-contract.md",
+        "task_sha256": "3d0a7441fba1a029a3530dba3779994382f538e22c21d83bd20dd067b1a1a52e",
+        "main_sha256": "3d0a7441fba1a029a3530dba3779994382f538e22c21d83bd20dd067b1a1a52e"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2",
+        "path": "artifacts/gpu-prefill/adapter-gate.py",
+        "archive_entry": "worktree-agent-APEIRON-GPU-PREFILL-W1-T2/artifacts/gpu-prefill/adapter-gate.py",
+        "task_sha256": "2115a62e46a2ad529d7c7bcb15475aaf179981aa71c8cd3c33ffc7a590f8c6ce",
+        "main_sha256": "2115a62e46a2ad529d7c7bcb15475aaf179981aa71c8cd3c33ffc7a590f8c6ce"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2",
+        "path": "artifacts/gpu-prefill/adapter-identities.json",
+        "archive_entry": "worktree-agent-APEIRON-GPU-PREFILL-W1-T2/artifacts/gpu-prefill/adapter-identities.json",
+        "task_sha256": "8f7040c36033e77ab3352f42d75756459c41c2cd5c146c29ce8977d210bdb335",
+        "main_sha256": "8f7040c36033e77ab3352f42d75756459c41c2cd5c146c29ce8977d210bdb335"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T1",
+        "path": "artifacts/gain-integration/resource-census.json",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T1/artifacts/gain-integration/resource-census.json",
+        "task_sha256": "189aac3e9c4e1506c53e5dc4e2b604a6c2989111d6e369d0bc31bdc1ce59c672",
+        "main_sha256": "189aac3e9c4e1506c53e5dc4e2b604a6c2989111d6e369d0bc31bdc1ce59c672"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T1",
+        "path": "artifacts/gain-integration/resource-census.py",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T1/artifacts/gain-integration/resource-census.py",
+        "task_sha256": "2a2e8f9cb6f78b6e4c0e4d15a02bc7484bbb3b1567a3a021c47c8c5d020ef389",
+        "main_sha256": "2a2e8f9cb6f78b6e4c0e4d15a02bc7484bbb3b1567a3a021c47c8c5d020ef389"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T1",
+        "path": "artifacts/gain-integration/resource-transfer.md",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T1/artifacts/gain-integration/resource-transfer.md",
+        "task_sha256": "041a6f23df86f4e7c244d96c4710cd945e81ef1eb37fad21d3e6cfe9f9eeaac4",
+        "main_sha256": "48b74fa8cda5f03be3d25f25a39f5b7d16a9f0c17e2f344585c8bc3fab4f2c30"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T2",
+        "path": "proof/resource/ActScaleResource.lean",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T2/proof/resource/ActScaleResource.lean",
+        "task_sha256": "64e4391987209a095920321d0d12c3cfb3f91247bcf17de887a73577b2bbe809",
+        "main_sha256": "64e4391987209a095920321d0d12c3cfb3f91247bcf17de887a73577b2bbe809"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T2",
+        "path": "proof/resource/ActScaleSource.lean",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T2/proof/resource/ActScaleSource.lean",
+        "task_sha256": "65e36c2f0673aea5855b4f06c8ae5f57f0944cd1b93f2597aba02128aa52e8fd",
+        "main_sha256": "65e36c2f0673aea5855b4f06c8ae5f57f0944cd1b93f2597aba02128aa52e8fd"
+      },
+      {
+        "worktree": "/tmp/worktree-agent-APEIRON-RESOURCE-W1-T2",
+        "path": "proof/resource/gate.py",
+        "archive_entry": "worktree-agent-APEIRON-RESOURCE-W1-T2/proof/resource/gate.py",
+        "task_sha256": "7aa523f89ff97f9a37a3d6581be6331e90f590801c17b05dddea5ef083b3597f",
+        "main_sha256": "7aa523f89ff97f9a37a3d6581be6331e90f590801c17b05dddea5ef083b3597f"
+      }
+    ],
+    "before_worktrees": "worktree /home/socol/Workspace/apeiron\nHEAD 43ce65c7955750709b74c303f1fe613fe966f233\nbranch refs/heads/main\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-benchmarks\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-compile-graph\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-norm-destination\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-prefill-state\n\nworktree /home/socol/oc-tmp/ns/exp-hyper\nHEAD da48b1cd168afd1624d3cdb9c9e1836c8c0bf033\nbranch refs/heads/exp/hyper-attn\n\nworktree /home/socol/oc-tmp/ns/integ\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/nightshift\n\nworktree /home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/affine-head-signed-mul-r30\n\nworktree /home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/decode-q8-4row-tile-r30\n\nworktree /home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/gemm-dpbusd-chain-split-r30\n\nworktree /home/socol/oc-tmp/wt/w5-integ\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w5-integ\n\nworktree /home/socol/oc-tmp/wt/w6-integ\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w6-integ\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t01\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t04\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t05\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t06\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T08\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t08\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T09\nHEAD fa5d9c8df4b8ba4ccc1741c37d9a08835aeb8a35\nbranch refs/heads/task/w6-t09\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T10\nHEAD fa5d9c8df4b8ba4ccc1741c37d9a08835aeb8a35\nbranch refs/heads/task/w6-t10\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11\nHEAD 76181e7eea7394c9dbd4c48efc70a6bae26e1c11\nbranch refs/heads/task/w6-t11\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11b\nHEAD 61a3a8e667efd35f61d44afa955556f9c9f0ee89\nbranch refs/heads/task/w6-t11b\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T12\nHEAD 0bf8b4d7496d08ae7135b0279605d2ec3fdeeff1\nbranch refs/heads/task/w6-t12\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T13\nHEAD 0bf8b4d7496d08ae7135b0279605d2ec3fdeeff1\nbranch refs/heads/task/w6-t13\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T02\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t02\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t03\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t04\n\nworktree /tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-block\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/affine-block\n\nworktree /tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-capture\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/affine-capture\n\nworktree /tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2\nHEAD ad707f448e187697af0577dc2c5e5b610409f371\nbranch refs/heads/codex/gpu-adapter-w1\n\nworktree /tmp/worktree-agent-APEIRON-RESOURCE-W1-T1\nHEAD ad707f448e187697af0577dc2c5e5b610409f371\nbranch refs/heads/codex/resource-census-w1\n\nworktree /tmp/worktree-agent-APEIRON-RESOURCE-W1-T2\nHEAD ad707f448e187697af0577dc2c5e5b610409f371\nbranch refs/heads/codex/actscale-source-w1\n\n",
+    "before_branches": "+ codex/actscale-source-w1          ad707f4 (/tmp/worktree-agent-APEIRON-RESOURCE-W1-T2) Base GPU prefill and cost evolution on existing Fold kernels\n+ codex/affine-block                3f29041 (/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-block) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/affine-capture              3f29041 (/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-capture) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/gpu-adapter-w1              ad707f4 (/tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2) Base GPU prefill and cost evolution on existing Fold kernels\n+ codex/resource-census-w1          ad707f4 (/tmp/worktree-agent-APEIRON-RESOURCE-W1-T1) Base GPU prefill and cost evolution on existing Fold kernels\n+ codex/structural-benchmarks       3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-compile-graph    3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-norm-destination 3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-prefill-state    3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ exp/hyper-attn                    da48b1c (/home/socol/oc-tmp/ns/exp-hyper) Record comparator receipt ns-r007: pp 0.58x, tg 1.27x vs llama.cpp CPU\n* main                              43ce65c [origin/main: ahead 44] Retain independent scalar proof and GPU prerequisite review verdicts\n+ nightshift                        e33977a (/home/socol/oc-tmp/ns/integ) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/affine-head-signed-mul-r30     e33977a (/home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/decode-q8-4row-tile-r30        e33977a (/home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/gemm-dpbusd-chain-split-r30    e33977a (/home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n  one-allocation                    f78ce71 one allocation for both arrays: sound, Miri-clean, and not yet a net win\n+ task/w5-integ                     3f29041 (/home/socol/oc-tmp/wt/w5-integ) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-integ                     04d2060 (/home/socol/oc-tmp/wt/w6-integ) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w6-t01                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t04                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t05                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t06                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t08                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T08) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t09                       fa5d9c8 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T09) Prefill wave 6a: GEMM pre-check, single-pass prefill, block width 256\n+ task/w6-t10                       fa5d9c8 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T10) Prefill wave 6a: GEMM pre-check, single-pass prefill, block width 256\n+ task/w6-t11                       76181e7 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11) Prefill wave 6b: conv/heads prefill tasks, matmat pre-check\n+ task/w6-t11b                      61a3a8e (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11b) Prefill wave 6d: tiled f32 attention core, word-equal sigmoid gate, shared RoPE\n+ task/w6-t12                       0bf8b4d (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T12) Prefill wave 6c: 4-row tasks for n_out <= 1024 single projections\n+ task/w6-t13                       0bf8b4d (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T13) Prefill wave 6c: 4-row tasks for n_out <= 1024 single projections\n+ task/w7-t02                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T02) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w7-t03                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w7-t04                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n",
+    "archive_sha256": "3eeb7e6b22eddb431cf2b1053ed0ff8a0fb44b928adc3b0b3c277c429c823ec8",
+    "after_worktrees": "worktree /home/socol/Workspace/apeiron\nHEAD 43ce65c7955750709b74c303f1fe613fe966f233\nbranch refs/heads/main\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-benchmarks\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-compile-graph\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-norm-destination\n\nworktree /home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/structural-prefill-state\n\nworktree /home/socol/oc-tmp/ns/exp-hyper\nHEAD da48b1cd168afd1624d3cdb9c9e1836c8c0bf033\nbranch refs/heads/exp/hyper-attn\n\nworktree /home/socol/oc-tmp/ns/integ\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/nightshift\n\nworktree /home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/affine-head-signed-mul-r30\n\nworktree /home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/decode-q8-4row-tile-r30\n\nworktree /home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30\nHEAD e33977aa72534ad56775110be99cf002ca96fa37\nbranch refs/heads/ns/gemm-dpbusd-chain-split-r30\n\nworktree /home/socol/oc-tmp/wt/w5-integ\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w5-integ\n\nworktree /home/socol/oc-tmp/wt/w6-integ\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w6-integ\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t01\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t04\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t05\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t06\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T08\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/task/w6-t08\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T09\nHEAD fa5d9c8df4b8ba4ccc1741c37d9a08835aeb8a35\nbranch refs/heads/task/w6-t09\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T10\nHEAD fa5d9c8df4b8ba4ccc1741c37d9a08835aeb8a35\nbranch refs/heads/task/w6-t10\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11\nHEAD 76181e7eea7394c9dbd4c48efc70a6bae26e1c11\nbranch refs/heads/task/w6-t11\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11b\nHEAD 61a3a8e667efd35f61d44afa955556f9c9f0ee89\nbranch refs/heads/task/w6-t11b\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T12\nHEAD 0bf8b4d7496d08ae7135b0279605d2ec3fdeeff1\nbranch refs/heads/task/w6-t12\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T13\nHEAD 0bf8b4d7496d08ae7135b0279605d2ec3fdeeff1\nbranch refs/heads/task/w6-t13\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T02\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t02\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t03\n\nworktree /home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04\nHEAD 04d206013f70f245dfdaf2619c0b1846d10b9922\nbranch refs/heads/task/w7-t04\n\nworktree /tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-block\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/affine-block\n\nworktree /tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-capture\nHEAD 3f29041c23697ab7aebab23da95fa900d3ff27b4\nbranch refs/heads/codex/affine-capture\n\n",
+    "after_branches": "+ codex/affine-block                3f29041 (/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-block) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/affine-capture              3f29041 (/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-capture) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-benchmarks       3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-compile-graph    3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-norm-destination 3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ codex/structural-prefill-state    3f29041 (/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ exp/hyper-attn                    da48b1c (/home/socol/oc-tmp/ns/exp-hyper) Record comparator receipt ns-r007: pp 0.58x, tg 1.27x vs llama.cpp CPU\n* main                              43ce65c [origin/main: ahead 44] Retain independent scalar proof and GPU prerequisite review verdicts\n+ nightshift                        e33977a (/home/socol/oc-tmp/ns/integ) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/affine-head-signed-mul-r30     e33977a (/home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/decode-q8-4row-tile-r30        e33977a (/home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n+ ns/gemm-dpbusd-chain-split-r30    e33977a (/home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30) Record comparator receipt ns-r028: pp 0.64x, tg 1.40x vs llama.cpp CPU\n  one-allocation                    f78ce71 one allocation for both arrays: sound, Miri-clean, and not yet a net win\n+ task/w5-integ                     3f29041 (/home/socol/oc-tmp/wt/w5-integ) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-integ                     04d2060 (/home/socol/oc-tmp/wt/w6-integ) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w6-t01                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t04                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t05                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t06                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t08                       3f29041 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T08) f32 carrier wave 5: fused decode conv, plane-major head, pool join\n+ task/w6-t09                       fa5d9c8 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T09) Prefill wave 6a: GEMM pre-check, single-pass prefill, block width 256\n+ task/w6-t10                       fa5d9c8 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T10) Prefill wave 6a: GEMM pre-check, single-pass prefill, block width 256\n+ task/w6-t11                       76181e7 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11) Prefill wave 6b: conv/heads prefill tasks, matmat pre-check\n+ task/w6-t11b                      61a3a8e (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11b) Prefill wave 6d: tiled f32 attention core, word-equal sigmoid gate, shared RoPE\n+ task/w6-t12                       0bf8b4d (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T12) Prefill wave 6c: 4-row tasks for n_out <= 1024 single projections\n+ task/w6-t13                       0bf8b4d (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T13) Prefill wave 6c: 4-row tasks for n_out <= 1024 single projections\n+ task/w7-t02                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T02) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w7-t03                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n+ task/w7-t04                       04d2060 (/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04) Prefill wave 6e: held glibc heap, fused f32 conv kernel, symmetric warm-up\n",
+    "exit": 0
+  }
+}

@@ -2,7 +2,7 @@
 
 ## Intent
 
-Owner: lead. Status: source-bound integration plan; no implementation dispatch.
+Owner: lead. Status: adapter model checked and scalar source prerequisite proved; no implementation dispatch.
 Main merge: `01de89d020954897f48e9863f806ac9df0bbf5af`, with the tested CPU runtime and fixtures.
 Fold source: `/home/socol/Workspace/fold`, `d497161f32e0d366220f2065ec36e680bd9aed86`;
 read-only source review and digests: artifacts/gain-integration/fold-gpu-reuse.md.
@@ -85,7 +85,7 @@ Every gate is bounded at 540 s including descendants/lock waiting; Lean uses the
 
 | order | task / owner | owned paths | gate and rejecting control |
 |---|---|---|---|
-| 1 | Source-bound adapter design; Luna, Sol review; APEIRON-GPU-PREFILL-W1-T2 | New adapter contract, identity manifest and focused checker, at most 3 paths selected before dispatch | MISSING packing/state/ABI correspondence gate; create it first; wrong lane signedness, stride, session identity and padded extent must reject |
+| 1 | Source-bound adapter design; Luna, Sol review; APEIRON-GPU-PREFILL-W1-T2 | artifacts/gpu-prefill/adapter-contract.md, adapter-identities.json, adapter-gate.py | `timeout 120s python3 artifacts/gpu-prefill/adapter-gate.py --check --controls`; gate-first; wrong lane signedness, stride, session identity and padded extent must reject |
 | 2 | Actual primitive refinement; Luna, Sol review | Real source extraction/refinement pair and control, at most 3 selected paths | MISSING selected CPU/emitted-body link; integer core and unchanged float epilogue carry distinct observations; source mutation must fail the named link |
 | 3 | Existing graph cost correspondence; Luna, Sol review | Source-bound graph/resource pair and control, at most 3 | MISSING constructor-reachable success/refusal and cost gate; omitted packing, transfer or drain must reject; consume resource-guided-evolution.md |
 | 4 | Production admission contract; lead plus independent reviewer | Bound contract/proof/source identities, at most 3 | Production-path launcher positive, attributable refusal and restoration; preservation and strict improvement in registered resource model |
@@ -134,3 +134,49 @@ GRADE: anchor/planning; historical measurements retain workload/carrier/protocol
 Every inference optimization implementation worker, including native agents, must execute its
 registered argv through python3 tools/dispatch/admit.py --launch <proposal.json> in its task worktree.
 A route the launcher cannot execute is not admitted; direct native dispatch is no bypass.
+
+### Executing prerequisite allocation
+
+`APEIRON-GPU-PREFILL-W1-T2`: Luna owns exactly the three adapter artifacts above in
+/tmp/worktree-agent-APEIRON-GPU-PREFILL-W1-T2, branch codex/gpu-adapter-w1, base ad707f4.
+No shared build lane. Slice budget 480 s; local gate budget 120 s, including controls/descendants.
+Baseline: adapter-gate.py absent, test -f exits 1. The gate binds actual source identities and checks
+packing/shape/state contract witnesses; it must not present a handwritten oracle as runtime
+refinement. Sol independently reviews the resulting contract; lead alone merges.
+
+### Accepted prerequisite evidence
+
+The main merge remains 01de89d. The source-bound adapter model is committed at 57db58f;
+its exact 120-second check exits 0 with fourteen attributable red/restoration controls.
+The initial checker admitted four defects; the repaired checker rejects them. Independent
+acceptance is artifacts/gpu-prefill/adapter-final-review.md. Empty-input and allocation-overflow
+refusal remain declared policies, not exercised witnesses. Production packing, float epilogue
+equality, constructor/continuation integration and GPU execution remain open.
+
+The independently reviewed scalar prerequisite is committed at 8b6db81:
+proof/resource/ActScaleSource.lean extracts the real pow2.rs act_scale body;
+ActScaleResource.scale_positive proves least covering power-of-two return for every positive u64,
+and scale_never_none proves None unreachable on the full u64 domain. Loop rank proves at most
+58 doublings. The focused gate exits 0 in 12.682 s under the 540-second lane/memory/thread bound;
+changing the real doubling to multiplication by three makes the extracted proof red and restoration
+green. This source-level result does not establish the full quantization/projection or GPU result.
+
+artifacts/gpu-prefill/prerequisite-acceptance.json retains commands, source/tool identities,
+full scalar stage logs, model controls and review identities. The next source-linked target is
+src/engine/kern/gemm.rs::exact_dot with its actual QuantAct and rounding callees; its small extracted
+call closure and admissible domain must be established before allocating a projection proof worker.
+The census supplies modeled graph counts; actual graph/cost correspondence and production admission
+remain open. No optimization implementation is admitted by these prerequisite results.
+
+SCOPE: docs/epics/gpu-prefill.md, docs/epics/resource-guided-evolution.md and
+       artifacts/gpu-prefill/prerequisite-acceptance.json; lead documentation exception on main.
+REGISTER: acceptance records; GPU execution and whole-epic closure excluded.
+CORPUS: ActScaleResource.scale_positive and scale_never_none; actual extracted source;
+        closed-cone kernel receipt retained in prerequisite-acceptance.json.
+REFERENCE: /home/socol/Workspace/apeiron/proof/resource/ActScaleResource.lean.
+GATE: timeout 60s python3 -c 'import json,subprocess; from pathlib import Path;
+      r=json.loads(Path("artifacts/gpu-prefill/prerequisite-acceptance.json").read_text());
+      raise SystemExit(subprocess.call(r["record_gate"]["argv"]))';
+      absent receipt baseline exits 1; missing-proof-evidence control rejects; restored record passes.
+GRADE: tested document/evidence consistency; scalar proved, source census/adapter model;
+       no new speed measurement or implementation admission.

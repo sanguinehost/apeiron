@@ -2,7 +2,7 @@
 
 ## Intent
 
-Owner: lead. Status: draft; no synthesis or inference implementation dispatch. Base: `04d206013f70f245dfdaf2619c0b1846d10b9922` measured
+Owner: lead. Status: source-bound census checked and scalar source prerequisite proved; no synthesis or inference implementation dispatch. Base: `04d206013f70f245dfdaf2619c0b1846d10b9922` measured
 CPU gains and the separately checked Rust/Aeneas admission core. Lead documentation ownership and
 three-file exception are recorded in gpu-prefill.md. The CPU stack is now merged on main
 at 01de89d; historical measured source and current integration identities remain separate. Intent's active review remains owned by thread
@@ -77,7 +77,7 @@ lock waiting, at most 540 s, with standard Lean lane/memory/thread limits.
 
 | order | task / owner | owned paths | focused gate / rejecting control |
 |---|---|---|---|
-| 1 | Explain transfer; Luna analysis, Sol independent review, `APEIRON-RESOURCE-W1-T1` | artifacts/gain-integration/resource-census.py, resource-census.json, resource-transfer.md | MISSING `timeout 60s python3 artifacts/gain-integration/resource-census.py --check --controls`; create this focused gate first; wrong shape/source binding and omitted packing must reject |
+| 1 | Explain transfer; Luna analysis, Sol independent review, `APEIRON-RESOURCE-W1-T1` | artifacts/gain-integration/resource-census.py, resource-census.json, resource-transfer.md | `timeout 60s python3 artifacts/gain-integration/resource-census.py --check --controls`; checked model gate; wrong shape/source binding and omitted packing must reject |
 | 2 | Source-cost primitive; Luna bounded proof worker | Select real source root plus extraction/refinement pair, at most 3 | Gate-first Aeneas cost correspondence and reachable success/refusal witnesses; change loop work or refusal and require source-connected red |
 | 3 | Sharing/schedule resource algebra; Luna bounded proof worker | At most3 new cost/graph proof files selected after contract review | MISSING named composition/dominance theorem with nonvacuous witness; duplicated effect or omitted packing cost must reject |
 | 4 | One production admission contract; lead + Sol independent reviewer | Bound contract/proof/source identities, at most 3 | Actual launcher positive, attributable refusal and restored positive; no synthetic-only acceptance |
@@ -131,7 +131,7 @@ word theorem. A new resource instrumentation/extraction seam has separate owners
 | obligation | grade / current status | closing evidence |
 |---|---|---|
 | Shared transfer explanation | model + measured / open | source-bound census; retained raw receipt identities; one frozen held-out prediction |
-| One source-connected resource derivation | proved / open | real extraction, reachable joint witness, success/refusal and loop-cost correspondence; gate MISSING |
+| One source-connected resource derivation | proved / scalar prerequisite accepted; transformation certificate open | ActScaleResource loop/scale source refinement; gate.py --check --controls; projection/graph cost correspondence remains open |
 | One exact sharing/schedule choice | proved / open | typed observations include state/effects/refusals; strict model improvement; gate MISSING |
 | Actual admission | tested + proved / closed to dispatch | independent contract verdict, production launcher positive, attributable refusal, restoration |
 | Transfer validation | measured / open | matched quiet receipts and separately registered ablation/held-out protocol; no dense 2x requirement |
@@ -149,3 +149,52 @@ Native agents may establish separately scoped source/refinement/resource prerequ
 inference optimization implementation worker, including Luna, must execute its registered worker
 argv through `python3 tools/dispatch/admit.py --launch <proposal.json>` in its task worktree.
 A native route the launcher cannot execute remains blocked; direct native dispatch is no bypass.
+
+### Executing prerequisite allocation
+
+`APEIRON-RESOURCE-W1-T1`: Sol owns exactly resource-census.py, resource-census.json and
+resource-transfer.md under artifacts/gain-integration in /tmp/worktree-agent-APEIRON-RESOURCE-W1-T1,
+branch codex/resource-census-w1, base ad707f4. No shared build lane. Slice budget 480 s; local gate
+budget 60 s, including controls/descendants. Baseline: resource-census.py absent, test -f exits 1.
+Census binds actual CPU/Fold source identities, separates derived counts from unavailable counters,
+and rejects wrong source/shape and omitted packing. Luna independently reviews the return.
+The explicit owner selection for this allocation uses the user's authorised Sol lane.
+
+`APEIRON-RESOURCE-W1-T2`: independent scalar source prerequisite alongside the census, base ad707f4,
+/tmp/worktree-agent-APEIRON-RESOURCE-W1-T2, branch codex/actscale-source-w1. Lead owns
+proof/resource/gate.py and ActScaleSource.lean; Sol owns ActScaleResource.lean. Their three-path
+union extracts the actual src/engine/kern/pow2.rs::act_scale body through a forwarding #[path]
+wrapper; no inference source is changed. Gate: fresh extraction, audited Lean source/loop theorem,
+real doubling mutation and restoration via gate.py --check --controls, 540 s whole invocation,
+flock lane, 12 GiB/no swap and LEAN_NUM_THREADS=1. Baseline: ActScaleResource.lean absent.
+Luna independently reviews after the kernel/control return. The resource observation is loop
+iterations/rank under named scalar premises, not cycles or whole GPU cost. All downstream
+implementation registration waits for the census/contract/refinement barrier; this independent
+source prerequisite changes neither canonical definitions nor carrier semantics.
+
+### Accepted prerequisite evidence
+
+The census/checker is committed at fa497d0; its 60-second check exits 0 with wrong-source,
+wrong-shape and omitted-packing red/restoration controls. Formulas are model evidence and the
+checker is tested. Independent review is artifacts/gain-integration/resource-census-review.md.
+The original worker preparation exceeded 539/480 s and remains a failed slice; it is not task or
+wave closure. The frozen artifacts have separate bounded gate and independent acceptance receipts.
+
+Shared activation packing across projections, row/token reuse and resident execution are named
+source mechanisms. The hypothetical M3072/K2048/B384 rt1-to-rt4 scenario predicts 67.4157% fewer
+logical loads at unchanged dot/store counts. Fold currently selects rt8 for that shape, so rt1 is
+not an observed baseline or a current-policy speed improvement. Historical hybrid/dense receipts
+remain whole-prefill results; neither this census nor the scalar theorem establishes their causal
+attribution or a new GPU timing result.
+
+The real act_scale source refinement is committed at 8b6db81 and independently accepted in
+artifacts/gpu-prefill/actscale-review.md: least-cover return, full-u64 unreachable None, reachable
+zero/positive witnesses and strictly decreasing rank with at most 58 doublings. Its actual-source
+multiply-by-three mutation fails the proof and restored extraction passes. This meets the separately
+scoped scalar prerequisite; strict resource improvement for a transformation, graph composition,
+canonical primitive correspondence and the production admission contract remain open.
+
+artifacts/gpu-prefill/prerequisite-acceptance.json retains the complete focused evidence. The next
+bounded prerequisite selects the actual exact_dot extraction closure and its numeric/refusal domain.
+GPU whole-prefill validation, calibrated hardware envelopes, the evolver interface and the common
+Rust/Lean epic barrier retain their own exit obligations.
