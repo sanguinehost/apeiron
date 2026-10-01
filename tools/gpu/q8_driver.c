@@ -2,10 +2,12 @@
 #include <vulkan/vulkan.h>
 
 #include <errno.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum { BINDINGS = 6 };
 
@@ -71,6 +73,19 @@ static size_t checked_add(size_t a, size_t b, const char *name) {
     return a + b;
 }
 
+static uint64_t timespec_diff_ns(const struct timespec *start, const struct timespec *end) {
+    int64_t s = (int64_t)end->tv_sec - (int64_t)start->tv_sec;
+    int64_t ns = (int64_t)end->tv_nsec - (int64_t)start->tv_nsec;
+    if (ns < 0) {
+        s -= 1;
+        ns += 1000000000L;
+    }
+    if (s < 0 || (s == 0 && ns < 0)) {
+        return 0;
+    }
+    return (uint64_t)s * 1000000000ULL + (uint64_t)ns;
+}
+
 static uint32_t memory_type(VkPhysicalDevice physical, uint32_t bits) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(physical, &props);
@@ -85,11 +100,11 @@ static uint32_t memory_type(VkPhysicalDevice physical, uint32_t bits) {
 }
 
 static void create_host_buffer(VkPhysicalDevice physical, VkDevice device, HostBuffer *b,
-                               VkDeviceSize size) {
+                               VkDeviceSize size, VkBufferUsageFlags usage) {
     b->size = size == 0 ? 4 : size;
     VkBufferCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                              .size = b->size,
-                             .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                             .usage = usage,
                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
     vk_ok(vkCreateBuffer(device, &ci, NULL, &b->buffer), "vkCreateBuffer");
     VkMemoryRequirements req;
@@ -109,10 +124,41 @@ static void destroy_host_buffer(VkDevice device, HostBuffer *b) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 7) {
-        fprintf(stderr, "usage: %s shader.spv M tokens blocks case-input.bin result.bin\n", argv[0]);
+    if (argc < 7) {
+        fprintf(stderr, "usage: %s shader.spv M tokens blocks case-input.bin result.bin [--timestamps path] [--reps N] [--bench]\n", argv[0]);
         return 2;
     }
+    const char *timestamps_path = NULL;
+    uint32_t reps = 1;
+    int do_timestamps = 0;
+
+    for (int i = 7; i < argc; ++i) {
+        if (strcmp(argv[i], "--timestamps") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "q8_driver: missing argument for --timestamps\n");
+                return 2;
+            }
+            timestamps_path = argv[++i];
+            do_timestamps = 1;
+        } else if (strcmp(argv[i], "--reps") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "q8_driver: missing argument for --reps\n");
+                return 2;
+            }
+            reps = u32_arg(argv[++i], "reps");
+            if (reps == 0 || reps > 10000) {
+                fprintf(stderr, "q8_driver: invalid reps %u\n", reps);
+                return 2;
+            }
+            do_timestamps = 1;
+        } else if (strcmp(argv[i], "--bench") == 0) {
+            do_timestamps = 1;
+        } else {
+            fprintf(stderr, "q8_driver: unknown argument %s\n", argv[i]);
+            return 2;
+        }
+    }
+
     const uint32_t m = u32_arg(argv[2], "M");
     const uint32_t tokens = u32_arg(argv[3], "tokens");
     const uint32_t blocks = u32_arg(argv[4], "blocks");
@@ -164,6 +210,13 @@ int main(int argc, char **argv) {
     vk_ok(vkEnumeratePhysicalDevices(instance, &count, phys), "vkEnumeratePhysicalDevices");
     VkPhysicalDevice physical = VK_NULL_HANDLE;
     uint32_t family = UINT32_MAX;
+    uint32_t chosen_timestamp_valid_bits = 0;
+    float chosen_timestamp_period = 0.0f;
+    VkBool32 chosen_timestamp_compute_and_graphics = VK_FALSE;
+    char chosen_device_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {0};
+    uint32_t chosen_driver_version = 0;
+    uint32_t chosen_api_version = 0;
+
     for (uint32_t i = 0; i < count && physical == VK_NULL_HANDLE; ++i) {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(phys[i], &props);
@@ -179,7 +232,15 @@ int main(int argc, char **argv) {
         vkGetPhysicalDeviceQueueFamilyProperties(phys[i], &qcount, qp);
         for (uint32_t q = 0; q < qcount; ++q) {
             if ((qp[q].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) {
-                physical = phys[i]; family = q; break;
+                physical = phys[i];
+                family = q;
+                chosen_timestamp_valid_bits = qp[q].timestampValidBits;
+                chosen_timestamp_period = props.limits.timestampPeriod;
+                chosen_timestamp_compute_and_graphics = props.limits.timestampComputeAndGraphics;
+                snprintf(chosen_device_name, sizeof(chosen_device_name), "%s", props.deviceName);
+                chosen_driver_version = props.driverVersion;
+                chosen_api_version = props.apiVersion;
+                break;
             }
         }
         free(qp);
@@ -211,6 +272,29 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    if (do_timestamps) {
+        fprintf(stderr, "timestampPeriod=%f timestampComputeAndGraphics=%u timestampValidBits=%u\n",
+                chosen_timestamp_period,
+                (unsigned)chosen_timestamp_compute_and_graphics,
+                chosen_timestamp_valid_bits);
+        if (chosen_timestamp_valid_bits == 0) {
+            fprintf(stderr, "q8_driver: invalid timestampValidBits (0), timestamps unsupported\n");
+            return 2;
+        }
+        if (chosen_timestamp_valid_bits > 64) {
+            fprintf(stderr, "q8_driver: invalid timestampValidBits (%u > 64)\n", chosen_timestamp_valid_bits);
+            return 2;
+        }
+        if (chosen_timestamp_compute_and_graphics != VK_TRUE) {
+            fprintf(stderr, "q8_driver: timestampComputeAndGraphics is false\n");
+            return 2;
+        }
+        if (chosen_timestamp_period <= 0.0f || !isfinite(chosen_timestamp_period)) {
+            fprintf(stderr, "q8_driver: invalid timestampPeriod (%f)\n", chosen_timestamp_period);
+            return 2;
+        }
+    }
+
     float priority = 1.0f;
     VkDeviceQueueCreateInfo qci = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
                                    .queueFamilyIndex = family, .queueCount = 1, .pQueuePriorities = &priority};
@@ -228,7 +312,7 @@ int main(int argc, char **argv) {
     HostBuffer buffers[BINDINGS] = {0};
     size_t offset = 0;
     for (uint32_t i = 0; i < BINDINGS; ++i) {
-        create_host_buffer(physical, device, &buffers[i], sizes[i]);
+        create_host_buffer(physical, device, &buffers[i], sizes[i], VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         if (i < 4) { memcpy(buffers[i].mapped, (uint8_t *)input_data + offset, sizes[i]); offset += sizes[i]; }
         else memset(buffers[i].mapped, 0xa5, sizes[i]);
     }
@@ -288,28 +372,133 @@ int main(int argc, char **argv) {
     vk_ok(vkAllocateCommandBuffers(device, &cbai, &cb), "vkAllocateCommandBuffers");
     VkCommandBufferBeginInfo cbi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    vk_ok(vkBeginCommandBuffer(cb, &cbi), "vkBeginCommandBuffer");
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pl, 0, 1, &set, 0, NULL);
-    uint32_t pc[3] = {m, tokens, blocks};
-    vkCmdPushConstants(cb, pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
-    vkCmdDispatch(cb, dispatch_x, dispatch_y, 1);
-    VkBufferMemoryBarrier host_read[2] = {
-        {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
-         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .buffer = buffers[4].buffer, .offset = 0, .size = sizes[4]},
-        {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
-         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .buffer = buffers[5].buffer, .offset = 0, .size = sizes[5]},
-    };
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
-                         0, 0, NULL, 2, host_read, 0, NULL);
-    vk_ok(vkEndCommandBuffer(cb), "vkEndCommandBuffer");
-    VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb};
-    vk_ok(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE), "vkQueueSubmit");
-    vk_ok(vkQueueWaitIdle(queue), "vkQueueWaitIdle");
+
+    VkQueryPool query_pool = VK_NULL_HANDLE;
+    HostBuffer query_buffer = {0};
+    uint64_t *rep_t0 = NULL;
+    uint64_t *rep_t1 = NULL;
+    uint64_t *rep_delta_ticks = NULL;
+    double *rep_device_ns = NULL;
+    uint64_t *rep_submit_ns = NULL;
+    uint64_t *rep_wait_ns = NULL;
+
+    if (do_timestamps) {
+        VkQueryPoolCreateInfo qpci = {
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP,
+            .queryCount = 2,
+        };
+        vk_ok(vkCreateQueryPool(device, &qpci, NULL, &query_pool), "vkCreateQueryPool");
+        create_host_buffer(physical, device, &query_buffer, 2 * sizeof(uint64_t), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        memset(query_buffer.mapped, 0, query_buffer.size);
+
+        rep_t0 = calloc(reps, sizeof(uint64_t));
+        rep_t1 = calloc(reps, sizeof(uint64_t));
+        rep_delta_ticks = calloc(reps, sizeof(uint64_t));
+        rep_device_ns = calloc(reps, sizeof(double));
+        rep_submit_ns = calloc(reps, sizeof(uint64_t));
+        rep_wait_ns = calloc(reps, sizeof(uint64_t));
+        if (!rep_t0 || !rep_t1 || !rep_delta_ticks || !rep_device_ns || !rep_submit_ns || !rep_wait_ns) {
+            fprintf(stderr, "q8_driver: failed to allocate rep timing arrays\n");
+            return 2;
+        }
+    }
+
+    for (uint32_t rep = 0; rep < reps; ++rep) {
+        vk_ok(vkResetCommandBuffer(cb, 0), "vkResetCommandBuffer");
+        vk_ok(vkBeginCommandBuffer(cb, &cbi), "vkBeginCommandBuffer");
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pl, 0, 1, &set, 0, NULL);
+        uint32_t pc[3] = {m, tokens, blocks};
+        vkCmdPushConstants(cb, pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), pc);
+
+        if (do_timestamps) {
+            vkCmdResetQueryPool(cb, query_pool, 0, 2);
+            vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, 0);
+        }
+
+        vkCmdDispatch(cb, dispatch_x, dispatch_y, 1);
+
+        if (do_timestamps) {
+            vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 1);
+            vkCmdCopyQueryPoolResults(cb, query_pool, 0, 2, query_buffer.buffer, 0,
+                                      sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+            VkBufferMemoryBarrier q_barrier = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = query_buffer.buffer,
+                .offset = 0,
+                .size = query_buffer.size,
+            };
+            vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                                 0, 0, NULL, 1, &q_barrier, 0, NULL);
+        }
+
+        VkBufferMemoryBarrier host_read[2] = {
+            {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .buffer = buffers[4].buffer, .offset = 0, .size = sizes[4]},
+            {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .buffer = buffers[5].buffer, .offset = 0, .size = sizes[5]},
+        };
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                             0, 0, NULL, 2, host_read, 0, NULL);
+        vk_ok(vkEndCommandBuffer(cb), "vkEndCommandBuffer");
+
+        struct timespec sub_start, sub_end;
+        clock_gettime(CLOCK_MONOTONIC, &sub_start);
+        VkSubmitInfo si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb};
+        vk_ok(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE), "vkQueueSubmit");
+        clock_gettime(CLOCK_MONOTONIC, &sub_end);
+
+        struct timespec wait_start, wait_end;
+        clock_gettime(CLOCK_MONOTONIC, &wait_start);
+        vk_ok(vkQueueWaitIdle(queue), "vkQueueWaitIdle");
+        clock_gettime(CLOCK_MONOTONIC, &wait_end);
+
+        if (do_timestamps) {
+            uint64_t submit_ns = timespec_diff_ns(&sub_start, &sub_end);
+            uint64_t wait_ns = timespec_diff_ns(&wait_start, &wait_end);
+
+            uint64_t raw_ts[2] = {0};
+            memcpy(raw_ts, query_buffer.mapped, sizeof(raw_ts));
+            uint64_t t0 = raw_ts[0];
+            uint64_t t1 = raw_ts[1];
+
+            uint64_t mask = (chosen_timestamp_valid_bits == 64) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << chosen_timestamp_valid_bits) - 1ULL);
+            uint64_t delta_ticks = (t1 - t0) & mask;
+
+            if (delta_ticks == 0) {
+                fprintf(stderr, "q8_driver: rejected zero timestamp delta (t0=%llu, t1=%llu)\n",
+                        (unsigned long long)t0, (unsigned long long)t1);
+                return 2;
+            }
+            if (delta_ticks > (mask >> 1)) {
+                fprintf(stderr, "q8_driver: rejected wrapped timestamp delta (t0=%llu, t1=%llu, delta=%llu)\n",
+                        (unsigned long long)t0, (unsigned long long)t1, (unsigned long long)delta_ticks);
+                return 2;
+            }
+
+            double dev_ns = (double)delta_ticks * (double)chosen_timestamp_period;
+            if (dev_ns <= 0.0 || !isfinite(dev_ns)) {
+                fprintf(stderr, "q8_driver: rejected non-finite or non-positive device_ns (%f)\n", dev_ns);
+                return 2;
+            }
+
+            rep_t0[rep] = t0;
+            rep_t1[rep] = t1;
+            rep_delta_ticks[rep] = delta_ticks;
+            rep_device_ns[rep] = dev_ns;
+            rep_submit_ns[rep] = submit_ns;
+            rep_wait_ns[rep] = wait_ns;
+        }
+    }
 
     FILE *out = fopen(argv[6], "wb");
     if (out == NULL || fwrite(buffers[4].mapped, 1, sizes[4], out) != sizes[4] ||
@@ -318,6 +507,53 @@ int main(int argc, char **argv) {
         return 2;
     }
     fclose(out);
+
+    if (do_timestamps) {
+        if (timestamps_path != NULL) {
+            FILE *jf = fopen(timestamps_path, "w");
+            if (jf == NULL) {
+                fprintf(stderr, "q8_driver: cannot open timestamps file %s: %s\n", timestamps_path, strerror(errno));
+                return 2;
+            }
+            fprintf(jf, "{\n");
+            fprintf(jf, "  \"device_name\": \"%s\",\n", chosen_device_name);
+            fprintf(jf, "  \"driver_version\": %u,\n", chosen_driver_version);
+            fprintf(jf, "  \"api_version\": \"%u.%u.%u\",\n",
+                    VK_VERSION_MAJOR(chosen_api_version), VK_VERSION_MINOR(chosen_api_version), VK_VERSION_PATCH(chosen_api_version));
+            fprintf(jf, "  \"timestamp_period\": %f,\n", (double)chosen_timestamp_period);
+            fprintf(jf, "  \"timestamp_compute_and_graphics\": %s,\n", (chosen_timestamp_compute_and_graphics == VK_TRUE) ? "true" : "false");
+            fprintf(jf, "  \"timestamp_valid_bits\": %u,\n", chosen_timestamp_valid_bits);
+            fprintf(jf, "  \"reps\": [\n");
+            for (uint32_t r = 0; r < reps; ++r) {
+                fprintf(jf, "    {\"rep\": %u, \"t0\": %llu, \"t1\": %llu, \"delta_ticks\": %llu, \"device_ns\": %.2f, \"submit_ns\": %llu, \"wait_ns\": %llu}%s\n",
+                        r,
+                        (unsigned long long)rep_t0[r],
+                        (unsigned long long)rep_t1[r],
+                        (unsigned long long)rep_delta_ticks[r],
+                        rep_device_ns[r],
+                        (unsigned long long)rep_submit_ns[r],
+                        (unsigned long long)rep_wait_ns[r],
+                        (r + 1 < reps) ? "," : "");
+            }
+            fprintf(jf, "  ]\n");
+            fprintf(jf, "}\n");
+            fclose(jf);
+        }
+        printf("TIMING reps=%u device_ns=%.2f submit_ns=%llu wait_ns=%llu\n",
+               reps, rep_device_ns[0],
+               (unsigned long long)rep_submit_ns[0],
+               (unsigned long long)rep_wait_ns[0]);
+
+        free(rep_t0);
+        free(rep_t1);
+        free(rep_delta_ticks);
+        free(rep_device_ns);
+        free(rep_submit_ns);
+        free(rep_wait_ns);
+        destroy_host_buffer(device, &query_buffer);
+        vkDestroyQueryPool(device, query_pool, NULL);
+    }
+
     vkDestroyCommandPool(device, cp, NULL);
     vkDestroyDescriptorPool(device, pool, NULL);
     vkDestroyPipeline(device, pipeline, NULL);

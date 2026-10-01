@@ -418,3 +418,23 @@ W5-T4 reports present, `cargo test`/`clippy`/`fmt` unaffected (no `src/` change)
 `q8_gate.py` still green. W5-T1 is the primary deliverable; its measurement replaces the missing
 baseline gate. `tools/dispatch/contracts.json` stays empty and no optimization is dispatched from
 this wave.
+
+### Wave 5 result (barrier)
+
+| task | result | grade |
+|---|---|---|
+| W5-T1 | `python3 tools/gpu/q8_bench.py --profile synthetic --fixture …/synthetic.bin --controls` exit 0; `timestampPeriod=1.00 ns`, `timestampValidBits=64`, `computeAndGraphics=true`, device `880ac99b…` (RTX 5080); zero-delta and `validBits=0` controls red, restoration green; `q8_gate.py` parity green. M=257/tokens=31/blocks=64: device 248.5 µs, host submit 1.5 µs, host wait 291 µs. | measured |
+| W5-T2 | `tools/gpu/gguf_shapes.py --check` exit 0 (335/335 tensors, 0.64 s, three rejecting controls). llama.cpp prefill `N>8` = MMQ int8 MMA (`mmq.cu:312-314`), epilogue `sum += C.x[l]*dA*dB` in fp32. Real shapes: n_embd 1024, n_ff 3584, attn_q 4096 (fused q+gate), ffn_down 3584/112 blocks, vocab 248320. No GPU run. | anchor |
+| W5-T3 | `python3 proof/native/lane_trace_gate.py --controls` exit 0 in 39.1 s; the actual extracted `exact_dot_loop0_loop0` visits exactly 32 lanes and returns the ordered sum; 63 declarations audit under `{propext, Classical.choice, Quot.sound}`; `+=`→`-=` generated-body mutant red, restore green. | proved (model scope) |
+| W5-T4 | `docs/evidence/gpu-prefill/coopmat-design.md`; 71/71 citations resolve; read-only. | anchor |
+
+Barrier controls: `cargo test --workspace --all-features --locked` green, `cargo fmt --all -- --check` green, `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` green, `tools/gpu/q8_gate.py` parity green, `proof/native/lane_trace_gate.py --controls` green. W5-T1's control copies a bounded file set, not the 51 GiB `target/`.
+
+Open after the barrier:
+
+- **Dense Q4_K prefill has no weight reuse.** Qwen3-8B-Q4_K_M pp200 = 16.43 tok/s over 4.68 GiB of weights = 82.6 of the 86.2 GB/s read ceiling: the block pass streams the model once per token. The Q8_0 hybrid reuses (0.8B pp200 = 1227 tok/s over 0.78 GiB). This is the 8B gap; fixing it changes execution and is admission-gated.
+- **`engine_profile --llama` has no device pin.** `run_llama` passes no `-ngl`/device, and `-ngl 0` does not force CPU on the CUDA build (`CUDA_VISIBLE_DEVICES=""` does). A GPU-visible comparator silently compares Apeiron CPU against llama.cpp GPU.
+- **Emitted shader ↔ CPU dot equivalence is not established.** `src/engine/chart` and `tools/gpu/q8_tile.comp` implement the same signed dot and the same `(mantissa, exponent)` scale action; the equivalence must be a Lean theorem, with GLSL/SPIR-V translation and GPU execution named as the trust boundary.
+- `tools/dispatch/contracts.json` stays empty; the prefill-reuse optimization is not dispatched.
+
+Separate landed task (not part of this wave): `cf82be1` unifies the four per-quant fast rows into one decoder-parameterized accumulator (`docs/epics/unified-quant-kernel.md`), byte-identical.
