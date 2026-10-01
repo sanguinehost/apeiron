@@ -104,8 +104,9 @@ GATE: 60s native document/domain check and missing-ownership/control; old Fold r
 GRADE: planning/anchor; user-authorised baseline implementation, later optimisation remains admitted.
 
 Native baseline acceptance is in artifacts/gpu-prefill/native-baseline.md and native-baseline-acceptance.json.
-The fixture domain is validated synthetic QuantAct::from_parts input, not established quant_act
-constructor reachability. Production admission requires additional actual-constructor fixtures.
+The original baseline domain is validated synthetic QuantAct::from_parts input. The separate
+constructor-backed population below tests actual quant_act reachability; universal constructor
+refinement and production admission remain open.
 The baseline uses local8x8; each invocation computes RT2BT4; dispatch is ceil(M/16),ceil(tokens/32).
 The whole epic remains open at the source/cost, serving, comparison and shared-proof exits above.
 
@@ -184,3 +185,20 @@ GRADE: tested compatibility target and proved model-wiring target; full-body/cos
 Independent Sol architecture verdict: /tmp/opencode/native-step-compatibility-review.md.
 Build feasibility within540s is unmeasured. Private COW caches stay on the repository filesystem;
 no /tmp multi-gigabyte dependency copies or shared model-patches.sh invocation.
+
+## Prerequisite acceptance
+
+`artifacts/gpu-prefill/native-prerequisites.md` and `native-prerequisites-acceptance.json` retain
+the fresh scalar narrowing and actual-constructor fixture/control results. e1ec6a5 contains the
+scalar proof;942c01f contains the final constructor fixtures. Narrowing is proved only for the
+direct selected std conversion. The actual quantizer population is tested on RTX5080:12cases,
+14581successful outputs and5refusals. The original14case synthetic profile remains green.
+All three Rust commands pass on the final fixture source identity. Whole source/cost, emitted
+semantics, admission, serving, matched GPU prefill and shared proof exits remain open.
+
+SCOPE: this document, native-prerequisites.md, native-prerequisites-acceptance.json; lead documentation exception.
+REGISTER: scoped acceptance and retained failures; no performance or epic closure.
+CORPUS: NarrowRefinement.in_range/below_min/above_max and actual quant_act/exact_dot fixture source read.
+REFERENCE: /home/socol/Workspace/apeiron/proof/native/NarrowRefinement.lean.
+GATE: timeout60 receipt/source/control check; corrupted lower mutation status rejects.
+GRADE: proved scalar conversion; tested constructor/device population; remaining links open.
