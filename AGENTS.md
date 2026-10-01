@@ -332,11 +332,13 @@ Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex pre
 `xiaomi-pro` remain available lanes but are not the default, and their balances are not spent on
 ordinary work. Escalation is selected by the artifact at risk, not by a subjective difficulty
 estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
-Mandatory escalation triggers override every worker lane. The OpenAI agents (Sol, Astra, Terra) are
-decommissioned with their credit, and no separate escalation model is available: an unresolved proof
-or architecture obligation goes to a fresh session on a different worker model, the Lean kernel and
-the mutation control arbitrate, and contract or claim-grade questions go to the lead. Older
-references to those names are historical records.
+Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
+obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
+control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
+architecture question that would otherwise wait on the owner goes to **Sol** on the standing
+OpenRouter route (`/home/socol/oc-tmp/bin/sol.sh`, default `openai/gpt-6.1-sol-pro`, verified live):
+the lead records the answer under `/home/socol/oc-tmp/escalation/`, acts on it and reports the verdict.
+The lead does not idle waiting for the owner. Astra and Terra remain historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|

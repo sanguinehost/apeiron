@@ -507,9 +507,9 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
-| W1 | freeze the conformance record for the 34 `proof/resource/*_gate.py`: green markers, named mutation red | `docs/artifacts.toml`, `tools/gate/conformance.json` | record matches a re-run of a sample | 4 | 0 |
+| W1 | freeze the conformance record for the 36 `proof/resource/*_gate.py` (30 tracked, 6 untracked): green markers, named mutation red | `docs/contracts/artifacts.toml`, `tools/gate/conformance.json` | record matches a re-run of a sample | 4 | 0 |
 | W2 | extract `admit` through Charon/Aeneas and refine it | `proof/gate/Admission*.lean`, `tools/gate/core.rs` | `proof/regen.sh --check` on the gate root | 1 | 1 |
-| W3 | manifest schema + loader; adapter (fs, hashing, subprocess, locks, budget) | `docs/artifacts.toml`, `tools/gate/adapter.rs`, `tools/gate/main.rs` | `cargo test --manifest-path tools/gate/Cargo.toml` | 2 | 0 |
+| W3 | manifest schema + loader; adapter (fs, hashing, subprocess, locks, budget) | `docs/contracts/artifacts.toml`, `tools/gate/adapter.rs`, `tools/gate/main.rs` | `cargo test --manifest-path tools/gate/Cargo.toml` | 2 | 0 |
 | W4 | aggregate `gate docs check --controls`; wire into dispatch and the wave barrier | `tools/gate/main.rs`, `docs/plan.md` | the aggregate on the repo, controls red then green | 1 | 0 |
 | W5 | pilot: RowDot under the standard cone via `tools/gate`, parity with its deleted script | `proof/resource/RowDot.gate.toml` | parity + retirement receipt | 1 | 1 |
 | W6 | migrate the remaining 33, batched 5 per wave | `proof/resource/<module>.gate.toml` | each equals its frozen record | 5/wave | ≤2 |
@@ -527,11 +527,11 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
-| W1 | LmHead `row_body_visit` bind blocker | `proof/resource/LmHeadResource.lean` | `LmHead_gate.py --controls` | 1 | 1 |
+| W1 | LmHead row-and-dot resource proof: the premature witness selection, the equality-vs-existential mismatch in the continuation, the missing `vis`/`div` totality argument, and the `row_visits_closed_form` prose that claims the loop "performs `vocab.val` row visits in total" while the theorem proves only the initial rank | `proof/resource/LmHeadResource.lean` | `python3 proof/resource/LmHead_gate.py --check --controls` | 1 | 1 |
 | W2 | `regen_relocate_entry` gate + commit (returned) | `proof/resource/RegenRelocateEntry*` | its gate | 1 | 0 |
-| W3 | `exact_dot` loop work measure (bind over a pattern binder) | `proof/resource/ExactDotResource.lean` | its gate + mutation | 1 | 1 |
-| W4 | `matvec` and `RowDotAdmission` completion | `proof/resource/MatvecResource.lean`, `RowDotAdmission.lean` | their gates | 2 | 2 |
-| W5 | `RegenRelocateAll` closed as a duplicate of `StoredRelocateAll` | — | retirement receipt, no second model | 1 | 0 |
+| W3 | **retired as a split** — no `proof/resource/ExactDotResource.lean` exists; the dot-loop work measure (`dotVisits`, `dot_body_visit`, `dot_body_exit_end`) lives in `LmHeadResource.lean` and is W1. Two tasks on one file would be the §9.2 anti-duplication error. | — | — | 0 | 0 |
+| W4 | `matvec` completion — `RowDotAdmission` landed at `405df80`; matvec in flight | `proof/resource/MatvecResource.lean`, `Matvec_gate.py` | `python3 proof/resource/Matvec_gate.py --check --controls` | 1 | 1 |
+| W5 | `RegenRelocateAll` vs `StoredRelocateAll` disposition — compare carrier assumptions, domains, refusals and claimed resource properties; do **not** merge for a shared body | `proof/resource/{Stored,Regen}RelocateAll*.lean` | disposition receipt, §9.2 | 1 | 0 |
 
 ### E4 — Extraction freshness
 
@@ -796,7 +796,7 @@ governing document does not establish usefulness, and absence of a citation does
 destroying evidence) and B as the primary architecture (generating inventories cannot derive
 architectural policy, admissible domains or trust boundaries; generated tables may support C later).
 
-**Layout.** The governing set stays hand-written. `docs/artifacts.toml` is the single dispatch
+**Layout.** The governing set stays hand-written. `docs/contracts/artifacts.toml` is the single dispatch
 manifest: governing paths, approved plans, protected contracts, ledger locations, schemas and
 required checks. `artifacts/<kind>/ledger.jsonl` holds append-only receipt records;
 `artifacts/<kind>/<id>/` holds raw payloads identified by digest. Existing epic plans and
@@ -848,7 +848,7 @@ audit permits five additional width axioms, so it cannot establish the standard-
 Conformance must preserve required guarantees, including the rejection of known defects.
 
 Next, separately scoped: extract and refine the real core body through Charon/Aeneas, then the
-adapter and `docs/artifacts.toml`, then mandatory-path wiring. This gate-first task does not close
+adapter and `docs/contracts/artifacts.toml`, then mandatory-path wiring. This gate-first task does not close
 the governing-coverage and barrier-wiring obligations. Direction: drain the four returns, settle the
 reservation/sealing contract, assign the small corrections, then the bounded-task campaign; routine
 proof and Rust tasks continue without recurring architectural review.
