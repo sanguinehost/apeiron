@@ -682,16 +682,48 @@ repeatable improvement engine, with tighter connections between evidence, propos
    kernel/caller connection and the command whose output records it. Resolve the competing proposed
    transformations before dispatch.
 
-### Documentation becomes executable
+### Documentation becomes executable — option C, enforced in Rust
 
-Extend the dispatch contract so each task binds to the exact specification sections, source
-identities, applicable invariants, the gate and the refusal conditions. The proposer consumes those
-artefacts and the raw evidence — the actual Lean diagnostic, compiler output, counterexample or
-profiling receipt, plus the relevant source or specification excerpt — before generating a proposal.
-Rejection controls: a stale specification, a mismatched source identity, and a compaction that loses
-required evidence. A receipt that lists documents does not establish understanding; a gate that
-checks the obligations makes ignored documentation consequential. Keep one current plan; repeated
-results are structured receipts linked from it.
+Chosen: **C — indexed, schema-checked receipts.** Rejected: A's deletion rule (citation from a
+governing document does not establish usefulness, and absence of a citation does not authorize
+destroying evidence) and B as the primary architecture (generating inventories cannot derive
+architectural policy, admissible domains or trust boundaries; generated tables may support C later).
+
+**Layout.** The governing set stays hand-written. `docs/artifacts.toml` is the single dispatch
+manifest: governing paths, approved plans, protected contracts, ledger locations, schemas and
+required checks. `artifacts/<kind>/ledger.jsonl` holds append-only receipt records;
+`artifacts/<kind>/<id>/` holds raw payloads identified by digest. Existing epic plans and
+machine-parsed contracts stay separately indexed. Workers produce structured returns; creating
+another Markdown document requires an explicit documentation task. Each receipt records
+task/owner, source/tool identities, the scoped claim and grade, command, exit status, elapsed
+budget, control and restoration results, and resolvable payload references; a correction appends a
+superseding record.
+
+**Enforcement is Rust.** One gate runner: `tools/gate docs check --controls`. Pure checking cores
+(schema validity, reference resolution, identity matching, claim/evidence compatibility, admission)
+are extracted through Charon/Aeneas and refined in Lean; a tested adapter owns filesystem, hashing,
+subprocess, locks and budgets, and states that boundary. Per-repository specifications preserve each
+repository's contracts, grades and axiom policy; shared machinery does not require a shared ontology.
+A submission is refused for missing registration, undeclared documents, broken references, identity
+mismatches or incomplete required evidence.
+
+**Migration.** Existing Python behaviour supplies comparison cases, including the known defects the
+Rust implementation must reject. Each checker is deleted once its Rust replacement passes the
+required positive, rejection and restoration controls and every consumer invokes Rust; Python leaves
+the final execution path entirely. The same retirement applies to workload interpreters and campaign
+helpers, sequenced behind the acceptance machinery. Delete the duplicated gate scripts first (after
+replacement acceptance), then the redundant per-run Markdown wrappers (after receipt migration);
+orphan status alone is insufficient.
+
+**First bounded task — done.** `tools/gate/core.rs` is the pure admission core (`admit` over a
+`Manifest` and a `Submitted`): registered + matching digest + resolvable references admits; an
+unregistered id, an identity mismatch and a dangling reference each refuse, and every cause is
+reported. Interface kept pure and extractable, with no IO. Gate:
+`cargo test --manifest-path tools/gate/Cargo.toml --offline` — 5 controls green in a throwaway
+target. Mutation controls on throwaway copies: the identity check, the reference check and the
+unregistered-id report each redden their named control and pass after restoration. This gate-first
+task does not close the governing-coverage and barrier-wiring obligations. Next, separately scoped:
+extract and refine the real core body, then the adapter, then mandatory-path wiring.
 
 ### Research basis (plan changes)
 
