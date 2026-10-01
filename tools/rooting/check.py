@@ -141,7 +141,10 @@ class Config:
     retirement_markers: tuple[str, ...]
     retired_routes: tuple[RetiredRoute, ...]
     complexity_terms: tuple[str, ...]
+    complexity_claim_pattern: str
     complexity_qualifiers: tuple[str, ...]
+    complexity_measure_pattern: str
+    complexity_derivation_pattern: str
     declaration_markers: tuple[str, ...]
     task_id_pattern: str
     task_scope_markers: tuple[str, ...]
@@ -245,8 +248,17 @@ def load_config(path: Path = CASES_PATH) -> Config:
         retirement_markers=tuple(_string_list(data.get("retirement_markers"), "retirement_markers")),
         retired_routes=tuple(routes),
         complexity_terms=tuple(_string_list(data.get("complexity_terms"), "complexity_terms")),
+        complexity_claim_pattern=_string(
+            data.get("complexity_claim_pattern"), "complexity_claim_pattern"
+        ),
         complexity_qualifiers=tuple(
             _string_list(data.get("complexity_qualifiers"), "complexity_qualifiers")
+        ),
+        complexity_measure_pattern=_string(
+            data.get("complexity_measure_pattern"), "complexity_measure_pattern"
+        ),
+        complexity_derivation_pattern=_string(
+            data.get("complexity_derivation_pattern"), "complexity_derivation_pattern"
         ),
         declaration_markers=tuple(_string_list(data.get("declaration_markers"), "declaration_markers")),
         task_id_pattern=_string(data.get("task_id_pattern"), "task_id_pattern"),
@@ -372,21 +384,157 @@ def rule_c(path: str, text: str, cfg: Config) -> list[Violation]:
     return out
 
 
+_LINE_COMMENT_MARKERS = {
+    ".rs": "//",
+    ".c": "//",
+    ".h": "//",
+    ".cpp": "//",
+    ".hpp": "//",
+    ".lean": "--",
+    ".hs": "--",
+    ".lua": "--",
+    ".py": "#",
+    ".sh": "#",
+    ".bash": "#",
+    ".toml": "#",
+    ".yaml": "#",
+    ".yml": "#",
+}
+_PROSE_SUFFIXES = frozenset({".md", ".txt", ".tsv"})
+_GENERIC_CLAIM = re.compile(r"\bO\(\s*\S|\bconstant[ -]time\b|\bamortiz|\blinear time\b")
+_BIG_O = re.compile(r"\bO\([^)]*\)")
+# A count expression outside the big-O token itself: the numeral or number word
+# that turns "O(1)" into "O(1) in two comparisons". A digit inside an identifier
+# (i128, u64, MAX_K) is not a count, and an adverb of exactness is not a count.
+_COUNT = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|"
+    r"single|at most)\b|(?<![A-Za-z0-9_])\d+(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def _markers_for(path: str) -> str | None:
+    """The line-comment marker for a path, or None when the file is prose."""
+    suffix = Path(path).suffix.lower()
+    if suffix in _PROSE_SUFFIXES or suffix == "":
+        return None
+    return _LINE_COMMENT_MARKERS.get(suffix)
+
+
+def _comment_payload(line: str, markers: str | None) -> str | None:
+    """The comment payload of a line, or None when it is not a comment line."""
+    stripped = line.strip()
+    if stripped == "":
+        return None
+    if markers is None:
+        return stripped
+    if not stripped.startswith(markers):
+        return None
+    return stripped[len(markers):].lstrip("/!#* \t").rstrip()
+
+
+def _comment_blocks(text: str, markers: str | None) -> list[tuple[int, list[str]]]:
+    """Contiguous comment lines with their 1-based start line."""
+    blocks: list[tuple[int, list[str]]] = []
+    current: list[str] = []
+    start = 0
+    for index, line in enumerate(text.splitlines(), 1):
+        payload = _comment_payload(line, markers)
+        if payload is None:
+            if current:
+                blocks.append((start, current))
+                current = []
+            continue
+        if not current:
+            start = index
+        current.append(payload)
+    if current:
+        blocks.append((start, current))
+    return blocks
+
+
+def _is_complexity_claim(line: str, cfg: Config) -> bool:
+    """The line carries a complexity claim, not the bare noun 'complexity'."""
+    return _any_lower(line, cfg.complexity_terms) or _term_pattern(
+        cfg.complexity_claim_pattern
+    ).search(line) is not None
+
+
+def _is_heading(line: str, markers: str | None) -> bool:
+    """A heading that states no claim of its own.
+
+    Structural, not lexical: the test is the line's shape (a `#` heading or a
+    bold header) and the absence of a claim token in the generic form, so
+    re-adding a noun to `complexity_terms` cannot make a heading fire again.
+    """
+    payload = _comment_payload(line, markers)
+    if payload is None:
+        return False
+    core = payload.lstrip()
+    heading = core.startswith("#") or (
+        core.startswith("**") and core.rstrip("*").strip() != ""
+    )
+    return heading and _GENERIC_CLAIM.search(payload) is None
+
+
+def _names_measure(block: str, cfg: Config) -> bool:
+    """The block counts the cost in something: an operation count or a unit.
+
+    The test is the presence of a count expression outside the big-O token, not a
+    word list, so an author is not obliged to use this repository's phrasing.
+    """
+    return _pattern(cfg.complexity_measure_pattern).search(_BIG_O.sub(" ", block)) is not None
+
+
+def _names_derivation(block: str, cfg: Config) -> bool:
+    """The block states how the count closes: a loop, pass or per-element bound."""
+    return _pattern(cfg.complexity_derivation_pattern).search(block) is not None
+
+
+@lru_cache(maxsize=None)
+def _pattern(source: str) -> re.Pattern[str]:
+    return re.compile(source, re.IGNORECASE)
+
+
 def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
-    """A complexity claim stated without its qualifier."""
+    """A complexity claim whose enclosing comment block adds nothing to it.
+
+    AGENTS.md §8 requires a comment at the definition carrying the complexity,
+    the measure counted in, and the derivation. The unit of judgement is the
+    enclosing comment block, not the flagged line, because §8 asks for a comment
+    at the definition rather than an adjective on one line of it. A block that
+    adds a counted measure or a derivation satisfies it; a block that restates
+    the claim and stops does not.
+    """
+    if path in cfg.governing_documents:
+        return []
+    markers = _markers_for(path)
+    blocks = _comment_blocks(text, markers)
+    owner: dict[int, int] = {}
+    for position, (start, payload) in enumerate(blocks):
+        for offset in range(len(payload)):
+            owner[start + offset] = position
     out: list[Violation] = []
     for index, line in enumerate(text.splitlines(), 1):
-        if not _any_lower(line, cfg.complexity_terms):
+        if not _is_complexity_claim(line, cfg):
             continue
-        if _any_lower(line, cfg.complexity_qualifiers):
+        if _is_heading(line, markers):
+            continue
+        position = owner.get(index)
+        block = blocks[position][1] if position is not None else [line]
+        joined = "\n".join(block)
+        if _any_lower(joined, cfg.complexity_qualifiers):
+            continue
+        if _names_measure(joined, cfg) or _names_derivation(joined, cfg):
             continue
         out.append(
             Violation(
                 "D",
                 path,
                 index,
-                f"complexity claim without its qualifier (fixed N, bounded callbacks, "
-                f"nonconstant key length, or a no-claim disclaimer): {line.strip()[:140]}",
+                f"complexity claim without its measure and derivation in the enclosing "
+                f"comment block (AGENTS.md §8 wants the complexity, the measure counted in, "
+                f"and the recurrence): {line.strip()[:140]}",
             )
         )
     return out

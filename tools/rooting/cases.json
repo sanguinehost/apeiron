@@ -188,9 +188,9 @@
     "constant time",
     "constant-time",
     "amortized",
-    "linear time",
-    "complexity"
+    "linear time"
   ],
+  "complexity_claim_pattern": "\\bO\\(\\s*\\S",
   "complexity_qualifiers": [
     "fixed n",
     "fixed shard",
@@ -204,6 +204,8 @@
     "anchor",
     "measured"
   ],
+  "complexity_measure_pattern": "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|single|at most)\\b|(?<![A-Za-z0-9_])\\d+(?![A-Za-z0-9_])",
+  "complexity_derivation_pattern": "\\b(?:loop|loops|looped|pass|passes|passed|iterat[a-z]*|recurs[a-z]*|tail[ -]call|tail[ -]recurs[a-z]*|scan[a-z]*|walk[a-z]*|visit[a-z]*|fold[a-z]*|grow[a-z]*|resiz[a-z]*|geometric[a-z]*|halv[a-z]*|unroll[a-z]*|closes|per[ -]element|each element|for each|bounded by|independent of)\\b",
   "declaration_markers": [
     "new primitive",
     "new refinement",
@@ -259,7 +261,7 @@
     {
       "id": "D",
       "title": "Unqualified complexity claim",
-      "description": "An O(1)/O(n)/constant-time/amortized/complexity claim stated without its qualifier (fixed N, bounded callbacks, nonconstant key length, or an explicit no-claim disclaimer)."
+      "description": "A complexity claim whose enclosing comment block carries neither the measure counted in nor the derivation AGENTS.md §8 requires (fixed N, bounded callbacks, a nonconstant key length and an explicit no-claim disclaimer remain accepted)."
     },
     {
       "id": "E",
@@ -361,6 +363,27 @@
         "expect": "accept",
         "path": "docs/synthetic/d-qualified.md",
         "text": "# Performance\nLookup is O(1) at fixed N with bounded callbacks.\n"
+      },
+      {
+        "name": "complexity heading with derived claim below accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-heading.rs",
+        "text": "/// # Complexity\n///\n/// Temporal `O(n)`: one pass over the input, counted in element reads.\n/// Spatial `O(1)`: one accumulator word.\npub fn synthetic_heading(x: &[u64]) -> u64 {\n    x.iter().sum()\n}\n"
+      },
+      {
+        "name": "bounded-table O(1) with a counted measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-bounded.rs",
+        "text": "/// # Complexity\n///\n/// Temporal `O(1)` for `n <= 1024` slots: one slot probe per lookup, counted in\n/// slot probes; the table never resizes.\n/// Spatial `O(1)`: the slot array is fixed at construction.\npub fn synthetic_bounded(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "bare O(take) with no counted measure",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-bare-o.rs",
+        "text": "/// # Complexity\n///\n/// `O(take)` time, `O(1)` extra space.\npub fn synthetic_bare(x: &[i64], take: usize) -> i64 {\n    x[0]\n}\n"
       },
       {
         "name": "ownership exceeds three files",
