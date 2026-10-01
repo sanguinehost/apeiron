@@ -9,6 +9,7 @@ use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 use std::cell::Cell;
 
+#[path = "attn/f32_core.rs"]
 pub mod f32_core;
 
 // Test seam for `APEIRON_EXACT_SCAN`: a per-thread override of the flag, `None` falling through
