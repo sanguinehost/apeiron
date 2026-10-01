@@ -487,6 +487,18 @@ dispatch-ready task. `deepseek-flash` is the paid escalation taken only on a man
 anything beyond that escalates manually to the owner. `gemini-flash` and `xiaomi-pro` are non-default
 lanes, not spent on ordinary work.
 
+**Sustained width is a requirement on Intent, not only on this host.** Observed at ~35–50
+concurrent Space Bunny workers through this harness: tool calls slow, sessions restart mid-task and
+resume without their conversation. That is a statement about the current router and is **not** a
+reason to reduce the width — the target is that Intent carries ~50 concurrent agents seamlessly.
+Every dispatch is then a message on a channel with its own identity, budget and receipt, so a worker
+that restarts loses a lease rather than a task, and no coordination state lives in the harness.
+The programme's own decentralised-comms machinery is what this rests on: the relay/leaf split, the
+per-run nonce and the end-of-case drain token, and frame admission with its refusals. The
+Intent-side obligation is that those cover fleet coordination as they cover evaluation traffic.
+Until then a restarted session re-derives its state from the tree and the fleet-state file, never
+from conversation.
+
 **Vocabulary.** `epic → wave → task → subtask`. A **wave** is a parallel batch: its tasks hold
 disjoint files and run concurrently, and the wave closes only when every task's gate and its control
 are green on the same source/tool identity. A **task** owns ≤3 files, one gate, one control and one
@@ -821,6 +833,17 @@ the final execution path entirely. The same retirement applies to workload inter
 helpers, sequenced behind the acceptance machinery. Delete the duplicated gate scripts first (after
 replacement acceptance), then the redundant per-run Markdown wrappers (after receipt migration);
 orphan status alone is insufficient.
+
+**No gate resolves a conventional tool through `PATH`.** `~/.local/bin/grep` is a symlink to `rg`,
+where `-r` means replace rather than recurse, and `~/.local/bin/find` is a findutils 4.4.2 binary
+that exits 0 and prints nothing on a recursive scan of a populated directory. Both precede the
+system tools on this host, so a bare `grep -r` or a `find`-based absence check is vacuously true;
+two claims in this programme were made false by them before the cause was found, and the false
+"thirteen absent symbols" reading was published from one. The shims are **not patched** — that is
+one machine's environment, not this programme's contract. The durable fix is that no gate, enforcer
+or receipt depends on a `PATH`-resolved conventional tool, and the Rust runner is the vehicle, with
+Python leaving the execution path entirely on the migration schedule above. Until the runner carries
+it, a check refuses a bare `find` or `grep` invocation in a tracked script.
 
 **Manifest lifecycle (settled).** Reserve task → submit provisional output → independently verify →
 seal accepted artifact. Before dispatch the manifest freezes ownership, inputs, required
