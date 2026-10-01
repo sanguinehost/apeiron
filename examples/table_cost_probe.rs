@@ -47,11 +47,11 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::time::Instant;
 
-use apeiron::coord::locator::{ExactIdentity, Refusal};
 use apeiron::coord::address::{
-    EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue, WordFaceHome,
-    H3_40,
+    EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue,
+    WordFaceHome, H3_40,
 };
+use apeiron::coord::locator::{ExactIdentity, Refusal};
 use apeiron::table::{Home, Table, TableAddress};
 use apeiron::Sigma;
 use hashtrinity::Coord;
@@ -167,7 +167,6 @@ impl FaceCoord<Key> for IdentityHome {
 
 impl FaceHome<Key> for IdentityHome {}
 
-
 fn replacement(new: i64, _old: i64) -> i64 {
     new
 }
@@ -197,27 +196,24 @@ fn distinct_population() -> Population {
     }
 }
 
-/// One home shard, separated groups: `place & 0xFF == 0`, fingerprint byte `j & 0x7f`.
+/// The starving control for the raw-window fingerprint: `place & 0xFF == 0` and `place >> 8 == j`,
+/// so a `(place >> 8) & 0x7f` filter reads one constant over the population. The shipped
+/// [`apeiron_tag`] spreads `place` first and reads its top bits, so this population is no longer
+/// special to it.
 fn lowbyte_population() -> Population {
-    let present: Vec<Key> = (0..KEYS as u64)
-        .map(|j| Key {
-            tag: j << 8,
-        })
-        .collect();
+    let present: Vec<Key> = (0..KEYS as u64).map(|j| Key { tag: j << 8 }).collect();
     Population {
         name: "lowbyte",
         present,
     }
 }
 
-/// One home group: shard byte, fingerprint byte and descent window all zero, so every key homes
-/// group 0 of shard 0.
+/// The population that starves a raw-window fingerprint: shard byte, fingerprint byte and descent
+/// window all zero, so every key homes group 0 of shard 0 and every key of the population shares one
+/// raw tag. Kept as the control population: it is what the table-side fix has to survive, because
+/// `place = key` is a conforming `Home`.
 fn adversarial_population() -> Population {
-    let present: Vec<Key> = (0..KEYS as u64)
-        .map(|j| Key {
-            tag: j << 16,
-        })
-        .collect();
+    let present: Vec<Key> = (0..KEYS as u64).map(|j| Key { tag: j << 16 }).collect();
     Population {
         name: "adversarial",
         present,
@@ -268,7 +264,6 @@ impl FaceCoord<Key> for KeyedHome {
 }
 
 impl FaceHome<Key> for KeyedHome {}
-
 
 /// A *mixing* keyed `Home`: a fold of the high half into the low half, then the odd multiply.
 ///
@@ -344,16 +339,27 @@ fn apeiron_visited_groups(place: u64, mask: usize) -> Vec<usize> {
 
 /// `shard`, `tag` and the descent windows, transcribed from `src/table/state.rs`
 /// (`shard`, `tag`, `group`) so the realised group spread is arithmetic on the source, not an
-/// estimate. `DESCENT_MASK = (1 << 49) - 1`, `WINDOW_MASK = 0x7f`, `WINDOWS = 7`.
+/// estimate. `DESCENT_MASK = (1 << 49) - 1`, `WINDOW_MASK = 0x7f`, `WINDOWS = 7`,
+/// `TAG_SPREAD = 0x9E3779B97F4A7C15`, `TAG_FINGERPRINT_SHIFT = 57`.
 const DESCENT_MASK: u64 = (1 << 49) - 1;
 const WINDOW_MASK: u64 = 0x7f;
 const WINDOWS: usize = 7;
+const TAG_SPREAD: u64 = 0x9E37_79B9_7F4A_7C15;
+const TAG_FINGERPRINT_SHIFT: u32 = 57;
 
 fn apeiron_shard(place: u64) -> usize {
     (place as usize) & 0xff
 }
 
+/// The shipped fingerprint: the top seven bits of the place word spread by `TAG_SPREAD`. Transcribed
+/// from `src/table/state.rs` `tag`. The `*_RAW_TAG` form below is the rejected candidate: the low
+/// seven bits of `place >> 8`, a raw window of the same word the shard selector reads.
 fn apeiron_tag(place: u64) -> u8 {
+    0x80 | ((place.wrapping_mul(TAG_SPREAD) >> TAG_FINGERPRINT_SHIFT) as u8)
+}
+
+/// The pre-fix fingerprint, retained as the starving control: `TAG_LIVE | ((place >> 8) & 0x7f)`.
+fn apeiron_raw_tag(place: u64) -> u8 {
     0x80 | (((place >> 8) as u8) & 0x7f)
 }
 
@@ -437,7 +443,10 @@ fn counted_reads<H: Home<Key>>(table: &Table<Key, i64, H, N>, keys: &[Key]) -> O
 }
 
 #[cfg(not(feature = "read-stats"))]
-fn counted_reads<H: Home<Key>>(_table: &Table<Key, i64, H, N>, _keys: &[Key]) -> Option<ReadStages> {
+fn counted_reads<H: Home<Key>>(
+    _table: &Table<Key, i64, H, N>,
+    _keys: &[Key],
+) -> Option<ReadStages> {
     None
 }
 
@@ -637,7 +646,10 @@ impl HtReplica {
             }
             j += 1;
             i = self.descend(coord, j);
-            debug_assert!(visits <= self.coords.len() as u64 + 256, "replica probe diverged");
+            debug_assert!(
+                visits <= self.coords.len() as u64 + 256,
+                "replica probe diverged"
+            );
         }
     }
 
@@ -814,9 +826,7 @@ fn main() {
     // to a caller-supplied `Home` and not to the table.
     println!();
     println!("## population=adversarial home=keyed (place = key * 0x9E3779B97F4A7C15)");
-    let keys: Vec<Key> = (0..KEYS as u64)
-        .map(|j| Key { tag: j << 16 })
-        .collect();
+    let keys: Vec<Key> = (0..KEYS as u64).map(|j| Key { tag: j << 16 }).collect();
     let places: Vec<u64> = keys.iter().map(|k| KeyedHome.home(k)).collect();
     print_place_shape("keyed", &places);
     print_apeiron(&measure_apeiron::<KeyedHome>(KeyedHome, &keys));
@@ -840,14 +850,15 @@ fn print_place_shape(label: &str, places: &[u64]) {
     let mask = GROUPS - 1;
     let (shards, peak_shard) = home_collision_peak(places, apeiron_shard);
     let (tags, peak_tag) = home_collision_peak(places, |p| usize::from(apeiron_tag(p)));
+    let (tags_raw, peak_tag_raw) = home_collision_peak(places, |p| usize::from(apeiron_raw_tag(p)));
     let (w0, peak_w0) = home_collision_peak(places, |p| apeiron_group(p, 0, mask));
-    let (tail, peak_tail) = home_collision_peak(places, |p| {
-        (((p >> 8) & DESCENT_MASK) as usize) & mask
-    });
+    let (tail, peak_tail) =
+        home_collision_peak(places, |p| (((p >> 8) & DESCENT_MASK) as usize) & mask);
     println!(
         "home_shape={label} distinct_shards={shards}/peak{peak_shard} \
-         distinct_fingerprints={tags}/peak{peak_tag} group_window0={w0}/peak{peak_w0} \
-         tail_base={tail}/peak{peak_tail} (groups={GROUPS})"
+         distinct_fingerprints={tags}/peak{peak_tag} \
+         distinct_fingerprints_raw={tags_raw}/peak{peak_tag_raw} \
+         group_window0={w0}/peak{peak_w0} tail_base={tail}/peak{peak_tail} (groups={GROUPS})"
     );
 }
 
@@ -859,11 +870,12 @@ fn report(population: &Population) {
     let mask = GROUPS - 1;
     let (distinct_shards, peak_shard) = home_collision_peak(&places, apeiron_shard);
     let (distinct_tags, peak_tag) = home_collision_peak(&places, |p| usize::from(apeiron_tag(p)));
+    let (distinct_tags_raw, peak_tag_raw) =
+        home_collision_peak(&places, |p| usize::from(apeiron_raw_tag(p)));
     let (distinct_w0, peak_w0) = home_collision_peak(&places, |p| apeiron_group(p, 0, mask));
     let (distinct_w5, peak_w5) = home_collision_peak(&places, |p| apeiron_group(p, 5, mask));
-    let (distinct_tail, peak_tail) = home_collision_peak(&places, |p| {
-        (((p >> 8) & DESCENT_MASK) as usize) & mask
-    });
+    let (distinct_tail, peak_tail) =
+        home_collision_peak(&places, |p| (((p >> 8) & DESCENT_MASK) as usize) & mask);
     let (distinct_visited, peak_visited) = {
         let mut counts: BTreeMap<usize, usize> = BTreeMap::new();
         for place in &places {
@@ -880,14 +892,14 @@ fn report(population: &Population) {
     // `hashtrinity`'s capacity for 192 keys: `bits_for(192) = 256` slots.
     let ht_bits = 8u32;
     let ht_len = 1usize << ht_bits;
-    let (distinct_ht, peak_ht) =
-        home_collision_peak(&places, |p| ht_home(p, ht_len, ht_bits));
+    let (distinct_ht, peak_ht) = home_collision_peak(&places, |p| ht_home(p, ht_len, ht_bits));
 
     println!();
     println!("## population={}", population.name);
     println!(
         "home_shape apeiron: distinct_shards={distinct_shards} peak_shard={peak_shard} \
          distinct_fingerprints={distinct_tags} peak_fingerprint={peak_tag} \
+         distinct_fingerprints_raw={distinct_tags_raw} peak_fingerprint_raw={peak_tag_raw} \
          group_window0={distinct_w0}/peak{peak_w0} group_window5={distinct_w5}/peak{peak_w5} \
          tail_base={distinct_tail}/peak{peak_tail} \
          visited_over_probe_order={distinct_visited}/peak{peak_visited} (groups={GROUPS})"
@@ -897,7 +909,10 @@ fn report(population: &Population) {
          (bits={ht_bits} slots={ht_len})"
     );
 
-    print_apeiron(&measure_apeiron::<IdentityHome>(IdentityHome, &population.present));
+    print_apeiron(&measure_apeiron::<IdentityHome>(
+        IdentityHome,
+        &population.present,
+    ));
     let (replica, cap) = measure_replica(&population.present).unwrap_or_else(|e| panic!("{e}"));
     print_hashtrinity(&measure_hashtrinity(&population.present), &replica, cap);
 }
