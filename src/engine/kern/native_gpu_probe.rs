@@ -4,6 +4,7 @@
 //! `QuantAct::from_parts` is unchecked: this producer validates the joint domain first.
 
 use super::{exact_dot, f16_split, QuantAct, ACT_QK, Q8_0_BLOCK_BYTES};
+use crate::engine::chart::quant_act;
 
 struct Case {
     id: u32,
@@ -96,7 +97,8 @@ enum DomainEnd {
     Finite(i128),
     NonFinite,
     ProductOverflow,
-    AccumulatorOverflow,
+    PositiveAccumulatorOverflow,
+    NegativeAccumulatorOverflow,
 }
 
 /// O(32*K) lane products and O(1) scratch; the loops visit every block and 32 lanes.
@@ -119,7 +121,11 @@ fn check_rounding_domain(row: &[u8], blocks: usize, q: &QuantAct) -> DomainEnd {
             return DomainEnd::ProductOverflow;
         };
         let Some(next) = acc.checked_add(term) else {
-            return DomainEnd::AccumulatorOverflow;
+            return if term > 0 {
+                DomainEnd::PositiveAccumulatorOverflow
+            } else {
+                DomainEnd::NegativeAccumulatorOverflow
+            };
         };
         acc = next;
     }
@@ -198,7 +204,10 @@ fn encode(case: &Case, output: &mut Vec<u8>) -> (usize, usize) {
                 assert_eq!(domain, DomainEnd::NonFinite);
             }
             if *id == 9 || *id == 10 {
-                assert_eq!(domain, DomainEnd::AccumulatorOverflow);
+                assert!(matches!(
+                    domain,
+                    DomainEnd::PositiveAccumulatorOverflow | DomainEnd::NegativeAccumulatorOverflow
+                ));
             }
             if *id == 8 {
                 let DomainEnd::Finite(acc) = domain else {
@@ -369,4 +378,436 @@ fn native_q8_prefill_fixture() {
         output.len(),
         std::path::Path::new(&path).display()
     );
+}
+
+struct RealQuantizerCase {
+    id: u32,
+    rows: usize,
+    blocks: usize,
+    raw: Vec<u8>,
+    quantized: Vec<QuantAct>,
+}
+
+impl RealQuantizerCase {
+    /// `O(B·32·T + M·B)` time and `O(B·32·T + M·B·34)` bytes, where T is activation count;
+    /// it quantizes each input once and initializes every row/block weight record.
+    fn new(id: u32, rows: usize, activations: Vec<Vec<i64>>) -> Self {
+        assert!(!activations.is_empty());
+        let n_in = activations[0].len();
+        assert!(n_in > 0 && n_in.is_multiple_of(ACT_QK));
+        assert!(activations.iter().all(|x| x.len() == n_in));
+        let blocks = n_in / ACT_QK;
+        assert!((1..=64).contains(&blocks));
+        let quantized = activations
+            .into_iter()
+            .map(|x| {
+                let q = quant_act(&x).expect("registered real-quantizer fixture input quantizes");
+                assert_eq!(q.len(), x.len());
+                assert!(q.dequantizes());
+                let decoded = q.dequant().expect("constructor result dequantizes");
+                let reconstructed = QuantAct::from_parts(q.scales().to_vec(), q.codes().to_vec());
+                assert_eq!(reconstructed.scales(), q.scales());
+                assert_eq!(reconstructed.codes(), q.codes());
+                assert_eq!(reconstructed.dequant(), Some(decoded));
+                q
+            })
+            .collect();
+        let row_bytes = rows
+            .checked_mul(blocks)
+            .unwrap()
+            .checked_mul(Q8_0_BLOCK_BYTES)
+            .unwrap();
+        let mut case = Self {
+            id,
+            rows,
+            blocks,
+            raw: vec![0; row_bytes],
+            quantized,
+        };
+        for row in 0..rows {
+            for block in 0..blocks {
+                case.set_half(row, block, 0x3c00);
+            }
+        }
+        case
+    }
+
+    fn set_half(&mut self, row: usize, block: usize, half: u16) {
+        let at = (row * self.blocks + block) * Q8_0_BLOCK_BYTES;
+        self.raw[at..at + 2].copy_from_slice(&half.to_le_bytes());
+    }
+
+    fn weight(&mut self, row: usize, block: usize, lane: usize, code: i8) {
+        self.raw[(row * self.blocks + block) * Q8_0_BLOCK_BYTES + 2 + lane] = code.cast_unsigned();
+    }
+}
+
+/// `O(B·32)` writes and `O(B·32)` bytes for B activation blocks.
+fn constant_activation(blocks: usize, value: i64) -> Vec<i64> {
+    vec![value; blocks * ACT_QK]
+}
+
+/// `O(32)` writes and `O(32)` bytes for one activation block.
+fn unit_at(value: i64) -> Vec<i64> {
+    let mut x = vec![0; ACT_QK];
+    x[0] = value;
+    x
+}
+
+/// `O(B·32)` arithmetic operations and `O(B·32)` bytes for B activation blocks.
+fn varied_activation(blocks: usize, seed: usize) -> Vec<i64> {
+    (0..blocks * ACT_QK)
+        .map(|i| i64::try_from((i * 29 + seed * 17) % 63).unwrap() - 31)
+        .collect()
+}
+
+/// `O(M·B·32)` writes and `O(1)` extra space: each weight lane and block scale is assigned once.
+fn populate_weighted(case: &mut RealQuantizerCase, seed: usize) {
+    for row in 0..case.rows {
+        for block in 0..case.blocks {
+            let half = match (row + block + seed) % 4 {
+                0 => 0x3c00, // finite normal
+                1 => 0x0001, // finite subnormal
+                2 => 0xbc00, // negative finite normal
+                _ => 0x8000, // signed zero
+            };
+            case.set_half(row, block, half);
+            for lane in 0..ACT_QK {
+                let code =
+                    i16::try_from((row * 17 + block * 29 + lane * 13 + seed) % 255).unwrap() - 127;
+                case.weight(row, block, lane, i8::try_from(code).unwrap());
+            }
+        }
+    }
+}
+
+/// `O(M*K + B*K + M*B*K*32)` operations and `O(serialized bytes)` storage for M weight
+/// rows, B quantized activation vectors and K blocks; each matrix row, token and lane is visited.
+fn encode_real_inputs(case: &RealQuantizerCase, output: &mut Vec<u8>) {
+    let tokens = case.quantized.len();
+    output.extend_from_slice(&u32::try_from(case.rows).unwrap().to_le_bytes());
+    output.extend_from_slice(&u32::try_from(tokens).unwrap().to_le_bytes());
+    output.extend_from_slice(&u32::try_from(case.blocks).unwrap().to_le_bytes());
+    output.extend_from_slice(&case.id.to_le_bytes());
+
+    for block in 0..case.blocks {
+        for quad in 0..8 {
+            for row in 0..case.rows {
+                let at = (row * case.blocks + block) * Q8_0_BLOCK_BYTES + 2 + 4 * quad;
+                output.extend_from_slice(&case.raw[at..at + 4]);
+            }
+        }
+    }
+    for block in 0..case.blocks {
+        for row in 0..case.rows {
+            let at = (row * case.blocks + block) * Q8_0_BLOCK_BYTES;
+            let half = u16::from_le_bytes([case.raw[at], case.raw[at + 1]]);
+            let (mantissa, exponent) = f16_split(half).unwrap_or((0, u32::MAX));
+            output.extend_from_slice(&mantissa.to_le_bytes());
+            output.extend_from_slice(&exponent.to_le_bytes());
+        }
+    }
+    for q in &case.quantized {
+        assert_eq!(q.codes().len(), case.blocks * ACT_QK);
+        for group in q.codes().chunks_exact(4) {
+            output.extend(group.iter().map(|code| code.cast_unsigned()));
+        }
+    }
+    for q in &case.quantized {
+        assert_eq!(q.scales().len(), case.blocks);
+        for &scale in q.scales() {
+            assert!(scale == 0 || (scale > 0 && scale.unsigned_abs().is_power_of_two()));
+            let exponent = if scale == 0 {
+                u32::MAX
+            } else {
+                scale.trailing_zeros()
+            };
+            assert!(scale == 0 || exponent <= 58);
+            output.extend_from_slice(&exponent.to_le_bytes());
+        }
+    }
+}
+
+/// `O(M·B·K·32)` operations and `O(M·B)` scratch; actual `exact_dot` observes each row/token pair.
+fn encode_real_quantizer(case: &RealQuantizerCase, output: &mut Vec<u8>) -> (usize, usize) {
+    encode_real_inputs(case, output);
+    let tokens = case.quantized.len();
+    let mut expected = Vec::with_capacity(case.rows * tokens);
+    let mut refused = Vec::with_capacity(case.rows * tokens);
+    let mut arithmetic_refusals = 0;
+    for q in &case.quantized {
+        for row in 0..case.rows {
+            let row_slice = &case.raw
+                [row * case.blocks * Q8_0_BLOCK_BYTES..(row + 1) * case.blocks * Q8_0_BLOCK_BYTES];
+            let domain = check_rounding_domain(row_slice, case.blocks, q);
+            if case.id == 105 && row > 0 {
+                assert_eq!(
+                    domain,
+                    DomainEnd::NonFinite,
+                    "non-finite DM must refuse even at zero activation"
+                );
+            }
+            if case.id == 108 {
+                let DomainEnd::Finite(acc) = domain else {
+                    panic!("narrowing case must reach round/narrow")
+                };
+                assert!(((acc + (1i128 << 31)) >> 32) > i128::from(i64::MAX));
+            }
+            if case.id == 109 {
+                assert_eq!(
+                    domain,
+                    DomainEnd::PositiveAccumulatorOverflow,
+                    "positive i128 overflow witness must be reachable"
+                );
+            }
+            if case.id == 110 {
+                assert_eq!(
+                    domain,
+                    DomainEnd::NegativeAccumulatorOverflow,
+                    "negative i128 overflow witness must be reachable"
+                );
+            }
+            if case.id == 111 {
+                assert_eq!(
+                    domain,
+                    DomainEnd::Finite(0),
+                    "alternating large terms cancel without overflow"
+                );
+            }
+            if !matches!(domain, DomainEnd::Finite(_)) {
+                arithmetic_refusals += 1;
+            }
+            let value = exact_dot(row_slice, case.blocks, q);
+            expected.push(value.unwrap_or(0));
+            refused.push(u32::from(value.is_none()));
+        }
+    }
+    if case.id == 106 || case.id == 107 {
+        let tail = expected.len() - 1;
+        assert_eq!(
+            refused[tail], 0,
+            "registered row/token tail must be a successful observation"
+        );
+        assert_ne!(
+            expected[tail], 0,
+            "registered row/token tail must be nonzero"
+        );
+    }
+    for value in &expected {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    for flag in &refused {
+        output.extend_from_slice(&flag.to_le_bytes());
+    }
+    let refusals = refused.iter().filter(|flag| **flag == 1).count();
+    eprintln!(
+        "REAL_Q8_CASE id={} rows={} tokens={} blocks={} some={} refusal={} arithmetic_refusals={}",
+        case.id,
+        case.rows,
+        tokens,
+        case.blocks,
+        expected.len() - refusals,
+        refusals,
+        arithmetic_refusals
+    );
+    (expected.len() - refusals, refusals)
+}
+
+/// `O(total input lanes + M·B·K·32)` exact CPU observations; all activation columns enter through
+/// `quant_act`, and `exact_dot` supplies every fixture golden.
+fn real_quantizer_boundary_cases() -> Vec<RealQuantizerCase> {
+    let zeros = constant_activation(1, 0);
+    let mut zero = RealQuantizerCase::new(100, 2, vec![zeros.clone()]);
+    zero.weight(0, 0, 0, 127);
+
+    let mut boundary = RealQuantizerCase::new(
+        101,
+        1,
+        [127, -127, 128, -128].into_iter().map(unit_at).collect(),
+    );
+    assert_eq!(
+        boundary
+            .quantized
+            .iter()
+            .map(|q| q.scales()[0])
+            .collect::<Vec<_>>(),
+        vec![1, 1, 2, 2]
+    );
+    boundary.weight(0, 0, 0, 1);
+    assert_eq!(
+        boundary
+            .quantized
+            .iter()
+            .map(|q| q.codes()[0])
+            .collect::<Vec<_>>(),
+        vec![127, -127, 64, -64],
+        "actual quant_act ±127/±128 scale transition witnesses"
+    );
+
+    let tie_values = {
+        let mut x = vec![0; ACT_QK];
+        x[..3].copy_from_slice(&[3, -3, 130]);
+        x
+    };
+    let mut ties = RealQuantizerCase::new(102, 3, vec![tie_values]);
+    assert_eq!(ties.quantized[0].scales(), &[2]);
+    assert_eq!(
+        &ties.quantized[0].codes()[..3],
+        &[2, -2, 65],
+        "actual quant_act signed tie must round away from zero"
+    );
+    for row in 0..3 {
+        ties.weight(row, 0, row, 1);
+    }
+
+    let mut mixed = vec![0; 2 * ACT_QK];
+    for lane in 0..ACT_QK {
+        mixed[lane] = if lane % 2 == 0 { 127 } else { -127 };
+        mixed[ACT_QK + lane] = if lane % 2 == 0 {
+            63i64 << 57
+        } else {
+            -(63i64 << 57)
+        };
+    }
+    let mut mixed = RealQuantizerCase::new(103, 1, vec![mixed]);
+    assert_eq!(mixed.quantized[0].scales(), &[1, 1i64 << 56]);
+    assert_eq!(mixed.quantized[0].codes()[0], 127);
+    assert_eq!(mixed.quantized[0].codes()[ACT_QK], 126);
+    mixed.weight(0, 0, 0, 1);
+    mixed.weight(0, 1, 0, 1);
+
+    let mut high =
+        RealQuantizerCase::new(104, 1, vec![unit_at(63i64 << 57), unit_at(-(63i64 << 57))]);
+    assert!(high.quantized.iter().all(|q| q.scales() == [1i64 << 56]));
+    assert_eq!(high.quantized[0].codes()[0], 126);
+    assert_eq!(high.quantized[1].codes()[0], -126);
+    high.set_half(0, 0, 0x0001);
+    high.weight(0, 0, 0, 1);
+
+    let min = quant_act(&[i64::MIN; ACT_QK]).expect("i64::MIN lies on the actual 2^57 grid");
+    assert_eq!(min.scales(), &[1i64 << 57]);
+    assert!(min.dequant().unwrap().iter().all(|&v| v == i64::MIN));
+    assert!(
+        quant_act(&[i64::MAX; ACT_QK]).is_none(),
+        "i64::MAX rounds to code 64 and its dequantized product is out of range"
+    );
+    assert!(
+        quant_act(&[i64::MIN, i64::MAX]).is_none(),
+        "mixed i64::MIN/MAX retains the i64::MAX constructor refusal"
+    );
+
+    let mut nonfinite = RealQuantizerCase::new(105, 3, vec![zeros]);
+    nonfinite.set_half(1, 0, 0x7c00);
+    nonfinite.set_half(2, 0, 0x7e01);
+    nonfinite.weight(0, 0, 0, 1);
+
+    vec![zero, boundary, ties, mixed, high, nonfinite]
+}
+
+/// `O(total input lanes + M·B·K·32)` operations and `O(total input/weight bytes)` space;
+/// constructor inputs cover nonzero tails, signed overflow and cancellation.
+fn real_quantizer_large_cases() -> Vec<RealQuantizerCase> {
+    let mut large_activations: Vec<_> = (0..31).map(|token| varied_activation(64, token)).collect();
+    for activation in &mut large_activations {
+        activation[0] = 31;
+    }
+    let mut large = RealQuantizerCase::new(106, 257, large_activations);
+    populate_weighted(&mut large, 0);
+    large.set_half(256, 0, 0x3c00);
+    for block in 0..large.blocks {
+        for lane in 0..ACT_QK {
+            large.weight(256, block, lane, 0);
+        }
+    }
+    large.weight(256, 0, 0, 1);
+    let mut large_tail_activations: Vec<_> = (0..200)
+        .map(|token| varied_activation(4, token + 31))
+        .collect();
+    for activation in &mut large_tail_activations {
+        activation[0] = 31;
+    }
+    let mut large_tail = RealQuantizerCase::new(107, 33, large_tail_activations);
+    populate_weighted(&mut large_tail, 1);
+    large_tail.set_half(32, 0, 0x3c00);
+    for block in 0..large_tail.blocks {
+        for lane in 0..ACT_QK {
+            large_tail.weight(32, block, lane, 0);
+        }
+    }
+    large_tail.weight(32, 0, 0, 1);
+
+    let mut narrow = RealQuantizerCase::new(108, 1, vec![unit_at(63i64 << 57)]);
+    narrow.set_half(0, 0, 0x7bff);
+    narrow.weight(0, 0, 0, 1);
+
+    let overflow_values = constant_activation(32, 63i64 << 57);
+    let mut overflow_positive = RealQuantizerCase::new(109, 1, vec![overflow_values.clone()]);
+    let mut overflow_negative = RealQuantizerCase::new(110, 1, vec![overflow_values.clone()]);
+    let mut cancellation =
+        RealQuantizerCase::new(111, 1, vec![constant_activation(64, 63i64 << 57)]);
+    for block in 0..32 {
+        overflow_positive.set_half(0, block, 0x7bff);
+        overflow_negative.set_half(0, block, 0x7bff);
+        for lane in 0..ACT_QK {
+            overflow_positive.weight(0, block, lane, 127);
+            overflow_negative.weight(0, block, lane, -128);
+        }
+    }
+    for block in 0..64 {
+        cancellation.set_half(0, block, if block % 2 == 0 { 0x7bff } else { 0xfbff });
+        for lane in 0..ACT_QK {
+            cancellation.weight(0, block, lane, -128);
+        }
+    }
+    let q = &overflow_positive.quantized[0];
+    assert!(q.scales().iter().all(|&s| s == 1i64 << 56));
+    assert!(q.codes().iter().all(|&c| c == 126));
+    assert_eq!(
+        exact_dot(&cancellation.raw, 64, &cancellation.quantized[0]),
+        Some(0)
+    );
+
+    vec![
+        large,
+        large_tail,
+        narrow,
+        overflow_positive,
+        overflow_negative,
+        cancellation,
+    ]
+}
+
+/// `O(total input lanes + M·B·K·32)` operations and `O(total fixture bytes)` space;
+/// concatenate constructor boundary cases and large/arithmetic cases without changing their order.
+fn real_quantizer_populations() -> Vec<RealQuantizerCase> {
+    let mut cases = real_quantizer_boundary_cases();
+    cases.extend(real_quantizer_large_cases());
+    cases
+}
+
+#[test]
+#[ignore = "produces actual-quantizer native GPU parity fixtures"]
+/// `O(total activations + Σ(M·B·K·32))` operations and `O(serialized bytes)` storage; the
+/// registered matrix row/token tails are 257x31x64 and 33x200x4.
+fn native_real_quantizer_q8_fixture() {
+    let path = std::env::var_os("APEIRON_NATIVE_Q8_FIXTURE")
+        .expect("APEIRON_NATIVE_Q8_FIXTURE must name the output file");
+    let cases = real_quantizer_populations();
+    assert_eq!(cases.len(), 12);
+    let mut output = b"SPIQ8V01".to_vec();
+    output.extend_from_slice(&u32::try_from(cases.len()).unwrap().to_le_bytes());
+    let mut success = 0usize;
+    let mut refusal = 0usize;
+    for case in &cases {
+        let (yes, no) = encode_real_quantizer(case, &mut output);
+        success += yes;
+        refusal += no;
+    }
+    eprintln!(
+        "REAL_Q8_FIXTURE_OK cases={} some={success} refusal={refusal} bytes={} path={}",
+        cases.len(),
+        output.len(),
+        std::path::Path::new(&path).display()
+    );
+    std::fs::write(&path, &output).expect("write real-quantizer GPU fixture");
 }

@@ -19,7 +19,16 @@ ROOT = Path(__file__).resolve().parents[2]
 SHADER = ROOT / "src/spirv/q8_tile.comp"
 DRIVER = ROOT / "tools/gpu/q8_driver.c"
 MAGIC = b"SPIQ8V01"
-EXPECTED_FIXTURE_SHA256 = "573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2"
+FIXTURE_PROFILES = {
+    "synthetic": {
+        "sha256": "573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2",
+        "cases": 14, "success": 14678, "refusal": 32,
+    },
+    "quantizer": {
+        "sha256": "49f14cc4d2a219f278353245b454ed31ef7da10af429c4ed122beadc57b3b958",
+        "cases": 12, "success": 14581, "refusal": 5,
+    },
+}
 DEADLINE = time.monotonic() + 535
 START_TIME = time.monotonic()
 
@@ -47,7 +56,7 @@ def tool(name: str, env_name: str, fallback: str) -> str:
     return found
 
 
-def read_fixture(path: Path) -> list[dict[str, object]]:
+def read_fixture(path: Path, profile: str) -> list[dict[str, object]]:
     data = path.read_bytes()
     if len(data) < 12 or data[:8] != MAGIC:
         raise ValueError("fixture must start with SPIQ8V01 and a u32 case count")
@@ -115,15 +124,16 @@ def read_fixture(path: Path) -> list[dict[str, object]]:
         raise ValueError(f"fixture has {len(data) - off} trailing bytes")
     ok_count = sum(flag == 0 for case in cases for flag in case["refused"])
     refusal_count = sum(flag != 0 for case in cases for flag in case["refused"])
-    if ok_count != 14678 or refusal_count != 32:
-        raise ValueError(f"fixture observation counts differ: {ok_count} successes, {refusal_count} refusals")
+    contract = FIXTURE_PROFILES[profile]
+    if len(cases) != contract["cases"] or ok_count != contract["success"] or refusal_count != contract["refusal"]:
+        raise ValueError(f"{profile} fixture counts differ: cases={len(cases)}, success={ok_count}, refusal={refusal_count}")
     if not any(value != 0 and flag == 0
                for case in cases
                for value, flag in zip(case["expected"], case["refused"])):
         raise ValueError("fixture needs a successful nonzero CPU observation so the dot mutation is observable")
     digest = hashlib.sha256(data).hexdigest()
-    if digest != EXPECTED_FIXTURE_SHA256:
-        raise ValueError(f"unexpected CPU fixture identity {digest}; expected {EXPECTED_FIXTURE_SHA256}")
+    if digest != contract["sha256"]:
+        raise ValueError(f"unexpected {profile} CPU fixture identity {digest}; expected {contract['sha256']}")
     print(f"fixture={path} sha256={digest} cases={len(cases)}")
     return cases
 
@@ -167,12 +177,14 @@ def run_cases(driver: Path, shader: Path, cases: list[dict[str, object]], scratc
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=sorted(FIXTURE_PROFILES), default="synthetic",
+                        help="registered fixture profile; synthetic stays the default")
     parser.add_argument("--fixture", type=Path, default=os.environ.get("APEIRON_NATIVE_Q8_FIXTURE"))
     args = parser.parse_args()
     if args.fixture is None:
         parser.error("pass --fixture or set APEIRON_NATIVE_Q8_FIXTURE to the actual CPU-produced fixture")
     fixture = Path(args.fixture).expanduser().resolve()
-    cases = read_fixture(fixture)
+    cases = read_fixture(fixture, args.profile)
     glslc = tool("glslc", "GLSLC", "glslc")
     spirv_val = tool("spirv-val", "SPIRV_VAL", "spirv-val")
     cc = tool("cc", "CC", "cc")
