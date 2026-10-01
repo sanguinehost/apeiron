@@ -1306,12 +1306,26 @@ impl KvState {
             q_heap = vec![0.0f32; hd];
             &mut q_heap[..]
         };
-        for i in 0..hd {
+        // Index `while` loop, and the one `Err` raised after it. The removal is forced by the
+        // pinned Aeneas model, which refuses this body with `Breaks to outer loops are not
+        // supported yet`: the `return Err(AttnError::Overflow)` sat inside the `for` body, and an
+        // early exit from a loop body is the shape its translator cannot lower. No `zip` appears in
+        // this body, so that refusal does not apply here. Arithmetic is unchanged: the same
+        // `q32_to_f32` on the same element in the same ascending order, the same store to the same
+        // slot, and the same `is_finite` test on the same value, over `0..hd`, which is exactly the
+        // old `for` range. `q_f32` is a local scratch buffer with no reader after this loop, so
+        // writing it whole before raising rather than up to the first non-finite element is not
+        // observable.
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < hd {
             let f = q32_to_f32(q[i]);
-            if !f.is_finite() {
-                return Err(AttnError::Overflow);
-            }
+            bad += u32::from(!f.is_finite());
             q_f32[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
         }
 
         let scale = 1.0f32 / (hd as f32).sqrt();
@@ -1337,8 +1351,28 @@ impl KvState {
             out_f32,
         )?;
 
-        for i in 0..hd {
-            out[i] = f32_core::f32_to_q32_checked(out_f32[i])?;
+        // Index `while` loop with a failure flag, and the one `Err` raised after it, for the same
+        // asserted reason: the `?` inside the `for` body is an early exit from a loop body and is
+        // refused with `Breaks to outer loops are not supported yet`. The flag is what holds the
+        // early exit outside the loop without changing what `out` carries: the old `?` stored
+        // `out[i]` at every index before the first failing conversion and returned at that index,
+        // and `while i < hd && ok` stores the same prefix and stops at the same index, raising the
+        // same `AttnError` after the loop.
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < hd && ok {
+            match f32_core::f32_to_q32_checked(out_f32[i]) {
+                Ok(v) => out[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
 
         Ok(())
