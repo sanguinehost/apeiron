@@ -132,7 +132,7 @@ word theorem. A new resource instrumentation/extraction seam has separate owners
 |---|---|---|
 | Shared transfer explanation | model + measured / open | source-bound census; retained raw receipt identities; one frozen held-out prediction |
 | One source-connected resource derivation | proved / scalar prerequisite accepted; transformation certificate open | ActScaleResource loop/scale source refinement; gate.py --check --controls; projection/graph cost correspondence remains open |
-| One exact sharing/schedule choice | proved / open | typed observations include state/effects/refusals; strict model improvement; gate MISSING |
+| One exact sharing/schedule choice | model (algebra proved): `proof/resource/CostAlgebra.lean` composition + fieldwise dominance, `dominates_improves` (strict `Nat` reduction), nonvacuous `residentPlan` < `perProjectionPlan` witness; three controls red→restored; `python3 proof/resource/CostAlgebraGate.py --check --controls` exit 0 in 10.2 s. Source-derived candidate counts, the universal `Admission` premises and the production contract stay open | typed observations include state/effects/refusals; strict model improvement; gate present at model scope |
 | Actual admission | tested + proved / closed to dispatch | independent contract verdict, production launcher positive, attributable refusal, restoration |
 | Transfer validation | measured / open | matched quiet receipts and separately registered ablation/held-out protocol; no dense 2x requirement |
 | Shared barrier and trust | open | all AGENTS.md §6 Rust/Lean gates and controls on the same identity; source-size/TCB inventory |
