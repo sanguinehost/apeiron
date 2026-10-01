@@ -88,8 +88,8 @@ budgets. These retain their grades and source identities; this ownership change 
 
 | exit | current status |
 |---|---|
-| Native ownership / first-baseline exception | explicit user decision; independent architecture review required |
-| Actual CPU/native device parity and mutation/restoration | unrun |
+| Native ownership / first-baseline exception | user decision; independent Sol architecture review accepts baseline domain |
+| Actual CPU/native device parity and mutation/restoration | tested: 14 cases, 14,678 exact outputs and 32 refusals; dot mutation 13,973 mismatches; restoration green |
 | Actual native emitted-body / canonical / source-cost correspondence | open |
 | Optimisation admission | closed to dispatch until accepted registration |
 | Native serving, hybrid recurrence, state continuation | open |
@@ -102,3 +102,9 @@ CORPUS: Spirv.Dp4a's stated CPU/emitted-body exclusion and actual exact_dot/sour
 REFERENCE: /home/socol/Workspace/apeiron/src/engine/kern/gemm.rs:311.
 GATE: 60s native document/domain check and missing-ownership/control; old Fold runtime target is red.
 GRADE: planning/anchor; user-authorised baseline implementation, later optimisation remains admitted.
+
+Native baseline acceptance is in artifacts/gpu-prefill/native-baseline.md and native-baseline-acceptance.json.
+The fixture domain is validated synthetic QuantAct::from_parts input, not established quant_act
+constructor reachability. Production admission requires additional actual-constructor fixtures.
+The baseline uses local8x8; each invocation computes RT2BT4; dispatch is ceil(M/16),ceil(tokens/32).
+The whole epic remains open at the source/cost, serving, comparison and shared-proof exits above.

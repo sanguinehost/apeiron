@@ -1,0 +1,350 @@
+{
+  "scope": "User-authorised native correctness baseline; synthetic QuantAct::from_parts fixtures; no constructor-reachable production, source-refinement or speed claim",
+  "grade": "tested",
+  "source_revision": "4f338e66bcde4be2258ca6ad60e5672cc0749218",
+  "source_sha256": {
+    "src/spirv/q8_tile.comp": "0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e",
+    "tools/gpu/q8_driver.c": "8d898a3a2b4d1a461cc358324276f6347d8c81b1fdf056f97f7055ec9524fa0f",
+    "tools/gpu/q8_gate.py": "f197d0961e784748f9cc770abc4a40059ee612181820ea7f9747d3b29ee5ceb2",
+    "src/engine/kern/gemm.rs": "73ae149f7f670fc3d957932161e10b91746f2b1d1d285311d89b5228316db7e9",
+    "src/engine/kern/native_gpu_probe.rs": "2ebd286ffeb45b0e643b762e8c09b21f092c49012a5dbcd69c519a4b52cee31a",
+    "src/engine/chart/mod.rs": "ae4a4a247f01b8435cb93860554d4b7d795b4c41d804b1d27abe614f23ad68c0",
+    "src/engine/kern/pow2.rs": "1f005c6807c1c87513c8c16654da3664614d9ced783616bd040fbfec8548d3b8",
+    "src/engine/value.rs": "5627578e6b2cdb7c8460694099ef41764e3e0ec15709960902831fe53732f957",
+    "Cargo.toml": "360a738b294490a7df57832ac56d6ee54b216d557a7baefbde341bd84884ee78",
+    "Cargo.lock": "043b2a05b7c9b2b25229b96d2a39e50dc3403a840f66c9cf29e855dab4b16c1d"
+  },
+  "fixture": {
+    "sha256": "573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2",
+    "bytes": 946420,
+    "cases": 14,
+    "successful": 14678,
+    "refused": 32
+  },
+  "gpu_gate": {
+    "command": "timeout 540 env PYTHONDONTWRITEBYTECODE=1 python3 tools/gpu/q8_gate.py --fixture /tmp/opencode/native-q8-fixture-main.bin",
+    "cwd": "/home/socol/Workspace/apeiron",
+    "exit": 0,
+    "budget_seconds": 540,
+    "reported_elapsed_seconds": 5.271,
+    "device": "NVIDIA GeForce RTX 5080",
+    "driver": "615.71.09",
+    "vulkan": "1.4.351",
+    "mutated_observation_mismatches": 13973,
+    "output": "fixture=/tmp/opencode/native-q8-fixture-main.bin sha256=573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2 cases=14\n$ git rev-parse HEAD\n2e8ae070a9e58e348ebbce2273a9c92b0b860b41\nexit=0\ngit=2e8ae070a9e58e348ebbce2273a9c92b0b860b41\ntool=glslc path=/usr/bin/glslc\n$ /usr/bin/glslc --version\n2026.3\n1:1.4.357.0\n1:1.4.357.0\n\nTarget: SPIR-V 1.0\nexit=0\ntool=spirv-val path=/usr/bin/spirv-val\n$ /usr/bin/spirv-val --version\nSPIRV-Tools v2026.3 vulkan-sdk-1.4.357.0-0-g9a49b0883\nTargets:\n  SPIR-V 1.0\n  SPIR-V 1.1\n  SPIR-V 1.2\n  SPIR-V 1.3\n  SPIR-V 1.4\n  SPIR-V 1.5\n  SPIR-V 1.6\n  SPIR-V 1.2 (under OpenCL 2.2 Full Profile semantics)\n  SPIR-V 1.0 (under Vulkan 1.0 semantics)\n  SPIR-V 1.3 (under Vulkan 1.1 semantics)\n  SPIR-V 1.4 (under Vulkan 1.1 semantics)\n  SPIR-V 1.5 (under Vulkan 1.2 semantics)\n  SPIR-V 1.6 (under Vulkan 1.3 semantics) SPIR-V 1.6 (under Vulkan 1.4 semantics)\nexit=0\ntool=cc path=/usr/bin/cc\n$ /usr/bin/cc --version\ncc (GCC) 16.2.1 20260810\nCopyright (C) 2026 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nexit=0\n$ /usr/bin/glslc -O --target-env=vulkan1.3 /home/socol/Workspace/apeiron/src/spirv/q8_tile.comp -o /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv\nexit=0\n$ /usr/bin/spirv-val --target-env vulkan1.3 /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv\nexit=0\nsource_sha256 src/spirv/q8_tile.comp=0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e\nsource_sha256 tools/gpu/q8_driver.c=8d898a3a2b4d1a461cc358324276f6347d8c81b1fdf056f97f7055ec9524fa0f\nsource_sha256 tools/gpu/q8_gate.py=f197d0961e784748f9cc770abc4a40059ee612181820ea7f9747d3b29ee5ceb2\n$ /usr/bin/cc -std=c11 -O2 -Wall -Wextra -Werror /home/socol/Workspace/apeiron/tools/gpu/q8_driver.c -lvulkan -o /tmp/apeiron-q8-native-_hkql9e1/q8_driver\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/baseline-0.input /tmp/apeiron-q8-native-_hkql9e1/baseline-0.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 5 3 3 /tmp/apeiron-q8-native-_hkql9e1/baseline-1.input /tmp/apeiron-q8-native-_hkql9e1/baseline-1.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/baseline-2.input /tmp/apeiron-q8-native-_hkql9e1/baseline-2.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/baseline-3.input /tmp/apeiron-q8-native-_hkql9e1/baseline-3.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/baseline-4.input /tmp/apeiron-q8-native-_hkql9e1/baseline-4.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/baseline-5.input /tmp/apeiron-q8-native-_hkql9e1/baseline-5.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 4 5 1 /tmp/apeiron-q8-native-_hkql9e1/baseline-6.input /tmp/apeiron-q8-native-_hkql9e1/baseline-6.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/baseline-7.input /tmp/apeiron-q8-native-_hkql9e1/baseline-7.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/baseline-8.input /tmp/apeiron-q8-native-_hkql9e1/baseline-8.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/baseline-9.input /tmp/apeiron-q8-native-_hkql9e1/baseline-9.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/baseline-10.input /tmp/apeiron-q8-native-_hkql9e1/baseline-10.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 1 1 10 /tmp/apeiron-q8-native-_hkql9e1/baseline-11.input /tmp/apeiron-q8-native-_hkql9e1/baseline-11.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 257 31 64 /tmp/apeiron-q8-native-_hkql9e1/baseline-12.input /tmp/apeiron-q8-native-_hkql9e1/baseline-12.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile.spv 33 200 4 /tmp/apeiron-q8-native-_hkql9e1/baseline-13.input /tmp/apeiron-q8-native-_hkql9e1/baseline-13.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /usr/bin/glslc -O --target-env=vulkan1.3 /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.comp -o /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv\nexit=0\n$ /usr/bin/spirv-val --target-env vulkan1.3 /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/mutated-0.input /tmp/apeiron-q8-native-_hkql9e1/mutated-0.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 5 3 3 /tmp/apeiron-q8-native-_hkql9e1/mutated-1.input /tmp/apeiron-q8-native-_hkql9e1/mutated-1.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\nPARITY MISMATCH (mutated) case=1 output=0 expected=(-637224,0) actual=(637224,0)\nPARITY MISMATCH (mutated) case=1 output=1 expected=(660016,0) actual=(-660016,0)\nPARITY MISMATCH (mutated) case=1 output=2 expected=(-38908,0) actual=(38908,0)\nPARITY MISMATCH (mutated) case=1 output=5 expected=(-433674,0) actual=(433674,0)\nPARITY MISMATCH (mutated) case=1 output=6 expected=(1485110,0) actual=(-1485110,0)\nPARITY MISMATCH (mutated) case=1 output=7 expected=(138639,0) actual=(-138639,0)\nPARITY MISMATCH (mutated) case=1 output=8 expected=(20727,0) actual=(-20727,0)\nPARITY MISMATCH (mutated) case=1 output=10 expected=(2281148,0) actual=(-2281148,0)\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/mutated-2.input /tmp/apeiron-q8-native-_hkql9e1/mutated-2.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/mutated-3.input /tmp/apeiron-q8-native-_hkql9e1/mutated-3.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/mutated-4.input /tmp/apeiron-q8-native-_hkql9e1/mutated-4.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/mutated-5.input /tmp/apeiron-q8-native-_hkql9e1/mutated-5.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 4 5 1 /tmp/apeiron-q8-native-_hkql9e1/mutated-6.input /tmp/apeiron-q8-native-_hkql9e1/mutated-6.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/mutated-7.input /tmp/apeiron-q8-native-_hkql9e1/mutated-7.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/mutated-8.input /tmp/apeiron-q8-native-_hkql9e1/mutated-8.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/mutated-9.input /tmp/apeiron-q8-native-_hkql9e1/mutated-9.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/mutated-10.input /tmp/apeiron-q8-native-_hkql9e1/mutated-10.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 1 1 10 /tmp/apeiron-q8-native-_hkql9e1/mutated-11.input /tmp/apeiron-q8-native-_hkql9e1/mutated-11.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 257 31 64 /tmp/apeiron-q8-native-_hkql9e1/mutated-12.input /tmp/apeiron-q8-native-_hkql9e1/mutated-12.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_mutated.spv 33 200 4 /tmp/apeiron-q8-native-_hkql9e1/mutated-13.input /tmp/apeiron-q8-native-_hkql9e1/mutated-13.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\nparity-mismatches (mutated)=13973; samples=8\nnegative-control=red (negated real dot update rejected by CPU/device parity)\n$ /usr/bin/glslc -O --target-env=vulkan1.3 /home/socol/Workspace/apeiron/src/spirv/q8_tile.comp -o /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv\nexit=0\n$ /usr/bin/spirv-val --target-env vulkan1.3 /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/restored-0.input /tmp/apeiron-q8-native-_hkql9e1/restored-0.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 5 3 3 /tmp/apeiron-q8-native-_hkql9e1/restored-1.input /tmp/apeiron-q8-native-_hkql9e1/restored-1.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/restored-2.input /tmp/apeiron-q8-native-_hkql9e1/restored-2.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 2 /tmp/apeiron-q8-native-_hkql9e1/restored-3.input /tmp/apeiron-q8-native-_hkql9e1/restored-3.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/restored-4.input /tmp/apeiron-q8-native-_hkql9e1/restored-4.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/restored-5.input /tmp/apeiron-q8-native-_hkql9e1/restored-5.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 4 5 1 /tmp/apeiron-q8-native-_hkql9e1/restored-6.input /tmp/apeiron-q8-native-_hkql9e1/restored-6.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/restored-7.input /tmp/apeiron-q8-native-_hkql9e1/restored-7.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 3 5 1 /tmp/apeiron-q8-native-_hkql9e1/restored-8.input /tmp/apeiron-q8-native-_hkql9e1/restored-8.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/restored-9.input /tmp/apeiron-q8-native-_hkql9e1/restored-9.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 1 1 8 /tmp/apeiron-q8-native-_hkql9e1/restored-10.input /tmp/apeiron-q8-native-_hkql9e1/restored-10.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 1 1 10 /tmp/apeiron-q8-native-_hkql9e1/restored-11.input /tmp/apeiron-q8-native-_hkql9e1/restored-11.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 257 31 64 /tmp/apeiron-q8-native-_hkql9e1/restored-12.input /tmp/apeiron-q8-native-_hkql9e1/restored-12.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\n$ /tmp/apeiron-q8-native-_hkql9e1/q8_driver /tmp/apeiron-q8-native-_hkql9e1/q8_tile_restored.spv 33 200 4 /tmp/apeiron-q8-native-_hkql9e1/restored-13.input /tmp/apeiron-q8-native-_hkql9e1/restored-13.output\ndevice=NVIDIA GeForce RTX 5080 driver=2580660800 api=1.4.351 int64=1 dotProduct=1\nexit=0\nrestoration=green\ngate_elapsed_seconds=5.271\n"
+  },
+  "cpu_worker": {
+    "records": [
+      {
+        "label": "positive",
+        "argv": [
+          "cargo",
+          "test",
+          "--lib",
+          "engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture",
+          "--",
+          "--ignored",
+          "--exact"
+        ],
+        "exit": 0,
+        "seconds": 1.0544711140028085,
+        "log": "/tmp/opencode/native-q8-fixture/positive.log"
+      },
+      {
+        "label": "missing-output",
+        "argv": [
+          "cargo",
+          "test",
+          "--lib",
+          "engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture",
+          "--",
+          "--ignored",
+          "--exact"
+        ],
+        "exit": 101,
+        "seconds": 0.044305927003733814,
+        "log": "/tmp/opencode/native-q8-fixture/missing-output.log"
+      },
+      {
+        "label": "restored",
+        "argv": [
+          "cargo",
+          "test",
+          "--lib",
+          "engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture",
+          "--",
+          "--ignored",
+          "--exact"
+        ],
+        "exit": 0,
+        "seconds": 0.3381543750001583,
+        "log": "/tmp/opencode/native-q8-fixture/restored.log"
+      }
+    ],
+    "seconds": 1.4437255800003186,
+    "task_start_utc": "2026-10-01T00:52:41Z",
+    "task_elapsed_seconds": 413.3819987773895,
+    "task_budget_seconds": 480,
+    "base_revision": "2e8ae07",
+    "status": "passed",
+    "cases": [
+      {
+        "id": 0,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 2,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 1,
+        "rows": 5,
+        "tokens": 3,
+        "blocks": 3,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 2,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 2,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 3,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 2,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 4,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 1,
+        "some": 0,
+        "refusal": 15
+      },
+      {
+        "id": 5,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 1,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 6,
+        "rows": 4,
+        "tokens": 5,
+        "blocks": 1,
+        "some": 20,
+        "refusal": 0
+      },
+      {
+        "id": 7,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 1,
+        "some": 15,
+        "refusal": 0
+      },
+      {
+        "id": 8,
+        "rows": 3,
+        "tokens": 5,
+        "blocks": 1,
+        "some": 0,
+        "refusal": 15
+      },
+      {
+        "id": 9,
+        "rows": 1,
+        "tokens": 1,
+        "blocks": 8,
+        "some": 0,
+        "refusal": 1
+      },
+      {
+        "id": 10,
+        "rows": 1,
+        "tokens": 1,
+        "blocks": 8,
+        "some": 0,
+        "refusal": 1
+      },
+      {
+        "id": 11,
+        "rows": 1,
+        "tokens": 1,
+        "blocks": 10,
+        "some": 1,
+        "refusal": 0
+      },
+      {
+        "id": 12,
+        "rows": 257,
+        "tokens": 31,
+        "blocks": 64,
+        "some": 7967,
+        "refusal": 0
+      },
+      {
+        "id": 13,
+        "rows": 33,
+        "tokens": 200,
+        "blocks": 4,
+        "some": 6600,
+        "refusal": 0
+      }
+    ],
+    "bytes": 946420,
+    "sha256": {
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1/src/engine/kern/gemm.rs": "73ae149f7f670fc3d957932161e10b91746f2b1d1d285311d89b5228316db7e9",
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1/src/engine/kern/native_gpu_probe.rs": "a7f7186fac666d12e9ce7cba2865103795fbe21d8157b53f090c9c537c4d5cc8",
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1/src/engine/chart/mod.rs": "ae4a4a247f01b8435cb93860554d4b7d795b4c41d804b1d27abe614f23ad68c0",
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1/src/engine/kern/pow2.rs": "1f005c6807c1c87513c8c16654da3664614d9ced783616bd040fbfec8548d3b8",
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1/src/engine/value.rs": "5627578e6b2cdb7c8460694099ef41764e3e0ec15709960902831fe53732f957",
+      "/tmp/opencode/native-q8-fixture.bin": "573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2"
+    },
+    "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+    "cargo": "cargo 1.97.0-nightly (eb94155a9 2026-04-09)",
+    "trust": "actual CPU fixture tested; GPU execution, emitted-body/source refinement, codegen and hardware timing excluded"
+  },
+  "cpu_final": {
+    "command": "timeout 480 cargo test --locked --lib engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture -- --ignored --exact",
+    "env": {
+      "APEIRON_NATIVE_Q8_FIXTURE": "/tmp/opencode/native-q8-fixture-final.bin"
+    },
+    "exit": 0,
+    "output": "error: duplicate key\n  --> ../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1\n   |\n61 | netfold = { path = \"../netfold\", optional = true }\n   | ^^^^^^^\n   Compiling apeiron v0.1.0 (/home/socol/Workspace/apeiron)\nwarning: function `profile` is never used\n   --> src/table/locator.rs:943:8\n    |\n943 |     fn profile() -> H3_40 {\n    |        ^^^^^^^\n    |\n    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `apeiron` (lib test) generated 1 warning\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.52s\n     Running unittests src/lib.rs (target/debug/deps/apeiron-fbaf6d3d98420708)\n\nrunning 1 test\ntest engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 441 filtered out; finished in 0.29s\n\n"
+  },
+  "rust_gates": {
+    "workspace": {
+      "command": "timeout 540 cargo test --workspace --all-features --locked",
+      "exit": 0,
+      "library_passed": 410,
+      "library_ignored": 33,
+      "library_seconds": 243.18,
+      "transcript_complete": false,
+      "note": "Tool output was truncated; enclosing exit and final result observed. Seven doctests also passed.",
+      "fixture_source_sha256": "a7f7186fac666d12e9ce7cba2865103795fbe21d8157b53f090c9c537c4d5cc8",
+      "followup": "Full workspace run precedes the two doc-markdown backtick corrections; final focused fixture regenerates the identical SHA, clippy and fmt pass after them."
+    },
+    "clippy": {
+      "command": "timeout 540 cargo clippy --workspace --all-features --all-targets --locked -- -D warnings",
+      "initial_exit": 101,
+      "initial_output": "error: duplicate key\n  --> ../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1\n   |\n61 | netfold = { path = \"../netfold\", optional = true }\n   | ^^^^^^^\n    Checking apeiron v0.1.0 (/home/socol/Workspace/apeiron)\n    Checking apeiron-fold-abi v0.0.0 (/home/socol/Workspace/apeiron/fold-abi)\nerror: item in documentation is missing backticks\n --> src/engine/kern/native_gpu_probe.rs:4:5\n  |\n4 | //! QuantAct::from_parts is unchecked: this producer validates the joint domain first.\n  |     ^^^^^^^^^^^^^^^^^^^^\n  |\n  = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#doc_markdown\n  = note: `-D clippy::doc-markdown` implied by `-D warnings`\n  = help: to override `-D warnings` add `#[allow(clippy::doc_markdown)]`\nhelp: try\n  |\n4 - //! QuantAct::from_parts is unchecked: this producer validates the joint domain first.\n4 + //! `QuantAct::from_parts` is unchecked: this producer validates the joint domain first.\n  |\n\nerror: item in documentation is missing backticks\n   --> src/engine/kern/native_gpu_probe.rs:134:36\n    |\n134 | /// packing visits each lane once; exact_dot visits each block/lane for every output.\n    |                                    ^^^^^^^^^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#doc_markdown\nhelp: try\n    |\n134 - /// packing visits each lane once; exact_dot visits each block/lane for every output.\n134 + /// packing visits each lane once; `exact_dot` visits each block/lane for every output.\n    |\n\nerror: could not compile `apeiron` (lib test) due to 2 previous errors\n",
+      "restored_exit": 0,
+      "restored_output": "error: duplicate key\n  --> ../../.cargo/git/checkouts/fold-62126b3be665e44a/4cc1447/opsfold/Cargo.toml:61:1\n   |\n61 | netfold = { path = \"../netfold\", optional = true }\n   | ^^^^^^^\n    Checking apeiron v0.1.0 (/home/socol/Workspace/apeiron)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.73s\n",
+      "fix": "Two doc-markdown backtick corrections only."
+    },
+    "format": {
+      "command": "timeout 60 cargo fmt --all -- --check",
+      "exit": 0
+    }
+  },
+  "independent_reviews": {
+    "cpu_luna": "# Independent review: native Q8 CPU fixture\n\n**Decision:** Accept as a tested CPU fixture for the declared synthetic `QuantAct::from_parts` domain. Do not treat it as evidence that all cases are reachable from `quant_act`, or as GPU parity, formal refinement, whole-model parity, or a speed result.\n\nThe test hook includes `native_gpu_probe.rs` only under `cfg(test)`. The fixture calls the actual `exact_dot`, `f16_split`, and `QuantAct::from_parts` implementations. Its producer checks joint vector extents, signed activation-code bounds, and scales that are zero or positive powers of two through exponent 58. Per-case domain checks distinguish non-finite scales, checked product/accumulator overflow, and final `i64` narrowing; refused outputs carry a separate flag and a zero placeholder, so the placeholder is not treated as a golden value. The rounding helper bounds the final `+2^31` operation before the production rounding call. Signed extremes, signed zero/subnormals, ties, cancellation, overflow, and row/token tail shapes are represented.\n\nThe receipt records 14 cases, 14,678 `Some` outputs, 32 `None` outputs, and a 946,420-byte fixture. The positive generation exits 0; the missing-output control exits 101 with the expected environment diagnostic and preserves the prior fixture; restoration exits 0. Source SHA-256 values are:\n\n- `native_gpu_probe.rs`: `a7f7186fac666d12e9ce7cba2865103795fbe21d8157b53f090c9c537c4d5cc8`\n- `gemm.rs`: `73ae149f7f670fc3d957932161e10b91746f2b1d1d285311d89b5228316db7e9`\n- fixture: `573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2`\n\n**Domain qualification:** the checked producer domain is synthetic and validated before calling the unchecked `from_parts` constructor. It is broader than the outputs demonstrated for production `quant_act`. For example, case 0 keeps nonzero codes with zero scales; cases 9\u201311 use scale `2^58` with codes `-127`, whose dequantized products exceed `i64`. These are useful stress inputs for `exact_dot` and its refusal behavior, but they are not established as constructor-reachable `QuantAct` values. A later production-parity contract should add a separate set generated through the actual `quant_act` constructor and keep these broader stress cases labeled synthetic.\n\nThe missing-output control protects fixture emission and restoration; it is not a source mutation control. The evidence grade remains `tested`. GPU execution, SPIR-V behavior, code-generation correctness, formal refinement, and hardware timing remain outside this fixture.\n",
+    "native_sol": "# Apeiron native Q8 baseline: independent architecture review\n\nDecision: accept the frozen three-file candidate as the user's explicitly authorised **initial correctness baseline** on its pinned fixture/device domain. It implements a new Apeiron shader and Vulkan harness. It does not establish a speedup, serving integration, a whole-model result, source refinement, emitted-SPIR-V denotation, or a registered optimization. Any later tuning remains behind `tools/dispatch/admit.py --launch`.\n\nFrozen sources read from `/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T2`:\n\n| path | SHA256 |\n|---|---|\n| `src/spirv/q8_tile.comp` | `0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e` |\n| `tools/gpu/q8_driver.c` | `8d898a3a2b4d1a461cc358324276f6347d8c81b1fdf056f97f7055ec9524fa0f` |\n| `tools/gpu/q8_gate.py` | `f197d0961e784748f9cc770abc4a40059ee612181820ea7f9747d3b29ee5ceb2` |\n\nThe shader's `local_size_x/y = 8/8` and `gl_GlobalInvocationID * (2,4)` give each invocation eight accumulators for a 2-row \u00d7 4-token tile. Within a block it loads each of two weight words and four activation words per packed quad, then forms eight signed `dotPacked4x8EXT` products. The driver dispatches `ceil(M/16) \u00d7 ceil(tokens/32)`. This is the stated per-invocation RT2BT4 architecture. Register allocation and occupancy after compilation are unmeasured; source arrays alone cannot prove physical register residence or a performance gain.\n\nNumerical decision on the pinned fixture domain: eight signed-byte quad dots per block sum to at most `32\u00b7128\u00b7128 = 524288` in magnitude, inside `i32`. The finite `f16_split` mantissa obeys `|m|\u22642047`, so `|m\u00b7dot|<2^30`; `k\u226437` and validated `e\u226458` give `shift\u226495` and one shifted term below `2^125`, inside signed `i128`. `shiftedTerm` constructs the two's-complement two-limb term; `addChecked` adds low limb with carry, adds high limb, detects signed overflow by sign transition, and the per-cell flag is sticky across the ordered block loop. The Q32 epilogue adds `2^31` once, shifts arithmetically by selecting bits 32\u201395, then checks upper bits for `i64` sign extension. The source CPU's unchecked rounding-add panic boundary remains excluded; this shader's modular bias addition is not a proof for that excluded population. No float epilogue or silent `i128` wrap is admitted in the supported observation.\n\nThe `row<M` and `token<tokens` checks guard W/DM/X/E loads and output stores on partial tiles. The fixture parser bounds each dimension product, checks the complete payload and the pinned SHA, verifies DM/E exponent ranges and expected flags; the driver checks byte products, input length, binding range, required Vulkan features, and `dispatch_x/y` against `maxComputeWorkGroupCount[0/1]` before submission. The driver does not independently validate arbitrary DM/E contents; the accepted fixture's largest populations include `(M,tokens,blocks)=(257,31,64)` and `(33,200,4)`. Claims must remain restricted to the pinned fixture/device path. `QuantAct::from_parts` can make arbitrary scales, so no constructor-domain inference applies to unvalidated caller input.\n\nI read the gate's mutation path: it replaces the real `dots[c] += dotPacked4x8EXT(wr[r], xt[t]);` with subtraction in a temporary shader, compiles/validates both modules, requires baseline parity, requires mutated parity failure, recompiles unchanged source and requires restoration parity. It compares output flags exactly and compares values on successful outputs. Its SHA-pinned producer fixture contains 14 cases: 14,678 successful and 32 refused outputs, with nonzero successful values and ragged tile cases. This is a meaningful tested control for the dot update. It does not prove all legal shapes or SPIR-V semantics.\n\nPrimary gate output read: `/tmp/opencode/native-q8-main/gpu-gate.log`. It names fixture SHA256 `573a0e1c020dba300ac0dd58693fa5e31b8212e96881e9793c388e42892d5fa2`, 14 cases, and all three exact frozen source digests above; `glslc`, `spirv-val`, C compilation, and the 14 baseline device invocations each show `exit=0`. The mutation produced 13,973 output mismatches and `negative-control=red`; all 14 restored device invocations show `exit=0`, followed by `restoration=green` and `gate_elapsed_seconds=5.271`. The lead captured the enclosing gate's exit `0`. Device is NVIDIA GeForce RTX 5080, Vulkan 1.4.351, with `shaderInt64` and integer dot product. The retained `/tmp/opencode/native-q8-main/q8_tile.spvasm` has `LocalSize 8 8 1`, `OpSDot` with packed 4\u00d78 format, and no `OpUDot` or float operation. This review read the log and disassembly but did not independently execute the hardware gate.\n\nResidual next tasks: bind the actual native source and emitted words to the canonical numeric object; prove source/refusal/resource correspondence with rejecting controls; register a production optimization contract and pass its positive/red/restoration path before tuning; integrate serving and hybrid continuation; then compare matched GPU whole-prefill receipts against llama.cpp.\n"
+  },
+  "retained_spirv": {
+    "path": "/tmp/opencode/native-q8-main/q8_tile.spv",
+    "sha256": "5edba7dc8961a8db55ff6e6d51cf33129cb3e388cad9c7e08a1fe633e1a8ba57",
+    "compilation": "Separate retained compilation of the frozen shader with the same glslc flags; hardware gate modules were temporary.",
+    "capabilities": [
+      "Int64",
+      "DotProductInput4x8BitPacked",
+      "DotProduct"
+    ],
+    "signed_dot": true,
+    "float": false
+  },
+  "source_refinement_blocker": {
+    "selective_translation_output": "[\u001b[92mInfo\u001b[39m ] Imported: /tmp/opencode/native-narrow-spike/native_narrow_selective.llbc\nUncaught exception:\n  \n  (Invalid_argument\n    \"Can't get the list of fields of this adt:\\\n   \\n{ Generated_Types.def_id = 3;\\\n   \\n  item_meta =\\\n   \\n  { Generated_Types.name =\\\n   \\n    [(Generated_Types.PeIdent (\\\"core\\\", 0));\\\n   \\n      (Generated_Types.PeIdent (\\\"num\\\", 0));\\\n   \\n      (Generated_Types.PeIdent (\\\"error\\\", 0));\\\n   \\n      (Generated_Types.PeIdent (\\\"TryFromIntError\\\", 0))];\\\n   \\n    span =\\\n   \\n    { Generated_Meta.data =\\\n   \\n      { Generated_Meta.file =\\\n   \\n        { Generated_Meta.name =\\\n   \\n          (Generated_Meta.Local \\\"/rustc/library/core/src/num/error.rs\\\");\\\n   \\n          crate_name = \\\"core\\\"; contents = None };\\\n   \\n        beg_loc = { Generated_Meta.line = 10; col = 0 };\\\n   \\n        end_loc = { Generated_Meta.line = 10; col = 26 } };\\\n   \\n      generated_from_span = None };\\\n   \\n    source_text = None;\\\n   \\n    attr_info =\\\n   \\n    { Generated_Meta.attributes =\\\n   \\n      [(Generated_Meta.AttrDocComment\\\n   \\n          \\\" The error type returned when a checked integral type conversion fails.\\\")\\\n   \\n        ];\\\n   \\n      inline = None; rename = None; public = true };\\\n   \\n    is_local = false; opacity = Generated_Types.Foreign; lang_item = None;\\\n   \\n    diagnostic_item = None };\\\n   \\n  generics =\\\n   \\n  { Generated_Types.regions = []; types = []; const_generics = [];\\\n   \\n    trait_clauses = []; regions_outlive = []; types_outlive = [];\\\n   \\n    trait_type_constraints = [] };\\\n   \\n  src = Generated_Types.NormalType; kind = Generated_Types.Opaque;\\\n   \\n  layout =\\\n   \\n  [(\\\"x86_64-unknown-linux-gnu\\\",\\\n   \\n    { Generated_Types.size =\\\n   \\n      { Generated_Types.guarantee = None; chosen = (Some 1) };\\\n   \\n      align = { Generated_Types.guarantee = None; chosen = (Some 1) };\\\n   \\n      discriminator = (Some (Generated_Types.Known 0)); uninhabited = false;\\\n   \\n      variant_layouts =\\\n   \\n      [(Some { Generated_Types.field_offsets =\\\n   \\n               [{ Generated_Types.guarantee = None; chosen = (Some 0) }];\\\n   \\n               uninhabited = false; tagger = [] })\\\n   \\n        ];\\\n   \\n      repr =\\\n   \\n      { Generated_Types.repr_algo = Generated_Types.Rust; align_modif = None;\\\n   \\n        transparent = false; explicit_discr_type = None }\\\n   \\n      })\\\n   \\n    ];\\\n   \\n  ptr_metadata = Generated_Types.NoMetadata }\")\n\nRaised at Charon__TypesUtils.type_decl_get_fields in file \"charon/charon-ml/src/TypesUtils.ml\", lines 83-85, characters 6-80\nCalled from Charon__Substitute.type_decl_get_instantiated_field_types in file \"charon/charon-ml/src/Substitute.ml\", line 392, characters 15-54\nCalled from Aeneas__Contexts.ctx_type_get_instantiated_field_types in file \"llbc/Contexts.ml\" (inlined), line 635, characters 2-79\nCalled from Aeneas__Contexts.ctx_type_get_instantiated_field_etypes in file \"llbc/Contexts.ml\", lines 643-644, characters 4-14\nCalled from Aeneas__InterpExpressions.eval_rvalue_aggregate in file \"interp/InterpExpressions.ml\", lines 1305-1306, characters 14-39\nCalled from Aeneas__InterpExpressions.eval_rvalue_not_global in file \"interp/InterpExpressions.ml\", line 1476, characters 21-79\nCalled from Aeneas__InterpStatements.eval_statement_raw.(fun) in file \"interp/InterpStatements.ml\", line 796, characters 27-75\nCalled from Aeneas__InterpStatements.eval_statement.(fun) in file \"interp/InterpStatements.ml\", line 689, characters 10-44\nCalled from Aeneas__InterpStatements.eval_statement_list.(fun) in file \"interp/InterpStatements.ml\", line 698, characters 29-57\nCalled from Stdlib__List.map in file \"list.ml\", line 83, characters 15-19\nCalled from Aeneas__InterpStatements.eval_statement_list.(fun) in file \"interp/InterpStatements.ml\", lines 703-711, characters 8-18\nCalled from Aeneas__InterpStatements.eval_switch_raw.(fun) in file \"interp/InterpStatements.ml\", line 987, characters 28-65\nCalled from Aeneas__InterpStatements.eval_switch.(fun) in file \"interp/InterpStatements.ml\", line 924, characters 10-57\nCalled from Aeneas__InterpStatements.eval_statement.(fun) in file \"interp/InterpStatements.ml\", line 689, characters 10-44\nCalled from Aeneas__InterpStatements.eval_statement_list.(fun) in file \"interp/InterpStatements.ml\", line 698, characters 29-57\nCalled from Stdlib__List.map in file \"list.ml\", line 83, characters 15-19\nCalled from Aeneas__InterpStatements.eval_statement_list.(fun) in file \"interp/InterpStatements.ml\", lines 703-711, characters 8-18\nCalled from Aeneas__InterpStatements.eval_function_body.(fun) in file \"interp/InterpStatements.ml\", line 1626, characters 26-52\nCalled from Aeneas__Interp.evaluate_function_symbolic in file \"interp/Interp.ml\", line 615, characters 25-64\nCalled from Aeneas__Translate.translate_function_to_symbolics in file \"Translate.ml\", line 34, characters 8-71\nCalled from Aeneas__Translate.translate_function_to_pure_aux in file \"Translate.ml\", line 131, characters 4-61\nCalled from Aeneas__Translate.translate_function_to_pure in file \"Translate.ml\", lines 287-288, characters 6-41\nCalled from Aeneas__Translate.translate_crate_to_pure.process.(fun) in file \"Translate.ml\", lines 489-490, characters 16-45\nCalled from Aeneas__Parallel.run_with_backtrace in file \"Parallel.ml\", line 14, characters 6-9\nRe-raised at Aeneas__Parallel.catch_reraise in file \"Parallel.ml\", line 17, characters 31-65\nCalled from Aeneas__Translate.translate_crate_to_pure in file \"Translate.ml\", line 507, characters 22-62\nCalled from Aeneas__Translate.translate_crate in file \"Translate.ml\", line 2187, characters 31-71\nCalled from Dune__exe__Main in file \"Main.ml\", lines 760-761, characters 8-37\n",
+    "stdlib": "/home/socol/.rustup/toolchains/nightly-2026-08-18-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/convert/num.rs",
+    "missing": "Real TryFrom<i128> for i64 and TryFromIntError/IntErrorKind representation; generated opaque axiom is not accepted."
+  },
+  "trust_exclusions": [
+    "rustc/LLVM and shader compiler",
+    "Vulkan ABI, FFI, driver/device",
+    "emitted-body/source/cost refinement",
+    "arbitrary direct C driver DM/E payloads",
+    "unchecked CPU rounding-bias overflow population",
+    "whole-model serving and hybrid continuation",
+    "hardware performance comparison",
+    "shared extraction and both Lean barriers; trusted-code size inventory"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "owned_worktrees": [
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T1",
+      "/tmp/worktree-agent-APEIRON-GPU-PREFILL-W2-T2"
+    ],
+    "snapshot": {
+      "path": "/tmp/opencode/native-q8-task-snapshots.tar.gz",
+      "sha256": "91ceda852c3e6ebd9bdeee7064c306cdc7677459fc88c2d67407d2d66e1e4221",
+      "files": {
+        "W2-T1": [
+          "src/engine/kern/gemm.rs",
+          "src/engine/kern/native_gpu_probe.rs"
+        ],
+        "W2-T2": [
+          "src/spirv/q8_tile.comp",
+          "tools/gpu/q8_driver.c",
+          "tools/gpu/q8_gate.py"
+        ]
+      }
+    },
+    "remaining_worktrees": [
+      "/home/socol/Workspace/apeiron                                                               4f338e6 [main]",
+      "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-benchmarks       3f29041 [codex/structural-benchmarks]",
+      "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-compile-graph    3f29041 [codex/structural-compile-graph]",
+      "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-norm-destination 3f29041 [codex/structural-norm-destination]",
+      "/home/socol/oc-tmp/decode-dispatch/worktree-agent-APEIRON-STRUCTURAL-SPIKE-prefill-state    3f29041 [codex/structural-prefill-state]",
+      "/home/socol/oc-tmp/ns/exp-hyper                                                             da48b1c [exp/hyper-attn]",
+      "/home/socol/oc-tmp/ns/integ                                                                 e33977a [nightshift]",
+      "/home/socol/oc-tmp/ns/wt/affine-head-signed-mul-r30                                         e33977a [ns/affine-head-signed-mul-r30]",
+      "/home/socol/oc-tmp/ns/wt/decode-q8-4row-tile-r30                                            e33977a [ns/decode-q8-4row-tile-r30]",
+      "/home/socol/oc-tmp/ns/wt/gemm-dpbusd-chain-split-r30                                        e33977a [ns/gemm-dpbusd-chain-split-r30]",
+      "/home/socol/oc-tmp/wt/w5-integ                                                              3f29041 [task/w5-integ]",
+      "/home/socol/oc-tmp/wt/w6-integ                                                              04d2060 [task/w6-integ]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T01                                         3f29041 [task/w6-t01]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T04                                         3f29041 [task/w6-t04]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T05                                         3f29041 [task/w6-t05]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T06                                         3f29041 [task/w6-t06]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T08                                         3f29041 [task/w6-t08]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T09                                         fa5d9c8 [task/w6-t09]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T10                                         fa5d9c8 [task/w6-t10]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11                                         76181e7 [task/w6-t11]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T11b                                        61a3a8e [task/w6-t11b]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T12                                         0bf8b4d [task/w6-t12]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W6-T13                                         0bf8b4d [task/w6-t13]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T02                                         04d2060 [task/w7-t02]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T03                                         04d2060 [task/w7-t03]",
+      "/home/socol/oc-tmp/wt/worktree-agent-APEIRON-W7-T04                                         04d2060 [task/w7-t04]",
+      "/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-block              3f29041 [codex/affine-block]",
+      "/tmp/apeiron-affine-block/worktree-agent-APEIRON-STRUCTURAL-SPIKE-affine-capture            3f29041 [codex/affine-capture]"
+    ]
+  },
+  "receipt_check": {
+    "budget_seconds": 60,
+    "exit": 0,
+    "controls": [
+      "wrong source digest rejected",
+      "missing numerical-control output rejected",
+      "wrong fixture identity rejected"
+    ],
+    "restoration": "passes",
+    "verification": "Inline JSON checker also compares the four named current source hashes, exact result counts, measured gate budget, reviews and absence of baseline/restored mismatches."
+  },
+  "source_changes_after_cpu_review": "Two documentation backtick pairs only; source observations unchanged.",
+  "commits": {
+    "native_kernel": "375bc0f",
+    "cpu_fixture": "5587ecd",
+    "strict_lint_docs": "4f338e6"
+  }
+}
