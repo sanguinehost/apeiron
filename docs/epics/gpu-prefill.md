@@ -204,9 +204,30 @@ GATE: timeout60 receipt/source/control check; corrupted lower mutation status re
 GRADE: proved scalar conversion; tested constructor/device population; remaining links open.
 
 The first private compatibility run exits1: registry generation takes406.676s, then model
-boundary proofs fail; actual-body/private-tool controls are not reached. This is incomplete
-preparation, not acceptance. Sol takes the same three paths after Luna releases them. The
-reviewed generator route becomes `lake build Aeneas:leanArts` followed by
-`lake env lean --run AeneasExtract.lean`, using the unchanged generator. Full private-tool
-build, actual-body translation and all rejecting/restoration controls retain one540s gate.
-Luna independently reviews the final artifact. No gate or theorem premise is removed.
+boundary proofs fail; actual-body/private-tool controls are not reached. Sol takes the same
+three paths after Luna releases them. The interpreted generator fails on its missing native
+initializer wrapper; that route is rejected. The compiled `lake exe extract` route uses a
+private COW cache only after complete model/generator/dependency source identity checks, then
+freshly regenerates the registry. The latest full gate exits1 in169.909s: model proofs and16
+audits pass, private translation exits0, but generated `ExactDot.lean` declares the final signed
+conversion as an axiom. The no-axiom policy rejects it before registry mutation/restoration.
+Neither translation exit0 nor the model proofs close this task.
+
+The next selection includes only the exact real signed `TryFrom` method and its error types.
+Broad `core::convert::num::_` selection is rejected: it changes unrelated widening-conversion
+call effects and fails full Lean checking. The local error alias preserves the six-variant
+payload and every generated conversion operation. Check the emitted conversion against the
+accepted `NarrowSource.lean`, prove its inclusive-range/refusal observation through the actual
+loop-exhaustion branch, and audit the complete extracted body. Keep the Step registry control,
+LLBC field/enum control, both narrowing guard controls and a compiling semantic mutation of
+the private `Result.ok` error branch. The `Result.ok` proof is model-level until its actual
+Rust body/model correspondence is established. Full loop denotation and source cost stay open.
+
+Independent Luna boundary verdict: /tmp/opencode/native-full-narrow-link-review.md.
+Sol retains the same three owned files; Luna reviews the frozen final artifact. A named
+`target/native-step-model-cache` replaces the task-history cache path. The gate checks its
+complete prepared source/configuration/dependency identity before private COW reuse, runs all
+fresh generation/build/control stages within one540s budget, and rejects an absent or stale
+cache. Root owns cache preparation in the serialized lane; cold preparation has its own
+bounded outcome and cannot substitute for the gate. Installed tools/models, pins, Rust and
+inference implementation remain unchanged. No gate or theorem premise is removed.
