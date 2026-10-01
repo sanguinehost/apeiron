@@ -480,8 +480,9 @@ extracted or measured result, and no speed recovery is claimed.
 
 **Fleet assumption.** About 50 agents available, 10 lanes, and **at most 3 simultaneous heavy Lean
 checks** (about 44 GiB; ten 12 GiB scopes would reserve 120 GiB). Isolated caches; one owner per
-file; one writer per shared build product. The **default worker is `opencode-go/space-bunny-free`**
-(free: `cost=0` on the OpenCode Zen route, live; **its free window ends 2026-10-05**) for every
+file; one writer per shared build product. The **default worker is `openrouter/stealth/space-bunny-alpha`**
+(free, OpenRouter, **free window ends 2026-10-05**; measured 147.9 tok/s / TTFT 1.19 s versus the
+slower OpenCode Zen route `opencode-go/space-bunny-free` at 57.5 tok/s / TTFT 6.95 s) for every
 dispatch-ready task. `deepseek-flash` is the paid escalation taken only on a mandatory trigger;
 anything beyond that escalates manually to the owner. `gemini-flash` and `xiaomi-pro` are non-default
 lanes, not spent on ordinary work.

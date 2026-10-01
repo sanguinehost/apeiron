@@ -319,11 +319,13 @@ descriptive only.
 
 ### 9.1 Default worker and trigger-selected escalation
 
-`space-bunny-free` (`opencode-go/space-bunny-free`, OpenCode Zen) executes every dispatch-ready task
-by default. It is free — `cost=0` on the Zen route, live now (`HTTP 200`, `model:"space-bunny-free"`,
-`name:"Space Bunny"`) — and it is the only high-throughput lane that costs nothing. **Its free window
-ends 2026-10-05**; until then dispatch it on every bounded task and lead-verify each result. It is
-mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
+`space-bunny-alpha` (`openrouter/stealth/space-bunny-alpha`, OpenRouter) executes every
+dispatch-ready task by default. It is free and the fastest free route measured: 400 tokens in
+2.70 s wall, 147.9 tok/s, TTFT 1.19 s. The OpenCode Zen route to the same family
+(`opencode-go/space-bunny-free`, `opencode/space-bunny-free`) measured 6.95 s wall / 57.5 tok/s /
+TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The free window ends
+2026-10-05**; until then dispatch Space Bunny on every bounded task and lead-verify each result. It
+is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
 proof-search ceiling. `deepseek-flash` (`opencode-go/deepseek-v4-flash`) is the paid escalation lane,
 taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
 Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) and
@@ -338,7 +340,7 @@ references to those names are historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
-| Space Bunny (`opencode-go/space-bunny-free`) | **default bounded worker for every dispatch-ready task**, free, Zen, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
+| Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
 | DeepSeek Flash (`deepseek-flash`, `opencode-go/deepseek-v4-flash`) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
 | Gemini Flash (`gemini-flash`), MiMo Pro (`xiaomi-pro`) | non-default lanes, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
@@ -360,10 +362,10 @@ references to those names are historical records.
 - The independent verifier returns a bounded decision or artifact. Execution returns to the default
   worker when that result restores a ≤3-file, one-gate task, unless a speed-lane condition holds;
   escalation does not transfer ordinary work.
-- Standing user authorization covers `opencode-go/space-bunny-free` invocations and fresh-session
-  verification that meet a trigger, and `deepseek-flash` only where a mandatory trigger holds. Spend
-  no other paid lane without the owner. Only the lead closes a wave, merges, commits or pushes unless
-  the user delegates that authority. A missing required verdict keeps the task open.
+- Standing user authorization covers `openrouter/stealth/space-bunny-alpha` invocations and
+  fresh-session verification that meet a trigger, and `deepseek-flash` only where a mandatory trigger
+  holds. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
+  pushes unless the user delegates that authority. A missing required verdict keeps the task open.
 
 ### Mandatory inference optimization admission
 
