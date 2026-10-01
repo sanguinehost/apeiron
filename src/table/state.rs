@@ -331,11 +331,12 @@ pub(crate) fn shard(address: &TableAddress) -> usize {
 #[inline]
 #[allow(
     clippy::cast_possible_truncation,
-    reason = "the fingerprint mask retains only the low seven bits, so the u8 cast drops no \
-              retained bit"
+    reason = "the fingerprint shift leaves the top seven bits, so the u8 cast drops no retained \
+              bit"
 )]
 fn tag(place: u64) -> u8 {
-    TAG_LIVE | (((place >> TAG_FINGERPRINT_SHIFT) as u8) & TAG_FINGERPRINT_MASK)
+    let spread = place.wrapping_mul(TAG_SPREAD);
+    TAG_LIVE | (((spread >> TAG_FINGERPRINT_SHIFT) as u8) & TAG_FINGERPRINT_MASK)
 }
 #[inline]
 fn matches<K, H, R: KeyRep<K, H>, V>(
@@ -483,7 +484,9 @@ impl<R, V> Flat<R, V> {
 
 impl<R: Clone, V: Clone> Flat<R, V> {
     fn reserve(lanes: usize) -> Result<Self, StorageError> {
-        let count = lanes.checked_mul(SHARDS).ok_or(StorageError::SizeOverflow)?;
+        let count = lanes
+            .checked_mul(SHARDS)
+            .ok_or(StorageError::SizeOverflow)?;
         let mut slots = Vec::new();
         try_reserve_exact(&mut slots, count)?;
         Ok(Self { lanes, slots })

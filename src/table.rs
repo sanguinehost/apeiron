@@ -70,17 +70,30 @@ const PARTITION_CHUNK: usize = 4096;
 const MAX_GROUP: usize = 64;
 /// The live bit of a spill tag; every written tag is nonzero.
 const TAG_LIVE: u8 = 0x80;
-/// Bits of `place` above the shard byte carried as a lane fingerprint.
+/// Number of fingerprint bits carried in a tag below the live bit.
+const TAG_FINGERPRINT_BITS: u32 = 7;
+/// Shift that lifts the top fingerprint bits of the spread place word into the tag byte.
 ///
-/// The low eight bits of `place` are the shard selector ([`shard`]), so every key routed to one
-/// region shares them.  The seven tag bits above the live bit carry the next seven `place` bits
-/// (`place >> 8`), so a lane whose fingerprint differs from the query's cannot match and is
-/// rejected without a full-key compare.  A stored key and a query that compare equal have the same
-/// `place`, hence the same fingerprint: a fingerprint mismatch is always a true non-match, while a
-/// fingerprint collision is only a false positive that still runs the full-key compare.
-const TAG_FINGERPRINT_SHIFT: u32 = 8;
+/// A fingerprint read as a raw window of `place` is a function of bits the same `Home` word already
+/// spent on the shard selector ([`shard`], the low eight bits) and on the descent windows ([`group`],
+/// bits 8..56), and a `Home` is caller-supplied.  A `Home` may therefore hold any one window of
+/// `place` constant across a whole key population while still returning distinct places: the
+/// identity home over keys `j << 16` leaves `place & 0xFFFF == 0` for every key, so a raw
+/// `(place >> 8) & 0x7f` is one constant over the population and every lane of every visited group
+/// carries the query's fingerprint.  Reading the *top* bits of a spread word closes that route: for
+/// any `k`, the population `place = j << k` has `place * TAG_SPREAD` with distinct top
+/// [`TAG_FINGERPRINT_BITS`] over distinct `j`, because equality of those bits makes
+/// `j * TAG_SPREAD` agree modulo `2^(64 - k)` and a multiply by an odd number is injective on
+/// `Z/2^64`.  This is the placement of `hashbrown`'s `h2`, taken from the high end of the hash
+/// rather than from the bits `h1` already consumed.
+const TAG_FINGERPRINT_SHIFT: u32 = 64 - TAG_FINGERPRINT_BITS;
+/// The odd spread multiplier applied to the place word before the fingerprint bits are read.
+///
+/// `crate::coord::PHI`, the same odd constant [`summary_index`](table::summary_index) mixes with and
+/// [`WordHome`](table::WordHome) homes by.  One 64-bit multiply per probe, not per lane.
+const TAG_SPREAD: u64 = crate::coord::PHI;
 /// Mask of the fingerprint bits below the live bit.
-const TAG_FINGERPRINT_MASK: u8 = 0x7f;
+const TAG_FINGERPRINT_MASK: u8 = (1 << TAG_FINGERPRINT_BITS) - 1;
 const DESCENT_MASK: u64 = (1 << 49) - 1;
 const WINDOW_MASK: u64 = 0x7f;
 const WINDOWS: usize = 7;
