@@ -84,6 +84,9 @@ use super::pow2::{f16_split, finish};
 #[cfg(test)]
 #[path = "gemm_attrib.rs"]
 mod attrib;
+#[cfg(test)]
+#[path = "native_gpu_probe.rs"]
+mod native_gpu_probe;
 
 /// The largest total exponent spread whose `i64` accumulation of `blocks` terms `|m·D| < 2^30`
 /// cannot overflow: `30 + spread + ⌈log₂ blocks⌉ ≤ 63`.
