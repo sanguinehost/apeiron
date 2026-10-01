@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use crate::format::gguf::{GVal, Gguf, GgufHeader};
 use crate::format::quant;
 
-use super::dequant_f32_row;
+use super::f32_convert::dequant_f32_row;
 pub use super::error::EngineError;
 use super::kern::lut::Pq2Lut;
 use super::value::round_shift_32;
@@ -996,7 +996,7 @@ impl Engine {
     ///
     /// A present tensor must be rank-1 with `dims == [len]` and ggml type `F32`; otherwise it
     /// refuses with [`EngineError::BadVector`]. The payload is converted by
-    /// [`super::dequant_f32_row`], which refuses a non-finite or out-of-`i64` value.
+    /// [`super::f32_convert::dequant_f32_row`], which refuses a non-finite or out-of-`i64` value.
     fn read_f32_vector(&self, name: &str, len: usize) -> Result<Option<Vec<i64>>, EngineError> {
         let Some(t) = self.table.get(name) else {
             return Ok(None);
