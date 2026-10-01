@@ -140,6 +140,10 @@ name = "why_slower"
 path = "examples/fold/why_slower.rs"
 
 [[example]]
+name = "table_cost_probe"
+path = "examples/table_cost_probe.rs"
+
+[[example]]
 name = "counter_check"
 path = "examples/support/counter_check.rs"
 
