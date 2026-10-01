@@ -74,7 +74,9 @@ use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_sigmoid, fixed_softplus};
 use crate::numeric::fixed_rsqrt::{fixed_rsqrt, isqrt};
 
+#[path = "mixer/conv_f32.rs"]
 mod conv_f32;
+#[path = "mixer/f32_carrier.rs"]
 pub(crate) mod f32_carrier;
 use conv_f32::conv_silu_cols_f32;
 

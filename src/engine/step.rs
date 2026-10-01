@@ -1670,6 +1670,7 @@ pub struct DecodeState {
     pub affine: Option<AffineState>,
 }
 
+#[path = "step/attn_block.rs"]
 pub(crate) mod attn_block;
 #[path = "step/cols.rs"]
 mod cols;
