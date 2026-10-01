@@ -641,8 +641,9 @@ instruction-identical in disassembly), so that route is closed. The structural r
 a flat open-addressed spill region prototype measured 1.17 ns/key against the canonical 7.90 in the
 same process (6.7×, below the resident anchor; E6.W2d), so the port's target is the descent — one
 load per probe step where the canonical carries dependent header loads, stack round-trips and a
-serial summary bit-loop. The port's absence/Grow contract is with Sol (E6 escalation), and a
-verification re-measure runs as E6.W2e.
+serial summary bit-loop. The port's absence/Grow contract is answered by Sol — shape A, transcribed
+in [the read-path epic](epics/read-path-specialization.md) — and a verification re-measure runs as
+E6.W2e.
 
 **The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
 bits the shard selector reads, so a population folding those bits matched every lane of every
@@ -653,8 +654,8 @@ starving identity home, with the raw formula retained in the harness as a live c
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
 | W1 | attribution — **done** (E6.W1 and E6.W1b): resident parity 1.01; the gap is the spill read; residency is not free (an 8-bit certificate at 192 live keys) | `examples/table_cost_probe.rs` and its variants | the harness: counters plus ns per key | 1 | 0 |
-| W2 | the port: bring the predecessor's hot path into apeiron under the canonical definitions — a port with a named target, not a re-derivation. W2a narrowed it: the spill read's per-read fixed overhead, not probe arithmetic | `src/table*.rs` | the harness at parity in the baseline column | 1 | 0 |
-| W3 | refinement: the placement word and the tag are on the extracted path, so a change carries `regen.sh --check` and any Lean-side correction | `proof/ApeironWord.lean`, `proof/resource/*` | `proof/regen.sh --check` | 1 | 1 |
+| W2 | the port: flat open-addressed spill region per Sol's contract — the bounded probe is the absence certificate, `Grow` is a full probe cycle, and the summary is retired (`SpillProbeBoundAbsentSound` replaces `SpillSummaryMissSound`); spec in [the read-path epic](epics/read-path-specialization.md) | `src/table/{probe,state,scan,table,prepared}.rs` | the harness at parity in the baseline column | 1 | 0 |
+| W3 | refinement: the probe-bound theorem, the retired summary surface, the audit headline set, and the extracted-body re-link | `proof/corpus/Growable/*`, `proof/corpus/AxiomAudit/*`, `proof/ApeironWord.lean` | `cd proof/corpus && lake build`; `proof/regen.sh --check` behind the pin assert | 1 | 1 |
 | W4 | the gate of record: a numeric target in the harness rather than a one-off measurement, plus the comparator cells G1 already names | `examples/table_cost_probe.rs`, the G1 cells | the harness and the G1 cells | 1 | 0 |
 
 ## Outstanding obligations

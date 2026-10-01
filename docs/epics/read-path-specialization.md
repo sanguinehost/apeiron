@@ -636,3 +636,43 @@ cargo run --release --locked --example reg1 -- --check performance --profile ful
 - After three materially different failed implementation shapes, report the smallest unresolved
   source body and generated/proof goal. Do not change geometry, add cached state/another container,
   weaken complete coverage or relax `<= 1.0`.
+
+## Flat spill read — port record
+
+Sol answered the absence/Grow contract for the flat open-addressed spill region (shape A, retire the
+summary; the spec below is the transcription). The measured basis is in `docs/plan.md` E6: the
+prototype reads 1.1717 ns/key against the canonical 7.8982 in one process over nine interleaved
+rounds with identical geometry.
+
+### Spec
+
+- One flat open-addressed region per shard; capacity and the linear probe sequence are specified
+  with the bound covering every slot exactly once; no deletions, or a separately specified
+  tombstone protocol.
+- Absence certificate: bounded probing. The registered replacement fact is
+  `SpillProbeBoundAbsentSound` — a lookup returns absent only after reaching an empty slot or
+  exhausting the bound; any published matching key is encountered before the terminating empty
+  slot under the insertion-placement invariant; exhausting the bound with no match means no
+  matching key is in the region; an in-progress publication cannot produce a false absence.
+- Growth: `Grow` is a full probe cycle that found every slot occupied, not a `live == capacity`
+  observation alone; `live` is the occupied count, updated exactly once per publication;
+  `spill_locate` and `spill_locate_held` carry the same outcome contract.
+- Publication: payload before the nonzero-tag marker; summary publication leaves the protocol; the
+  tests that assert payload → summary bit → tag are rewritten to the marker order.
+- Proof surface: `SpillSummaryMissSound`, its classifier bridge and its audit entry are retired
+  with the replacement theorem named, and `AxiomAudit`'s headline set reflects the new contract.
+- Extraction: `spill_read`, `spill_locate`, `spill_locate_held`, `Region::publish_live` and the
+  summary helpers change shape, so `proof/ApeironWord.lean` regenerates and the refinements naming
+  them re-link. The regeneration rides behind the unrelated pin-assert blocker; it is a sequencing
+  dependency, not a reason to retain the summary.
+
+### Plan
+
+| task | change | gate |
+|---|---|---|
+| invariant spec | capacity, probe bound, tombstone policy and publication order stated at the declarations and in tests | the spec text resolves to the declarations it names |
+| region port | `src/table/probe.rs`, `src/table/state.rs`, `src/table/scan.rs`, `src/table.rs`, `src/table/prepared.rs`: flat region, drop the tags bitmap, the summary and the group descent | `cargo test --workspace --all-features --locked` and the harness at parity |
+| publication fixtures | rewrite the publication-order tests and the geometry fixtures to the marker protocol | the named tests |
+| proof replacement | add `SpillProbeBoundAbsentSound`; retire `SpillSummaryMissSound`'s representation theorem, bridge and audit entries | `cd proof/corpus && lake build` |
+| extraction re-link | regenerate and re-link the spill refinements | `proof/regen.sh --check` (behind the pin assert) |
+| integrated benchmark | the production publication and concurrency rules, not the scratch prototype | the harness counters and `micro_spill` |

@@ -599,7 +599,11 @@ of every base file the patch modifies — 9 base files, 6 under Charon and 3 und
 tool-build patch files are the exact `git diff` of the source working trees the patched binaries were
 built from; patch sha256
 `c6099150efe8416a0495205a6bdf23925b9c79f2ecd6ca7a25335d0ae89e21c9` (Charon) and
-`7c8920f3fe994cc6e1f5f05108318297e2869165e578bdb960279833f3f5d9f0` (Aeneas). The model patch is not
+`c1010bc658715990ab4e296a163326e3a22f856d41fe13c6b799e1ba5217bc90` (Aeneas). The Aeneas patch
+carries only the `Interp.ml` and `InterpStatements.ml` lowering; its earlier third hunk — a
+`FunsAnalysis.analyze_module` pass that re-analysed `core::array::repeat` — was removed because the
+function is already in the crate's declaration groups, so that pass registered the same `Fun` id
+twice and tripped the tool's duplicate-registration assert. The model patch is not
 listed in `PINS` and `install-patches.sh` does not apply it: its base is the unpacked archive, not a
 git checkout, so the archive digest above is what pins it. It touches 8 files under `Aeneas/Std`
 (`Vec.lean`, `String.lean`, `Core/{Cmp,CoreOption,CoreResult}.lean`,
