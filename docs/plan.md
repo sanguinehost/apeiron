@@ -632,8 +632,12 @@ and their joint removal measured slower. What holds: the tag SWAR is the largest
 mechanism (~4.3 ns/key) and is already the fast form (a scalar lane loop is worse), and the
 remaining ~8.4 ns/key is per-read fixed overhead — indirect generic dispatch, bounds-checked slice
 construction, region-header deref, address derivation — independent of cache state, since a
-single-region population with identical geometry still reads ~10 ns. The named next step is a
-profiler attribution of that block (E6.W2b), not a code change.
+single-region population with identical geometry still reads ~10 ns. The profiler pass (E6.W2b;
+shares only — the release binary carries no DWARF and fp unwinding truncates) locates the largest
+block in `matches()` at 27.81% of `spill_read` self time, whose hottest instruction is the dependent
+address formation for the 24-byte-stride slot payload; the candidate is a slot-order change
+(`R` before `Sigma`), now being validated by a read-only isolation measurement (E6.W2c) before its
+extraction cost is paid.
 
 **The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
 bits the shard selector reads, so a population folding those bits matched every lane of every
