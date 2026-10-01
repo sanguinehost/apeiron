@@ -57,6 +57,10 @@ Lead owns this document and resource-guided-evolution.md in supplied checkout (d
 exception). Native Luna/Sol assignment applies. One writer per path; all tasks <=3 files.
 The user explicitly allows only the initial native baseline before optimisation registration.
 No later tuning/optimisation worker is exempt from tools/dispatch/admit.py --launch.
+[Wave 5](#wave-5-measured-native-baseline-matched-comparator-source-cost-and-cooperative-matrix-analysis)
+dispatches the next swarm (measured native baseline, matched comparator analysis, source-cost
+refinement, cooperative-matrix design analysis); the admission rule above is unchanged and the
+cooperative-matrix lane stays read-only until it is met.
 
 | task | owner / files | gate / control |
 |---|---|---|
@@ -327,3 +331,90 @@ not a charge-to-Rust correspondence or a native GPU cost certificate. Actual-lan
 source-link feasibility reports identify the next scoped tasks; neither runs a proof gate.
 Full receipts, source identities/texts, failures and reviews are retained in
 artifacts/gpu-prefill/native-prerequisites-acceptance.json.
+
+## Wave 5: measured native baseline, matched comparator, source-cost and cooperative-matrix analysis
+
+Source base `b832673`. Live state re-read before dispatch: `src/spirv/q8_tile.comp`,
+`tools/gpu/q8_driver.c`, `tools/gpu/q8_gate.py`, `tools/gpu/quantizer_gate.py` and
+`proof/native/` are clean at `b832673`; `tools/dispatch/` is untracked in this checkout (its
+`admit.py`, `run`, `contracts.json`, `main.rs` are live but not committed). Fixture identities
+re-validated: `/tmp/opencode/native-real-quantizer/synthetic.bin` sha256 `573a0e1c…` and
+`actual-quantizer.bin` sha256 `49f14cc4…` match the registered gate constants. The retained parity
+gate re-ran green on this checkout: `python3 tools/gpu/q8_gate.py --profile synthetic` exit 0 in
+4.932 s on RTX 5080 driver `2580660800` (615.71.09), Vulkan 1.4.351; device line
+`int64=1 dotProduct=1`. Both comparator backends are device-visible here:
+`/home/socol/Workspace/llama.cpp/build-vulkan/bin/llama-bench --list-devices` reports `Vulkan0`
+and `build-cuda/bin/llama-bench --list-devices` reports `CUDA0` (compute capability 12.0). This
+supersedes the readiness report's "GPU measurements require an exposed GPU host" for this
+checkout; it replaces no listed receipt.
+
+`/tmp/opencode/gpu-focus/verdict.md` is an **unaccepted draft** (exited 124 at its 180 s budget;
+its gate `q8_gate.py --profile synthetic && q8_bench.py --dry-run` is a dry run, not acceptance;
+its shapes `M∈{2048,8192}, K=2048` are guessed; and it folds measurement into optimization
+admission). It is retained as provenance only and none of its numbers or task IDs are accepted.
+
+### Intent
+
+The next performance milestone is a measured native baseline, then a matched primitive comparison,
+then an admitted structural optimization, then resident hybrid GPU prefill and matched whole-prefill
+tok/s. No GPU prefill or primitive gain has been measured; this wave does not claim one. The four
+avenues are independent: (1) instrument the unchanged shader with trustworthy Vulkan timestamps and
+establish the currently MISSING measurement gate; (2) read llama.cpp's actual Q8 CUDA prefill
+projection path and derive the shapes from the real GGUF rather than guessed dimensions, without
+running GPU benchmarks that would contaminate avenue 1; (3) continue the accepted finite-trace
+infrastructure toward the actual extracted inner loop's lane count as a source-cost prerequisite;
+(4) keep the signed cooperative-matrix design read-only until optimization admission. Only (1) and
+(3) touch code paths; (2) and (4) are read-only analysis. Preserve Q32 rounding, narrowing and
+refusal exactly; no contract, corpus pin or numerical semantics change.
+
+### Specification
+
+| boundary | contract for this wave |
+|---|---|
+| Timed region | device compute only, via `vkCmdWriteTimestamp` deltas around the dispatch; host submit→wait wall time reported separately; both recorded per case and aggregated |
+| Timer validity | `VkPhysicalDeviceLimits.timestampPeriod`, `timestampComputeAndGraphics` and queue-family `timestampValidBits` checked before timing; wrap handled by masking to the valid bit width; a zero, negative, wrapped or non-finite delta rejects |
+| Parity | the unchanged `tools/gpu/q8_gate.py` stays green; the bench never changes shader semantics or fixture bytes |
+| Identities | source sha256, emitted SPIR-V sha256, device name/driver/api, `timestampPeriod` and valid bits bound in the bench receipt |
+| Comparator | read-only; names the exact llama.cpp CUDA Q8 projection entry at `ece963f41` file:line, derives shapes from `Qwen3.5-0.8B-Q8_0.gguf` tensor table, states the arithmetic difference from Apeiron's exact epilogue; runs no GPU benchmark |
+| Source cost | continues `proof/native/LoopTrace.lean`; model-level lane count only, no whole-function or GPU cost claim |
+| Cooperative matrix | design only; K32 aligns with one Q8 block, per-block scaling preserved, unequal-scale blocks never share an unscaled i32 accumulator; read-only until `admit.py --launch` accepts a registered contract |
+
+### Plan
+
+One writer per file; tasks in this wave touch disjoint paths. `gemini-flash` and `deepseek-flash`
+are the workers; the lead integrates and closes the wave. GPU timing is exclusive to W5-T1: W5-T2
+and W5-T4 run no GPU benchmark, and W5-T3 uses the serialized Lean lane
+(`/tmp/opencode/apeiron-lane.lock`, 12 GiB/no swap/one thread). Every gate finishes under a
+540-second enforced ceiling; a timeout is not closure.
+
+| task | owner / files | gate / control |
+|---|---|---|
+| APEIRON-GPU-PREFILL-W5-T1 baseline measurement | worker `gemini-flash`; `tools/gpu/q8_driver.c`, new `tools/gpu/q8_bench.py`, new `tools/gpu/q8_bench_controls.py` | gate `python3 tools/gpu/q8_bench.py --profile synthetic --fixture /tmp/opencode/native-real-quantizer/synthetic.bin --controls` ≤540 s; control corrupts the timestamp path in a throwaway copy and must reject, then restore green; `tools/gpu/q8_gate.py` stays green |
+| APEIRON-GPU-PREFILL-W5-T2 CUDA comparator analysis | worker `deepseek-flash`; new `tools/gpu/gguf_shapes.py`, new `docs/evidence/gpu-prefill/comparator-shapes.md` | gate `python3 tools/gpu/gguf_shapes.py --model /home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf --check`; an absent/inconsistent tensor or a guessed shape rejects; no GPU run |
+| APEIRON-GPU-PREFILL-W5-T3 source-cost refinement | worker `gemini-flash` (main checkout lane); new `proof/native/LaneTrace.lean`, new `proof/native/lane_trace_gate.py` | gate `python3 proof/native/lane_trace_gate.py --controls` ≤540 s incl. lane wait; lane accumulation `+=`→`-=` source mutation red, restore green |
+| APEIRON-GPU-PREFILL-W5-T4 cooperative-matrix design | worker `deepseek-flash`; new `docs/evidence/gpu-prefill/coopmat-design.md` | structural review gate; cites the capability query and emitted SPIR-V op; no implementation, no throughput claim, read-only until admission |
+
+Arc Block (wave):
+
+```text
+SCOPE:      W5-T1 q8_driver.c/q8_bench.py/q8_bench_controls.py; W5-T2 gguf_shapes.py/
+            comparator-shapes.md; W5-T3 LaneTrace.lean/lane_trace_gate.py; W5-T4
+            coopmat-design.md. Completion: each gate green with its control, within 540 s.
+REGISTER:   measurement instrumentation (W5-T1), read-only comparator analysis (W5-T2),
+            model-level source-cost prerequisite (W5-T3), read-only design analysis (W5-T4).
+            Inference optimization is excluded; no numerical or contract change.
+CORPUS:     q8_tile.comp, gemm.rs::exact_dot, native_gpu_probe.rs, LoopTrace.lean,
+            llama.cpp ece963f41, Qwen3.5-0.8B-Q8_0.gguf read; no canonical theorem changed.
+REFERENCE:  /home/socol/Workspace/apeiron/src/spirv/q8_tile.comp;
+            /home/socol/Workspace/llama.cpp/ggml/src/ggml-cuda.
+GATE:       per-row above, cwd repository root or task worktree; observed red is the corruption,
+            mutation or inconsistent-shape rejection named in the control column.
+GRADE:      W5-T1 measured target (currently MISSING); W5-T2 anchor/report; W5-T3 proved target at
+            model scope; W5-T4 anchor. No speed, admission or whole-prefill claim.
+```
+
+Wave barrier: W5-T1 and W5-T3 gates green with their controls on the integrated tree, W5-T2 and
+W5-T4 reports present, `cargo test`/`clippy`/`fmt` unaffected (no `src/` change), and the retained
+`q8_gate.py` still green. W5-T1 is the primary deliverable; its measurement replaces the missing
+baseline gate. `tools/dispatch/contracts.json` stays empty and no optimization is dispatched from
+this wave.
