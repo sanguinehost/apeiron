@@ -20,8 +20,8 @@ its observation contract and resource derivation; proof eliminates invalid or do
 before hardware evaluation. Hardware measurements calibrate the remaining envelopes. The SKI basis
 supplies a term representation; sharing, effects, schedule and resource usage remain explicit.
 
-Include Fold's already executing GPU graphs in this same census, rather than treating GPU as a
-future backend. Source d497161f32e0d366220f2065ec36e680bd9aed86 already supplies GemvSpec,
+Use Fold's GPU graphs as read-only source references in this census; Apeiron owns the new executing
+GPU kernels and runtime. Source d497161f32e0d366220f2065ec36e680bd9aed86 already supplies GemvSpec,
 row/token-tiled projections, a resident dense prefill stack and hybrid decode recurrence. Review and
 digests are in artifacts/gain-integration/fold-gpu-reuse.md; retained performance protocols are in
 fold-gpu-receipts.md. The shared principle is reuse: weight loads across tokens, activation loads
@@ -30,7 +30,7 @@ resource change of the actual loop/graph before selecting an implementation cand
 
 Fold's typed kernel configuration is an existing finite search space for resource-guided choices.
 Use its carrier/layout/mapping/fusion/reduction constraints as the initial synthesis domain, then
-map admissible choices into typed SKI/DAG terms with explicit effects and sharing. Algebraic
+derive Apeiron-native admissible choices and map them into typed SKI/DAG terms with explicit effects and sharing. Algebraic
 normalization can merge equivalent computations; hardware cost selects a realization under named
 shape/register/storage premises. Do not silently normalize float association. Batch recurrence
 may offer a distinct algebraic scheduling seam once its real state/rounding contract is registered.
@@ -198,3 +198,14 @@ artifacts/gpu-prefill/prerequisite-acceptance.json retains the complete focused 
 bounded prerequisite selects the actual exact_dot extraction closure and its numeric/refusal domain.
 GPU whole-prefill validation, calibrated hardware envelopes, the evolver interface and the common
 Rust/Lean epic barrier retain their own exit obligations.
+
+### Native GPU ownership correction
+
+The user selects new Apeiron-owned SPIR-V kernels and runtime, informed by llama.cpp and Fold.
+Fold source-derived counts and historical receipts remain reference evidence, not the execution
+backend or native performance baseline. docs/epics/gpu-prefill.md now fixes the actual CPU Q8
+observation, signed-dot/two-limb native baseline and exact device-parity fixture ABI.
+The user explicitly authorises only that initial baseline bootstrap alongside Aeneas work; later
+inference optimisations remain behind registered source/refinement/resource admission. The empty
+registry is not populated by that exception. Native source and emitted-body costs replace borrowed
+counts before any native improvement certificate is registered.
