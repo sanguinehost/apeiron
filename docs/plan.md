@@ -715,15 +715,36 @@ helpers, sequenced behind the acceptance machinery. Delete the duplicated gate s
 replacement acceptance), then the redundant per-run Markdown wrappers (after receipt migration);
 orphan status alone is insufficient.
 
-**First bounded task — done.** `tools/gate/core.rs` is the pure admission core (`admit` over a
-`Manifest` and a `Submitted`): registered + matching digest + resolvable references admits; an
-unregistered id, an identity mismatch and a dangling reference each refuse, and every cause is
-reported. Interface kept pure and extractable, with no IO. Gate:
-`cargo test --manifest-path tools/gate/Cargo.toml --offline` — 5 controls green in a throwaway
-target. Mutation controls on throwaway copies: the identity check, the reference check and the
-unregistered-id report each redden their named control and pass after restoration. This gate-first
-task does not close the governing-coverage and barrier-wiring obligations. Next, separately scoped:
-extract and refine the real core body, then the adapter, then mandatory-path wiring.
+**Manifest lifecycle (settled).** Reserve task → submit provisional output → independently verify →
+seal accepted artifact. Before dispatch the manifest freezes ownership, inputs, required
+dependencies, gates and budgets. After execution the trusted adapter computes the output identity. A
+verifier other than the worker checks the named gate. Only the lead seals. A worker cannot change its
+own admission criteria or mark a submission accepted; `admit` decides a provisional submission
+against a frozen manifest, and sealing is the lead's act.
+
+**First bounded task — done, with the two probe counterexamples closed.** `tools/gate/core.rs`
+validates the manifest before admitting anything: a duplicate id refuses (order-independent) and a
+registered requirement that does not resolve refuses (manifest closure), so a required dependency
+cannot disappear. Admission then refuses an unregistered id, an identity mismatch and a dangling
+reference, reporting every cause. Gate: `cargo test --manifest-path tools/gate/Cargo.toml --offline`
+— 7 controls green. Mutation controls on throwaway copies, each attributable to its named control:
+the duplicate check, the registered-requirement check, the identity check, the reference check, the
+unregistered-id report. Both counterexamples reproduced against the previous five-test version, which
+passed while admitting them; those tests were too weak, and the probe cases are now the controls.
+
+**Lane budget.** The host has about 44 GiB available; ten 12 GiB Lean scopes would reserve 120 GiB.
+Run at most three simultaneous heavy Lean checks, with isolated caches and exclusive ownership of
+shared build products; other agents continue writing and analysing.
+
+**Migration pilot boundary.** The pilot is RowDot under the standard closed cone, not Fwht: the Fwht
+audit permits five additional width axioms, so it cannot establish the standard-cone guarantee.
+Conformance must preserve required guarantees, including the rejection of known defects.
+
+Next, separately scoped: extract and refine the real core body through Charon/Aeneas, then the
+adapter and `docs/artifacts.toml`, then mandatory-path wiring. This gate-first task does not close
+the governing-coverage and barrier-wiring obligations. Direction: drain the four returns, settle the
+reservation/sealing contract, assign the small corrections, then the bounded-task campaign; routine
+proof and Rust tasks continue without recurring architectural review.
 
 ### Research basis (plan changes)
 

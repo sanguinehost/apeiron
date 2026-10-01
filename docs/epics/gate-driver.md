@@ -64,8 +64,10 @@ machine-code claim.
 - **Wave 0 — freeze (read-only).** Harvest each gate's declared markers, its source digests and its
   last attributable mutation red into `proof/resource/conformance/`. This is the suite the driver
   must reproduce. Touches no gate; reversible.
-- **Wave 1 — driver.** `tools/gate` core plus the `Fwht` spec, reproducing Fwht's green and its named
-  red end to end. One module proves the pattern before any migration.
+- **Wave 1 — driver.** `tools/gate` core plus the `RowDot` spec, reproducing RowDot's green and its
+  named red end to end. RowDot is the pilot, not Fwht: Fwht's audit permits five additional width
+  axioms (`proof/resource/FwhtResource.lean:757`), so it cannot establish the standard-cone
+  guarantee. Conformance preserves required guarantees, including the rejection of known defects.
 - **Wave 2 — migrate.** The remaining 32, batched; each module gets its `.gate.toml` and a retirement
   receipt showing driver output equals the frozen conformance record.
 - **Wave 3 — delete and guard.** Remove the 33 `*_gate.py`; add the check that a new `*_gate.py` is
