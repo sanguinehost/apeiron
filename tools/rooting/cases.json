@@ -204,7 +204,7 @@
     "anchor",
     "measured"
   ],
-  "complexity_measure_pattern": "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|single|at most)\\b|(?<![A-Za-z0-9_])\\d+(?![A-Za-z0-9_])",
+  "complexity_measure_pattern": "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|single|at most)\\b|(?<![A-Za-z0-9_.])\\d+\\s+[A-Za-z]{2,}",
   "complexity_derivation_pattern": "\\b(?:loop|loops|looped|pass|passes|passed|iterat[a-z]*|recurs[a-z]*|tail[ -]call|tail[ -]recurs[a-z]*|scan[a-z]*|walk[a-z]*|visit[a-z]*|fold[a-z]*|grow[a-z]*|resiz[a-z]*|geometric[a-z]*|halv[a-z]*|unroll[a-z]*|closes|per[ -]element|each element|for each|bounded by|independent of)\\b",
   "declaration_markers": [
     "new primitive",
@@ -384,6 +384,20 @@
         "expect": "reject",
         "path": "src/synthetic/d-bare-o.rs",
         "text": "/// # Complexity\n///\n/// `O(take)` time, `O(1)` extra space.\npub fn synthetic_bare(x: &[i64], take: usize) -> i64 {\n    x[0]\n}\n"
+      },
+      {
+        "name": "format width is not a counted measure",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-numeral-only.rs",
+        "text": "/// # Complexity\n///\n/// `O(take)` time, `O(1)` extra space. Accumulates in `i32` with `|x| <= 32*127`.\npub fn synthetic_numerals(x: &[i8], take: usize) -> i32 {\n    let mut a = 0i32;\n    for v in x.iter().take(take) {\n        a += i32::from(*v);\n    }\n    a\n}\n"
+      },
+      {
+        "name": "numeral with the noun it counts accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-numeral-unit.rs",
+        "text": "/// # Complexity\n///\n/// Temporal `O(1)`: the three `List.append` recursions traverse 11 cons cells, counted in\n/// list links; the shared tail is not traversed.\n/// Spatial `O(11)` cons cells for the returned prefix.\npub fn synthetic_numerals_units(rest: &[u64]) -> Vec<u64> {\n    rest.to_vec()\n}\n"
       },
       {
         "name": "ownership exceeds three files",

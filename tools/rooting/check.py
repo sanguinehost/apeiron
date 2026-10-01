@@ -406,9 +406,17 @@ _BIG_O = re.compile(r"\bO\([^)]*\)")
 # A count expression outside the big-O token itself: the numeral or number word
 # that turns "O(1)" into "O(1) in two comparisons". A digit inside an identifier
 # (i128, u64, MAX_K) is not a count, and an adverb of exactness is not a count.
+#
+# A numeral counts only when it is followed by the noun it counts: AGENTS.md §8
+# asks for "the measure they are counted in (comparisons, allocations, bytes,
+# words, bytes copied)", which is a unit, so "11 cons cells" and "18 layers" are
+# measures and a bare digit is not. `32*127` and `Q32.32` are a value bound and a
+# format width; they say how large an operand may be, not what is counted, so they
+# are not measures. A digit inside an identifier (i128, u64, MAX_K), after a dot
+# (`Q32.32`, `0.5`) or beside a non-word character is not a count.
 _COUNT = re.compile(
     r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|"
-    r"single|at most)\b|(?<![A-Za-z0-9_])\d+(?![A-Za-z0-9_])",
+    r"single|at most)\b|(?<![A-Za-z0-9_.])\d+\s+[A-Za-z]{2,}",
     re.IGNORECASE,
 )
 
@@ -481,7 +489,9 @@ def _names_measure(block: str, cfg: Config) -> bool:
     """The block counts the cost in something: an operation count or a unit.
 
     The test is the presence of a count expression outside the big-O token, not a
-    word list, so an author is not obliged to use this repository's phrasing.
+    word list, so an author is not obliged to use this repository's phrasing. A
+    bare numeral is not a count: §8 asks for the measure a cost is counted *in*,
+    so the numeral must carry the noun it counts (`11 cons cells`, not `32*127`).
     """
     return _pattern(cfg.complexity_measure_pattern).search(_BIG_O.sub(" ", block)) is not None
 
