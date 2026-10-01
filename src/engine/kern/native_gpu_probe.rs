@@ -1,7 +1,7 @@
 //! Actual CPU observations for the native signed Q8 GPU baseline.
 //!
 //! SPIQ8V01 is little-endian. Refusal values are placeholders, never golden outputs.
-//! QuantAct::from_parts is unchecked: this producer validates the joint domain first.
+//! `QuantAct::from_parts` is unchecked: this producer validates the joint domain first.
 
 use super::{exact_dot, f16_split, QuantAct, ACT_QK, Q8_0_BLOCK_BYTES};
 
@@ -131,7 +131,7 @@ fn check_rounding_domain(row: &[u8], blocks: usize, q: &QuantAct) -> DomainEnd {
 }
 
 /// O(32*(M+B)*K + 32*M*B*K) operations and O(M*B + (M+B)*K) words:
-/// packing visits each lane once; exact_dot visits each block/lane for every output.
+/// packing visits each lane once; `exact_dot` visits each block/lane for every output.
 fn encode(case: &Case, output: &mut Vec<u8>) -> (usize, usize) {
     let Case {
         id,
