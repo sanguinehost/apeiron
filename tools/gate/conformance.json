@@ -1,0 +1,2261 @@
+{
+  "record": "per-module gate script conformance",
+  "task": "APEIRON-E1-W1-T1",
+  "generated_by": "throwaway generator /home/socol/oc-tmp/confgen.py (not committed)",
+  "generated_at_head": "360b5ff1d7c1aa50d94d7c4a7f67844b938296ee",
+  "generated_at_head_note": "The HEAD observed when the record was written. Other tasks commit in this tree, so it drifts and is not a gate input: the gate binds each row by the sha256 of the script on disk, which is authoritative.",
+  "gate_script_glob": "proof/resource/*_gate.py",
+  "gate_script_count": 36,
+  "tracked_count": 31,
+  "untracked_count": 5,
+  "mutation_control_count": 39,
+  "reading_order": [
+    "targets.audit_marker: the literal string the script requires in the Lean build output.",
+    "targets.audited_headlines: the declarations that marker certifies, read from the resource file the script names.",
+    "targets.control_targets: headline names the script requires its own control to turn red.",
+    "mutation[].occurrences: the count the script itself asserts for its needle."
+  ],
+  "not_established": [
+    "The record freezes what each script already carries. It runs no gate, so it establishes nothing about the correctness of any theorem.",
+    "The sha256 values bind this record to the scripts on disk at generation time. generated_at_head is a snapshot that drifts as other tasks commit; it is not a gate input.",
+    "No script here was executed. green_marker and red_marker are transcribed from the scripts, not observed from a run."
+  ],
+  "gates": [
+    {
+      "id": "ApplyPending",
+      "path": "proof/resource/ApplyPending_gate.py",
+      "sha256": "625669d295362b66d910b474bdd685d6759ac2f223da0f40fc57198bdc372a93",
+      "tracked": true,
+      "green_marker": "APPLY_PENDING_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "APPLY_PENDING_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "APPLY_PENDING_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "APPLY_PENDING_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "merge-argument-order",
+          "file": "src/table.rs",
+          "needle": "reserved.resident.slots[index].value = merge.merge(value, old);",
+          "replacement": "reserved.resident.slots[index].value = merge.merge(old, value);",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "APPLY_PENDING_KERNEL_OK",
+        "audit_artifact": "proof/resource/ApplyPendingResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "ApplyPendingResource.root_forwards",
+          "ApplyPendingResource.bind_eq_ok",
+          "ApplyPendingResource.machineWords_holds",
+          "ApplyPendingResource.merge_is_new_first_wrapping_add",
+          "ApplyPendingResource.index_reads_lane",
+          "ApplyPendingResource.index_mut_write",
+          "ApplyPendingResource.index_mut_reads_lane",
+          "ApplyPendingResource.recycle_preserves_len",
+          "ApplyPendingResource.found_flat_settle",
+          "ApplyPendingResource.found_spill_settle",
+          "ApplyPendingResource.vacant_flat_settle",
+          "ApplyPendingResource.vacant_spill_settle",
+          "ApplyPendingResource.found_noindex_exit",
+          "ApplyPendingResource.vacant_noindex_exit",
+          "ApplyPendingResource.exhausted_exit",
+          "ApplyPendingResource.transitions_exhaustive",
+          "ApplyPendingResource.settle_and_exit_disjoint",
+          "ApplyPendingResource.found_flat_work",
+          "ApplyPendingResource.vacant_flat_work",
+          "ApplyPendingResource.exit_work_is_zero",
+          "ApplyPendingResource.usize_increment_spec",
+          "ApplyPendingResource.found_flat_commits",
+          "ApplyPendingResource.found_spill_commits",
+          "ApplyPendingResource.vacant_flat_commits",
+          "ApplyPendingResource.vacant_spill_commits",
+          "ApplyPendingResource.vacant_flat_refuses_unrepresentable_length",
+          "ApplyPendingResource.work_is_input_independent",
+          "ApplyPendingResource.witness_lane_in_bounds",
+          "ApplyPendingResource.found_flat_success_witness",
+          "ApplyPendingResource.found_flat_success_value",
+          "ApplyPendingResource.exhausted_exit_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "Argmax",
+      "path": "proof/resource/Argmax_gate.py",
+      "sha256": "0fe47e3665aa78ae8053f0cef445870d9319b3886ded04d7b75272dac53e7b17",
+      "tracked": true,
+      "green_marker": "ARGMAX_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "ARGMAX_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "ARGMAX_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "ARGMAX_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "scan-cursor-advance",
+          "file": "src/engine/sampler.rs",
+          "needle": "        if logits[i] > logits[best] {\n            best = i;\n        }\n        i += 1;",
+          "replacement": "        if logits[i] > logits[best] {\n            best = i;\n        }\n        i += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "ARGMAX_KERNEL_OK",
+        "audit_artifact": "proof/resource/ArgmaxResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "ArgmaxResource.usize_max_u32",
+          "ArgmaxResource.usize_max_u64",
+          "ArgmaxResource.usize_ge_two",
+          "ArgmaxResource.usize_ge_u32max2",
+          "ArgmaxResource.usize_zero_val",
+          "ArgmaxResource.usize_one_val",
+          "ArgmaxResource.is_empty_spec_value",
+          "ArgmaxResource.is_empty_true",
+          "ArgmaxResource.is_empty_not_true",
+          "ArgmaxResource.body_step",
+          "ArgmaxResource.body_exit",
+          "ArgmaxResource.loopInv_intro",
+          "ArgmaxResource.initial_witness",
+          "ArgmaxResource.loop_work",
+          "ArgmaxResource.work_budget",
+          "ArgmaxResource.root_forwards",
+          "ArgmaxResource.empty_refusal",
+          "ArgmaxResource.success_branch",
+          "ArgmaxResource.too_long_branch",
+          "ArgmaxResource.branch_split",
+          "ArgmaxResource.nonempty_not_empty",
+          "ArgmaxResource.too_long_needs_long_input",
+          "ArgmaxResource.too_long_needs_64bit",
+          "ArgmaxResource.long_input_witness",
+          "ArgmaxResource.twoLogits_length",
+          "ArgmaxResource.twoLogits_val",
+          "ArgmaxResource.twoLogits_step",
+          "ArgmaxResource.twoLogits_exit",
+          "ArgmaxResource.twoLogits_loop_spec",
+          "ArgmaxResource.twoLogits_loop",
+          "ArgmaxResource.success_witness",
+          "ArgmaxResource.oneLogit_length",
+          "ArgmaxResource.oneLogit_work_spec",
+          "ArgmaxResource.oneLogit_work",
+          "ArgmaxResource.success_witness_zero",
+          "ArgmaxResource.empty_refusal_root"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "Capacity",
+      "path": "proof/resource/Capacity_gate.py",
+      "sha256": "2dfb8a8101554ba8a86b100d1f2e07586bf7a4eb45ce68e02fe5f367db722c9f",
+      "tracked": true,
+      "green_marker": "CAPACITY_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "CAPACITY_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "CAPACITY_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "CAPACITY_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "required-length-guard",
+          "file": "src/table/resources.rs",
+          "needle": "required_len <= observed_capacity",
+          "replacement": "required_len < observed_capacity",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "CAPACITY_KERNEL_OK",
+        "audit_artifact": "proof/resource/CapacityResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CapacityResource.root_forwards",
+          "CapacityResource.body_is_one_comparison",
+          "CapacityResource.work_is_one_comparison_zero_allocations",
+          "CapacityResource.body_reads_only_the_two_words",
+          "CapacityResource.work_is_input_independent",
+          "CapacityResource.machineWords_holds",
+          "CapacityResource.success_branch",
+          "CapacityResource.refusal_branch",
+          "CapacityResource.success_guard_exact",
+          "CapacityResource.refusal_guard_exact",
+          "CapacityResource.body_total",
+          "CapacityResource.body_never_errors",
+          "CapacityResource.branch_exclusive",
+          "CapacityResource.branch_exhaustive",
+          "CapacityResource.success_witness",
+          "CapacityResource.refusal_witness",
+          "CapacityResource.diagonal_accepted",
+          "CapacityResource.acceptance_monotone_observed",
+          "CapacityResource.refusal_monotone_required"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "CheckFragment",
+      "path": "proof/resource/CheckFragment_gate.py",
+      "sha256": "abcffb9b444eddd553416712817e389050a6c0eabb9cdf050658d4f0779d9641",
+      "tracked": true,
+      "green_marker": "CHECK_FRAGMENT_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "CHECK_FRAGMENT_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "CHECK_FRAGMENT_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "CHECK_FRAGMENT_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "word-count-guard",
+          "file": "src/spirv/check.rs",
+          "needle": "if word_count == 0 {",
+          "replacement": "if word_count == 1 {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "CHECK_FRAGMENT_KERNEL_OK",
+        "audit_artifact": "proof/resource/CheckFragmentResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CheckFragmentResource.header_short_refuses",
+          "CheckFragmentResource.bad_magic_refuses",
+          "CheckFragmentResource.bad_version_refuses",
+          "CheckFragmentResource.zero_bound_refuses",
+          "CheckFragmentResource.bad_schema_refuses",
+          "CheckFragmentResource.header_ok_enters_scan",
+          "CheckFragmentResource.scan_exit",
+          "CheckFragmentResource.scan_exit_rank_zero",
+          "CheckFragmentResource.zero_word_count_refuses",
+          "CheckFragmentResource.truncated_refuses",
+          "CheckFragmentResource.scan_step",
+          "CheckFragmentResource.header_only_accepted",
+          "CheckFragmentResource.root_forwards",
+          "CheckFragmentResource.header_witness",
+          "CheckFragmentResource.empty_refusal_witness",
+          "CheckFragmentResource.usize_ge_five",
+          "CheckFragmentResource.scanRank_zero_iff",
+          "CheckFragmentResource.word_count_field",
+          "CheckFragmentResource.frame_end"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "CoordFinish",
+      "path": "proof/resource/CoordFinish_gate.py",
+      "sha256": "727d096bb9e4d8a6546716ba34b892638972428ba7c329ba0dc931c6be91142f",
+      "tracked": true,
+      "green_marker": "COORD_FINISH_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "COORD_FINISH_REAL_SOURCE_CONTROL_RED at CoordFinishResource.lean:"
+        ],
+        "control_reject": [
+          "COORD_FINISH_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "COORD_FINISH_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "first-xor-shift",
+          "file": "src/coord.rs",
+          "needle": "h ^= h >> 30;",
+          "replacement": "h ^= h >> 29;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "COORD_FINISH_KERNEL_OK",
+        "audit_artifact": "proof/resource/CoordFinishResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CoordFinishResource.u64_size",
+          "CoordFinishResource.finish_shape",
+          "CoordFinishResource.step_shift30",
+          "CoordFinishResource.step_xor30",
+          "CoordFinishResource.step_mul1",
+          "CoordFinishResource.step_shift27",
+          "CoordFinishResource.step_xor27",
+          "CoordFinishResource.step_mul2",
+          "CoordFinishResource.step_shift31",
+          "CoordFinishResource.step_xor31",
+          "CoordFinishResource.finish_spec",
+          "CoordFinishResource.finish_work",
+          "CoordFinishResource.finish_exit",
+          "CoordFinishResource.finish_no_fail",
+          "CoordFinishResource.finish_no_div",
+          "CoordFinishResource.finish_zero_witness",
+          "CoordFinishResource.finish_one_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "CoordId",
+      "path": "proof/resource/CoordId_gate.py",
+      "sha256": "aca9adb456812791c80d18ef8ddc1f7db123cd198d1a0e167829085131aa586b",
+      "tracked": true,
+      "green_marker": "COORD_ID_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "COORD_ID_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "COORD_ID_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "COORD_ID_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "identity-half",
+          "file": "src/coord.rs",
+          "needle": "id: lo,",
+          "replacement": "id: hi,",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "COORD_ID_KERNEL_OK",
+        "audit_artifact": "proof/resource/CoordIdResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CoordIdResource.body_step",
+          "CoordIdResource.body_never_err",
+          "CoordIdResource.work_one_step",
+          "CoordIdResource.work_closed_form",
+          "CoordIdResource.work_independent_of_place",
+          "CoordIdResource.spread_succeeds",
+          "CoordIdResource.reachable_success",
+          "CoordIdResource.spread_id_field",
+          "CoordIdResource.identity_value",
+          "CoordIdResource.identity_is_low_half"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 520,
+      "flock_wait_s": 525,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "CoordPlace",
+      "path": "proof/resource/CoordPlace_gate.py",
+      "sha256": "dc307d09efc4889bc10c0193a9b765837aae60392126ebdce373a95364eeab69",
+      "tracked": true,
+      "green_marker": "COORD_PLACE_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "COORD_PLACE_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "COORD_PLACE_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "COORD_PLACE_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "placement-fold-rotate",
+          "file": "src/coord.rs",
+          "needle": "place: hi.rotate_left(32) ^ lo,",
+          "replacement": "place: hi ^ lo,",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "COORD_PLACE_KERNEL_OK",
+        "audit_artifact": "proof/resource/CoordPlaceResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CoordPlaceResource.nbU64",
+          "CoordPlaceResource.nbU128",
+          "CoordPlaceResource.u64_lt",
+          "CoordPlaceResource.u128_lt",
+          "CoordPlaceResource.cast_u128_id",
+          "CoordPlaceResource.cast_u128_PHI",
+          "CoordPlaceResource.PHIval_lt",
+          "CoordPlaceResource.mul_u128",
+          "CoordPlaceResource.prod_lt",
+          "CoordPlaceResource.rotl32_val",
+          "CoordPlaceResource.narrow_lo",
+          "CoordPlaceResource.narrow_lo_discard",
+          "CoordPlaceResource.shift64_ok",
+          "CoordPlaceResource.narrow_hi",
+          "CoordPlaceResource.prodW_val",
+          "CoordPlaceResource.spread_eq_term",
+          "CoordPlaceResource.spread_transition",
+          "CoordPlaceResource.spread_val",
+          "CoordPlaceResource.spread_never_refuses",
+          "CoordPlaceResource.spread_addr_eq",
+          "CoordPlaceResource.place_transition",
+          "CoordPlaceResource.place_success",
+          "CoordPlaceResource.place_never_refuses",
+          "CoordPlaceResource.place_ignores_identity",
+          "CoordPlaceResource.place_surjective",
+          "CoordPlaceResource.place_deterministic",
+          "CoordPlaceResource.place_of_spread",
+          "CoordPlaceResource.place_not_id",
+          "CoordPlaceResource.ofNat64_val",
+          "CoordPlaceResource.addr_ext",
+          "CoordPlaceResource.witness_zero",
+          "CoordPlaceResource.witness_one",
+          "CoordPlaceResource.spreadTrace_done",
+          "CoordPlaceResource.producerOps_exact",
+          "CoordPlaceResource.readOps_exact",
+          "CoordPlaceResource.producerWork_exact",
+          "CoordPlaceResource.readWork_exact",
+          "CoordPlaceResource.composedWork_exact",
+          "CoordPlaceResource.work_uniform"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "CoordSpread",
+      "path": "proof/resource/CoordSpread_gate.py",
+      "sha256": "bb4ffebe0114d004ab673d49907e29fc43d3116a5b6b3cf7012b788cfb67301e",
+      "tracked": true,
+      "green_marker": "COORD_SPREAD_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "COORD_SPREAD_REAL_SOURCE_CONTROL_RED "
+        ],
+        "control_reject": [
+          "COORD_SPREAD_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "COORD_SPREAD_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "spread-step-rotate",
+          "file": "src/coord.rs",
+          "needle": "hi.rotate_left(32) ^ lo",
+          "replacement": "hi.rotate_left(31) ^ lo",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "COORD_SPREAD_KERNEL_OK",
+        "audit_artifact": "proof/resource/CoordSpreadResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CoordSpreadResource.root_forwards",
+          "CoordSpreadResource.step1_widen_input",
+          "CoordSpreadResource.step2_widen_multiplier",
+          "CoordSpreadResource.step3_widen_product",
+          "CoordSpreadResource.step4_low_half",
+          "CoordSpreadResource.step5_shift_guard",
+          "CoordSpreadResource.step5_guard_satisfied",
+          "CoordSpreadResource.step6_high_half",
+          "CoordSpreadResource.step7_rotate_fold",
+          "CoordSpreadResource.step8_xor_fold",
+          "CoordSpreadResource.body_chain",
+          "CoordSpreadResource.high_half_is_quotient",
+          "CoordSpreadResource.machineWords_holds",
+          "CoordSpreadResource.maxStageOps_eq",
+          "CoordSpreadResource.maxStageOps_is_eight",
+          "CoordSpreadResource.stageOps_le",
+          "CoordSpreadResource.stageIndex_injOn",
+          "CoordSpreadResource.stageOps_strict",
+          "CoordSpreadResource.stageOps_mono",
+          "CoordSpreadResource.guarded_shift_costs_five",
+          "CoordSpreadResource.xor_fold_costs_eight",
+          "CoordSpreadResource.body_total",
+          "CoordSpreadResource.work_is_eight_word_ops",
+          "CoordSpreadResource.work_closed_form",
+          "CoordSpreadResource.work_is_input_independent",
+          "CoordSpreadResource.work_passes_guarded_step",
+          "CoordSpreadResource.guarded_shift_never_fails",
+          "CoordSpreadResource.body_never_errors",
+          "CoordSpreadResource.product_zero",
+          "CoordSpreadResource.zero_witness",
+          "CoordSpreadResource.root_zero_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "CoordUnspread",
+      "path": "proof/resource/CoordUnspread_gate.py",
+      "sha256": "4d20edc624c6dda1b9e4ae92515cd9cc89921487ecb5c31721b741b8127e41c5",
+      "tracked": true,
+      "green_marker": "COORD_UNSPREAD_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "COORD_UNSPREAD_REAL_SOURCE_CONTROL_RED at CoordUnspreadResource.lean:"
+        ],
+        "control_reject": [
+          "COORD_UNSPREAD_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "COORD_UNSPREAD_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "extra-wrapping-mul",
+          "file": "src/coord.rs",
+          "needle": "id.wrapping_mul(PHI_INV)",
+          "replacement": "id.wrapping_mul(PHI_INV).wrapping_mul(2)",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "COORD_UNSPREAD_KERNEL_OK",
+        "audit_artifact": "proof/resource/CoordUnspreadResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "CoordUnspreadResource.root_forwards",
+          "CoordUnspreadResource.phi_inv_eq",
+          "CoordUnspreadResource.modulus_eq",
+          "CoordUnspreadResource.body_is_one_wrapping_mul",
+          "CoordUnspreadResource.work_is_one_multiply",
+          "CoordUnspreadResource.work_is_input_independent",
+          "CoordUnspreadResource.rank_initial",
+          "CoordUnspreadResource.rank_exit",
+          "CoordUnspreadResource.rank_drops",
+          "CoordUnspreadResource.guard_exhaustive",
+          "CoordUnspreadResource.exit_is_terminal",
+          "CoordUnspreadResource.chain_rank_bound",
+          "CoordUnspreadResource.chain_length_le_one",
+          "CoordUnspreadResource.exit_branch",
+          "CoordUnspreadResource.body_total",
+          "CoordUnspreadResource.body_never_errors",
+          "CoordUnspreadResource.product_val",
+          "CoordUnspreadResource.extracted_phi_inv_val",
+          "CoordUnspreadResource.body_value",
+          "CoordUnspreadResource.machineWord_holds",
+          "CoordUnspreadResource.unspread_one",
+          "CoordUnspreadResource.unspread_zero",
+          "CoordUnspreadResource.unspread_max",
+          "CoordUnspreadResource.success_witness_one",
+          "CoordUnspreadResource.success_witness_zero",
+          "CoordUnspreadResource.success_witness_max",
+          "CoordUnspreadResource.witness_work_is_the_body_work"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "F16Split",
+      "path": "proof/resource/F16Split_gate.py",
+      "sha256": "fad15e1e7dec29875f6163f14e5f34ea03a73bbe77db74bbeba1f3382b6f735a",
+      "tracked": true,
+      "green_marker": "F16_SPLIT_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "F16_SPLIT_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "F16_SPLIT_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "F16_SPLIT_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "nonfinite-guard",
+          "file": "src/engine/kern/pow2.rs",
+          "needle": "if e == 31 {",
+          "replacement": "if e == 30 {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "F16_SPLIT_KERNEL_OK",
+        "audit_artifact": "proof/resource/F16SplitResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "F16SplitResource.expField_read",
+          "F16SplitResource.fraction_val",
+          "F16SplitResource.refusal_transition",
+          "F16SplitResource.subnormal_positive_transition",
+          "F16SplitResource.subnormal_negative_transition",
+          "F16SplitResource.normal_positive_transition",
+          "F16SplitResource.normal_negative_transition",
+          "F16SplitResource.finite_classification",
+          "F16SplitResource.transition_classification",
+          "F16SplitResource.body_total",
+          "F16SplitResource.tests_at_most_three",
+          "F16SplitResource.finite_is_three_tests",
+          "F16SplitResource.work_within_budget",
+          "F16SplitResource.budget_attained",
+          "F16SplitResource.normalisation_range",
+          "F16SplitResource.subnormal_witness",
+          "F16SplitResource.normal_witness",
+          "F16SplitResource.negative_witness",
+          "F16SplitResource.maximum_shift_witness",
+          "F16SplitResource.positive_infinity_refusal",
+          "F16SplitResource.nan_refusal"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "FixedExp",
+      "path": "proof/resource/FixedExp_gate.py",
+      "sha256": "7740a947986f56c2f8a5b552bb1c70b5021cc76df9ecfb31d5da6c23443688ee",
+      "tracked": true,
+      "green_marker": "FIXED_EXP_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "FIXED_EXP_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "FIXED_EXP_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "FIXED_EXP_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "third-order-term",
+          "file": "src/numeric/fixed_exp.rs",
+          "needle": "    acc = round_div_2p32(acc * r) + 715_827_883; // 1 / 3!\n",
+          "replacement": "",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "FIXED_EXP_KERNEL_OK",
+        "audit_artifact": "proof/resource/FixedExpResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "FixedExpResource.round_div_2p32_spec",
+          "FixedExpResource.round_div_one_shift",
+          "FixedExpResource.round_div_zero",
+          "FixedExpResource.horner_body",
+          "FixedExpResource.hornerRun_measure",
+          "FixedExpResource.hornerRun_round",
+          "FixedExpResource.hornerChain_run",
+          "FixedExpResource.horner_work",
+          "FixedExpResource.horner_zero",
+          "FixedExpResource.reduce_refuses_below_lower",
+          "FixedExpResource.reduce_refuses_above_upper",
+          "FixedExpResource.scale_refuses_shift_count",
+          "FixedExpResource.scale_flush_zero",
+          "FixedExpResource.refuses_outside_window"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "FixedRsqrt",
+      "path": "proof/resource/FixedRsqrt_gate.py",
+      "sha256": "196aa10a924fc38569f4b8b801e644c941a2e012889592b3471807c71be860d9",
+      "tracked": true,
+      "green_marker": "FIXED_RSQRT_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "FIXED_RSQRT_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "FIXED_RSQRT_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "FIXED_RSQRT_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "rank-shift",
+          "file": "src/numeric/fixed_rsqrt.rs",
+          "needle": "\n        bit >>= 2;\n    }\n    while bit != 0 {",
+          "replacement": "\n        bit >>= 1;\n    }\n    while bit != 0 {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "FIXED_RSQRT_KERNEL_OK",
+        "audit_artifact": "proof/resource/FixedRsqrtResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "FixedRsqrtResource.loop0_step",
+          "FixedRsqrtResource.loop0_step_rank",
+          "FixedRsqrtResource.loop0_exit",
+          "FixedRsqrtResource.loop0_iteration_bound",
+          "FixedRsqrtResource.loop0_iteration_count",
+          "FixedRsqrtResource.loop1_exit",
+          "FixedRsqrtResource.loop1_iteration_bound",
+          "FixedRsqrtResource.loop1_iteration_count",
+          "FixedRsqrtResource.loop1_spec_zero"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "FixedTrig",
+      "path": "proof/resource/FixedTrig_gate.py",
+      "sha256": "3d2bb299b778a9bb083d1d8a2186e06425fc1ffceb025977fa4f97b155f29320",
+      "tracked": true,
+      "green_marker": "FIXED_TRIG_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "FIXED_TRIG_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "FIXED_TRIG_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "FIXED_TRIG_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "series-rounding",
+          "file": "src/numeric/fixed_trig.rs",
+          "needle": "    let u = round_div_2p32(t * t);",
+          "replacement": "    let u = round_div_2p32(t * t + 1);",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "FIXED_TRIG_KERNEL_OK",
+        "audit_artifact": "proof/resource/FixedTrigResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "FixedTrigResource.one_eq",
+          "FixedTrigResource.lower_eq",
+          "FixedTrigResource.upper_eq",
+          "FixedTrigResource.round_neg",
+          "FixedTrigResource.round_nonneg",
+          "FixedTrigResource.shr32_not_min",
+          "FixedTrigResource.refuse_below_window",
+          "FixedTrigResource.refuse_above_window",
+          "FixedTrigResource.past_window_guards",
+          "FixedTrigResource.fold1_upper",
+          "FixedTrigResource.fold1_lower",
+          "FixedTrigResource.fold1_middle",
+          "FixedTrigResource.fold2_upper",
+          "FixedTrigResource.fold2_middle",
+          "FixedTrigResource.series_body_is_ledger",
+          "FixedTrigResource.series_mul_count",
+          "FixedTrigResource.series_round_count",
+          "FixedTrigResource.series_total_ops",
+          "FixedTrigResource.shr64_of_half",
+          "FixedTrigResource.taylor_zero_success"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "Fwht",
+      "path": "proof/resource/Fwht_gate.py",
+      "sha256": "05e2536a1578ddff0b02506d9d3ef1e697b663c84e72d2e0c6292d71a5de6d0a",
+      "tracked": true,
+      "green_marker": "FWHT_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "FWHT_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "FWHT_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "FWHT_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "lane-advance",
+          "file": "src/engine/hadamard.rs",
+          "needle": "lane += 1;",
+          "replacement": "lane += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "FWHT_KERNEL_OK",
+        "audit_artifact": "proof/resource/FwhtResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "FwhtResource.maxK_val",
+          "FwhtResource.ok_or_ok",
+          "FwhtResource.ok_or_none",
+          "FwhtResource.exp_body_exit_maxK",
+          "FwhtResource.exp_body_exit_power",
+          "FwhtResource.lane_body_exit_span",
+          "FwhtResource.lane_body_exit_flag",
+          "FwhtResource.lane_trace_projection",
+          "FwhtResource.lane_trace_count",
+          "FwhtResource.lane_visits_exact",
+          "FwhtResource.total_work_eq",
+          "FwhtResource.remaining_work"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "Gguf",
+      "path": "proof/resource/Gguf_gate.py",
+      "sha256": "e9f88888e0d4674fd672babf686011e2a61d0a966f8f817601e029587114423f",
+      "tracked": true,
+      "green_marker": "GGUF_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "GGUF_REAL_SOURCE_CONTROL_RED_"
+        ],
+        "control_reject": [
+          "GGUF_CONTROL_NOT_ATTRIBUTABLE_"
+        ],
+        "control_target_missing": [
+          "GGUF_CONTROL_TARGET_MISSING_"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "rank-step",
+          "file": "src/format/gguf.rs",
+          "needle": "out.push(self.b[k]);\n            k += 1;",
+          "replacement": "out.push(self.b[k]);\n            k += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        },
+        {
+          "control": "cursor-step",
+          "file": "src/format/gguf.rs",
+          "needle": "        self.i += 1;\n        Some(v)",
+          "replacement": "        self.i += 2;\n        Some(v)",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "GGUF_KERNEL_OK",
+        "audit_artifact": "proof/resource/GgufResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "GgufResource.cur_u8_step",
+          "GgufResource.cur_u8_refuse",
+          "GgufResource.string_loop_step",
+          "GgufResource.string_loop_exit",
+          "GgufResource.string_loop_bytes",
+          "GgufResource.string_loop_step_witness",
+          "GgufResource.string_refuses_oversized_length",
+          "GgufResource.string_refuses_past_end",
+          "GgufResource.array_header_refuses_oversized_count",
+          "GgufResource.kv_loop_step",
+          "GgufResource.kv_loop_refuses_entry",
+          "GgufResource.kv_loop_error_exit",
+          "GgufResource.kv_loop_count_exit",
+          "GgufResource.kv_loop_zero_count",
+          "GgufResource.dims_loop_step",
+          "GgufResource.dims_loop_refuses_truncated",
+          "GgufResource.dims_loop_error_exit",
+          "GgufResource.dims_loop_count_exit",
+          "GgufResource.tensor_loop_step",
+          "GgufResource.tensor_loop_refuses_entry",
+          "GgufResource.tensor_loop_error_exit",
+          "GgufResource.tensor_loop_count_exit",
+          "GgufResource.tensor_loop_zero_count",
+          "GgufResource.align_loop_step_len_ne",
+          "GgufResource.align_loop_exit",
+          "GgufResource.align_loop_empty",
+          "GgufResource.align_key_step_ne",
+          "GgufResource.align_key_step_eq",
+          "GgufResource.align_key_exit"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "I64Codec",
+      "path": "proof/resource/I64Codec_gate.py",
+      "sha256": "158a6afecb99c6281252b1af330ffa13fa5767d07d598ba3eeffb2de2af7fa33",
+      "tracked": true,
+      "green_marker": "I64_CODEC_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "I64_CODEC_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "I64_CODEC_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "I64_CODEC_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "codec-key-source",
+          "file": "src/table/keyrep.rs",
+          "needle": "    let id = coord::spread(key.cast_unsigned()).id;\n    let _ = address;\n    id\n",
+          "replacement": "    let id = coord::spread(key.cast_unsigned()).place;\n    let _ = address;\n    id\n",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "I64_CODEC_KERNEL_OK",
+        "audit_artifact": "proof/resource/I64CodecResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "I64CodecResource.spread_spec",
+          "I64CodecResource.unspread_spec",
+          "I64CodecResource.address_identity_spec",
+          "I64CodecResource.address_identity_independent",
+          "I64CodecResource.encode_spec",
+          "I64CodecResource.encode_never_refuses",
+          "I64CodecResource.encode_work_measure",
+          "I64CodecResource.encode_work_constant",
+          "I64CodecResource.decode_spec",
+          "I64CodecResource.decode_work_measure",
+          "I64CodecResource.decode_work_constant",
+          "I64CodecResource.decode_never_refuses",
+          "I64CodecResource.codec_round_trip",
+          "I64CodecResource.success_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "I64Decode",
+      "path": "proof/resource/I64Decode_gate.py",
+      "sha256": "5f4e43a2918573062e7b76fbf964bdb551f62ceeab06a1b00d84a7b98617d0c5",
+      "tracked": true,
+      "green_marker": "I64_DECODE_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "I64_DECODE_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "I64_DECODE_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "I64_DECODE_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "double-unspread",
+          "file": "src/table/keyrep.rs",
+          "needle": "coord::unspread(identity).cast_signed()",
+          "replacement": "coord::unspread(coord::unspread(identity)).cast_signed()",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "I64_DECODE_KERNEL_OK",
+        "audit_artifact": "proof/resource/I64DecodeResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "I64DecodeResource.phiLit_is_the_source_constant",
+          "I64DecodeResource.phiInvLit_is_the_source_constant",
+          "I64DecodeResource.root_is_the_real_body",
+          "I64DecodeResource.method_is_the_multiply_then_the_exit",
+          "I64DecodeResource.unspread_step",
+          "I64DecodeResource.reinterpret_exit",
+          "I64DecodeResource.unspread_step_bits",
+          "I64DecodeResource.body_is_one_wrapping_mul",
+          "I64DecodeResource.machineWords_holds",
+          "I64DecodeResource.guarded_step",
+          "I64DecodeResource.machineWord64_holds",
+          "I64DecodeResource.bytesMovedOf_is_sixteen",
+          "I64DecodeResource.work_is_one_multiplication_one_read_zero_allocations",
+          "I64DecodeResource.work_moves_sixteen_bytes",
+          "I64DecodeResource.body_ignores_the_face_token",
+          "I64DecodeResource.work_ignores_the_face_token",
+          "I64DecodeResource.body_reads_only_the_identity_word",
+          "I64DecodeResource.work_is_input_independent",
+          "I64DecodeResource.body_total",
+          "I64DecodeResource.body_never_errors",
+          "I64DecodeResource.every_identity_decodes",
+          "I64DecodeResource.zero_witness",
+          "I64DecodeResource.phi_witness",
+          "I64DecodeResource.min_key_witness",
+          "I64DecodeResource.all_faces_witness",
+          "I64DecodeResource.transition_deterministic",
+          "I64DecodeResource.transitions_are_the_multiply_then_the_exit"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "KvAppend",
+      "path": "proof/resource/KvAppend_gate.py",
+      "sha256": "5a6039d0c0f31a14b462e2b154fec4194afaf5eebab94ff25f38c07432d02f5d",
+      "tracked": false,
+      "green_marker": "KV_APPEND_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "KV_APPEND_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "KV_APPEND_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "KV_APPEND_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "append-capacity-guard",
+          "file": "src/engine/attn.rs",
+          "needle": "if pos >= self.cap",
+          "replacement": "if pos > self.cap",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "KV_APPEND_KERNEL_OK",
+        "audit_artifact": "proof/resource/KvAppendResource.lean",
+        "audit_artifact_present": false,
+        "marker_in_artifact": false,
+        "audited_headlines": [],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "LmHead",
+      "path": "proof/resource/LmHead_gate.py",
+      "sha256": "0b9cc8f5d9c69b3197ae55e6f79315280dce8d7135efcf9317ac0fbc39179c5f",
+      "tracked": false,
+      "green_marker": "LM_HEAD_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "LM_HEAD_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "LM_HEAD_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "LM_HEAD_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "output-cursor-advance",
+          "file": "src/engine/matvec.rs",
+          "needle": "o += 1;",
+          "replacement": "o += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "LM_HEAD_KERNEL_OK",
+        "audit_artifact": "proof/resource/LmHeadResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": false,
+        "audited_headlines": [],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "Matvec",
+      "path": "proof/resource/Matvec_gate.py",
+      "sha256": "4b761ea3c69f34ea2503cfd7c7a45caa2f98ea772f8ee081d2ca4fe7f5de04ab",
+      "tracked": false,
+      "green_marker": "MATVEC_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "MATVEC_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "MATVEC_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "MATVEC_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "accumulator-loop-guard",
+          "file": "src/engine/matvec.rs",
+          "needle": "while i < w_row.len() && acc_ok {",
+          "replacement": "while i < w_row.len() && acc_ok && false {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "MATVEC_KERNEL_OK",
+        "audit_artifact": "proof/resource/MatvecResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "MatvecResource.usize_val_le_max",
+          "MatvecResource.add_one_le_max",
+          "MatvecResource.add_one_le_max_row",
+          "MatvecResource.elem_body_step",
+          "MatvecResource.elem_body_exit_width",
+          "MatvecResource.elem_body_exit_flag",
+          "MatvecResource.elem_loop_spec",
+          "MatvecResource.row_body_exit_width",
+          "MatvecResource.row_body_exit_flag",
+          "MatvecResource.stride_end_fits",
+          "MatvecResource.row_body_continues",
+          "MatvecResource.row_body_step",
+          "MatvecResource.rowInv_push_bound",
+          "MatvecResource.row_loop_spec",
+          "MatvecResource.matvec_refuses_unsupported_quant",
+          "MatvecResource.matvec_refuses_shape",
+          "MatvecResource.matvec_refuses_short_payload",
+          "MatvecResource.matvec_refuses_length_overflow",
+          "MatvecResource.matvec_epilogue",
+          "MatvecResource.matvec_empty_rows_success"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane.lock"
+    },
+    {
+      "id": "Packing",
+      "path": "proof/resource/Packing_gate.py",
+      "sha256": "5f90a33913c2d812a02ff4f404ade611fd08a3e315bfd1e5a804242d3932e2ff",
+      "tracked": true,
+      "green_marker": "PACKING_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "PACKING_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "PACKING_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "PACKING_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "plane-loop-advance",
+          "file": "src/format/packing.rs",
+          "needle": "v |= bit << shift;\n            k += 1;",
+          "replacement": "v |= bit << shift;\n            k += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "PACKING_KERNEL_OK",
+        "audit_artifact": "proof/resource/PackingResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "PackingResource.bit_plane_step",
+          "PackingResource.bit_plane_exit",
+          "PackingResource.bit_plane_cont",
+          "PackingResource.bit_plane_work",
+          "PackingResource.field_step",
+          "PackingResource.field_exit",
+          "PackingResource.field_work",
+          "PackingResource.unpack_code_unsigned",
+          "PackingResource.lane_code_step",
+          "PackingResource.lane_code_work",
+          "PackingResource.fields_truncated",
+          "PackingResource.fields_geometry_refusal",
+          "PackingResource.f16Terminal_geometry",
+          "PackingResource.f16_lane_work",
+          "PackingResource.f16_field_work",
+          "PackingResource.code_plane_work"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane.lock"
+    },
+    {
+      "id": "Policy",
+      "path": "proof/resource/Policy_gate.py",
+      "sha256": "b8eb08ec02a8757f0cbb6af0e8d5057073b3ffe5cb57a3de3097c42525015af9",
+      "tracked": true,
+      "green_marker": "POLICY_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "POLICY_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "POLICY_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "POLICY_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "guard-loop-atom-advance",
+          "file": "src/policy/decide.rs",
+          "needle": "            Tri::T => {}\n        }\n        i += 1;",
+          "replacement": "            Tri::T => {}\n        }\n        i += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "POLICY_KERNEL_OK",
+        "audit_artifact": "proof/resource/PolicyResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "PolicyResource.cast_slot_val",
+          "PolicyResource.shr_ok",
+          "PolicyResource.index_ok",
+          "PolicyResource.idx_next_max",
+          "PolicyResource.loop_done",
+          "PolicyResource.loop_cont",
+          "PolicyResource.tri_eq_t",
+          "PolicyResource.tri_ne_f",
+          "PolicyResource.effect_eq_forbid",
+          "PolicyResource.min_id_spec",
+          "PolicyResource.atom_eval_ok",
+          "PolicyResource.atom_eval_slot_unknown",
+          "PolicyResource.guard_body_step",
+          "PolicyResource.guard_body_exit",
+          "PolicyResource.guard_loop_work",
+          "PolicyResource.guard_eval_start_out",
+          "PolicyResource.decide_loop0_body_exit",
+          "PolicyResource.decide_loop1_body_exit"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "PublishPrepared",
+      "path": "proof/resource/PublishPrepared_gate.py",
+      "sha256": "f9fb9b6c61df461946ceb074aab3431590d0f3536d1594a134a324fdeee57aae",
+      "tracked": true,
+      "green_marker": "PUBLISH_PREPARED_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "PUBLISH_PREPARED_CONTROL_RED_LINES %d",
+          "PUBLISH_PREPARED_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "PUBLISH_PREPARED_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "PUBLISH_PREPARED_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "storage-error-payload",
+          "file": "src/table/resources.rs",
+          "needle": "Err(error) => PreparedResult::Refused(error),",
+          "replacement": "Err(_error) => PreparedResult::Refused(StorageError::AllocationFailed),",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "PUBLISH_PREPARED_KERNEL_OK",
+        "audit_artifact": "proof/resource/PublishPreparedResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "PublishPreparedResource.root_forwards",
+          "PublishPreparedResource.body_is_one_constant_switch",
+          "PublishPreparedResource.work_is_one_move_no_comparison_no_allocation",
+          "PublishPreparedResource.work_is_independent_of_the_envelope",
+          "PublishPreparedResource.work_is_independent_of_the_arm",
+          "PublishPreparedResource.publish_transition",
+          "PublishPreparedResource.refusal_transition",
+          "PublishPreparedResource.publish_preserves_the_exact_tuple",
+          "PublishPreparedResource.publish_guard_exact",
+          "PublishPreparedResource.refusal_guard_exact",
+          "PublishPreparedResource.refusal_publishes_only_the_error",
+          "PublishPreparedResource.publish_publishes_the_whole_envelope",
+          "PublishPreparedResource.body_total",
+          "PublishPreparedResource.body_never_errors",
+          "PublishPreparedResource.arms_exclusive",
+          "PublishPreparedResource.arms_exhaustive",
+          "PublishPreparedResource.success_witness",
+          "PublishPreparedResource.success_witness_equation",
+          "PublishPreparedResource.refusal_witness",
+          "PublishPreparedResource.refusal_witnesses_cover_every_variant",
+          "PublishPreparedResource.root_success_witness",
+          "PublishPreparedResource.root_refusal_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "Q4KCodes",
+      "path": "proof/resource/Q4KCodes_gate.py",
+      "sha256": "6937c678fb67087b4a6c1b1466476c2c0c0fe5bb80729cd289eae3b351c49ffc",
+      "tracked": true,
+      "green_marker": "Q4K_CODES_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "Q4K_CODES_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "Q4K_CODES_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "Q4K_CODES_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "inner-loop-advance",
+          "file": "src/format/quant.rs",
+          "needle": "            out[64 * b + l] = qs[32 * b + l] & 0xF;\n            out[64 * b + 32 + l] = qs[32 * b + l] >> 4;\n            l += 1;\n",
+          "replacement": "            out[64 * b + l] = qs[32 * b + l] & 0xF;\n            out[64 * b + 32 + l] = qs[32 * b + l] >> 4;\n            l += 2;\n",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "Q4K_CODES_KERNEL_OK",
+        "audit_artifact": "proof/resource/Q4KCodesResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "Q4KCodesResource.blockBytes",
+          "Q4KCodesResource.refuses",
+          "Q4KCodesResource.refusal_witness",
+          "Q4KCodesResource.rank_starts",
+          "Q4KCodesResource.innerRank_step",
+          "Q4KCodesResource.outerRank_step",
+          "Q4KCodesResource.inner_exit",
+          "Q4KCodesResource.outer_exit",
+          "Q4KCodesResource.inner_step",
+          "Q4KCodesResource.inner_spec",
+          "Q4KCodesResource.outer_step",
+          "Q4KCodesResource.outer_spec",
+          "Q4KCodesResource.positions_cover",
+          "Q4KCodesResource.positions_unique",
+          "Q4KCodesResource.codesPerBlock",
+          "Q4KCodesResource.blockWork_refuses",
+          "Q4KCodesResource.blockWork_accepts",
+          "Q4KCodesResource.codes_4bit",
+          "Q4KCodesResource.success_witness",
+          "Q4KCodesResource.codes_written"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "Q6KCodes",
+      "path": "proof/resource/Q6KCodes_gate.py",
+      "sha256": "6c0f8ff0643466d78673ef23f89ad6626c0f843434c78ce7d08a458c505e22a9",
+      "tracked": true,
+      "green_marker": "Q6K_CODES_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "Q6K_REAL_SOURCE_CONTROL_RED_"
+        ],
+        "control_reject": [
+          "Q6K_CONTROL_NOT_ATTRIBUTABLE_"
+        ],
+        "control_target_missing": [
+          "Q6K_CONTROL_TARGET_MISSING_"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "codes-inner-advance",
+          "file": "src/format/quant.rs",
+          "needle": "            out[128 * n + l + 96] = q4 as i8;\n            l += 1;\n",
+          "replacement": "            out[128 * n + l + 96] = q4 as i8;\n            l += 2;\n",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        },
+        {
+          "control": "superblock-loop-guard",
+          "file": "src/format/quant.rs",
+          "needle": "    while n < 2 {\n        let qb64 = 64 * n;\n        let qb32 = 32 * n;\n",
+          "replacement": "    while n < 3 {\n        let qb64 = 64 * n;\n        let qb32 = 32 * n;\n",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "Q6K_CODES_KERNEL_OK",
+        "audit_artifact": "proof/resource/Q6KCodesResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "Q6KCodesResource.block_bytes",
+          "Q6KCodesResource.inner_step",
+          "Q6KCodesResource.inner_exit",
+          "Q6KCodesResource.inner_visits_aux",
+          "Q6KCodesResource.inner_visits_exact",
+          "Q6KCodesResource.inner_loop_ok",
+          "Q6KCodesResource.outer_step",
+          "Q6KCodesResource.outer_exit",
+          "Q6KCodesResource.outer_visits_aux",
+          "Q6KCodesResource.outer_visits_exact",
+          "Q6KCodesResource.outer_loop_ok",
+          "Q6KCodesResource.entry_visits_exact",
+          "Q6KCodesResource.codes_work_closed_form",
+          "Q6KCodesResource.codes_refuses",
+          "Q6KCodesResource.codes_success",
+          "Q6KCodesResource.entry_work",
+          "Q6KCodesResource.wit_len",
+          "Q6KCodesResource.wit_success"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "RegenRelocateAll",
+      "path": "proof/resource/RegenRelocateAll_gate.py",
+      "sha256": "4aefb25b3a598cd421cd678d6169bbf7257ecbb94f9950a6d1b26d7b4fe8e16f",
+      "tracked": false,
+      "green_marker": "REGEN_RELOCATE_ALL_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "REGEN_RELOCATE_ALL_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "REGEN_RELOCATE_ALL_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "REGEN_RELOCATE_ALL_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "traversal-cursor-advance",
+          "file": "src/table.rs",
+          "needle": "entry_at += 1;",
+          "replacement": "entry_at += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "REGEN_RELOCATE_ALL_KERNEL_OK",
+        "audit_artifact": "proof/resource/RegenRelocateAllResource.lean",
+        "audit_artifact_present": false,
+        "marker_in_artifact": false,
+        "audited_headlines": [],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "RegenRelocateEntry",
+      "path": "proof/resource/RegenRelocateEntry_gate.py",
+      "sha256": "a44144551c2284675a2960d25e0f9d9244420b99ad3583db6643877475370f1a",
+      "tracked": false,
+      "green_marker": "REGEN_RELOCATE_ENTRY_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "REGEN_RELOCATE_ENTRY_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "REGEN_RELOCATE_ENTRY_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "REGEN_RELOCATE_ENTRY_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "slot-liveness-flag",
+          "file": "src/table.rs",
+          "needle": "reserved.resident.slots[index] = FlatSlot {\n                live: true,",
+          "replacement": "reserved.resident.slots[index] = FlatSlot {\n                live: false,",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "REGEN_RELOCATE_ENTRY_KERNEL_OK",
+        "audit_artifact": "proof/resource/RegenRelocateEntryResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RegenRelocateEntryResource.plan_entry_read",
+          "RegenRelocateEntryResource.source_read_resident_copies",
+          "RegenRelocateEntryResource.source_read_spill_copies",
+          "RegenRelocateEntryResource.flat_write_frame",
+          "RegenRelocateEntryResource.flat_write_readback",
+          "RegenRelocateEntryResource.flat_write_extent",
+          "RegenRelocateEntryResource.flat_write_regions_frame",
+          "RegenRelocateEntryResource.spill_write_frame",
+          "RegenRelocateEntryResource.spill_write_readback",
+          "RegenRelocateEntryResource.spill_write_extent",
+          "RegenRelocateEntryResource.spill_write_capacity",
+          "RegenRelocateEntryResource.flat_write_work_closed_form",
+          "RegenRelocateEntryResource.flat_transition_resident",
+          "RegenRelocateEntryResource.flat_transition_spill",
+          "RegenRelocateEntryResource.spill_transition_resident",
+          "RegenRelocateEntryResource.spill_transition_spill",
+          "RegenRelocateEntryResource.spill_refuses_occupied_resident",
+          "RegenRelocateEntryResource.spill_refuses_grow_resident",
+          "RegenRelocateEntryResource.spill_refuses_occupied_spill",
+          "RegenRelocateEntryResource.spill_refuses_grow_spill"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "RelocateEntry",
+      "path": "proof/resource/RelocateEntry_gate.py",
+      "sha256": "d748b7c57cf13d57750c955b70c6e403c53407da83465e4e466202354e7a92b5",
+      "tracked": true,
+      "green_marker": "RELOCATE_ENTRY_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "RELOCATE_ENTRY_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "RELOCATE_ENTRY_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "RELOCATE_ENTRY_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "slot-liveness-and-sigma",
+          "file": "src/table.rs",
+          "needle": "            reserved.resident.slots[index] = FlatSlot {\n                live: true,\n                sigma: entry_sigma,\n",
+          "replacement": "            reserved.resident.slots[index] = FlatSlot {\n                live: false,\n                sigma: entry_sigma,\n",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "RELOCATE_ENTRY_KERNEL_OK",
+        "audit_artifact": "proof/resource/RelocateEntryResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RelocateEntryResource.flat_transition",
+          "RelocateEntryResource.flat_slot_out_of_bounds_exit",
+          "RelocateEntryResource.spill_vacant_transition_at",
+          "RelocateEntryResource.spill_vacant_transition",
+          "RelocateEntryResource.entry_out_of_bounds_exit",
+          "RelocateEntryResource.spill_site_found_exit_at",
+          "RelocateEntryResource.spill_site_found_exit",
+          "RelocateEntryResource.spill_site_grow_exit_at",
+          "RelocateEntryResource.spill_site_grow_exit",
+          "RelocateEntryResource.flat_success_witness",
+          "RelocateEntryResource.plan_index_exit_witness_at",
+          "RelocateEntryResource.plan_index_exit_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-3.lock"
+    },
+    {
+      "id": "RmsNorm",
+      "path": "proof/resource/RmsNorm_gate.py",
+      "sha256": "4e2d1b45cd364dbe2af7f21251d58d7514c09258b2c1170f59c4a471bbac549e",
+      "tracked": true,
+      "green_marker": "RMS_NORM_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "RMS_NORM_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "RMS_NORM_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "RMS_NORM_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "normalisation-loop-advance",
+          "file": "src/engine/norm.rs",
+          "needle": "i += 1;",
+          "replacement": "i += 2;",
+          "occurrences": 2,
+          "needle_occurrences": 2
+        }
+      ],
+      "targets": {
+        "audit_marker": "RMS_NORM_KERNEL_OK",
+        "audit_artifact": "proof/resource/RmsNormResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RmsNormResource.loop0_body_step",
+          "RmsNormResource.loop0_body_end",
+          "RmsNormResource.loop0_body_exit",
+          "RmsNormResource.loop0_body_refused",
+          "RmsNormResource.loop0_work",
+          "RmsNormResource.loop1_body_step",
+          "RmsNormResource.loop1_body_end",
+          "RmsNormResource.loop1_body_exit",
+          "RmsNormResource.loop1_work",
+          "RmsNormResource.isqrt_loop0_work",
+          "RmsNormResource.isqrt_loop1_work",
+          "RmsNormResource.isqrt_work",
+          "RmsNormResource.empty_row_refuses",
+          "RmsNormResource.accumulation_refuses",
+          "RmsNormResource.rsqrt_call_refuses",
+          "RmsNormResource.epilogue_refuses",
+          "RmsNormResource.success_returns_output",
+          "RmsNormResource.rms_work",
+          "RmsNormResource.rms_work_outputs",
+          "RmsNormResource.accumulation_witness",
+          "RmsNormResource.epilogue_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane.lock"
+    },
+    {
+      "id": "Rope",
+      "path": "proof/resource/Rope_gate.py",
+      "sha256": "568c56f54d2d47e5c6e472470e42a5fd1ba9f4484240f72234c61aa14a98007b",
+      "tracked": true,
+      "green_marker": "ROPE_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "ROPE_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "ROPE_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "ROPE_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "head-rotate-pair-advance",
+          "file": "src/engine/rope.rs",
+          "needle": "j += 1;\n        }\n        if !ok {",
+          "replacement": "j += 2;\n        }\n        if !ok {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "ROPE_KERNEL_OK",
+        "audit_artifact": "proof/resource/RopeResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RopeResource.head_body_step",
+          "RopeResource.head_body_refused",
+          "RopeResource.head_body_exit",
+          "RopeResource.head_body_stopped",
+          "RopeResource.rotate_body_exit",
+          "RopeResource.rotate_loop_empty",
+          "RopeResource.empty_rotate_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "RouteTopk",
+      "path": "proof/resource/RouteTopk_gate.py",
+      "sha256": "24fac87eb7b8d8d47c8571a9dacda982f3b0c1439533778d273bbc1dc5d9a8f7",
+      "tracked": true,
+      "green_marker": "ROUTE_TOPK_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "ROUTE_TOPK_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "ROUTE_TOPK_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "ROUTE_TOPK_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "selection-pass-cursor",
+          "file": "src/engine/moe.rs",
+          "needle": "        pass += 1;",
+          "replacement": "        pass += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "ROUTE_TOPK_KERNEL_OK",
+        "audit_artifact": "proof/resource/RouteTopkResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RouteTopkResource.scan_step",
+          "RouteTopkResource.scan_exit",
+          "RouteTopkResource.scanCmp_le",
+          "RouteTopkResource.scan_observed_cont",
+          "RouteTopkResource.scan_inspect_closed_form",
+          "RouteTopkResource.scan_cmp_bounded",
+          "RouteTopkResource.vec_set_length",
+          "RouteTopkResource.usize_cast_u32_val",
+          "RouteTopkResource.route_scan_exists",
+          "RouteTopkResource.route_scan",
+          "RouteTopkResource.best_unchosen_of_scan_true",
+          "RouteTopkResource.best_unchosen_of_scan_false",
+          "RouteTopkResource.route_step",
+          "RouteTopkResource.route_step_pick",
+          "RouteTopkResource.route_step_refuse",
+          "RouteTopkResource.route_exit_width",
+          "RouteTopkResource.route_exit_refusal",
+          "RouteTopkResource.route_loop_projects",
+          "RouteTopkResource.route_pass_inspects",
+          "RouteTopkResource.route_refuse_zero",
+          "RouteTopkResource.route_refuse_wide",
+          "RouteTopkResource.route_init_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "RowDotAdmission",
+      "path": "proof/resource/RowDotAdmission_gate.py",
+      "sha256": "5e3ed2929b97788303313fb3f80fb97d4a56e9cb8cdd4541cdbb2d45006c941f",
+      "tracked": true,
+      "green_marker": "ROW_DOT_ADMISSION_COST_CERTIFICATE_OK",
+      "red_marker": {
+        "printed": [
+          "ROW_DOT_ADMISSION_CONTROL_RED defects=%s targets=%s lines=%s"
+        ],
+        "control_reject": [
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_GREEN",
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_NO_ERROR",
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_UNATTRIBUTED",
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_HEADLINE_NOT_NAMED",
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_DIAGNOSTIC_OUTSIDE_HEADLINE",
+          "ROW_DOT_ADMISSION_CONTROLS_CONTROL_NO_DIAGNOSTIC"
+        ],
+        "control_target_missing": [
+          "ROW_DOT_ADMISSION_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "unsound-product-fits",
+          "file": "proof/resource/RowDotAdmission.lean",
+          "needle": "theorem widened_product_fits (iw ix : I64) :",
+          "replacement": "theorem widened_product_fits (iw ix : I128) :",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        },
+        {
+          "control": "wrong-cost-count",
+          "file": "proof/resource/RowDotAdmission.lean",
+          "needle": "def srcOps (w_row x : Slice I64) (s : I128 × Usize × Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 2",
+          "replacement": "def srcOps (w_row x : Slice I64) (s : I128 × Usize × Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 3",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "ROW_DOT_ADMISSION_KERNEL_OK",
+        "audit_artifact": "proof/resource/RowDotAdmission.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RowDotAdmission.srcBodyFn_eq",
+          "RowDotAdmission.propBodyFn_eq",
+          "RowDotAdmission.widening_val",
+          "RowDotAdmission.i64_bounds",
+          "RowDotAdmission.i128_window",
+          "RowDotAdmission.widened_product_window",
+          "RowDotAdmission.widened_product_fits",
+          "RowDotAdmission.widened_plain_product_ok",
+          "RowDotAdmission.widened_product_val",
+          "RowDotAdmission.widened_plain_product_is_checked",
+          "RowDotAdmission.visit_agree",
+          "RowDotAdmission.visit_exit_len_agree",
+          "RowDotAdmission.visit_exit_flag_agree",
+          "RowDotAdmission.body_agree",
+          "RowDotAdmission.loop_agree",
+          "RowDotAdmission.bind_ok_reads",
+          "RowDotAdmission.round_shift_agree",
+          "RowDotAdmission.prop_fixed_unfold",
+          "RowDotAdmission.preserves_row_length",
+          "RowDotAdmission.preserves_acc_overflow",
+          "RowDotAdmission.preserves_out_high",
+          "RowDotAdmission.preserves_out_low",
+          "RowDotAdmission.preserves_ok",
+          "RowDotAdmission.preserves_ok_of",
+          "RowDotAdmission.preserves",
+          "RowDotAdmission.prop_of_src_cont",
+          "RowDotAdmission.prop_of_src_done",
+          "RowDotAdmission.src_never_fails",
+          "RowDotAdmission.mul_arm_always_some",
+          "RowDotAdmission.srcOps_of_cont",
+          "RowDotAdmission.srcReads_of_cont",
+          "RowDotAdmission.propOps_of_cont",
+          "RowDotAdmission.propReads_of_cont",
+          "RowDotAdmission.src_counts",
+          "RowDotAdmission.prop_counts",
+          "RowDotAdmission.src_cert_of_trace",
+          "RowDotAdmission.prop_cert_of_trace",
+          "RowDotAdmission.entry_certs",
+          "RowDotAdmission.flag_entry_certs",
+          "RowDotAdmission.prop_cost_of_entry",
+          "RowDotAdmission.src_cost_of_entry",
+          "RowDotAdmission.strictly_cheaper_entry",
+          "RowDotAdmission.improves_entry",
+          "RowDotAdmission.wit_entry_certs",
+          "RowDotAdmission.wit_costs",
+          "RowDotAdmission.wit_strictly_cheaper",
+          "RowDotAdmission.wit_improves",
+          "RowDotAdmission.flag_ties"
+        ],
+        "control_targets": [
+          "RowDotAdmission.widened_product_fits",
+          "RowDotAdmission.srcOps_of_cont"
+        ]
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane.lock",
+      "extraction_substitution": {
+        "file": "src/engine/matvec.rs",
+        "note": "NEEDLE/REPLACEMENT: the proposed widening-mul body extracted into proof/resource/RowDotProposedSource.lean; src/engine/matvec.rs itself is unchanged by this gate (receipt `trust` field).",
+        "needle": "        match a.checked_mul(b) {\n            Some(prod) => match acc.checked_add(prod) {\n                Some(total) => acc = total,\n                None => acc_ok = false,\n            },\n            None => acc_ok = false,\n        }\n",
+        "replacement": "        let prod = a * b;\n        match acc.checked_add(prod) {\n            Some(total) => acc = total,\n            None => acc_ok = false,\n        }\n",
+        "occurrences": 1
+      }
+    },
+    {
+      "id": "RowDot",
+      "path": "proof/resource/RowDot_gate.py",
+      "sha256": "2a8f077abf2f3feb893b3f838edf21c822a2b855db53644a8e1ca496fb7341ee",
+      "tracked": true,
+      "green_marker": "ROW_DOT_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "ROW_DOT_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "ROW_DOT_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "ROW_DOT_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "loop-cursor-advance",
+          "file": "src/engine/matvec.rs",
+          "needle": "i += 1;",
+          "replacement": "i += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "ROW_DOT_KERNEL_OK",
+        "audit_artifact": "proof/resource/RowDotResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "RowDotResource.body_step",
+          "RowDotResource.body_cont",
+          "RowDotResource.body_exit_len",
+          "RowDotResource.body_exit_flag",
+          "RowDotResource.body_rank_drop",
+          "RowDotResource.loop_spec",
+          "RowDotResource.row_trace_projection",
+          "RowDotResource.row_trace_count",
+          "RowDotResource.row_trace_deterministic",
+          "RowDotResource.window_trace_aux",
+          "RowDotResource.entry_visits_exact",
+          "RowDotResource.flag_trace",
+          "RowDotResource.flag_loop",
+          "RowDotResource.row_dot_success",
+          "RowDotResource.wit_visits",
+          "RowDotResource.wit_success",
+          "RowDotResource.row_dot_row_length_refuses",
+          "RowDotResource.row_dot_acc_refuses",
+          "RowDotResource.row_dot_out_high_refuses",
+          "RowDotResource.row_dot_out_low_refuses"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane.lock"
+    },
+    {
+      "id": "Schedule",
+      "path": "proof/resource/Schedule_gate.py",
+      "sha256": "458f33af16825389599a73e0ce99de70012522a96fc02b31ddb4a1a594ed5c81",
+      "tracked": true,
+      "green_marker": "SCHEDULE_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "SCHEDULE_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "SCHEDULE_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "SCHEDULE_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "bin-position-advance",
+          "file": "src/table/partition.rs",
+          "needle": "                }\n                at += 1;\n            }\n            worker += 1;",
+          "replacement": "                }\n                at += 2;\n            }\n            worker += 1;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "SCHEDULE_KERNEL_OK",
+        "audit_artifact": "proof/resource/ScheduleResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "ScheduleResource.shift256",
+          "ScheduleResource.shards_eq",
+          "ScheduleResource.shards_value",
+          "ScheduleResource.usize_ge_256",
+          "ScheduleResource.lt256",
+          "ScheduleResource.ge256",
+          "ScheduleResource.slot_set",
+          "ScheduleResource.slot_index",
+          "ScheduleResource.vec_index",
+          "ScheduleResource.vec_len_lt",
+          "ScheduleResource.vec_len_ge",
+          "ScheduleResource.scan_step",
+          "ScheduleResource.scan_exit_pos",
+          "ScheduleResource.scan_exit_flag",
+          "ScheduleResource.scan_rank_decreases",
+          "ScheduleResource.cover_step",
+          "ScheduleResource.cover_exit_pos",
+          "ScheduleResource.cover_exit_flag",
+          "ScheduleResource.worker_step",
+          "ScheduleResource.worker_exit_pos",
+          "ScheduleResource.worker_exit_flag",
+          "ScheduleResource.root_forwards",
+          "ScheduleResource.is_complete_decomposes",
+          "ScheduleResource.one_le_usize_max",
+          "ScheduleResource.oneSlot_length",
+          "ScheduleResource.oneSlot_item",
+          "ScheduleResource.oneBin_length",
+          "ScheduleResource.cover_success_witness",
+          "ScheduleResource.cover_refusal_witness",
+          "ScheduleResource.scan_continuation_witness",
+          "ScheduleResource.worker_step_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-2.lock"
+    },
+    {
+      "id": "Silu",
+      "path": "proof/resource/Silu_gate.py",
+      "sha256": "019c6b0fb0ec8372ac0b90693c30da4e6d319cbb165107da29b14b1bb269aa2e",
+      "tracked": true,
+      "green_marker": "SILU_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "SILU_REAL_SOURCE_CONTROL_RED "
+        ],
+        "control_reject": [
+          "SILU_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "SILU_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "denominator-guard",
+          "file": "src/engine/silu.rs",
+          "needle": "if den <= 0 {",
+          "replacement": "if den < 0 {",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "SILU_KERNEL_OK",
+        "audit_artifact": "proof/resource/SiluResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "SiluResource.engine_ONE_eq",
+          "SiluResource.upper_eq",
+          "SiluResource.lower_eq",
+          "SiluResource.in_window",
+          "SiluResource.guard_upper",
+          "SiluResource.guard_lower",
+          "SiluResource.guard_exp_refusal",
+          "SiluResource.guard_add_overflow",
+          "SiluResource.guard_mul_overflow",
+          "SiluResource.guard_mul_overflow_neg",
+          "SiluResource.guard_zero_denominator",
+          "SiluResource.guard_narrow_overflow",
+          "SiluResource.guard_narrow_overflow_neg",
+          "SiluResource.guard_success",
+          "SiluResource.guardOps_le",
+          "SiluResource.guardOps_strict",
+          "SiluResource.path_decomposition",
+          "SiluResource.success_witness_upper",
+          "SiluResource.success_witness_lower",
+          "SiluResource.success_witness_max"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    },
+    {
+      "id": "StoredRelocateAll",
+      "path": "proof/resource/StoredRelocateAll_gate.py",
+      "sha256": "845520ce9325f77392ef104d34ceafb7f822bbd0ddc2b28069267024f4514e58",
+      "tracked": true,
+      "green_marker": "STORED_RELOCATE_ALL_SOURCE_RESOURCE_OK",
+      "red_marker": {
+        "printed": [
+          "STORED_RELOCATE_ALL_REAL_SOURCE_CONTROL_RED"
+        ],
+        "control_reject": [
+          "STORED_RELOCATE_ALL_CONTROL_NOT_ATTRIBUTABLE"
+        ],
+        "control_target_missing": [
+          "STORED_RELOCATE_ALL_CONTROL_TARGET_MISSING"
+        ]
+      },
+      "mutation": [
+        {
+          "control": "stored-traversal-cursor-advance",
+          "file": "src/table.rs",
+          "needle": "            entry_at += 1;",
+          "replacement": "            entry_at += 2;",
+          "occurrences": 1,
+          "needle_occurrences": 1
+        }
+      ],
+      "targets": {
+        "audit_marker": "STORED_RELOCATE_ALL_KERNEL_OK",
+        "audit_artifact": "proof/resource/StoredRelocateAllResource.lean",
+        "audit_artifact_present": true,
+        "marker_in_artifact": true,
+        "audited_headlines": [
+          "StoredRelocateAllResource.root_forwards",
+          "StoredRelocateAllResource.relocate_all_is_loop_at_zero",
+          "StoredRelocateAllResource.len_is_entries_length",
+          "StoredRelocateAllResource.relocate_step",
+          "StoredRelocateAllResource.relocate_exit",
+          "StoredRelocateAllResource.relocate_refusal",
+          "StoredRelocateAllResource.step_exclusive",
+          "StoredRelocateAllResource.step_is_exit_or_refusal",
+          "StoredRelocateAllResource.entryCharge_le",
+          "StoredRelocateAllResource.copyCharge_le",
+          "StoredRelocateAllResource.copy_is_two_per_entry",
+          "StoredRelocateAllResource.cloneI64_is_identity",
+          "StoredRelocateAllResource.cloneStoredI64_is_identity",
+          "StoredRelocateAllResource.relocate_all_loop_eq",
+          "StoredRelocateAllResource.loop_step_eq",
+          "StoredRelocateAllResource.relocate_all_total_work",
+          "StoredRelocateAllResource.root_total_work",
+          "StoredRelocateAllResource.zero_usize_val",
+          "StoredRelocateAllResource.vec_index_zero",
+          "StoredRelocateAllResource.vec_index_usize_zero",
+          "StoredRelocateAllResource.vec_index_mut_usize_empty",
+          "StoredRelocateAllResource.vec_index_mut_usize_one",
+          "StoredRelocateAllResource.planLen_plan1",
+          "StoredRelocateAllResource.plan1_index",
+          "StoredRelocateAllResource.slot_index",
+          "StoredRelocateAllResource.resvFull_index_mut_usize",
+          "StoredRelocateAllResource.resvEmpty_index_mut_usize",
+          "StoredRelocateAllResource.retarget_same",
+          "StoredRelocateAllResource.cloneHeld_is_word_copy",
+          "StoredRelocateAllResource.relocate_entry_ok",
+          "StoredRelocateAllResource.relocate_entry_refuses",
+          "StoredRelocateAllResource.success_witness",
+          "StoredRelocateAllResource.refusal_witness"
+        ],
+        "control_targets": []
+      },
+      "budget_s": 540,
+      "inner_s": 525,
+      "flock_wait_s": 530,
+      "lane": "/tmp/opencode/apeiron-lane-1.lock"
+    }
+  ]
+}

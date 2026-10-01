@@ -1,0 +1,346 @@
+# Artefact registry for `tools/gate`. Owned by the E1 wave table in `docs/plan.md`; a document a
+# gate parses lives in `docs/contracts/` and is edited under a task, never by a worker.
+#
+# Schema. One `[[artifact]]` table per row, seven required keys, no defaults:
+#
+#   id       stable and unique; a repeated id is refused before any payload is compared, because
+#            no identity in a manifest that registers one id twice is authoritative
+#   kind     one of: gate | receipt | doc | lean | rust
+#   path     repo-relative; a file or a directory
+#   sha256   64 lowercase hex digits, no `sha256:` prefix, of `path`:
+#              file      the sha256 of its bytes
+#              directory the sha256 of the concatenation, in ascending repo-relative path order, of
+#                       one `<hex>  <repo-relative path>\n` line per contained file; path components
+#                       beginning with `.` and the component `target` are skipped, so build products
+#                       and editor scratch do not enter an identity
+#   gate     the exact command that checks this artefact, run from the repository root
+#   control  the exact command that exercises the rejecting path, or "" when the artefact exposes
+#            none. A control is a command that must itself require a refusal: the `*_gate.py`
+#            controls mutate the real source, require the proof to go red with an attributable
+#            diagnostic, restore it, and exit 0 only if all three happened
+#   budget_s wall-clock seconds the gate may take; 1..=600, since AGENTS.md section 10 fails any
+#            local invocation that reaches ten minutes
+#
+# What `gate docs check` does and does not establish. It loads this file through
+# `tools/gate/adapter.rs`, hashes each `path` and asks `tools/gate/core.rs` whether the recorded
+# identity still describes the tree. It reports the rows loaded, a repeated id and a drifted
+# digest. It does not run the `gate` or `control` column: a column here records the command a row
+# must be checked with, and whether that command currently exits 0 is a separate claim owned by
+# the wave that runs it. The digests below were produced by this same loader, not by a second
+# implementation, and they bind to the bytes on disk when it last reported clean.
+#
+# Seeded rows: `docs/plan.md`, `tools/gate/`, and the 36 `proof/resource/*_gate.py` (30 tracked,
+# 6 untracked: KvAppend, LmHead, Matvec, RegenRelocateAll, RegenRelocateEntry, RowDotAdmission).
+# `RegenRelocateEntry_gate.py` exposes no `--check` flag, so its `gate` column carries the bare
+# command. No `gate` or `control` column here has been executed: the columns record the command each
+# row must be checked with, and running them is the owning wave's evidence.
+#
+# The `tools/gate` row hashes a directory, so it re-reports a drift whenever a sibling wave adds or
+# changes a file in that crate. That is the identity working, not a defect: the wave that writes the
+# file refreshes this row in the same task. `docs/plan.md` and the gate scripts are single files and
+# drift only when their own bytes change.
+
+[[artifact]]
+id       = "docs/plan.md"
+kind     = "doc"
+path     = "docs/plan.md"
+sha256   = "a58a650a2c2f30e95d71da98c1a2c1a6813b35f48851f4bef075f11e39b70f1d"
+gate     = "python3 tools/check-claims.py"
+control  = "python3 tools/check-claims.py --self-test"
+budget_s = 540
+[[artifact]]
+id       = "tools/gate"
+kind     = "rust"
+path     = "tools/gate/"
+sha256   = "9428d8317789c39dfd36bbd59d3e71b8c3f089584db95afad56b808ad0050340"
+gate     = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets"
+control  = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets repeated_id_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets digest_mismatch_is_refused"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/ApplyPending_gate.py"
+kind     = "gate"
+path     = "proof/resource/ApplyPending_gate.py"
+sha256   = "625669d295362b66d910b474bdd685d6759ac2f223da0f40fc57198bdc372a93"
+gate     = "python3 proof/resource/ApplyPending_gate.py --check"
+control  = "python3 proof/resource/ApplyPending_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Argmax_gate.py"
+kind     = "gate"
+path     = "proof/resource/Argmax_gate.py"
+sha256   = "0fe47e3665aa78ae8053f0cef445870d9319b3886ded04d7b75272dac53e7b17"
+gate     = "python3 proof/resource/Argmax_gate.py --check"
+control  = "python3 proof/resource/Argmax_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Capacity_gate.py"
+kind     = "gate"
+path     = "proof/resource/Capacity_gate.py"
+sha256   = "2dfb8a8101554ba8a86b100d1f2e07586bf7a4eb45ce68e02fe5f367db722c9f"
+gate     = "python3 proof/resource/Capacity_gate.py --check"
+control  = "python3 proof/resource/Capacity_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CheckFragment_gate.py"
+kind     = "gate"
+path     = "proof/resource/CheckFragment_gate.py"
+sha256   = "abcffb9b444eddd553416712817e389050a6c0eabb9cdf050658d4f0779d9641"
+gate     = "python3 proof/resource/CheckFragment_gate.py --check"
+control  = "python3 proof/resource/CheckFragment_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CoordFinish_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordFinish_gate.py"
+sha256   = "727d096bb9e4d8a6546716ba34b892638972428ba7c329ba0dc931c6be91142f"
+gate     = "python3 proof/resource/CoordFinish_gate.py --check"
+control  = "python3 proof/resource/CoordFinish_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CoordId_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordId_gate.py"
+sha256   = "aca9adb456812791c80d18ef8ddc1f7db123cd198d1a0e167829085131aa586b"
+gate     = "python3 proof/resource/CoordId_gate.py --check"
+control  = "python3 proof/resource/CoordId_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CoordPlace_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordPlace_gate.py"
+sha256   = "dc307d09efc4889bc10c0193a9b765837aae60392126ebdce373a95364eeab69"
+gate     = "python3 proof/resource/CoordPlace_gate.py --check"
+control  = "python3 proof/resource/CoordPlace_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CoordSpread_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordSpread_gate.py"
+sha256   = "bb4ffebe0114d004ab673d49907e29fc43d3116a5b6b3cf7012b788cfb67301e"
+gate     = "python3 proof/resource/CoordSpread_gate.py --check"
+control  = "python3 proof/resource/CoordSpread_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/CoordUnspread_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordUnspread_gate.py"
+sha256   = "4d20edc624c6dda1b9e4ae92515cd9cc89921487ecb5c31721b741b8127e41c5"
+gate     = "python3 proof/resource/CoordUnspread_gate.py --check"
+control  = "python3 proof/resource/CoordUnspread_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/F16Split_gate.py"
+kind     = "gate"
+path     = "proof/resource/F16Split_gate.py"
+sha256   = "fad15e1e7dec29875f6163f14e5f34ea03a73bbe77db74bbeba1f3382b6f735a"
+gate     = "python3 proof/resource/F16Split_gate.py --check"
+control  = "python3 proof/resource/F16Split_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/FixedExp_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedExp_gate.py"
+sha256   = "7740a947986f56c2f8a5b552bb1c70b5021cc76df9ecfb31d5da6c23443688ee"
+gate     = "python3 proof/resource/FixedExp_gate.py --check"
+control  = "python3 proof/resource/FixedExp_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/FixedRsqrt_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedRsqrt_gate.py"
+sha256   = "196aa10a924fc38569f4b8b801e644c941a2e012889592b3471807c71be860d9"
+gate     = "python3 proof/resource/FixedRsqrt_gate.py --check"
+control  = "python3 proof/resource/FixedRsqrt_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/FixedTrig_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedTrig_gate.py"
+sha256   = "3d2bb299b778a9bb083d1d8a2186e06425fc1ffceb025977fa4f97b155f29320"
+gate     = "python3 proof/resource/FixedTrig_gate.py --check"
+control  = "python3 proof/resource/FixedTrig_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Fwht_gate.py"
+kind     = "gate"
+path     = "proof/resource/Fwht_gate.py"
+sha256   = "05e2536a1578ddff0b02506d9d3ef1e697b663c84e72d2e0c6292d71a5de6d0a"
+gate     = "python3 proof/resource/Fwht_gate.py --check"
+control  = "python3 proof/resource/Fwht_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Gguf_gate.py"
+kind     = "gate"
+path     = "proof/resource/Gguf_gate.py"
+sha256   = "e9f88888e0d4674fd672babf686011e2a61d0a966f8f817601e029587114423f"
+gate     = "python3 proof/resource/Gguf_gate.py --check"
+control  = "python3 proof/resource/Gguf_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/I64Codec_gate.py"
+kind     = "gate"
+path     = "proof/resource/I64Codec_gate.py"
+sha256   = "158a6afecb99c6281252b1af330ffa13fa5767d07d598ba3eeffb2de2af7fa33"
+gate     = "python3 proof/resource/I64Codec_gate.py --check"
+control  = "python3 proof/resource/I64Codec_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/I64Decode_gate.py"
+kind     = "gate"
+path     = "proof/resource/I64Decode_gate.py"
+sha256   = "5f4e43a2918573062e7b76fbf964bdb551f62ceeab06a1b00d84a7b98617d0c5"
+gate     = "python3 proof/resource/I64Decode_gate.py --check"
+control  = "python3 proof/resource/I64Decode_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/KvAppend_gate.py"
+kind     = "gate"
+path     = "proof/resource/KvAppend_gate.py"
+sha256   = "5a6039d0c0f31a14b462e2b154fec4194afaf5eebab94ff25f38c07432d02f5d"
+gate     = "python3 proof/resource/KvAppend_gate.py --check"
+control  = "python3 proof/resource/KvAppend_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/LmHead_gate.py"
+kind     = "gate"
+path     = "proof/resource/LmHead_gate.py"
+sha256   = "0b9cc8f5d9c69b3197ae55e6f79315280dce8d7135efcf9317ac0fbc39179c5f"
+gate     = "python3 proof/resource/LmHead_gate.py --check"
+control  = "python3 proof/resource/LmHead_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Matvec_gate.py"
+kind     = "gate"
+path     = "proof/resource/Matvec_gate.py"
+sha256   = "4b761ea3c69f34ea2503cfd7c7a45caa2f98ea772f8ee081d2ca4fe7f5de04ab"
+gate     = "python3 proof/resource/Matvec_gate.py --check"
+control  = "python3 proof/resource/Matvec_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Packing_gate.py"
+kind     = "gate"
+path     = "proof/resource/Packing_gate.py"
+sha256   = "5f90a33913c2d812a02ff4f404ade611fd08a3e315bfd1e5a804242d3932e2ff"
+gate     = "python3 proof/resource/Packing_gate.py --check"
+control  = "python3 proof/resource/Packing_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Policy_gate.py"
+kind     = "gate"
+path     = "proof/resource/Policy_gate.py"
+sha256   = "b8eb08ec02a8757f0cbb6af0e8d5057073b3ffe5cb57a3de3097c42525015af9"
+gate     = "python3 proof/resource/Policy_gate.py --check"
+control  = "python3 proof/resource/Policy_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/PublishPrepared_gate.py"
+kind     = "gate"
+path     = "proof/resource/PublishPrepared_gate.py"
+sha256   = "f9fb9b6c61df461946ceb074aab3431590d0f3536d1594a134a324fdeee57aae"
+gate     = "python3 proof/resource/PublishPrepared_gate.py --check"
+control  = "python3 proof/resource/PublishPrepared_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Q4KCodes_gate.py"
+kind     = "gate"
+path     = "proof/resource/Q4KCodes_gate.py"
+sha256   = "6937c678fb67087b4a6c1b1466476c2c0c0fe5bb80729cd289eae3b351c49ffc"
+gate     = "python3 proof/resource/Q4KCodes_gate.py --check"
+control  = "python3 proof/resource/Q4KCodes_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Q6KCodes_gate.py"
+kind     = "gate"
+path     = "proof/resource/Q6KCodes_gate.py"
+sha256   = "6c0f8ff0643466d78673ef23f89ad6626c0f843434c78ce7d08a458c505e22a9"
+gate     = "python3 proof/resource/Q6KCodes_gate.py --check"
+control  = "python3 proof/resource/Q6KCodes_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RegenRelocateAll_gate.py"
+kind     = "gate"
+path     = "proof/resource/RegenRelocateAll_gate.py"
+sha256   = "4aefb25b3a598cd421cd678d6169bbf7257ecbb94f9950a6d1b26d7b4fe8e16f"
+gate     = "python3 proof/resource/RegenRelocateAll_gate.py --check"
+control  = "python3 proof/resource/RegenRelocateAll_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RegenRelocateEntry_gate.py"
+kind     = "gate"
+path     = "proof/resource/RegenRelocateEntry_gate.py"
+sha256   = "a44144551c2284675a2960d25e0f9d9244420b99ad3583db6643877475370f1a"
+gate     = "python3 proof/resource/RegenRelocateEntry_gate.py"
+control  = "python3 proof/resource/RegenRelocateEntry_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RelocateEntry_gate.py"
+kind     = "gate"
+path     = "proof/resource/RelocateEntry_gate.py"
+sha256   = "d748b7c57cf13d57750c955b70c6e403c53407da83465e4e466202354e7a92b5"
+gate     = "python3 proof/resource/RelocateEntry_gate.py --check"
+control  = "python3 proof/resource/RelocateEntry_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RmsNorm_gate.py"
+kind     = "gate"
+path     = "proof/resource/RmsNorm_gate.py"
+sha256   = "4e2d1b45cd364dbe2af7f21251d58d7514c09258b2c1170f59c4a471bbac549e"
+gate     = "python3 proof/resource/RmsNorm_gate.py --check"
+control  = "python3 proof/resource/RmsNorm_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Rope_gate.py"
+kind     = "gate"
+path     = "proof/resource/Rope_gate.py"
+sha256   = "568c56f54d2d47e5c6e472470e42a5fd1ba9f4484240f72234c61aa14a98007b"
+gate     = "python3 proof/resource/Rope_gate.py --check"
+control  = "python3 proof/resource/Rope_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RouteTopk_gate.py"
+kind     = "gate"
+path     = "proof/resource/RouteTopk_gate.py"
+sha256   = "24fac87eb7b8d8d47c8571a9dacda982f3b0c1439533778d273bbc1dc5d9a8f7"
+gate     = "python3 proof/resource/RouteTopk_gate.py --check"
+control  = "python3 proof/resource/RouteTopk_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RowDotAdmission_gate.py"
+kind     = "gate"
+path     = "proof/resource/RowDotAdmission_gate.py"
+sha256   = "5e3ed2929b97788303313fb3f80fb97d4a56e9cb8cdd4541cdbb2d45006c941f"
+gate     = "python3 proof/resource/RowDotAdmission_gate.py --check"
+control  = "python3 proof/resource/RowDotAdmission_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/RowDot_gate.py"
+kind     = "gate"
+path     = "proof/resource/RowDot_gate.py"
+sha256   = "2a8f077abf2f3feb893b3f838edf21c822a2b855db53644a8e1ca496fb7341ee"
+gate     = "python3 proof/resource/RowDot_gate.py --check"
+control  = "python3 proof/resource/RowDot_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Schedule_gate.py"
+kind     = "gate"
+path     = "proof/resource/Schedule_gate.py"
+sha256   = "458f33af16825389599a73e0ce99de70012522a96fc02b31ddb4a1a594ed5c81"
+gate     = "python3 proof/resource/Schedule_gate.py --check"
+control  = "python3 proof/resource/Schedule_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/Silu_gate.py"
+kind     = "gate"
+path     = "proof/resource/Silu_gate.py"
+sha256   = "019c6b0fb0ec8372ac0b90693c30da4e6d319cbb165107da29b14b1bb269aa2e"
+gate     = "python3 proof/resource/Silu_gate.py --check"
+control  = "python3 proof/resource/Silu_gate.py --controls"
+budget_s = 540
+[[artifact]]
+id       = "proof/resource/StoredRelocateAll_gate.py"
+kind     = "gate"
+path     = "proof/resource/StoredRelocateAll_gate.py"
+sha256   = "845520ce9325f77392ef104d34ceafb7f822bbd0ddc2b28069267024f4514e58"
+gate     = "python3 proof/resource/StoredRelocateAll_gate.py --check"
+control  = "python3 proof/resource/StoredRelocateAll_gate.py --controls"
+budget_s = 540

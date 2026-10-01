@@ -272,7 +272,9 @@ mod controls {
         };
         assert_eq!(
             validate(&m),
-            vec![Refusal::DuplicateRegistration("artifacts/reads/0001".into())]
+            vec![Refusal::DuplicateRegistration(
+                "artifacts/reads/0001".into()
+            )]
         );
 
         let submitted = Submitted {
@@ -293,7 +295,11 @@ mod controls {
         let m = Manifest {
             artifacts: vec![
                 registered("docs/plan.md", "aa11", &[]),
-                registered("artifacts/reads/0001", "bb22", &["docs/plan.md", "docs/policy.md"]),
+                registered(
+                    "artifacts/reads/0001",
+                    "bb22",
+                    &["docs/plan.md", "docs/policy.md"],
+                ),
             ],
         };
         assert_eq!(
