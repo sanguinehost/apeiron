@@ -18,6 +18,20 @@ Specifically:
 ### 1. Unified Recurrence
 For key dimension $d_k = 64$ and value dimension $d_v = 64$, state matrix $S_t \in \mathbb{R}^{d_v \times d_k}$ updates according to:
 $$S_t = S_{t-1} M_t + N_t$$
+
+* **say:** S sub t equals S sub t minus one times M sub t plus N sub t.
+* **means:** the state at step t is the previous state multiplied on the right by the transition
+  matrix and incremented by the additive write. The equations hold over any commutative ring; the
+  trichotomy ring $R[x]/(x^2 - \sigma)$ is the instance (split-complex numbers: Cockle, 1848; dual
+  numbers: Clifford, 1873), and no rounding or other term enters.
+* **vars:** $S_t$ — hidden state, $d_v \times d_k$ matrix over $R$; $M_t$ — transition matrix,
+  $d_k \times d_k$ over $R$; $N_t$ — additive write, $d_v \times d_k$ over $R$; $t$ — step index,
+  $\mathbb{N}$.
+* **apeiron:** `Nous.Seq.AffineMixer.affApply` defines the update as `S * p.M + p.N`;
+  `Nous.Seq.AffineMixer.step_eq_affApply` instantiates $M_t = A_t (1 - \beta_t k_t k_t^{\mathsf T})$
+  and $N_t = \beta_t v_t k_t^{\mathsf T}$, over `[CommRing R]`. Proved.
+* **physics:** no physical content.
+
 where:
 - $M_t = A_t \left(I - \beta_t (k_t \otimes k_t)\right)$
 - $N_t = \beta_t (v_t \otimes k_t)$
@@ -31,13 +45,48 @@ The transition matrix $A_t \in \mathbb{R}^{d_k \times d_k}$ instantiates the $\m
 An affine transition is represented by the pair $p = \langle M, N \rangle$.
 The composition law:
 $$\text{affComp}(p, q) = \langle q.M \cdot p.M, \; q.N \cdot p.M + p.N \rangle$$
+
+* **say:** aff comp of p and q equals the pair: q dot M times p dot M, and q dot N times p dot M
+  plus p dot N.
+* **means:** composing two affine steps multiplies their transition matrices and sweeps the earlier
+  write through the later transition; the inner step q applies first.
+* **vars:** $p, q$ — affine steps, pairs $\langle M, N \rangle$ with $M$ a $d_k \times d_k$ matrix
+  and $N$ a $d_v \times d_k$ matrix over $R$; $\text{affComp}$ — composition,
+  $\text{AffineStep} \to \text{AffineStep} \to \text{AffineStep}$.
+* **apeiron:** `Nous.Seq.AffineMixer.affComp` defines exactly this pair.
+* **physics:** no physical content.
+
 satisfies:
 $$\text{affApply}(\text{affComp}(p, q), S) = \text{affApply}(p, \text{affApply}(q, S))$$
+
+* **say:** aff apply of aff comp of p and q to S equals aff apply of p to aff apply of q to S.
+* **means:** applying the composite step equals applying q then p; composition agrees with action.
+* **vars:** $p, q$ — affine steps; $S$ — state, $d_v \times d_k$ matrix over $R$; $\text{affApply}$
+  — the action $S \mapsto S M + N$.
+* **apeiron:** `Nous.Seq.AffineMixer.affApply_comp` states this equality.
+* **physics:** no physical content.
+
 and is strictly associative over any commutative ring $R$:
 $$\text{affComp}(\text{affComp}(a, b), c) = \text{affComp}(a, \text{affComp}(b, c))$$
 
+* **say:** aff comp of aff comp of a and b with c equals aff comp of a with aff comp of b and c.
+* **means:** composition is associative, so where the chunks are split does not change the composite
+  step.
+* **vars:** $a, b, c$ — affine steps over $R$.
+* **apeiron:** `Nous.Seq.AffineMixer.affComp_assoc`.
+* **physics:** no physical content.
+
 This associativity establishes that multi-step chunk composition is algebraically identical to sequential unrolled recurrence over exact unrounded arithmetic:
 $$\text{recurrent\_eq\_chunked}: \text{scanSeq}(l_1 ++ l_2, S_0) = \text{scanSeq}(l_2, \text{scanSeq}(l_1, S_0))$$
+
+* **say:** scan seq of l one append l two from S zero equals scan seq of l two from scan seq of l one
+  from S zero.
+* **means:** scanning the concatenation of two step lists equals scanning the second from the state
+  the first produces, so chunked and sequential evaluation agree over exact arithmetic.
+* **vars:** $l_1, l_2$ — lists of affine steps; $S_0$ — initial state, $d_v \times d_k$ matrix over
+  $R$; $\text{scanSeq}$ — left fold of $\text{affApply}$; $++$ — list concatenation.
+* **apeiron:** `Nous.Seq.AffineMixer.recurrent_eq_chunked`.
+* **physics:** no physical content.
 
 ---
 
@@ -72,7 +121,7 @@ Command:
   - `affApply_comp`: composition theorem for action on state matrices.
   - `scanSeq_eq_compose`: equivalence of sequential scan and folded step composition.
   - `recurrent_eq_chunked`: chunked parallel scan matches sequential recurrence over exact arithmetic.
-  - `elliptic_2x2_mul_equiv`: 2D rotation block multiplication matches `RingCell` multiplication at $\sigma = -1$.
+  - `elliptic_2x2_mul_equiv`: rotation-matrix action identity on 2D vectors; correspondence to `RingCell` multiplication at $\sigma = -1$ is grade `anchor`.
 - **Mutation Control:**
   - Mutated file: `/home/socol/oc-tmp/e1-affine-mixer/control_copy/AffineMixer_mutant.lean`.
   - Mutation: Inverted matrix multiplication order in composition: `M := p.M * q.M` instead of `q.M * p.M`.

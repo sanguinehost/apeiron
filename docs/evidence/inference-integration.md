@@ -99,7 +99,7 @@ stale original extraction can account for the intended red.
 
 The affine traversal experiment has no supported speedup. Five quiet rotated rounds measure
 column/row median paired ratios 1.000292 prefill and 0.996381 decode; four-core ratios are 1.002071
-and 0.966693. [The receipt](bench/1790608521-astra-write-traversal.md) records the complete samples.
+and 0.966693. [The receipt](bench-ledger.md#1790608521-astra-write-traversal) records the complete samples.
 The candidate and its switch are removed. The executing loop matches its pre-experiment body;
 only a complexity comment and stronger scalar boundary/refusal tests remain. The four-core row
 measurement is 49.41 tokens/s on the i9, not a 60-FPS or low-end-machine result.
@@ -140,8 +140,8 @@ Each selected release model run passes four tests with three explicitly ignored.
 control swaps gate/up only in scheduled column zero and fails scalar parity at 64 columns of
 width seven; restoration passes. Both controls mutate disposable copies only.
 
-[Flat-buffer samples](bench/1790610276-astra-swiglu-batch.md) give median paired prefill ratio
-0.986669. [Owned-column samples](bench/1790611132-astra-swiglu-owned.md) give 1.027322, but
+[Flat-buffer samples](bench-ledger.md#1790610276-astra-swiglu-batch) give median paired prefill ratio
+0.986669. [Owned-column samples](bench-ledger.md#1790611132-astra-swiglu-owned) give 1.027322, but
 two of five prefill rounds regress, four-core prefill is 1.001618, and speculation loses four of
 five rounds in both settings. These samples do not justify the extra path; the decision is rejection,
 not a claim that its true performance effect is zero. The latest baseline measures 68.86 greedy

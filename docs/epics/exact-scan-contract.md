@@ -10,7 +10,7 @@
 
 ### Problem
 
-Prefill runs at 0.51× llama.cpp: `docs/evidence/bench/1790620216-ns-r003.md` measures apeiron pp
+Prefill runs at 0.51× llama.cpp: `docs/evidence/bench-ledger.md#1790620216-ns-r003` measures apeiron pp
 median 299.50 tok/s against llama.cpp pp 585.48 (per-round ratio median 0.51, min 0.41, max 0.52) on
 `Qwen3.5-0.8B-Q8_0.gguf`, pp 200, 5 quiet rounds; tg ratio is 1.24. The same receipt attributes
 1.049 ms/token to `affine.heads` (32.8% of the 3.20 ms/token prefill wall, 90 calls); the share is
@@ -398,7 +398,7 @@ CORPUS:     Nous.Model.FaceRecurrence.{affComp_assoc,recur_eq_scan,scan_split,re
             Numeric.EngineAttnRefinement.attnScoreInt,attn_domain; Numeric.AttnSoftmaxPerturb.not_attn_head_refines;
             Apeiron.Trichotomy.AnyRing.{ringMul_assoc,ringAffineFold_apply,ringAffineFold_append};
             Substrate...AttentionSpinor.{softmax_attention_is_online_spinor,oaDen_fuse,oaNum_fuse,aff_chunked_eq_full}
-REFERENCE:  /home/socol/Workspace/apeiron/docs/evidence/bench/1790620216-ns-r003.md;
+REFERENCE:  /home/socol/Workspace/apeiron/docs/evidence/bench-ledger.md#1790620216-ns-r003;
             /home/socol/Workspace/apeiron/src/engine/mixer.rs; /home/socol/Workspace/apeiron/src/engine/attn.rs
 GATE:       none yet - W1-T1 carries the first gate: `cargo test --locked --lib engine::mixer::tests`, 540 s
 GRADE:      planning; corpus declarations read are proved in their packages, sibling ones are pointers

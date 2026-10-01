@@ -265,6 +265,12 @@ Matrix-vector multiplication $y = W x$ with low-bit discrete weights $W \in \mat
 Partitioning columns into groups of size $g$ yields subvectors in $\mathcal{A}^g$.
 The **sharing factor** is defined as:
 $$\text{Sharing Factor} = \frac{\text{Rows}}{\text{Distinct Code Patterns in Group}}$$
+
+* **say:** Sharing Factor equals Rows divided by Distinct Code Patterns in Group.
+* **means:** the average number of matrix rows that share each unique quantized code pattern within a sub-block of columns, quantifying the reuse available for precomputed lookup tables (Mailman algorithm, Liberty and Zucker 2009; Four Russians algorithm, Arlazarov et al. 1970).
+* **vars:** $\text{Sharing Factor} \in \mathbb{R}_{\ge 1}$ — reuse ratio; $\text{Rows} \in \mathbb{N}$ — total matrix rows $M$; $\text{Distinct Code Patterns in Group} \in \mathbb{N}$ — number of unique subvector patterns observed across rows in a column group of width $g \in \mathbb{N}$.
+* **apeiron:** `none — anchor`. Empirical definition of row pattern repetition ratio; no Lean corpus declaration.
+* **physics:** multiplicity of identical state configurations in a discrete partition; no physical content.
 Under the Mailman / Four-Russians algorithm, all $|\mathcal{A}|^g$ possible linear combinations of the active $g$ inputs are precomputed into a lookup table (LUT). Each row then simply indexes its precomputed pattern, eliminating $(g-1)$ additions per row.
 
 ### 6.2 Ternary-Bonsai-1.7B (PQ2_0: 2-bit Trit Codes, $\mathcal{A} = \{-1, 0, 1\}$)

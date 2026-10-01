@@ -6,7 +6,7 @@ This probe evaluates the **certified sparse softmax** mechanism specified in `do
 
 ### Semantics Under Test (grade `model` until measured)
 In Apeiron's integer attention engine (`attn.rs:127`):
-- Softmax numerator `exp_at(score, max)` returns **exactly 0** when `score - max < -16 * ONE` (natural-log units, `EngineAttnRefinement.exp_at_window`).
+- Softmax numerator `exp_at(score, max)` returns **exactly 0** when `score - max < -16 * ONE` (natural-log units, `EngineAttnRefinement.exp_at_underflow`).
 - Any key whose attention score satisfies $\text{score}_s < \max_j \text{score}_j - 16$ contributes identically zero to both the partition denominator and the accumulated value mixture.
 - If keys are grouped into blocks of size $B \in \{16, 64\}$, and block upper bounds $U_b \ge \max_{s \in b} \text{score}_s$ are maintained:
   - Blocks visited in descending bound order allow pruning whenever $U_b < M_{\text{running}} - 16$, where $M_{\text{running}} \le M_{\text{true}}$ is the maximum true score found among inspected blocks so far.
@@ -44,12 +44,62 @@ For query $q \in \mathbb{R}^d$ and a block of $B$ keys $\{k_s\}_{s \in b} \subse
 
 1. **Box Bound (Per-Channel Interval Arithmetic)**:
    $$\text{lo}_i = \min_{s \in b} k_{s, i}, \quad \text{hi}_i = \max_{s \in b} k_{s, i}$$
+
+   * **say:** lo sub i equals the minimum over s in b of k sub s i; hi sub i equals the maximum over
+     s in b of k sub s i.
+   * **means:** each channel of a block takes the smallest and largest key component, giving the box
+     that contains every key in the block (interval arithmetic: Moore, 1966).
+   * **vars:** $b$ — key block, a set of key indices; $k_{s,i}$ — component $i$ of key $s$,
+     $\mathbb{R}$; $\text{lo}_i, \text{hi}_i$ — per-channel interval endpoints, $\mathbb{R}$; $i$ —
+     channel index, $\{1, \dots, d\}$.
+   * **apeiron:** `none — anchor`. The min/max construction is the probe's. The corpus carries the
+     interval as data, not this construction: `Nous.Seq.CertifiedSoftmax.Block` has fields `lo` and
+     `hi`, and states soundness of a supplied interval separately.
+   * **physics:** no physical content.
+
    $$\text{BoxBound}(q, b) = \tau \sum_{i=1}^d \max(q_i \cdot \text{lo}_i, \, q_i \cdot \text{hi}_i)$$
+
+   * **say:** Box bound of q and b equals tau times the sum over i from one to d of the larger of
+     q sub i times lo sub i and q sub i times hi sub i.
+   * **means:** the attention scale times the per-channel worst-case inner product bounds every key
+     in the block, so the block can be skipped whole when the bound falls below the running maximum.
+   * **vars:** $q$ — query, $\mathbb{R}^d$; $\text{lo}_i, \text{hi}_i$ — channel interval endpoints,
+     $\mathbb{R}$; $\tau = 1/\sqrt{d}$ — attention scale, $\mathbb{R}_{>0}$; $d$ — head dimension,
+     $\mathbb{N}$; $\text{BoxBound}(q,b)$ — block upper bound, $\mathbb{R}$.
+   * **apeiron:** `Nous.Seq.CertifiedSoftmax.box_bound_sound` proves $q \cdot k \le
+     \sum_i \max(q_i \cdot \text{lo}_i, q_i \cdot \text{hi}_i)$ over $\mathbb{Z}$ when
+     $\text{lo} \le k \le \text{hi}$ componentwise, and `Nous.Seq.CertifiedSoftmax.boxBound` is the
+     sum. The declarations carry the unscaled bound; the probe's $\tau > 0$ multiplies both sides.
+   * **physics:** no physical content.
    *Soundness*: Since $\forall s \in b$, $\text{lo}_i \le k_{s, i} \le \text{hi}_i$, we have $q_i \cdot k_{s, i} \le \max(q_i \cdot \text{lo}_i, q_i \cdot \text{hi}_i)$ for all $i$. Summing over $i$ guarantees $\max_{s \in b} (q \cdot k_s) \le \text{BoxBound}(q, b)$.
 
 2. **Ball Bound (Cauchy-Schwarz Outer Sphere)**:
    $$c = \frac{1}{B} \sum_{s \in b} k_s, \quad r = \max_{s \in b} \|k_s - c\|_2$$
+
+   * **say:** c equals one over B times the sum over s in b of k sub s; r equals the maximum over s
+     in b of the norm of k sub s minus c.
+   * **means:** the block is summarised by its centroid and by the radius of the smallest ball around
+     that centroid containing every key.
+   * **vars:** $c$ — block centroid, $\mathbb{R}^d$; $r$ — block radius, $\mathbb{R}_{\ge 0}$;
+     $k_s$ — key vector, $\mathbb{R}^d$; $B$ — block size, $\mathbb{N}$; $\|\cdot\|_2$ — Euclidean
+     norm.
+   * **apeiron:** `none — anchor`. A definition of the summary quantity; the corpus theorem
+     `Nous.Seq.CertifiedSoftmax.ball_bound_sound` takes $c$ and $r$ as hypotheses and does not
+     define them.
+   * **physics:** no physical content.
+
    $$\text{BallBound}(q, b) = \tau \left( q \cdot c + r \|q\|_2 \right)$$
+
+   * **say:** Ball bound of q and b equals tau times q dot c plus r times the norm of q.
+   * **means:** the centroid score plus the Cauchy-Schwarz residual (Cauchy, 1821; Schwarz, 1888)
+     bounds every key in the block.
+   * **vars:** $q$ — query, $\mathbb{R}^d$; $c$ — block centroid, $\mathbb{R}^d$; $r$ — block radius,
+     $\mathbb{R}_{\ge 0}$; $\|q\|_2$ — query norm; $\tau = 1/\sqrt{d}$ — attention scale,
+     $\mathbb{R}_{>0}$.
+   * **apeiron:** `Nous.Seq.CertifiedSoftmax.ball_bound_sound` proves $q \cdot k \le q \cdot c +
+     r \|q\|$ in an inner-product space when $\|k - c\| \le r$; the probe's $\tau$ multiplies both
+     sides.
+   * **physics:** no physical content.
    *Soundness*: By Cauchy-Schwarz, $q \cdot (k_s - c) \le \|q\|_2 \|k_s - c\|_2 \le r \|q\|_2$.
 
 3. **Windowed Exact Softmax Invariant**:

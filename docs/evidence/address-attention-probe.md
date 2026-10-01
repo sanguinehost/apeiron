@@ -9,6 +9,12 @@ If every key vector $k_s$ in a sequence of length $t$ is snapped to an address $
 
 $$\sum_{s=1}^t \exp(q \cdot k_s) v_s = \sum_{a \in \text{occupied}} \exp(q \cdot c_a) \left( \sum_{s: \text{addr}(s)=a} v_s \right)$$
 
+* **say:** the sum over s from one to t of the exponential of q dot k sub s times v sub s equals the sum over a in occupied of the exponential of q dot c sub a times the sum over s such that addr of s equals a of v sub s.
+* **means:** when key vectors are quantized to discrete codebook centers, unnormalized attention weights are constant on each key-equivalence class, so value vectors within each cluster pre-accumulate before scoring.
+* **vars:** $q \in \mathbb{R}^d$ — query vector; $k_s \in \mathbb{R}^d$ — key vector at position $s$; $v_s \in \mathbb{R}^{d_v}$ — value vector at position $s$; $t \in \mathbb{N}$ — sequence length; $\text{addr}: \{1, \dots, t\} \to \mathcal{A}$ — quantization index mapping; $c_a \in \mathbb{R}^d$ — codebook centroid for address $a$; $\text{occupied} \subseteq \mathcal{A}$ — subset of distinct addresses appearing in the prefix; $\exp$ — exponential function (Leonhard Euler, 1748); $\cdot$ — Euclidean dot product (Josiah Willard Gibbs, 1881).
+* **apeiron:** `none — anchor`. Finite summation reindexing by equivalence classes; no Lean corpus declaration carries this discrete address-collapse attention identity.
+* **physics:** clustering identical phase or field charges to factor out repeated field interactions; no physical content in the neural key cache.
+
 If keys frequently collide into a sublinear set of addresses ($|\text{occupied}| \ll t$, e.g. $|\text{occupied}| \sim \mathcal{O}(\log t)$ or $\mathcal{O}(t^\alpha)$ with $\alpha < 0.5$), then computing attention over the whole past costs $\mathcal{O}(|\text{occupied}|)$ inner products per token instead of $\mathcal{O}(t)$, achieving subquadratic decode without dropping tokens or pruning the context.
 
 ### Question
@@ -69,6 +75,12 @@ Each scheme operates per layer and KV head on keys of dimension $d=64$:
 To confirm that the collapsed histogram formulation is mathematically exact and not an approximation, direct sum attention and the grouped histogram sum were evaluated in `float64` across 10 random query vectors and key sequences of length $t = 2,048$ with 128 discrete code centres:
 
 $$\text{Direct}: \quad \frac{\sum_{s=1}^t \exp(q \cdot k_s) v_s}{\sum_{s=1}^t \exp(q \cdot k_s)}, \qquad \text{Histogram}: \quad \frac{\sum_{a \in \text{occ}} \exp(q \cdot c_a) \left(\sum_{s: \text{addr}(s)=a} v_s\right)}{\sum_{a \in \text{occ}} \exp(q \cdot c_a) \cdot \text{count}(a)}$$
+
+* **say:** Direct: the sum over s from one to t of exp of q dot k sub s times v sub s over the sum over s from one to t of exp of q dot k sub s; Histogram: the sum over a in occ of exp of q dot c sub a times the sum over s with addr of s equal to a of v sub s, all over the sum over a in occ of exp of q dot c sub a times count of a.
+* **means:** normalized softmax attention evaluated directly token by token matches normalized attention evaluated by grouping tokens into identical key addresses and scaling each address weight by its occupancy count.
+* **vars:** $q \in \mathbb{R}^d$ — query vector; $k_s \in \mathbb{R}^d$ — key vector; $v_s \in \mathbb{R}^{d_v}$ — value vector; $t \in \mathbb{N}$ — sequence length; $c_a \in \mathbb{R}^d$ — cluster code center; $\text{occ} \subseteq \mathcal{A}$ — set of occupied addresses; $\text{addr}(s)$ — address assignment for token $s$; $\text{count}(a) = |\{s \in \{1,\dots,t\} : \text{addr}(s) = a\}| \in \mathbb{N}$ — token multiplicity at address $a$; $\exp$ — exponential function (Euler, 1748).
+* **apeiron:** `none — anchor`. Exact algebraic equivalence of normalized direct sum and occupancy histogram; no Lean corpus declaration.
+* **physics:** weighted center-of-mass equivalence under discrete spatial partitioning; no physical content.
 
 | Query Sample | Sequence Length $t$ | Occupied Addresses | Max Absolute Difference |
 |---|---|---|---|

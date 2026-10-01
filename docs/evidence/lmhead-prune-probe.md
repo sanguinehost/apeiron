@@ -53,21 +53,60 @@ All evaluated pruning methods are **exact**: an index or cluster is skipped if a
 
 ### 3.1 Method 1: Ball Bound (Cauchy–Schwarz Outer Sphere)
 The $V$ rows $\{w_i\}_{i=1}^V \subset \mathbb{R}^D$ are partitioned into $K \in \{1024, 4096, 16384\}$ clusters $C_k$ using mini-batch K-means. For each cluster $k$:
+
 $$c_k = \frac{1}{|C_k|} \sum_{i \in C_k} w_i, \quad r_k = \max_{i \in C_k} \|w_i - c_k\|_2$$
+
+* **say:** c sub k equals one over the size of C sub k times the sum over i in C sub k of w sub i; r sub k equals the maximum over i in C sub k of the norm of w sub i minus c sub k.
+* **means:** each cluster gets its mean row and the radius of the smallest ball around that mean holding the cluster.
+* **vars:** $c_k$ — cluster centroid, $\mathbb{R}^D$; $r_k$ — cluster radius, $\mathbb{R}_{\ge 0}$; $C_k$ — the cluster set; $K$ — cluster count.
+* **apeiron:** `none — anchor`. A definition of the clustering quantity; no corpus declaration.
+* **physics:** no physical content.
+
 For query $h \in \mathbb{R}^D$, Cauchy–Schwarz gives:
+
 $$\forall i \in C_k, \quad h \cdot w_i = h \cdot c_k + h \cdot (w_i - c_k) \le h \cdot c_k + \|h\|_2 r_k \equiv \text{Bound}(k)$$
+
+* **say:** for every i in C sub k, h dot w sub i equals h dot c sub k plus h dot, w sub i minus c sub k; at most h dot c sub k plus the norm of h times r sub k, which is defined as Bound of k.
+* **means:** scoring the centroid plus the ball radius bounds every row in the cluster, so a cluster can be skipped whole when its bound falls below the running maximum.
+* **vars:** $h$ — query, $\mathbb{R}^D$; $w_i$ — vocabulary row, $\mathbb{R}^D$; $c_k, r_k$ — centroid and radius; $\text{Bound}(k)$ — the cluster upper bound, $\mathbb{R}$.
+* **apeiron:** `none — anchor`. Cauchy–Schwarz (Bunyakovsky, 1859; Cauchy, 1821); no corpus declaration.
+* **physics:** no physical content.
+
 Clusters are visited in descending order of $\text{Bound}(k)$. Rows in visited clusters are evaluated, updating running maximum $m$. When the next cluster has $\text{Bound}(k) < m$, the search stops.
 - Centroid scoring cost: $K \times D$ MACs.
 - Row evaluation cost: $\sum_{k \in \text{visited}} |C_k| \times D$ MACs.
 
 ### 3.2 Method 2: PCA-Rotated Two-Level Bound
+
 Rows of $W$ are projected onto the top-$d$ principal subspace ($d \in \{32, 64\}$) spanned by orthonormal columns $P \in \mathbb{R}^{D \times d}$ ($P^T P = I_d$):
+
 $$w_{i, \text{top}} = w_i P, \quad w_{i, \text{res}} = w_i - w_{i, \text{top}} P^T, \quad R_i = \|w_{i, \text{res}}\|_2 = \sqrt{\max(0, \|w_i\|_2^2 - \|w_{i, \text{top}}\|_2^2)}$$
+
+* **say:** w sub i top equals w sub i P; w sub i res equals w sub i minus w sub i top P transpose; R sub i equals the norm of w sub i res, which is the square root of the larger of zero and the norm of w sub i squared minus the norm of w sub i top squared.
+* **means:** a row splits into its projection onto the top principal subspace and the residual outside it, and the residual norm follows from orthogonality.
+* **vars:** $w_{i,\text{top}}$ — projected row, $\mathbb{R}^d$; $w_{i,\text{res}}$ — residual, $\mathbb{R}^D$; $P$ — orthonormal basis, $\mathbb{R}^{D\times d}$; $R_i$ — residual norm, $\mathbb{R}_{\ge 0}$; $d$ — subspace dimension.
+* **apeiron:** `none — anchor`. The orthogonality identity is Mathlib's `norm_sq_sub`-style; no corpus declaration.
+* **physics:** no physical content.
+
 For query $h$:
+
 $$h_{\text{top}} = h P, \quad \|h_{\text{res}}\|_2 = \sqrt{\max(0, \|h\|_2^2 - \|h_{\text{top}}\|_2^2)}$$
+
+* **say:** h top equals h P; the norm of h res is the square root of the larger of zero and the norm of h squared minus the norm of h top squared.
+* **means:** the query splits the same way, so the exact inner product splits into a projected part and a residual part.
+* **vars:** $h_{\text{top}}$ — projected query, $\mathbb{R}^d$; $h_{\text{res}}$ — query residual, $\mathbb{R}^D$; $P$ — the same orthonormal basis.
+* **apeiron:** `none — anchor`. No corpus declaration.
+* **physics:** no physical content.
+
 By orthogonality and Cauchy–Schwarz:
+
 $$h \cdot w_i = h_{\text{top}} \cdot w_{i, \text{top}} + h_{\text{res}} \cdot w_{i, \text{res}} \le h_{\text{top}} \cdot w_{i, \text{top}} + \|h_{\text{res}}\|_2 R_i \equiv \text{Bound}(i)$$
-Rows are filtered against a candidate maximum $m$. Rows with $\text{Bound}(i) < m$ are skipped.
+
+* **say:** h dot w sub i equals h top dot w sub i top plus h res dot w sub i res, and at most h top dot w sub i top plus the norm of h res times R sub i, which is defined as Bound of i.
+* **means:** scoring the projected part plus the residual norms bounds the row, so a row can be skipped when its bound falls below the running maximum.
+* **vars:** $h_{\text{top}}, w_{i,\text{top}}$ — projected query and row, $\mathbb{R}^d$; $h_{\text{res}}, w_{i,\text{res}}$ — residuals, $\mathbb{R}^D$; $\text{Bound}(i)$ — the row upper bound, $\mathbb{R}$.
+* **apeiron:** `none — anchor`. No corpus declaration.
+* **physics:** no physical content.
 
 ---
 
@@ -161,6 +200,13 @@ Projected traffic and throughput taking into account metadata and centroid overh
 1. **Exact Argmax Invariant (Positive Control)**:
    For all $832$ positions across all 5 configurations ($K \in \{1024, 4096, 16384\}$, $d \in \{32, 64\}$):
    $$\arg\max_{i \in \text{visited}} (h \cdot w_i) \equiv \arg\max_{i \in [0, V)} (h \cdot w_i)$$
+
+   * **say:** the argmax over the visited rows of h dot w sub i is the argmax over all rows from 0 to V.
+   * **means:** restricting the scan to rows that survived the bound does not change the winning row, so pruning is exact rather than approximate.
+   * **vars:** $\text{visited}$ — rows not skipped by the bound; $V$ — vocabulary size; $i$ — row index; $\arg\max$ — lowest-index tie-break.
+   * **apeiron:** `Numeric.PrunedArgmax.pruned_argmax_exact` carries the exact-argmax statement; the lowest-index tie-break is `Numeric.PrunedArgmax.lowestMaxOn_mem`, `Numeric.PrunedArgmax.lowestMaxOn_isMax`, `Numeric.PrunedArgmax.lowestMaxOn_le` and `Numeric.PrunedArgmax.lowestMaxOn_eq_of_least`. Proved.
+   * **physics:** no physical content.
+
    Total tests: $5 \times 832 = 4160$ checks; $0$ mismatches ($100\%$ bit-exact match).
 2. **Seeded Defect (Negative Control)**:
    The mutation control (`/home/socol/oc-tmp/lmhead-t0/control.py`) mutates the residual bound by removing the residual slack term (subspace-only approximation, setting slack factor to $0.0$).
@@ -173,7 +219,15 @@ Projected traffic and throughput taking into account metadata and centroid overh
 ## 6. Structural Diagnosis: Why the Score-Gap Condition Fails
 
 The score-gap condition requires:
+
 $$\text{Bound Slack} \le \text{True Logit Margin}$$
+
+* **say:** Bound Slack is at most the True Logit Margin.
+* **means:** a pruning bound pays only when its slack is tighter than the gap it must not cross; this is Profit Condition (b).
+* **vars:** $\text{Bound Slack}$ — distance from the bound to the true value, logits; $\text{True Logit Margin}$ — the top-2 gap, logits.
+* **apeiron:** `none — anchor`, grade `model`. A design condition, not a theorem.
+* **physics:** no physical content.
+
 For pruning to skip $\ge 90\%$ of rows, the bound slack must be tighter than the 90th percentile logit spread:
 - From Section 4.3, $90\%$ of vocabulary rows have logits within $\approx 15$ logits of the maximum logit.
 - To prune $99\%$ of rows, bound slack must be $< 5$ logits.
@@ -215,23 +269,80 @@ LMHEAD-T1 tests an exact discrete bound constructed directly from the format ari
 In `Q8_0`, each 32-weight block $b$ contains a float16 scale $d_b$ (2 bytes) and 32 int8 quantized codes $q_{b,i} \in [-128, 127]$ (32 bytes), representing weights $w_{b,i} = d_b \cdot q_{b,i}$. The row size is:
 $$\text{Row Size} = B \times 34\text{ bytes} \quad (B = 32 \implies 1088\text{ B/row on Qwen3.5}; \quad B = 28 \implies 952\text{ B/row on Qwen2.5})$$
 
+* **say:** Row Size equals B times 34 bytes; for the 32-block row, 1088 bytes on Qwen3.5, and for the 28-block row, 952 bytes on Qwen2.5.
+* **means:** a Q8_0 row is a count of 34-byte blocks, each holding one f16 scale and 32 int8 codes.
+* **vars:** $B$ — blocks per row; 34 — bytes per block (2 scale + 32 code).
+* **apeiron:** `none — anchor`. A byte-count identity; no corpus declaration.
+* **physics:** no physical content.
+
 #### Two-Stage Bit-Plane Decomposition
 Each 8-bit signed code $q \in [-128, 127]$ is decomposed into an arithmetic upper nibble $q_{\text{hi}} \in [-8, 7]$ and an unsigned lower nibble $q_{\text{lo}} \in [0, 15]$:
 $$q_{\text{hi}} = \lfloor q / 16 \rfloor \in [-8, 7] \quad (\text{arithmetic right shift by } 4), \qquad q_{\text{lo}} = q - 16 q_{\text{hi}} = q \ \& \ 0x0\text{F} \in [0, 15]$$
+
+* **say:** q hi equals the floor of q over 16, in the range minus 8 to 7; q lo equals q minus 16 q hi, which is q bitwise-and 0x0F, in the range 0 to 15.
+* **means:** a signed 8-bit code splits into a signed high nibble and an unsigned low nibble, with no rounding.
+* **vars:** $q$ — signed 8-bit code, $\mathbb{Z}$ with $-128 \le q \le 127$; $q_{\text{hi}}$ — arithmetic high nibble, $[-8,7]$; $q_{\text{lo}}$ — low nibble, $[0,15]$.
+* **apeiron:** `Numeric.BitplaneArgmax.nibble_split` proves $q = 16(q/16) + q\%16$ with $0 \le q\%16 \le 15$; `Numeric.BitplaneArgmax.nibble_hi_range` proves $-8 \le q/16 \le 7$ for $-128 \le q \le 127$. Both proved.
+* **physics:** no physical content.
+
 The dequantized dot product with query $h \in \mathbb{R}^D$ is identically:
+
 $$w \cdot h = \sum_{b=0}^{B-1} d_b \sum_{i=0}^{31} q_{b,i} h_{b,i} = \underbrace{\sum_{b=0}^{B-1} d_b \sum_{i=0}^{31} 16 q_{\text{hi}, b, i} h_{b,i}}_{s_{\text{hi}}(\text{row})} + \underbrace{\sum_{b=0}^{B-1} d_b \sum_{i=0}^{31} q_{\text{lo}, b, i} h_{b,i}}_{\Delta(\text{row})}$$
+
+* **say:** w dot h equals the sum over blocks b of d sub b times the sum over i of q times h, which is s hi of the row plus Delta of the row.
+* **means:** the row score splits into a high-nibble part and the low-nibble remainder, so the remainder can be bounded without reading it.
+* **vars:** $w\cdot h$ — row score, $\mathbb{R}$; $d_b$ — block scale; $q_{b,i}$ — code, $\mathbb{Z}$; $h_{b,i}$ — query element; $s_{\text{hi}}(\text{row})$, $\Delta(\text{row})$ — the two parts, $\mathbb{R}$.
+* **apeiron:** `Numeric.BitplaneArgmax.dot` and `Numeric.BitplaneArgmax.hiPart` with `h_split_elem` carry the split; the interval is `Numeric.BitplaneArgmax.lo_interval_sound`. Proved.
+* **physics:** no physical content.
 
 #### Exact Hypercube Extremal Interval
 Because $q_{\text{lo}, b, i}$ varies independently over $[0, 15]^{32}$, the unobserved term $\Delta(\text{row})$ is strictly bounded by element-wise sign alignment:
 For each element, the contribution is $c_{b,i} q_{\text{lo}, b, i}$ where $c_{b,i} = d_b h_{b,i}$. Since $0 \le q_{\text{lo}, b, i} \le 15$:
 $$\min_{q_{\text{lo}} \in [0, 15]} (c_{b,i} q_{\text{lo}, b, i}) = \begin{cases} 0 & \text{if } c_{b,i} \ge 0 \\ 15 c_{b,i} & \text{if } c_{b,i} < 0 \end{cases}, \qquad \max_{q_{\text{lo}} \in [0, 15]} (c_{b,i} q_{\text{lo}, b, i}) = \begin{cases} 15 c_{b,i} & \text{if } c_{b,i} \ge 0 \\ 0 & \text{if } c_{b,i} < 0 \end{cases}$$
+
+* **say:** the minimum over q lo in 0 to 15 of c times q lo is 0 when c is nonnegative and 15 c when c is negative; the maximum is 15 c when c is nonnegative and 0 when c is negative.
+* **means:** over the unobserved low-nibble box the extreme contribution of one element is attained at an endpoint chosen by the sign of $c$, so the extremes are exact, not conservative.
+* **vars:** $c_{b,i} = d_b h_{b,i}$ — signed coefficient; $q_{\text{lo},b,i}$ — low nibble, $[0,15]$.
+* **apeiron:** `Numeric.BitplaneArgmax.term_lower_bound` and `Numeric.BitplaneArgmax.term_upper_bound` prove these two extremes for $0 \le l \le 15$. Proved.
+* **physics:** no physical content.
+
 Summing across block elements, taking the sign of $d_b$ into account:
+
 $$\text{term}_{\text{neg}}(b) = 15 d_b \sum_{i: h_{b,i} < 0} h_{b,i}, \qquad \text{term}_{\text{pos}}(b) = 15 d_b \sum_{i: h_{b,i} > 0} h_{b,i}$$
+
+* **say:** term neg of b equals 15 d sub b times the sum of h over the negative entries; term pos is the same over the positive entries.
+* **means:** the block's two extreme contributions separate by the sign of the query element.
+* **vars:** $\text{term}_{\text{neg}}(b), \text{term}_{\text{pos}}(b)$ — extreme contributions, $\mathbb{R}$; $d_b$ — block scale; $h_{b,i}$ — query element.
+* **apeiron:** `none — anchor`. Definitions; the bounds they feed are `Numeric.BitplaneArgmax.sum_term_lower` and `sum_term_upper`.
+* **physics:** no physical content.
+
 $$\text{block\_min}(b) = \min(\text{term}_{\text{neg}}(b), \text{term}_{\text{pos}}(b)), \qquad \text{block\_max}(b) = \max(\text{term}_{\text{neg}}(b), \text{term}_{\text{pos}}(b))$$
+
+* **say:** block min of b is the smaller of term neg and term pos; block max is the larger.
+* **means:** the block's infimum and supremum over the low-nibble box.
+* **vars:** $\text{block\_min}(b), \text{block\_max}(b)$ — block extremes, $\mathbb{R}$; $\text{term}_{\text{neg}}, \text{term}_{\text{pos}}$ — the sign-separated contributions.
+* **apeiron:** `Numeric.BitplaneArgmax.blockLoLower` and `Numeric.BitplaneArgmax.blockLoUpper` with `blockLoLower_of_nonneg`, `blockLoLower_of_neg`, `blockLoUpper_of_nonneg`, `blockLoUpper_of_neg`. Proved.
+* **physics:** no physical content.
+
 Summing over all $B$ blocks yields the **exact infimum and supremum** on $[0, 15]^{32 \times B}$:
+
 $$\text{lo}(\text{row}) = s_{\text{hi}}(\text{row}) + \sum_{b=0}^{B-1} \text{block\_min}(b), \qquad \text{hi}(\text{row}) = s_{\text{hi}}(\text{row}) + \sum_{b=0}^{B-1} \text{block\_max}(b)$$
+
+* **say:** lo of the row equals s hi of the row plus the sum over blocks of block min; hi equals s hi plus the sum of block max.
+* **means:** the row's score on the unobserved low nibbles lies in a closed interval known from the high nibbles alone.
+* **vars:** $\text{lo}(\text{row}), \text{hi}(\text{row})$ — interval endpoints, $\mathbb{R}$; $s_{\text{hi}}(\text{row})$ — high-nibble score; $B$ — blocks per row.
+* **apeiron:** `Numeric.BitplaneArgmax.loLower` and `Numeric.BitplaneArgmax.loUpper` (added to `Numeric.BitplaneArgmax.hiPart`) define the endpoints; `Numeric.BitplaneArgmax.lo_interval_sound` proves the true score lies in the interval. Proved.
+* **physics:** no physical content.
+
 The interval width is:
+
 $$\text{hi}(\text{row}) - \text{lo}(\text{row}) = 15 \sum_{b=0}^{B-1} |d_b| \|h_b\|_1$$
+
+* **say:** hi minus lo of the row equals 15 times the sum over blocks of the absolute block scale times the 1-norm of the block's query values.
+* **means:** the width grows with the block scale and the query's per-block 1-norm, which is why wide intervals fail the score-gap condition.
+* **vars:** $d_b$ — block scale; $\|h_b\|_1$ — sum of absolute query elements in block $b$; $B$ — blocks per row.
+* **apeiron:** `none — anchor`. No corpus declaration states the closed form; `lo_interval_sound` bounds the interval without it.
+* **physics:** no physical content.
 
 #### Pruning and Argmax Exactness
 - **Stage 1**: Read scales $d_b$ (2 B/block) and high nibbles $q_{\text{hi}}$ (16 B/block) for all $V$ rows ($18\text{ B/block} \implies 576\text{ B/row}$ on Qwen3.5, $504\text{ B/row}$ on Qwen2.5). Compute $s_{\text{hi}}$, $\text{lo}$, and $\text{hi}$ for all rows.
@@ -337,6 +448,13 @@ While the bit-plane bound passes the mathematical score-gap condition, its physi
 1. **Exactness Invariant (Positive Control)**:
    For all $832$ positions on Qwen3.5-0.8B and all $800$ positions on Qwen2.5-0.5B across both pruning thresholds ($m = \max \text{lo}$ and $m_0 = \text{logit}(\arg\max s_{\text{hi}})$):
    $$\arg\max_{i \in \mathcal{S}} (w_i \cdot h) \equiv \arg\max_{i \in [0, V)} (w_i \cdot h)$$
+
+   * **say:** the argmax over the surviving set S of w sub i dot h equals the argmax over all rows from 0 to V.
+   * **means:** the bit-plane interval filter keeps the true winner, so the two-stage scan is exact.
+   * **vars:** $\mathcal{S}$ — rows whose interval survived; $V$ — vocabulary size; $i$ — row index; $\arg\max$ — lowest-index tie-break.
+   * **apeiron:** `Numeric.BitplaneArgmax.bitplane_argmax_exact` and `Numeric.BitplaneArgmax.bitplane_argmax_exact_eq` prove the lowest-index argmax over survivors equals the global argmax; `Numeric.BitplaneArgmax.lo_interval_sound` supplies the bounding premise. Proved.
+   * **physics:** no physical content.
+
    Total tests: $(2 \times 832) + (2 \times 800) = 3264$ checks; **$0$ mismatches** ($100.00\%$ bit-exact match).
 2. **Seeded Defect (Negative Control)**:
    The mutation control (`/home/socol/oc-tmp/lmhead-t1/control.py`) mutates the upper bound by setting the slack factor to $0.0$ ($\text{hi}_{\text{mut}} = s_{\text{hi}}$, ignoring low-nibble interval expansion):

@@ -44,8 +44,21 @@ Qwen2.5-0.5B has 24 decoder layers with uniform parameter counts, plus tied embe
 Two skippable byte fraction metrics are reported:
 1. **Uniform 24-Layer Model**: Assumes token prediction skips upper transformer layers $\ell$ through $23$:
    $$\text{Fraction Skippable} = \text{Coverage} \times \frac{24 - \ell}{24}$$
+
+   * **say:** Fraction Skippable equals Coverage times the fraction 24 minus ell over 24.
+   * **means:** fraction of transformer layer computation bypassed when early exiting from layer ell with a given cache hit coverage under uniform layer parameter distribution.
+   * **vars:** $\text{Fraction Skippable} \in [0, 1]$ — proportion of skipped layer computations; $\text{Coverage} \in [0, 1]$ — empirical cache hit rate at target precision; $\ell \in \{4, 8, 12, 16, 20\}$ — exit layer index; $24 \in \mathbb{N}$ — total transformer layer count.
+   * **apeiron:** `none — anchor`. Empirical performance accounting formula; no corpus declaration.
+   * **physics:** roofline computation reduction from early exit.
+
 2. **LM Head Skippable Model**: Assumes prediction directly from cache also bypasses the unembedding projection:
    $$\text{Fraction Skippable}_{+\text{LM}} = \text{Coverage} \times \frac{(24 - \ell) W_{\text{layer}} + W_{\text{head}}}{24 W_{\text{layer}} + W_{\text{head}}}$$
+
+   * **say:** Fraction Skippable sub plus LM equals Coverage times the fraction open paren 24 minus ell close paren W sub layer plus W sub head, over 24 W sub layer plus W sub head.
+   * **means:** fraction of total model weights skipped when early exiting from layer ell and bypassing both subsequent layers and the unembedding LM head projection.
+   * **vars:** $\text{Fraction Skippable}_{+\text{LM}} \in [0, 1]$ — proportion of total skipped parameter bytes; $\text{Coverage} \in [0, 1]$ — empirical cache hit rate; $\ell \in \{4, 8, 12, 16, 20\}$ — exit layer index; $W_{\text{layer}} = 14,912,384 \in \mathbb{N}$ — parameter count per layer; $W_{\text{head}} = 136,134,656 \in \mathbb{N}$ — parameter count of the LM head.
+   * **apeiron:** `none — anchor`. Empirical performance accounting formula; no corpus declaration.
+   * **physics:** memory bandwidth reduction bypassing upper decoder layers and the unembedding projection.
 
 ---
 

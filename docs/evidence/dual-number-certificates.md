@@ -17,15 +17,46 @@ Specifically:
 Let activation vector $h \in \mathbb{R}^D$ be quantized to $\hat{h} = h + \delta$ with coordinate bound $|\delta_i| \le \Delta / 2$.
 In dual numbers $\mathbb{R}[\epsilon]/(\epsilon^2 = 0)$, the perturbed activation is represented as $h + \Delta \epsilon$.
 For candidate token row $W_k$, the linear readout satisfies:
+
 $$\hat{z}_k = W_k^T \hat{h} = z_k + (W_k^T \delta) \epsilon$$
+
+* **say:** zed hat sub k equals W sub k transpose h hat, equals zed sub k plus W sub k transpose delta times epsilon.
+* **means:** the quantized readout splits into the exact logit plus one first-order error term carrying ε.
+* **vars:** $\hat{z}_k$ — perturbed logit for row $k$, $\mathbb{R}$; $W_k$ — output-head row, $\mathbb{R}^D$; $\hat{h} = h + \delta$ — quantized activation, $\mathbb{R}^D$; $\delta$ — quantization error, $|\delta_i| \le \Delta/2$; $\epsilon$ — the dual unit, $\epsilon^2 = 0$ (Clifford, 1873).
+* **apeiron:** `none — anchor`. The corpus states the two-coordinate instance, not the linear-readout separation.
+* **physics:** first-order error propagation through a linear readout.
+
 The logit difference between top candidates 1 and 2 is:
+
 $$\hat{z}_1 - \hat{z}_2 = (z_1 - z_2) + (W_1 - W_2)^T \delta$$
+
+* **say:** zed hat 1 minus zed hat 2 equals zed 1 minus zed 2, plus W 1 minus W 2 transpose delta.
+* **means:** the perturbed gap is the exact gap plus the perturbation of the weight difference, so only $W_1 - W_2$ enters.
+* **vars:** $z_1 - z_2$ — exact top-2 gap $g$, $\mathbb{R}$; $W_1 - W_2$ — weight difference, $\mathbb{R}^D$; $\delta$ — quantization error, $\mathbb{R}^D$.
+* **apeiron:** `none — anchor`. The linear-readout difference identity is not formalized; `Nous.Model.DualCertificate.actualPerturbation2D` models only the two-coordinate perturbation term $(W_1 - W_2)^T \delta$.
+* **physics:** the gap moves only along the weight difference.
+
 The dual-number forward certificate computes the exact coordinate-wise supremum:
+
 $$S_{\text{dual}} = \sup_{|\delta_i| \le \Delta / 2} |(W_1 - W_2)^T \delta| = \frac{\Delta}{2} \|W_1 - W_2\|_1$$
+
+* **say:** S dual equals the supremum, over delta with every coordinate at most Delta over 2, of the absolute value of W 1 minus W 2 transpose delta; equals Delta over 2 times the 1-norm of W 1 minus W 2.
+* **means:** the worst-case logit perturbation over the quantization box is the box half-width times the 1-norm of the weight difference.
+* **vars:** $S_{\text{dual}}$ — worst-case bound on $|\Delta z|$, $\mathbb{R}$; $\Delta$ — full quantization range, $\mathbb{R}_{\ge 0}$; $\|W_1 - W_2\|_1$ — sum of absolute coordinate differences, $\mathbb{R}_{\ge 0}$.
+* **apeiron:** `Nous.Model.DualCertificate.dual_slack_bounds_actual` proves the $\le$ direction in two coordinates, $|w_0\delta_0 + w_1\delta_1| \le (|w_0| + |w_1|)\Delta$ for $|\delta_i| \le \Delta$, with the receipt's $\Delta/2$ as `Δ`. The supremum *equality* is `none — anchor`.
+* **physics:** worst-case bound under adversarial sign alignment.
 
 ### 2. The Certificate Condition
 If $S_{\text{dual}} < g$, then:
+
 $$\hat{z}_1 - \hat{z}_2 \ge g - S_{\text{dual}} > 0$$
+
+* **say:** zed hat 1 minus zed hat 2 is at least g minus S dual, which is greater than zero.
+* **means:** when the worst-case slack falls below the score gap, quantization cannot close it, so the greedy argmax is unchanged.
+* **vars:** $g = z_1 - z_2$ — exact top-2 gap, $\mathbb{R}$; $S_{\text{dual}}$ — worst-case perturbation bound, $\mathbb{R}$; $\hat{z}_1 - \hat{z}_2$ — perturbed gap, $\mathbb{R}$.
+* **apeiron:** `Nous.Model.DualCertificate.dual_cert_preserves_argmax`, proved: `dualSlack2D w0 w1 Δ < g → 0 < g - actualPerturbation2D w0 w1 δ0 δ1`.
+* **physics:** a certificate that a discrete choice survives continuous perturbation.
+
 which formally certifies that activation quantization cannot alter the greedy argmax choice.
 
 ---
@@ -53,7 +84,8 @@ Command:
 1. **Physical Reality vs Worst-Case Relaxation:** The actual perturbation caused by int8 activation quantization is small: median $0.0294$ logits, with a maximum of $0.1605$ logits across all tokens. Because the score gap is $0.985$ logits ($33\times$ larger than the median perturbation), int8 quantization **never** flips the greedy token in practice.
 2. **Failure of Dual Intervals:** The dual-number coordinate bound assumes worst-case adversarial alignment between weight signs and quantization errors. Over $D = 1024$ dimensions, this worst-case accumulation inflates the bound by $\approx \sqrt{D} \approx 32\times$, yielding a median slack of $2.310$ logits. Because $2.310 > 0.985$, the certificate refuses on **76% of tokens**.
 3. **Verdict:** Dual-number forward interval bounds **fail Profit Condition (b)**:
-   $$\text{"Bounds pay only if slack is strictly below the score gap."}$$
+   > Bounds pay only if slack is strictly below the score gap.
+
    Worst-case interval bounds cannot be used as universal runtime certificates for high-dimensional activation quantization. Format-derived bit-plane pruning (`lmhead-prune-probe.md`) succeeds where dual intervals fail because bit-plane pruning operates on exact discrete bit patterns rather than conservative continuous interval relaxations.
 
 ---

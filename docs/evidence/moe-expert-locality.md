@@ -24,6 +24,12 @@ Per `AGENTS.md` §10 (row *"Addressing proposals outran their rate"*):
 - **Source:** Static model weights stored in host memory/VRAM, not dynamic activations.
 - **Information Rate:** For a layer with $E$ total experts selecting $k$ active experts per token, the routing address rate is at most:
   $$R \le k \log_2(E) \text{ bits per token per layer}$$
+
+  * **say:** R is less than or equal to k times log base two of E bits per token per layer.
+  * **means:** the information rate of selecting k active experts out of E candidates per layer is upper-bounded by the uniform selection entropy of k independent expert choices (Claude Shannon, 1948).
+  * **vars:** $R \in \mathbb{R}_{\ge 0}$ — routing address information rate in bits per token per layer; $k \in \mathbb{N}$ — number of active experts routed per token; $E \in \mathbb{N}$ — total number of experts in the mixture layer; $\log_2$ — binary logarithm (Ralph Hartley, 1928; Claude Shannon, 1948).
+  * **apeiron:** `none — anchor`. Information-theoretic upper bound on routing address rate; no Lean corpus declaration.
+  * **physics:** discrete entropy of an ensemble routing configuration; no physical content.
   - For OLMoE ($E=64, k=8$): $\log_2(64) = 6$ bits per slot $\times 8 = 48$ bits per layer per token.
   - For Qwen3-30B ($E=128, k=8$): $\log_2(128) = 7$ bits per slot $\times 8 = 56$ bits per layer per token.
   - For Qwen3-Next-80B ($E=512, k=10$): $\log_2(512) = 9$ bits per slot $\times 10 = 90$ bits per layer per token.

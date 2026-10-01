@@ -2,7 +2,7 @@
 
 Grade: `measured` (i9-14900KF, 32 CPUs, governor `powersave`, quiet gate: host busy < 5% over
 1 s before every round). Source: `examples/engine_profile.rs`; tracer `src/engine/trace.rs`.
-Receipts: `docs/evidence/bench/*.{json,md}` (identity, per-round samples, traced phases).
+Receipts: `docs/evidence/bench-ledger.{json,md}` (identity, per-round samples, traced phases).
 
 ## Instrument
 
@@ -95,7 +95,7 @@ checks are recorded in `inference-integration.md`.
 | greedy tokens/s | 62.71 | 49.90 | 1.27 |
 | speculative tokens/s, one-token prefill included | 37.95 | not compared | not compared |
 
-Receipt: [`1790607104-astra-batched-baseline.md`](bench/1790607104-astra-batched-baseline.md).
+Receipt: [`1790607104-astra-batched-baseline.md`](bench-ledger.md#1790607104-astra-batched-baseline).
 Speculative acceptance is 24%; 39 restore calls occur in the traced run. The current traced
 prefill costs 4.33 ms/token: affine heads 1.323 ms, FFN 1.125 ms, convolution 0.519 ms, affine input
 projection 0.514 ms and attention core 0.355 ms. Greedy decode costs 15.91 ms/token: the output-head region
@@ -111,7 +111,7 @@ A separate rotated A/B changes only core and slice settings:
 | 4 performance cores | 137.92 | 47.84 | 0.693 |
 | 4 performance cores, 8 head slices | 133.99 | 47.97 | 0.708 |
 
-Receipt: [`1790607289-astra-core-budget.md`](bench/1790607289-astra-core-budget.md).
+Receipt: [`1790607289-astra-core-budget.md`](bench-ledger.md#1790607289-astra-core-budget).
 Each arm has five samples; every round passed the quiet gate. Compare ratios within a receipt;
 the standalone and interleaved-with-llama baselines differ. Core restriction on this i9 is not
 measurement on a different low-end machine. The subsequent experiments below retain the original arithmetic and bounds.
@@ -125,9 +125,9 @@ The two SwiGLU experiments also measure speculation with 32,768 draft rows.
 
 | candidate / baseline | median paired prefill ratio | four-core prefill ratio | decision | receipt |
 |---|---:|---:|---|---|
-| affine column traversal / row traversal | 1.000292 | 1.002071 | remove candidate; retain scalar boundary tests | [traversal](bench/1790608521-astra-write-traversal.md) |
-| flat-buffer SwiGLU / per-column dispatch | 0.987 | 0.988 | remove candidate | [flat buffer](bench/1790610276-astra-swiglu-batch.md) |
-| owned whole-column SwiGLU / per-column dispatch | 1.027322 | 1.001618 | insufficient consistent benefit; remove candidate | [owned columns](bench/1790611132-astra-swiglu-owned.md) |
+| affine column traversal / row traversal | 1.000292 | 1.002071 | remove candidate; retain scalar boundary tests | [traversal](bench-ledger.md#1790608521-astra-write-traversal) |
+| flat-buffer SwiGLU / per-column dispatch | 0.987 | 0.988 | remove candidate | [flat buffer](bench-ledger.md#1790610276-astra-swiglu-batch) |
+| owned whole-column SwiGLU / per-column dispatch | 1.027322 | 1.001618 | insufficient consistent benefit; remove candidate | [owned columns](bench-ledger.md#1790611132-astra-swiglu-owned) |
 
 The owned-column candidate's prefill ratios are 1.060560, 1.031395, 0.974909, 0.993520 and
 1.027322. Speculation loses four of five rounds under both core settings (median paired ratios

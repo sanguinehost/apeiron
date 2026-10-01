@@ -52,12 +52,12 @@ than it is one block:
 
 **Current read rate.** The Wave-5 open item records the dense Qwen3-8B-Q4_K_M prefill at
 `docs/epics/gpu-prefill.md:435:Dense Q4_K prefill has no weight reuse`, stated as 16.43 tok/s over
-4.68 GiB of weights and as 82.6 of an 86.2 GB/s read ceiling (`docs/evidence/bench/1790713685-ns-r027.md:7:86.2`
+4.68 GiB of weights and as 82.6 of an 86.2 GB/s read ceiling (`docs/evidence/bench-ledger.md#1790713685-ns-r027`
 for the ceiling). Two of those figures have a receipt in this tree and one does not:
 
 | figure | status |
 |---|---|
-| 86.2 GB/s read ceiling | measured receipt, 16 threads: `docs/evidence/bench/1790713685-ns-r027.md:7:86.2` |
+| 86.2 GB/s read ceiling | measured receipt, 16 threads: `docs/evidence/bench-ledger.md#1790713685-ns-r027` |
 | 16.43 tok/s and 4.68 GiB on Qwen3-8B-Q4_K_M | `no receipt`: the only occurrence in this worktree is the epic line above, and this task did not re-run it |
 | the Q8_0 hybrid 1227 tok/s over 0.78 GiB in the same line | `no receipt` in this worktree; the corresponding figure appears in an untracked artifact of the main checkout, not here |
 | ~113 GMAC/s dense `ffn` versus ~1000 GMAC/s hybrid | `unmeasured` in this tree; stated without a receipt at `docs/epics/unified-quant-kernel.md:20:the dense Qwen3-8B-Q4_K_M prefill measured` |

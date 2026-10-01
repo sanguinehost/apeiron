@@ -255,7 +255,7 @@ GRADE:      planning; implementation, proof and measurement gates remain separat
 
 ### Exact affine traversal and half-word refinement
 
-Fresh receipts: `docs/evidence/bench/1790607104-astra-batched-baseline.{json,md}` and
+Fresh receipts: `docs/evidence/bench-ledger.{json,md}` and
 `1790607289-astra-core-budget.{json,md}`. Every round passed the quiet gate. The former measures
 224.99 prefill and 62.71 greedy tokens/s against llama.cpp's 523.54 and 49.90; affine heads consume
 30.5% of traced prefill wall time. The rotated core comparison measures 67.56 greedy tokens/s with

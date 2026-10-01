@@ -16,13 +16,35 @@ Specifically:
 ### 1. Hyperbolic Channel Split
 Over any field of characteristic zero, the split-complex algebra $\mathbb{R}[x]/(x^2 - 1)$ decomposes into orthogonal idempotent projectors:
 $$e_+ = \left(\frac{1}{2}, \frac{1}{2}\right), \quad e_- = \left(\frac{1}{2}, -\frac{1}{2}\right)$$
+
+* **say:** e plus equals one half, one half; e minus equals one half, minus one half.
+* **means:** the split at $\sigma = 1$ gives two half-scaled cell pairs, one projecting onto each channel of the algebra.
+* **vars:** $e_+$ — positive projector, `RingCell F` = $F \times F$; $e_-$ — negative projector, `RingCell F`; $F$ — field of characteristic zero; split-complex numbers (James Cockle, 1848); norm form (Carl Friedrich Gauss, 1801).
+* **apeiron:** `Nous.Seq.TwoChannelRouter.e_pos` and `Nous.Seq.TwoChannelRouter.e_neg`, both `def`.
+* **physics:** no physical content.
+
 satisfying:
+
 $$e_+^2 = e_+, \quad e_-^2 = e_-, \quad e_+ \cdot e_- = 0, \quad e_+ + e_- = 1$$
+
+* **say:** e plus squared equals e plus; e minus squared equals e minus; e plus dot e minus equals zero; e plus plus e minus equals one.
+* **means:** the two projectors are idempotent, mutually orthogonal and sum to the identity, so the algebra is their direct sum.
+* **vars:** $e_+, e_-$ — projectors in `RingCell F`; $e_+^2$ — `ringMul` at $\sigma = 1$ applied to $e_+$ with itself; $0$ — the cell $(0, 0)$; $1$ — the cell $(1, 0)$.
+* **apeiron:** `Nous.Seq.TwoChannelRouter.e_pos_sq`, `Nous.Seq.TwoChannelRouter.e_neg_sq`, `Nous.Seq.TwoChannelRouter.e_pos_mul_e_neg_zero`, `Nous.Seq.TwoChannelRouter.e_pos_add_e_neg`; all proved.
+* **physics:** no physical content.
+
 Any representation vector $z$ decomposes into two mutually uncoupled channels $z = e_+ z + e_- z$ where cross-channel actions vanish identically: $e_+ (e_- z) = 0$.
 
 ### 2. Spectral Bipartition on Expert Traces
 Using the 131,072 expert selection events from `OLMoE-1B-7B` across 16 layers and 4 tasks (prose, code, math chain-of-thought, multi-turn chat), we computed the global expert co-occurrence correlation matrix:
 $$C_{ij} = \frac{\sum_{t} \mathbf{1}[i \in \text{selected}_t \land j \in \text{selected}_t]}{\sqrt{N_i N_j}}$$
+
+* **say:** C sub i j equals the sum over t of the indicator that i and j are both selected at t, over the square root of N sub i times N sub j.
+* **means:** the co-occurrence count of two experts is normalised by the geometric mean of their selection counts, giving a correlation in $[0, 1]$.
+* **vars:** $C_{ij}$ — co-occurrence correlation, $\mathbb{R}$; $\mathbf{1}[\cdot]$ — indicator, $\{0, 1\}$; $\text{selected}_t$ — top-$k$ expert set at event $t$; $N_i$ — selections of expert $i$, $\mathbb{N}$; $t$ — selection-event index.
+* **apeiron:** `none — anchor`. The probe computes this matrix; no corpus declaration states it.
+* **physics:** no physical content.
+
 The Fiedler eigenvector of $C$ yields the canonical 1D splitting axis in $\mathbb{R}[x]/(x^2 - 1)$, partitioning the 64 experts into Channel + (34 experts) and Channel - (30 experts).
 
 ---

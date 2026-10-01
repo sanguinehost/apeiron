@@ -30,13 +30,18 @@ from [`templates/epic.md`](templates/epic.md).
 | [combinator-links](epics/combinator-links.md) | in progress |
 | [corpus-release-pin](epics/corpus-release-pin.md) | approved |
 | [engine-throughput](epics/engine-throughput.md) | W2 tested (Q8Act 40/40 parity); T6B running |
+| [equation-glossary](epics/equation-glossary.md) | gate green over `docs/` (89 equations, 151 files); 14 findings, 8 fixed; 12/12 modules kernel-checked; semantic review complete |
 | [exact-scan-contract](epics/exact-scan-contract.md) | draft; chunked exact accumulation (DeltaNet state + online softmax), prefill ratio target |
+| [f32-carrier](epics/f32-carrier.md) | prefill 1.33x, decode 1.71x vs llama.cpp at `APEIRON_F32_CARRIER=1`; T16 fixed the `conv_silu_cols` batch identity (`mixer.rs` `b508be5e`), verified by `engine::mixer` 30/30 both flags and `qwen35_long_prompt_on_the_one_executor` |
+| [multi-token-decode](epics/multi-token-decode.md) | draft; k drafted tokens verified per weight pass on the f32 carrier, greedy ids unchanged; 2.0x llama.cpp tg target |
 | [decode-dominance](epics/decode-dominance.md) | draft; beat llama.cpp via batch-invariance, exact speculative greedy, zero skip, traffic statements |
+| [structural-decode-search](epics/structural-decode-search.md) | prefill priority; direct norm candidate tested with source controls; five-round timing blocked by host quietness, integration open |
 | [frontier-consumer](epics/frontier-consumer.md) | draft; cross-track roadmap (product ladder R0–R5) |
 | [gpu-spv](epics/gpu-spv.md) | draft |
 | [inference-parity](epics/inference-parity.md) | draft for decision |
 | [kani-retirement](epics/kani-retirement.md) | retired by user direction |
 | [kernel-topology-optimizations](epics/kernel-topology-optimizations.md) | draft |
+| [magnetic-flux](epics/magnetic-flux.md) | W1–W3 proved (closed cone), carrier binding proved; W4 receipt at `evidence/discrete-flux.md`; full bridge build blocked on the dirty `proof/corpus/Policy/Core.lean` |
 | [moe-router](epics/moe-router.md) | W1 complete (tested + proved); W2 at barrier |
 | [model-algebra](epics/model-algebra.md) | draft; closing wave receipted |
 | [neural-rebase](epics/neural-rebase.md) | draft |
@@ -84,7 +89,6 @@ autonomous run log.
 
 The full old → new map (102 paths) is in `docs/moved.tsv`. Merged epic files name their source files
 on their second line.
-
 
 ## Next inference epics (draft)
 

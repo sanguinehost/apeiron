@@ -23,25 +23,62 @@ Investigation and empirical measurement of radix-3 balanced ternary-plane repres
 ### 2.1 The Decomposition
 
 Let a weight matrix $W \in \mathbb{R}^{o \times n}$ be quantized into $L$ balanced ternary planes ($T_k \in \{-1, 0, 1\}^{o \times n}$ for $k \in \{0, \dots, L-1\}$) with a shared block scale $s_b \in \mathbb{Q}_{32.32}$ per 128-weight block $b$:
+
 $$W_{b, l} = s_b \sum_{k=0}^{L-1} 3^k T_{k, b, l}, \quad l \in \{0, \dots, 127\}.$$
+
+* **say:** W sub b l equals s sub b times the sum over k from zero to L minus one of three to the k times T sub k b l, for l from zero to 127.
+* **means:** a weight is the block scale times a balanced-ternary polyadic number, one digit per plane.
+* **vars:** $W_{b,l}$ — weight of a block, $\mathbb{R}$; $s_b$ — block scale, $\mathbb{Q}_{32.32}$; $T_{k,b,l}$ — ternary digit in $\{-1,0,1\}$; $L$ — planes, $3$ here.
+* **apeiron:** `none — anchor`. No corpus declaration states the $3^k$ plane decomposition. `Numeric.LutPQ2.ternaryByte` fixes the ternary digit domain $\{(\text{field } b\,k) - 1\} \subseteq \{-1,0,1\}$ only for the PQ2_0 byte split.
+* **physics:** a redundant signed-digit encoding of a weight.
 
 The activation vector $x \in \mathbb{R}^n$ is quantized by `quant_act` into 32-lane blocks with integer scale $S_{sb}$ and signed codes $xq_j \in [-127, 127]$.
 
 In `Numeric/LutPQ2.lean`, theorem `block_dot_lut` proves that the exact integer dot product of a 128-weight block with the quantized activation decomposes linearly into the block scale multiplied by the sum of 4-column group table lookups:
+
 $$\sum_{l=0}^{127} W_{b, l} \cdot xq_{b, l} = s_b \sum_{j=0}^{31} \text{lutEntry}(xq, \text{codeByte}_{b, j}).$$
+
+* **say:** the sum over l of W sub b l times xq sub b l equals s sub b times the sum over j of the table entry of x q and the code byte.
+* **means:** the block dot product is the block scale times a sum of 32 four-column table lookups, so no per-weight multiply runs.
+* **vars:** $W_{b,l}$ — weight, $\mathbb{R}$; $xq_{b,l}$ — signed activation code in $[-127,127]$, $\mathbb{Z}$; $s_b$ — block scale; $\text{codeByte}_{b,j}$ — one byte of four codes; $\text{lutEntry}$ — the 4-entry table row, $\mathbb{Z}$.
+* **apeiron:** `Numeric.LutPQ2.block_dot_lut`, proved.
+* **physics:** table lookup replacing a multiply-accumulate.
 
 ### 2.2 Linearity of the LUT Combination
 
 For any plane $k$, each 4-weight group has integer lookups $\text{inner}_{k, sb} = 2 \cdot \text{sum\_hi}_k + \text{sum\_lo}_k - \text{sum\_x}$ bounded by $| \text{inner}_{k, sb} | \le 32 \times 508 = 16,256$ (`INNER_ABS_MAX`).
 Because integer multiplication and summation distribute over $\mathbb{Z}$:
+
 $$\sum_{k=0}^{L-1} 3^k \cdot \left( s_b \sum_{sb=0}^3 S_{sb} \cdot \text{inner}_{k, sb} \right) = s_b \sum_{sb=0}^3 S_{sb} \left( \sum_{k=0}^{L-1} 3^k \cdot \text{inner}_{k, sb} \right).$$
 
+* **say:** the sum over k of three to the k times s sub b times the sum over sb of S sub sb times inner, equals s sub b times the sum over sb of S sub sb times the sum over k of three to the k times inner.
+* **means:** the plane weight and the sub-block scale both factor out of the sums, so the planes combine after the sub-block sum.
+* **vars:** $3^k$ — plane weight, $\mathbb{N}$; $s_b$ — block scale; $S_{sb}$ — sub-block scale; $\text{inner}_{k,sb}$ — table lookup, $\mathbb{Z}$.
+* **apeiron:** `none — anchor`. Integer distributivity; no corpus declaration.
+* **physics:** associativity of summation, no physical content.
+
 With $L=3$, the maximal combined inner across planes is:
+
 $$\left| \sum_{k=0}^2 3^k \cdot \text{inner}_{k, sb} \right| \le (1 + 3 + 9) \times 16,256 = 13 \times 16,256 = 211,328.$$
+
+* **say:** the absolute value of the sum over k from zero to two of three to the k times inner is at most thirteen times 16,256, which is 211,328.
+* **means:** with three planes the combined lookup fits in 18 bits, so the i64 accumulator cannot overflow.
+* **vars:** $\text{inner}_{k,sb}$ — table lookup with $|\text{inner}| \le 16{,}256$; $3^k$ — plane weight.
+* **apeiron:** `Numeric.LutPQ2.lutEntry_bound` proves the per-entry bound $|\text{lutEntry}| \le 508$ for ternary bytes. The 13-fold combination bound over planes is `none — anchor`.
+* **physics:** a range argument, no physical content.
+
 With $S_{\max} \le 2^{40}$, the 4-sub-block accumulator $4 \times 211,328 \times 2^{40} \approx 2^{60} < 2^{63} - 1$, which fits entirely within a standard signed 64-bit integer (`i64`) without overflow.
 
 Therefore, accumulating the exact $i128$ row sum across planes:
+
 $$\text{Acc}_{\text{row}} = \sum_{k=0}^{L-1} 3^k \cdot \text{Acc}_{\text{row}, k}$$
+
+* **say:** Acc row equals the sum over k of three to the k times Acc row k.
+* **means:** the row accumulator is the plane-weighted sum of per-plane accumulators, in i128, so nothing rounds until the end.
+* **vars:** $\text{Acc}_{\text{row}}$ — exact row accumulator, $\mathbb{Z}$; $\text{Acc}_{\text{row},k}$ — per-plane accumulator, $\mathbb{Z}$; $3^k$ — plane weight.
+* **apeiron:** `none — anchor`. The corpus states no plane-weighted accumulator identity.
+* **physics:** exact accumulation before a single rounding.
+
 and performing a single final `round_shift_32` ($\lfloor (\text{Acc}_{\text{row}} + 2^{31})/2^{32} \rfloor$) produces bit-for-bit the identical result as the dequantized integer matvec of $W = s_b \sum_k 3^k T_k$. Exactness is strictly preserved.
 
 ---
@@ -132,7 +169,14 @@ GGUF Actual Footprint:
 
 On host `Intel Core i9-14900KF`, measured memory bandwidth is $82.0\text{ GB/s}$.
 The Roofline decode latency model per token is:
+
 $$T_{\text{token}} = \max\left( \frac{\text{Bytes}_{\text{model}}}{\text{Bandwidth}}, \ T_{\text{compute}} \right) + T_{\text{overhead}}.$$
+
+* **say:** T token equals the larger of Bytes model over Bandwidth, and T compute, plus T overhead.
+* **means:** decode time per token is the slower of the memory and compute terms, plus fixed overhead.
+* **vars:** $T_{\text{token}}$ — decode time per token, ms; $\text{Bytes}_{\text{model}}$ — bytes read per token, MB; $\text{Bandwidth}$ — measured bandwidth, GB/s; $T_{\text{compute}}$ — compute time, ms; $T_{\text{overhead}}$ — fixed per-token cost, ms.
+* **apeiron:** `none — anchor`. A roofline model, not a theorem. The host bandwidth it uses is a measurement.
+* **physics:** the roofline bound: a kernel cannot exceed the slower of its traffic and its arithmetic.
 
 Today's measured baseline on this host:
 - Bandwidth floor: $405.6\text{ MB} / 82\text{ GB/s} = 4.95\text{ ms} \implies 202.2\text{ tok/s}$.

@@ -42,6 +42,12 @@ Total drafting cost: $C_{\text{draft}} \approx 0.15 C_{\text{base}}$.
 Under speculative decoding:
 $$\text{Cost per token} = \frac{C_{\text{base}} + C_{\text{draft}}}{1 + \alpha_{\text{accept}}} = \frac{1.15 C_{\text{base}}}{1.0364} \approx 1.1096 C_{\text{base}}$$
 
+* **say:** Cost per token equals C sub base plus C sub draft divided by one plus alpha sub accept, which equals 1.15 C sub base divided by 1.0364, approximately 1.1096 C sub base.
+* **means:** the amortized computational cost per accepted token in speculative decoding equals total execution cost per verification step divided by the expected number of tokens accepted per step (Leviathan et al., 2023; Chen et al., 2023).
+* **vars:** $\text{Cost per token} \in \mathbb{R}$ — amortized inference cost per generated token; $C_{\text{base}} \in \mathbb{R}_{>0}$ — computational cost of base model execution; $C_{\text{draft}} \in \mathbb{R}_{\ge 0}$ — drafting cost per pass; $\alpha_{\text{accept}} \in [0, 1]$ — empirical draft token acceptance probability.
+* **apeiron:** `none — anchor`. Economic cost model for speculative decoding throughput. `Nous.Model.JacobiDecode` formalizes algorithmic greedy window correctness, not the execution cost ratio.
+* **physics:** amortized work per emitted quanta under a speculative renewal process; no physical content.
+
 - **Break-even condition**: Requires $\alpha_{\text{accept}} > \frac{C_{\text{draft}}}{C_{\text{base}}} \approx 15.0\%$.
 - **Observed acceptance**: $\alpha = 3.64\% \ll 15.0\%$.
 - **Condition (a) (Speedup)**: **FAILS**. Running the MTP draft head results in an **11.0% net throughput degradation** on host CPU / single-batch inference.

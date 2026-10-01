@@ -77,10 +77,24 @@ the exact SHA256 cryptographic digest.
 - **Paper**: Songlin Yang, Jan Kautz, Arash Hatamizadeh, *Gated Delta Networks: Improving Mamba2 with Delta Rule*, arXiv:2412.06464 (ICLR 2025).
 - **Online Objective**: The hidden state $S_t \in \mathbb{R}^{d_v \times d_k}$ acts as an associative memory matrix optimized via online least-squares regression:
   $$\mathcal{L}(S_t) = \frac{1}{2} \| S_t k_t - v_t \|^2$$
+
+  * **say:** script L of S sub t equals one half times the squared norm of S sub t k sub t minus v sub t.
+  * **means:** the state is scored by the squared error between the key read through it and the value to be stored; the recurrent step below is one gradient descent step on this error (delta rule; Widrow & Hoff, 1960).
+  * **vars:** $S_t$ — state matrix, $\mathbb{R}^{d_v \times d_k}$; $k_t$ — key, $\mathbb{R}^{d_k}$; $v_t$ — value, $\mathbb{R}^{d_v}$; $\|\cdot\|$ — Euclidean norm; $\frac{1}{2}$ — scale factor (Legendre, 1805; Gauss, 1809, for least squares).
+  * **apeiron:** `none — anchor`. No corpus declaration states the regression objective; `proof/corpus/Nous/Seq/GatedDelta.lean` states the step it produces, not the loss it descends.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2412.06464 Section 3.1.
 - **Recurrent Step with Adaptive Decay and Learning Rate**:
   Taking a gradient descent step with learning rate $\beta_t$ and incorporating dynamic per-head decay $\alpha_t \in (0, 1)$:
   $$S_{t} = \alpha_t S_{t-1} (I - \beta_t k_t k_t^\top) + \beta_t v_t k_t^\top$$
+
+  * **say:** S sub t equals alpha sub t times S sub t minus one times, I minus beta sub t k sub t k sub t transpose, plus beta sub t v sub t k sub t transpose.
+  * **means:** the state decays by alpha, a beta-scaled projection onto the key is subtracted from it, and the value-key outer product is added; the new pair is written while the old key's component is removed.
+  * **vars:** $S_t$ — state matrix, $\mathbb{R}^{d_v \times d_k}$; $\alpha_t$ — per-head decay, $(0,1)$; $\beta_t$ — learning rate, $(0,1)$ (Widrow & Hoff, 1960); $k_t$ — key, $\mathbb{R}^{d_k}$; $v_t$ — value, $\mathbb{R}^{d_v}$; $I$ — identity, $\mathbb{R}^{d_k \times d_k}$; $\top$ — transpose; $I - \beta_t k_t k_t^\top$ — Householder factor (Householder, 1958).
+  * **apeiron:** `Nous.Seq.GatedDelta.stepAffine` and `Nous.Seq.GatedDelta.step_eq_affApply` carry the step as the affine map $S \mapsto S M_t + N_t$ with $M_t = \alpha_t (I - \beta_t k_t k_t^\top)$ and $N_t = \beta_t v_t k_t^\top$. Proved.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2412.06464 Section 3.1 and Section 3.3.
 - **Normalization and Gating**:
   - Keys and queries are normalized: $q_t \leftarrow q_t / \|q_t\|_2$, $k_t \leftarrow k_t / \|k_t\|_2$ (or softmax normalization), from paper Section 3.1.
@@ -114,12 +128,33 @@ the exact SHA256 cryptographic digest.
 - **Chunk State Recurrence**:
   For chunk index $t$ and within-chunk step $r \in [1, C]$:
   $$S_{[t]}^r = S_{[t]} F_{[t]}^r + G_{[t]}^r$$
+
+  * **say:** S sub bracket t to the r equals S sub bracket t times F sub bracket t to the r plus G sub bracket t to the r.
+  * **means:** after r steps inside chunk t the state is the chunk-entry state carried through the composed transition F plus the injected sum G, so the whole within-chunk recurrence is one affine application.
+  * **vars:** $S_{[t]}^r$ — state after r within-chunk steps, $\mathbb{R}^{d_v \times d_k}$; $F_{[t]}^r$ — composed transition, $\mathbb{R}^{d_k \times d_k}$; $G_{[t]}^r$ — injected sum, $\mathbb{R}^{d_v \times d_k}$; $C$ — chunk length, $r \in [1, C]$.
+  * **apeiron:** `Nous.Seq.GatedDelta.recur_eq_scan` with `Nous.Seq.GatedDelta.affFold` says the recurrence over a step list equals one composed affine application, whose matrix is $F$ and whose offset is $G$. Proved.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2412.06464 Section 3.3, where:
   $$F_{[t]}^r = \prod_{i=1}^r \alpha_{[t]}^i (I - \beta_{[t]}^i k_{[t]}^i (k_{[t]}^i)^\top), \quad G_{[t]}^r = \sum_{i=1}^r \frac{\gamma_{[t]}^r}{\gamma_{[t]}^i} \tilde{u}_{[t]}^i (k_{[t]}^i)^\top$$
+
+  * **say:** F sub bracket t to the r equals the product from i equals one to r of alpha times I minus beta k k transpose; G sub bracket t to the r equals the sum from i equals one to r of gamma sub r over gamma sub i times u tilde sub i k sub i transpose.
+  * **means:** F is the ordered product of the decayed Householder factors, G is the key outer-product sum reweighted by the ratio of cumulative decays, so a chunk is one matrix product plus one sum.
+  * **vars:** $\alpha_{[t]}^i$ — decay, $(0,1)$; $\beta_{[t]}^i$ — learning rate; $k_{[t]}^i$ — key; $\tilde{u}_{[t]}^i$ — transformed value; $\gamma_{[t]}^r = \prod_{j=1}^r \alpha_{[t]}^j$ — cumulative decay; $I$ — identity.
+  * **apeiron:** `Nous.Seq.GatedDelta.gatedDeltaProduct` is the product $\prod_r \alpha_r (I - \beta_r k_r k_r^\top)$; `Nous.Seq.GatedDelta.closedFormSum` is the injected sum $\sum_s N_s \prod_r M_r$; `Nous.Seq.GatedDelta.gated_scaling_lemma` moves the scalar decays out of the product, which leaves the $\gamma^r / \gamma^i$ ratio. Proved.
+  * **physics:** no physical content.
+
   with cumulative decay $\gamma_{[t]}^r = \prod_{j=1}^r \alpha_{[t]}^j$.
 - **WY/UT Transform Formulation**:
   The cumulative product of generalized Householder transformations is represented in compact matrix form using the Upper Triangular (UT) inverse representation (Bischof & Van Loan, 1985):
   $$\tilde{U}_{[t]} = \left[ I + \mathrm{strictLower}\left( \mathrm{diag}(\beta_{[t]}) (\Gamma_{[t]} \odot K_{[t]} K_{[t]}^\top) \right) \right]^{-1} \mathrm{diag}(\beta_{[t]}) V_{[t]}$$
+
+  * **say:** U tilde sub bracket t equals the inverse of I plus strictly-lower of diag beta times, Gamma Hadamard K K transpose, all times diag beta times V.
+  * **means:** the chunk's transformed values are one triangular solve: the inverse of the strictly lower part of the scaled key Gram matrix applied to the scaled values, so r Householder applications become one inverse.
+  * **vars:** $\tilde{U}_{[t]}$ — transformed values, $\mathbb{R}^{d_v \times C}$; $I$ — identity; $\mathrm{strictLower}$ — zero the diagonal and every entry above it; $\mathrm{diag}(\beta_{[t]})$ — diagonal learning-rate matrix; $\Gamma_{[t]}$ — cumulative decay matrix; $\odot$ — elementwise (Hadamard) product (Schur, 1911); $K_{[t]}$ — key matrix; $V_{[t]}$ — value matrix; $(\cdot)^{-1}$ — matrix inverse (Bischof & Van Loan, 1985).
+  * **apeiron:** `none — anchor`. The displayed inverse-of-lower-triangular form has no declaration; `Nous.Seq.GatedDelta.wy_form` and `Nous.Seq.GatedDelta.gated_wy_form` carry the equivalent compact WY product $\prod_r (I - \beta_r k_r k_r^\top) = I - \sum_r w_r k_r^\top$.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2412.06464 Section 3.3 (and arXiv:2406.06484 eq. 6-7).
 - **Code Citations**:
   - `solve_tril` inverting $(I + A)$ for strictly lower-triangular $A$: quoted from `/home/socol/Workspace/ref/flash-linear-attention/fla/ops/utils/solve_tril.py:339`.
@@ -137,9 +172,22 @@ the exact SHA256 cryptographic digest.
   Each bucket $B_t^{(\ell)}$ has size $|B_t^{(\ell)}| = 2^{\ell-1}$ for $\ell \ge 1$, plus a sentinel bucket $B_t^{(0)}$ of size 1.
   The decomposition is determined by the binary least significant set bit:
   $$\mathrm{lssb}(t) = \max \{ \ell \in \mathbb{N} \mid 2^\ell \text{ divides } t \}$$
+
+  * **say:** l s s b of t equals the maximum ell in the naturals such that two to the ell divides t.
+  * **means:** the level a step merges at is the exponent of the largest power of two dividing the position, that is the number of trailing zero bits of t.
+  * **vars:** $t$ — position, $\mathbb{N}$; $\ell$ — level, $\mathbb{N}$; $2^\ell$ — bucket size; $\mid$ — divides (binary-indexed tree; Fenwick, 1994; Ryabko, 1992).
+  * **apeiron:** `none — anchor`. `Nous.Seq.Fenwick.level` is the level of a position pair, $(t \oplus s).\mathrm{log2}$, and `Nous.Seq.Fenwick.trailingOnes` counts trailing one bits; neither is $\mathrm{lssb}(t)$ as written here. The partition the rule selects is carried by `Nous.Seq.Fenwick.buckets_cover` and `Nous.Seq.Fenwick.levelSet_eq_setBits`.
+  * **physics:** no physical content.
 - **Output with Multi-Scale Level Weights**:
   Each bucket level $\ell \in [0, L-1]$ maintains a distinct recurrent state $S_t^{(\ell)} \in \mathbb{R}^{d_k \times d_v}$. The attention output is a dynamically weighted multi-scale combination:
   $$o_t = \sum_{\ell=0}^{L-1} \lambda_t^{(\ell)} q_t^\top S_t^{(\ell)}$$
+
+  * **say:** o sub t equals the sum over ell from zero to L minus one of lambda sub t to the ell times q sub t transpose S sub t to the ell.
+  * **means:** the output is the query read through each level's state, weighted by a data-dependent scale and summed; no key or value outside the states is reread.
+  * **vars:** $o_t$ — output, $\mathbb{R}^{d_v}$; $\ell$ — bucket level; $L$ — level count; $\lambda_t^{(\ell)} = \mathrm{softplus}(W_\lambda^{(\ell)} x_t) \ge 0$ — level weight; $q_t$ — query, $\mathbb{R}^{d_k}$; $S_t^{(\ell)}$ — level state, $\mathbb{R}^{d_k \times d_v}$.
+  * **apeiron:** `Nous.Seq.Fenwick.loglinear_eq_masked` proves this sum, in the ungated case, equals the masked quadratic form $\sum_{s<t} \lambda_t^{\ell(t,s)} (q_t \cdot k_s) v_s$. Proved.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2506.04761 eq. (3), where $\lambda_t^{(\ell)} = \mathrm{softplus}(W_\lambda^{(\ell)} x_t) \ge 0$.
 - **Recurrent State Step and Level Cascading**:
   At step $t$, the new token outer product enters the finest level $\ell=0$. Existing buckets at levels $\le \mathrm{lssb}(t)$ cascade and merge into level $\mathrm{lssb}(t) + 1$:
@@ -149,10 +197,23 @@ the exact SHA256 cryptographic digest.
   \sum_{\ell'=0}^{\ell-1} S_{t-1}^{(\ell')} & \text{if } \ell = \mathrm{lssb}(t) + 1 \\
   S_{t-1}^{(\ell)} & \text{if } \ell > \mathrm{lssb}(t) + 1
   \end{cases}$$
+
+  * **say:** S sub t to the ell equals v sub t k sub t transpose if ell is zero; zero if ell is above zero and at most l s s b of t; the sum over ell prime from zero to ell minus one of S sub t minus one to the ell prime if ell equals l s s b of t plus one; and S sub t minus one to the ell if ell is greater.
+  * **means:** the newest token enters level zero, every level up to the merge point empties, the level above the merge point takes their sum, and levels above that keep their state; one step rewrites only the levels a binary carry touches.
+  * **vars:** $S_t^{(\ell)}$ — level state, $\mathbb{R}^{d_k \times d_v}$; $v_t k_t^\top$ — rank-one outer product; $\mathrm{lssb}(t)$ — merge level, defined by the preceding equation; $\ell'$ — summed level index.
+  * **apeiron:** `none — anchor` for the case split. `Nous.Seq.Fenwick.levelState` defines $S_t^{(\ell)}$ as the sum of $k_s \otimes v_s$ over the bucket, and `Nous.Seq.Fenwick.merges_total_le` bounds the merges over $T$ steps by $T$; the four-case update is not itself a declaration.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2506.04761 Section 3.2.
 - **Composition with Mamba-2 and Gated DeltaNet**:
   Paper arXiv:2506.04761 Section 3.4 proves that log-linear hierarchical matrices compose with sequentially semiseparable (SSS) decay masks via Hadamard product:
   $$M = M_S \odot M_H$$
+
+  * **say:** M equals M sub S Hadamard M sub H.
+  * **means:** the semiseparable decay mask and the hierarchical bucket mask combine entrywise; a token pair is attended only where both masks are non-zero.
+  * **vars:** $M$ — composed attention mask; $M_S$ — sequentially semiseparable decay mask; $M_H$ — hierarchical (Fenwick) mask; $\odot$ — elementwise Hadamard product (Schur, 1911).
+  * **apeiron:** `none — anchor`. No corpus declaration states the mask composition; `Nous.Seq.Fenwick.loglinear_eq_masked` states the masked quadratic form the composition produces, not the product of the two masks.
+  * **physics:** no physical content.
   - Log-Linear Mamba-2: $O = (Q K^\top \odot M_S \odot M_H) V$ (from paper Section 3.4).
   - Log-Linear Gated DeltaNet: $O = \left( Q K^\top \odot \left[ L (I + K K^\top \odot (L - I))^{-1} \right] \odot M_S \odot M_H \right) V$ (from paper Section 3.4).
 
@@ -177,9 +238,23 @@ the exact SHA256 cryptographic digest.
 - **Exponential-Trapezoidal Discretization**:
   The continuous selective SSM $\dot{h}(t) = A(t) h(t) + B(t) x(t)$ is integrated over $[\tau_{t-1}, \tau_t]$ with interval $\Delta_t$. Approximating the state-input integral via a data-dependent generalized trapezoidal rule yields:
   $$h_t = e^{\Delta_t A_t} h_{t-1} + (1 - \lambda_t) \Delta_t e^{\Delta_t A_t} B_{t-1} x_{t-1} + \lambda_t \Delta_t B_t x_t$$
+
+  * **say:** h sub t equals e to the delta sub t A sub t times h sub t minus one, plus one minus lambda sub t times delta sub t e to the delta sub t A sub t B sub t minus one x sub t minus one, plus lambda sub t delta sub t B sub t x sub t.
+  * **means:** the state decays by the exact exponential over the interval and the drive enters as a convex combination of its two endpoints, with weight lambda on the current sample and one minus lambda on the previous.
+  * **vars:** $h_t$ — state, $\mathbb{R}^N$; $A_t$ — transition matrix, $\mathbb{R}^{N \times N}$; $B_t$ — input map, $\mathbb{R}^{N \times P}$; $x_t$ — input, $\mathbb{R}^P$; $\Delta_t$ — step size, $> 0$; $\lambda_t = \sigma(\mathrm{trap}_t) \in [0, 1]$ — trapezoid weight; $e^{\Delta_t A_t}$ — matrix exponential (trapezoidal quadrature; Newton–Cotes).
+  * **apeiron:** `none — anchor`. The module registered for this discretisation is `proof/corpus/Nous/Seq/Mamba3.lean`; it is not in the tree, and no other declaration states the discretisation.
+  * **physics:** an exponentially decaying state driven by two samples of the input.
+
   quoted from paper arXiv:2603.15569 eq. (5) (Proposition 1), where $\lambda_t = \sigma(\mathrm{trap}_t) \in [0, 1]$.
   Coefficients are defined as:
   $$\alpha_t = e^{\Delta_t A_t}, \quad \beta_t = (1 - \lambda_t) \Delta_t e^{\Delta_t A_t}, \quad \gamma_t = \lambda_t \Delta_t$$
+
+  * **say:** alpha sub t equals e to the delta A; beta sub t equals one minus lambda sub t times delta sub t e to the delta A; gamma sub t equals lambda sub t delta sub t.
+  * **means:** these name the three coefficients of the preceding equation: the decay, the weight on the previous input sample, and the weight on the current one.
+  * **vars:** $\alpha_t$ — decay matrix, $\mathbb{R}^{N \times N}$; $\beta_t$ — previous-input coefficient; $\gamma_t$ — current-input coefficient; $\Delta_t$ — step size; $\lambda_t \in [0,1]$ — trapezoid weight; $e^{\Delta_t A_t}$ — matrix exponential.
+  * **apeiron:** `none — anchor`. No declaration; `proof/corpus/Nous/Seq/Mamba3.lean` is the registered module for it and is not present.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2603.15569 eq. (6).
   This acts as an implicit data-dependent width-2 causal convolution on the state input $B_t x_t$ (Remark 4).
 - **Complex-Valued State and Equivalence to Data-Dependent RoPE**:
@@ -187,12 +262,33 @@ the exact SHA256 cryptographic digest.
   - Proposition 2 (Complex-to-Real Equivalence): Equivalent to real SSM with state $h_t \in \mathbb{R}^N$ and block-diagonal transition $e^{\Delta_t A_t} R_t$ containing $2 \times 2$ rotation blocks $R(\Delta_t \theta_t[i]) = \begin{pmatrix} \cos(\theta) & -\sin(\theta) \\ \sin(\theta) & \cos(\theta) \end{pmatrix}$ (paper eq. 9).
   - Proposition 3 & 4 ("RoPE Trick"): The unrolled recurrence is mathematically equivalent to a real-valued scalar decayed SSM where cumulative data-dependent rotary embeddings $\prod_{i=0}^t R_i^\top$ are applied to $B_t$ and $C_t$:
     $$h_t = \alpha_t h_{t-1} + \beta_t \left( \prod_{i=0}^{t-1} R_i^\top \right) B_{t-1} x_{t-1} + \gamma_t \left( \prod_{i=0}^t R_i^\top \right) B_t x_t$$
+
+    * **say:** h sub t equals alpha sub t h sub t minus one, plus beta sub t times the product from i equals zero to t minus one of R sub i transpose times B sub t minus one x sub t minus one, plus gamma sub t times the product from i equals zero to t of R sub i transpose times B sub t x sub t.
+    * **means:** the complex rotating state unrolls into a real scalar decay whose inputs are pre-rotated by the accumulated data-dependent rotation; the rotation moves from the state onto the injection.
+    * **vars:** $h_t$ — real state, $\mathbb{R}^N$; $\alpha_t, \beta_t, \gamma_t$ — the coefficients defined above; $R_i$ — $2 \times 2$ block rotation $R(\Delta_i \theta_i)$, a single turn; $\prod_i R_i^\top$ — cumulative inverse rotation; $B_t x_t$ — input injection; rotary embedding (Su et al., 2021).
+    * **apeiron:** `none — anchor`. `Nous.Model.RopeOrbit.rotMat_mul` and `Nous.Model.RopeOrbit.rotMat_relative` carry the single-rotation composition law and the relative-position form; the per-step cumulative product inside this recurrence is Mamba-3 and is not declared.
+    * **physics:** a rotating state is read as a real decay with the turn pre-applied to the drive, a change of frame rather than of dynamics.
+
     $$y_t = \left( \prod_{i=0}^t R_i^\top C_t \right)^\top h_t$$
+
+    * **say:** y sub t equals the transpose of, the product from i equals zero to t of R sub i transpose times C sub t, all applied to h sub t.
+    * **means:** the readout vector is rotated by the same accumulated rotation before it meets the state, so readout and stored keys sit in one frame.
+    * **vars:** $y_t$ — output; $C_t$ — readout map; $R_i$ — block rotation; $\prod_i R_i^\top$ — cumulative inverse rotation; $h_t$ — state, $\mathbb{R}^N$.
+    * **apeiron:** `none — anchor`. No declaration states the rotated readout; `Nous.Model.RopeOrbit.rho_relative_score` states the same-frame inner-product consequence for a single rotation.
+    * **physics:** no physical content.
+
     quoted from paper arXiv:2603.15569 eq. (11).
 - **Multi-Input, Multi-Output (MIMO)**:
   - To increase arithmetic intensity during memory-bound decoding from $\Theta(1)$ to $\Theta(R)$, inputs and projections are expanded by rank $R$: $B_t \in \mathbb{R}^{N \times R}$, $x_t \in \mathbb{R}^{P \times R}$ (paper Section 3.3, Table 2).
   - Outer products become hardware-efficient matrix multiplications:
     $$h_t^{(j)} \leftarrow \alpha_t h_{t-1}^{(j)} + \Delta_t B_t^{(j)} x_t^{(j)}, \quad h_t = \sum_{j=0}^{R-1} h_t^{(j)}, \quad y_t^{(i)} \leftarrow (C_t^{(i)})^\top h_t$$
+
+    * **say:** h sub t super j is updated as alpha h sub t minus one super j plus delta B super j x super j; h sub t is the sum over j from zero to R minus one; y sub t super i is C super i transpose h sub t.
+    * **means:** a rank-R bank of independent recurrences replaces one outer-product update with R matrix products, the rank states sum into one state, and the readout keeps one output per rank index.
+    * **vars:** $R$ — MIMO rank; $j$ — rank index, $0 \le j < R$; $i$ — output index; $h_t^{(j)}$ — rank-j state; $B_t^{(j)}$ — rank-j input map; $x_t^{(j)}$ — rank-j input; $C_t^{(i)}$ — readout; $y_t^{(i)}$ — output.
+    * **apeiron:** `none — anchor`. No declaration states the rank-R expansion or the state sum.
+    * **physics:** no physical content.
+
     quoted from paper arXiv:2603.15569 eq. (12), (13), (14).
 
 #### Implementation Citations
@@ -228,23 +324,56 @@ the exact SHA256 cryptographic digest.
 - **Online Softmax with Conditional (Lazy) Rescaling**:
   Standard online softmax updates intermediate numerator $O_j$ and running max $m_j$ for each key block $j$:
   $$m_j = \max(m_{j-1}, \mathrm{rowmax}(S_j))$$
+
+  * **say:** m sub j equals the maximum of m sub j minus one and row-max of S sub j.
+  * **means:** the running maximum never decreases; it is either the previous maximum or the largest score in the new block.
+  * **vars:** $m_j$ — running maximum; $S_j$ — score block for key block $j$; $\mathrm{rowmax}$ — largest entry in a row (online softmax; Milakov & Gimelshein, 2018).
+  * **apeiron:** `none — anchor` at the paper's types. `apeiron_word.intListMax` is the running-maximum fold over $\mathbb{Z}$ engine scores, with `apeiron_word.intListMax_cons` as its step; the $\mathbb{R}$ row-max form over a block is not a declaration.
+  * **physics:** no physical content.
   FlashAttention-4 introduces conditional rescaling governed by threshold $\tau = \log_2(256) = 8.0$:
   $$O_j = \begin{cases}
   e^{m_{j-1} - m_j} O_{j-1} + e^{S_j - m_j} V_j & \text{if } m_j - m_{j-1} > \tau \\
   O_{j-1} + e^{S_j - m_{j-1}} V_j & \text{otherwise}
   \end{cases}$$
+
+  * **say:** O sub j equals e to the m sub j minus one minus m sub j times O sub j minus one plus e to the S sub j minus m sub j V sub j, when m sub j minus m sub j minus one is greater than tau; otherwise O sub j minus one plus e to the S sub j minus m sub j minus one V sub j.
+  * **means:** the unnormalized numerator is rescaled to the new reference only when the reference moves by more than tau; below tau the new block's terms are added at the old reference, and the final normalization corrects the frame.
+  * **vars:** $O_j$ — unnormalized numerator over key blocks up to $j$; $m_j$ — reference maximum; $S_j$ — block scores; $V_j$ — block values; $\tau$ — rescale threshold, $8$ here; $e^x$ — exponential (Euler, 1748); online softmax (Milakov & Gimelshein, 2018); FA4 conditional rescaling (Zadouri et al., 2026).
+  * **apeiron:** `Nous.Seq.LazySoftmax.lazyStep` is this conditional step: the reference is kept when `x ≤ m_ref + τ` and the state is rescaled when it is not. Proved (`Nous.Seq.LazySoftmax.lazyFold_correct`).
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2603.05451 eq. (6).
 - **Exactness Proof**:
   Skipping intermediate rescaling when $m_j - m_{j-1} \le \tau$ defers the normalization update while keeping all accumulated terms scaled relative to the pinned reference max $m_{\mathrm{ref}}$.
   Because the final output is normalized at completion by the true final maximum $m_{\mathrm{final}}$ and sum of exponentials $\ell_{\mathrm{final}}$:
   $$\mathrm{Output} = \frac{1}{\ell_{\mathrm{final}}} O_{\mathrm{final}}$$
+
+  * **say:** Output equals one over ell final times O final.
+  * **means:** the deferred numerator is corrected once, at the end, by the true final denominator; every skipped intermediate rescale cancels in exact arithmetic.
+  * **vars:** $\mathrm{Output}$ — normalized output; $O_{\mathrm{final}}$ — final unnormalized numerator; $\ell_{\mathrm{final}} = \sum_i e^{x_i - m_{\mathrm{final}}}$ — final denominator at the true maximum $m_{\mathrm{final}}$; softmax (Boltzmann, 1877; Gibbs, 1902; Bridle, 1990).
+  * **apeiron:** `Nous.Seq.LazySoftmax.lazy_exact` proves the lazy fold's numerator over its own denominator equals the softmax-weighted average, for every threshold; `Nous.Seq.LazySoftmax.softmaxWeightedAvg` is that quotient. Proved.
+  * **physics:** no physical content.
   any intermediate deferral cancels out identically in exact arithmetic. Furthermore, bounding $m_j - m_{\mathrm{ref}} \le \tau$ guarantees intermediate terms are bounded by $e^\tau = 256.0$, preventing numerical overflow.
 - **Polynomial Approximation of $2^x$**:
   On Blackwell GPUs, tensor cores offer $512\times$ the throughput of multi-function units (MUFU.EX2). FA4 emulates $2^x$ on general FMA units using range reduction and polynomial approximation:
   $$2^x = 2^{\lfloor x \rfloor} 2^{x - \lfloor x \rfloor}$$
+
+  * **say:** two to the x equals two to the floor of x times two to the x minus floor of x.
+  * **means:** the exponent splits into an integer part and a fractional part; the integer part is an exact power-of-two scale, so only the fractional part needs a polynomial.
+  * **vars:** $x$ — exponent, $\mathbb{R}$; $\lfloor x \rfloor$ — floor, $\mathbb{Z}$; $2^{\lfloor x \rfloor}$ — exact bit-shift scale; $x - \lfloor x \rfloor \in [0, 1)$ — fractional part.
+  * **apeiron:** `none — anchor`. The identity is the range reduction the FA4 kernel performs (`/home/socol/Workspace/ref/flash-attention/flash_attn/cute/utils.py:766`), not a corpus declaration.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2603.05451 eq. (4).
   The fractional part $x_{\mathrm{frac}} = x - \lfloor x \rfloor \in [0, 1)$ is approximated via minimax polynomial:
   $$2^{x_{\mathrm{frac}}} \approx \sum_{i=0}^n p_i x_{\mathrm{frac}}^i$$
+
+  * **say:** two to the x frac is approximately the sum from i equals zero to n of p sub i x frac to the i.
+  * **means:** the fractional exponential is evaluated by a minimax polynomial of degree n instead of a multi-function unit; the error is the polynomial error, tabulated in the paper's Table 2.
+  * **vars:** $x_{\mathrm{frac}} \in [0, 1)$ — fractional part of the exponent; $n$ — polynomial degree, $0$ to $5$; $p_i$ — coefficient of $x_{\mathrm{frac}}^i$ (the kernel's `POLY_EX2` table); $\approx$ — approximation, not identity (minimax approximation; Chebyshev, 1854).
+  * **apeiron:** `none — anchor`. The coefficient table and the measured errors live in `/home/socol/Workspace/ref/flash-attention/flash_attn/cute/utils.py:30` and paper arXiv:2603.05451 Table 2; no corpus declaration states the approximation or a bound on it.
+  * **physics:** no physical content.
+
   quoted from paper arXiv:2603.05451 eq. (5).
 - **Polynomial Degrees and Measured Errors** (quoted from paper arXiv:2603.05451 Table 2):
   - **Hardware MUFU.EX2**: FP32 max rel error $1.41 \times 10^{-7}$, mean rel error $3.04 \times 10^{-8}$. Rounding to BF16: max rel error $1.41 \times 10^{-3}$, mean $3.89 \times 10^{-3}$.

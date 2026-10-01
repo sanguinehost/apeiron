@@ -23,6 +23,13 @@ The recurrent state contains $18 \times 16 \times 128 \times 128 = 4,718,592$ el
 Because $\|k\|_2 = 1$ and $\beta \in [0, 1]$, the state transition matrix $(I - \beta k k^T)$ has spectral radius $\le 1$.
 Under scalar decay $\alpha \in [0, 1)$, the recurrence:
 $$S_t = \alpha S_{t-1} (I - \beta k_t k_t^T) + \beta k_t \otimes v_t$$
+
+* **say:** S sub t equals alpha times S sub t minus one times the quantity identity minus beta times k sub t times k sub t transpose, plus beta times k sub t outer product v sub t.
+* **means:** the hidden state matrix updates via decayed projection along the orthogonal complement of key k sub t plus a rank-one outer-product write of value v sub t.
+* **vars:** $S_t \in \mathbb{R}^{d_v \times d_k}$ — recurrent state matrix; $\alpha \in [0, 1)$ — scalar decay rate; $I \in \mathbb{R}^{d_k \times d_k}$ — identity matrix; $\beta \in [0, 1]$ — write strength; $k_t \in \mathbb{R}^{d_k}$ — unit key vector ($\|k_t\|_2 = 1$); $v_t \in \mathbb{R}^{d_v}$ — value vector; $\otimes$ — tensor outer product (Songlin Yang et al., 2024; Alston Scott Householder, 1958).
+* **apeiron:** `none — anchor`. The full matrix recurrence and its spectral contraction are not formalized in the corpus; `Nous.Seq.StatePrecision.errorSeq` formalizes only the 1D scalar error sequence.
+* **physics:** dissipative linear state space system with rank-one non-expansive projection and rank-one injection.
+
 is a strict contraction.
 
 ### Lean Formalization (`Nous.Seq.StatePrecision`)
@@ -30,6 +37,13 @@ In [`proof/corpus/Nous/Seq/StatePrecision.lean`](file:///home/socol/Workspace/ap
 1. `errorSeq_telescope`: $(1 - \alpha) e_t = \epsilon (1 - \alpha^t)$.
 2. `errorSeq_le_steady_state`: For any $0 \le \alpha < 1$ and step quantization error $\epsilon$,
    $$e_t \le \frac{\epsilon}{1 - \alpha}$$
+
+   * **say:** e sub t is less than or equal to epsilon over one minus alpha.
+   * **means:** the accumulated error at step t under scalar decay alpha and step quantization error epsilon is bounded by the asymptotic steady-state limit, independent of sequence length.
+   * **vars:** $e_t$ — accumulated state error at sequence step $t \in \mathbb{N}$; $\epsilon \ge 0$ — step quantization error; $\alpha \in [0, 1)$ — scalar decay rate (Stefan Banach, 1922).
+   * **apeiron:** `Nous.Seq.StatePrecision.errorSeq_le_steady_state` (`proof/corpus/Nous/Seq/StatePrecision.lean`), proved, closed cone.
+   * **physics:** steady-state non-equilibrium error accumulation under constant per-step dissipation.
+
    for all sequence lengths $t \in \mathbb{N}$. The error does **not** grow with sequence length.
 3. Mutation control verified in `/home/socol/oc-tmp/f4-state-precision/control_copy/StatePrecision_mutant.lean` (rejected invalid bounds).
 

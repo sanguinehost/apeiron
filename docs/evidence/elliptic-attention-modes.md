@@ -19,6 +19,12 @@ Specifically:
 Under Rotary Position Embedding (RoPE, Su et al. 2021), query and key vectors at sequence positions $m$ and $m - \Delta$ undergo 2D block rotations $R(\Delta \theta_j)$. For projection matrices $W_q, W_k$ and token activation covariance $\Sigma_h = \mathbb{E}[h h^T]$, the expected attention score at positional lag $\Delta$ is:
 $$A(\Delta) = \frac{1}{\sqrt{d_k}} \text{Tr}\left( W_q^T \Sigma_h W_k R(\Delta)^T \right)$$
 
+* **say:** A of Delta equals one over the square root of d sub k times the trace of W sub q transpose times Sigma sub h times W sub k times R of Delta transpose.
+* **means:** the expected attention score at relative positional lag Delta equals the scaled trace of the projected activation covariance under the relative RoPE rotation matrix.
+* **vars:** $A(\Delta) \in \mathbb{R}$ — expected positional attention score at lag $\Delta \in \mathbb{N}$; $d_k \in \mathbb{N}$ — attention head dimension; $W_q, W_k \in \mathbb{R}^{d_k \times d_h}$ — query and key projection matrices; $\Sigma_h = \mathbb{E}[h h^T] \in \mathbb{R}^{d_h \times d_h}$ — token activation covariance matrix; $R(\Delta) \in \text{SO}(d_k)$ — block-diagonal Rotary Position Embedding matrix at lag $\Delta$ (Jianlin Su et al., 2021); $\text{Tr}$ — matrix trace operator (Arthur Cayley, 1858).
+* **apeiron:** `none — anchor`. Definition of empirical positional lag expectation profile. The underlying elliptic mode properties are proved in `Nous.Model.EllipticModes.real_decay_strictly_positive` and `Nous.Model.EllipticModes.quarterTurnRotor_sq`.
+* **physics:** spatial correlation function of a rotating spinor field in stationary equilibrium.
+
 ### 2. Hyperbolic vs Elliptic Dynamics
 - **Hyperbolic ($\sigma > 0$):** Decay is parameterized by real scalars $\alpha \in (0, 1)$, yielding kernel terms $\alpha^\Delta$. Over an ordered field, if $\alpha > 0$, then $\alpha^\Delta > 0$ for all $\Delta \in \mathbb{N}$. Monotonic decay preserves sign strictly and cannot cross zero or oscillate.
 - **Elliptic ($\sigma < 0$):** Dynamics are parameterized by 2D rotation-dilation blocks $z = (\alpha \cos \theta, \alpha \sin \theta) \in \mathbb{R}[x]/(x^2 - \sigma)$ with $\sigma = -1$. Repeated action $z^\Delta = \alpha^\Delta (\cos(\Delta \theta), \sin(\Delta \theta))$ naturally generates sign alternations and oscillatory wave packets.

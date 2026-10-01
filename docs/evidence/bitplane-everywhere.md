@@ -14,12 +14,35 @@ Specifically:
 ## Method & Mathematical Formulation
 
 ### 1. Discrete Bit-Plane Dot Product Bound
-For an integer or fixed-point weight vector $w \in \mathbb{Z}^D$ decomposed into lead bit-plane $s \in \{-1, 1\}^D$ and residual magnitude $r$ with $|r_i| \le R$:
+For an integer or fixed-point weight vector $w \in \mathbb{Z}^D$ decomposed into lead bit-plane $s \in \{-1, 1\}^D$ and residual magnitude $r$ with $|r_i| \le R$ (the two-element formalisation in `Nous.Seq.BitplaneRouter` serves as the proved base; $D$-dimensional statements are grade `anchor`):
 $$w \cdot h = 2^k (s \cdot h) + r \cdot h$$
+
+* **say:** w dot h equals two to the k times s dot h, plus r dot h.
+* **means:** a fixed-point weight splits into a lead bit-plane term scaled by $2^k$ and a residual term, so the residual can be bounded without reading the lower bits.
+* **vars:** $w, s, r \in \mathbb{Z}^D$ — weight vector, sign plane and residual magnitude; $h$ — activation vector, $\mathbb{Z}^D$; $k \in \mathbb{N}$ — lead-bit position; $2^k$ — lead-plane scale.
+* **apeiron:** `none — anchor`. The decomposition is stated in the `Nous.Seq.BitplaneRouter` module header, but no declaration in that module states it; `Nous.Seq.BitplaneRouter.dotProduct2D` fixes only the two-element dot product.
+* **physics:** no physical content.
+
 The residual dot product is strictly bounded by:
+
 $$|r \cdot h| \le R \|h\|_1$$
+
+* **say:** the absolute value of r dot h is at most R times the one-norm of h.
+* **means:** every residual dot product is bounded by the residual cap times the sum of absolute activation entries, for any sign pattern of $r$.
+* **vars:** $r \in \mathbb{Z}^D$ — residual vector with $|r_i| \le R$; $h$ — activation vector; $R$ — residual cap, $\mathbb{R}_{\ge 0}$; $\|h\|_1$ — sum of absolute activation entries; triangle inequality (Euclid, *Elements* I.20).
+* **apeiron:** `none — anchor` for the $D$-dimensional statement. `Nous.Seq.BitplaneRouter.residual_bound` proves the two-element instance $|r_0 h_0 + r_1 h_1| \le R(|h_0| + |h_1|)$.
+* **physics:** no physical content.
+
 If the lead bit-plane satisfies:
+
 $$2^k (s \cdot h) < - R \|h\|_1$$
+
+* **say:** two to the k times s dot h is less than minus R times the one-norm of h.
+* **means:** when the lead-plane contribution falls below the worst-case residual magnitude, the full dot product is strictly negative, so the neuron or row can be refused before its lower bits are read.
+* **vars:** $s$ — sign plane, $\{-1, +1\}^D$; $k$ — lead-bit position, $\mathbb{N}$; $R$ — residual cap; $h$ — activation vector; $\|h\|_1$ — sum of absolute activation entries.
+* **apeiron:** `none — anchor` for the $D$-dimensional statement. `Nous.Seq.BitplaneRouter.bitplane_pruning_negative` proves the two-element implication for an abstract lead scalar; `Nous.Seq.BitplaneRouter.witness_bitplane_pruned` gives the non-vacuous witness $(-4) + (1/2 + 1/2) = -3 < 0$.
+* **physics:** no physical content.
+
 then $w \cdot h < 0$ strictly. In SwiGLU architectures, where activation $y = \text{silu}(W_{\text{gate}} h) \odot (W_{\text{up}} h)$ satisfies $\text{silu}(x) \approx 0$ for $x \ll 0$, negative gate neurons contribute negligible energy to the layer output.
 
 ---
@@ -60,7 +83,7 @@ Command:
   - **Verdict:** GREEN (exit code 0, 2,972 jobs built).
 - **Headlines Proved:**
   - `residual_bound`: $|r_0 h_0 + r_1 h_1| \le R (|h_0| + |h_1|)$.
-  - `bitplane_pruning_negative`: $\text{lead} < -R \|h\|_1 \implies \text{lead} + r \cdot h < 0$, guaranteeing strict negativity.
+  - `bitplane_pruning_negative`: $\text{lead} < -R (|h_0| + |h_1|) \implies \text{lead} + (r_0 h_0 + r_1 h_1) < 0$, guaranteeing strict negativity.
   - `witness_bitplane_pruned`: Non-vacuous numerical witness where lead $-4$ and residual $1$ yields $-3 < 0$.
 - **Mutation Control:**
   - Mutated file: `/home/socol/oc-tmp/e6-bitplane-ffn/control_copy/BitplaneRouter_mutant.lean`.

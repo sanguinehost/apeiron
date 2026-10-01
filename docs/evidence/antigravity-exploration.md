@@ -131,7 +131,8 @@ Post-training quantization to 2 bits collapsed across all evaluated methods (RTN
 ### 6.4 The Single Highest-Value Engine Lever
 
 The single highest-value optimization identified across both rounds is:
-$$\mathbf{DeltaNet\ State\ Compression\ to\ Q8.24\ i32\ with\ Chunked\ Evaluation\ (F4\ +\ F5)}$$
+
+> **DeltaNet state compression to Q8.24 i32 with chunked evaluation (F4 + F5)** — 64-bit fixed-point recurrent state reduced to 32-bit Q8.24, evaluated chunkwise. Precision bounds in `Nous.Seq.StatePrecision` and `Nous.Seq.ChunkedRounding`.
 
 #### Why This Lever Dominates:
 1. **Attacks the True Binding Bottleneck (Condition c):** In Qwen3.5-0.8B, DeltaNet recurrent states comprise $18 \times 16 \times 128 \times 128 = 4.72\text{M}$ words. In Q32.32 `i64`, reading and writing $S$ transfers **75.5 MB per token** across DRAM. Storing $S$ in Q8.24 `i32` cuts this traffic to **37.7 MB per token**—an immediate 50% memory bandwidth savings on every generated token.
