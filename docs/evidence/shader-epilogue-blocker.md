@@ -55,3 +55,17 @@ each ≤3 files / one gate:
 
 Steps 1–2 carry the only unexpected-lemma shape; 3–6 are `rw`/`simp` bookkeeping on the same
 statements. The worktree is retained so the statements are not re-derived.
+
+## Corrective actions before this leg resumes
+
+1. **Turn the divergence into a regression fixture.** Record exact admissible inputs, the CPU
+   refusal, the shader output and its flags; then determine whether production can reach those
+   inputs. Adding `fitsI128` to a theorem requires establishing it on the calling path
+   (`src/engine/kern/gemm.rs:314-330` and its callers); otherwise the production mismatch stays
+   open.
+2. **Keep the flag meaning precise.** "An addition reported overflow" is its own invariant. Any
+   equivalence to prefix-range safety must establish the initial accumulator bound, not assume it.
+3. **Repair the first failing lemmas before predicting downstream work.** `ediv_eq_one` /
+   `ediv_eq_neg_one` are one owner's task with a focused gate and a 540 s budget; the remaining
+   failures stay unresolved until checked, and the full positive/mutation/restoration gate runs only
+   once the proof compiles. "Bookkeeping" is not a verdict.
