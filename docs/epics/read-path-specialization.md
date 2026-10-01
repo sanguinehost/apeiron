@@ -641,8 +641,11 @@ cargo run --release --locked --example reg1 -- --check performance --profile ful
 
 Sol answered the absence/Grow contract for the flat open-addressed spill region (shape A, retire the
 summary; the spec below is the transcription). The measured basis is in `docs/plan.md` E6: the
-prototype reads 1.1717 ns/key against the canonical 7.8982 in one process over nine interleaved
-rounds with identical geometry.
+prototype reads 1.34 ns/key against the canonical 8.14 in one process over nine interleaved rounds
+with identical geometry, a 6.06x ratio reproduced on an uncontended box (E6.W2d, E6.W2e). Two
+instrument facts bound that measurement: the `read-stats` feature costs 1.90 ns/read on the
+canonical path, so the timing and attribution builds are separate, and the prototype's steps per
+key depend on its start-index hash choice (1.0104 with a splitmix mix), not on the flat layout.
 
 ### Spec
 
