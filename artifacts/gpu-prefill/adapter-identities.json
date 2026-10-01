@@ -1,0 +1,164 @@
+{
+  "schema": "apeiron-fold-gpu-adapter-identities-v1",
+  "apeiron_revision": "ad707f448e187697af0577dc2c5e5b610409f371",
+  "fold_revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+  "contract": {
+    "weight_source": "Apeiron GGUF Q8_0: little-endian f16 d + 32 signed i8 q; block bytes=34",
+    "weight_gpu_encoding": "Fold Q8 DP4A: u=q+128, DM=(f16(d),f16(-128*d)); refuse if either conversion is non-finite or changes represented values",
+    "activation_source": "Apeiron QuantAct: signed i8 codes [-127,127], Q32.32 power-of-two scale per 32 values",
+    "activation_gpu_encoding": "Direct signed QuantAct XQ; exact QuantAct scale as SX; XS from reconstructed lanes only; no requantization",
+    "weight_stride_bytes": 4,
+    "weight_address": "W[(k/4)*M+row]",
+    "xq_stride_words": "K/4 per token",
+    "out_address": "OUT[token*M+row]",
+    "dm_address": "DM[block*M+row], packed f16 (d,lo)",
+    "xs_sx_address": "XS[token*blocks+block], SX[token*blocks+block]",
+    "bindings": [
+      "W",
+      "XQ",
+      "OUT",
+      "DM",
+      "XS",
+      "SX"
+    ],
+    "k_multiple": 32,
+    "batch_padding": "zero-pad token extent to bt multiple; padded activation rows yield zero and are discarded; do not read padded outputs",
+    "session_identity": "immutable model source digest + explicit monotonically fresh session generation; never pointer identity",
+    "continuation": "same model digest, session generation, prefix and capacity; otherwise reset KV and recurrent state",
+    "float_semantics": "preserve Fold emitted f32 operation association bit-for-bit; no reassociation or fixed-point replacement",
+    "numeric_claim": "mapping/algebra model only; no Apeiron-to-Fold source refinement or GPU equality claim",
+    "q8_row_fallback": "Fold row_chart_of has no Q8 CPU row kernel; Q8 stays on f32 mirror unless an explicit GPU chart adapter is used"
+  },
+  "sources": [
+    {
+      "path": "src/format/quant.rs",
+      "sha256": "e574ea15520ed3c17dbfb90d514c2134a3883f681bbfba63b1eb200992f65335",
+      "symbols": [
+        "pub fn q8_0_codes",
+        "checked_mul(Q8_0_BLOCK_BYTES)",
+        "need(raw, o + Q8_0_BLOCK_BYTES)"
+      ]
+    },
+    {
+      "path": "src/engine/chart/mod.rs",
+      "sha256": "ae4a4a247f01b8435cb93860554d4b7d795b4c41d804b1d27abe614f23ad68c0",
+      "symbols": [
+        "pub(crate) struct QuantAct",
+        "pub(crate) fn quant_act",
+        "super::kern::pow2::act_scale",
+        "(-127..=127).contains(&signed)"
+      ]
+    },
+    {
+      "path": "src/engine/kern/gemm.rs",
+      "sha256": "44127bd20c1b54ce058b97df16529bc6346a1e22661a45916abbf16dad29d444",
+      "symbols": [
+        "pub(crate) fn exact_dot",
+        "round_shift_32(acc)",
+        "pub(crate) fn gemm_q8_0"
+      ]
+    },
+    {
+      "path": "modelfold/src/simt/dp4a.rs",
+      "sha256": "ffe4f6c313492b84ecfc2c5d99c9fa8b2945f5bf081282e9b13b1374da50901e",
+      "symbols": [
+        "pub fn gemv_dp4a_batch_module",
+        "W[c\u00b7M + r]",
+        "binding 5 = `sx`"
+      ]
+    },
+    {
+      "path": "modelfold/src/simt/superblock.rs",
+      "sha256": "e15e18bacfa02b5508dfefc959fc9bd7f2ef1593ff208d8de6e5e3c716745387",
+      "symbols": [
+        "pub fn gemv_dp4a_batch_rt_module",
+        "let (mut xsv, mut sxv)",
+        "OP_FMUL",
+        "the ONE place the clamped row still needs a predicate"
+      ]
+    },
+    {
+      "path": "modelfold/src/simt_nn/spec.rs",
+      "sha256": "f54e9fe3590aa4c6c87d382a8a4c9b76a56376eda58d212e4f2dd725a2c445b0",
+      "symbols": [
+        "pub struct GemvSpec",
+        "pub fn legalize",
+        "KNotBlockAligned"
+      ]
+    },
+    {
+      "path": "bedrock/src/serve/model/pack.rs",
+      "sha256": "b927d380a78eb283abe7ef47631a3d33de48a700febc6fd67f7cc0a8a65e3211",
+      "symbols": [
+        "fn row_chart_of",
+        "Carrier::Q8",
+        "has no row kernel"
+      ]
+    },
+    {
+      "path": "bedrock/src/serve/gpu.rs",
+      "sha256": "1e01838dca24f7751274249af671bb485109b80f8f0e7f9fa940e73744e9b17c",
+      "symbols": [
+        "pub struct GpuPrefillStack",
+        "impl GpuPrefillStack",
+        "pub fn new(",
+        "pub fn run("
+      ]
+    },
+    {
+      "path": "modelfold/src/simt_nn/batch.rs",
+      "sha256": "d183f9cb8decb9ffccb37c91a7973c39003b33361babc8dc6f98615cfc618fd7",
+      "symbols": [
+        "pub fn rmsnorm_batch_q_module"
+      ]
+    },
+    {
+      "path": "modelfold/src/simt_nn/deltanet.rs",
+      "sha256": "c72f1859e82a974339b208ccf6ae67455fa7be73b85f6845887c5d6b69906879",
+      "symbols": [
+        "delta"
+      ]
+    }
+  ],
+  "model_witnesses": [
+    "signed_weight_recode",
+    "zero_activation",
+    "empty_refusal",
+    "k_shape_refusal",
+    "checked_size_overflow",
+    "padded_rows",
+    "session_continue",
+    "session_reset"
+  ],
+  "control_dimensions": [
+    "weight_signedness",
+    "weight_stride",
+    "padded_extent",
+    "session_generation",
+    "source_sha256"
+  ],
+  "verification": {
+    "command": "timeout 120s python3 artifacts/gpu-prefill/adapter-gate.py --check --controls",
+    "exit_status": 0,
+    "elapsed_seconds": 0.1,
+    "python": "Python 3.14.7",
+    "gate_sha256": "2115a62e46a2ad529d7c7bcb15475aaf179981aa71c8cd3c33ffc7a590f8c6ce"
+  },
+  "model": {
+    "weight_offset": 128,
+    "weight_order": "first-major",
+    "dm_order": "first-major",
+    "pad_tokens": true,
+    "observe_padded": false,
+    "xs_source": "reconstructed",
+    "sx_source": "quantact-scale",
+    "continuation_fields": [
+      "model",
+      "generation",
+      "prefix",
+      "capacity"
+    ],
+    "empty_policy": "refuse",
+    "overflow_policy": "refuse"
+  }
+}
