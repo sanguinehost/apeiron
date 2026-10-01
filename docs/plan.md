@@ -826,12 +826,16 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   disk and the one decision requested. Never commit, never decide scope. The ladder is
   `../AGENTS.md` §Escalation ladder.
 
-- **Extraction-root repair (advancing).** `proof/extract/lib.rs` builds; the three-line
-  `dequant_f32_row` move landed (`src/engine/f32_convert.rs:62`, imported at
-  `src/engine/loader.rs:25`). `proof/regen.sh --check` exits 2 on exactly two refused bodies, both in
-  `src/engine/attn/f32_core.rs`, both `Returns inside of nested loops are not supported yet` — the
-  same loop-shape limiter that `8fc50a5` and `3a69a4f` cleared elsewhere; a reshape task is in
-  flight, and whether a float-domain refusal surfaces behind it is untested. Also open:
+- **Extraction-root repair (two blockers cleared; one boundary decision open).**
+  `proof/extract/lib.rs` builds; the `dequant_f32_row` move and both `f32_core.rs` loop-shape
+  reshapes landed (`8fc50a5`, `3a69a4f`, `4642760`). The pinned-Aeneas internal assert that aborted
+  every run was a redundant pass in the in-repo patch; removing that hunk and rebuilding the tool
+  from the pinned bases (`install-patches.sh --check` exit 0, build 38 s) clears it, proven by the
+  control where the pre-existing binary still asserts. The pipeline now proceeds into translation
+  and stops on 20 binary32 functions rejected with `Improperly typed constant value`
+  (`InterpExpressions.ml:117` has no float case) — the float-domain/boundary decision is with Sol,
+  and until it is settled `proof/ApeironWord.lean` cannot regenerate, which also holds the tag and
+  attn-reshape drift. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified

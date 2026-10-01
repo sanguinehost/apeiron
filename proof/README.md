@@ -583,6 +583,13 @@ and Aeneas lowers native `Repeat` to `Array.repeat`. Patched binary SHA-256:
 patched binaries the evidence was taken with; a binary hash alone does not establish durable
 reproducibility of a patched tool build.
 
+A rebuild from the same pinned bases with the corrected patch (the redundant `FunsAnalysis` pass
+removed) produces an Aeneas binary `sha256
+2a0d782768722366be2abbc4dbbaa19ec527264718fda264717b38acbb03e48c`: clone the pinned commits, `install-patches.sh`,
+`make build-bin` (38 s). It clears the prepass assert — the older binary still trips it — and the
+pipeline then stops on the 20 binary32 functions the translator cannot evaluate (no float case in
+`InterpExpressions.ml`), which is the open boundary decision, not a tool defect.
+
 ### Patched tool sources
 
 `proof/patches/` holds **three** patches, not two: two are source changes to the tool build, and the
