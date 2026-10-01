@@ -559,6 +559,56 @@ fn parse_llama_output(
     ))
 }
 
+/// Environment that hides every GPU backend from the comparator child. This engine is a CPU
+/// implementation, so a `llama-bench` that keeps its CUDA or Vulkan device silently compares CPU
+/// against GPU. `CUDA_VISIBLE_DEVICES=""` hides CUDA at the runtime and `GGML_VK_VISIBLE_DEVICES=""`
+/// selects no Vulkan device (`ggml-vulkan.cpp` requires every listed index to be in range, so the
+/// empty list exposes none); both are cheap and backend-independent on this machine.
+const CPU_ONLY_ENV: [(&str, &str); 2] = [
+    ("CUDA_VISIBLE_DEVICES", ""),
+    ("GGML_VK_VISIBLE_DEVICES", ""),
+];
+
+/// Builds the CPU-only `llama-bench` child. Time and space are O(1): two environment assignments;
+/// the argument vector and the affinity reset are applied by the caller.
+fn llama_command(bin: &str) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.envs(CPU_ONLY_ENV);
+    cmd
+}
+
+/// `llama-bench`'s own report of the device it used and the backends it was built with. An empty
+/// `gpu_info` means no GPU backend exposed a device to the child: the rows are CPU. The receipt
+/// keeps this report so a reader can see the comparator was CPU, not take it on trust.
+#[derive(Clone, Default)]
+struct ComparatorDevice {
+    gpu_info: String,
+    backends: String,
+}
+
+/// Reads the comparator's device report and rejects a loaded GPU. `gpu_info` nonempty means the
+/// child kept a device, so the comparison would be CPU against GPU: fail rather than label it CPU.
+///
+/// Time is O(B) over the B output bytes; space is O(D) for the two D-byte report strings.
+fn comparator_device(text: &str) -> Result<ComparatorDevice, std::io::Error> {
+    use std::io::{Error as IoError, ErrorKind};
+
+    let device = ComparatorDevice {
+        gpu_info: json_text(text, "gpu_info").unwrap_or_default(),
+        backends: json_text(text, "backends").unwrap_or_default(),
+    };
+    if !device.gpu_info.is_empty() {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            format!(
+                "llama-bench exposed a GPU device ({:?}); refusing to label a non-CPU comparator CPU",
+                device.gpu_info
+            ),
+        ));
+    }
+    Ok(device)
+}
+
 /// Runs llama-bench and rejects failed or incomplete results. Time is the child benchmark plus
 /// O(B + R + T) expected validation for its B output bytes, R rows and T requested thread counts;
 /// space is O(B + R + T) for captured output and parsed collections.
@@ -568,8 +618,8 @@ fn run_llama(
     pp: usize,
     tg: usize,
     threads: &str,
-) -> Result<(Vec<LlamaRow>, String), Box<dyn Error>> {
-    let mut cmd = Command::new(bin);
+) -> Result<(Vec<LlamaRow>, String, ComparatorDevice), Box<dyn Error>> {
+    let mut cmd = llama_command(bin);
     cmd.args(["-m", model, "-p", &pp.to_string(), "-n", &tg.to_string()])
         .args(["-r", "1", "-t", threads, "-o", "json"]);
     // The engine's pool pins this thread to one core and a child inherits the mask: unpinned,
@@ -600,12 +650,10 @@ fn run_llama(
         )
         .into());
     }
-    Ok(parse_llama_output(
-        &String::from_utf8_lossy(&out.stdout),
-        pp,
-        tg,
-        threads,
-    )?)
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let device = comparator_device(&stdout)?;
+    let (rows, commit) = parse_llama_output(&stdout, pp, tg, threads)?;
+    Ok((rows, commit, device))
 }
 
 // ---- statistics ----------------------------------------------------------------------------
@@ -973,17 +1021,21 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     let (mut pcores, mut tcores, mut pmhz, mut tmhz) = (vec![], vec![], vec![], vec![]);
     let (mut rpp, mut rtg) = (vec![], vec![]);
     let mut llama_commit = String::new();
+    let mut llama_device = ComparatorDevice::default();
     let mut quiet_all = true;
     for r in 0..a.reps {
         let (busy, quiet) = wait_quiet(a.max_busy);
         quiet_all &= quiet;
         eprintln!("round {r}: busy {busy:.3} quiet {quiet}");
-        let (lrows, commit) = match &a.llama {
+        let (lrows, commit, device) = match &a.llama {
             Some(bin) => run_llama(bin, &a.model, a.pp, a.tg, &a.llama_threads)?,
-            None => (Vec::new(), String::new()),
+            None => (Vec::new(), String::new(), ComparatorDevice::default()),
         };
         if !commit.is_empty() {
             llama_commit = commit;
+        }
+        if llama_device.gpu_info.is_empty() && llama_device.backends.is_empty() {
+            llama_device = device;
         }
         let best = |f: &dyn Fn(&LlamaRow) -> bool| {
             lrows
@@ -1123,7 +1175,13 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         }
         let _ = write!(js, "{}:{}", json_str(k), json_str(v));
     }
-    let _ = write!(js, ",\"llama_commit\":{}}},", json_str(&llama_commit));
+    let _ = write!(
+        js,
+        ",\"llama_commit\":{},\"llama_gpu_info\":{},\"llama_backends\":{}}},",
+        json_str(&llama_commit),
+        json_str(&llama_device.gpu_info),
+        json_str(&llama_device.backends)
+    );
     let _ = write!(
         js,
         "\"rounds\":[{rounds}],\"traces\":[{}]}}",
@@ -1139,7 +1197,8 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
          - model `{}` (sha256 `{}`)\n- prompt ids `{}` (sha256 `{}`), pp {}, tg {}, {} rounds\n\
          - git `{}` with {} dirty paths; src sha256 `{}`\n- {}; governor {}; {} CPUs; {}\n\
          - read ceiling (1 GiB sum, best of 3): {} / {} / {} GB/s at 8 / 16 / 32 threads\n\
-         - llama.cpp `{}`, threads {}\n- quiet gate busy < {}: {}\n\n\
+         - llama.cpp `{}`, threads {}; comparator gpu_info `{}` backends `{}`\n\
+         - quiet gate busy < {}: {}\n\n\
          | metric (tok/s) | median | min | max |\n|---|---:|---:|---:|\n",
         a.label,
         a.model,
@@ -1161,6 +1220,8 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         &id[14].1,
         llama_commit,
         a.llama_threads,
+        &llama_device.gpu_info,
+        &llama_device.backends,
         a.max_busy,
         if quiet_all {
             "every round passed"
@@ -1192,6 +1253,57 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     println!("{md}");
     eprintln!("wrote {base}.json and {base}.md");
     Ok(())
+}
+
+#[cfg(test)]
+mod comparator_device_tests {
+    use super::comparator_device;
+
+    #[test]
+    fn accepts_a_cpu_report_and_rejects_a_gpu_device() {
+        let cpu = r#"{"gpu_info": "", "backends": "CPU", "n_prompt": 200}"#;
+        let dev = comparator_device(cpu).unwrap();
+        assert!(dev.gpu_info.is_empty());
+        assert_eq!(dev.backends, "CPU");
+
+        let gpu = r#"{"gpu_info": "NVIDIA GeForce RTX 5080", "backends": "CUDA"}"#;
+        assert!(comparator_device(gpu).is_err());
+    }
+}
+
+#[cfg(test)]
+mod llama_command_tests {
+    use super::llama_command;
+
+    /// Every backend that can silently own the comparator must be present and empty: an unset
+    /// variable lets the backend default to every device. The expected names and the empty value
+    /// are hard-coded, not read from [`super::CPU_ONLY_ENV`], so a weakened constant fails here.
+    const REQUIRED_HIDDEN: [&str; 2] = ["CUDA_VISIBLE_DEVICES", "GGML_VK_VISIBLE_DEVICES"];
+
+    #[test]
+    fn child_env_hides_gpu_backends() {
+        let cmd = llama_command("llama-bench");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for key in REQUIRED_HIDDEN {
+            let got = envs
+                .iter()
+                .find(|(k, _)| k == key)
+                .unwrap_or_else(|| panic!("{key} is not set on the comparator child"));
+            assert_eq!(
+                got.1.as_deref(),
+                Some(""),
+                "{key} must be explicitly empty to hide its backend"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
