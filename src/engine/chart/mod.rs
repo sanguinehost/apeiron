@@ -41,13 +41,13 @@ use x86::{q4_k_scale_min_at, scale_word};
 mod portable;
 
 use portable::{
-    block_xsums, f16_to_fixed_fast, group_dot, group_xsum, q4_k_row_portable, q5_0_row_portable,
-    q6_k_row_portable, q8_0_row_portable,
+    block_xsums, f16_to_fixed_fast, group_dot, group_xsum, portable_q4_k_window_dots,
+    portable_q5_0_dot, portable_u8_i8_dot,
 };
-// The `chart::tests` oracle calls these portable twins directly; the non-test build reaches them
-// through the row kernels in `portable`.
 #[cfg(test)]
-use portable::{portable_i8_dot, portable_q5_0_dot, portable_u8_i8_dot};
+use portable::{
+    portable_i8_dot, q4_k_row_portable, q5_0_row_portable, q6_k_row_portable, q8_0_row_portable,
+};
 
 pub(crate) mod ffn;
 pub(crate) mod pool;
@@ -379,53 +379,17 @@ pub(crate) fn q8act_fast_bound_ok(n_in: usize, top: i128, q: &QuantAct, narrow: 
 /// `O(n_in)` time, `O(1)` extra space.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-unsafe fn q8_0_row_avx2(row: &[u8], blocks: usize, codes: &[i8], scales: &[i64]) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut blk = 0usize;
-    // Four blocks per pass: one three-`vphaddd` reduction replaces four horizontal sums. The
-    // per-block fold order, and so the exact `i128` value, is unchanged.
-    while blk + 4 <= blocks {
-        let off = blk * Q8_0_BLOCK_BYTES;
-        // SAFETY: `(blk + 3)·Q8_0_BLOCK_BYTES + 2 <= row.len()` by the caller's length check.
-        let d0 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
-        let d1 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + Q8_0_BLOCK_BYTES) })?;
-        let d2 =
-            f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2 * Q8_0_BLOCK_BYTES) })?;
-        let d3 =
-            f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 3 * Q8_0_BLOCK_BYTES) })?;
-        // SAFETY: four blocks are in range; `dot32x4_ptr` reads exactly 128 code bytes and 128
-        // activation lanes.
-        let dots = unsafe {
-            x86::dot32x4_ptr(
-                row.as_ptr().add(off + 2),
-                Q8_0_BLOCK_BYTES,
-                codes.as_ptr().add(blk * ACT_QK),
-            )
-        };
-        let ds = [d0, d1, d2, d3];
-        let mut i = 0usize;
-        while i < 4 {
-            // SAFETY: `scales.len() == blocks >= blk + 4`.
-            let scaled_dot = unsafe { *scales.get_unchecked(blk + i) } * i64::from(dots[i]);
-            acc += i128::from(ds[i]) * i128::from(scaled_dot);
-            i += 1;
-        }
-        blk += 4;
-    }
-    while blk < blocks {
-        let off = blk * Q8_0_BLOCK_BYTES;
-        // SAFETY: `off + 2 <= row.len()` by the caller's length check.
-        let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
-        // SAFETY: `off + 2 + 32 <= row.len()` and `blk·32 + 32 <= codes.len()` by the caller's
-        // length checks; `dot32_ptr` reads exactly those 32 bytes and 32 lanes.
-        let dot =
-            unsafe { x86::dot32_ptr(row.as_ptr().add(off + 2), codes.as_ptr().add(blk * ACT_QK)) };
-        // SAFETY: `scales.len() == blocks > blk`.
-        let scaled_dot = unsafe { *scales.get_unchecked(blk) } * i64::from(dot);
-        acc += i128::from(d) * i128::from(scaled_dot);
-        blk += 1;
-    }
-    Some(acc)
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
+pub(super) unsafe fn q8_0_row_avx2(
+    row: &[u8],
+    blocks: usize,
+    codes: &[i8],
+    scales: &[i64],
+) -> Option<i128> {
+    unsafe { q8act_accumulate_row_avx2::<Q8_0Decoder>(row, blocks * ACT_QK, codes, scales, &[]) }
 }
 
 /// [`q8_0_row_avx2`] for `acc.len()` activation columns at once: each four-block weight group's
@@ -512,154 +476,240 @@ pub(crate) unsafe fn q8_0_row_kcols_avx2(
     Some(())
 }
 
-/// `Q8_0` fast row dispatching to the inlined AVX2 loop or the portable loop.
-///
-/// `blocks = n_in / 32`; the caller has checked `n_in % 32 == 0`, `raw.len()` and
-/// [`q8act_fast_bound_ok`]. `None` is returned only for a non-finite weight scale, which routes the
-/// whole call to [`matvec_fixed`].
-fn q8act_q8_0_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
+/// Per-family block decoder for the unified fast row accumulator [`q8act_accumulate_row`].
+pub(crate) trait FastBlockDecoder {
+    /// Decode the next step of 32-lane groups using AVX2.
+    ///
+    /// Invokes `emit(offset, w_scale, w_min, dot, xsum)` for each group in the step, where:
+    /// - `offset`: the relative 32-lane group index within this step (`0..groups_decoded`)
+    /// - `w_scale`: weight scale (e.g. `d` or `d * scale_code`)
+    /// - `w_min`: weight minimum offset (0 for offset-free families, `dmin * min_code` for affine `Q4_K`)
+    /// - `dot`: inner product `dot32` between weight codes and activation codes
+    /// - `xsum`: activation sum `Σ xq` for the group (0 for offset-free families, `xsums[g]` for `Q4_K`)
+    ///
+    /// # Safety
+    ///
+    /// The caller guarantees AVX2 is available, `g < total_groups`, and slice bounds hold.
     #[cfg(target_arch = "x86_64")]
-    if avx {
-        // SAFETY: AVX2 is present, and the caller's length checks give the three slice extents.
-        return unsafe { q8_0_row_avx2(row, blocks, &q.codes, &q.scales) };
-    }
-    let _ = avx;
-    q8_0_row_portable(row, blocks, &q.codes, &q.scales)
+    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        total_groups: usize,
+        codes: &[i8],
+        xsums: &[i32],
+        emit: F,
+    ) -> Option<usize>;
+
+    /// Decode the next step of 32-lane groups using portable scalar logic.
+    ///
+    /// Invokes `emit(offset, w_scale, w_min, dot, xsum)` for each group in the step.
+    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        total_groups: usize,
+        codes: &[i8],
+        xsums: &[i32],
+        emit: F,
+    ) -> Option<usize>;
 }
 
-/// AVX2 `Q5_0` fast row: the whole block loop is one `#[target_feature(enable = "avx2")]` body, so
-/// the fifth-bit decode and dot inline and no per-block bounds check, call or `[i8; 32]` copy
-/// remains.
-///
-/// # Safety
-///
-/// AVX2 must be present; `row.len() == blocks·Q5_0_BLOCK_BYTES`, `codes.len() == blocks·ACT_QK`
-/// and `scales.len() == blocks`, as established by the caller's length checks.
-///
-/// # Complexity
-///
-/// `O(n_in)` time, `O(1)` extra space.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn q5_0_row_avx2(row: &[u8], blocks: usize, codes: &[i8], scales: &[i64]) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut blk = 0usize;
-    // Four blocks per pass: one three-`vphaddd` reduction replaces four horizontal sums. The
-    // per-block fold order, and so the exact `i128` value, is unchanged.
-    while blk + 4 <= blocks {
-        let off = blk * Q5_0_BLOCK_BYTES;
-        // SAFETY: `(blk + 3)·Q5_0_BLOCK_BYTES + 2 <= row.len()` by the caller's length check.
-        let d0 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
-        let d1 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + Q5_0_BLOCK_BYTES) })?;
-        let d2 =
-            f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2 * Q5_0_BLOCK_BYTES) })?;
-        let d3 =
-            f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 3 * Q5_0_BLOCK_BYTES) })?;
-        // SAFETY: four blocks are in range; `q5_0_dot32x4_ptr` reads 4 `qh` bytes and 16 `qs`
-        // bytes per block and 32 activation lanes per block.
-        let dots = unsafe {
-            x86::q5_0_dot32x4_ptr(
-                row.as_ptr().add(off + 2),
-                row.as_ptr().add(off + 6),
-                Q5_0_BLOCK_BYTES,
-                codes.as_ptr().add(blk * ACT_QK),
-            )
-        };
-        let ds = [d0, d1, d2, d3];
-        let mut i = 0usize;
-        while i < 4 {
-            // SAFETY: `scales.len() == blocks >= blk + 4`.
-            let scaled_dot = unsafe { *scales.get_unchecked(blk + i) } * i64::from(dots[i]);
-            acc += i128::from(ds[i]) * i128::from(scaled_dot);
-            i += 1;
+/// Zero-sized block decoder for `Q8_0`: offset-free, one group per block.
+pub(crate) struct Q8_0Decoder;
+
+impl FastBlockDecoder for Q8_0Decoder {
+    #[cfg(target_arch = "x86_64")]
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let off = g * Q8_0_BLOCK_BYTES;
+        if g + 4 <= total_groups {
+            // SAFETY: `(g + 3)·Q8_0_BLOCK_BYTES + 2 <= row.len()` by the caller's length check.
+            let d0 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            let d1 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + Q8_0_BLOCK_BYTES) })?;
+            let d2 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2 * Q8_0_BLOCK_BYTES) })?;
+            let d3 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 3 * Q8_0_BLOCK_BYTES) })?;
+            // SAFETY: four blocks are in range; `dot32x4_ptr` reads 128 code bytes and 128 lanes.
+            let dots = unsafe {
+                x86::dot32x4_ptr(
+                    row.as_ptr().add(off + 2),
+                    Q8_0_BLOCK_BYTES,
+                    codes.as_ptr().add(g * ACT_QK),
+                )
+            };
+            emit(0, d0, 0, i64::from(dots[0]), 0);
+            emit(1, d1, 0, i64::from(dots[1]), 0);
+            emit(2, d2, 0, i64::from(dots[2]), 0);
+            emit(3, d3, 0, i64::from(dots[3]), 0);
+            Some(4)
+        } else {
+            // SAFETY: `off + 2 <= row.len()` by the caller's length check.
+            let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            // SAFETY: `off + 2 + 32 <= row.len()` and `g·32 + 32 <= codes.len()`.
+            let dot = unsafe {
+                x86::dot32_ptr(row.as_ptr().add(off + 2), codes.as_ptr().add(g * ACT_QK))
+            };
+            emit(0, d, 0, i64::from(dot), 0);
+            Some(1)
         }
-        blk += 4;
     }
-    while blk < blocks {
-        let off = blk * Q5_0_BLOCK_BYTES;
-        // SAFETY: `off + 2 <= row.len()` by the caller's length check.
-        let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
-        // SAFETY: `off + 6 + 16 <= row.len()` and `blk·32 + 32 <= codes.len()` by the caller's
-        // length checks; `q5_0_dot32_ptr` reads 4 `qh` bytes, 16 `qs` bytes and 32 lanes.
-        let dot = unsafe {
-            x86::q5_0_dot32_ptr(
-                row.as_ptr().add(off + 2),
-                row.as_ptr().add(off + 6),
-                codes.as_ptr().add(blk * ACT_QK),
-            )
-        };
-        // SAFETY: `scales.len() == blocks > blk`.
-        let scaled_dot = unsafe { *scales.get_unchecked(blk) } * i64::from(dot);
-        acc += i128::from(d) * i128::from(scaled_dot);
-        blk += 1;
+
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        _total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let off = g * Q8_0_BLOCK_BYTES;
+        let bits = u16::from_le_bytes([row[off], row[off + 1]]);
+        let d = f16_to_fixed_fast(bits)?;
+        let code_window = &row[off + 2..off + 2 + Q8_0_QK];
+        let xbase = g * ACT_QK;
+        let dot = portable_u8_i8_dot(code_window, &codes[xbase..xbase + ACT_QK]);
+        emit(0, d, 0, i64::from(dot), 0);
+        Some(1)
     }
-    Some(acc)
 }
 
-/// `Q5_0` fast row dispatching to the inlined AVX2 loop or the portable loop.
-///
-/// `blocks = n_in / 32`; the caller has checked `n_in % 32 == 0`, `raw.len()` and
-/// [`q8act_fast_bound_ok`]. `None` is returned only for a non-finite weight scale, which routes the
-/// whole call to [`matvec_fixed`].
-fn q8act_q5_0_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
+/// Zero-sized block decoder for `Q5_0`: offset-free in vector domain, one group per block.
+pub(crate) struct Q5_0Decoder;
+
+impl FastBlockDecoder for Q5_0Decoder {
     #[cfg(target_arch = "x86_64")]
-    if avx {
-        // SAFETY: AVX2 is present, and the caller's length checks give the three slice extents.
-        return unsafe { q5_0_row_avx2(row, blocks, &q.codes, &q.scales) };
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let off = g * Q5_0_BLOCK_BYTES;
+        if g + 4 <= total_groups {
+            // SAFETY: `(g + 3)·Q5_0_BLOCK_BYTES + 2 <= row.len()` by the caller's length check.
+            let d0 = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            let d1 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + Q5_0_BLOCK_BYTES) })?;
+            let d2 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2 * Q5_0_BLOCK_BYTES) })?;
+            let d3 =
+                f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 3 * Q5_0_BLOCK_BYTES) })?;
+            // SAFETY: four blocks are in range; `q5_0_dot32x4_ptr` reads 4 `qh` bytes and 16 `qs`
+            // bytes per block and 32 activation lanes per block.
+            let dots = unsafe {
+                x86::q5_0_dot32x4_ptr(
+                    row.as_ptr().add(off + 2),
+                    row.as_ptr().add(off + 6),
+                    Q5_0_BLOCK_BYTES,
+                    codes.as_ptr().add(g * ACT_QK),
+                )
+            };
+            emit(0, d0, 0, i64::from(dots[0]), 0);
+            emit(1, d1, 0, i64::from(dots[1]), 0);
+            emit(2, d2, 0, i64::from(dots[2]), 0);
+            emit(3, d3, 0, i64::from(dots[3]), 0);
+            Some(4)
+        } else {
+            // SAFETY: `off + 2 <= row.len()` by the caller's length check.
+            let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            // SAFETY: `off + 6 + 16 <= row.len()` and `g·32 + 32 <= codes.len()` by caller checks.
+            let dot = unsafe {
+                x86::q5_0_dot32_ptr(
+                    row.as_ptr().add(off + 2),
+                    row.as_ptr().add(off + 6),
+                    codes.as_ptr().add(g * ACT_QK),
+                )
+            };
+            emit(0, d, 0, i64::from(dot), 0);
+            Some(1)
+        }
     }
-    let _ = avx;
-    q5_0_row_portable(row, blocks, &q.codes, &q.scales)
+
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        _total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let off = g * Q5_0_BLOCK_BYTES;
+        let bits = u16::from_le_bytes([row[off], row[off + 1]]);
+        let d = f16_to_fixed_fast(bits)?;
+        let qh = &row[off + 2..off + 6];
+        let qs = &row[off + 6..off + 6 + Q5_0_QK / 2];
+        let xbase = g * ACT_QK;
+        let dot = portable_q5_0_dot(qh, qs, &codes[xbase..xbase + ACT_QK]);
+        emit(0, d, 0, i64::from(dot), 0);
+        Some(1)
+    }
 }
 
-/// AVX2 `Q4_K` fast row: the whole pair loop is one `#[target_feature(enable = "avx2")]` body, so
-/// each 32-byte `qs` window decodes and dots in place with no `[i8; 256]` copy and no per-group
-/// bound.
-///
-/// # Safety
-///
-/// AVX2 must be present; `row.len() == (n_in/256)·Q4_K_BLOCK_BYTES`,
-/// `codes.len() == 32·pairs`, `xsums.len() == act_scales.len() == 2·pairs`, as established by the
-/// caller's length checks and `n_in % 64 == 0`.
-///
-/// # Complexity
-///
-/// `O(n_in)` time, `O(1)` extra space.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn q4_k_row_avx2(
-    row: &[u8],
-    pairs: usize,
-    codes: &[i8],
-    act_scales: &[i64],
-    xsums: &[i32],
-) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut pp = 0usize;
-    let mut d: i64 = 0;
-    let mut dmin: i64 = 0;
-    let mut sc = [0u8; Q4_K_SCALE_SIZE];
-    while pp < pairs {
+/// Zero-sized block decoder for `Q4_K`: affine groups `w = d·sc·q − dmin·m`.
+#[allow(
+    non_camel_case_types,
+    reason = "GGML quantization family name convention"
+)]
+pub(crate) struct Q4_KDecoder;
+
+impl FastBlockDecoder for Q4_KDecoder {
+    #[cfg(target_arch = "x86_64")]
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        total_groups: usize,
+        codes: &[i8],
+        xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let pp = g / 2;
         let b = pp / 4;
         let p = pp % 4;
         let off = b * Q4_K_BLOCK_BYTES;
-        // Decoded once per 256-weight block, as in [`q4_k_row_portable`].
-        if p == 0 {
+        if p == 0 && g + 8 <= total_groups {
             // SAFETY: `off + 4 <= row.len()` by the caller's length check.
-            d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
-            dmin = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2) })?;
+            let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            let dmin = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2) })?;
+            let mut sc = [0u8; Q4_K_SCALE_SIZE];
             // SAFETY: `off + 16 <= row.len()` by the caller's length check.
             sc.copy_from_slice(unsafe { row.get_unchecked(off + 4..off + 16) });
-        }
-        // A full block's four windows reduce together: two `vphaddd` trees replace eight 256-bit
-        // horizontal sums. The per-pair fold order, and so the exact `i128`, is unchanged.
-        if p == 0 && pp + 4 <= pairs {
-            // SAFETY: a full block is present, so `off + 16 + 128 <= row.len()`; the block's eight
-            // activation groups start at `8b·32` and `8b·32 + 256 <= codes.len()`.
+            // SAFETY: a full block is present; eight activation groups start at `g·32`.
             let dots = unsafe {
-                x86::q4_k_block_dots(
-                    row.as_ptr().add(off + 16),
-                    codes.as_ptr().add(8 * b * ACT_QK),
-                )
+                x86::q4_k_block_dots(row.as_ptr().add(off + 16), codes.as_ptr().add(g * ACT_QK))
             };
             let mut c = 0usize;
             while c < 4 {
@@ -669,102 +719,114 @@ unsafe fn q4_k_row_avx2(
                 let intercept_lo = dmin * i64::from(ml);
                 let slope_hi = d * i64::from(sh);
                 let intercept_hi = dmin * i64::from(mh);
-                let g_lo = 2 * (pp + c);
-                let g_hi = g_lo + 1;
-                // SAFETY: `xsums.len() == 2·pairs > g_hi` and `act_scales.len() == 2·pairs`.
-                let x_lo = unsafe { *xsums.get_unchecked(g_lo) };
-                let x_hi = unsafe { *xsums.get_unchecked(g_hi) };
-                let s_lo = unsafe { *act_scales.get_unchecked(g_lo) };
-                let s_hi = unsafe { *act_scales.get_unchecked(g_hi) };
-                let inner_lo = i128::from(slope_lo) * i128::from(dots[2 * c])
-                    - i128::from(intercept_lo) * i128::from(x_lo);
-                let inner_hi = i128::from(slope_hi) * i128::from(dots[2 * c + 1])
-                    - i128::from(intercept_hi) * i128::from(x_hi);
-                acc += i128::from(s_lo) * inner_lo + i128::from(s_hi) * inner_hi;
+                let x_lo = *xsums.get_unchecked(g + 2 * c);
+                let x_hi = *xsums.get_unchecked(g + 2 * c + 1);
+                emit(2 * c, slope_lo, intercept_lo, i64::from(dots[2 * c]), x_lo);
+                emit(
+                    2 * c + 1,
+                    slope_hi,
+                    intercept_hi,
+                    i64::from(dots[2 * c + 1]),
+                    x_hi,
+                );
                 c += 1;
             }
-            pp += 4;
-            continue;
+            Some(8)
+        } else {
+            // SAFETY: `off + 4 <= row.len()`.
+            let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off) })?;
+            let dmin = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + 2) })?;
+            let mut sc = [0u8; Q4_K_SCALE_SIZE];
+            // SAFETY: `off + 16 <= row.len()`.
+            sc.copy_from_slice(unsafe { row.get_unchecked(off + 4..off + 16) });
+            let (sl, ml) = q4_k_scale_min_at(&sc, 2 * p);
+            let (sh, mh) = q4_k_scale_min_at(&sc, 2 * p + 1);
+            let slope_lo = d * i64::from(sl);
+            let intercept_lo = dmin * i64::from(ml);
+            let slope_hi = d * i64::from(sh);
+            let intercept_hi = dmin * i64::from(mh);
+            // SAFETY: `off + 16 + 32p + 32 <= row.len()` and `(g + 1)·32 + 32 <= codes.len()`.
+            let (dot_lo, dot_hi) = unsafe {
+                x86::q4_k_window_dot_ptr(
+                    row.as_ptr().add(off + 16 + 32 * p),
+                    codes.as_ptr().add(g * ACT_QK),
+                    codes.as_ptr().add((g + 1) * ACT_QK),
+                )
+            };
+            let x_lo = *xsums.get_unchecked(g);
+            let x_hi = *xsums.get_unchecked(g + 1);
+            emit(0, slope_lo, intercept_lo, i64::from(dot_lo), x_lo);
+            emit(1, slope_hi, intercept_hi, i64::from(dot_hi), x_hi);
+            Some(2)
         }
-        let (sl, ml) = q4_k_scale_min_at(&sc, 2 * p);
-        let (sh, mh) = q4_k_scale_min_at(&sc, 2 * p + 1);
+    }
+
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        _total_groups: usize,
+        codes: &[i8],
+        xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let pp = g / 2;
+        let b = pp / 4;
+        let p = pp % 4;
+        let off = b * Q4_K_BLOCK_BYTES;
+        let d = f16_to_fixed_fast(u16::from_le_bytes([row[off], row[off + 1]]))?;
+        let dmin = f16_to_fixed_fast(u16::from_le_bytes([row[off + 2], row[off + 3]]))?;
+        let mut sc = [0u8; Q4_K_SCALE_SIZE];
+        sc.copy_from_slice(&row[off + 4..off + 16]);
+        let (sl, ml) = quant::q4_k_scale_min(&sc, 2 * p);
+        let (sh, mh) = quant::q4_k_scale_min(&sc, 2 * p + 1);
         let slope_lo = d * i64::from(sl);
         let intercept_lo = dmin * i64::from(ml);
         let slope_hi = d * i64::from(sh);
         let intercept_hi = dmin * i64::from(mh);
-        let g_lo = 2 * pp;
-        let g_hi = g_lo + 1;
-        // SAFETY: `off + 16 + 32p + 32 <= row.len()` and `g_hi·32 + 32 <= codes.len()` by the
-        // caller's length checks.
-        let (dot_lo, dot_hi) = unsafe {
-            x86::q4_k_window_dot_ptr(
-                row.as_ptr().add(off + 16 + 32 * p),
-                codes.as_ptr().add(g_lo * ACT_QK),
-                codes.as_ptr().add(g_hi * ACT_QK),
-            )
-        };
-        // SAFETY: `xsums.len() == 2·pairs > g_hi` and `act_scales.len() == 2·pairs`.
-        let x_lo = unsafe { *xsums.get_unchecked(g_lo) };
-        let x_hi = unsafe { *xsums.get_unchecked(g_hi) };
-        let s_lo = unsafe { *act_scales.get_unchecked(g_lo) };
-        let s_hi = unsafe { *act_scales.get_unchecked(g_hi) };
-        let inner_lo =
-            i128::from(slope_lo) * i128::from(dot_lo) - i128::from(intercept_lo) * i128::from(x_lo);
-        let inner_hi =
-            i128::from(slope_hi) * i128::from(dot_hi) - i128::from(intercept_hi) * i128::from(x_hi);
-        acc += i128::from(s_lo) * inner_lo + i128::from(s_hi) * inner_hi;
-        pp += 1;
+        let qs = &row[off + 16 + 32 * p..off + 16 + 32 * p + 32];
+        let (dot_lo, dot_hi) = portable_q4_k_window_dots(
+            qs,
+            &codes[g * ACT_QK..(g + 1) * ACT_QK],
+            &codes[(g + 1) * ACT_QK..(g + 2) * ACT_QK],
+        );
+        emit(0, slope_lo, intercept_lo, i64::from(dot_lo), xsums[g]);
+        emit(1, slope_hi, intercept_hi, i64::from(dot_hi), xsums[g + 1]);
+        Some(2)
     }
-    Some(acc)
 }
 
-/// `Q4_K` fast row dispatching to the inlined AVX2 loop or the portable loop.
-fn q8act_q4_k_row_fast(
-    row: &[u8],
-    pairs: usize,
-    q: &QuantAct,
-    xsums: &[i32],
-    avx: bool,
-) -> Option<i128> {
+/// Zero-sized block decoder for `Q6_K`: offset-free `w = d·sc·q`, eight 32-lane groups per block.
+#[allow(
+    non_camel_case_types,
+    reason = "GGML quantization family name convention"
+)]
+pub(crate) struct Q6_KDecoder;
+
+impl FastBlockDecoder for Q6_KDecoder {
     #[cfg(target_arch = "x86_64")]
-    if avx {
-        // SAFETY: AVX2 is present, and the caller's checks give the slice extents (`n_in % 64 == 0`).
-        return unsafe { q4_k_row_avx2(row, pairs, &q.codes, &q.scales, xsums) };
-    }
-    let _ = avx;
-    q4_k_row_portable(row, pairs, &q.codes, &q.scales, xsums)
-}
-
-/// AVX2 `Q6_K` fast row: the whole block loop is one `#[target_feature(enable = "avx2")]` body, so
-/// each half's 32-byte `ql`/`qh` planes decode to eight 16-lane dots in place.
-///
-/// # Safety
-///
-/// AVX2 must be present; `row.len() == blocks·Q6_K_BLOCK_BYTES`, `codes.len() == 128·blocks` and
-/// `act_scales.len() == 8·blocks`, as established by the caller's length checks and
-/// `n_in % 256 == 0`.
-///
-/// # Complexity
-///
-/// `O(n_in)` time, `O(1)` extra space.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn q6_k_row_avx2(
-    row: &[u8],
-    blocks: usize,
-    codes: &[i8],
-    act_scales: &[i64],
-) -> Option<i128> {
-    let mut acc: i128 = 0;
-    let mut b = 0usize;
-    while b < blocks {
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    unsafe fn decode_step_avx2<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        _total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let b = g / 8;
         let off = b * Q6_K_BLOCK_BYTES;
         // SAFETY: `off + Q6_K_BLOCK_BYTES <= row.len()` by the caller's length check.
         let d = f16_to_fixed_fast(unsafe { scale_word(row.as_ptr(), off + Q6_K_BLOCK_BYTES - 2) })?;
         let base = row.as_ptr().add(off);
-        // `d` is common to the block's eight groups, so the group sum is accumulated once and
-        // lifted by `d` once at the end of the block instead of eight times.
-        let mut block_sum: i128 = 0;
         let mut n = 0usize;
         while n < 2 {
             // SAFETY: `base + 64n + 64 <= row end`, `base + 128 + 32n + 32 <= row end` and
@@ -778,36 +840,242 @@ unsafe fn q6_k_row_avx2(
             };
             let mut c = 0usize;
             while c < 4 {
-                let g32 = b * 8 + 4 * n + c;
-                // SAFETY: `g32 < act_scales.len()`; the scale bytes are inside the block.
-                let act_scale = i128::from(unsafe { *act_scales.get_unchecked(g32) });
                 let sclo = i64::from(unsafe { *base.add(192 + 8 * n + 2 * c) }.cast_signed());
                 let schi = i64::from(unsafe { *base.add(192 + 8 * n + 2 * c + 1) }.cast_signed());
-                // Each `dots` lane is a 16-lane dot of codes in `[−32, 31]` against activations in
-                // `[−127, 127]`, so `|dots| ≤ 16·32·127 = 65024`, and each scale byte is in
-                // `[−128, 127]`; the group sum is at most `2·128·65024 < 2^31` and is exact in
-                // `i64` with no overflow, so it lifts as one value.
-                let group = sclo * i64::from(dots[2 * c]) + schi * i64::from(dots[2 * c + 1]);
-                block_sum += act_scale * i128::from(group);
+                let group_dot = sclo * i64::from(dots[2 * c]) + schi * i64::from(dots[2 * c + 1]);
+                emit(4 * n + c, d, 0, group_dot, 0);
                 c += 1;
             }
             n += 1;
         }
-        acc += i128::from(d) * block_sum;
-        b += 1;
+        Some(8)
+    }
+
+    #[inline]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "quantization math uses standard GGML/llama.cpp single-letter names"
+    )]
+    fn decode_step_portable<F: FnMut(usize, i64, i64, i64, i32)>(
+        row: &[u8],
+        g: usize,
+        _total_groups: usize,
+        codes: &[i8],
+        _xsums: &[i32],
+        mut emit: F,
+    ) -> Option<usize> {
+        let b = g / 8;
+        let off = b * Q6_K_BLOCK_BYTES;
+        let d = f16_to_fixed_fast(u16::from_le_bytes([
+            row[off + Q6_K_BLOCK_BYTES - 2],
+            row[off + Q6_K_BLOCK_BYTES - 1],
+        ]))?;
+        let blk = &row[off..off + Q6_K_BLOCK_BYTES];
+        let block_codes = quant::q6_k_codes(blk).ok()?;
+        let mut c = 0usize;
+        while c < 8 {
+            let group0 = 2 * c;
+            let group1 = 2 * c + 1;
+            let sclo = i64::from(blk[192 + group0].cast_signed());
+            let schi = i64::from(blk[192 + group1].cast_signed());
+            let mut dot0 = 0i64;
+            let mut l = 0usize;
+            while l < 16 {
+                dot0 += i64::from(block_codes[16 * group0 + l])
+                    * i64::from(codes[(b * 16 + group0) * 16 + l]);
+                l += 1;
+            }
+            let mut dot1 = 0i64;
+            let mut l = 0usize;
+            while l < 16 {
+                dot1 += i64::from(block_codes[16 * group1 + l])
+                    * i64::from(codes[(b * 16 + group1) * 16 + l]);
+                l += 1;
+            }
+            let group_dot = sclo * dot0 + schi * dot1;
+            emit(c, d, 0, group_dot, 0);
+            c += 1;
+        }
+        Some(8)
+    }
+}
+
+/// One accumulator kernel that walks 32-lane groups in the existing per-group order and computes
+/// each group's contribution as:
+///
+///   `acc += act_scale * (w_scale * dot - w_min * xsum)`
+///
+/// where `act_scale` comes from `q.scales`, and `w_scale`/`w_min`/`dot`/`xsum` come from a
+/// per-family [`FastBlockDecoder`].
+pub(crate) fn q8act_accumulate_row<D: FastBlockDecoder>(
+    row: &[u8],
+    cols: usize,
+    q: &QuantAct,
+    xsums: &[i32],
+    avx: bool,
+) -> Option<i128> {
+    #[cfg(target_arch = "x86_64")]
+    if avx {
+        // SAFETY: AVX2 is present, caller established slice extents.
+        return unsafe { q8act_accumulate_row_avx2::<D>(row, cols, &q.codes, &q.scales, xsums) };
+    }
+    let _ = avx;
+    q8act_accumulate_row_portable::<D>(row, cols, &q.codes, &q.scales, xsums)
+}
+
+/// AVX2 accumulator loop over 32-lane groups in per-group order.
+///
+/// # Safety
+///
+/// AVX2 must be present; slice extents must match `cols` geometry.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn q8act_accumulate_row_avx2<D: FastBlockDecoder>(
+    row: &[u8],
+    cols: usize,
+    codes: &[i8],
+    act_scales: &[i64],
+    xsums: &[i32],
+) -> Option<i128> {
+    let total_groups = cols / ACT_QK;
+    let mut acc: i128 = 0;
+    let mut g = 0usize;
+    while g < total_groups {
+        let step = unsafe {
+            D::decode_step_avx2(
+                row,
+                g,
+                total_groups,
+                codes,
+                xsums,
+                |i, w_scale, w_min, dot, xsum| {
+                    let act_scale = *act_scales.get_unchecked(g + i);
+                    let inner = i128::from(w_scale) * i128::from(dot)
+                        - i128::from(w_min) * i128::from(xsum);
+                    acc += i128::from(act_scale) * inner;
+                },
+            )?
+        };
+        g += step;
     }
     Some(acc)
 }
 
-/// `Q6_K` fast row dispatching to the inlined AVX2 loop or the portable loop.
-fn q8act_q6_k_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
-    #[cfg(target_arch = "x86_64")]
-    if avx {
-        // SAFETY: AVX2 is present, and the caller's checks give the slice extents (`n_in % 256 == 0`).
-        return unsafe { q6_k_row_avx2(row, blocks, &q.codes, &q.scales) };
+/// Portable accumulator loop over 32-lane groups in per-group order.
+pub(crate) fn q8act_accumulate_row_portable<D: FastBlockDecoder>(
+    row: &[u8],
+    cols: usize,
+    codes: &[i8],
+    act_scales: &[i64],
+    xsums: &[i32],
+) -> Option<i128> {
+    let total_groups = cols / ACT_QK;
+    let mut acc: i128 = 0;
+    let mut g = 0usize;
+    while g < total_groups {
+        let step = D::decode_step_portable(
+            row,
+            g,
+            total_groups,
+            codes,
+            xsums,
+            |i, w_scale, w_min, dot, xsum| {
+                let act_scale = act_scales[g + i];
+                let inner =
+                    i128::from(w_scale) * i128::from(dot) - i128::from(w_min) * i128::from(xsum);
+                acc += i128::from(act_scale) * inner;
+            },
+        )?;
+        g += step;
     }
-    let _ = avx;
-    q6_k_row_portable(row, blocks, &q.codes, &q.scales)
+    Some(acc)
+}
+
+/// AVX2 `Q5_0` fast row.
+///
+/// # Safety
+///
+/// AVX2 must be present; caller established slice extents.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
+pub(super) unsafe fn q5_0_row_avx2(
+    row: &[u8],
+    blocks: usize,
+    codes: &[i8],
+    scales: &[i64],
+) -> Option<i128> {
+    unsafe { q8act_accumulate_row_avx2::<Q5_0Decoder>(row, blocks * ACT_QK, codes, scales, &[]) }
+}
+
+/// AVX2 `Q4_K` fast row.
+///
+/// # Safety
+///
+/// AVX2 must be present; caller established slice extents.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
+pub(super) unsafe fn q4_k_row_avx2(
+    row: &[u8],
+    pairs: usize,
+    codes: &[i8],
+    act_scales: &[i64],
+    xsums: &[i32],
+) -> Option<i128> {
+    unsafe { q8act_accumulate_row_avx2::<Q4_KDecoder>(row, pairs * 64, codes, act_scales, xsums) }
+}
+
+/// AVX2 `Q6_K` fast row.
+///
+/// # Safety
+///
+/// AVX2 must be present; caller established slice extents.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    dead_code,
+    reason = "oracle and regression parity targets for chart::tests"
+)]
+pub(super) unsafe fn q6_k_row_avx2(
+    row: &[u8],
+    blocks: usize,
+    codes: &[i8],
+    act_scales: &[i64],
+) -> Option<i128> {
+    unsafe { q8act_accumulate_row_avx2::<Q6_KDecoder>(row, blocks * QK_K, codes, act_scales, &[]) }
+}
+
+/// `Q8_0` fast row dispatching to the unified accumulator.
+fn q8act_q8_0_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
+    q8act_accumulate_row::<Q8_0Decoder>(row, blocks * ACT_QK, q, &[], avx)
+}
+
+/// `Q5_0` fast row dispatching to the unified accumulator.
+fn q8act_q5_0_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
+    q8act_accumulate_row::<Q5_0Decoder>(row, blocks * ACT_QK, q, &[], avx)
+}
+
+/// `Q4_K` fast row dispatching to the unified accumulator.
+fn q8act_q4_k_row_fast(
+    row: &[u8],
+    pairs: usize,
+    q: &QuantAct,
+    xsums: &[i32],
+    avx: bool,
+) -> Option<i128> {
+    q8act_accumulate_row::<Q4_KDecoder>(row, pairs * 64, q, xsums, avx)
+}
+
+/// `Q6_K` fast row dispatching to the unified accumulator.
+fn q8act_q6_k_row_fast(row: &[u8], blocks: usize, q: &QuantAct, avx: bool) -> Option<i128> {
+    q8act_accumulate_row::<Q6_KDecoder>(row, blocks * QK_K, q, &[], avx)
 }
 
 /// One weight row's exact pre-rounding `i128` accumulator over `cols` columns on the family's
@@ -1519,14 +1787,7 @@ pub(crate) fn q8act_rows(
                 have: raw.len(),
             })?;
         let row_acc = if plan.fast {
-            match ggml_type {
-                quant::GGML_TYPE_Q8_0 => q8act_q8_0_row_fast(row, n_in / ACT_QK, q, plan.fast_avx),
-                quant::GGML_TYPE_Q5_0 => q8act_q5_0_row_fast(row, n_in / ACT_QK, q, plan.fast_avx),
-                quant::GGML_TYPE_Q4_K => {
-                    q8act_q4_k_row_fast(row, n_in / 64, q, &plan.xsums, plan.fast_avx)
-                }
-                _ => q8act_q6_k_row_fast(row, n_in / QK_K, q, plan.fast_avx),
-            }
+            q8act_row_i128_fast(ggml_type, row, n_in, q, plan)
         } else {
             q8act_row(ggml_type, row, n_in, q, plan.xabs)
         };
