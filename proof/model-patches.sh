@@ -5,7 +5,10 @@
 # carries no capacity. `patches/aeneas-lean-model.patch` adds the model. This script materialises a
 # backend tree with that patch applied, which `proof/lakefile.lean` requires.
 #
-# The patch changes only `Aeneas/Std/Vec.lean`, `Aeneas/Std/Core/{Cmp,CoreOption,CoreResult}.lean`.
+# The patch touches eight files under `Aeneas/`: `Std/Vec.lean`,
+# `Std/Core/{Cmp,CoreOption,CoreResult}.lean`, `Scalar/{Casts,Ops}.lean`,
+# `Scalar/WrappingOps/Shl.lean` and `String.lean`. Enumerate them from the patch itself with
+# `rg -o '^\+\+\+ b/(\S+)' -r '$1' proof/patches/aeneas-lean-model.patch | sort -u`.
 # It is a Lean-library change, so no Charon/Aeneas OCaml rebuild is involved.
 #
 #   proof/model-patches.sh
