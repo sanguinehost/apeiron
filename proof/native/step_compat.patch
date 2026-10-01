@@ -1,0 +1,14 @@
+--- a/Aeneas/Std/Core/Iter.lean
++++ b/Aeneas/Std/Core/Iter.lean
+@@ -20,1 +20,3 @@ structure core.iter.range.Step (Self : Type) where
+  backward_checked : Self → Usize → Result (Option Self)
++  forward_overflowing : Self → Usize → Result (Self × Bool)
++  backward_overflowing : Self → Usize → Result (Self × Bool)
+@@ -346,1 +348,3 @@ def core.iter.range.UScalarStep (ty : UScalarTy)
+  backward_checked := UScalarStep.backward_checked
++  forward_overflowing := UScalarStep.forward_overflowing
++  backward_overflowing := UScalarStep.backward_overflowing
+@@ -359,1 +363,3 @@ def core.iter.range.IScalarStep (ty : IScalarTy)
+  backward_checked := IScalarStep.backward_checked
++  forward_overflowing := IScalarStep.forward_overflowing
++  backward_overflowing := IScalarStep.backward_overflowing
