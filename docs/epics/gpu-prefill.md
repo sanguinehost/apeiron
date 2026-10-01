@@ -208,7 +208,7 @@ boundary proofs fail; actual-body/private-tool controls are not reached. Sol tak
 three paths after Luna releases them. The interpreted generator fails on its missing native
 initializer wrapper; that route is rejected. The compiled `lake exe extract` route uses a
 private COW cache only after complete model/generator/dependency source identity checks, then
-freshly regenerates the registry. The latest full gate exits1 in169.909s: model proofs and16
+freshly regenerates the registry. An intermediate full gate exits1 in169.909s: model proofs and16
 audits pass, private translation exits0, but generated `ExactDot.lean` declares the final signed
 conversion as an axiom. The no-axiom policy rejects it before registry mutation/restoration.
 Neither translation exit0 nor the model proofs close this task.
@@ -231,3 +231,24 @@ fresh generation/build/control stages within one540s budget, and rejects an abse
 cache. Root owns cache preparation in the serialized lane; cold preparation has its own
 bounded outcome and cannot substitute for the gate. Installed tools/models, pins, Rust and
 inference implementation remain unchanged. No gate or theorem premise is removed.
+
+## Extracted terminal-branch acceptance
+
+Main df57362 adds step_compat.patch, StepRefinement.lean and step_gate.py. The fresh main gate
+`python3 proof/native/step_gate.py --actual-exact-dot --controls` exits0 in439.032s of540s.
+Independent Luna accepts the frozen source identity. Private pinned compatibility translates the
+unchanged actual Rust root; all102 generated declarations audit under the closed cone. The
+terminal-branch theorems link actual checked rounding and real signed narrowing through the
+Aeneas Result.ok model, with inclusive endpoint and adjacent refusal witnesses. Guard, error-shape,
+model Err-to-panic and unique registry method-pair controls reject; all restorations pass.
+The failed434.615s attempt stays rejected because its registry mutant translated successfully.
+Full receipts, logs, source texts, tool/cache identities and verdicts are retained in
+artifacts/gpu-prefill/native-prerequisites-acceptance.json.
+
+Open: Rust Result.ok source refinement, actual constructor and accumulator-prefix reachability,
+whole-loop denotation and cost, native emitted/resource equivalence, admitted optimization,
+resident hybrid serving, matched200/512token GPU prefill and shared epic proof/size exits.
+The next bounded proof task connects a costed trace to the actual generated inner loop; a
+handwritten32B recurrence alone is model evidence. No runtime optimization is allocated from it.
+Signed cooperative block tiles and guarded exponent factoring remain read-only candidates;
+capability properties and fixture eligibility establish no throughput ratio.
