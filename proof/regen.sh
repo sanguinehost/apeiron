@@ -64,7 +64,10 @@ echo "== source =="
 # skipped, so a stale path (for example a deleted module) cannot pass silently.
 # `src/table.rs` textually includes `table/{state,locator,prepared}.rs`; `src/coord.rs`
 # pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
-# pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. `src/table/tests.rs`
+# pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. Every `#[path]`
+# target of `proof/extract/lib.rs` is listed: the engine closure `loader/step/chart/kern/trace`, the
+# `mixer.rs` and `hadamard.rs` roots, `moe.rs` and `numeric/fixed_ln.rs` are pulled too, so a change
+# to any of them moves the generated Lean and moves this digest list with it. `src/table/tests.rs`
 # is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
 SOURCE_FILES="
 $REPO_DIR/src/scalar.rs
@@ -101,9 +104,12 @@ $REPO_DIR/src/engine/f32_convert.rs
 $REPO_DIR/src/engine/dequant.rs
 $REPO_DIR/src/engine/matvec.rs
 $REPO_DIR/src/engine/attn.rs
+$REPO_DIR/src/engine/mixer.rs
 $REPO_DIR/src/engine/lm_head.rs
 $REPO_DIR/src/engine/sampler.rs
+$REPO_DIR/src/engine/hadamard.rs
 $REPO_DIR/src/engine/ffn.rs
+$REPO_DIR/src/engine/moe.rs
 $REPO_DIR/src/engine/fused.rs
 $REPO_DIR/src/engine/par.rs
 $REPO_DIR/src/engine/kern/pow2.rs
@@ -111,6 +117,12 @@ $REPO_DIR/src/spirv/mod.rs
 $REPO_DIR/src/spirv/check.rs
 $REPO_DIR/src/policy/mod.rs
 $REPO_DIR/src/policy/decide.rs
+$REPO_DIR/src/engine/loader.rs
+$REPO_DIR/src/engine/step.rs
+$REPO_DIR/src/engine/chart/mod.rs
+$REPO_DIR/src/engine/kern/mod.rs
+$REPO_DIR/src/engine/trace.rs
+$REPO_DIR/src/numeric/fixed_ln.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
