@@ -20,7 +20,10 @@
 //!
 //! # Trust Boundary
 //!
-//! The binary32 kernels (scalar twin and AVX2+FMA) are not Aeneas-extracted. Correctness relies on
+//! The binary32 kernels (scalar twin and AVX2+FMA) are not Aeneas-extracted. The prepass now
+//! admits both bodies — the loop-shape refusals are cleared — but the pinned Aeneas then stops in
+//! its module analysis with an internal assert before emitting Lean, so extraction is not
+//! established. Correctness relies on
 //! IEEE 754-2019 standard conformance, exact bit-for-bit identity between the AVX2 kernel and its
 //! scalar twin specification, test-measured bounded relative error on the polynomial exponential,
 //! and bounded deviation against the Q32.32 fixed-point oracle.
@@ -165,40 +168,72 @@ pub fn attn_core_f32_strided_scalar(
         &mut acc_heap[..]
     };
 
-    for i in 0..head_dim {
+    // One `ok` flag carries every in-loop `Overflow` refusal out of the three loops below, and the
+    // two `return Err` sites that consume it stand after the position loop and after the readout
+    // loop. This is forced by the pinned Aeneas model, which refuses this body with `Returns inside
+    // of nested loops are not supported yet`: each `return Err(AttnError::Overflow)` sat inside a
+    // loop body, and an early exit from a loop is the shape its translator cannot lower. No `zip`
+    // appears in this body, so that refusal does not apply here. The flag keeps `Overflow` ahead of
+    // the `ZeroSum` test, because the position loop's `if !ok` return precedes that test.
+    //
+    // `while i < head_dim && ok` writes the same prefix and stops at the same index as the `return`
+    // it replaces, so `acc` and `out` carry exactly what the early exits left behind: an element is
+    // stored only when the old code would have stored it before returning. Arithmetic is unchanged:
+    // the same `v[i]`, `v_row[i]`, `acc[i].mul_add(alpha, w * v_row[i])` and `acc[i] * inv_den` on
+    // the same elements in the same ascending order, over `0..head_dim` and `1..count`, which are
+    // exactly the old `for` ranges. `m = m_next` stays guarded by `ok` because the old code reached
+    // it only after a whole finite row, and `den` keeps its single `mul_add` per position. The
+    // residual cost is bounded: at most one extra `head_dim` scan per failing position, since `ok`
+    // stops the inner loop at the same index the `return` did.
+    let mut ok = true;
+
+    let mut i = 0usize;
+    while i < head_dim && ok {
         let val = v[i];
-        if !val.is_finite() {
-            return Err(AttnError::Overflow);
+        if val.is_finite() {
+            acc[i] = val;
+        } else {
+            ok = false;
         }
-        acc[i] = val;
+        i += 1;
     }
 
-    for s in 1..count {
+    let mut s = 1usize;
+    while s < count && ok {
         let base = s * stride;
         let k_row = &k[base..base + head_dim];
         let v_row = &v[base..base + head_dim];
 
         let score_s = dot_f32_scalar(q, k_row, scale);
-        if !score_s.is_finite() {
-            return Err(AttnError::Overflow);
-        }
+        if score_s.is_finite() {
+            let m_prev = m;
+            let m_next = if score_s > m_prev { score_s } else { m_prev };
+            let alpha = exp_f32_scalar(m_prev - m_next);
+            let w = exp_f32_scalar(score_s - m_next);
 
-        let m_prev = m;
-        let m_next = if score_s > m_prev { score_s } else { m_prev };
-        let alpha = exp_f32_scalar(m_prev - m_next);
-        let w = exp_f32_scalar(score_s - m_next);
+            den = den.mul_add(alpha, w);
 
-        den = den.mul_add(alpha, w);
-
-        for i in 0..head_dim {
-            let vi = v_row[i];
-            if !vi.is_finite() {
-                return Err(AttnError::Overflow);
+            let mut i = 0usize;
+            while i < head_dim && ok {
+                let vi = v_row[i];
+                if vi.is_finite() {
+                    let prod = w * vi;
+                    acc[i] = acc[i].mul_add(alpha, prod);
+                } else {
+                    ok = false;
+                }
+                i += 1;
             }
-            let prod = w * vi;
-            acc[i] = acc[i].mul_add(alpha, prod);
+            if ok {
+                m = m_next;
+            }
+        } else {
+            ok = false;
         }
-        m = m_next;
+        s += 1;
+    }
+    if !ok {
+        return Err(AttnError::Overflow);
     }
 
     if den <= 0.0 || !den.is_finite() {
@@ -206,12 +241,18 @@ pub fn attn_core_f32_strided_scalar(
     }
 
     let inv_den = 1.0f32 / den;
-    for i in 0..head_dim {
+    let mut i = 0usize;
+    while i < head_dim && ok {
         let res = acc[i] * inv_den;
-        if !res.is_finite() {
-            return Err(AttnError::Overflow);
+        if res.is_finite() {
+            out[i] = res;
+        } else {
+            ok = false;
         }
-        out[i] = res;
+        i += 1;
+    }
+    if !ok {
+        return Err(AttnError::Overflow);
     }
 
     Ok(())
@@ -374,40 +415,70 @@ unsafe fn attn_core_f32_strided_avx2_inner(
         acc_vec[c] = v_val;
     }
 
+    // The two in-loop early exits become one `ok` flag and one `err`, both consumed after the
+    // position loops, for the reason asserted on the scalar twin: the pinned Aeneas model refuses
+    // this body with `Returns inside of nested loops are not supported yet`, and the `?` on
+    // [`attn_tile8_avx2`] and the `return Err(AttnError::Overflow)` on a non-finite tail score were
+    // both early exits from a loop body. No `zip` appears in this body, so that refusal does not
+    // apply here.
+    //
+    // Neither loop is reassociated and no operation is reordered: the tile call still runs at
+    // positions `1, 1 + TILE, ...` under the same `s + TILE <= count` bound, the tail still runs at
+    // `s` up to `count - 1`, and the per-position chain is the same `mul_add` on `den`, the same
+    // `_mm256_set1_ps` broadcasts of `alpha` and `w`, and the same `_mm256_fmadd_ps` chain over
+    // `0..chunks` in ascending order. The `err` slot preserves the tile call's error, which is
+    // always [`AttnError::Overflow`] because [`attn_tile8_avx2`] writes no tile state on its refusal
+    // path, and its `if let Some(e) = err` return precedes the `den` test, so the refusal order is
+    // the old one. The two `while` guards keep each loop from re-entering after a refusal, which is
+    // what the old `?` and `return` did.
+    let mut ok = true;
+    let mut err: Option<AttnError> = None;
+
     let mut s = 1usize;
-    while s + TILE <= count {
-        attn_tile8_avx2(
+    while s + TILE <= count && ok {
+        match attn_tile8_avx2(
             q, k, v, head_dim, stride, s, scale, &mut m, &mut den, acc_vec,
-        )?;
-        s += TILE;
+        ) {
+            Ok(()) => s += TILE,
+            Err(e) => {
+                err = Some(e);
+                ok = false;
+            }
+        }
     }
-    while s < count {
+    while s < count && ok {
         let base = s * stride;
         let k_row = &k[base..base + head_dim];
         let v_ptr = v.as_ptr().add(base);
 
         let score_s = dot_f32_avx2(q, k_row, scale);
-        if !score_s.is_finite() {
-            return Err(AttnError::Overflow);
+        if score_s.is_finite() {
+            let m_prev = m;
+            let m_next = if score_s > m_prev { score_s } else { m_prev };
+            let alpha = exp_f32_scalar(m_prev - m_next);
+            let w = exp_f32_scalar(score_s - m_next);
+
+            den = den.mul_add(alpha, w);
+
+            let v_alpha = _mm256_set1_ps(alpha);
+            let v_w = _mm256_set1_ps(w);
+
+            for c in 0..chunks {
+                let v_val = _mm256_loadu_ps(v_ptr.add(c * 8));
+                let prod = _mm256_mul_ps(v_w, v_val);
+                acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], v_alpha, prod);
+            }
+            m = m_next;
+        } else {
+            ok = false;
         }
-
-        let m_prev = m;
-        let m_next = if score_s > m_prev { score_s } else { m_prev };
-        let alpha = exp_f32_scalar(m_prev - m_next);
-        let w = exp_f32_scalar(score_s - m_next);
-
-        den = den.mul_add(alpha, w);
-
-        let v_alpha = _mm256_set1_ps(alpha);
-        let v_w = _mm256_set1_ps(w);
-
-        for c in 0..chunks {
-            let v_val = _mm256_loadu_ps(v_ptr.add(c * 8));
-            let prod = _mm256_mul_ps(v_w, v_val);
-            acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], v_alpha, prod);
-        }
-        m = m_next;
         s += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    if !ok {
+        return Err(AttnError::Overflow);
     }
 
     if den <= 0.0 || !den.is_finite() {
@@ -422,10 +493,20 @@ unsafe fn attn_core_f32_strided_avx2_inner(
         _mm256_storeu_ps(out.as_mut_ptr().add(c * 8), res);
     }
 
-    for item in out.iter().take(head_dim) {
-        if !item.is_finite() {
-            return Err(AttnError::Overflow);
-        }
+    // The `Overflow` refusal that the old `for item in out.iter().take(head_dim)` raised from
+    // inside its own loop body now leaves as a counter tested after it, for the same asserted
+    // reason. The check reads `out` and writes nothing, so `out` carries the same `head_dim` values
+    // on the error path as it did when the loop returned at the first non-finite element: the vector
+    // store loop above has already written them all. The index range `0..head_dim` and the ascending
+    // order are the `take(head_dim)` range and order.
+    let mut bad = 0u32;
+    let mut i = 0usize;
+    while i < head_dim {
+        bad += u32::from(!out[i].is_finite());
+        i += 1;
+    }
+    if bad != 0 {
+        return Err(AttnError::Overflow);
     }
 
     Ok(())
