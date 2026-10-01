@@ -856,7 +856,14 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   drifted source now needs (`std::env`, `OnceLock`, `OsStr`, `I128`, `String` deref, `Str` equality),
   and `core.f32.F32.is_finite` still appears inside `word_kv_append`'s loop bodies because
   `KvState.occupied` is `Vec<Vec<F32>>` since the carrier wave — so the boundary is not closed by
-  the flags alone. The audit pass, the 13 model axioms, and the `KvState` contract are the open
+  the flags alone. The audit's 12 non-f32 axioms are attributed to three Rust sites: `mixer.rs:307-313`
+  (`env::var` behind a `OnceLock`, 11 axioms, reached only from `word_kv_state_new` — production
+  constructs through `with_carrier`), `attn.rs:231/266/283` (`i128::from(u64)` in `recip_u64` and
+  `weight_at_recip`), and `attn.rs:952/960` (`f32::is_finite` as the `KvStorage::F32` arm's only
+  overflow guard). The first two are being applied mechanically (the wrapper calls `with_carrier(..,
+  Carrier::Q32)`; the model gains `I128.Insts.CoreConvertFromU64.from` in parallel with its existing
+  `From` entries). The third and the `KvState::new`/`carrier_from_env` coverage statement are with
+  Sol. The audit pass, the 13 model axioms, and the `KvState` contract are the open
   items before the corpus can land. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
