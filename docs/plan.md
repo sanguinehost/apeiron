@@ -616,6 +616,8 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   Fwht spec end to end; migrate the remaining modules with retirement receipts; delete every
   `*_gate.py` and reject new ones. The driver must reproduce each gate's green markers and its named
   mutation red before that gate is removed; a mutation that leaves the proof green is exit 1.
+  This proceeds separately from the Apeiron–Intent engine; the file count alone does not justify
+  rebuilding the harness.
 - **Apeiron–Intent, decision A (repair).** Retain the lane; hold candidate acceptance until the
   selection instrument passes rejecting controls. Ring 6 gate MISSING:
   `crates/intent-cli/tests/ring6_selection.rs`, command
@@ -658,6 +660,70 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   (`AxiomAudit*.lean`, `Policy/Core.lean`, `lakefile.lean`). Classify each as tracked, ignored or
   removed before the dispatch; a build product is never tracked (failure register, consolidation
   row), and a generated proof file is regenerated, not hand-edited.
+
+## Apeiron–Intent: the repeatable improvement engine
+
+Keep the direction. The goal is to turn the mechanism that produced the 2× llama.cpp result into a
+repeatable improvement engine, with tighter connections between evidence, proposals and execution.
+
+### Three immediate corrections
+
+1. **Rebase specification.** `intent/docs/EVOLVER.md:172` (D7) states that a drift-triggered rebase
+   restarts from a fresh baseline but specifies `M ← max(S_fresh, M_t)`: when the fresh score is below
+   the old maximum, the blocking maximum is unchanged and the rebase cannot lower the bar. Require an
+   explicit evaluation epoch and its new baseline, and retain the previous epoch's evidence.
+2. **Historical cost is not an upper bound.** `intent/docs/EVOLVER.md:64` (D2), implemented at
+   `intent/crates/intent-core/src/selection.rs:133`, takes the minimum of historical observed cost
+   and a budget-derived bound. A past maximum does not bound a future candidate. Use an enforced cap
+   or a justified resource bound for admission; historical estimates guide search only.
+3. **Connect the optimisation to its target.** `docs/epics/apeiron-intent-loop.md` states the scalar
+   `row_dot_fixed` motivation from a GPU MMQ throughput gap without naming the connecting execution
+   path. Row-dot is a reasonable admission pilot; a GPU improvement claim needs the actual
+   kernel/caller connection and the command whose output records it. Resolve the competing proposed
+   transformations before dispatch.
+
+### Documentation becomes executable
+
+Extend the dispatch contract so each task binds to the exact specification sections, source
+identities, applicable invariants, the gate and the refusal conditions. The proposer consumes those
+artefacts and the raw evidence — the actual Lean diagnostic, compiler output, counterexample or
+profiling receipt, plus the relevant source or specification excerpt — before generating a proposal.
+Rejection controls: a stale specification, a mismatched source identity, and a compaction that loses
+required evidence. A receipt that lists documents does not establish understanding; a gate that
+checks the obligations makes ignored documentation consequential. Keep one current plan; repeated
+results are structured receipts linked from it.
+
+### Research basis (plan changes)
+
+- **Self-Modifying Lean Proof Agents**, §3.2 — a fixed runtime verifies proofs and claimed
+  intermediate results. Intent may improve proof retrieval, decomposition and repair; statement
+  identity, extraction checks, axiom policy and acceptance stay outside the candidate's authority.
+- **GEPA**, §§3, 5.1 — reflection consumes execution traces. Feed proposals the diagnostic, compiler
+  output, counterexample or profiling receipt plus the relevant source/spec excerpt; documentation
+  retrieval is part of the loop.
+- **Darwin Gödel Machine**, §3, Appendix H — an archive preserves useful branches; its
+  objective-hacking example scores perfectly by removing detection logging. Separate research-archive
+  eligibility from incumbent promotion, preserve unsuccessful branches and failure evidence, and
+  validate the measurement path independently.
+- **AlphaEvolve**, §§2.4–2.6 — cheap screening precedes expensive evaluation; parallel proposal and
+  cheap rejection; serialize shared proof lanes and quiet measurements; every promoted candidate
+  still clears the complete acceptance barrier.
+- **STOP** Algorithm 1; **SICA** §3 — evaluate an improver by the downstream improvements it
+  produces. Measure accepted verified gains per budget, time to acceptance, and transfer to fresh
+  tasks; include a second cycle driven by the first cycle's evidence.
+
+### Ecosystem ownership and the transfer test
+
+Preserve the ownership at `docs/direction.md:170`: Apeiron supplies reusable primitives and
+refinements; Intent improves how work is proposed and executed; Song independently realises
+corresponding primitives; Penglai and Whispering Tides supply workloads. Choose one accepted
+primitive for transfer into a second consumer; that tests whether the improvement is reusable.
+
+### Sequencing
+
+Let the outstanding returns finish; integrate their scoped evidence; resolve the three corrections;
+close the selection-measurement gap (Ring 6); run one complete Apeiron–Intent cycle, then a second
+cycle driven by the first cycle's evidence.
 
 ## Evidence labels
 
