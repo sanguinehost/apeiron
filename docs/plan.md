@@ -867,7 +867,18 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   and claims about `append` for F32 storage are relative to that boundary — and the corpus scope is
   the production constructor, covering `KvState::with_carrier` while explicitly not claiming
   coverage of `KvState::new` or `carrier_from_env`, whose environment-dependent behavior is outside
-  the pinned model. Also open:
+  the pinned model. The scratch pipeline now exits 0 (68.8 s): `proof/boundary-axioms.txt` names the
+  four admitted items with reasons, `proof/audit-extraction.py` rejects `sorry`/`admit`, unlisted
+  axioms and allowlist entries with no matching declaration (eight controls, one of which caught a
+  parser defect in its own trailing-newline handling), `regen.sh`'s `audit()` calls it, the README
+  carries the boundary statement, and `AxiomAudit/Core.lean`'s closed cone gains the four names.
+  Landing conditions, in order: the exact axiom name form `auditClosedAxioms` must use
+  (`Lean.collectAxioms` returns module-prefixed names; one `#print axioms` probe in the warm corpus
+  settles it), the four `--opaque` flags must land with the corpus, and the tool identity is open —
+  the Aeneas that translates (`33d0ce1a`) has no recoverable source on this box while the rebuilt
+  one (`2a0d7827`) regresses on `core::array::repeat`, so landing needs either a rebuild fix or an
+  explicitly recorded tool identity. A cold `proof/` `lake build` cannot finish in the local
+  budget; the barrier must use the repo's warm `proof/corpus/.lake`. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
