@@ -1104,7 +1104,7 @@
     {
       "id": "KvAppend",
       "path": "proof/resource/KvAppend_gate.py",
-      "sha256": "5a6039d0c0f31a14b462e2b154fec4194afaf5eebab94ff25f38c07432d02f5d",
+      "sha256": "c8a0af7566bd4790e984b1a8b7c6c55acaac77a049541e584bb3ab20acdb7266",
       "tracked": false,
       "green_marker": "KV_APPEND_SOURCE_RESOURCE_OK",
       "red_marker": {
@@ -1553,7 +1553,7 @@
     {
       "id": "RegenRelocateAll",
       "path": "proof/resource/RegenRelocateAll_gate.py",
-      "sha256": "4aefb25b3a598cd421cd678d6169bbf7257ecbb94f9950a6d1b26d7b4fe8e16f",
+      "sha256": "5e2d89f09ed404c784e0bc67827751c9f8f20a7b78ca7fadc6f06d4bb89089d3",
       "tracked": false,
       "green_marker": "REGEN_RELOCATE_ALL_SOURCE_RESOURCE_OK",
       "red_marker": {
@@ -1911,8 +1911,8 @@
         {
           "control": "wrong-cost-count",
           "file": "proof/resource/RowDotAdmission.lean",
-          "needle": "def srcOps (w_row x : Slice I64) (s : I128 × Usize × Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 2",
-          "replacement": "def srcOps (w_row x : Slice I64) (s : I128 × Usize × Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 3",
+          "needle": "def srcOps (w_row x : Slice I64) (s : I128 \u00d7 Usize \u00d7 Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 2",
+          "replacement": "def srcOps (w_row x : Slice I64) (s : I128 \u00d7 Usize \u00d7 Bool) : Nat :=\n  match (srcBodyFn w_row x s).match with\n  | MatchResult.ok (ControlFlow.cont _) => 3",
           "occurrences": 1,
           "needle_occurrences": 1
         }
