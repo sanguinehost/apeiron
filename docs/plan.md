@@ -862,9 +862,12 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   `weight_at_recip`), and `attn.rs:952/960` (`f32::is_finite` as the `KvStorage::F32` arm's only
   overflow guard). The first two are being applied mechanically (the wrapper calls `with_carrier(..,
   Carrier::Q32)`; the model gains `I128.Insts.CoreConvertFromU64.from` in parallel with its existing
-  `From` entries). The third and the `KvState::new`/`carrier_from_env` coverage statement are with
-  Sol. The audit pass, the 13 model axioms, and the `KvState` contract are the open
-  items before the corpus can land. Also open:
+  `From` entries). Sol fixed the last two: `core.f32.F32.is_finite` is admitted as the fourth
+  boundary item — the pinned model's `F32` is opaque, so the F32 arm's overflow guard is not proved
+  and claims about `append` for F32 storage are relative to that boundary — and the corpus scope is
+  the production constructor, covering `KvState::with_carrier` while explicitly not claiming
+  coverage of `KvState::new` or `carrier_from_env`, whose environment-dependent behavior is outside
+  the pinned model. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
