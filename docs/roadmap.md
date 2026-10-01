@@ -465,6 +465,42 @@ GATE: python3 /tmp/opencode/roadmap_review.py check; initial exit 1:
 GRADE: forward-looking design and source-reading analysis; no new proof or speed claim.
 ```
 
+### The hashtrinity gap is the open performance item
+
+Owner direction: the hashtrinity-to-apeiron conversion was never done, and it is the highest-value
+outstanding item — Penglai's fluid simulation depends on this table, and a 9x closing is the
+difference between a workstation and a modest machine.
+
+**Measured** at `examples/table_cost_probe.rs` on 192 keys with `N = 16`, this machine:
+
+| population | metric | apeiron | hashtrinity `4cc14471` | ratio |
+|---|---|---|---|---|
+| distinct | present ns/key | 9.73 | 1.04 | **9.35x** |
+| distinct | insert ns/key | 480.98 | 4.04 | 119x |
+| lowbyte | present ns/key | 31.52 | 2.12 | 14.9x |
+| adversarial | present ns/key | 292.35 | 0.78 | 374x |
+
+The requirement is not new. [direction.md](direction.md) already makes the consolidation
+**performance-preserving** — it carries forward the predecessor's high-performance surfaces, not
+merely its names or formulas — and the G1 acceptance cells already name the comparators each
+required cell is measured against. What was missing is the measurement that says how far short the
+current table falls on the **plain** baseline, where no adversary chooses keys.
+
+On that baseline the table performs one sweep step, one tag match and one full key compare per
+lookup, so the 9.73 ns is not probe geometry: it is outside the loop. The candidate causes are the
+placement word and address computation, region and shard indirection, the resident-or-spill
+decision, `Sigma` handling, and bounds or `Option` shape — each to be measured by building the
+variant and reading the harness, not argued from the source. The insert column is separately
+allocation-dominated and is not evidence about the probe.
+
+The adversarial column is a different defect with a different fix: the group fingerprint reads the
+same low 16 bits the shard selector reads, so a key population that folds those bits matches every
+lane of every visited group. Group steps stay bounded (7.17 against 1.00) while full compares reach
+107.25 — geometry intact, filter starved.
+
+Plan: [plan.md E6](plan.md), waves W1 attribution, W2 the port, W3 refinement under the extraction,
+W4 the gate of record.
+
 ### Consolidation decision
 
 | Material | Merge / cut / keep |

@@ -590,6 +590,48 @@ lanes the Lean waves leave free.
    gate is re-run under the new driver?
 4. Does `E5` start before `E4` closes, given Ring 6 needs no extraction?
 
+### E6 — Close the hashtrinity gap
+
+Owner direction: the hashtrinity-to-apeiron conversion was never done, and it is now the
+highest-value item, because Penglai's fluid simulation depends on this table and the gap is the
+difference between a workstation and a modest machine.
+
+**Measured** (`cargo run --release --features read-stats --example table_cost_probe`, this machine,
+192 keys, `N = 16`):
+
+| population | metric | apeiron | hashtrinity `4cc14471` | ratio |
+|---|---|---|---|---|
+| distinct | present ns/key | 9.73 | 1.04 | **9.35x** |
+| distinct | insert ns/key | 480.98 | 4.04 | 119x |
+| lowbyte | present ns/key | 31.52 | 2.12 | 14.9x |
+| adversarial | present ns/key | 292.35 | 0.78 | 374x |
+
+**The requirement already exists.** `docs/direction.md:62` makes the consolidation
+performance-preserving — it carries forward the predecessor's high-performance surfaces, not merely
+its names or formulas — and the G1 acceptance cells (`docs/direction.md:283-287`) name the
+comparators each required cell is measured against. A 9.35x gap on the plain distinct baseline,
+where nothing is adversarial, is that requirement unmet.
+
+**What the gap is not.** On the distinct baseline the canonical table does 1.00 sweep step, 1.00 tag
+match and 1.00 full compare per key, so the 9.73 ns is not probe geometry; it is outside the loop.
+Candidate causes, to be **measured** rather than argued: the placement word and address computation,
+region and shard indirection, the `direct_word` resident-or-spill decision (the harness used
+`direct_word: None`, which sends every key through the spill path), `Sigma` handling, and bounds or
+`Option` shape. The insert ratio is separately allocation-dominated and is not evidence about the
+probe.
+
+**The adversarial column is a filter defect, not geometry**, and is a separate task: `tag(place)`
+reads the same low 16 bits the shard selector reads, so a population folding those bits matches
+every lane of every visited group — group steps stay bounded at 7.17 against 1.00 while full
+compares reach 107.25.
+
+| wave | tasks | files | gate | agents | heavy |
+|---|---|---|---|---|---|
+| W1 | attribution: where the 9.73 ns goes, by building variants (placement, indirection, `direct_word`, `Sigma`, bounds) and measuring each through the same harness | `examples/table_cost_probe.rs` and its variants | the harness: counters plus ns per key | 1 | 0 |
+| W2 | the port: bring the predecessor's hot path into apeiron under the canonical definitions — a port with a named target, not a re-derivation | `src/table*.rs` | the harness at parity in the baseline column | 1 | 0 |
+| W3 | refinement: the placement word and the tag are on the extracted path, so a change carries `regen.sh --check` and any Lean-side correction | `proof/ApeironWord.lean`, `proof/resource/*` | `proof/regen.sh --check` | 1 | 1 |
+| W4 | the gate of record: a numeric target in the harness rather than a one-off measurement, plus the comparator cells G1 already names | `examples/table_cost_probe.rs`, the G1 cells | the harness and the G1 cells | 1 | 0 |
+
 ## Outstanding obligations
 
 Each item is open, not a completed result:
