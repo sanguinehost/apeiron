@@ -177,7 +177,7 @@ release depends on an immutable mathematical source.
 |---|---|---|---|---|---|
 | W1 | Record the approved lifecycle | Three lifecycle files | OpenCode | `git diff --check` | Not applicable: planning artifacts change no executable claim. |
 | W2 | Pin and resolve the corpus | `proof/corpus/lakefile.lean`, `proof/corpus/lake-manifest.json` | OpenCode | `lake build` in `proof/corpus` | Nonexistent commit makes `lake update apeiron` fail in a throwaway copy. |
-| W3 | Record evidence and boundaries | `proof/README.md`, `docs/flash-handoff.md`, `docs/direction.md` | OpenCode | `git diff --check` | Removing the manifest source assertion from the evidence record does not close W2. |
+| W3 | Record evidence and boundaries | `proof/README.md`, `docs/plan.md`, `docs/direction.md` | OpenCode | `git diff --check` | Removing the manifest source assertion from the evidence record does not close W2. |
 
 ### Task blocks
 
@@ -207,7 +207,7 @@ release depends on an immutable mathematical source.
 #### W3-T1 - Evidence record
 
 - **Scope:** Replace the open release-pin statement with commands, revisions, result and boundary.
-- **Files:** `proof/README.md`, `docs/flash-handoff.md`, `docs/direction.md`
+- **Files:** `proof/README.md`, `docs/plan.md`, `docs/direction.md`
 - **Depends on:** W2-T1
 - **Grade:** tested
 - **Gate:** `git diff --check`

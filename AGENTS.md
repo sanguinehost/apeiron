@@ -48,14 +48,36 @@ that resolves; run the path before citing it.
 |---|---|---|---|
 | 1 | [`docs/direction.md`](docs/direction.md) | Programme authority: decisions, evidence, open work, correctness items | Current stage and its unresolved obligations are known |
 | 2 | `docs/kernel-boundary.md` | Layer ownership and the trust boundary | Which layer is proved, tested, measured or out of scope is known |
-| 3 | `docs/flash-handoff.md` | Execution order, gates, specialist approval, stop points | The current stage's gate and stop condition are known |
+| 3 | `docs/plan.md` | Execution order, gates, specialist approval, stop points | The current stage's gate and stop condition are known |
 | 4 | `proof/README.md` | Extraction and bridge, exact commands, what is **not** established | Tool pins, extraction selection and axiom cone are known |
 | 5 | `README.md` | Crate behavior and its stated non-claims | The actual `Cell`/`Table` behavior and the open obligations are known |
 | 6 | exact source | `src/`, `tests/`, `proof/extract/lib.rs`, `proof/corpus/` | The symbols to change have been read, not recalled |
 
-`docs/direction.md` and `docs/kernel-boundary.md` govern. `docs/flash-handoff.md` governs execution
+`docs/direction.md` and `docs/kernel-boundary.md` govern. `docs/plan.md` governs execution
 order. Where a document disagrees with the source or a gate, the source and the gate win; fix the
 document.
+
+## 1a · Enforcement map
+
+A rule below is non-optional only when a named artefact enforces it and a command shows the verdict.
+Prose that names no enforcer is not acceptance (§4, obligation 11).
+
+| rule | enforcing artefact | command |
+|---|---|---|
+| §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 8/8 controls) |
+| §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 12 reject / 5 accept) |
+| §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
+| §4 obligation 5 — the Slang empty cone | [`tools/slang/zero_axioms.py`](tools/slang/zero_axioms.py) | `python3 tools/slang/zero_axioms.py --stage <stage> --controls` |
+| §4 obligation 7 — the per-task mutation control | the task's own gate | that gate's command; a mutation that leaves the proof green is a failure, not a pass |
+| §4 obligation 9 — Rust gates | `cargo` | the §6 commands |
+| §6 — bounded Lean under the lane | `lane` (box-wide pool, outside this repository) | `lane <cmd>` |
+| §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
+| §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
+| §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py` |
+
+Enforcers that are MISSING and named so that prose cannot stand in for them: a Rust gate driver
+(`tools/gate`) replacing the per-task `*_gate.py` scripts, and a reachability gate for the
+documentation and receipt consolidations. Both are tracked in [`docs/plan.md`](docs/plan.md).
 
 ## 2 · Lifecycle
 
@@ -124,7 +146,7 @@ GRADE:      evidence grade and before/after result; unmeasured or not applicable
 A task closes on its focused gate and control, completed within its §10 wall-clock budget; a
 timeout is not closure. A wave requires every child plus the shared gates.
 An epic closes only when every row of its exit table is green on the same source/tool identity;
-missing gates, witnesses or evidence keep it open. `docs/flash-handoff.md` owns the epic exits;
+missing gates, witnesses or evidence keep it open. `docs/plan.md` owns the epic exits;
 Historical completion records are not fresh acceptance.
 Record inapplicability with its excluded population and reason, never because a gate is difficult.
 
@@ -337,6 +359,40 @@ references to those names are historical records.
   meet a trigger, within the Vertex credit balance. Only the lead closes a wave, merges, commits or
   pushes unless the user delegates that authority. A missing required verdict keeps the task open.
 
+### Mandatory inference optimization admission
+
+Before starting an inference optimization implementation worker, the lead must invoke
+`python3 tools/dispatch/admit.py --launch <proposal.json>` in its task worktree. This rule applies
+to every provider and native-agent route; a route that cannot execute its bound worker through
+this launcher is not admitted for optimization implementation. Read-only analysis and separately
+scoped extraction, refinement and cost-model tasks may establish the prerequisites without
+changing an inference implementation. Admission does not replace their gates or the epic barrier.
+
+`admit.py` is a compatibility entry into `tools/dispatch/run` and the Rust adapter; the executing
+core is extracted and refined under `proof/dispatch`, while IO/process/hash provenance remains a
+tested/trusted adapter boundary.
+
+The lead-reviewed `tools/dispatch/contracts.json` fixes the real extraction root, source/proof
+identities, before/after observations including refusals, reachable joint domain, resource model,
+owned paths and exact worker argv. `proof/DispatchAdmission.lean` requires a reachable joint
+witness, universal preservation and strict improvement in that registered model. Registration
+requires the executing-source/refinement/cost correspondence, its rejecting controls and the
+independent verdict under §9.1; a worker cannot register its own optimization. Registry/checker
+changes are separate tasks. A cost-model proof is not a hardware speed measurement.
+
+The registry is empty until such a contract is accepted. A cited theorem, Boolean approval,
+`--check` output, cached receipt or sampled numerical tolerance cannot authorize a worker.
+`--self-test` uses synthetic marker workers only and establishes no inference theorem. Each launch
+freshly checks extraction, the typed certificate, its axiom cone and current identities before
+starting the bound worker within one budget. New contracts require a successful production-path
+positive and attributable refusal/restoration controls; synthetic controls alone cannot accept one.
+
+The launcher enforces rejection only on its own execution path. Direct shell/native tools are not
+intercepted by a repository script. Protection of the registry/checker, tool/dependency integrity,
+source/cost registration and concurrent mutation between hashing and launch remain trust boundaries.
+Host-side interception and immutable source snapshots remain open; this rule supplies operational
+discipline without claiming those mechanisms exist.
+
 ### 9.2 Agent conduct
 
 - Lead with the result, the exact measurement and the decision.
@@ -407,6 +463,7 @@ evidence within budget on named source/tool identities, and retains exclusions a
 
 | failure | evidence | rule | present safeguard | open discharge |
 |---|---|---|---|---|
+| Optimization implementation preceded an executing-source and cost proof | `artifacts/affine-block-experiment/README.md`; `docs/epics/structural-decode-search.md`; `tools/dispatch/admit.py` | Admit inference optimization implementation only through the fresh proof-carrying launcher; exact-ring citations and sampled tolerances are not source/cost evidence. | Typed joint witness, preservation and resource-improvement certificate; closed registry; seeded rejection/restore controls; unregistered affine worker refused. | Lead: source-connected production contract and positive/control/restoration gate; host interception, immutable source snapshot and protected registry/checker remain open. |
 | Bounded verification priced itself out: one CBMC harness bit-blasted a degree-four `i8` multiply past 25 minutes; 9 of 67 harnesses timed out | `apeiron` `f89b18b`; `docs/evidence/kani-table-harness-audit.md`; `docs/evidence/kani-retirement.md` | The local loop carries a wall-clock budget. A command that reaches ten minutes has already failed: stop it, record the failure, redesign or retire the check. Kani is retired; no replacement inherits its cost. | Authorized retirement of Kani; ordinary probe regressions retained. | Campaign-budget bounds for any replacement check. |
 | Green gates over broken artifacts: a ladder was green over a program that did not compile; a check exited 1 silently for 29 commits; a regression gate carried the defect it exists to catch; a harness asserted the wrong sentinel polarity for four commits | `song` `1fc16782`, `4f44dd6a`; `apeiron` `cf94f81`, `aa1afcf` | Trust a gate only after a seeded defect makes it fail with an attributable diagnostic. Require the captured exit status and expected artifacts; missing evidence is not success. Quiet success is legitimate; silence instead of evidence is not. Timeout, missing tools and unrelated build failures are not the intended red. | Seeded-defect rule; checker self-tests; relocation mutation controls. | Enforcement that every accepted gate carries attributable baseline, red and restore evidence with complete output. |
 | Claims outran their theorem or domain: real-ring classification was attributed to wrapping words; cited theorems did not carry their claims; vacuity and false-positive checks missed cases | `apeiron` `f89b18b`; `sanguine-apeiron` `b6296b4a`, `688238aa` | Inspect the exact declaration, scalar domain and premises; require a checked implementation link and joint reachable witnesses. Neither an unrelated theorem nor an unreachable antecedent establishes the claimed result. | Evidence grades (§5); exact refinement naming; `AxiomAudit` axiom-cone checks. | Non-vacuity, premise correctness, constructor reachability and prose-to-theorem correspondence. |

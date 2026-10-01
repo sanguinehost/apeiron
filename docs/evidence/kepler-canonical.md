@@ -96,7 +96,7 @@ barrier stage rejects the record when any of them is dropped.
 
 ## Shared document integration notes (BLOCKED)
 
-- `docs/flash-handoff.md` and `docs/kernel-boundary.md` have unreleased owners;
+- `docs/plan.md` and `docs/kernel-boundary.md` have unreleased owners;
   their Kepler integration notes are BLOCKED and were not edited (tested: the
   W7-T1 change set owns only this new evidence file).
 

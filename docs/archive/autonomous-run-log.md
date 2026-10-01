@@ -20,7 +20,7 @@ done, why, by which agent, and what remains.
 
 ## Known state at the start of the run
 
-- Stage 3 complete. `docs/direction.md`, `docs/flash-handoff.md` updated.
+- Stage 3 complete. `docs/direction.md`, `docs/plan.md` updated.
 - Stage 4 slice 1, corpus side, done:
   - `sanguine-apeiron/proof/Apeiron/Physics/Carrier.lean` — `density` **defined** as
     `normForm σ (R • u)` (literal trichotomy root), `density_eq_amplitude_sq` proved from

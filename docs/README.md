@@ -8,7 +8,7 @@ This is the index of record for `docs/`. Source and gates win over any document 
 |---|---|
 | [`direction.md`](direction.md) | programme authority: decisions, evidence, open work |
 | [`kernel-boundary.md`](kernel-boundary.md) | layer ownership and the trust boundary |
-| [`flash-handoff.md`](flash-handoff.md) | execution order, gates, stop points, epic exits |
+| [`plan.md`](plan.md) | execution order, gates, stop points, epic exits |
 | [`roadmap.md`](roadmap.md) | staged programme sequence and the prior-art index |
 | [`state-ledger.tsv`](state-ledger.tsv) | task ledger |
 | [`extraction-requirements.md`](extraction-requirements.md), [`hash-comparison.md`](hash-comparison.md) | reference notes |

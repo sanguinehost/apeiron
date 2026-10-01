@@ -158,7 +158,7 @@ Local apEIRON:
   were retired under `docs/epics/kani-retirement.md`.
 - [S8] `docs/direction.md`, section "Required R0 acceptance: G1 / REG-1".
 - [S9] `docs/kernel-boundary.md`.
-- [S10] `docs/flash-handoff.md`.
+- [S10] `docs/plan.md`.
 
 Pinned predecessor, `file:///home/socol/Workspace/fold` at the [S2] revision:
 

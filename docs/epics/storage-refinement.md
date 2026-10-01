@@ -1787,7 +1787,7 @@ This annex governs current performance restoration and dispatch; earlier impleme
 below are historical checkpoints, not instructions to restart proofs of the current scan table.
 
 ```text
-SCOPE: direction.md, flash-handoff.md, storage-refinement.md; performance-preserving consolidation
+SCOPE: direction.md, plan.md, storage-refinement.md; performance-preserving consolidation
 REGISTER: planning/measurement/refinement; no production implementation or speed claim
 CORPUS: canonical Apeiron.Table/AnyRing; historical CountTable/Map at named revisions
 REFERENCE: 71942db, 3a95bb5, 00a3629, dde9d58, f6db050; RFC 0001 A2/A7/G1
@@ -1830,7 +1830,7 @@ agreement first; default/new-first semantics, overflow, callbacks, effects and r
 | `00a3629`, `dde9d58`, `f6db050` | Supplied history: Map/Set/SafeTable deletion; CountTable plus 25 benchmark/example targets deletion; current fixed-shard scan Table installation, respectively. These revisions are retrieval inputs, not proof/performance acceptance. |
 | `examples/reg1/{main,workload,correctness,performance,coverage}.rs`, `examples/reg1/coverage.json` | Existing uncommitted partial gate: identity/operation boundaries, correctness, determinism, full16 timing and coverage. Preserve and adapt, not replace with a one-workload optimization. |
 | `examples/reg1/candidate.rs` | Benchmark-only cached-placement candidate; supplied 2.65–2.69x hashtrinity result is rejected. No production/refinement status. |
-| Current REG-1 and verification receipts | Fresh strict full-profile receipt [`perf-remeasure-2026-09-19-post-spill.md`](../evidence/perf-ledger.md), sha256 `946b5d40…`: HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387 fail=1063 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, exit 1; spill absent-miss and growth-insert cells fixed (lifecycle annex below). Kani 448.58 s, 62/62 green, one unreachable, largest harness ~94.23 s; freshness red in 3.28 s on line-comment drift. Reported measurements, not rerun here; details and missing receipts in `docs/flash-handoff.md`. |
+| Current REG-1 and verification receipts | Fresh strict full-profile receipt [`perf-remeasure-2026-09-19-post-spill.md`](../evidence/perf-ledger.md), sha256 `946b5d40…`: HEADLINE `registered=2592 load_bearing=2268 applicable=1450 pass=387 fail=1063 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, exit 1; spill absent-miss and growth-insert cells fixed (lifecycle annex below). Kani 448.58 s, 62/62 green, one unreachable, largest harness ~94.23 s; freshness red in 3.28 s on line-comment drift. Reported measurements, not rerun here; details and missing receipts in `docs/plan.md`. |
 
 Historical numbers are hypotheses for a registered rerun, never copied absolute thresholds.
 Acceptance threshold (owner decision): for every applicable cell, `selected/incumbent <= 1.0` against
@@ -2626,7 +2626,7 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 - [ ] Canonical refinement and fail-closed audits pass.
 - [ ] Independent optimized relation decision and complete controls satisfy S6; no `Map` retirement authorized.
 - [ ] Universal optimized representation/transition relation is checked before any optimized proof claim; remains open independently of reference closure.
-- [ ] S7 integration and S8 ledger/perimeter enforcement pass; see `docs/flash-handoff.md`.
+- [ ] S7 integration and S8 ledger/perimeter enforcement pass; see `docs/plan.md`.
 - [ ] Rust tests, clippy and formatting pass.
 - [ ] Source and tool digests and trust boundaries are recorded.
 
@@ -2811,7 +2811,7 @@ as a distinct contract; live workers/SSE2/unsafe heap semantics need separately 
      rejection. Bind all production `src/`/`tests/`, inventory external trust separately; do not
      exclude optimized files to turn the size check green. Existing over-limit populations require
      a separately frozen structural plan, not an exemption here.
-   - Gate wiring: `AGENTS.md`, `docs/flash-handoff.md`; gate `git diff --check`; requirement review
+   - Gate wiring: `AGENTS.md`, `docs/plan.md`; gate `git diff --check`; requirement review
      checks that missing checker execution cannot be reported as S8 closed. No semantic grade.
    These are separate serial waves owned by Flash except boundary/claim decisions, which require
    Astra/Sol. Checker tasks take no Rust/Lean lane unless their approved design invokes those tools.
@@ -2869,7 +2869,7 @@ and the per-cell/incumbent applicability registration are in the
 family-wide exemption and missing, duplicate, invalid or inconclusive pairs reject. There is no
 historical-envelope tolerance. This supersedes the RFC elapsed-median floor
 `selected/hashtrinity <= 1.25`. The superseded 1.25 floor and historical-envelope language still
-appears in `docs/direction.md` and `docs/flash-handoff.md`; it is reconciled in
+appears in `docs/direction.md` and `docs/plan.md`; it is reconciled in
 `APEIRON-PERF-RESTORE-W5-T1`, not here. Within this plan the threshold above is the only acceptance
 rule.
 
@@ -2889,7 +2889,7 @@ the REG-1 workloads/oracles.
 | Order | Task | Owned scope |
 |---|---|---|
 | 1 | `APEIRON-PERF-RESTORE-W4-T1` | this documentation task: revised production boundary |
-| 2 | `APEIRON-PERF-RESTORE-W5-T1` | reconcile `docs/direction.md`, `docs/flash-handoff.md`, `proof/README.md` |
+| 2 | `APEIRON-PERF-RESTORE-W5-T1` | reconcile `docs/direction.md`, `docs/plan.md`, `proof/README.md` |
 | 3 | `APEIRON-PERF-RESTORE-W6-T1` | root real `spread`/`finish`: `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` |
 | 4 | canonical corpus task (separately assigned) | `Table/WordIdentity.lean`, registered in `Audit.lean` |
 | 5 | `APEIRON-PERF-RESTORE-W7-T1` | bridge pin transport |

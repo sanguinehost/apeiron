@@ -390,7 +390,7 @@ named defect; resource/tool failures are inconclusive.
 |---|---|---|---|
 | W1-T1 / Flash | `examples/reg1/acceptance.rs`, new `examples/reg1/acceptance/tests.rs`: add unit tests of the real acceptance evaluator, make the five required hasher comparators load-bearing, and reject their demotion/omission. Inventory unmatched named surfaces explicitly. Keep each file at most 1,500 lines (parent currently 1,499); stop for decomposition if necessary. | `cargo test --locked --example reg1 acceptance::` (prospective tests; zero matching tests cannot close the task). | A single newly load-bearing ratio over 1, an omitted pair, or demotion to informational must reject in the same evaluator; restored complete synthetic campaign passes. |
 | W1-T2 / Flash | `tests/table.rs`: actual-public-path differential traces for both carriers, direct/spill collisions, unequal `Sigma`, extent changes, whole observation set/length and noncommutative merge. No production edits. | `cargo test --locked --test table` | Scratch wrong value/length/occupancy, omitted commit and reversed merge must fail named tests, including unrelated-key readback. |
-| W1-T3 / Flash | `docs/flash-handoff.md`, `docs/hash-comparison.md`: reconcile suspended W7 scheduling and all named incumbents; retain every gate and historical receipt. | `git diff --check -- docs/flash-handoff.md docs/hash-comparison.md`, plus line-by-line requirement preservation as for this docs task. | Scratch deletion of a required incumbent or replacement of W7-open by proved must be rejected by the review; this is documentary review, not a software control. |
+| W1-T3 / Flash | `docs/plan.md`, `docs/hash-comparison.md`: reconcile suspended W7 scheduling and all named incumbents; retain every gate and historical receipt. | `git diff --check -- docs/plan.md docs/hash-comparison.md`, plus line-by-line requirement preservation as for this docs task. | Scratch deletion of a required incumbent or replacement of W7-open by proved must be rejected by the review; this is documentary review, not a software control. |
 | W2-T1 / Flash, own wave | `src/table.rs`, new `src/table/geometry.rs`, new `src/table/tests.rs`: size-only factoring before hot-path changes; move tests and scalar geometry without changing bodies, visibility semantics or root behavior. Current `table.rs` is 2,017 lines, above the 1,500-line owned-source bound. | `cargo test --locked --lib --test table` | Scratch changed routing/index equation must fail the corresponding tests; unchanged factoring must preserve observations. Existing size/perimeter checks and extraction barrier also remain mandatory. |
 | W3-T1 / Flash, after size/freshness barrier | `src/table.rs`: measured serial direct-path overhead reduction only, no new representation/search law. | `cargo test --locked --lib --test table` | Wrong direct-empty or unequal-`Sigma` result rejects; performance outcome evaluated separately at W5, not inferred from tests. |
 | W3-T2 / Flash, parallel edits with T1 | `src/table/partition.rs`: optimize stable scatter/address work at the existing interface only if fresh attribution selects it; add same-file order/completeness tests. | `cargo test --locked --lib table::partition::tests::` | Reverse same-key runs or duplicate/omit a scatter index; tests reject. No routing-law or unchecked-allocation change. |
@@ -577,7 +577,7 @@ serialized. No A7 work displaces the existing extraction/refinement leg.
 
 | Order / owner | Bounded output and files | Gate / control |
 |---|---|---|
-| 1 · Apeiron docs owner | `docs/flash-handoff.md`, `docs/kernel-boundary.md`, `proof/README.md`: collapse append-only current/history contradictions and refresh the next unaccepted extraction obligation. | Documentation preservation check plus `git diff --check`; remove a storage/local-gate requirement in scratch and require rejection. |
+| 1 · Apeiron docs owner | `docs/plan.md`, `docs/kernel-boundary.md`, `proof/README.md`: collapse append-only current/history contradictions and refresh the next unaccepted extraction obligation. | Documentation preservation check plus `git diff --check`; remove a storage/local-gate requirement in scratch and require rejection. |
 | 2 · Apeiron/Song docs owners, separate tasks | Apeiron `README.md`/`AGENTS.md`; Song `docs/DESIGN.md`/`docs/CLI.md`/`docs/TESTING.md`, then Song `AGENTS.md`/`docs/ONTOLOGY.md` and checkpoint extraction. | Requirement-preserving documentation gate; explicit owner decision on five/six-pillar conflict, no waived B6 or local measurements. |
 | 3 · Existing extraction owner | Resume production prepared-resource and search-decision/apply rooting for `Stored` and `Regen`; select only missing work after reading current roots. Candidate owned paths: `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean`; source reshaping, if needed, is a separate task. | Bounded/serialized `proof/regen.sh --check`; source mutation in throwaway copy must break freshness/refinement, restored copy pass. No fresh result recorded here. |
 | 4 · Existing refinement owner / Sol | One growable bridge headline at a time under the resource/search premises, with constructor and refusing witnesses; ≤2 bridge modules plus audit. | Bounded/serialized focused Lean gate, then full `lake build` at integration; mutation must refute the named property. Preserve G1/REG-1 and the complete Rust/proof barrier. |
@@ -1030,7 +1030,7 @@ intent/spec/plan is the one retained lifecycle record for the pass.
 
 The former nine-stage source-arena/memo-store sequence is not current programme authority.
 Source binding remains a later execution refinement of the same primitive under the
-[handoff](flash-handoff.md#slang-source-binding-exit-all-rows-required), not another foundation.
+[handoff](plan.md#slang-source-binding-exit-all-rows-required), not another foundation.
 
 ## Retired route
 
@@ -1067,7 +1067,7 @@ All lanes are documentation-only. One owner per file; the lead alone maintains t
 |---|---|---|---|
 | W0-T1 | Lead | `apeiron/docs/roadmap.md` | Intent/spec/plan recorded; `git diff --check` |
 | W0-T2 | Flash gate worker | `/tmp/opencode/programme-docs/check.py`, `baseline.json` | Checker built, snapshot captured, expected red baseline observed |
-| W1-T1 | Flash central worker; lead architecture review | `apeiron/docs/direction.md`, `docs/kernel-boundary.md`, `docs/flash-handoff.md` | Central authority, outcomes and local ownership consistent |
+| W1-T1 | Flash central worker; lead architecture review | `apeiron/docs/direction.md`, `docs/kernel-boundary.md`, `docs/plan.md` | Central authority, outcomes and local ownership consistent |
 | W2-T1 | Flash Apeiron worker; Sol claim review | `apeiron/AGENTS.md`, `README.md`, `proof/README.md` | Entry points and current API/evidence agree with source |
 | W2-T2 | Flash corpus worker; Sol claim review | `sanguine-apeiron/AGENTS.md`, `theory/ROADMAP.md`, `theory/POTENTIAL_CLAIMS.md` | Lean retained; current delivery/primitive correspondence distinguished |
 | W2-T3 | Flash Song roadmap worker | `song/AGENTS.md`, `docs/ROADMAP.md`, `docs/research/ROADMAP.md` | Programme obligations coexist with unchanged local release barriers |
@@ -1126,7 +1126,7 @@ require a separate task and its local barrier.
 A Cedar-class authorization core: forbid wins, fail-closed Kleene unknowns, and a 64-bit rights lattice with
 `allow`/`attenuate`/`ask`/`deny` verdicts. It has one Rust body, one canonical Lean definition and an analysis
 layer on `Apeiron.Decider` (σ = 1 face). Epic: [`epics/policy-engine.md`](epics/policy-engine.md).
-Study: [`study/policy-engines.md`](study/policy-engines.md). Exit rows: `docs/flash-handoff.md`, "Policy engine exit".
+Study: [`study/policy-engines.md`](study/policy-engines.md). Exit rows: `docs/plan.md`, "Policy engine exit".
 
 | Stage | Content | State |
 |---|---|---|
@@ -1197,7 +1197,7 @@ corpus pin does not move. W3 (predecessor re-root) remains open.
 base `c450c222905c050f793a23332708c230c658f82c`; no source/build lane is occupied.
 
 ```text
-SCOPE: docs/direction.md, docs/flash-handoff.md, docs/roadmap.md;
+SCOPE: docs/direction.md, docs/plan.md, docs/roadmap.md;
        restore RFC 0001 topology and REG-1
 REGISTER: planning; no implementation, proof, runtime or universal-speed claim
 CORPUS: docs/rfcs/0001-core-architecture/{topology.json,RFC.md}; REG-1 at RFC.md:196-209
@@ -1222,7 +1222,7 @@ the stale no-performance-closure search returns no matches (exit 1). No runtime 
 ### Earlier consolidation acceptance
 
 Historical record of the documentation-consolidation pass. The canonical-rooting directive in
-`docs/direction.md` and `docs/flash-handoff.md` now governs.
+`docs/direction.md` and `docs/plan.md` now governs.
 
 - Architecture decision: recorded by `openai-astra`, session `ses_f66026973ffejJuS8pXwtdbGkM`.
 - Preparation: `git diff --check` exits 0. Checker unit checks exit 0; lead reran the

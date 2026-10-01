@@ -8,7 +8,7 @@ No universal read, representation or allocator obligation closes through this po
 This file is the sole programme authority. It states the shared thesis, ownership, outcomes,
 primitive correspondence, migration and execution order. Local documents own local representations,
 trust and execution detail and link here: [local boundary](kernel-boundary.md) and
-[operator handoff](flash-handoff.md). The central programme coordinates named cross-repo tasks; it
+[operator handoff](plan.md). The central programme coordinates named cross-repo tasks; it
 does not dispatch an entire repository or replace its local gates. Routine work proceeds within
 the repository's scope; changing a programme boundary requires an explicit owner decision.
 

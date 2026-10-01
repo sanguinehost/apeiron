@@ -17,7 +17,7 @@ Run: `nice -n 10 timeout <T> cargo kani -j 16 --output-format terse -Z unstable-
 
 Raising the cap does not close the gap: the 11 table/search harnesses do not finish at 90 s,
 600 s or 900 s. The historical 62/62 receipt predates the growable rework
-(`docs/flash-handoff.md`: historical completion records are not fresh acceptance).
+(`docs/plan.md`: historical completion records are not fresh acceptance).
 
 ## Two distinct faults
 

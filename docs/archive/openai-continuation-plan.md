@@ -7,7 +7,7 @@ Retirement does not turn timeouts into passes or close missing Lean refinements.
 Owner: lead Astra. Base: `262bb0a94eff2cc7d5655122a954f44d74de96b6`.
 The supplied-checkout exception covers this plan, `docs/archive/openai-continuation-evidence.md`
 and corrections to `docs/archive/handoff-openai.md` only. No commit or push is authorized.
-Direction, kernel-boundary and flash-handoff retain authority and all acceptance gates.
+Direction, kernel-boundary and execution plan retain authority and all acceptance gates.
 
 ## Intent and contract
 

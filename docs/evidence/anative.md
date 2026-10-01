@@ -668,11 +668,11 @@ Two escalations were consulted on how to remove the 11 axioms.
 - **Sol (contract/attribution)**: the fixed-shard selection in `docs/kernel-boundary.md:258-272` is
   historical ("Prior selection"); the current boundary (`:279-285`) and `docs/direction.md:39-45`
   select the growable table. Adopting fixed shards therefore requires amending `docs/direction.md`,
-  `docs/kernel-boundary.md`, `docs/flash-handoff.md` and the ANATIVE lifecycle, and retiring
+  `docs/kernel-boundary.md`, `docs/plan.md` and the ANATIVE lifecycle, and retiring
   `ReserveBeforeRetainContract`, the eight `LocatorReservationReceipt` categories,
   `NativeLocator.TableStorageCoverage`, `Growable/{Relocation,Rebuild,Resources,Representation}`, the
   `injection` failure controls and W7 — with a recorded performance blocker
-  (`docs/flash-handoff.md:45-52`). **No third zero-axiom path exists** for the growable table's
+  (`docs/plan.md:45-52`). **No third zero-axiom path exists** for the growable table's
   allocating methods under the pinned backend; excluding the adapter gives a zero-axiom core but
   leaves `ResourceAdapterSimulates` unproved.
 

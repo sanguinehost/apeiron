@@ -344,7 +344,7 @@ Documentation validation checks local links, all 18 recorded extraction-source h
 non-document files against the retirement manifest, and `git diff --check`. No proof, source edit,
 benchmark, Kani run or new acceptance result is part of this planning pass.
 
-Final reference-only slice: lead owns `docs/flash-handoff.md`; expand existing short Growable file
+Final reference-only slice: lead owns `docs/plan.md`; expand existing short Growable file
 paths and the generated apply-insert name to their actual repository artifacts. Register:
 documentation attribution, no theorem or grade change. Gate: `git diff --check` plus the existing
 claim checker; preserve unrelated historical test-command findings. Reference: actual generated

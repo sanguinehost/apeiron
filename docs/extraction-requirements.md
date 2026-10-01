@@ -98,7 +98,7 @@ The growable write path cannot be both in the cone and axiom-free without one of
   lemma. The `one-allocation` branch (`f78ce71`) is the nearest attempt ("sound, Miri-clean, and not
   yet a net win");
 - **(c) adopt bounded-fiber (no allocation)** — provable by construction, at the contract/performance
-  cost Sol recorded (`docs/kernel-boundary.md` "Prior selection"; `docs/flash-handoff.md:45-52`).
+  cost Sol recorded (`docs/kernel-boundary.md` "Prior selection"; `docs/plan.md:45-52`).
 
 Dropping the write roots is (a/b/c) deferred, not chosen.
 

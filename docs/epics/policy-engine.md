@@ -480,7 +480,7 @@ model; intent's single-dispatch property; any Table-carried index (v2).
   S6 residuals: converse bridge, vertex-count certificate, visited-set search); compiler (D3; S7
   residuals: dead `CompileError::Cycle`, `decide (compile ast) = denote ast`); `revocation_is_forbid`
   (D1); analysis beyond 1-bit `eq`/`le`/`ge`; oracle coverage of `ask`, attenuation and unknown facts.
-  Exit rows P1–P9 are in `docs/flash-handoff.md`, "Policy engine exit".
+  Exit rows P1–P9 are in `docs/plan.md`, "Policy engine exit".
 - **Process findings (for the AGENTS §10 register; owner edit):**
   - A worker's mutation control edited the working tree and was stranded by an unrelated compile error. Controls now run on a repo copy.
   - Three lead gates had defects that workers found: `pipefail` masking; `tail -1` on libtest output; `ugrep` as `grep`.

@@ -8,7 +8,7 @@ Kani remains retired. No commit/push. Source baseline is HEAD
 `target/open-areas/*-baseline.json`. Preserve unrelated changes.
 
 ```text
-SCOPE: docs/epics/open-areas.md, docs/kernel-boundary.md, docs/flash-handoff.md.
+SCOPE: docs/epics/open-areas.md, docs/kernel-boundary.md, docs/plan.md.
 REGISTER: dispatch ownership and evidence-reference repair.
 CORPUS: Growable proofs; generated apply_insert/plan_rebuild; partition tests.
 REFERENCE: /home/socol/Workspace/apeiron/proof/ApeironWord.lean; src/table/partition.rs.

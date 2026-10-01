@@ -1,4 +1,4 @@
-# Apeiron Operator Handoff
+# Apeiron execution plan
 
 Kani is retired by user direction. The [retirement contract](epics/kani-retirement.md) supersedes
 all older Kani gates and dispatch requirements in this handoff and linked plans. Historical
@@ -601,7 +601,7 @@ its reachability check (failure register, consolidation row). No bare `rm`.
 - **Documentation purge.** Census: 169 markdown files under `docs/`, 48,481 lines — 40 epics, 52
   evidence, 11 contracts, 4 reviews, 4 archive, 10 top-level. 79 are not cited by filename anywhere
   outside `docs/` (upper bound: the test catches filename citations only). Keep the governing six
-  (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `flash-handoff.md`, `roadmap.md`, `README.md`,
+  (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `plan.md`, `roadmap.md`, `README.md`,
   `proof/README.md`) plus `docs/README.md` as the index; delete the remainder after a per-file
   reachability check. A closed epic is deleted once its commits supersede it. **A new document must
   absorb or replace an existing one; no net new files.** Deletions land with their reachability
@@ -633,6 +633,31 @@ its reachability check (failure register, consolidation row). No bare `rm`.
 - **Template for the coming dispatch.** Every task is ≤3 files, one gate, one control, one Arc
   block; disjoint files, one owner per file; per-gate wall-clock budget; the lead re-runs each gate
   before commit. A task that cannot name its gate is not dispatchable.
+
+- **Extraction-root repair (returned; blocked on one `src/` move).** `proof/extract/lib.rs` is down
+  from 31 errors to 1: `src/engine/loader.rs:24 use super::dequant_f32_row`, which is defined only
+  inline at `src/engine/mod.rs:236-259` and cannot be mirrored as a fragment. The repair's verified
+  fix is three lines: move `dequant_f32_row` verbatim from `src/engine/mod.rs:236-259` into
+  `src/engine/f32_convert.rs` (already in `regen.sh`'s `SOURCE_FILES` and already the
+  `#[path]`-addressable-children pattern `src/table.rs:30-43` uses), and change the import to
+  `use super::f32_convert::dequant_f32_row`. `cargo build --lib --manifest-path
+  proof/extract/Cargo.toml` then exits 0 on a throwaway copy. Gate 2 (`proof/regen.sh --check`)
+  stays red for three pre-existing reasons outside that move: the pinned rustc resolves `std`/`core`
+  from an incompatible `/home/socol/.cache/miri` sysroot (E0514, 626 cascading errors, reproduced on
+  committed `HEAD`); `proof/ApeironWord.lean` is stale against the post-F32 `KvState` and dirty in
+  the tree; and the pinned Aeneas refuses `KvState::append` with "Returns inside of nested loops are
+  not supported yet". Also open: `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any
+  newly mirrored extraction source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`,
+  `numeric/fixed_ln.rs`, and the `mixer/` and `step/` children) — obligation 8 binds the evidence to
+  an under-specified source set until that list covers them. One-owner-per-file was violated in this
+  checkout: a second writer edited `proof/extract/lib.rs` at 21:18 while the repair owned it.
+- **Working-tree hygiene.** The checkout carries root-level junk that is not part of any task:
+  `a.js`, `test_edition2`, `test_closure_pointer`, `libtest_closure_capture.rlib`, `proof/timeout`,
+  `.held-control/`, `.held-scratch/`, `.licenses/`, `VP_VULKANINFO_NVIDIA_GeForce_RTX_5080_*.json`,
+  plus uncommitted modifications to generated `proof/ApeironWord.lean` and `proof/corpus/`
+  (`AxiomAudit*.lean`, `Policy/Core.lean`, `lakefile.lean`). Classify each as tracked, ignored or
+  removed before the dispatch; a build product is never tracked (failure register, consolidation
+  row), and a generated proof file is regenerated, not hand-edited.
 
 ## Evidence labels
 

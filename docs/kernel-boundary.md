@@ -10,7 +10,7 @@ ownership and outcomes are in the [programme direction](direction.md); this file
 them. Local authority: the executing growable flat/spill `Table` representation, the historical
 fixed-shard `Rep` relation, the translation/trust inventory and the kernel scope below are owned
 here. The programme authority is
-`docs/direction.md`; the execution sequence is in the [operator handoff](flash-handoff.md).
+`docs/direction.md`; the execution sequence is in the [operator handoff](plan.md).
 
 ## Canonical object and executing root
 

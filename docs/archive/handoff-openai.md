@@ -115,7 +115,7 @@ it to the next wave barrier. Read this whole document before acting.
 - Canonical corpus (pinned, do not move): `/home/socol/Workspace/sanguine-apeiron` at
   `3d66ea3aa2fe1de5997b6b757247454a2f771358`. `proof/corpus` depends on it.
 - Read, in order, before acting: `AGENTS.md` → `docs/direction.md` → `docs/kernel-boundary.md` →
-  `docs/flash-handoff.md` → `docs/roadmap.md` →
+  `docs/plan.md` → `docs/roadmap.md` →
   `docs/evidence/kani-table-harness-audit.md` → `docs/extraction-requirements.md` →
   `proof/README.md`. Source and gates beat documents; fix documents that disagree.
 
@@ -702,7 +702,7 @@ Aeneas/Charon toolchain defect: `proof/regen.sh` resolved `std` from the **miri 
 A wave barrier requires **every** child gate green with its control run, plus the shared gates in
 §4 on one source/tool identity. Record the sha256 of the bound sources and the Aeneas/Charon/Lean/
 Mathlib revisions; evidence from a dirty tree is attributed to those digests, not HEAD alone. The
-epic exits are owned by `docs/flash-handoff.md`. Report format for every slice: **changed files,
+epic exits are owned by `docs/plan.md`. Report format for every slice: **changed files,
 acceptance result (command + exit status), proved vs tested vs open, next bounded task.** No
 `proved` grade for anything without a Lean kernel check and, if about Rust, a refinement theorem
 from the real extracted source under the closed cone.
