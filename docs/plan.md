@@ -847,7 +847,17 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   (32 errors over 29 array sites under `-print-llbc` without `-warnings-as-errors`); enumerating
   before reading a rejection count as the population is now required. The boundary interface is
   float-free (the Q32.32 word edge plus the `Carrier` enum), and the completion probe runs as
-  APEIRON-F32BOUNDARY-T2. Also open:
+  APEIRON-F32BOUNDARY-T2. T2 settled the mechanism and the emitted artifact: with the old tool and
+  four Charon `--opaque` patterns — `crate::attn::f32_core`, `crate::mixer::f32_carrier`,
+  `crate::attn::_::attn_head_f32`, `crate::attn::_::with_carrier` (the `_` is a `Glob` at impl
+  position; inherent impls never match a brace pattern) — Aeneas emits `ApeironWord.lean`
+  reproducibly (byte-identical over two runs, 24 864 lines). The run then fails `regen.sh`'s axiom
+  `audit()` on 16 axioms: the 3 intended boundary items, plus 13 pre-existing model axioms the
+  drifted source now needs (`std::env`, `OnceLock`, `OsStr`, `I128`, `String` deref, `Str` equality),
+  and `core.f32.F32.is_finite` still appears inside `word_kv_append`'s loop bodies because
+  `KvState.occupied` is `Vec<Vec<F32>>` since the carrier wave — so the boundary is not closed by
+  the flags alone. The audit pass, the 13 model axioms, and the `KvState` contract are the open
+  items before the corpus can land. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
