@@ -1,0 +1,2723 @@
+{
+  "schema": "apeiron.resource-census.v1",
+  "grade": "model",
+  "source_identity": [
+    {
+      "tree": "apeiron",
+      "path": "src/engine/step/cols.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "e8d3c6b5204c08dde2efa36a20d4e6f6f91711c54e04987c3821b06fd5a65000",
+      "current_sha256": "e8d3c6b5204c08dde2efa36a20d4e6f6f91711c54e04987c3821b06fd5a65000",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "544812d516a5570a503c2c893b2aaa0dc47b8b520c826ac621ec421332e5552d",
+      "matches_combined_manifest": false
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/step.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "da2036a4d1e2e1a791d9dd900b40260369cdd71e3adecc7b39a14c11825357d2",
+      "current_sha256": "da2036a4d1e2e1a791d9dd900b40260369cdd71e3adecc7b39a14c11825357d2",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "da2036a4d1e2e1a791d9dd900b40260369cdd71e3adecc7b39a14c11825357d2",
+      "matches_combined_manifest": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/kern/matmat.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "6cb31605c163433c78ee8aeb0dfb3d649c4aa0a0b5276b39866311c8a8b1350a",
+      "current_sha256": "6cb31605c163433c78ee8aeb0dfb3d649c4aa0a0b5276b39866311c8a8b1350a",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "6cb31605c163433c78ee8aeb0dfb3d649c4aa0a0b5276b39866311c8a8b1350a",
+      "matches_combined_manifest": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/kern/gemm.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "44127bd20c1b54ce058b97df16529bc6346a1e22661a45916abbf16dad29d444",
+      "current_sha256": "44127bd20c1b54ce058b97df16529bc6346a1e22661a45916abbf16dad29d444",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "5aa7cb770d39e55431f1d7ec66a70febcbbfc9ecda147e1b4567b779bdb3ba28",
+      "matches_combined_manifest": false
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/chart/pool.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "98e5ce505930ac73793ed479f76b02229160dd00a10506ddbfd0c4a2aab9fa93",
+      "current_sha256": "98e5ce505930ac73793ed479f76b02229160dd00a10506ddbfd0c4a2aab9fa93",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "98e5ce505930ac73793ed479f76b02229160dd00a10506ddbfd0c4a2aab9fa93",
+      "matches_combined_manifest": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/chart/ffn.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "d60f3da889f79d4a23ce18484d52572c90ba35175bb39b92750828028dd2f724",
+      "current_sha256": "d60f3da889f79d4a23ce18484d52572c90ba35175bb39b92750828028dd2f724",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "d60f3da889f79d4a23ce18484d52572c90ba35175bb39b92750828028dd2f724",
+      "matches_combined_manifest": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/chart/mod.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "ae4a4a247f01b8435cb93860554d4b7d795b4c41d804b1d27abe614f23ad68c0",
+      "current_sha256": "ae4a4a247f01b8435cb93860554d4b7d795b4c41d804b1d27abe614f23ad68c0",
+      "current_equals_retained": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/loader.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "251c2399dd4179e24754b0ae422e84a4cd5db2adaf74cf243f3b7328fc44cb03",
+      "current_sha256": "251c2399dd4179e24754b0ae422e84a4cd5db2adaf74cf243f3b7328fc44cb03",
+      "current_equals_retained": true,
+      "combined_manifest_sha256": "203c35a994ad67fa2dd818708f8f707d207ec0ef6b6bd0a63aff7bb9ea574a39",
+      "matches_combined_manifest": false
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/format/quant.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "e574ea15520ed3c17dbfb90d514c2134a3883f681bbfba63b1eb200992f65335",
+      "current_sha256": "e574ea15520ed3c17dbfb90d514c2134a3883f681bbfba63b1eb200992f65335",
+      "current_equals_retained": true
+    },
+    {
+      "tree": "apeiron",
+      "path": "src/engine/kern/pow2.rs",
+      "retained_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+      "retained_sha256": "1f005c6807c1c87513c8c16654da3664614d9ced783616bd040fbfec8548d3b8",
+      "current_sha256": "1f005c6807c1c87513c8c16654da3664614d9ced783616bd040fbfec8548d3b8",
+      "current_equals_retained": true
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/simt/superblock.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "e15e18bacfa02b5508dfefc959fc9bd7f2ef1593ff208d8de6e5e3c716745387"
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/simt/dp4a.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "ffe4f6c313492b84ecfc2c5d99c9fa8b2945f5bf081282e9b13b1374da50901e"
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/simt_nn/spec.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "f54e9fe3590aa4c6c87d382a8a4c9b76a56376eda58d212e4f2dd725a2c445b0"
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/simt_nn/batch.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "d183f9cb8decb9ffccb37c91a7973c39003b33361babc8dc6f98615cfc618fd7"
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/simt_nn/deltanet.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "c72f1859e82a974339b208ccf6ae67455fa7be73b85f6845887c5d6b69906879"
+    },
+    {
+      "tree": "fold",
+      "path": "modelfold/src/gpu/runtime.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "444ccd75e5e46f16dd9419e604a4ed38623c7652b021f58e77383c19d2010de3"
+    },
+    {
+      "tree": "fold",
+      "path": "bedrock/src/serve/gpu.rs",
+      "revision": "d497161f32e0d366220f2065ec36e680bd9aed86",
+      "current_sha256": "1e01838dca24f7751274249af671bb485109b80f8f0e7f9fa940e73744e9b17c"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/source-manifest.json",
+      "sha256": "71c7798fddaaaec165300d2ec25775e0b6447dda52e7fb2b99ee5d24e8ba4470"
+    },
+    {
+      "path": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/archived-ratios.json",
+      "sha256": "1b03ee76f811937c1790c844887740a47fee73a26da6fe686c55a2998ea168dc"
+    }
+  ],
+  "workloads": [
+    {
+      "receipt": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/evidence/ab/1790795647-w6e-vs-llama-r3.json",
+      "receipt_sha256": "7dc76ed1fba73603bbe2b2403c16e4406560f14a51a382c905e99ff1437c1ee2",
+      "model_directory": {
+        "path": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "directory_sha256": "05451ac47cbcd4dfa7d4e302f7799295eefec19bb74767f8b2c14c7d01156ec0",
+        "directory_bytes": 10962453,
+        "architecture": "qwen35",
+        "metadata": {
+          "block_count": 25,
+          "nextn_predict_layers": 1,
+          "embedding_length": 1024,
+          "feed_forward_length": 3584,
+          "attention.head_count": 8,
+          "attention.head_count_kv": 2,
+          "attention.key_length": 256,
+          "full_attention_interval": 4,
+          "ssm.state_size": 128,
+          "ssm.group_count": 16,
+          "ssm.time_step_rank": 16
+        }
+      },
+      "model_payload_sha256_historical": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+      "model_payload_freshly_authenticated": false,
+      "pp": 200,
+      "tg": 64,
+      "trunk_layers": 24,
+      "block_sizes": [
+        200
+      ],
+      "hybrid": true,
+      "retained_ratio": {
+        "receipt": "artifacts/track-consolidation/evidence/ab/1790795647-w6e-vs-llama-r3.json",
+        "model": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "pp": 200,
+        "tg": 64,
+        "rounds": 5,
+        "quiet_all": true,
+        "pp_ratio_median": 2.1653232770727455,
+        "pp_ratio_min": 2.108017133749736,
+        "pp_ratio_max": 2.28285470689735,
+        "source_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "protocol": {
+          "pp": 200,
+          "tg": 64,
+          "reps": 5,
+          "spec_rows": null,
+          "max_busy": 0.05,
+          "llama_threads": "8,16,24,32"
+        }
+      },
+      "receipt_identity": {
+        "cpu": "Intel(R) Core(TM) i9-14900KF",
+        "online_cpus": "32",
+        "governor": "powersave",
+        "kernel": "7.2.8-1-cachyos",
+        "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+        "git_head": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "git_dirty_paths": "0",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "model": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "model_sha256": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+        "ids_sha256": "894a166ae31393f33425ed7d1fd0b3eed0801c26a3c7095d90825d66fb240443",
+        "trace_default": "false",
+        "mem_read_gbs_8t": "79.9",
+        "mem_read_gbs_16t": "80.0",
+        "mem_read_gbs_32t": "90.3",
+        "llama_commit": "0324696b8"
+      },
+      "historical_pp_traces": [
+        {
+          "workload": "pp",
+          "tokens": 200,
+          "wall_s": 0.165040919,
+          "phases": [
+            {
+              "phase": "embed",
+              "ns": 230801,
+              "calls": 1,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "norm",
+              "ns": 10950360,
+              "calls": 49,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "residual",
+              "ns": 8520068,
+              "calls": 48,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_in",
+              "ns": 6077122,
+              "calls": 6,
+              "bytes": 33423360,
+              "macs": 6291456000
+            },
+            {
+              "phase": "attn.core",
+              "ns": 11327486,
+              "calls": 6,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_out",
+              "ns": 3192332,
+              "calls": 6,
+              "bytes": 13369344,
+              "macs": 2516582400
+            },
+            {
+              "phase": "affine.proj_in",
+              "ns": 28661293,
+              "calls": 18,
+              "bytes": 161058816,
+              "macs": 30316953600
+            },
+            {
+              "phase": "affine.conv",
+              "ns": 6928847,
+              "calls": 18,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "affine.heads",
+              "ns": 15707629,
+              "calls": 18,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "affine.proj_out",
+              "ns": 9550412,
+              "calls": 18,
+              "bytes": 40108032,
+              "macs": 7549747200
+            },
+            {
+              "phase": "ffn",
+              "ns": 59498128,
+              "calls": 24,
+              "bytes": 280756224,
+              "macs": 52848230400
+            },
+            {
+              "phase": "head",
+              "ns": 2296343,
+              "calls": 1,
+              "bytes": 270172160,
+              "macs": 254279680
+            },
+            {
+              "phase": "untraced in pass",
+              "ns": 878421,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "outside passes",
+              "ns": 1221677,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "pool.wait (overlay; tasks/dispatch 174.0)",
+              "ns": 26626309,
+              "calls": 442,
+              "bytes": 0,
+              "macs": 0
+            }
+          ]
+        }
+      ],
+      "cpu_success_branch_model": [
+        {
+          "kind": "affine_input",
+          "multiplicity": 18,
+          "tensor_example": [
+            "blk.0.attn_qkv.weight",
+            "blk.0.attn_gate.weight",
+            "blk.0.ssm_alpha.weight",
+            "blk.0.ssm_beta.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                6144,
+                2048,
+                16,
+                16
+              ],
+              "n_in": 1024,
+              "columns": 200,
+              "activation_blocks": 32,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 8947712,
+              "scalar_mac_terms": 1684275200,
+              "output_bytes": 13158400,
+              "packing_words_bytes": 204800,
+              "packing_shift_bytes": 51200,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 256900,
+              "packing_code_read_bytes": 204800,
+              "packing_scale_read_bytes": 102400,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 514,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 256000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 256000,
+              "quantization_input_lane_visits": 409600,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 512900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 8224,
+              "k": 1024,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                9,
+                25
+              ],
+              "invocations": 28800,
+              "global_load_words": 140083200,
+              "logical_global_load_bytes": 560332800,
+              "integer_dot4_instructions": 471859200,
+              "float_multiplies": 176947200,
+              "float_adds": 117964800,
+              "valid_output_stores": 1644800,
+              "chart_distinct_bytes": 9474048,
+              "projection_upload_bytes": 256000,
+              "projection_readback_bytes": 6579200,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_down",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_down.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 3584,
+              "columns": 200,
+              "activation_blocks": 112,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 3899392,
+              "scalar_mac_terms": 734003200,
+              "output_bytes": 1638400,
+              "packing_words_bytes": 716800,
+              "packing_shift_bytes": 179200,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 896900,
+              "packing_code_read_bytes": 716800,
+              "packing_scale_read_bytes": 358400,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 896000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 896000,
+              "quantization_input_lane_visits": 1433600,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 1792900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 3584,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 83148800,
+              "logical_global_load_bytes": 332595200,
+              "integer_dot4_instructions": 183500800,
+              "float_multiplies": 68812800,
+              "float_adds": 45875200,
+              "valid_output_stores": 204800,
+              "chart_distinct_bytes": 4128768,
+              "projection_upload_bytes": 896000,
+              "projection_readback_bytes": 819200,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_gate_up",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_gate.weight",
+            "blk.0.ffn_up.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                3584,
+                3584
+              ],
+              "n_in": 1024,
+              "columns": 200,
+              "activation_blocks": 32,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 7798784,
+              "scalar_mac_terms": 1468006400,
+              "output_bytes": 5734400,
+              "packing_words_bytes": 204800,
+              "packing_shift_bytes": 51200,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 256900,
+              "packing_code_read_bytes": 204800,
+              "packing_scale_read_bytes": 102400,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 224,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 256000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 256000,
+              "quantization_input_lane_visits": 409600,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 512900,
+              "critical_path_time": "UNKNOWN",
+              "avoided_gate_up_intermediate_bytes": 11468800,
+              "path_condition": "fused gemm_q8_0_swiglu_carrier successful; fallback UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 7168,
+              "k": 1024,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                7,
+                25
+              ],
+              "invocations": 22400,
+              "global_load_words": 108953600,
+              "logical_global_load_bytes": 435814400,
+              "integer_dot4_instructions": 367001600,
+              "float_multiplies": 137625600,
+              "float_adds": 91750400,
+              "valid_output_stores": 1433600,
+              "chart_distinct_bytes": 8257536,
+              "projection_upload_bytes": 256000,
+              "projection_readback_bytes": 5734400,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "mixer_output",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ssm_out.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 2048,
+              "columns": 200,
+              "activation_blocks": 64,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 2228224,
+              "scalar_mac_terms": 419430400,
+              "output_bytes": 1638400,
+              "packing_words_bytes": 409600,
+              "packing_shift_bytes": 102400,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 512900,
+              "packing_code_read_bytes": 409600,
+              "packing_scale_read_bytes": 204800,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 512000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 512000,
+              "quantization_input_lane_visits": 819200,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 1024900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 2048,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 47513600,
+              "logical_global_load_bytes": 190054400,
+              "integer_dot4_instructions": 104857600,
+              "float_multiplies": 39321600,
+              "float_adds": 26214400,
+              "valid_output_stores": 204800,
+              "chart_distinct_bytes": 2359296,
+              "projection_upload_bytes": 512000,
+              "projection_readback_bytes": 819200,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "qkv",
+          "multiplicity": 6,
+          "tensor_example": [
+            "blk.3.attn_q.weight",
+            "blk.3.attn_k.weight",
+            "blk.3.attn_v.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                4096,
+                512,
+                512
+              ],
+              "n_in": 1024,
+              "columns": 200,
+              "activation_blocks": 32,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 5570560,
+              "scalar_mac_terms": 1048576000,
+              "output_bytes": 8192000,
+              "packing_words_bytes": 204800,
+              "packing_shift_bytes": 51200,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 256900,
+              "packing_code_read_bytes": 204800,
+              "packing_scale_read_bytes": 102400,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 320,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 256000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 256000,
+              "quantization_input_lane_visits": 409600,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 512900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 5120,
+              "k": 1024,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                5,
+                25
+              ],
+              "invocations": 16000,
+              "global_load_words": 77824000,
+              "logical_global_load_bytes": 311296000,
+              "integer_dot4_instructions": 262144000,
+              "float_multiplies": 98304000,
+              "float_adds": 65536000,
+              "valid_output_stores": 1024000,
+              "chart_distinct_bytes": 5898240,
+              "projection_upload_bytes": 256000,
+              "projection_readback_bytes": 4096000,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        }
+      ],
+      "gpu_resident_model": {
+        "coverage": "hybrid batched recurrence absent",
+        "cpu_state_owner_transition": "same owner + dev_len>=pos0: no seed; changed owner: prefix seed; gap: missing suffix seed",
+        "hybrid_decode": "existing recurrent buffers+reset; batched scheduling UNKNOWN",
+        "constructor_allocation_bytes": "UNKNOWN",
+        "peak_live_bytes": "UNKNOWN",
+        "cold_weight_upload_bytes": "UNKNOWN: Fold chart construction/loading not executed",
+        "actual_gpu_path": "UNKNOWN",
+        "blocks": []
+      },
+      "cpu_current_path_witness": "UNKNOWN: no inference executed; archived trace is historical phase witness"
+    },
+    {
+      "receipt": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/evidence/ab/1790798160-w7-q35r2-pp512.json",
+      "receipt_sha256": "6d207d2c829e00879cc998c30669364559bfb4c0300c7e8f8ed66af3eae95c9d",
+      "model_directory": {
+        "path": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "directory_sha256": "05451ac47cbcd4dfa7d4e302f7799295eefec19bb74767f8b2c14c7d01156ec0",
+        "directory_bytes": 10962453,
+        "architecture": "qwen35",
+        "metadata": {
+          "block_count": 25,
+          "nextn_predict_layers": 1,
+          "embedding_length": 1024,
+          "feed_forward_length": 3584,
+          "attention.head_count": 8,
+          "attention.head_count_kv": 2,
+          "attention.key_length": 256,
+          "full_attention_interval": 4,
+          "ssm.state_size": 128,
+          "ssm.group_count": 16,
+          "ssm.time_step_rank": 16
+        }
+      },
+      "model_payload_sha256_historical": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+      "model_payload_freshly_authenticated": false,
+      "pp": 512,
+      "tg": 64,
+      "trunk_layers": 24,
+      "block_sizes": [
+        256,
+        256
+      ],
+      "hybrid": true,
+      "retained_ratio": {
+        "receipt": "artifacts/track-consolidation/evidence/ab/1790798160-w7-q35r2-pp512.json",
+        "model": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "pp": 512,
+        "tg": 64,
+        "rounds": 5,
+        "quiet_all": true,
+        "pp_ratio_median": 2.449468478058221,
+        "pp_ratio_min": 2.3027848454102404,
+        "pp_ratio_max": 2.791635051321719,
+        "source_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "protocol": {
+          "pp": 512,
+          "tg": 64,
+          "reps": 5,
+          "spec_rows": null,
+          "max_busy": 0.05,
+          "llama_threads": "8,16,24,32"
+        }
+      },
+      "receipt_identity": {
+        "cpu": "Intel(R) Core(TM) i9-14900KF",
+        "online_cpus": "32",
+        "governor": "powersave",
+        "kernel": "7.2.8-1-cachyos",
+        "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+        "git_head": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "git_dirty_paths": "0",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "model": "/home/socol/models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+        "model_sha256": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+        "ids_sha256": "2fdda083149e7c9f9fbd065d5803cf40334f5c5063fb030342b0ffccc96d24ae",
+        "trace_default": "false",
+        "mem_read_gbs_8t": "79.7",
+        "mem_read_gbs_16t": "70.8",
+        "mem_read_gbs_32t": "90.6",
+        "llama_commit": "0324696b8"
+      },
+      "historical_pp_traces": [
+        {
+          "workload": "pp",
+          "tokens": 512,
+          "wall_s": 0.422616557,
+          "phases": [
+            {
+              "phase": "embed",
+              "ns": 630053,
+              "calls": 2,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "norm",
+              "ns": 29039700,
+              "calls": 98,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "residual",
+              "ns": 22612772,
+              "calls": 96,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_in",
+              "ns": 15880516,
+              "calls": 12,
+              "bytes": 66846720,
+              "macs": 16106127360
+            },
+            {
+              "phase": "attn.core",
+              "ns": 36823815,
+              "calls": 12,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_out",
+              "ns": 8584654,
+              "calls": 12,
+              "bytes": 26738688,
+              "macs": 6442450944
+            },
+            {
+              "phase": "affine.proj_in",
+              "ns": 70262071,
+              "calls": 36,
+              "bytes": 322117632,
+              "macs": 77611401216
+            },
+            {
+              "phase": "affine.conv",
+              "ns": 17079912,
+              "calls": 36,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "affine.heads",
+              "ns": 43212230,
+              "calls": 36,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "affine.proj_out",
+              "ns": 25160579,
+              "calls": 36,
+              "bytes": 80216064,
+              "macs": 19327352832
+            },
+            {
+              "phase": "ffn",
+              "ns": 146776652,
+              "calls": 48,
+              "bytes": 561512448,
+              "macs": 135291469824
+            },
+            {
+              "phase": "head",
+              "ns": 2433506,
+              "calls": 1,
+              "bytes": 270172160,
+              "macs": 254279680
+            },
+            {
+              "phase": "untraced in pass",
+              "ns": 2311696,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "outside passes",
+              "ns": 1808401,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "pool.wait (overlay; tasks/dispatch 201.3)",
+              "ns": 61767991,
+              "calls": 881,
+              "bytes": 0,
+              "macs": 0
+            }
+          ]
+        }
+      ],
+      "cpu_success_branch_model": [
+        {
+          "kind": "affine_input",
+          "multiplicity": 18,
+          "tensor_example": [
+            "blk.0.attn_qkv.weight",
+            "blk.0.attn_gate.weight",
+            "blk.0.ssm_alpha.weight",
+            "blk.0.ssm_beta.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                6144,
+                2048,
+                16,
+                16
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 8947712,
+              "scalar_mac_terms": 2155872256,
+              "output_bytes": 16842752,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 514,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN"
+            },
+            {
+              "grade": "model",
+              "rows": [
+                6144,
+                2048,
+                16,
+                16
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 8947712,
+              "scalar_mac_terms": 2155872256,
+              "output_bytes": 16842752,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 514,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 8224,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                9,
+                32
+              ],
+              "invocations": 36864,
+              "global_load_words": 179306496,
+              "logical_global_load_bytes": 717225984,
+              "integer_dot4_instructions": 603979776,
+              "float_multiplies": 226492416,
+              "float_adds": 150994944,
+              "valid_output_stores": 2105344,
+              "chart_distinct_bytes": 9474048,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 8421376,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            },
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 8224,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                9,
+                32
+              ],
+              "invocations": 36864,
+              "global_load_words": 179306496,
+              "logical_global_load_bytes": 717225984,
+              "integer_dot4_instructions": 603979776,
+              "float_multiplies": 226492416,
+              "float_adds": 150994944,
+              "valid_output_stores": 2105344,
+              "chart_distinct_bytes": 9474048,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 8421376,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_down",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_down.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 3584,
+              "columns": 256,
+              "activation_blocks": 112,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 3899392,
+              "scalar_mac_terms": 939524096,
+              "output_bytes": 2097152,
+              "packing_words_bytes": 917504,
+              "packing_shift_bytes": 229376,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 1148032,
+              "packing_code_read_bytes": 917504,
+              "packing_scale_read_bytes": 458752,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 1146880,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 1146880,
+              "quantization_input_lane_visits": 1835008,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 2294912,
+              "critical_path_time": "UNKNOWN"
+            },
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 3584,
+              "columns": 256,
+              "activation_blocks": 112,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 3899392,
+              "scalar_mac_terms": 939524096,
+              "output_bytes": 2097152,
+              "packing_words_bytes": 917504,
+              "packing_shift_bytes": 229376,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 1148032,
+              "packing_code_read_bytes": 917504,
+              "packing_scale_read_bytes": 458752,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 1146880,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 1146880,
+              "quantization_input_lane_visits": 1835008,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 2294912,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 3584,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                32
+              ],
+              "invocations": 8192,
+              "global_load_words": 106430464,
+              "logical_global_load_bytes": 425721856,
+              "integer_dot4_instructions": 234881024,
+              "float_multiplies": 88080384,
+              "float_adds": 58720256,
+              "valid_output_stores": 262144,
+              "chart_distinct_bytes": 4128768,
+              "projection_upload_bytes": 1146880,
+              "projection_readback_bytes": 1048576,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            },
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 3584,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                32
+              ],
+              "invocations": 8192,
+              "global_load_words": 106430464,
+              "logical_global_load_bytes": 425721856,
+              "integer_dot4_instructions": 234881024,
+              "float_multiplies": 88080384,
+              "float_adds": 58720256,
+              "valid_output_stores": 262144,
+              "chart_distinct_bytes": 4128768,
+              "projection_upload_bytes": 1146880,
+              "projection_readback_bytes": 1048576,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_gate_up",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_gate.weight",
+            "blk.0.ffn_up.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                3584,
+                3584
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 7798784,
+              "scalar_mac_terms": 1879048192,
+              "output_bytes": 7340032,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 224,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN",
+              "avoided_gate_up_intermediate_bytes": 14680064,
+              "path_condition": "fused gemm_q8_0_swiglu_carrier successful; fallback UNKNOWN"
+            },
+            {
+              "grade": "model",
+              "rows": [
+                3584,
+                3584
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 7798784,
+              "scalar_mac_terms": 1879048192,
+              "output_bytes": 7340032,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 224,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN",
+              "avoided_gate_up_intermediate_bytes": 14680064,
+              "path_condition": "fused gemm_q8_0_swiglu_carrier successful; fallback UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 7168,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                7,
+                32
+              ],
+              "invocations": 28672,
+              "global_load_words": 139460608,
+              "logical_global_load_bytes": 557842432,
+              "integer_dot4_instructions": 469762048,
+              "float_multiplies": 176160768,
+              "float_adds": 117440512,
+              "valid_output_stores": 1835008,
+              "chart_distinct_bytes": 8257536,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 7340032,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            },
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 7168,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                7,
+                32
+              ],
+              "invocations": 28672,
+              "global_load_words": 139460608,
+              "logical_global_load_bytes": 557842432,
+              "integer_dot4_instructions": 469762048,
+              "float_multiplies": 176160768,
+              "float_adds": 117440512,
+              "valid_output_stores": 1835008,
+              "chart_distinct_bytes": 8257536,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 7340032,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "mixer_output",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ssm_out.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 2048,
+              "columns": 256,
+              "activation_blocks": 64,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 2228224,
+              "scalar_mac_terms": 536870912,
+              "output_bytes": 2097152,
+              "packing_words_bytes": 524288,
+              "packing_shift_bytes": 131072,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 656512,
+              "packing_code_read_bytes": 524288,
+              "packing_scale_read_bytes": 262144,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 655360,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 655360,
+              "quantization_input_lane_visits": 1048576,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 1311872,
+              "critical_path_time": "UNKNOWN"
+            },
+            {
+              "grade": "model",
+              "rows": [
+                1024
+              ],
+              "n_in": 2048,
+              "columns": 256,
+              "activation_blocks": 64,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 2228224,
+              "scalar_mac_terms": 536870912,
+              "output_bytes": 2097152,
+              "packing_words_bytes": 524288,
+              "packing_shift_bytes": 131072,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 656512,
+              "packing_code_read_bytes": 524288,
+              "packing_scale_read_bytes": 262144,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 256,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 655360,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 655360,
+              "quantization_input_lane_visits": 1048576,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 1311872,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 2048,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                32
+              ],
+              "invocations": 8192,
+              "global_load_words": 60817408,
+              "logical_global_load_bytes": 243269632,
+              "integer_dot4_instructions": 134217728,
+              "float_multiplies": 50331648,
+              "float_adds": 33554432,
+              "valid_output_stores": 262144,
+              "chart_distinct_bytes": 2359296,
+              "projection_upload_bytes": 655360,
+              "projection_readback_bytes": 1048576,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            },
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1024,
+              "k": 2048,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                32
+              ],
+              "invocations": 8192,
+              "global_load_words": 60817408,
+              "logical_global_load_bytes": 243269632,
+              "integer_dot4_instructions": 134217728,
+              "float_multiplies": 50331648,
+              "float_adds": 33554432,
+              "valid_output_stores": 262144,
+              "chart_distinct_bytes": 2359296,
+              "projection_upload_bytes": 655360,
+              "projection_readback_bytes": 1048576,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "qkv",
+          "multiplicity": 6,
+          "tensor_example": [
+            "blk.3.attn_q.weight",
+            "blk.3.attn_k.weight",
+            "blk.3.attn_v.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                4096,
+                512,
+                512
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 5570560,
+              "scalar_mac_terms": 1342177280,
+              "output_bytes": 10485760,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 320,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN"
+            },
+            {
+              "grade": "model",
+              "rows": [
+                4096,
+                512,
+                512
+              ],
+              "n_in": 1024,
+              "columns": 256,
+              "activation_blocks": 32,
+              "column_groups": 32,
+              "weight_payload_distinct_bytes": 5570560,
+              "scalar_mac_terms": 1342177280,
+              "output_bytes": 10485760,
+              "packing_words_bytes": 262144,
+              "packing_shift_bytes": 65536,
+              "packing_emin_bytes": 1024,
+              "packing_spread_bytes": 128,
+              "packing_write_bytes": 328832,
+              "packing_code_read_bytes": 262144,
+              "packing_scale_read_bytes": 131072,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 320,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 327680,
+              "quantization_named_buffer_allocations": 1024,
+              "quantization_persistent_bytes": 327680,
+              "quantization_input_lane_visits": 524288,
+              "row_code_passes_per_full_row_pair": 16,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 656512,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 5120,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                5,
+                32
+              ],
+              "invocations": 20480,
+              "global_load_words": 99614720,
+              "logical_global_load_bytes": 398458880,
+              "integer_dot4_instructions": 335544320,
+              "float_multiplies": 125829120,
+              "float_adds": 83886080,
+              "valid_output_stores": 1310720,
+              "chart_distinct_bytes": 5898240,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 5242880,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            },
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 5120,
+              "k": 1024,
+              "batch": 256,
+              "padded_batch": 256,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                5,
+                32
+              ],
+              "invocations": 20480,
+              "global_load_words": 99614720,
+              "logical_global_load_bytes": 398458880,
+              "integer_dot4_instructions": 335544320,
+              "float_multiplies": 125829120,
+              "float_adds": 83886080,
+              "valid_output_stores": 1310720,
+              "chart_distinct_bytes": 5898240,
+              "projection_upload_bytes": 327680,
+              "projection_readback_bytes": 5242880,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        }
+      ],
+      "gpu_resident_model": {
+        "coverage": "hybrid batched recurrence absent",
+        "cpu_state_owner_transition": "same owner + dev_len>=pos0: no seed; changed owner: prefix seed; gap: missing suffix seed",
+        "hybrid_decode": "existing recurrent buffers+reset; batched scheduling UNKNOWN",
+        "constructor_allocation_bytes": "UNKNOWN",
+        "peak_live_bytes": "UNKNOWN",
+        "cold_weight_upload_bytes": "UNKNOWN: Fold chart construction/loading not executed",
+        "actual_gpu_path": "UNKNOWN",
+        "blocks": []
+      },
+      "cpu_current_path_witness": "UNKNOWN: no inference executed; archived trace is historical phase witness"
+    },
+    {
+      "receipt": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/evidence/ab/1790798706-w7-qwen05b-r2-pp200.json",
+      "receipt_sha256": "f2aa93e39c61b31c2fd97bdcfc7571ed7242784301c88430043715e06312c72f",
+      "model_directory": {
+        "path": "/home/socol/oc-tmp/w7-fixtures/qwen05b-Q8_0.gguf",
+        "directory_sha256": "eaea4d22dca6b54c03466af6796fe2d05baeb0bee420576a14f8115e1e5382e2",
+        "directory_bytes": 5947797,
+        "architecture": "qwen2",
+        "metadata": {
+          "block_count": 24,
+          "nextn_predict_layers": null,
+          "embedding_length": 896,
+          "feed_forward_length": 4864,
+          "attention.head_count": 14,
+          "attention.head_count_kv": 2,
+          "attention.key_length": null,
+          "full_attention_interval": null,
+          "ssm.state_size": null,
+          "ssm.group_count": null,
+          "ssm.time_step_rank": null
+        }
+      },
+      "model_payload_sha256_historical": "62394c3af2f7e1a7db73cf86d47638a3df4d19c1fcd20b9dd2a07c40444f8a37",
+      "model_payload_freshly_authenticated": false,
+      "pp": 200,
+      "tg": 64,
+      "trunk_layers": 24,
+      "block_sizes": [
+        200
+      ],
+      "hybrid": false,
+      "retained_ratio": {
+        "receipt": "artifacts/track-consolidation/evidence/ab/1790798706-w7-qwen05b-r2-pp200.json",
+        "model": "/home/socol/oc-tmp/w7-fixtures/qwen05b-Q8_0.gguf",
+        "pp": 200,
+        "tg": 64,
+        "rounds": 5,
+        "quiet_all": true,
+        "pp_ratio_median": 1.5749978181032342,
+        "pp_ratio_min": 1.5550358397281479,
+        "pp_ratio_max": 1.6361935031747794,
+        "source_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "protocol": {
+          "pp": 200,
+          "tg": 64,
+          "reps": 5,
+          "spec_rows": null,
+          "max_busy": 0.05,
+          "llama_threads": "8,16,24,32"
+        }
+      },
+      "receipt_identity": {
+        "cpu": "Intel(R) Core(TM) i9-14900KF",
+        "online_cpus": "32",
+        "governor": "powersave",
+        "kernel": "7.2.8-1-cachyos",
+        "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+        "git_head": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "git_dirty_paths": "0",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "model": "/home/socol/oc-tmp/w7-fixtures/qwen05b-Q8_0.gguf",
+        "model_sha256": "62394c3af2f7e1a7db73cf86d47638a3df4d19c1fcd20b9dd2a07c40444f8a37",
+        "ids_sha256": "0e7b28afb1d1aca440ddb0a7aa0987ba7818d97f7b1a3fa2ba0e5b052d6b3c1e",
+        "trace_default": "false",
+        "mem_read_gbs_8t": "78.6",
+        "mem_read_gbs_16t": "83.8",
+        "mem_read_gbs_32t": "86.7",
+        "llama_commit": "0324696b8"
+      },
+      "historical_pp_traces": [
+        {
+          "workload": "pp",
+          "tokens": 200,
+          "wall_s": 0.124340287,
+          "phases": [
+            {
+              "phase": "embed",
+              "ns": 247649,
+              "calls": 1,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "norm",
+              "ns": 10889219,
+              "calls": 49,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "residual",
+              "ns": 8027946,
+              "calls": 48,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_in",
+              "ns": 8091346,
+              "calls": 24,
+              "bytes": 26320896,
+              "macs": 4954521600
+            },
+            {
+              "phase": "attn.core",
+              "ns": 13866525,
+              "calls": 24,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_out",
+              "ns": 5913488,
+              "calls": 24,
+              "bytes": 20471808,
+              "macs": 3853516800
+            },
+            {
+              "phase": "ffn",
+              "ns": 74344771,
+              "calls": 24,
+              "bytes": 333398016,
+              "macs": 62757273600
+            },
+            {
+              "phase": "head",
+              "ns": 2001362,
+              "calls": 1,
+              "bytes": 144643072,
+              "macs": 136134656
+            },
+            {
+              "phase": "untraced in pass",
+              "ns": 735612,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "outside passes",
+              "ns": 222369,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "pool.wait (overlay; tasks/dispatch 317.7)",
+              "ns": 22407066,
+              "calls": 388,
+              "bytes": 0,
+              "macs": 0
+            }
+          ]
+        }
+      ],
+      "cpu_success_branch_model": [
+        {
+          "kind": "ffn_down",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_down.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                896
+              ],
+              "n_in": 4864,
+              "columns": 200,
+              "activation_blocks": 152,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 4630528,
+              "scalar_mac_terms": 871628800,
+              "output_bytes": 1433600,
+              "packing_words_bytes": 972800,
+              "packing_shift_bytes": 243200,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 1216900,
+              "packing_code_read_bytes": 972800,
+              "packing_scale_read_bytes": 486400,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 224,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 1216000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 1216000,
+              "quantization_input_lane_visits": 1945600,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 2432900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 896,
+              "k": 4864,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 112844800,
+              "logical_global_load_bytes": 451379200,
+              "integer_dot4_instructions": 249036800,
+              "float_multiplies": 93388800,
+              "float_adds": 62259200,
+              "valid_output_stores": 179200,
+              "chart_distinct_bytes": 4902912,
+              "projection_upload_bytes": 1216000,
+              "projection_readback_bytes": 716800,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_gate_up",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.ffn_gate.weight",
+            "blk.0.ffn_up.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                4864,
+                4864
+              ],
+              "n_in": 896,
+              "columns": 200,
+              "activation_blocks": 28,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 9261056,
+              "scalar_mac_terms": 1743257600,
+              "output_bytes": 7782400,
+              "packing_words_bytes": 179200,
+              "packing_shift_bytes": 44800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 224900,
+              "packing_code_read_bytes": 179200,
+              "packing_scale_read_bytes": 89600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 304,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 224000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 224000,
+              "quantization_input_lane_visits": 358400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 448900,
+              "critical_path_time": "UNKNOWN",
+              "avoided_gate_up_intermediate_bytes": 15564800,
+              "path_condition": "fused gemm_q8_0_swiglu_carrier successful; fallback UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 9728,
+              "k": 896,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                10,
+                25
+              ],
+              "invocations": 32000,
+              "global_load_words": 136192000,
+              "logical_global_load_bytes": 544768000,
+              "integer_dot4_instructions": 458752000,
+              "float_multiplies": 172032000,
+              "float_adds": 114688000,
+              "valid_output_stores": 1945600,
+              "chart_distinct_bytes": 9805824,
+              "projection_upload_bytes": 224000,
+              "projection_readback_bytes": 7782400,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "mixer_output",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.attn_output.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                896
+              ],
+              "n_in": 896,
+              "columns": 200,
+              "activation_blocks": 28,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 852992,
+              "scalar_mac_terms": 160563200,
+              "output_bytes": 1433600,
+              "packing_words_bytes": 179200,
+              "packing_shift_bytes": 44800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 224900,
+              "packing_code_read_bytes": 179200,
+              "packing_scale_read_bytes": 89600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 224,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 224000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 224000,
+              "quantization_input_lane_visits": 358400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 448900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 896,
+              "k": 896,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 20787200,
+              "logical_global_load_bytes": 83148800,
+              "integer_dot4_instructions": 45875200,
+              "float_multiplies": 17203200,
+              "float_adds": 11468800,
+              "valid_output_stores": 179200,
+              "chart_distinct_bytes": 903168,
+              "projection_upload_bytes": 224000,
+              "projection_readback_bytes": 716800,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "qkv",
+          "multiplicity": 24,
+          "tensor_example": [
+            "blk.0.attn_q.weight",
+            "blk.0.attn_k.weight",
+            "blk.0.attn_v.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                896,
+                128,
+                128
+              ],
+              "n_in": 896,
+              "columns": 200,
+              "activation_blocks": 28,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 1096704,
+              "scalar_mac_terms": 206438400,
+              "output_bytes": 1843200,
+              "packing_words_bytes": 179200,
+              "packing_shift_bytes": 44800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 224900,
+              "packing_code_read_bytes": 179200,
+              "packing_scale_read_bytes": 89600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 72,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 224000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 224000,
+              "quantization_input_lane_visits": 358400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 448900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1152,
+              "k": 896,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 4,
+              "local": 128,
+              "workgroups": [
+                3,
+                25
+              ],
+              "invocations": 9600,
+              "global_load_words": 31180800,
+              "logical_global_load_bytes": 124723200,
+              "integer_dot4_instructions": 68812800,
+              "float_multiplies": 25804800,
+              "float_adds": 17203200,
+              "valid_output_stores": 230400,
+              "chart_distinct_bytes": 1161216,
+              "projection_upload_bytes": 224000,
+              "projection_readback_bytes": 921600,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        }
+      ],
+      "gpu_resident_model": {
+        "coverage": "existing dense Fold graph; adapter/execution unrun",
+        "cpu_state_owner_transition": "same owner + dev_len>=pos0: no seed; changed owner: prefix seed; gap: missing suffix seed",
+        "hybrid_decode": "existing recurrent buffers+reset; batched scheduling UNKNOWN",
+        "constructor_allocation_bytes": "UNKNOWN",
+        "peak_live_bytes": "UNKNOWN",
+        "cold_weight_upload_bytes": "UNKNOWN: Fold chart construction/loading not executed",
+        "actual_gpu_path": "UNKNOWN",
+        "blocks": [
+          {
+            "b": 200,
+            "all_dispatches": 266,
+            "last_dispatches": 267,
+            "continuation_queue_drains": 1,
+            "embedding_and_params_upload_bytes": 716816,
+            "all_hidden_logits_host_visible_write_bytes": 122265600,
+            "last_hidden_logits_host_visible_write_bytes": 20164608,
+            "kv_host_visible_write_bytes": 4992000,
+            "kv_mirror_host_write_bytes": 1305600,
+            "seed_upload_bytes_for_gap_per_position": 24960,
+            "seed_extra_drains": "UNKNOWN: staging chunks/owner/prefix dependent"
+          }
+        ]
+      },
+      "cpu_current_path_witness": "UNKNOWN: no inference executed; archived trace is historical phase witness"
+    },
+    {
+      "receipt": "/home/socol/Workspace/apeiron/artifacts/track-consolidation/evidence/ab/1790798386-w7-qwen15b-r5-pp200.json",
+      "receipt_sha256": "c7702c8833a70a9595dd12ed4f4b8f14c47848ca532212f1ebcd44839ef4e5ef",
+      "model_directory": {
+        "path": "/home/socol/oc-tmp/w7-fixtures/qwen15b-Q8_0.gguf",
+        "directory_sha256": "073623e8353e16fe7ab714a4a69a650e9cc1cb754e71efe97ae985076d21fa7c",
+        "directory_bytes": 5950493,
+        "architecture": "qwen2",
+        "metadata": {
+          "block_count": 28,
+          "nextn_predict_layers": null,
+          "embedding_length": 1536,
+          "feed_forward_length": 8960,
+          "attention.head_count": 12,
+          "attention.head_count_kv": 2,
+          "attention.key_length": null,
+          "full_attention_interval": null,
+          "ssm.state_size": null,
+          "ssm.group_count": null,
+          "ssm.time_step_rank": null
+        }
+      },
+      "model_payload_sha256_historical": "bcbdf6b481ca6cd7197c80516b621da3238dc51d703062e0667b71c6aa08676a",
+      "model_payload_freshly_authenticated": false,
+      "pp": 200,
+      "tg": 64,
+      "trunk_layers": 28,
+      "block_sizes": [
+        200
+      ],
+      "hybrid": false,
+      "retained_ratio": {
+        "receipt": "artifacts/track-consolidation/evidence/ab/1790798386-w7-qwen15b-r5-pp200.json",
+        "model": "/home/socol/oc-tmp/w7-fixtures/qwen15b-Q8_0.gguf",
+        "pp": 200,
+        "tg": 64,
+        "rounds": 5,
+        "quiet_all": true,
+        "pp_ratio_median": 1.7719219562312445,
+        "pp_ratio_min": 1.7379194999450698,
+        "pp_ratio_max": 2.0022950976891383,
+        "source_revision": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "protocol": {
+          "pp": 200,
+          "tg": 64,
+          "reps": 5,
+          "spec_rows": null,
+          "max_busy": 0.05,
+          "llama_threads": "8,16,24,32"
+        }
+      },
+      "receipt_identity": {
+        "cpu": "Intel(R) Core(TM) i9-14900KF",
+        "online_cpus": "32",
+        "governor": "powersave",
+        "kernel": "7.2.8-1-cachyos",
+        "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+        "git_head": "04d206013f70f245dfdaf2619c0b1846d10b9922",
+        "git_dirty_paths": "0",
+        "src_sha256": "0218e7d911a3c3cd9850102be1aceb7cfa955852d41b8e92e7b073f7f37e12fa",
+        "model": "/home/socol/oc-tmp/w7-fixtures/qwen15b-Q8_0.gguf",
+        "model_sha256": "bcbdf6b481ca6cd7197c80516b621da3238dc51d703062e0667b71c6aa08676a",
+        "ids_sha256": "0e7b28afb1d1aca440ddb0a7aa0987ba7818d97f7b1a3fa2ba0e5b052d6b3c1e",
+        "trace_default": "false",
+        "mem_read_gbs_8t": "76.8",
+        "mem_read_gbs_16t": "85.7",
+        "mem_read_gbs_32t": "87.1",
+        "llama_commit": "0324696b8"
+      },
+      "historical_pp_traces": [
+        {
+          "workload": "pp",
+          "tokens": 200,
+          "wall_s": 0.438321981,
+          "phases": [
+            {
+              "phase": "embed",
+              "ns": 415795,
+              "calls": 1,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "norm",
+              "ns": 28334997,
+              "calls": 57,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "residual",
+              "ns": 24997307,
+              "calls": 56,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_in",
+              "ns": 25826474,
+              "calls": 28,
+              "bytes": 93585408,
+              "macs": 17616076800
+            },
+            {
+              "phase": "attn.core",
+              "ns": 36728655,
+              "calls": 28,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "attn.proj_out",
+              "ns": 26630948,
+              "calls": 28,
+              "bytes": 70189056,
+              "macs": 13212057600
+            },
+            {
+              "phase": "ffn",
+              "ns": 290995672,
+              "calls": 28,
+              "bytes": 1228308480,
+              "macs": 231211008000
+            },
+            {
+              "phase": "head",
+              "ns": 2373263,
+              "calls": 1,
+              "bytes": 247959552,
+              "macs": 233373696
+            },
+            {
+              "phase": "untraced in pass",
+              "ns": 1423696,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "outside passes",
+              "ns": 595174,
+              "calls": 0,
+              "bytes": 0,
+              "macs": 0
+            },
+            {
+              "phase": "pool.wait (overlay; tasks/dispatch 296.8)",
+              "ns": 69449812,
+              "calls": 452,
+              "bytes": 0,
+              "macs": 0
+            }
+          ]
+        }
+      ],
+      "cpu_success_branch_model": [
+        {
+          "kind": "ffn_down",
+          "multiplicity": 28,
+          "tensor_example": [
+            "blk.0.ffn_down.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1536
+              ],
+              "n_in": 8960,
+              "columns": 200,
+              "activation_blocks": 280,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 14622720,
+              "scalar_mac_terms": 2752512000,
+              "output_bytes": 2457600,
+              "packing_words_bytes": 1792000,
+              "packing_shift_bytes": 448000,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 2240900,
+              "packing_code_read_bytes": 1792000,
+              "packing_scale_read_bytes": 896000,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 96,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 2240000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 2240000,
+              "quantization_input_lane_visits": 3584000,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 4480900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1536,
+              "k": 8960,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 272384000,
+              "logical_global_load_bytes": 1089536000,
+              "integer_dot4_instructions": 917504000,
+              "float_multiplies": 344064000,
+              "float_adds": 229376000,
+              "valid_output_stores": 307200,
+              "chart_distinct_bytes": 15482880,
+              "projection_upload_bytes": 2240000,
+              "projection_readback_bytes": 1228800,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "ffn_gate_up",
+          "multiplicity": 28,
+          "tensor_example": [
+            "blk.0.ffn_gate.weight",
+            "blk.0.ffn_up.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                8960,
+                8960
+              ],
+              "n_in": 1536,
+              "columns": 200,
+              "activation_blocks": 48,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 29245440,
+              "scalar_mac_terms": 5505024000,
+              "output_bytes": 14336000,
+              "packing_words_bytes": 307200,
+              "packing_shift_bytes": 76800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 384900,
+              "packing_code_read_bytes": 307200,
+              "packing_scale_read_bytes": 153600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 560,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 384000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 384000,
+              "quantization_input_lane_visits": 614400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 768900,
+              "critical_path_time": "UNKNOWN",
+              "avoided_gate_up_intermediate_bytes": 28672000,
+              "path_condition": "fused gemm_q8_0_swiglu_carrier successful; fallback UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 17920,
+              "k": 1536,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                18,
+                25
+              ],
+              "invocations": 57600,
+              "global_load_words": 420249600,
+              "logical_global_load_bytes": 1680998400,
+              "integer_dot4_instructions": 1415577600,
+              "float_multiplies": 530841600,
+              "float_adds": 353894400,
+              "valid_output_stores": 3584000,
+              "chart_distinct_bytes": 30965760,
+              "projection_upload_bytes": 384000,
+              "projection_readback_bytes": 14336000,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "mixer_output",
+          "multiplicity": 28,
+          "tensor_example": [
+            "blk.0.attn_output.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1536
+              ],
+              "n_in": 1536,
+              "columns": 200,
+              "activation_blocks": 48,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 2506752,
+              "scalar_mac_terms": 471859200,
+              "output_bytes": 2457600,
+              "packing_words_bytes": 307200,
+              "packing_shift_bytes": 76800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 384900,
+              "packing_code_read_bytes": 307200,
+              "packing_scale_read_bytes": 153600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 96,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 384000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 384000,
+              "quantization_input_lane_visits": 614400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 768900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 1536,
+              "k": 1536,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 46694400,
+              "logical_global_load_bytes": 186777600,
+              "integer_dot4_instructions": 157286400,
+              "float_multiplies": 58982400,
+              "float_adds": 39321600,
+              "valid_output_stores": 307200,
+              "chart_distinct_bytes": 2654208,
+              "projection_upload_bytes": 384000,
+              "projection_readback_bytes": 1228800,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        },
+        {
+          "kind": "qkv",
+          "multiplicity": 28,
+          "tensor_example": [
+            "blk.0.attn_q.weight",
+            "blk.0.attn_k.weight",
+            "blk.0.attn_v.weight"
+          ],
+          "blocks": [
+            {
+              "grade": "model",
+              "rows": [
+                1536,
+                256,
+                256
+              ],
+              "n_in": 1536,
+              "columns": 200,
+              "activation_blocks": 48,
+              "column_groups": 25,
+              "weight_payload_distinct_bytes": 3342336,
+              "scalar_mac_terms": 629145600,
+              "output_bytes": 3276800,
+              "packing_words_bytes": 307200,
+              "packing_shift_bytes": 76800,
+              "packing_emin_bytes": 800,
+              "packing_spread_bytes": 100,
+              "packing_write_bytes": 384900,
+              "packing_code_read_bytes": 307200,
+              "packing_scale_read_bytes": 153600,
+              "packing_named_buffer_allocations": 4,
+              "packing_pool_dispatches": 1,
+              "row_pool_dispatches": 1,
+              "row_pool_tasks": 128,
+              "quantization_pool_dispatches": 1,
+              "quantization_copy_bytes": 384000,
+              "quantization_named_buffer_allocations": 800,
+              "quantization_persistent_bytes": 384000,
+              "quantization_input_lane_visits": 614400,
+              "row_code_passes_per_full_row_pair": 13,
+              "weight_load_instructions": "UNKNOWN: path-dependent shift/exact fallback and odd rows",
+              "hardware_dram_bytes": "UNKNOWN",
+              "whole_operator_allocations": "UNKNOWN",
+              "whole_operator_peak_live_bytes": "UNKNOWN",
+              "named_pack_plus_quant_output_bytes": 768900,
+              "critical_path_time": "UNKNOWN"
+            }
+          ],
+          "gpu_projection_examples": [
+            {
+              "grade": "model",
+              "carrier": "Q8",
+              "m": 2048,
+              "k": 1536,
+              "batch": 200,
+              "padded_batch": 200,
+              "bt": 8,
+              "rt": 8,
+              "local": 128,
+              "workgroups": [
+                2,
+                25
+              ],
+              "invocations": 6400,
+              "global_load_words": 46694400,
+              "logical_global_load_bytes": 186777600,
+              "integer_dot4_instructions": 157286400,
+              "float_multiplies": 58982400,
+              "float_adds": 39321600,
+              "valid_output_stores": 409600,
+              "chart_distinct_bytes": 3538944,
+              "projection_upload_bytes": 384000,
+              "projection_readback_bytes": 1638400,
+              "projection_queue_drains": 1,
+              "hardware_dram_bytes": "UNKNOWN",
+              "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+            }
+          ]
+        }
+      ],
+      "gpu_resident_model": {
+        "coverage": "existing dense Fold graph; adapter/execution unrun",
+        "cpu_state_owner_transition": "same owner + dev_len>=pos0: no seed; changed owner: prefix seed; gap: missing suffix seed",
+        "hybrid_decode": "existing recurrent buffers+reset; batched scheduling UNKNOWN",
+        "constructor_allocation_bytes": "UNKNOWN",
+        "peak_live_bytes": "UNKNOWN",
+        "cold_weight_upload_bytes": "UNKNOWN: Fold chart construction/loading not executed",
+        "actual_gpu_path": "UNKNOWN",
+        "blocks": [
+          {
+            "b": 200,
+            "all_dispatches": 310,
+            "last_dispatches": 311,
+            "continuation_queue_drains": 1,
+            "embedding_and_params_upload_bytes": 1228816,
+            "all_hidden_logits_host_visible_write_bytes": 122777600,
+            "last_hidden_logits_host_visible_write_bytes": 20676608,
+            "kv_host_visible_write_bytes": 11558400,
+            "kv_mirror_host_write_bytes": 2956800,
+            "seed_upload_bytes_for_gap_per_position": 57792,
+            "seed_extra_drains": "UNKNOWN: staging chunks/owner/prefix dependent"
+          }
+        ]
+      },
+      "cpu_current_path_witness": "UNKNOWN: no inference executed; archived trace is historical phase witness"
+    }
+  ],
+  "held_out": {
+    "grade": "model",
+    "shape": {
+      "m": 3072,
+      "k": 2048,
+      "b": 384,
+      "carrier": "Q8",
+      "local": 128
+    },
+    "baseline": {
+      "grade": "model",
+      "carrier": "Q8",
+      "m": 3072,
+      "k": 2048,
+      "batch": 384,
+      "padded_batch": 384,
+      "bt": 8,
+      "rt": 1,
+      "local": 128,
+      "workgroups": [
+        24,
+        48
+      ],
+      "invocations": 147456,
+      "global_load_words": 839909376,
+      "logical_global_load_bytes": 3359637504,
+      "integer_dot4_instructions": 603979776,
+      "float_multiplies": 226492416,
+      "float_adds": 150994944,
+      "valid_output_stores": 1179648,
+      "chart_distinct_bytes": 7077888,
+      "projection_upload_bytes": 983040,
+      "projection_readback_bytes": 4718592,
+      "projection_queue_drains": 1,
+      "hardware_dram_bytes": "UNKNOWN",
+      "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+    },
+    "candidate": {
+      "grade": "model",
+      "carrier": "Q8",
+      "m": 3072,
+      "k": 2048,
+      "batch": 384,
+      "padded_batch": 384,
+      "bt": 8,
+      "rt": 4,
+      "local": 128,
+      "workgroups": [
+        6,
+        48
+      ],
+      "invocations": 36864,
+      "global_load_words": 273678336,
+      "logical_global_load_bytes": 1094713344,
+      "integer_dot4_instructions": 603979776,
+      "float_multiplies": 226492416,
+      "float_adds": 150994944,
+      "valid_output_stores": 1179648,
+      "chart_distinct_bytes": 7077888,
+      "projection_upload_bytes": 983040,
+      "projection_readback_bytes": 4718592,
+      "projection_queue_drains": 1,
+      "hardware_dram_bytes": "UNKNOWN",
+      "gpu_executed_path": "UNKNOWN: no GPU run in this task"
+    },
+    "logical_load_reduction_range": [
+      0.6741573033707865,
+      0.6741573033707865
+    ],
+    "dot_and_store_counts_preserved": true,
+    "packing_bytes_change": 0,
+    "dispatch_count_change": 0,
+    "falsifier": "Actual emitted per-binding loads differ, dot/store extents differ, or adapter adds a repack/transfer; hardware speed is not predicted"
+  },
+  "proof_target": {
+    "path": "src/format/quant.rs",
+    "body": "q8_0_codes",
+    "existing_theorem": "apeiron_word.q8_0_codes_ok in Numeric/DequantQ8_0.lean",
+    "successful_loop": "32 iterations, 32 byte reads, 32 signed casts, 32 array writes",
+    "refusals": "checked_mul overflow or truncated block: zero loop iterations; o+34 addition requires no-overflow premise",
+    "scope": "scalar accessor; does not prove SIMD/pool/emitter/whole-model resource cost"
+  }
+}
