@@ -232,28 +232,3 @@ pub use self::rope::{rope_rotate_fixed, RopeError, RopeTable};
 pub use self::sampler::{argmax_fixed, top_p_fixed, SamplerError};
 pub use self::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
 pub use self::value::fixed_vector_checksum;
-
-/// Read `n_elems` little-endian `f32` gains or biases into Q32.32 via [`f32_to_fixed`].
-///
-/// `pub(crate)` so the extraction mirror can root the real body without exposing it outside the
-/// crate; the body and signature are unchanged.
-pub(crate) fn dequant_f32_row(
-    raw: &[u8],
-    n_elems: usize,
-    out: &mut Vec<i64>,
-) -> Result<(), F32Error> {
-    let mut i = 0usize;
-    while i < n_elems {
-        let at = i.checked_mul(4).ok_or(F32Error::OutOfRange)?;
-        let bytes = raw
-            .get(at..at + 4)
-            .and_then(|s| <[u8; 4]>::try_from(s).ok())
-            .ok_or(F32Error::Truncated {
-                need: at + 4,
-                have: raw.len(),
-            })?;
-        out.push(f32_to_fixed(f32::from_bits(u32::from_le_bytes(bytes)))?);
-        i += 1;
-    }
-    Ok(())
-}
