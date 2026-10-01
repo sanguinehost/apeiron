@@ -401,8 +401,11 @@ discipline without claiming those mechanisms exist.
 - Maintain forward momentum: complete every actionable subgoal, and on a barrier report the exact
   obstacle and advance the remaining units.
 - Frame any necessary assumption in one sentence, then execute toward completion.
-- After three materially different failed approaches to one obstacle, stop and report the smallest
-  unresolved goal.
+- After three materially different failed approaches to one obstacle, or five patch-and-rebuild
+  cycles on one proof, stop and report the smallest unresolved goal. Escalate to the lead with the
+  exact failing goal, the approaches tried, what is on disk and the one decision requested. Never
+  patch past the cap, never commit, never decide scope. Ladder:
+  [`../AGENTS.md`](../AGENTS.md) §Escalation ladder.
 - Do not commit, push, post externally, or modify another active workstream unless the user asks.
 - End every slice with: changed files, acceptance results (command and exit status), what is proved
   versus tested versus open, and the next bounded task.

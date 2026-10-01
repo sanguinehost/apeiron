@@ -634,7 +634,13 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   close the task). All five agents are live; their files are owned; no second writer.
 - **Template for the coming dispatch.** Every task is ≤3 files, one gate, one control, one Arc
   block; disjoint files, one owner per file; per-gate wall-clock budget; the lead re-runs each gate
-  before commit. A task that cannot name its gate is not dispatchable.
+  before commit. A task that cannot name its gate is not dispatchable. Every task prompt carries the
+  escalation demand: run `gate hold` before any write; stop and hand back after three materially
+  different approaches or five patch-and-rebuild cycles on one proof; escalate immediately on budget
+  expiry, a contract/premise/grade/trust-boundary blocker, a missing tool, a file owned by another
+  task, or an undeclared scope; and state the exact failing goal, the approaches tried, what is on
+  disk and the one decision requested. Never commit, never decide scope. The ladder is
+  `../AGENTS.md` §Escalation ladder.
 
 - **Extraction-root repair (returned; blocked on one `src/` move).** `proof/extract/lib.rs` is down
   from 31 errors to 1: `src/engine/loader.rs:24 use super::dequant_f32_row`, which is defined only
