@@ -108,3 +108,28 @@ The fixture domain is validated synthetic QuantAct::from_parts input, not establ
 constructor reachability. Production admission requires additional actual-constructor fixtures.
 The baseline uses local8x8; each invocation computes RT2BT4; dispatch is ceil(M/16),ceil(tokens/32).
 The whole epic remains open at the source/cost, serving, comparison and shared-proof exits above.
+
+## Constructor and source prerequisites
+
+The next fixture population is separate from SPIQ8V01's historical synthetic population. It calls
+actual `chart::quant_act` on retained deterministic i64 inputs, checks `dequantizes` and exact
+scales/codes before reconstruction, and observes actual `exact_dot`. Zero, scale transitions,
+signed ties, high representable inputs, constructor refusals, non-finite weights, final narrowing
+and row/token tails are required. Constructor refusal is a host witness, not a GPU dispatch with
+an invented activation. This is tested reachability, not universal constructor refinement.
+
+| task | owner / files | gate / control |
+|---|---|---|
+| APEIRON-GPU-PREFILL-W3-T1 | Luna; native_gpu_probe.rs, q8_gate.py, new tools/gpu/quantizer_gate.py; isolated codex/native-real-quantizer at3855580 | gate-first: timeout540 python3 tools/gpu/quantizer_gate.py; exact CPU/device parity, real quant_act tie-rounding mutation in a throwaway copy and restoration; GPU dot mutation retained |
+| APEIRON-GPU-PREFILL-SPIKE-narrow-error | Sol; scratch only | 300s feasibility question: exact source error representation included with actual TryFrom body, without tool/model changes or unmodelled axioms |
+| APEIRON-GPU-PREFILL-SPIKE-next-links | independent Sol review; scratch report only | 300s source/cost decomposition; no native source, cost or performance claim from a citation |
+
+Main Rust target is one serialized lane owned by the constructor-fixture task. Source/proof/model
+tasks require reviewed decomposition before implementation; optimization retains production admission.
+
+SCOPE: native_gpu_probe.rs, q8_gate.py, quantizer_gate.py; constructor fixtures and controls.
+REGISTER: tested actual-constructor reachability and exact CPU/device observations; no optimization.
+CORPUS: actual chart::quant_act, QuantAct::dequantizes and gemm::exact_dot read; no constructor theorem.
+REFERENCE: /home/socol/Workspace/apeiron/src/engine/chart/mod.rs.
+GATE: MISSING initially; gate-first timeout540 python3 tools/gpu/quantizer_gate.py, from task worktree.
+GRADE: tested target; universal source/cost link and GPU throughput remain open.
