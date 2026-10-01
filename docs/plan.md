@@ -659,7 +659,14 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   plus uncommitted modifications to generated `proof/ApeironWord.lean` and `proof/corpus/`
   (`AxiomAudit*.lean`, `Policy/Core.lean`, `lakefile.lean`). Classify each as tracked, ignored or
   removed before the dispatch; a build product is never tracked (failure register, consolidation
-  row), and a generated proof file is regenerated, not hand-edited.
+  row), and a generated proof file is regenerated, not hand-edited. Scratch reclaimed:
+  `oc-tmp` 154.7G → 77G, `/tmp/opencode` 2.45G → 1.83G, `/home` free 501G → 551G; 2 stale worktree
+  records pruned and 3 clean, merged worktrees removed (`task/w5-integ`, `nightshift`,
+  `ns/affine-head-signed-mul-r30`). **28 worktrees still hold uncommitted changes and are cleanup
+  blockers: none is force-removed, and each needs the owner's keep-or-abandon decision** (four
+  `codex/structural-*`, `task/gpu-w5-t1/t2/t4`, `task/gpu-w6-t4/t5`, `task/gpu-w7-epilogue`,
+  `exp/hyper-attn`, two `ns/*-r30`, `task/w6-integ`, and the W6/W7 trees `task/w6-t01..t13`,
+  `task/w7-t02/t03/t04`).
 
 ## Apeiron–Intent: the repeatable improvement engine
 
