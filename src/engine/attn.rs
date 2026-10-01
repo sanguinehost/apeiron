@@ -880,6 +880,12 @@ impl KvState {
     /// [`AttnError::CapacityExceeded`] when the layer already holds `cap` positions. No row is
     /// clamped or truncated.
     ///
+    /// **The destination plane's contents are unspecified on `Err`.** The `F32` carrier writes
+    /// the whole row before raising [`AttnError::Overflow`], so a rejecting element leaves a
+    /// partially-written row past that element rather than an untouched tail; the earlier
+    /// raise-at-first-failure guarantee is not preserved. `occupied` is not advanced and no
+    /// caller reads the plane on `Err`.
+    ///
     /// # Complexity
     ///
     /// `O(n_head_kv · head_dim)` time and no allocation: the two row blocks are copied into the
@@ -927,22 +933,36 @@ impl KvState {
                 k[layer][base..end].copy_from_slice(k_rows);
                 v[layer][base..end].copy_from_slice(v_rows);
             }
+            // Index `while` loops, not `iter_mut().zip`, and one `Err` after the loops. Both
+            // removals are forced by the pinned Aeneas model, and neither is a change of shape
+            // choice: the model has no field for `Iterator::zip` (prepass reports `Could not
+            // find the information for item 'zip'`), and a `return` whose target is the function
+            // boundary crossed from inside a loop nest is refused outright (`Returns inside of
+            // nested loops are not supported yet`). Arithmetic is unchanged: the same
+            // `q32_to_f32` on the same element in the same order, the same store to the same
+            // slot, and the same `is_finite` test on the same value, over the index range
+            // `0..width` that the two length checks above have already made equal to
+            // `k_dst.len() == v_dst.len()`.
             KvStorage::F32 { k, v } => {
+                let mut bad = 0u32;
                 let k_dst = &mut k[layer][base..end];
-                for (dst, &src) in k_dst.iter_mut().zip(k_rows.iter()) {
-                    let f = q32_to_f32(src);
-                    if !f.is_finite() {
-                        return Err(AttnError::Overflow);
-                    }
-                    *dst = f;
+                let mut i = 0usize;
+                while i < width {
+                    let f = q32_to_f32(k_rows[i]);
+                    bad += u32::from(!f.is_finite());
+                    k_dst[i] = f;
+                    i += 1;
                 }
                 let v_dst = &mut v[layer][base..end];
-                for (dst, &src) in v_dst.iter_mut().zip(v_rows.iter()) {
-                    let f = q32_to_f32(src);
-                    if !f.is_finite() {
-                        return Err(AttnError::Overflow);
-                    }
-                    *dst = f;
+                let mut i = 0usize;
+                while i < width {
+                    let f = q32_to_f32(v_rows[i]);
+                    bad += u32::from(!f.is_finite());
+                    v_dst[i] = f;
+                    i += 1;
+                }
+                if bad != 0 {
+                    return Err(AttnError::Overflow);
                 }
             }
         }

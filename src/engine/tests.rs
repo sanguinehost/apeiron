@@ -1905,3 +1905,62 @@ fn qwen35_speculative_long_prompt() {
     eprintln!("long prompt: {stats:?}");
     assert_eq!(ids, llama);
 }
+
+#[test]
+fn f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err() {
+    // The `KvStorage::F32` arm of `KvState::append` is the extraction fragment's index-`while`
+    // shape with a `bad` accumulator: the two `iter_mut().zip` loops became index loops and the
+    // two in-loop `return Err` became one `Err` after both loops. These pins read the planes
+    // through the only reader of them, `attn_head`, so a moved slot, a dropped slot or an
+    // off-by-one in the index loop is visible. They cannot observe the `bad != 0` branch: over
+    // the `i64` domain `q32_to_f32(x) = (x as f32) / 2^32` is finite for every `x`, since
+    // `|x as f32| <= 2^63 < f32::MAX` and the divisor is normal, so that `Err` is unreachable
+    // from `append` and the doc clause "contents unspecified on `Err`" has no witness here.
+    let carrier = super::mixer::Carrier::F32;
+    let mut kv = KvState::with_carrier(1, 1, 1, 2, 4, carrier).expect("geometry");
+    // One attended position makes the softmax denominator exactly 1, so `out` is the stored
+    // value row bit for bit. This pins value-plane slots 0 and 1 exactly.
+    assert_eq!(kv.append(0, &[ONE, 0], &[0, ONE]), Ok(0));
+    let mut out = [i64::MIN; 2];
+    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out).expect("attend pos 0");
+    assert_eq!(out, [0, ONE]);
+    // A second key row makes the softmax weights depend on the stored key row: with
+    // `scale = 1/sqrt(2)` the scores are `1/sqrt(2)` and `0`, so the weights are
+    // `e^0 / (1 + e^(-1/sqrt2))` and `e^(-1/sqrt2) / (1 + e^(-1/sqrt2))` over value row `[0,1]`.
+    // A key-plane slot swap moves each component by about 1.14e9, far outside the tolerance.
+    assert_eq!(kv.append(0, &[0, ONE], &[ONE, 0]), Ok(1));
+    let mut out = [i64::MIN; 2];
+    kv.attn_head(0, 0, &[ONE, 0], 1, &mut out).expect("attend pos 1");
+    let e = (-1.0f64 / 2.0f64.sqrt()).exp();
+    let want = [
+        (e / (1.0 + e)) * ONE as f64,
+        (1.0 / (1.0 + e)) * ONE as f64,
+    ];
+    for (i, w) in want.iter().enumerate() {
+        let got = out[i] as f64;
+        assert!(
+            (got - w).abs() <= 1.0e-3 * ONE as f64,
+            "out[{i}] = {got}, want {w}, delta {}",
+            got - w
+        );
+    }
+    // A rejected append must not write. Every rejected row below is distinct from the stored
+    // one, so a write on either `Err` path would change the exact reading at position 0.
+    let mut kv = KvState::with_carrier(1, 1, 1, 2, 1, carrier).expect("geometry");
+    assert_eq!(kv.append(0, &[ONE, 0], &[0, ONE]), Ok(0));
+    assert_eq!(
+        kv.append(0, &[ONE, 0, 0], &[0, ONE, 0]),
+        Err(AttnError::RowLength {
+            expected: 2,
+            got: 3
+        })
+    );
+    assert_eq!(
+        kv.append(0, &[-ONE, -ONE], &[-ONE, -ONE]),
+        Err(AttnError::CapacityExceeded { cap: 1 })
+    );
+    assert_eq!(kv.occupied(0), Ok(1));
+    let mut out = [i64::MIN; 2];
+    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out).expect("attend pos 0");
+    assert_eq!(out, [0, ONE]);
+}
