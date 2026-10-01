@@ -24,24 +24,22 @@ from [`templates/epic.md`](templates/epic.md).
 | [ai-track-reanchor](epics/ai-track-reanchor.md) | draft |
 | [algebra-native-addressing](epics/algebra-native-addressing.md) | approved for founding |
 | [allocator-model](epics/allocator-model.md) | proposed architecture (`anchor`) |
+| [apeiron-intent-loop](epics/apeiron-intent-loop.md) | transition 4 closed: extraction freshness open; `tools/dispatch/contracts.json` registers no target |
 | [assurance-factoring](epics/assurance-factoring.md) | implementation under factoring evidence |
 | [build-cost-optimization](epics/build-cost-optimization.md) | plan |
 | [carrier-refinement](epics/carrier-refinement.md) | complete |
 | [combinator-links](epics/combinator-links.md) | in progress |
 | [corpus-release-pin](epics/corpus-release-pin.md) | approved |
 | [engine-throughput](epics/engine-throughput.md) | W2 tested (Q8Act 40/40 parity); T6B running |
-| [equation-glossary](epics/equation-glossary.md) | gate green over `docs/` (89 equations, 151 files); 14 findings, 8 fixed; 12/12 modules kernel-checked; semantic review complete |
 | [exact-scan-contract](epics/exact-scan-contract.md) | draft; chunked exact accumulation (DeltaNet state + online softmax), prefill ratio target |
-| [f32-carrier](epics/f32-carrier.md) | prefill 1.33x, decode 1.71x vs llama.cpp at `APEIRON_F32_CARRIER=1`; T16 fixed the `conv_silu_cols` batch identity (`mixer.rs` `b508be5e`), verified by `engine::mixer` 30/30 both flags and `qwen35_long_prompt_on_the_one_executor` |
-| [multi-token-decode](epics/multi-token-decode.md) | draft; k drafted tokens verified per weight pass on the f32 carrier, greedy ids unchanged; 2.0x llama.cpp tg target |
 | [decode-dominance](epics/decode-dominance.md) | draft; beat llama.cpp via batch-invariance, exact speculative greedy, zero skip, traffic statements |
 | [structural-decode-search](epics/structural-decode-search.md) | prefill priority; direct norm candidate tested with source controls; five-round timing blocked by host quietness, integration open |
 | [frontier-consumer](epics/frontier-consumer.md) | draft; cross-track roadmap (product ladder R0–R5) |
+| [gate-driver](epics/gate-driver.md) | plan only: replace 33 `proof/resource/*_gate.py` with one `tools/gate` binary; no status line in the file |
 | [gpu-spv](epics/gpu-spv.md) | draft |
 | [inference-parity](epics/inference-parity.md) | draft for decision |
 | [kani-retirement](epics/kani-retirement.md) | retired by user direction |
 | [kernel-topology-optimizations](epics/kernel-topology-optimizations.md) | draft |
-| [magnetic-flux](epics/magnetic-flux.md) | W1–W3 proved (closed cone), carrier binding proved; W4 receipt at `evidence/discrete-flux.md`; full bridge build blocked on the dirty `proof/corpus/Policy/Core.lean` |
 | [moe-router](epics/moe-router.md) | W1 complete (tested + proved); W2 at barrier |
 | [model-algebra](epics/model-algebra.md) | draft; closing wave receipted |
 | [neural-rebase](epics/neural-rebase.md) | draft |
@@ -59,6 +57,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [qwen35-hybrid](epics/qwen35-hybrid.md) | exact path = llama.cpp ids; speed next |
 | [one-executor](epics/one-executor.md) | S1–S3 landed: Qwen2.5, Bonsai, Qwen3.5 on one executor |
 | [ternary-hadamard](epics/ternary-hadamard.md) | W1–W4 proved/tested; W5 measurement open |
+| [unified-quant-kernel](epics/unified-quant-kernel.md) | dispatched (byte-identical unification): one accumulation kernel parameterized by a block decoder |
 
 The policy-engine epic's prior-art study is [`study/policy-engines.md`](study/policy-engines.md).
 
@@ -69,7 +68,8 @@ These files are parsed by gates. They are not merged or reformatted:
 | file | read by |
 |---|---|
 | `kepler-canonical-{intent,spec,plan}.md` | `tools/check-kepler.py` |
-| `joint-{primitives,table,evaluator,carrier-exchange,table-accumulator}.md` | `tools/joint/*_check.py` |
+| `joint-{primitives,table,evaluator,carrier-exchange}.md` | `tools/joint/{profile,table_profile,evaluator_profile,carrier_profile}_check.py` |
+| `joint-table-accumulator.md` | no checker reads it; its content is carried by `joint-primitives.md` R1 and `slang-source-entry.md` SE3, and its obligation that no accumulator correspondence exists stays open |
 | `slang-source-entry.md` | `tools/joint/source_entry_check.py` |
 | `slang-source-semantics.md`, `slang-source-refinement-plan.md` | `tools/slang/spec_check.py`, `refine.py` |
 
