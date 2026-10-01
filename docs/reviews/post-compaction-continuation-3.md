@@ -67,6 +67,11 @@ and completed improvement cycles across the ecosystem.
   controls green and attributable mutations. `tools/gate/main.rs` is the adapter bin. Extending it —
   extract/refine `admit`, the `docs/artifacts.toml` manifest, the adapter, `gate docs check
   --controls`, mandatory-path wiring — is epic E1.
+- **Default worker — Space Bunny.** `opencode-go/space-bunny-free` runs **every** dispatch-ready task
+  by default: free (`cost=0` on the OpenCode Zen route, live), mid-tier, **free window ends
+  2026-10-05**. Dispatch it with `agent: general`, `model: opencode-go/space-bunny-free`. `deepseek-flash`
+  is the paid escalation only on a mandatory trigger; anything beyond escalates manually to the owner.
+  `gemini-flash`/`xiaomi-pro` are non-default and their balances are not spent on ordinary work.
 - **Lanes.** Compile/gate through the box pool (`lane`); heavy Lean ≤3 at once; receipts under
   `/tmp/opencode`, scratch under `/home/socol/oc-tmp`; prune a finished slice's copy at its receipt.
 

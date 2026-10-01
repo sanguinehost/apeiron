@@ -147,9 +147,12 @@ The apeiron lane's detail is in `docs/plan.md` §Phasing. This is the whole prog
 fleet.
 
 **Assumptions.** ~50 agents, 10 lanes, at most 3 simultaneous heavy Lean checks, one owner per file,
-every wave a barrier. A wave's gates run inside the 540 s cap; with integration a wave of about ten
-tasks costs under an hour, so a four-day window holds roughly 30–40 wave-slots — up to about 350
-bounded tasks. The open programme below is ~280–320 bounded tasks: **one full pass of the ecosystem
+every wave a barrier. The **default worker is `opencode-go/space-bunny-free`** (free: `cost=0` on the
+OpenCode Zen route, live; **free window ends 2026-10-05**); `deepseek-flash` is the paid escalation
+taken only on a mandatory trigger, and anything beyond escalates manually to the owner;
+`gemini-flash` and `xiaomi-pro` are non-default lanes. A wave's gates run inside the 540 s cap; with
+integration a wave of about ten tasks costs under an hour, so a four-day window holds roughly 30–40
+wave-slots — up to about 350 bounded tasks. The open programme below is ~280–320 bounded tasks: **one full pass of the ecosystem
 in the window, not a fraction of it**, which is the argument for the plan being cross-repo.
 
 **Every epic cites the document it comes from.** No task is invented.
