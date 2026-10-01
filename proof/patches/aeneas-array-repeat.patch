@@ -107,24 +107,3 @@ index e35c5bc..c52ede2 100644
    | Assign (p, rvalue) ->
        if
          (* We handle global assignments separately as a specific case. *)
-diff --git a/src/llbc/FunsAnalysis.ml b/src/llbc/FunsAnalysis.ml
-index 7bf693c..47c2483 100644
---- a/src/llbc/FunsAnalysis.ml
-+++ b/src/llbc/FunsAnalysis.ml
-@@ -310,4 +310,16 @@ let analyze_module (m : crate) (funs_map : fun_decl FunDeclId.Map.t) :
- 
-   analyze_decl_groups (Option.get m.declarations);
- 
-+  (* Aeneas lowers a native [Repeat] (which carries no [Copy]/[Clone] proof) to
-+     a call to [core::array::repeat]. Charon does not put that function in the
-+     declaration groups in this case, so we analyze it explicitly. *)
-+  let fmt_env = Charon.Print.crate_to_fmt_env m in
-+  FunDeclId.Map.iter
-+    (fun id (d : fun_decl) ->
-+      if
-+        Charon.Print.name_to_string fmt_env d.item_meta.name
-+        = "core::array::repeat"
-+      then analyze_fun_decl_group [ id ])
-+    m.fun_decls;
-+
-   !infos
