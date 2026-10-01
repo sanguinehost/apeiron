@@ -406,6 +406,10 @@ discipline without claiming those mechanisms exist.
 - Do not commit, push, post externally, or modify another active workstream unless the user asks.
 - End every slice with: changed files, acceptance results (command and exit status), what is proved
   versus tested versus open, and the next bounded task.
+- The owner-layer authority for this workspace is [`../AGENTS.md`](../AGENTS.md) §Authority, hold,
+  momentum. A `HOLD` marker (repo root or `~/Workspace/HOLD`) stops new work; run the preflight
+  `gate hold` (built from [`tools/gate`](tools/gate)) before any write or dispatch, and treat a
+  marker as releasable only by the owner.
 
 ### 9.3 Assessing work
 
