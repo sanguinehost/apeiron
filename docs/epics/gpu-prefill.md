@@ -202,3 +202,11 @@ CORPUS: NarrowRefinement.in_range/below_min/above_max and actual quant_act/exact
 REFERENCE: /home/socol/Workspace/apeiron/proof/native/NarrowRefinement.lean.
 GATE: timeout60 receipt/source/control check; corrupted lower mutation status rejects.
 GRADE: proved scalar conversion; tested constructor/device population; remaining links open.
+
+The first private compatibility run exits1: registry generation takes406.676s, then model
+boundary proofs fail; actual-body/private-tool controls are not reached. This is incomplete
+preparation, not acceptance. Sol takes the same three paths after Luna releases them. The
+reviewed generator route becomes `lake build Aeneas:leanArts` followed by
+`lake env lean --run AeneasExtract.lean`, using the unchanged generator. Full private-tool
+build, actual-body translation and all rejecting/restoration controls retain one540s gate.
+Luna independently reviews the final artifact. No gate or theorem premise is removed.
