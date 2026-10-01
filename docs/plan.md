@@ -635,9 +635,10 @@ construction, region-header deref, address derivation — independent of cache s
 single-region population with identical geometry still reads ~10 ns. The profiler pass (E6.W2b;
 shares only — the release binary carries no DWARF and fp unwinding truncates) locates the largest
 block in `matches()` at 27.81% of `spill_read` self time, whose hottest instruction is the dependent
-address formation for the 24-byte-stride slot payload; the candidate is a slot-order change
-(`R` before `Sigma`), now being validated by a read-only isolation measurement (E6.W2c) before its
-extraction cost is paid.
+address formation for the 24-byte-stride slot payload. The candidate slot-order change was refuted
+by an interleaved measurement (E6.W2c: delta −0.19 ± 0.75 ns/key, and both instantiations
+instruction-identical in disassembly), so that route is closed; the remaining candidates are
+structural, and a flat open-addressed spill region prototype is next (E6.W2d).
 
 **The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
 bits the shard selector reads, so a population folding those bits matched every lane of every
