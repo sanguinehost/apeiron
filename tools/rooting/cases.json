@@ -205,6 +205,8 @@
     "measured"
   ],
   "complexity_measure_pattern": "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fixed|constant|single|at most)\\b|(?<![A-Za-z0-9_.])\\d+\\s+[A-Za-z]{2,}",
+  "complexity_unit_pattern": "(?:(?:^|(?<=\\s))(?:(?:\\d+|no|zero|one|two|three|four|five|six|seven|eight|nine|ten|per|each|every|all|both|neither|at most|nothing|exactly)\\s+)?(?:(?!(?:the|a|an|this|that|these|those|its|their|our|your|my|his|her|some|any|not|of|in|on|at|by|for|to|from|with|into|onto|up|down|out|over|under|through|across|then|so|because|when|while|if|and|or|but|is|are|was|were|be|been|being|has|have|had|do|does|did|as|than|which|who|whose|there|here|also|only|just|still|after|before|until|unless|whether|since|about|like|return|returns|read|reads|write|writes|what|how|where|such|other|others|whom)\\s)[a-z][a-z-]*\\s+){1,2}|(?:^|(?<=[\\`)\\]\\\"'/,;.:])|(?<=[\\`)\\]\\\"']\\s)|(?<=[/,;.:]\\s)))(?:comparisons|compares|operations|ops|multiply-adds|allocations|bytes|words|copies|clones|writes|tasks|probes|cells|links)(?!\\w)|\\b(?:cop(?:ies|ied)|clon(?:es|ed)|allocat(?:es|ed|ion)|writ(?:es|ten)|reads?|travers(?:es|ed)|touch(?:es|ed)|visit(?:s|ed)|scan(?:s|ned)|probes?|tasks?)\\s+(?:nothing|none|zero)\\b|\\bnothing\\s+(?:copied|cloned|allocated|written|read|traversed|touched|visited|issued|emitted)\\b|\\b(?:no|zero|none)\\s+allocations?\\b",
+  "complexity_unit_head_pattern": "^(?:comparisons|compares|operations|ops|multiply-adds|allocations|bytes|words|copies|clones|writes|tasks|probes|cells|links)(?!\\w)",
   "complexity_derivation_pattern": "\\b(?:loop|loops|looped|pass|passes|passed|iterat[a-z]*|recurs[a-z]*|tail[ -]call|tail[ -]recurs[a-z]*|scan[a-z]*|walk[a-z]*|visit[a-z]*|fold[a-z]*|grow[a-z]*|resiz[a-z]*|geometric[a-z]*|halv[a-z]*|unroll[a-z]*|closes|per[ -]element|each element|for each|bounded by|independent of)\\b",
   "declaration_markers": [
     "new primitive",
@@ -398,6 +400,167 @@
         "expect": "accept",
         "path": "src/synthetic/d-numeral-unit.rs",
         "text": "/// # Complexity\n///\n/// Temporal `O(1)`: the three `List.append` recursions traverse 11 cons cells, counted in\n/// list links; the shared tail is not traversed.\n/// Spatial `O(11)` cons cells for the returned prefix.\npub fn synthetic_numerals_units(rest: &[u64]) -> Vec<u64> {\n    rest.to_vec()\n}\n"
+      },
+      {
+        "name": "integer multiply-adds as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-multiply-adds.rs",
+        "text": "/// # Complexity\n///\n/// `O(n_in)` time in exact integer multiply-adds, `O(1)` extra space.\npub fn synthetic_multiply_adds(x: &[i8]) -> i32 {\n    x[0] as i32\n}\n"
+      },
+      {
+        "name": "measure removed from the multiply-adds sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-multiply-adds-mutant.rs",
+        "text": "/// # Complexity\n///\n/// `O(n_in)` time, `O(1)` extra space.\npub fn synthetic_multiply_adds_mutant(x: &[i8]) -> i32 {\n    x[0] as i32\n}\n"
+      },
+      {
+        "name": "word compares and byte comparisons as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-comparisons.rs",
+        "text": "/// # Complexity\n///\n/// O(L/8) word compares plus an O(L mod 8) scalar tail, in byte comparisons; spatial O(1).\npub fn synthetic_comparisons(line: &[u8]) -> u64 {\n    line[0] as u64\n}\n"
+      },
+      {
+        "name": "measure removed from the comparisons sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-comparisons-mutant.rs",
+        "text": "/// # Complexity\n///\n/// O(L/8) time plus an O(L mod 8) tail; spatial O(1).\npub fn synthetic_comparisons_mutant(line: &[u8]) -> u64 {\n    digest(line)\n}\n"
+      },
+      {
+        "name": "copies nothing as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-copies.rs",
+        "text": "/// # Complexity\n///\n/// This is the step path's read: the bytes were read once, so the borrow is O(1) and\n/// copies nothing. `O(1)` time and no allocation; the returned slice borrows `self`.\npub fn synthetic_copies(buf: &[u8]) -> &[u8] {\n    buf\n}\n"
+      },
+      {
+        "name": "measure removed from the copies sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-copies-mutant.rs",
+        "text": "/// # Complexity\n///\n/// This is the step path's read: the bytes were read once, so the borrow is O(1).\n/// `O(1)` time; the returned slice borrows `self`.\npub fn synthetic_copies_mutant(buf: &[u8]) -> &[u8] {\n    borrow_range(buf)\n}\n"
+      },
+      {
+        "name": "payload clones as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-clones.rs",
+        "text": "/// Temporal `O(regions)` payload clones; spatial `O(1)` beyond the regions already\n/// reserved.\npub fn synthetic_clones(regions: &[u8]) -> u8 {\n    regions[0]\n}\n"
+      },
+      {
+        "name": "measure removed from the clones sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-clones-mutant.rs",
+        "text": "/// Temporal `O(regions)`; spatial `O(1)` beyond the regions already reserved.\npub fn synthetic_clones_mutant(regions: &[u8]) -> u8 {\n    regions[0]\n}\n"
+      },
+      {
+        "name": "writes as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-writes.rs",
+        "text": "/// `O(M·B·32)` writes and `O(1)` extra space: each weight lane is assigned once.\npub fn synthetic_writes(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "measure removed from the writes sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-writes-mutant.rs",
+        "text": "/// `O(M·B·32)` assignments and `O(1)` extra space: each weight lane is assigned once.\npub fn synthetic_writes_mutant(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "tasks as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-tasks.rs",
+        "text": "/// `⌈out.len() / chunk⌉` tasks; `O(1)` extra space.\npub fn synthetic_tasks(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "measure removed from the tasks sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-tasks-mutant.rs",
+        "text": "/// `⌈out.len() / chunk⌉` chunks; `O(1)` extra space.\npub fn synthetic_tasks_mutant(n: usize) -> usize {\n    chunk_count(n)\n}\n"
+      },
+      {
+        "name": "unit named inside the big-O argument accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-in-big-o.rs",
+        "text": "/// Temporal: `O(bytes)` drop of the state; spatial: `O(1)` beyond the freed entry.\npub fn synthetic_drop(bytes: usize) -> usize {\n    bytes\n}\n"
+      },
+      {
+        "name": "bound inside the big-O argument with no unit refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-in-big-o-mutant.rs",
+        "text": "/// Temporal: `O(bound)` drop of the state; spatial: `O(1)` beyond the freed entry.\npub fn synthetic_drop_mutant(bound: usize) -> usize {\n    bound\n}\n"
+      },
+      {
+        "name": "probe counts as the measure accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-unit-probes.rs",
+        "text": "/// Temporal `O(1)` for `n <= 1024` slots, counted in slot probes; the table never\n/// resizes. Spatial `O(1)`.\npub fn synthetic_probes(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "measure removed from the probe sentence refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-probes-mutant.rs",
+        "text": "/// Temporal `O(1)` for `n <= 1024` slots; the slot array is built at construction. Spatial `O(1)`.\npub fn synthetic_probes_mutant(n: usize) -> usize {\n    slot_of(n)\n}\n"
+      },
+      {
+        "name": "Lean doc-comment measure on an adjacent line accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "proof/corpus/synthetic/d-unit-doc-block.lean",
+        "text": "/-- Append `value` once when there is room, otherwise refuse.\n\nTemporal O(n). Spatial O(n): the appended list holds the cells. Operations counted:\nlist links traversed, cons cells allocated. -/\ndef syntheticAppend (xs : List Nat) (v : Nat) : List Nat :=\n  xs ++ [v]\n"
+      },
+      {
+        "name": "Lean doc-comment without the measure refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "proof/corpus/synthetic/d-unit-doc-block-mutant.lean",
+        "text": "/-- Append `value` once when there is room, otherwise refuse.\n\nTemporal O(n). Spatial O(n): the appended list holds the cells. -/\ndef syntheticAppendMutant (xs : List Nat) (v : Nat) : List Nat :=\n  xs ++ [v]\n"
+      },
+      {
+        "name": "trivial O(1) len accessor exempt",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-o1-len.rs",
+        "text": "/// The activation length `n_in` the quantizer was built for (`codes.len()`).\n///\n/// # Complexity\n///\n/// `O(1)`.\npub(crate) fn len(&self) -> usize {\n    self.codes.len()\n}\n"
+      },
+      {
+        "name": "trivial O(1) field copy exempt",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-o1-field.rs",
+        "text": "/// The terminal handle the current staging will publish under, or `None`.\n/// Temporal `O(1)`; spatial `O(1)`.\nfn staged_handle(&self) -> Option<u32> {\n    match &self.staged {\n        Some((handle, _)) => Some(*handle),\n        None => None,\n    }\n}\n"
+      },
+      {
+        "name": "O(1)-only comment over a loop body refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-o1-loop.rs",
+        "text": "/// Temporal `O(1)`; spatial `O(1)`.\npub fn synthetic_loop(ends: &[usize; 4]) -> usize {\n    let mut s = 0;\n    while s < 4 {\n        s += 1;\n    }\n    ends[s]\n}\n"
+      },
+      {
+        "name": "O(1)-only comment over a call body refused",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-o1-call.rs",
+        "text": "/// Temporal `O(1)`; spatial `O(1)`.\npub fn synthetic_call(x: u64) -> u64 {\n    finish(mix(x))\n}\n"
+      },
+      {
+        "name": "format width and value bound are not measures",
+        "rule": "D",
+        "expect": "reject",
+        "path": "src/synthetic/d-unit-free-numeral.rs",
+        "text": "/// # Complexity\n///\n/// `O(take)` time, `O(1)` extra space. Accumulates in `Q32.32` with `|x| <= 32·127`.\npub fn synthetic_numerals_free(x: &[i8], take: usize) -> i32 {\n    x[0] as i32\n}\n"
       },
       {
         "name": "ownership exceeds three files",

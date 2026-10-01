@@ -144,6 +144,8 @@ class Config:
     complexity_claim_pattern: str
     complexity_qualifiers: tuple[str, ...]
     complexity_measure_pattern: str
+    complexity_unit_pattern: str
+    complexity_unit_head_pattern: str
     complexity_derivation_pattern: str
     declaration_markers: tuple[str, ...]
     task_id_pattern: str
@@ -256,6 +258,12 @@ def load_config(path: Path = CASES_PATH) -> Config:
         ),
         complexity_measure_pattern=_string(
             data.get("complexity_measure_pattern"), "complexity_measure_pattern"
+        ),
+        complexity_unit_pattern=_string(
+            data.get("complexity_unit_pattern"), "complexity_unit_pattern"
+        ),
+        complexity_unit_head_pattern=_string(
+            data.get("complexity_unit_head_pattern"), "complexity_unit_head_pattern"
         ),
         complexity_derivation_pattern=_string(
             data.get("complexity_derivation_pattern"), "complexity_derivation_pattern"
@@ -419,6 +427,44 @@ _COUNT = re.compile(
     r"single|at most)\b|(?<![A-Za-z0-9_.])\d+\s+[A-Za-z]{2,}",
     re.IGNORECASE,
 )
+# The unit side of the measure test, mirroring `complexity_unit_pattern` in
+# cases.json: AGENTS.md §8 asks for "the measure they are counted in
+# (comparisons, allocations, bytes, words, bytes copied)" plus, in this corpus,
+# the operation nouns those comments actually use (integer multiply-adds,
+# integer operations, payload clones, writes, cons cells, list links, tasks,
+# probes). A clause naming a unit for its count is a measure even with no
+# numeral: "copies nothing", "`O(M*B*32)` writes", "in byte comparisons".
+#
+# It is a phrase test, not a word list: a bare `bytes` in "the bytes are read"
+# or "only words that could select a slot" is prose, while "source bytes",
+# "`O(bytes)`", "cons cells" and "copies nothing" state a unit. So the head
+# noun must carry a quantity (`11 cons cells`, `no allocation`) or a non-function
+# modifier (`source bytes`, `integer operations`), and must not be an identifier
+# (`bytes[l]`, `x.bytes`).
+_COUNT_CUE = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+|per|each|every|all|"
+    r"both|neither|at most|no|none|nothing|exactly|integer|cons|payload|byte|word|list)\s+",
+    re.IGNORECASE,
+)
+_NOT_A_MODIFIER = re.compile(
+    r"\b(?:the|a|an|this|that|these|those|its|their|our|your|my|his|her|some|any|not|"
+    r"of|in|on|at|by|for|to|from|with|into|onto|up|down|out|over|under|through|across|"
+    r"then|so|because|when|while|if|and|or|but|is|are|was|were|be|been|being|has|have|"
+    r"had|do|does|did|as|than|which|who|whose|there|here|also|only|just|still|after|"
+    r"before|until|unless|whether|since|about|like|returns?|return|reads?|writes?)\s+",
+    re.IGNORECASE,
+)
+_UNIT_HEAD = (
+    r"comparisons|compares|operations|ops|multiply-adds|allocations|bytes|words|"
+    r"copies|clones|writes|tasks|probes"
+)
+_ZERO_COUNT = re.compile(
+    r"\b(?:cop(?:ies|ied)|clon(?:es|ed)|allocat(?:es|ed|ion)|writ(?:es|ten)|reads?|"
+    r"travers(?:es|ed)|touch(?:es|ed)|visit(?:s|ed)|scan(?:s|ned)|probes?|tasks?)\s+"
+    r"(?:nothing|none|zero)\b|\bnothing\s+(?:copied|cloned|allocated|written|read|"
+    r"traversed|touched|visited|issued|emitted)\b",
+    re.IGNORECASE,
+)
 
 
 def _markers_for(path: str) -> str | None:
@@ -441,21 +487,81 @@ def _comment_payload(line: str, markers: str | None) -> str | None:
     return stripped[len(markers):].lstrip("/!#* \t").rstrip()
 
 
-def _comment_blocks(text: str, markers: str | None) -> list[tuple[int, list[str]]]:
-    """Contiguous comment lines with their 1-based start line."""
+# A block comment whose opener and closer differ from the line marker: Lean's
+# `/-- ... -/`. It is read as one block, exactly as Rust's `///` run is, so a
+# measure on an adjacent line of the same doc comment is seen.
+_BLOCK_COMMENT = {".lean": ("/--", "-/")}
+
+
+def _block_comment_lines(
+    line: str, opening: str, closing: str
+) -> list[str] | None:
+    """The payloads of a block comment whose text is one line, or None."""
+    stripped = line.strip()
+    if not stripped.startswith(opening):
+        return None
+    inner = stripped[len(opening):]
+    if closing not in inner:
+        return None
+    return [inner.split(closing, 1)[0].strip()]
+
+
+def _comment_blocks(
+    text: str, markers: str | None, suffix: str = ""
+) -> list[tuple[int, list[str]]]:
+    """Contiguous comment lines with their 1-based start line.
+
+    A `/-- ... -/` doc comment contributes one payload entry per source line, so
+    `start + offset` still names the line the entry came from and a claim on any
+    line of the block sees the whole block.
+    """
     blocks: list[tuple[int, list[str]]] = []
     current: list[str] = []
     start = 0
-    for index, line in enumerate(text.splitlines(), 1):
+    delimiters = _BLOCK_COMMENT.get(suffix)
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        number = index + 1
+        if delimiters is not None:
+            inline = _block_comment_lines(line, *delimiters)
+            if inline is not None:
+                if current:
+                    blocks.append((start, current))
+                    current = []
+                start = number
+                current.extend(inline)
+                index += 1
+                continue
+            if line.strip().startswith(delimiters[0]):
+                if current:
+                    blocks.append((start, current))
+                    current = []
+                start = number
+                pending = line.strip()[len(delimiters[0]):]
+                while True:
+                    if delimiters[1] in pending:
+                        current.append(pending.split(delimiters[1], 1)[0].strip())
+                        index += 1
+                        break
+                    current.append(pending.strip())
+                    index += 1
+                    if index >= len(lines):
+                        break
+                    pending = lines[index].strip()
+                continue
         payload = _comment_payload(line, markers)
         if payload is None:
             if current:
                 blocks.append((start, current))
                 current = []
+            index += 1
             continue
         if not current:
-            start = index
+            start = number
         current.append(payload)
+        index += 1
     if current:
         blocks.append((start, current))
     return blocks
@@ -485,6 +591,27 @@ def _is_heading(line: str, markers: str | None) -> bool:
     return heading and _GENERIC_CLAIM.search(payload) is None
 
 
+def _names_unit(block: str, cfg: Config) -> bool:
+    """The block names the unit its count is in, with or without a numeral.
+
+    §8 asks for "the measure they are counted in (comparisons, allocations,
+    bytes, words, bytes copied)", so a unit is a measure in its own right: a
+    clause that says what is counted qualifies, whether or not it also says how
+    many. The unit test runs over the whole block, and separately over the
+    argument of each big-O token, because `O(bytes)` names bytes as the measure;
+    the numeral test does not read the big-O token, because a numeral inside
+    `O(1)` is a bound, not a count.
+    """
+    if _pattern(cfg.complexity_unit_pattern).search(block) is not None:
+        return True
+    head = _pattern(cfg.complexity_unit_head_pattern)
+    for token in _BIG_O.finditer(block):
+        argument = token.group(0)[token.group(0).index("(") + 1:-1].strip()
+        if argument and head.search(argument) is not None:
+            return True
+    return False
+
+
 def _names_measure(block: str, cfg: Config) -> bool:
     """The block counts the cost in something: an operation count or a unit.
 
@@ -493,7 +620,9 @@ def _names_measure(block: str, cfg: Config) -> bool:
     bare numeral is not a count: §8 asks for the measure a cost is counted *in*,
     so the numeral must carry the noun it counts (`11 cons cells`, not `32*127`).
     """
-    return _pattern(cfg.complexity_measure_pattern).search(_BIG_O.sub(" ", block)) is not None
+    if _pattern(cfg.complexity_measure_pattern).search(_BIG_O.sub(" ", block)) is not None:
+        return True
+    return _names_unit(block, cfg)
 
 
 def _names_derivation(block: str, cfg: Config) -> bool:
@@ -504,6 +633,129 @@ def _names_derivation(block: str, cfg: Config) -> bool:
 @lru_cache(maxsize=None)
 def _pattern(source: str) -> re.Pattern[str]:
     return re.compile(source, re.IGNORECASE)
+
+
+# §8 exempts "trivial O(1) accessors, projections and constructors" from the
+# complexity comment. The exemption below is deliberately narrow: the comment
+# must claim only O(1), and the flagged item's body must be a projection, a
+# `len()`-style read or a constructor application. A loop, any call beyond the
+# allowed reads, a conditional other than an `Option`/`Result` match, or
+# arithmetic in the body removes it.
+_ONLY_O1 = re.compile(r"\bO\(\s*1\s*\)")
+_NON_O1_TOKEN = re.compile(r"\bO\([^)]*\)")
+_BODY_KEYWORD = re.compile(r"(?<![\w.$])(?:for|while|loop|if|else|unsafe|yield|await)(?![\w$])")
+_ALLOWED_READ = frozenset({"len", "copy"})
+_BODY_CALL = re.compile(r"(?<![\w.$:])([a-z_]\w*)\s*\(")
+_BODY_ARITHMETIC = re.compile(r"\s[+\-*/%]\s|\s[+\-*/%]|[+\-*/%]\s|\+\-")
+_MATCH_ARM = re.compile(r"^(?:Some|None|Ok|Err|Self)\b.*$|^[&*]*\(?[A-Za-z_]\w*"
+                        r"(?:\.[A-Za-z_]\w*(?:\(\))?)*\)?$")
+_ARM_SPLIT = re.compile(r",(?![^(]*\))")
+
+
+def _match_arms(text: str) -> list[str]:
+    """The comma-separated arm results of a `match`, braces dropped."""
+    out: list[str] = []
+    for part in _ARM_SPLIT.split(text):
+        cleaned = part.replace("{", " ").replace("}", " ").strip().strip(",").strip()
+        if cleaned:
+            out.append(cleaned)
+    return out
+_LINE_COMMENT_OR_STRING = re.compile(r"//[^\n]*|\"[^\"]*\"|'[^']*'")
+
+
+def _claims_only_o1(block: str) -> bool:
+    """Every big-O token in the block is O(1); no other cost is claimed."""
+    tokens = _NON_O1_TOKEN.findall(block)
+    if not tokens:
+        return False
+    return all(_ONLY_O1.fullmatch(token) for token in tokens)
+
+
+def _strip_body_noise(body: str) -> str:
+    return _LINE_COMMENT_OR_STRING.sub(" ", body)
+
+
+def _rust_body_after(text: str, after_line: int) -> str | None:
+    """The body inside the braces of the Rust item following a comment block."""
+    lines = text.splitlines()
+    index = after_line
+    depth = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if stripped == "" or stripped.startswith("//"):
+            index += 1
+            continue
+        if stripped.startswith("#"):
+            depth += sum(stripped.count(char) for char in "([{")
+            depth -= sum(stripped.count(char) for char in ")]}")
+            index += 1
+            if depth > 0:
+                continue
+            depth = 0
+            continue
+        break
+    if index >= len(lines):
+        return None
+    signature = lines[index].strip()
+    if "fn " not in signature or "(" not in signature or "{" not in signature:
+        return None
+    item: list[str] = []
+    balance = 0
+    opened = False
+    while index < len(lines):
+        line = lines[index]
+        item.append(line)
+        balance += line.count("{") - line.count("}")
+        if "{" in line:
+            opened = True
+        index += 1
+        if opened and balance <= 0:
+            break
+    if not opened:
+        return None
+    whole = "\n".join(item)
+    opening = whole.index("{")
+    depth = 0
+    for position in range(opening, len(whole)):
+        char = whole[position]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return whole[opening + 1:position]
+    return None
+
+
+def _trivial_o1_body(body: str) -> bool:
+    """The body is a projection, a `len()`-style read or a constructor."""
+    text = _strip_body_noise(body)
+    if text.strip() == "":
+        return False
+    if _BODY_KEYWORD.search(text) is not None:
+        return False
+    for match in _BODY_CALL.finditer(text):
+        if match.group(1) not in _ALLOWED_READ:
+            return False
+    if _BODY_ARITHMETIC.search(text) is not None:
+        return False
+    if re.search(r"(?<![\w.$])match(?![\w$])", text) is not None:
+        arms = [arm for part in re.split(r"=>", text)[1:] for arm in _match_arms(part)]
+        if not arms or not all(_MATCH_ARM.match(arm) for arm in arms):
+            return False
+    return True
+
+
+def _is_trivial_o1(path: str, text: str, block: str, last_line: int) -> bool:
+    """§8's exemption for a trivial O(1) accessor, projection or constructor."""
+    if Path(path).suffix.lower() != ".rs":
+        return False
+    if not _claims_only_o1(block):
+        return False
+    body = _rust_body_after(text, last_line)
+    if body is None:
+        return False
+    return _trivial_o1_body(body)
 
 
 def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
@@ -519,7 +771,7 @@ def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
     if path in cfg.governing_documents:
         return []
     markers = _markers_for(path)
-    blocks = _comment_blocks(text, markers)
+    blocks = _comment_blocks(text, markers, Path(path).suffix.lower())
     owner: dict[int, int] = {}
     for position, (start, payload) in enumerate(blocks):
         for offset in range(len(payload)):
@@ -536,6 +788,11 @@ def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
         if _any_lower(joined, cfg.complexity_qualifiers):
             continue
         if _names_measure(joined, cfg) or _names_derivation(joined, cfg):
+            continue
+        last_line = (
+            blocks[position][0] + len(blocks[position][1]) - 1 if position is not None else index
+        )
+        if _is_trivial_o1(path, text, joined, last_line):
             continue
         out.append(
             Violation(
