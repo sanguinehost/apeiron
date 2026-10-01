@@ -499,6 +499,14 @@ Intent-side obligation is that those cover fleet coordination as they cover eval
 Until then a restarted session re-derives its state from the tree and the fleet-state file, never
 from conversation.
 
+**Sustained width is testable, and the first measurement is due within 48 hours** (owner direction,
+2026-10-02). The claim is not accepted on architecture alone: Intent must run a harness that
+dispatches **50 concurrent workers** and reports, from its own instrumentation, that every worker
+carried its own identity, that no dispatch was lost when one worker was killed and re-leased, and
+that a receipt exists per worker. The harness is a gate: it has a reachable failure (dispatch fewer
+workers, or drop the lease, and it reddens), it names the machine, and it records wall-clock and
+completion counts. Until that run exists, the width requirement stays open and is reported as open.
+
 **Vocabulary.** `epic → wave → task → subtask`. A **wave** is a parallel batch: its tasks hold
 disjoint files and run concurrently, and the wave closes only when every task's gate and its control
 are green on the same source/tool identity. A **task** owns ≤3 files, one gate, one control and one
