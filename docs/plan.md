@@ -625,6 +625,16 @@ resident extent is 256 words and the density rule admits only lane 1 at 192 live
 injective certificate is 8 bits; a `place < 2^32` population is not a resident population. The
 insert column is ~100x in every arm and is locator reservation, not the probe.
 
+**Decomposed further (E6.W2a; the box was contended, ±2 ns/key noise band, stated).** The additive
+model fails: removing the shape guards, the summary test, the lane-search ladder, the full compare,
+the loop and the double region index — individually or together — moved nothing outside the band,
+and their joint removal measured slower. What holds: the tag SWAR is the largest single implemented
+mechanism (~4.3 ns/key) and is already the fast form (a scalar lane loop is worse), and the
+remaining ~8.4 ns/key is per-read fixed overhead — indirect generic dispatch, bounds-checked slice
+construction, region-header deref, address derivation — independent of cache state, since a
+single-region population with identical geometry still reads ~10 ns. The named next step is a
+profiler attribution of that block (E6.W2b), not a code change.
+
 **The adversarial column was a filter defect, closed by `55421fa`**: the tag read the same low 16
 bits the shard selector reads, so a population folding those bits matched every lane of every
 visited group. The spread top-bits fix takes full compares per key from 107.25 to 1.3646 under the
@@ -634,7 +644,7 @@ starving identity home, with the raw formula retained in the harness as a live c
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
 | W1 | attribution — **done** (E6.W1 and E6.W1b): resident parity 1.01; the gap is the spill read; residency is not free (an 8-bit certificate at 192 live keys) | `examples/table_cost_probe.rs` and its variants | the harness: counters plus ns per key | 1 | 0 |
-| W2 | the port: bring the predecessor's hot path into apeiron under the canonical definitions — a port with a named target, not a re-derivation | `src/table*.rs` | the harness at parity in the baseline column | 1 | 0 |
+| W2 | the port: bring the predecessor's hot path into apeiron under the canonical definitions — a port with a named target, not a re-derivation. W2a narrowed it: the spill read's per-read fixed overhead, not probe arithmetic | `src/table*.rs` | the harness at parity in the baseline column | 1 | 0 |
 | W3 | refinement: the placement word and the tag are on the extracted path, so a change carries `regen.sh --check` and any Lean-side correction | `proof/ApeironWord.lean`, `proof/resource/*` | `proof/regen.sh --check` | 1 | 1 |
 | W4 | the gate of record: a numeric target in the harness rather than a one-off measurement, plus the comparator cells G1 already names | `examples/table_cost_probe.rs`, the G1 cells | the harness and the G1 cells | 1 | 0 |
 
