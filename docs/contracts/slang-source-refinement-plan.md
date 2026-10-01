@@ -89,7 +89,7 @@ not reproduced by this documentation gate. Chunked whole-source feasibility rema
 ### Documentation boundary arc
 
 SCOPE: the slang-source-refinement-plan note, the slang-source-semantics note,
-`docs/flash-handoff.md`, the design notes; explicitly assigned four-file the reviewer documentation
+the design notes, the design notes; explicitly assigned four-file the reviewer documentation
 pass in the supplied checkout, base `8fe3eb3d51b6d9ef6bccb80774372f31e90cd54a`; no Lean build lane.
 
 REGISTER: planning/specification; route and trust boundary only; no code, proof or measurement run.
@@ -216,7 +216,7 @@ theorem of `True`, a wrong type, an axiom or a `sorry` target, and fails before 
 ## Storage S1-S8 (Rust-table scope)
 
 The Rust `Table` storage evidence S1-S8 remains at its Rust-table scope as recorded in
-[`../flash-handoff.md`](../flash-handoff.md) and [`../epics/storage-refinement.md`](../epics/storage-refinement.md):
+[`../plan.md`](../plan.md) and [`../epics/storage-refinement.md`](../epics/storage-refinement.md):
 S1 executing `new`/`get`/`insert_with`/`build` on the real source path; S2 constructor and joint
 witnesses from the actual constructor; S3 canonical default read, new-first write and ordered merge;
 S4 joint admission and success/refusal preservation; S5 the extraction audit; S6 the

@@ -52,7 +52,7 @@ not the axiom-cone check itself (``lake build`` and ``AxiomAudit.lean`` do that)
 Coverage and exclusions
 =======================
 Governing documents scanned: `the design notes`, `the design notes`,
-``docs/flash-handoff.md``, ``README.md`` and ``proof/README.md`` -- the AGENTS.md
+`the design notes`, ``README.md`` and ``proof/README.md`` -- the AGENTS.md
 section 1 reading order. `the storage-refinement note` is excluded: it is
 a plan whose grade records are explicitly superseded/historical, so its grades
 are not current claims. Fenced code blocks are excluded (they show commands, not
@@ -81,7 +81,7 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 GOVERNING_DOCUMENTS = (
     "the design notes",
     "the design notes",
-    "docs/flash-handoff.md",
+    "the design notes",
     "README.md",
     "proof/README.md",
 )
@@ -646,7 +646,7 @@ def _synthetic_tree(base):
         base / "docs" / "kernel-boundary.md",
         "# boundary\n\nThe constructor witness `word_table_new_rep` is proved.\n",
     )
-    _write(base / "docs" / "flash-handoff.md", "# handoff\n")
+    _write(base / "docs" / "plan.md", "# handoff\n")
     _write(base / "README.md", "# readme\n")
     _write(base / "proof" / "README.md", "# proof\n")
 
