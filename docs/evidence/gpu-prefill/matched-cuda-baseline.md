@@ -39,14 +39,18 @@ exit 2).
 
 ## Kernel-level gap
 
-Apeiron's Q8 SPIR-V primitive measures 171.63–506.36 GMAC/s of device compute
-(`docs/evidence/gpu-prefill/primitive-latency.md:41-50`) using `dotPacked4x8EXT`, a four-lane signed
-dot per quad. llama.cpp's `N>8` prefill uses MMQ int8 MMA (`comparator-shapes.md`, `mmq.cu:312-314`),
-i.e. tensor-core matrix instructions. The whole-model ratio (17.8× over Apeiron CPU) and the
-two-orders primitive gap are consistent with the same cause: Apeiron's kernel does not use the
-cooperative-matrix path the device exposes (`coopmat-design.md:31-49`). This is a framing
-observation, not a measured per-kernel ratio; a matched CUDA primitive at the Apeiron projection
-shapes is still unmeasured.
+Measured, matched at the ten Qwen3.5-0.8B projection shapes: Apeiron's Q8 SPIR-V primitive is
+171.63–506.36 GMAC/s (`primitive-latency.md`), llama.cpp's CUDA MMQ is 6387–52225 GMAC/s
+(`cuda-primitive-latency.md`), a factor **30.6×–295.9×**. Apeiron uses `dotPacked4x8EXT`, a four-lane
+signed dot per quad; llama.cpp's `tokens>8` prefill routes to `ggml_cuda_mul_mat_q` int8 MMA
+(`mmq.cu:85,312-314`), quantizing the f32 activation on-device to `block_q8_1_mmq` before the MMA. The
+whole-model ratio (17.8× over Apeiron CPU) and the primitive ratio share the cause that Apeiron does
+not use the cooperative-matrix path the device exposes (`coopmat-design.md:31-49`).
+
+The primitive comparison is device-time-for-the-projection on both sides and is not
+epilogue-matched: Apeiron computes the exact checked i128 epilogue, CUDA a float epilogue plus a
+separate on-device activation quantization. Apeiron's own cost is further dominated by its
+per-invocation term (`gpu-occupancy-analysis.md`), so the ratio is not a pure tensor-core effect.
 
 ## Boundary (obligation 11)
 
