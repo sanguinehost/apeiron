@@ -833,9 +833,13 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   from the pinned bases (`install-patches.sh --check` exit 0, build 38 s) clears it, proven by the
   control where the pre-existing binary still asserts. The pipeline now proceeds into translation
   and stops on 20 binary32 functions rejected with `Improperly typed constant value`
-  (`InterpExpressions.ml:117` has no float case) — the float-domain/boundary decision is with Sol,
-  and until it is settled `proof/ApeironWord.lean` cannot regenerate, which also holds the tag and
-  attn-reshape drift. Also open:
+  (`InterpExpressions.ml:117` has no float case) — the boundary decision is with Sol and is answered:
+  route (c), an explicit opaque/foreign boundary with a translatable interface, a named
+  boundary-axiom allowlist in `AxiomAudit`, and caller claims only relative to that boundary; if a
+  strictly axiom-free cone is required the caller chain is excluded or abstracted instead. The f32
+  chain hangs from the single root `crate::word_attn_head`, and a probe to settle the mechanism runs
+  as APEIRON-F32BOUNDARY-T1. Until it lands `proof/ApeironWord.lean` cannot regenerate, which also
+  holds the tag and attn-reshape drift. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
