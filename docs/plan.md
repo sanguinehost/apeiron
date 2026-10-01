@@ -28,8 +28,9 @@ in it is not accepted.
 
 The basis is O(1) at fixed N with bounded callbacks and nonconstant key length; reading a whole
 source stays at least linear in its bytes at fixed N. The rooting gate is
-`python3 tools/rooting/check.py --self-test`; `python3 tools/rooting/check.py --check` is red only
-on the binned routes until their retirement.
+`python3 tools/rooting/check.py --self-test`; `python3 tools/rooting/check.py --check` is red on the
+binned routes (A=1, B=3, C=1) and on D=38 sites — 16 genuine, 20 false positives with a reduction
+in flight — of which the §8 numeral decision (`470e3ab`) surfaced twelve.
 
 ## Current status
 
@@ -383,8 +384,8 @@ python3 tools/rooting/check.py --self-test
 `proof/regen.sh` requires the pinned Aeneas/Charon under `target/aeneas/` or `AENEAS_HOME`. Tool pins
 and the archive checksum are in [proof/README.md](../proof/README.md); record the versions a run
 actually used rather than citing a pin from memory. `python3 tools/rooting/check.py --self-test`
-exercises the canonical-rooting rejection paths; `--check` is red only on the binned routes until
-their retirement.
+exercises the canonical-rooting rejection paths (14 reject / 8 accept); `--check` is red on the
+binned routes and on the 38 rule-D sites, 16 of them genuine and un-repaired.
 
 ## Barrier order
 
@@ -803,22 +804,16 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   disk and the one decision requested. Never commit, never decide scope. The ladder is
   `../AGENTS.md` §Escalation ladder.
 
-- **Extraction-root repair (returned; blocked on one `src/` move).** `proof/extract/lib.rs` is down
-  from 31 errors to 1: `src/engine/loader.rs:24 use super::dequant_f32_row`, which is defined only
-  inline at `src/engine/mod.rs:236-259` and cannot be mirrored as a fragment. The repair's verified
-  fix is three lines: move `dequant_f32_row` verbatim from `src/engine/mod.rs:236-259` into
-  `src/engine/f32_convert.rs` (already in `regen.sh`'s `SOURCE_FILES` and already the
-  `#[path]`-addressable-children pattern `src/table.rs:30-43` uses), and change the import to
-  `use super::f32_convert::dequant_f32_row`. `cargo build --lib --manifest-path
-  proof/extract/Cargo.toml` then exits 0 on a throwaway copy. Gate 2 (`proof/regen.sh --check`)
-  stays red for three pre-existing reasons outside that move: the pinned rustc resolves `std`/`core`
-  from an incompatible `/home/socol/.cache/miri` sysroot (E0514, 626 cascading errors, reproduced on
-  committed `HEAD`); `proof/ApeironWord.lean` is stale against the post-F32 `KvState` and dirty in
-  the tree; and the pinned Aeneas refuses `KvState::append` with "Returns inside of nested loops are
-  not supported yet". Also open: `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any
-  newly mirrored extraction source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`,
-  `numeric/fixed_ln.rs`, and the `mixer/` and `step/` children) — obligation 8 binds the evidence to
-  an under-specified source set until that list covers them. One-owner-per-file was violated in this
+- **Extraction-root repair (advancing).** `proof/extract/lib.rs` builds; the three-line
+  `dequant_f32_row` move landed (`src/engine/f32_convert.rs:62`, imported at
+  `src/engine/loader.rs:25`). `proof/regen.sh --check` exits 2 on exactly two refused bodies, both in
+  `src/engine/attn/f32_core.rs`, both `Returns inside of nested loops are not supported yet` — the
+  same loop-shape limiter that `8fc50a5` and `3a69a4f` cleared elsewhere; a reshape task is in
+  flight, and whether a float-domain refusal surfaces behind it is untested. Also open:
+  `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
+  source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
+  and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
+  source set until that list covers them. One-owner-per-file was violated in this
   checkout: a second writer edited `proof/extract/lib.rs` at 21:18 while the repair owned it.
 - **Working-tree hygiene.** The checkout carries root-level junk that is not part of any task:
   `a.js`, `test_edition2`, `test_closure_pointer`, `libtest_closure_capture.rlib`, `proof/timeout`,
