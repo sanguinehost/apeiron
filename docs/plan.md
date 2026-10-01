@@ -778,6 +778,22 @@ Let the outstanding returns finish; integrate their scoped evidence; resolve the
 close the selection-measurement gap (Ring 6); run one complete Apeiron–Intent cycle, then a second
 cycle driven by the first cycle's evidence.
 
+## Resume queue (paused; not resumed until the owner's go)
+
+The mechanism binds only agents that run the `gate hold` preflight. Agents already executing when the
+marker appeared continue until they check it. Checked against `~/.local/share/opencode/opencode.db`.
+
+| task | session | state | note |
+|---|---|---|---|
+| Row-dot admission certificate | `ses_f08c92f1fffeMT3WSkyUc83AtG` | live at 22:47 | fixing `RowDotAdmission.lean` statement index validity (`:666-677`) and `Result.ok_injective`; read the HOLD and ran the preflight |
+| Cost: lm_head | `ses_f08f5a7c1ffeTXDugldOACo3U6` | live, thrashing | 454 messages; 7 near-identical Python-heredoc patches to `proof/resource/LmHeadResource.lean` (`| Ok u =>`, `bind_tc_ok`, `hlenEq`) in 22:42–22:46, each rebuilt to the same error. **Taken over by the lead.** |
+| Cost: regen_relocate_entry | `ses_f08f53f27ffeB1Sao5aOgJs92M` | idle 21:15:35, succeeded | `RegenRelocateEntry{Source,Resource}.lean` + gate on disk; no handback received |
+| Cost: regen_relocate_all | `ses_f08f53f25ffeJsd9gyq11A644K` | idle 22:11:53, succeeded | `RegenRelocateAllSource.lean` + gate on disk, no `Resource.lean`; matches its empty handback |
+| Resource cost: exact_dot | `ses_f091bf9deffelBQEv5RnVaEXx3` | stopped by the HOLD | real extraction and guard/exit/witness/refusal proofs in scratch `/home/socol/oc-tmp/ed-probe`, zero `axiom`/`sorry`; blocked on the loop work-measure rewrite (`bind` over a pattern binder); refused to write because its task is new, not a return |
+| Resource cost: matvec | `ses_f091bf9dcffeQRlG25` | live at 19:55, no activity since | same batch |
+
+Resuming any of these requires the owner's go; the `HOLD` marker is releasable only by the owner.
+
 ## Evidence labels
 
 A claim is `proved` only when a Lean kernel check passes for a named theorem with the extraction from
