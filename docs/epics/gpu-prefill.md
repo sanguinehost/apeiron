@@ -151,3 +151,36 @@ CORPUS: actual std conversion and Aeneas IScalar.cast_inBounds_spec; no canonica
 REFERENCE: /home/socol/Workspace/apeiron/target/aeneas-model/lean/Aeneas/Std/Scalar/Casts.lean.
 GATE: MISSING initially; gate-first python3 proof/native/narrow_gate.py --controls, whole budget540s.
 GRADE: proved target for this scalar conversion only; shader and aggregate source-cost links open.
+
+## Private iterator compatibility prerequisite
+
+APEIRON-GPU-PREFILL-W3-T3 owns only `proof/native/step_compat.patch`,
+`proof/native/StepRefinement.lean`, and `proof/native/step_gate.py`; Luna writes, Sol verifies.
+Its isolated worktree starts from the current main revision. The private patch adds the missing
+Step record fields and wires the existing scalar overflowing functions. The private Aeneas
+binary derives from pinned505b6ca35217e7be5c96c3e2f8045edfbdf47291 plus the retained array-repeat
+patch; its builtin registry is generated from the privately patched model. Installed tools,
+shared model, pins and production Rust remain unchanged. A changed binary has its own digest.
+
+Intent: translate actual unchanged `gemm::exact_dot` after the observed missing
+`Step.forward_overflowing` diagnostic. Source loop normalization changes an inference body and
+requires admission; private model compatibility is a separately scoped prerequisite.
+Spec: add no scalar formula, axiom or opaque implementation. Validate exact pinned archives,
+model patch set and real std source. Check StepUsize field wiring and overflow witnesses under
+the closed cone. Wiring proofs establish model behavior; actual Rust Step semantics require
+their own source link. A later extraction error remains a blocker, not acceptance.
+Plan: one bounded private-build/extraction/wiring gate with unmodified-tool failure, generated
+registry mutation failure and restoration. No hardware or source-cost improvement claim.
+
+SCOPE: step_compat.patch, StepRefinement.lean, step_gate.py; private compatibility and controls.
+REGISTER: tested tool/model compatibility and proved model wiring; excludes actual Step/source-cost refinement.
+CORPUS: actual pinned core/src/iter/range.rs and Aeneas/Std/Core/Iter.lean read; no Rust Step refinement found.
+REFERENCE: /home/socol/Workspace/apeiron/target/aeneas-model/lean/Aeneas/Std/Core/Iter.lean.
+GATE: MISSING initially; gate-first timeout540 python3 proof/native/step_gate.py --actual-exact-dot --controls;
+      fresh unchanged actual body, generated registry rejecting control, restoration, wiring audit;
+      serialized Lean lane,12GiB/no swap/one thread, one whole540s budget including all builds.
+GRADE: tested compatibility target and proved model-wiring target; full-body/cost/hardware links open.
+
+Independent Sol architecture verdict: /tmp/opencode/native-step-compatibility-review.md.
+Build feasibility within540s is unmeasured. Private COW caches stay on the repository filesystem;
+no /tmp multi-gigabyte dependency copies or shared model-patches.sh invocation.
