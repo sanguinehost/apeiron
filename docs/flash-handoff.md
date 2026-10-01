@@ -592,6 +592,48 @@ asserted.
 - **Audited cross-revision equivalence artifact.** The audited cross-revision equivalence between
   the fold lineage and canonical `ringMul` is missing.
 
+## Consolidation and purge queue
+
+Operator direction: every agreed action from the working conversation is recorded here, in the
+execution plan of record, not in a new file. Each removal names its replacement, its consumers and
+its reachability check (failure register, consolidation row). No bare `rm`.
+
+- **Documentation purge.** Census: 169 markdown files under `docs/`, 48,481 lines — 40 epics, 52
+  evidence, 11 contracts, 4 reviews, 4 archive, 10 top-level. 79 are not cited by filename anywhere
+  outside `docs/` (upper bound: the test catches filename citations only). Keep the governing six
+  (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `flash-handoff.md`, `roadmap.md`, `README.md`,
+  `proof/README.md`) plus `docs/README.md` as the index; delete the remainder after a per-file
+  reachability check. A closed epic is deleted once its commits supersede it. **A new document must
+  absorb or replace an existing one; no net new files.** Deletions land with their reachability
+  receipt.
+- **Python gate purge.** `proof/resource` holds 34 `*_gate.py` on disk (30 committed) in 6,513 lines
+  (5,622 committed); each re-implements one harness (`flock` lane, `systemd-run` caps, private lake
+  package, charon/aeneas extraction, drift check, `lake build`, cone audit, real-source mutation,
+  restore, receipt, sha256). Only 18 lines are byte-identical across all 34; identifier-blinding any
+  two leaves 116 changed lines. Replace with `tools/gate` (Rust) plus one
+  `proof/resource/<module>.gate.toml` per module (root, sources+sha256, wiring, wrapper, headline,
+  mutation, markers, lane, budget_s, cone). Waves: freeze the conformance record; driver plus the
+  Fwht spec end to end; migrate the remaining modules with retirement receipts; delete every
+  `*_gate.py` and reject new ones. The driver must reproduce each gate's green markers and its named
+  mutation red before that gate is removed; a mutation that leaves the proof green is exit 1.
+- **Apeiron–Intent, decision A (repair).** Retain the lane; hold candidate acceptance until the
+  selection instrument passes rejecting controls. Ring 6 gate MISSING:
+  `crates/intent-cli/tests/ring6_selection.rs`, command
+  `cargo test -p intent-cli --locked --test ring6_selection -- --test-threads=1`, 540 s budget,
+  evolve-split inputs with candidates never receiving expected answers, held-out
+  reporting/checkpoint policy preserved. Controls: reference passes; public-table memorizer fails;
+  wrong-result and frame-forgery fail; a static-table-grading mutation makes memorizer-rejection fail
+  and restoration passes. Rooting: direct linkage supplies no refinement; the `e_±` / null-cone /
+  σ→0 reading stays a proposed mapping until carrier, hypotheses and connecting theorems exist.
+  Sequence: Ring 6 spec/gate → evaluator and isolation repairs → Apeiron linkage and canonical
+  refinement → calibration and candidate screens → one accepted improvement cycle.
+- **Outstanding returns (5).** RowDotAdmission, LmHead, RegenRelocateEntry (never returned);
+  extraction-root repair and `regen_relocate_all` (returned empty — a no-artifact return does not
+  close the task). All five agents are live; their files are owned; no second writer.
+- **Template for the coming dispatch.** Every task is ≤3 files, one gate, one control, one Arc
+  block; disjoint files, one owner per file; per-gate wall-clock budget; the lead re-runs each gate
+  before commit. A task that cannot name its gate is not dispatchable.
+
 ## Evidence labels
 
 A claim is `proved` only when a Lean kernel check passes for a named theorem with the extraction from
