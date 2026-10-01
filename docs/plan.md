@@ -839,7 +839,15 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   strictly axiom-free cone is required the caller chain is excluded or abstracted instead. The f32
   chain hangs from the single root `crate::word_attn_head`, and a probe to settle the mechanism runs
   as APEIRON-F32BOUNDARY-T1. Until it lands `proof/ApeironWord.lean` cannot regenerate, which also
-  holds the tag and attn-reshape drift. Also open:
+  holds the tag and attn-reshape drift. The T1 probe found the mechanism and a tool regression: with
+  Charon `--opaque` patterns on `crate::attn::f32_core` and `crate::mixer::f32_carrier` the OLD tool
+  clears the assert and translates `core::array::repeat`, while the REBUILT one refuses that
+  signature at `Translate.ml:390` — so the rebuild regresses on a construct the previous build
+  handled, and the durable tool identity is open. T1 also showed the 20-error count is a front slice
+  (32 errors over 29 array sites under `-print-llbc` without `-warnings-as-errors`); enumerating
+  before reading a rejection count as the population is now required. The boundary interface is
+  float-free (the Q32.32 word edge plus the `Carrier` enum), and the completion probe runs as
+  APEIRON-F32BOUNDARY-T2. Also open:
   `proof/regen.sh`'s `SOURCE_FILES` digest list has no entry for any newly mirrored extraction
   source (`mixer.rs`, `step.rs`, `chart/`, `kern/`, `loader.rs`, `trace.rs`, `numeric/fixed_ln.rs`,
   and the `mixer/` and `step/` children) — obligation 8 binds the evidence to an under-specified
