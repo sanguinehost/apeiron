@@ -9,6 +9,7 @@ Full logs, digests, tool identities and independent verdicts are retained in
 |---|---|---|
 | Actual pinned std i64::try_from(i128), inclusive endpoints and signed overflow errors | proved, scalar scope | narrow_gate.py --controls:0 /20.400s |
 | Real exact_dot exhausted tail: round, narrowing and model Result.ok | proved, terminal branch | step_gate.py --actual-exact-dot --controls:0 /439.032s |
+| Finite trace projects to actual Aeneas loop, deterministic outcome/charge | proved, generic model scope | loop_trace_gate.py --controls:0 /15.138s |
 | Actual quant_act fixtures:12cases,14581exact outputs,5refusals | tested on RTX5080 | timeout540 quantizer_gate.py:0 /289.544s including Rust lane wait |
 | Original synthetic14case fixture, unchanged digest | tested on RTX5080 | timeout540 q8_gate.py:0 /7.399s |
 | Workspace all-feature tests | tested | 0 /281.682s |
@@ -56,3 +57,14 @@ Excluded: universal quantizer/whole-loop exact_dot refinement, actual Rust Resul
 reachability, emitted-module/source-cost equivalence,
 code generation, GPU ABI/driver correctness, serving state and any GPU throughput ratio.
 Failed preparation budgets/cache/link runs are retained as failures, not semantic controls.
+
+LoopTrace.projection, deterministic and excludes_divergence bind a finite counted observation
+to actual Aeneas.Std.loop, preserving exact errors and terminal/failing-state charges. Joint
+model witnesses cover success and failure; the countdown family proves its arbitrary-n charge
+inductively, then instantiates32. It is generic infrastructure, not the Rust32-lane theorem.
+The actual loop done-to-panic mutation compiles and breaks the named projection; exact restore
+and all40 audits pass. The initially omitted18 Meta sources are now bound to immutable pinned
+git blobs, and the imported helper's Lean/native artifacts rebuild before the primitive.
+The earlier13.553s receipt remains provenance-incomplete; fresh main acceptance is15.138s.
+Actual generated-lane instantiation, constructor/prefix reachability, whole-loop source cost,
+GPU emitted/resource correspondence, admission, serving and matched prefill remain open.

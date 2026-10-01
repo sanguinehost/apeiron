@@ -315,3 +315,15 @@ CORPUS: pinned505b6ca35217e7be5c96c3e2f8045edfbdf47291 backends/lean/AeneasMeta 
 REFERENCE: /home/socol/Workspace/aeneas; pinned git blobs, not mutable HEAD.
 GATE: timeout60 supplemental source-identity preparation/check; injected digest mismatch rejects/restores.
 GRADE: tested prepared identity target; generic trace acceptance requires its fresh repaired gate.
+
+Finite loop-trace prerequisite accepted at generic model scope on main624fd7d. The fresh main
+`python3 proof/native/loop_trace_gate.py --controls` exits0 in15.138s of540s; independent Luna
+accepts the corrected dependency provenance and unchanged finite contract. All40 declarations
+audit; positive actual-primitive compile, compiling done-to-panic mutant/named projection red,
+exact restoration and final compile/audit pass. Source population9592 includes the pinned18-source
+Meta supplement and freshly rebuilt/bound imported elaborator. Earlier provenance-incomplete
+and preparatory failures remain retained. This result supplies a finite counted-value projection,
+not a charge-to-Rust correspondence or a native GPU cost certificate. Actual-lane and Result.ok
+source-link feasibility reports identify the next scoped tasks; neither runs a proof gate.
+Full receipts, source identities/texts, failures and reviews are retained in
+artifacts/gpu-prefill/native-prerequisites-acceptance.json.
