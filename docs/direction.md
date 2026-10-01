@@ -180,6 +180,15 @@ byte-hash-equals-`ringMul` claim or an arbitrary-merge classification is not mad
   runtime linkage between Apeiron and Song, and Lean is not deleted. Song's local gates stay owned
   by Song. The required cross-repo result is a proof of primitive correspondence, not runtime
   linkage.
+- **The substrate is shared, and Song's data operations run on it.** Song MUST carry the canonical
+  Apeiron table and MUST route its data operations through it. A private probe, lookup or merge in
+  Song that the canonical table already supplies is a **rebasing obligation, not an alternative
+  implementation**: the duplicate is the defect, the canonical object is the replacement. This is
+  not a trade between hard-and-good and easy-and-bad — the shared substrate *is* the architecture,
+  and a second implementation of it is not the cheap route. Song predates Apeiron, so the rebasing is
+  real work with an order. Where Song's architecture cannot host the canonical table, **Song's
+  architecture changes**; the requirement is not discharged by keeping the duplicate. Local gates
+  stay owned by Song; convergence tasks are cross-repo tasks closed by Song's own gates.
 - **Applications** retain local policy. Penglai owns fiction, materials' physical interpretation,
   gameplay policy and host integration; Lyrium extracts engine machinery later; Fold is not a
   consumer or requirements source; Whispering Tides owns game and scientific conformance, not
@@ -412,6 +421,11 @@ why an independently written implementation needs a checked refinement rather th
 equivalence. The artifacts remain distinct; their canonical semantic authority is shared.
 
 ## Migration
+
+**Corpus lineage.** `../sanguine` is the original corpus and `../sanguine-apeiron` its successor;
+**this repository is the canonical root**, with both as predecessors. A theorem is cited from the
+canonical root; a predecessor is provenance at its recorded revision, not a second authority and not
+a fallback.
 
 The physical canonical source remains at `../sanguine-apeiron/proof/Apeiron/`. The bridge's
 `proof/corpus/lake-manifest.json` resolves corpus Git

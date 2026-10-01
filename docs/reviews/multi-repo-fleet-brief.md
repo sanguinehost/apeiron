@@ -86,7 +86,8 @@ Each cost-model task minted its own convenience script. The measured population,
 | intent | 242 | 13,239 | average 55 lines/file; 107 in `runs/`, 58 in `domains/` |
 | song | 6 | 1,094 | |
 
-`apeiron/proof/resource` holds **33 `*_gate.py` totalling 6,274 lines**. All 33 carry the same
+`apeiron/proof/resource` held **33 `*_gate.py` totalling 6,274 lines** at this measurement (now 36
+on disk: 30 tracked, 6 untracked). All 33 measured carry the same
 harness — `flock`, `systemd-run -p MemoryMax=12G`, a private lake package, sha256 `digest()`, a
 receipt JSON, `main()`. Only **18 lines** are byte-identical across all 33; identifier-blinding any
 two leaves **116 changed lines**. That is 33 divergent bespoke implementations of one role, each
@@ -172,6 +173,7 @@ in the window, not a fraction of it**, which is the argument for the plan being 
 | S8 | A3 translation-trust inventory (K8/K13) → A3.x; R5 | inventory receipt |
 | S9 | A5 interface probes; A6 application profiles (wl_term, a pinned Whispering Tides slice) | probe / profile gates |
 | S10 | B6.1–B6.4 verifier acceptance | the verifier gate |
+| S11 | **A4 convergence — a programme invariant, not a preference** (`direction.md` §Ownership): Song carries the canonical Apeiron table and routes its data operations through it. Each private probe, lookup or merge the canonical table already supplies is retired as its consumer lands; `MERGE_GRAPH` is refused today and `src/lang/sort.slang` and `src/lang/intern.slang:68-71` are the named duplicates. Where Song's architecture cannot host the table, Song's architecture changes. | per-consumer gate with the table's own suite green; the consumer's old behaviour preserved as the control |
 
 ### Penglai — `docs/substrate-port-scope.md` §7 (~30 tasks)
 
