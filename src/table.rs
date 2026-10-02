@@ -366,6 +366,7 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     /// let _ = table.get_at(Sigma::Elliptic, &7);
     /// ```
     #[must_use]
+    #[inline]
     pub fn get_at(&self, face: H::Faces, key: &K) -> &V {
         let sigma = face.sigma();
         let address = Home::address(&self.home, sigma, key);
@@ -381,6 +382,18 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
                 }
             }
         }
+        self.get_spill(sigma, address.place, address.direct_word, key)
+    }
+    /// Reads the routed spill region for a query the resident fast path did not return.
+    ///
+    /// Both address fields are forwarded because [`shard`] routes on `direct_word` whenever it is
+    /// `Some`: a reconstructed `None` would select a different region than the query's own
+    /// coordinate does. Temporal `O(region capacity)` slot visits counted in tag compares plus the
+    /// full-key compares of the lanes whose fingerprint matches; spatial `O(1)`.
+    #[must_use]
+    #[inline(never)]
+    fn get_spill(&self, sigma: Sigma, place: u64, direct_word: Option<u32>, key: &K) -> &V {
+        let address = TableAddress { place, direct_word };
         let shard_at = shard(&address);
         match spill_read::<K, H, R, V>(&self.shards[shard_at], sigma, &address, key, N) {
             Some(index) => &self.shards[shard_at].slots[index].value,
