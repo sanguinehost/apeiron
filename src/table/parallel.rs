@@ -730,6 +730,8 @@ where
             }
             i += 1;
         }
+        // The finalized registry is the admitted extent: a later merge reserves against its length.
+        self.locator.admitted = self.locator.links.len();
         Ok(())
     }
 
