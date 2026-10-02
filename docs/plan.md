@@ -874,17 +874,19 @@ Operator direction: every agreed action from the working conversation is recorde
 execution plan of record, not in a new file. Each removal names its replacement, its consumers and
 its reachability check (failure register, consolidation row). No bare `rm`.
 
-- **Documentation purge.** Census re-measured against this tree: 142 markdown files under `docs/`
-  (138 at HEAD, 4 untracked), 52 not cited by path-qualified citation outside `docs/` (51 by
-  basename; the test catches filename citations only, and two basenames are ordinary English words).
+- **Documentation purge.** 142 markdown files under `docs/` (138 at HEAD, 4 untracked). Citation
+  counts are method-dependent and the old `169`/`79` pair was a stale upper bound: with `rg --json`
+  15 files carry no exact repo-path citation and 73 carry none from outside `docs/`; batch 1's
+  `rg -o | awk` reading (52) is superseded because it credited stale-worktree paths. No deletion
+  decision rests on the count: each deletion needs its per-file reachability receipt at dispatch.
   Keep the governing documents (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `plan.md`,
-  `roadmap.md`, `README.md`, `proof/README.md`) plus `docs/README.md` as the index; delete the
-  remainder after a per-file reachability check. A closed epic is deleted once its commits supersede
-  it. **A new document must absorb or replace an existing one; no net new files.** Deletions land
-  with their reachability receipt. Batch 1 (`docs/*.md` top level, 10 files): nothing is deletable
-  as it stands; the prerequisites are absorption of `extraction-requirements.md` into
-  `proof/README.md`, of four named items of `apeiron-intent-escalation.md` into this plan, and a
-  commit/fold/loss-receipt decision for the untracked `apeiron-intent-*.md` pair.
+  `roadmap.md`, `README.md`, `proof/README.md`) plus `docs/README.md` as the index; a closed epic is
+  deleted once its commits supersede it. **A new document must absorb or replace an existing one;
+  no net new files.** Batches 1-2 found nothing deletable as they stand: the prerequisites are
+  absorption of `extraction-requirements.md` into `proof/README.md`, of four named items of
+  `apeiron-intent-escalation.md` into this plan, a commit/fold/loss-receipt decision for the
+  untracked `apeiron-intent-*.md` pair, and carrying a `docs/reviews` file's index row with it if
+  one is ever deleted.
 - **Python gate purge.** `proof/resource` holds 34 `*_gate.py` on disk (30 committed) in 6,513 lines
   (5,622 committed); each re-implements one harness (`flock` lane, `systemd-run` caps, private lake
   package, charon/aeneas extraction, drift check, `lake build`, cone audit, real-source mutation,
