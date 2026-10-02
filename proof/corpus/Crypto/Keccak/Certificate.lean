@@ -60,6 +60,68 @@ theorem view_get (a : Array Std.U64 25#usize) (i : Fin 25) :
   show (view a)[i.val] = (a[i.val]).bv
   simp only [view, Vector.getElem_ofFn]
 
+/-- Reading `view` after a write: the written lane is the written word's bit
+    vector, every other lane is unchanged. -/
+theorem view_set_get (a : Array Std.U64 25#usize) (i : Std.Usize) (v : Std.U64)
+    (hi : i.val < 25) (j : Fin 25) :
+    (view (a.set i v)).get j = if j.val = i.val then v.bv else (view a).get j := by
+  show (view (a.set i v))[j.val] = if j.val = i.val then v.bv else (view a)[j.val]
+  simp only [view, Vector.getElem_ofFn]
+  have hb : j.val < (a.set i v).val.length := by
+    rw [Array.set_val_eq, List.length_set]
+    have ha : a.val.length = 25 := by simpa using a.property
+    omega
+  by_cases h : j.val = i.val
+  · rw [if_pos h]
+    exact congrArg Std.U64.bv
+      (Array.getElem_Nat_set_eq a i j.val v hb h.symm)
+  · rw [if_neg h]
+    exact congrArg Std.U64.bv
+      (Array.getElem_Nat_set_ne a i j.val v hb (by omega))
+
+/-- The write lemma for `view`, as a single vector update. -/
+theorem view_set (a : Array Std.U64 25#usize) (i : Std.Usize) (v : Std.U64)
+    (hi : i.val < 25) :
+    view (a.set i v) = (view a).set i.val v.bv hi := by
+  apply Vector.ext
+  intro j hj
+  rw [Vector.getElem_set,
+    show (view (a.set i v))[j] = (view (a.set i v)).get ⟨j, hj⟩ from rfl,
+    view_set_get a i v hi ⟨j, hj⟩]
+  by_cases h : j = i.val
+  · rw [if_pos h, if_pos h.symm]
+  · rw [if_neg h, if_neg (by omega : ¬ i.val = j)]
+    rfl
+
+/-! ## Canonical view bridges
+
+`theta` is stated on `Vector (BitVec 64) 25` with its own lane and column
+helpers. These mirror the private helpers of `Crypto/Keccak/Round.lean` so the
+extracted theta loop can be read through `view`. -/
+
+/-- Lane `k mod 25` of the canonical state, as `theta` reads it. -/
+private def laneV (s : Vector (BitVec 64) 25) (k : Nat) : BitVec 64 :=
+  s.get ⟨k % 25, Nat.mod_lt k (by decide)⟩
+
+/-- The canonical theta column parity `C[k]`. -/
+private def columnV (s : Vector (BitVec 64) 25) (k : Nat) : BitVec 64 :=
+  laneV s k ^^^ laneV s (k + 5) ^^^ laneV s (k + 10) ^^^ laneV s (k + 15) ^^^
+    laneV s (k + 20)
+
+/-- The lane `theta` writes: `A[i] ⊕ D[i mod 5]`. -/
+theorem theta_get (s : Vector (BitVec 64) 25) (i : Fin 25) :
+    (theta s).get i =
+      s.get i ^^^
+        (columnV s ((i.val % 5 + 4) % 5) ^^^
+          (columnV s ((i.val % 5 + 1) % 5)).rotateLeft 1) := by
+  show (theta s)[i.val] =
+    s.get i ^^^
+      (columnV s ((i.val % 5 + 4) % 5) ^^^
+        (columnV s ((i.val % 5 + 1) % 5)).rotateLeft 1)
+  unfold theta
+  simp only [Vector.getElem_ofFn]
+  rfl
+
 /-! ## Constant-table bridges -/
 
 /-- `crypto.ROT` read at index `i` is the canonical rho offset `ROT[i]`. -/
@@ -94,6 +156,16 @@ def laneW (state : Array Std.U64 25#usize) (k : Nat) : Std.U64 :=
 def colW (state : Array Std.U64 25#usize) (j : Nat) : Std.U64 :=
   laneW state j ^^^ laneW state (j + 5) ^^^ laneW state (j + 10) ^^^
     laneW state (j + 15) ^^^ laneW state (j + 20)
+
+/-- The theta correction `D[x]` computed from the extracted column-parity words. -/
+def thetaD (state : Array Std.U64 25#usize) (x : Nat) : BitVec 64 :=
+  (colW state ((x + 4) % 5)).bv ^^^ ((colW state ((x + 1) % 5)).bv).rotateLeft 1
+
+/-- The extracted column-parity word carries the canonical column parity. -/
+theorem colW_bv (state : Array Std.U64 25#usize) (k : Nat) :
+    (colW state k).bv = columnV (view state) k := by
+  unfold colW laneW columnV laneV
+  simp only [UScalar.bv_xor, view_get]
 
 /-- Entry `j` of the extracted 5-word column scratch array. -/
 def colGet (c : Array Std.U64 5#usize) (j : Fin 5) : Std.U64 :=
