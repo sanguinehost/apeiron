@@ -22,6 +22,9 @@ derive = ["dep:apeiron-derive"]
 # runs a debug profile (so `debug_assertions` is on), which is why they are gated by this feature and
 # not by `debug_assertions`. The timed release path is counter-free with or without it.
 read-stats = []
+# Off by default. The sovereign GPU runtime (`src/gpu`): dlopen Vulkan device + dispatch over the
+# always-on `spirv::simt` kernel builders. Zero crates; the unsafe FFI is the boundary.
+gpu = []
 # Off by default. Enables the test-only one-shot seams and observation probes
 # (`apeiron::coord::locator::reservation_failure` and the injection-gated seams/probes in
 # `apeiron::table::parallel` and `apeiron::table::locator`), which use a `thread_local` and
@@ -154,6 +157,17 @@ path = "examples/support/counter_check.rs"
 [[example]]
 name = "reg1"
 path = "examples/reg1/main.rs"
+
+# The ported SIMT kernels' GPU gates (need the `gpu` runtime feature).
+[[example]]
+name = "simt_check"
+path = "examples/simt_check.rs"
+required-features = ["gpu"]
+
+[[example]]
+name = "simt_gemv"
+path = "examples/simt_gemv.rs"
+required-features = ["gpu"]
 
 [workspace]
 members = ["derive", "fold-abi"]
