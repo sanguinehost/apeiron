@@ -29,6 +29,14 @@
 # the wave that runs it. The digests below were produced by this same loader, not by a second
 # implementation, and they bind to the bytes on disk when it last reported clean.
 #
+# What a run records. The adapter runs a row's `gate` command through `/bin/sh -c` under that row's
+# `budget_s` and returns one record: the command string, the working directory, the exit status,
+# whether it was killed at the budget, the elapsed milliseconds, and the sha256 of its stdout and of
+# its stderr. The two refusals it carries are a command that could not be run at all, and a child
+# killed at its budget; the second refuses because a killed gate reported nothing, and reading its
+# silence as a pass is the quiet success `AGENTS.md` §10 records. A non-zero exit is not a refusal —
+# it is the child's own verdict, carried by the exit status.
+#
 # Seeded rows: `docs/plan.md`, `tools/gate/`, and the 36 `proof/resource/*_gate.py` (30 tracked,
 # 6 untracked: KvAppend, LmHead, Matvec, RegenRelocateAll, RegenRelocateEntry, RowDotAdmission).
 # `RegenRelocateEntry_gate.py` exposes no `--check` flag, so its `gate` column carries the bare
@@ -39,12 +47,18 @@
 # changes a file in that crate. That is the identity working, not a defect: the wave that writes the
 # file refreshes this row in the same task. `docs/plan.md` and the gate scripts are single files and
 # drift only when their own bytes change.
+#
+# The `control` column of the `tools/gate` row chains one filtered run per refusing path, so each
+# filter names the control that must require a refusal. The supporting controls — the streaming
+# digest against the one-shot digest, the relay across its buffer boundary, an unrunnable command,
+# the attributable digest-mismatch diagnostic, an exclusive lock, a malformed registry — are run by
+# the same `cargo test` and are asserted by name in `tools/gate/{adapter.rs,main.rs}`.
 
 [[artifact]]
 id       = "docs/plan.md"
 kind     = "doc"
 path     = "docs/plan.md"
-sha256   = "a58a650a2c2f30e95d71da98c1a2c1a6813b35f48851f4bef075f11e39b70f1d"
+sha256   = "7a33c44e14d426b01a786a51e89055cde77ad4819a4c9d65e1986cb45e3c2e8d"
 gate     = "python3 tools/check-claims.py"
 control  = "python3 tools/check-claims.py --self-test"
 budget_s = 540
@@ -52,9 +66,9 @@ budget_s = 540
 id       = "tools/gate"
 kind     = "rust"
 path     = "tools/gate/"
-sha256   = "c1b87b9aa71c363e80a9a72cb8e94fe95338d81edfccaf64bd74b69a5ace4f26"
+sha256   = "5bf5515d984e679a07696c7308eb32e4fdf8a9ebc3459cf6d11d7f93296860ea"
 gate     = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets"
-control  = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets repeated_id_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets digest_mismatch_is_refused"
+control  = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets repeated_id_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets digest_mismatch_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets missing_path_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets over_budget_run_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets run_records_exit_status_and_output_digest"
 budget_s = 540
 [[artifact]]
 id       = "proof/resource/ApplyPending_gate.py"

@@ -165,28 +165,42 @@ fn check(root: &Path, rows: &[Row]) -> Report {
                 };
                 report.mismatches.extend(gate::admit(&manifest, &submitted));
             }
-            Err(error) => report.unreadable.push(format!("{}: {error}", row.path)),
+            Err(error) => report
+                .unreadable
+                .push(unreadable_text(&row.path, &error.to_string())),
         }
     }
     report
 }
 
-fn print_refusal(refusal: &Refusal) {
+/// A path the adapter could not hash, as a report line naming the row and the reason. Not a core
+/// verdict: there is no identity on disk to compare against, and reporting a row as drifted would
+/// name an identity that does not exist. The line carries the row path and the OS reason so a
+/// refusal says which row and why.
+fn unreadable_text(path: &str, error: &str) -> String {
+    format!("unreadable: {path}: {error}")
+}
+
+/// One refusal as the report prints it. Every variant names its id or its pair of ids, so a
+/// diagnostic can be attributed to a row without re-reading the manifest.
+fn refusal_text(refusal: &Refusal) -> String {
     match refusal {
-        Refusal::DuplicateRegistration(id) => println!("  duplicate id: {id}"),
+        Refusal::DuplicateRegistration(id) => format!("  duplicate id: {id}"),
         Refusal::IdentityMismatch {
             id,
             expected,
             actual,
-        } => println!("  digest mismatch: {id} recorded {expected}, on disk {actual}"),
+        } => format!("  digest mismatch: {id} recorded {expected}, on disk {actual}"),
         Refusal::MissingDependency { from, to } => {
-            println!("  missing dependency: {from} requires {to}");
+            format!("  missing dependency: {from} requires {to}")
         }
-        Refusal::Unregistered(id) => println!("  unregistered: {id}"),
-        Refusal::DanglingReference { from, to } => {
-            println!("  dangling reference: {from} -> {to}");
-        }
+        Refusal::Unregistered(id) => format!("  unregistered: {id}"),
+        Refusal::DanglingReference { from, to } => format!("  dangling reference: {from} -> {to}"),
     }
+}
+
+fn print_refusal(refusal: &Refusal) {
+    println!("{}", refusal_text(refusal));
 }
 
 /// `gate docs check [manifest]`. Exit 0 when every loaded row still names the file it names; exit 1
@@ -226,7 +240,7 @@ fn docs_check(manifest_path: &Path) -> ExitCode {
         print_refusal(refusal);
     }
     for path in &report.unreadable {
-        println!("  unreadable: {path}");
+        println!("  {path}");
     }
     drop(lock);
     if report.accepted() {
@@ -391,5 +405,61 @@ mod controls {
         );
         assert_eq!(report.loaded, 0);
         assert!(!report.accepted());
+    }
+
+    /// A digest-mismatch diagnostic must be attributable: it names the row and both identities, so a
+    /// reader can tell which recorded digest moved and which one is on disk without re-running the
+    /// check. A refusal that says only "mismatch" would leave the reader to re-derive it.
+    #[test]
+    fn digest_mismatch_diagnostic_names_row_and_both_identities() {
+        let scratch = Scratch::new("attrib");
+        scratch.write("a.rs", "fn a() {}\n");
+        let root = scratch.0.clone();
+        let recorded = "0".repeat(64);
+        let rows = adapter::parse(&row_text("proof/a.rs", "a.rs", &recorded)).expect("syntax");
+        let report = check(&root, &rows);
+        assert_eq!(report.mismatches.len(), 1, "{report:?}");
+
+        let text = refusal_text(&report.mismatches[0]);
+        assert!(text.contains("proof/a.rs"), "{text}");
+        assert!(text.contains(&recorded), "{text}");
+        assert!(text.contains(&digest_of(&root, "a.rs")), "{text}");
+    }
+
+    /// Rejecting control: a row whose `path` does not resolve. The refusal names the row and the OS
+    /// reason, and restoring the file at the recorded identity turns it green — so the refusal came
+    /// from the missing path and not from the loader refusing everything.
+    #[test]
+    fn missing_path_is_refused() {
+        let scratch = Scratch::new("missing");
+        scratch.write("a.rs", "fn a() {}\n");
+        let root = scratch.0.clone();
+        let hex = digest_of(&root, "a.rs");
+        let rows = adapter::parse(&row_text("a.rs", "a.rs", &hex)).expect("syntax");
+
+        // Green first: the row resolves and the identity matches.
+        assert!(check(&root, &rows).accepted());
+
+        // The path goes missing on the throwaway tree.
+        std::fs::remove_file(root.join("a.rs")).expect("remove");
+        let report = check(&root, &rows);
+        assert_eq!(report.loaded, 1, "the row still loaded");
+        assert_eq!(
+            report.mismatches,
+            Vec::new(),
+            "no identity exists to compare"
+        );
+        assert_eq!(report.unreadable.len(), 1, "{report:?}");
+        let text = &report.unreadable[0];
+        assert!(text.starts_with("unreadable: a.rs: "), "{text}");
+        assert!(
+            text.len() > "unreadable: a.rs: ".len(),
+            "the reason is named: {text}"
+        );
+        assert!(!report.accepted());
+
+        // Restore: the same bytes at the same identity load clean again.
+        scratch.write("a.rs", "fn a() {}\n");
+        assert!(check(&root, &rows).accepted());
     }
 }

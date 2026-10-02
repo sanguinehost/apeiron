@@ -6,7 +6,7 @@
 //! verdict comes from `core::validate` or `core::admit`. The split mirrors
 //! `tools/dispatch/{core.rs,main.rs}`.
 //!
-//! **Trust boundary.** The command string handed to [`run_budgeted`] is executed by `/bin/sh -c`
+//! **Trust boundary.** The command string handed to [`run_captured`] is executed by `/bin/sh -c`
 //! without sanitising, because the registry records the *exact* command a gate must run. The
 //! registry in `docs/contracts/artifacts.toml` is therefore trusted input: a row that can write a
 //! command can run it. That is the same trust the manifest already claims, and it is why the
@@ -21,22 +21,32 @@
 //!   components beginning with `.` and the component `target` are skipped, so build products and
 //!   editor scratch do not enter an identity.
 //!
+//! **A recorded run.** [`run_captured`] returns a [`RunRecord`]: the child's exit status, whether it
+//! was killed at the budget, its elapsed time, and the sha256 of what it printed on each stream.
+//! That record is what a receipt names, so a run's result and its output identity are one value
+//! rather than a claim about a terminal scrollback.
+//!
 //! **Complexity.** [`sha256_path`] on a file is O(bytes) time and O(1) space beyond the 64-byte
 //! padding block: one pass, no buffering of the payload. On a directory it is O(files + bytes) time
 //! and O(files) space in the sorted path list; the sort is over the collected names, and the
 //! collection is one directory walk that terminates because the walk is over a finite tree.
-//! [`run_budgeted`] is O(1) space and its wall time is bounded by the passed `budget_s`: the child
-//! is polled every [`POLL_MS`] and killed on expiry, so the call returns within
-//! `budget_s + POLL_MS`.
+//! [`run_captured`] is O(`COPY_CHUNK`) space whatever the child prints, and its wall time is
+//! bounded by `budget_s + POLL_MS + output bytes`: the child is polled every [`POLL_MS`] and killed
+//! on expiry, then its two output files are relayed once. [`relay`] is O(bytes) time and
+//! O(`COPY_CHUNK`) space.
 
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Poll interval for a budgeted child. The overshoot past the declared budget is bounded by this.
 const POLL_MS: u64 = 25;
+
+/// Bytes moved per iteration when relaying a child's output. Bounds the relay buffer.
+const COPY_CHUNK: usize = 8192;
 
 /// Retry interval while another process holds the lock file.
 const LOCK_POLL_MS: u64 = 100;
@@ -315,30 +325,86 @@ const IV: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
+/// A streaming sha256: the eight-word state, one 64-byte block of carry-over, and the 64-bit bit
+/// count. Space is O(1) in the message length, so a gate that prints a gigabyte is digested with
+/// one block of carry-over rather than by holding its output.
+///
+/// Time O(bytes) per `update` and O(1) per `finish`; space O(1).
+pub struct Sha256 {
+    state: [u32; 8],
+    block: [u8; 64],
+    held: usize,
+    bits: u64,
+}
+
+impl Sha256 {
+    /// The initial hash value of FIPS 180-4 §5.3.3, with an empty block and a zero bit count.
+    pub fn new() -> Sha256 {
+        Sha256 {
+            state: IV,
+            block: [0u8; 64],
+            held: 0,
+            bits: 0,
+        }
+    }
+
+    /// Absorb `bytes`. A full block is compressed in place; the remainder is carried into the next
+    /// call, so a message split anywhere digests to the same value as the whole message.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.bits = self.bits.wrapping_add((bytes.len() as u64).wrapping_mul(8));
+        let mut rest = bytes;
+        if self.held > 0 {
+            let want = 64 - self.held;
+            let take = want.min(rest.len());
+            self.block[self.held..self.held + take].copy_from_slice(&rest[..take]);
+            self.held += take;
+            rest = &rest[take..];
+            if self.held == 64 {
+                compress(&mut self.state, &self.block);
+                self.held = 0;
+                // The block is spent: zero it, because `finish` writes whole bytes of padding and a
+                // tail copied over stale bytes would digest a message the caller never sent.
+                self.block = [0u8; 64];
+            } else {
+                // The carry-over is short of a block and `rest` is exhausted, so the bytes just
+                // written are still the tail. Returning is what keeps them.
+                return;
+            }
+        }
+        let mut chunks = rest.chunks_exact(64);
+        for chunk in &mut chunks {
+            compress(&mut self.state, chunk);
+        }
+        let tail = chunks.remainder();
+        self.block[..tail.len()].copy_from_slice(tail);
+        self.held = tail.len();
+    }
+
+    /// The digest, lowercase hex. Pads with `0x80`, zeros and the big-endian bit count; a carry-over
+    /// of 56 bytes or more leaves no room for the length and costs a second compression.
+    pub fn finish(mut self) -> String {
+        let held = self.held;
+        self.block[held] = 0x80;
+        if held >= 56 {
+            compress(&mut self.state, &self.block);
+            self.block = [0u8; 64];
+        }
+        self.block[56..].copy_from_slice(&self.bits.to_be_bytes());
+        compress(&mut self.state, &self.block);
+        self.state
+            .iter()
+            .map(|word| format!("{word:08x}"))
+            .collect()
+    }
+}
+
 /// The sha256 of `bytes`, lowercase hex. Implemented here rather than pulled from a crate because
 /// this tool is a trust boundary over the repository's own gates: its own executable is the
 /// smallest dependency set that can carry a digest.
 fn sha256(bytes: &[u8]) -> String {
-    let mut state = IV;
-    for block in bytes.chunks_exact(64) {
-        compress(&mut state, block);
-    }
-
-    // Final block(s): the 0x80 byte, zeros, and the 64-bit big-endian bit length. A remainder of
-    // 56 bytes or more does not leave room for the length, so it costs a second block.
-    let remainder = bytes.len() % 64;
-    let mut block = [0u8; 64];
-    block[..remainder].copy_from_slice(&bytes[bytes.len() - remainder..]);
-    block[remainder] = 0x80;
-    if remainder >= 56 {
-        compress(&mut state, &block);
-        block = [0u8; 64];
-    }
-    let bits = (bytes.len() as u64).wrapping_mul(8);
-    block[56..].copy_from_slice(&bits.to_be_bytes());
-    compress(&mut state, &block);
-
-    state.iter().map(|word| format!("{word:08x}")).collect()
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher.finish()
 }
 
 /// One 64-byte block: expand to a 64-word schedule, then 64 rounds of the compression function.
@@ -463,67 +529,209 @@ fn strip_prefix<'a>(path: &'a Path, base: &Path) -> &'a Path {
 
 // -- process, clock, lock --------------------------------------------------------------
 
-// `Outcome` and `run_budgeted` are the budgeted-execution primitive. Nothing in this wave runs a
-// gate — `docs/plan.md` E1 W4 owns the aggregate that does — so in a build without the test
-// configuration they are unused, and the `allow` says exactly that rather than leaving a warning
-// or an invented caller. The controls below are the reason they exist and the reason they work.
+// `RunRecord`, `RunRefusal` and `run_captured` are the budgeted-execution primitive. Nothing in
+// this wave runs a gate — `docs/plan.md` E1 W4 owns the aggregate that does — so in a build without
+// the test configuration they are unused, and the `allow` says exactly that rather than leaving a
+// warning or an invented caller. The controls below are the reason they exist and the reason they
+// work.
 
-/// What a budgeted child did. `timed_out` is the load-bearing field: a child killed at the budget
-/// did not report a result, and reporting its exit code as a verdict would be the quiet success
-/// `AGENTS.md` §10 records as a failure.
+/// Why a run is refused, as the adapter sees it. Not a core `Refusal`: admission is
+/// `core.rs`'s decision, and these are the observations a pure decision cannot make for itself.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Outcome {
-    pub code: Option<i32>,
-    pub timed_out: bool,
-    pub elapsed_ms: u128,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunRefusal {
+    /// The child could not be started, or its output could not be read back. No verdict exists.
+    Unrunnable { command: String, message: String },
+    /// The child outlived its declared budget and was killed at it. It reported nothing, so reading
+    /// its absence of an exit status as success is the quiet success `AGENTS.md` §10 records.
+    BudgetExceeded {
+        command: String,
+        budget_s: u64,
+        elapsed_ms: u128,
+    },
 }
 
 #[allow(dead_code)]
-impl Outcome {
-    /// A verdict in the terms a gate report uses: refused unless it exited 0 inside its budget.
-    pub fn accepted(&self) -> bool {
-        !self.timed_out && self.code == Some(0)
+impl std::fmt::Display for RunRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunRefusal::Unrunnable { command, message } => {
+                write!(f, "cannot run `{command}`: {message}")
+            }
+            RunRefusal::BudgetExceeded {
+                command,
+                budget_s,
+                elapsed_ms,
+            } => write!(
+                f,
+                "`{command}` was killed at its budget of {budget_s}s after {elapsed_ms}ms; it reported no exit status"
+            ),
+        }
     }
 }
 
-/// Run `command` through `/bin/sh -c` in `cwd`, killing it once `budget_s` has elapsed. The child's
-/// stdio is inherited, so its markers reach the terminal directly and no pipe can fill and deadlock
-/// the wait. Returns as soon as the child exits, or shortly after the budget expires.
+/// What a budgeted child did, and the identity of what it printed. `timed_out` and the two digests
+/// are the load-bearing fields: a child killed at the budget produced no result, and its output is
+/// what a receipt must name.
+///
+/// A non-zero exit is not a [`RunRefusal`]: it is the child's own verdict, carried by `code`, and
+/// read with [`RunRecord::accepted`].
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunRecord {
+    /// The exact string handed to `/bin/sh -c`, recorded so a receipt names what ran.
+    pub command: String,
+    /// The working directory it ran in, as given.
+    pub cwd: String,
+    /// The budget it was killed at, if any.
+    pub budget_s: u64,
+    /// The child's exit status, or `None` if it was killed at the budget or died on a signal.
+    pub code: Option<i32>,
+    pub timed_out: bool,
+    pub elapsed_ms: u128,
+    pub stdout_sha256: String,
+    pub stderr_sha256: String,
+}
+
+#[allow(dead_code)]
+impl RunRecord {
+    /// A verdict in the terms a gate report uses: accepted unless it exited 0 inside its budget.
+    pub fn accepted(&self) -> bool {
+        !self.timed_out && self.code == Some(0)
+    }
+
+    /// The refusal this run carries, or `None` when it reported an exit status.
+    pub fn refusal(&self) -> Option<RunRefusal> {
+        if self.timed_out {
+            return Some(RunRefusal::BudgetExceeded {
+                command: self.command.clone(),
+                budget_s: self.budget_s,
+                elapsed_ms: self.elapsed_ms,
+            });
+        }
+        None
+    }
+}
+
+/// Distinguishes two runs in one process, so their scratch directories cannot collide.
+static RUN_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// A per-run scratch directory, removed when it goes out of scope. Every path out of
+/// [`run_captured`] therefore cleans up, including the refusal paths that return before a child was
+/// ever started: a gate runner that leaves a directory behind on every failed run fills a
+/// temporary filesystem with the evidence of its own failures.
+#[derive(Debug)]
+struct RunDir(PathBuf);
+
+impl Drop for RunDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A scratch directory named from the process, the clock and a process-local counter. Callers keep
+/// it alive with a [`RunDir`] binding.
+fn run_dir() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("gate-run-{}-{nanos}-{seq}", std::process::id()))
+}
+
+/// Stream `path` into `out` and return the sha256 of its bytes. One pass, [`COPY_CHUNK`] bytes at
+/// a time, so the space is O(`COPY_CHUNK`) whatever the file holds and the child never waits on an
+/// unread pipe.
+fn relay(path: &Path, out: &mut dyn Write) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; COPY_CHUNK];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        out.write_all(&buffer[..read])?;
+    }
+    out.flush()?;
+    Ok(hasher.finish())
+}
+
+/// Run `command` through `/bin/sh -c` in `cwd`, killing it once `budget_s` has elapsed, and record
+/// its exit status together with the sha256 of what it printed on each stream.
+///
+/// The child's stdout and stderr go to files under a scratch directory rather than to pipes. A pipe
+/// nobody reads fills and deadlocks the wait, and a child's output is unbounded while this tool's
+/// memory is not; a file blocks neither. The two files are relayed to the parent's own streams and
+/// digested in one pass after the child is reaped, so its markers still reach the terminal and the
+/// record's digests are the bytes that reached it.
 ///
 /// Not sanitising the command string is deliberate and is the trust boundary stated at the top of
 /// this file.
+///
+/// The digests bind what the direct child wrote before it was reaped. An orphaned grandchild that
+/// inherited the descriptors can still append afterwards; nothing here can see that, and it is
+/// recorded here rather than claimed closed.
 #[allow(dead_code)]
-pub fn run_budgeted(command: &str, cwd: &Path, budget_s: u64) -> io::Result<Outcome> {
+pub fn run_captured(command: &str, cwd: &Path, budget_s: u64) -> Result<RunRecord, RunRefusal> {
+    let unrunnable = |message: String| RunRefusal::Unrunnable {
+        command: command.to_string(),
+        message,
+    };
+
+    let dir = run_dir();
+    fs::create_dir_all(&dir).map_err(|error| unrunnable(format!("{}: {error}", dir.display())))?;
+    // Kept alive to the end of the function so every return path removes the scratch directory.
+    let _scratch = RunDir(dir.clone());
+    let stdout_path = dir.join("stdout");
+    let stderr_path = dir.join("stderr");
+    let stdout_file = File::create(&stdout_path)
+        .map_err(|error| unrunnable(format!("{}: {error}", stdout_path.display())))?;
+    let stderr_file = File::create(&stderr_path)
+        .map_err(|error| unrunnable(format!("{}: {error}", stderr_path.display())))?;
+
     let start = Instant::now();
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
+        .spawn()
+        .map_err(|error| unrunnable(format!("in {}: {error}", cwd.display())))?;
     let budget = Duration::from_secs(budget_s);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Outcome {
-                code: status.code(),
-                timed_out: false,
-                elapsed_ms: start.elapsed().as_millis(),
-            });
+    let (code, timed_out) = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break (status.code(), false),
+            Ok(None) => {}
+            Err(error) => return Err(unrunnable(error.to_string())),
         }
         if start.elapsed() >= budget {
             let _ = child.kill();
             let _ = child.wait();
-            return Ok(Outcome {
-                code: None,
-                timed_out: true,
-                elapsed_ms: start.elapsed().as_millis(),
-            });
+            break (None, true);
         }
         std::thread::sleep(Duration::from_millis(POLL_MS));
-    }
+    };
+    let elapsed_ms = start.elapsed().as_millis();
+
+    let stdout_sha256 =
+        relay(&stdout_path, &mut std::io::stdout()).map_err(|e| unrunnable(e.to_string()))?;
+    let stderr_sha256 =
+        relay(&stderr_path, &mut std::io::stderr()).map_err(|e| unrunnable(e.to_string()))?;
+
+    Ok(RunRecord {
+        command: command.to_string(),
+        cwd: cwd.to_string_lossy().into_owned(),
+        budget_s,
+        code,
+        timed_out,
+        elapsed_ms,
+        stdout_sha256,
+        stderr_sha256,
+    })
 }
 
 /// An exclusive lock file, released when it is dropped.
@@ -590,6 +798,29 @@ pub fn load_manifest(path: &Path) -> Result<Vec<Row>, String> {
 #[cfg(test)]
 mod controls {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serialises the controls that count scratch directories, so a run another control has in
+    /// flight cannot be counted as a leak. The four they guard are the only `run_captured` and
+    /// `run_dir` callers, and each is an IO-bound subprocess test, so serialising them costs the
+    /// suite about the wall time of one `sleep`.
+    static SCRATCH: Mutex<()> = Mutex::new(());
+
+    /// The scratch directories this process has created and not yet removed.
+    fn scratch_dirs() -> Vec<PathBuf> {
+        let prefix = format!("gate-run-{}-", std::process::id());
+        let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+            })
+            .collect()
+    }
 
     /// The hasher must agree with a known digest of the empty string and of `abc`, or every
     /// recorded identity in the registry is wrong in a way nothing else would notice.
@@ -608,6 +839,23 @@ mod controls {
             sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
+    }
+
+    /// The streaming hasher must agree with the one-shot one at every split, because a gate's
+    /// output is relayed in `COPY_CHUNK` pieces and digested as it goes. A boundary error here
+    /// would record a digest no other implementation reproduces.
+    #[test]
+    fn streamed_digest_matches_the_one_shot_digest() {
+        let message: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+        let expected = sha256(&message);
+        for split in [0, 1, 55, 56, 63, 64, 65, 127, 128, 500, 999, 1000] {
+            let mut hasher = Sha256::new();
+            hasher.update(&message[..split]);
+            hasher.update(&message[split..]);
+            assert_eq!(hasher.finish(), expected, "split at {split}");
+        }
+        // The empty stream, which a child that printed nothing produces.
+        assert_eq!(Sha256::new().finish(), sha256(b""));
     }
 
     /// A field the schema does not admit is refused at the syntax layer, not defaulted: a digest
@@ -642,28 +890,122 @@ mod controls {
         );
     }
 
-    /// A child that outlives its declared budget is killed and reported as `timed_out`, never as an
-    /// exit code: a gate killed at the ceiling produced no result, and reading its signal death as
-    /// a verdict is the quiet success the failure register records.
+    /// A child that outlives its declared budget is killed and reported as `timed_out` with an
+    /// attributable refusal, never as an exit code: a gate killed at the ceiling produced no
+    /// result, and reading its signal death as a verdict is the quiet success the failure register
+    /// records. The refusal names the command, the budget and the elapsed time, and the positive
+    /// restores it inside its budget.
     #[test]
-    fn budget_kills_a_child_that_outlasts_it() {
+    fn over_budget_run_is_refused() {
+        let _serial = SCRATCH.lock().unwrap_or_else(|error| error.into_inner());
+        let before = scratch_dirs();
         let here = Path::new(".");
-        let overrun = run_budgeted("sleep 30", here, 1).expect("spawn");
+        let overrun = run_captured("sleep 30", here, 1).expect("spawn");
         assert!(overrun.timed_out, "{overrun:?}");
-        assert!(!overrun.accepted());
+        assert!(
+            !overrun.accepted(),
+            "a killed child reported nothing to accept"
+        );
+
+        let refusal = overrun.refusal().expect("a killed child is a refusal");
+        assert_eq!(
+            refusal,
+            RunRefusal::BudgetExceeded {
+                command: "sleep 30".into(),
+                budget_s: 1,
+                elapsed_ms: overrun.elapsed_ms,
+            }
+        );
+        let text = refusal.to_string();
+        assert!(text.contains("sleep 30"), "{text}");
+        assert!(text.contains("budget of 1s"), "{text}");
         assert!(
             overrun.elapsed_ms < 10_000,
             "the budget must bound the wait: {}ms",
             overrun.elapsed_ms
         );
 
-        let inside = run_budgeted("exit 0", here, 60).expect("spawn");
+        // Restore: the same runner, inside the budget, is accepted and carries no refusal.
+        let inside = run_captured("exit 0", here, 60).expect("spawn");
+        assert!(inside.accepted(), "{inside:?}");
+        assert_eq!(inside.refusal(), None, "{inside:?}");
         assert_eq!(inside.code, Some(0), "{inside:?}");
-        assert!(inside.accepted());
+        assert_eq!(scratch_dirs(), before, "a run leaves no scratch behind");
+    }
 
-        let failed = run_budgeted("exit 3", here, 60).expect("spawn");
-        assert_eq!(failed.code, Some(3), "{failed:?}");
-        assert!(!failed.accepted());
+    /// A run records the exit status *and* the identity of what it printed, and a changed byte
+    /// changes the recorded digest. Without the digest a record names a status but not the output
+    /// it came from, and two runs that differ only in output would be indistinguishable.
+    #[test]
+    fn run_records_exit_status_and_output_digest() {
+        let _serial = SCRATCH.lock().unwrap_or_else(|error| error.into_inner());
+        let before = scratch_dirs();
+        let here = Path::new(".");
+        let quiet = run_captured("printf 'green'", here, 60).expect("spawn");
+        assert_eq!(quiet.code, Some(0), "{quiet:?}");
+        assert_eq!(quiet.stdout_sha256, sha256(b"green"));
+        assert_eq!(quiet.stderr_sha256, sha256(b""));
+
+        // Same status, one byte of output changed: the digest must move with it.
+        let red = run_captured("printf 'red'; exit 1", here, 60).expect("spawn");
+        assert_eq!(red.code, Some(1), "{red:?}");
+        assert_eq!(red.stdout_sha256, sha256(b"red"));
+        assert_ne!(red.stdout_sha256, quiet.stdout_sha256);
+
+        // The two streams are digested apart, so output on stderr is not conflated with stdout.
+        let split = run_captured("printf out; printf err >&2", here, 60).expect("spawn");
+        assert_eq!(split.stdout_sha256, sha256(b"out"), "{split:?}");
+        assert_eq!(split.stderr_sha256, sha256(b"err"), "{split:?}");
+        assert_eq!(scratch_dirs(), before, "a run leaves no scratch behind");
+    }
+
+    /// The relay digests output larger than its own buffer, in `COPY_CHUNK` pieces, and hands back
+    /// the same bytes it digested. A gate printing more than 8 KiB crosses the read boundary here;
+    /// a relay that digested only the first chunk would record an identity no other reader of that
+    /// file reproduces.
+    #[test]
+    fn relay_digests_output_larger_than_its_buffer() {
+        let _serial = SCRATCH.lock().unwrap_or_else(|error| error.into_inner());
+        let before = scratch_dirs();
+        let dir = run_dir();
+        fs::create_dir_all(&dir).expect("scratch dir");
+        let _scratch = RunDir(dir.clone());
+        let path = dir.join("stdout");
+        // 3 full `COPY_CHUNK` reads and a 300-byte remainder, spanning four block boundaries.
+        let bytes = vec![b'a'; COPY_CHUNK * 3 + 300];
+        fs::write(&path, &bytes).expect("scratch output");
+
+        let mut sink: Vec<u8> = Vec::new();
+        let hex = relay(&path, &mut sink).expect("relay");
+        assert_eq!(hex, sha256(&bytes));
+        assert_eq!(sink, bytes);
+        drop(_scratch);
+        assert_eq!(scratch_dirs(), before, "the relay's scratch is removed");
+    }
+
+    /// A command that cannot be started is refused, not reported as a result: an unrun gate is not a
+    /// passing gate. `sh` itself resolves on this host, so the failing part is the working
+    /// directory, which is the input the caller controls. The refusal path must also leave no
+    /// scratch directory behind: the one population that fails most is the one whose leftovers
+    /// accumulate.
+    #[test]
+    fn unrunnable_command_is_refused() {
+        let _serial = SCRATCH.lock().unwrap_or_else(|error| error.into_inner());
+        let before = scratch_dirs();
+        let missing_cwd = Path::new("/nonexistent-gate-cwd");
+        let refusal = run_captured("exit 0", missing_cwd, 1).expect_err("a bad cwd cannot spawn");
+        assert!(
+            matches!(refusal, RunRefusal::Unrunnable { .. }),
+            "{refusal:?}"
+        );
+        let text = refusal.to_string();
+        assert!(text.contains("exit 0"), "{text}");
+        assert!(text.contains("/nonexistent-gate-cwd"), "{text}");
+        assert_eq!(
+            scratch_dirs(),
+            before,
+            "a refused run must leave no scratch directory"
+        );
     }
 
     /// A lock is exclusive while it is held, and is released when the holder drops it. The second
