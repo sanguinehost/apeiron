@@ -63,7 +63,7 @@ set_option linter.unnecessarySimpa false
 namespace apeiron_word
 
 open Aeneas Aeneas.Std Result
-open Apeiron.Crypto.Sha2 (Word State)
+open Apeiron.Crypto.Sha2 (Word State Block)
 
 /-! ## Byte views
 
@@ -256,6 +256,209 @@ theorem maj_step (a b c : Std.U32) :
       Apeiron.Crypto.Sha2.majority a.bv b.bv c.bv := by
   simp only [Apeiron.Crypto.Sha2.majority, UScalar.bv_and, UScalar.bv_xor]
 
+/-! ## The schedule view
+
+`Array Std.U32 64#usize` is a `ListN` wrapper, so the canonical
+`Vector Word 64` schedule is read through `getD` with the zero default: an
+`Array α n` has `n.val = n` entries, so no read at an index below `n` takes the
+default. `wView` is that read as a `Vector`, and `wGet_set` is the write side,
+routed through `List.getD_eq_getElem?_getD` and `List.getElem?_set` (the pinned
+toolchain has no `List.getD_set`).
+
+The canonical `Sha2.schedule` is a `List.range 48 |>.foldl` over a
+`Vector.ofFn` that rewrites a single row, so it is read here through three
+spellings of the same fold — `schedStart`, `schedStep`, `schedN` — with
+`schedule_eq_schedN` the definitional link. `schedN_eq_rowVec` is the general
+induction over the forty-eight extension steps: the step case reads only rows
+`t-2`, `t-7`, `t-15` and `t-16`, which all lie strictly below the row being
+written, so the loop invariant closes without enumerating the steps.
+`schedule_getD` reads the canonical schedule at any row. -/
+
+/-- The canonical schedule row `W[j]`, by strong recursion on the row index:
+    the sixteen block words for `j < 16`, and `σ₁(W[j-2]) + W[j-7] + σ₀(W[j-15])
+    + W[j-16]` above, FIPS 180-4 §6.2.2 step 1. -/
+def schedRow (b : Block) (j : Nat) : Word :=
+  if _h : j < 16 then b.getD j 0
+  else Apeiron.Crypto.Sha2.sigma1 (schedRow b (j - 2)) + schedRow b (j - 7)
+       + Apeiron.Crypto.Sha2.sigma0 (schedRow b (j - 15)) + schedRow b (j - 16)
+termination_by j
+decreasing_by
+  all_goals have _hj : 16 ≤ j := by omega
+  all_goals omega
+
+/-- Above row sixteen the canonical row is the FIPS step-1 recurrence. -/
+theorem schedRow_step (b : Block) (t : Nat) (ht : 16 ≤ t) :
+    schedRow b t = Apeiron.Crypto.Sha2.sigma1 (schedRow b (t - 2)) + schedRow b (t - 7)
+      + Apeiron.Crypto.Sha2.sigma0 (schedRow b (t - 15)) + schedRow b (t - 16) := by
+  rw [schedRow, dif_neg (by omega)]
+
+/-- The schedule before any extension step: the sixteen block words followed by
+    forty-eight zeros. -/
+def schedStart (b : Block) : Vector Word 64 :=
+  (Vector.ofFn fun i : Fin 16 => b.getD i 0) ++ Vector.replicate 48 (0 : Word)
+
+/-- One `Sha2.schedule` fold step: rewrite row `16 + k` with the FIPS recurrence
+    and leave every other row alone. -/
+def schedStep (acc : Vector Word 64) (k : Nat) : Vector Word 64 :=
+  let t := 16 + k
+  let wt := Apeiron.Crypto.Sha2.sigma1 (acc.getD (t - 2) 0) + acc.getD (t - 7) 0
+            + Apeiron.Crypto.Sha2.sigma0 (acc.getD (t - 15) 0) + acc.getD (t - 16) 0
+  Vector.ofFn fun i : Fin 64 => if i.val == t then wt else acc.getD i 0
+
+/-- The canonical fold, spelled out of `Sha2.schedule`. -/
+def schedN (b : Block) (k : Nat) : Vector Word 64 :=
+  (List.range k).foldl (fun acc k => schedStep acc k) (schedStart b)
+
+/-- The schedule after `k` extension steps, as the vector the loop reaches. -/
+def rowVec (b : Block) (k : Nat) : Vector Word 64 :=
+  Vector.ofFn fun j : Fin 64 => if j.val < 16 + k then schedRow b j.val else 0
+
+/-- Two vectors of the same length that agree through `getD` are equal. -/
+theorem vec_getD_eq {α : Type} {n : Nat} [Inhabited α]
+    (u v : Vector α n) (d : α) (h : ∀ i, i < n → u.getD i d = v.getD i d) : u = v := by
+  refine Vector.ext fun i hi => ?_
+  rw [show u[i] = u.getD i d by simp [Vector.getD, hi],
+      show v[i] = v.getD i d by simp [Vector.getD, hi]]
+  exact h i hi
+
+/-- Reading a `Vector.ofFn` through `getD` is reading the function. -/
+theorem ofFn_getD (f : Fin 64 → Word) (i : Nat) (hi : i < 64) :
+    (Vector.ofFn f).getD i 0 = f ⟨i, hi⟩ := by
+  simp [Vector.getD, hi]
+
+/-- `Sha2.schedule` is the forty-eight-step fold, by definition. -/
+theorem schedule_eq_schedN (b : Block) :
+    Apeiron.Crypto.Sha2.schedule b = schedN b 48 := rfl
+
+/-- One fold step rewrites exactly row `16 + k` and leaves the rest alone. -/
+theorem schedStep_getD (acc : Vector Word 64) (k : Nat) (j : Nat) (hj : j < 64) :
+    (schedStep acc k).getD j 0 =
+      if j = 16 + k then
+        Apeiron.Crypto.Sha2.sigma1 (acc.getD (16 + k - 2) 0) + acc.getD (16 + k - 7) 0
+          + Apeiron.Crypto.Sha2.sigma0 (acc.getD (16 + k - 15) 0) + acc.getD (16 + k - 16) 0
+      else acc.getD j 0 := by
+  simp [schedStep, Vector.getD, hj]
+
+/-- One more fold step is one more `schedStep` at the previous count. -/
+theorem schedN_succ (b : Block) (k : Nat) :
+    schedN b (k + 1) = schedStep (schedN b k) k := by
+  show (List.range (k + 1)).foldl (fun acc k => schedStep acc k) (schedStart b)
+    = schedStep ((List.range k).foldl (fun acc k => schedStep acc k) (schedStart b)) k
+  rw [List.range_succ, List.foldl_append]
+  rfl
+
+/-- Before any extension step the schedule holds the block words below row
+    sixteen and zeros above. -/
+theorem schedStart_getD (b : Block) (j : Nat) (hj : j < 64) :
+    (schedStart b).getD j 0 = if j < 16 then b.getD j 0 else 0 := by
+  have h : (schedStart b).getD j 0 = (schedStart b)[j] := by
+    simp [Vector.getD, hj]
+  rw [h]
+  show ((Vector.ofFn fun i : Fin 16 => b.getD i 0) ++ Vector.replicate 48 (0 : Word))[j] = _
+  by_cases hj16 : j < 16
+  · rw [Vector.getElem_append_left (by omega)]
+    show (Vector.ofFn fun i : Fin 16 => b.getD i 0)[j] = _
+    simp [Vector.getElem_ofFn hj16, hj16]
+  · rw [Vector.getElem_append_right (by omega) (by omega)]
+    show (Vector.replicate 48 (0 : Word))[j - 16] = _
+    simp [hj16]
+
+/-- `rowVec b k` reads as the canonical row below `16 + k` and zero above. -/
+theorem rowVec_getD (b : Block) (k : Nat) (i : Nat) (hi : i < 64) :
+    (rowVec b k).getD i 0 = if i < 16 + k then schedRow b i else 0 :=
+  ofFn_getD _ i hi
+
+/-- `schedN b k` is exactly the vector whose rows below `16 + k` are the
+    canonical FIPS 180-4 §6.2.2 step-1 values. This is the general induction
+    over the forty-eight extension steps: the step case needs only rows
+    `t-2`, `t-7`, `t-15` and `t-16`, all strictly below the row being written,
+    so no step is ever enumerated. -/
+theorem schedN_eq_rowVec (b : Block) (k : Nat) (hk : k ≤ 48) :
+    schedN b k = rowVec b k := by
+  induction k with
+  | zero =>
+      refine vec_getD_eq _ _ 0 fun i hi => ?_
+      rw [show schedN b 0 = schedStart b from rfl, schedStart_getD b i hi]
+      rw [rowVec_getD b 0 i hi]
+      by_cases hj16 : i < 16
+      · rw [if_pos hj16, if_pos (by omega), schedRow, dif_pos hj16]
+      · rw [if_neg hj16, if_neg (by omega)]
+  | succ k ih =>
+      have hk48 : k ≤ 48 := by omega
+      refine vec_getD_eq _ _ 0 fun i hi => ?_
+      rw [schedN_succ, schedStep_getD _ k i hi, rowVec_getD b (k + 1) i hi]
+      have h2 : 16 + k - 2 < 16 + k := by omega
+      have h7 : 16 + k - 7 < 16 + k := by omega
+      have h15 : 16 + k - 15 < 16 + k := by omega
+      have h16 : 16 + k - 16 < 16 + k := by omega
+      by_cases heq : i = 16 + k
+      · subst heq
+        rw [if_pos rfl, if_pos (by omega)]
+        rw [ih hk48, rowVec_getD _ _ _ (by omega), if_pos h2,
+            rowVec_getD _ _ _ (by omega), if_pos h7,
+            rowVec_getD _ _ _ (by omega), if_pos h15,
+            rowVec_getD _ _ _ (by omega), if_pos h16]
+        exact (schedRow_step b (16 + k) (by omega)).symm
+      · rw [if_neg heq, ih hk48, rowVec_getD b k i hi]
+        by_cases hc : i < 16 + k
+        · rw [if_pos hc, if_pos (by omega)]
+        · rw [if_neg hc, if_neg (by omega)]
+
+/-- The canonical schedule, read at any row. -/
+theorem schedule_getD (b : Block) (i : Nat) (hi : i < 64) :
+    (Apeiron.Crypto.Sha2.schedule b).getD i 0 = schedRow b i := by
+  rw [schedule_eq_schedN, schedN_eq_rowVec b 48 (by omega), rowVec_getD b 48 i hi,
+      if_pos (by omega)]
+
+/-! ## Schedule reads and writes -/
+
+/-- Row `j` of an extracted sixty-four word schedule, as the canonical word. -/
+def wGet (w : Array Std.U32 64#usize) (j : Nat) : Word :=
+  (w.val.getD j (0#u32)).bv
+
+/-- The extracted sixty-four word schedule read as the canonical schedule. -/
+def wView (w : Array Std.U32 64#usize) : Vector Word 64 :=
+  Vector.ofFn fun i : Fin 64 => wGet w i.val
+
+/-- Reading the schedule through `wView` is reading the word's bit vector. -/
+theorem wView_get (w : Array Std.U32 64#usize) (i : Fin 64) :
+    (wView w).get i = wGet w i.val := by
+  show (wView w)[i.val] = wGet w i.val
+  simp only [wView, Vector.getElem_ofFn]
+
+/-- A bounded `Array.index_usize` read is the underlying list read. -/
+theorem array_index_usize_eq {α : Type} {n : Std.Usize} (a : Array α n) (i : Std.Usize)
+    (h : i.val < a.val.length) : Array.index_usize a i = ok (a.val[i.val]'h) := by
+  obtain ⟨x, hx, hxv⟩ := WP.spec_imp_exists (Array.index_usize_spec a i h)
+  rw [hxv] at hx
+  exact hx
+
+/-- An in-bounds read through the list is the read through `getD`. -/
+theorem getElem_getD {α : Type} (l : List α) (j : Nat) (h : j < l.length) (d : α) :
+    (l[j]'h) = l.getD j d := by
+  show l[j] = (l.getD j d)
+  rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h, Option.getD_some]
+
+/-- Reading a list after one element is written. -/
+theorem getD_set {α : Type} (l : List α) (i j : Nat) (v : α)
+    (h : i < l.length) (d : α) :
+    (l.set i v).getD j d = if i = j then v else l.getD j d := by
+  by_cases heq : i = j
+  · subst heq
+    rw [List.getD_eq_getElem?_getD, List.getElem?_set_self h, Option.getD_some]
+    simp
+  · rw [List.getD_eq_getElem?_getD, List.getElem?_set, if_neg heq,
+      ← List.getD_eq_getElem?_getD]
+    simp [heq]
+
+/-- Reading a row of the extracted schedule after one word is written. -/
+theorem wGet_set (w : Array Std.U32 64#usize) (i : Std.Usize) (v : Std.U32)
+    (hi : i.val < 64) (j : Nat) :
+    wGet (w.set i v) j = if i.val = j then v.bv else wGet w j := by
+  have hl : w.val.length = 64 := by simpa using w.property
+  unfold wGet
+  rw [Array.set_val_eq, getD_set _ _ _ _ (by omega) (0#u32)]
+  by_cases h : i.val = j <;> simp [h]
 /-! ## Headline -/
 
 /-- The refinement target: on every input, `word_sha256` returns a digest array
