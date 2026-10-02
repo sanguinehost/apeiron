@@ -19958,6 +19958,23 @@ def table.probe.spill_locate_held
 structure table.resources.RegionReservation where
   slots : table.resources.CapacityBound
 
+/-- [apeiron_word::table::resources::{impl core::clone::Clone for apeiron_word::table::resources::RegionReservation}::clone]:
+    Source: '../../src/table/resources.rs', lines 20:9-20:14
+    Visibility: public -/
+def table.resources.RegionReservation.Insts.CoreCloneClone.clone
+  (self : table.resources.RegionReservation) :
+  Result table.resources.RegionReservation
+  := do
+  ok self
+
+/-- Trait implementation: [apeiron_word::table::resources::{impl core::clone::Clone for apeiron_word::table::resources::RegionReservation}]
+    Source: '../../src/table/resources.rs', lines 20:9-20:14 -/
+@[reducible]
+def table.resources.RegionReservation.Insts.CoreCloneClone : core.clone.Clone
+  table.resources.RegionReservation := {
+  clone := table.resources.RegionReservation.Insts.CoreCloneClone.clone
+}
+
 /-- [apeiron_word::table::resources::ReservationReceipt]
     Source: '../../src/table/resources.rs', lines 28:0-35:1 -/
 structure table.resources.ReservationReceipt where

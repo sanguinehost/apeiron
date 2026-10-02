@@ -40,7 +40,7 @@ constant-size proof terms.
 
 - `extract/lib.rs` includes the real scalar, cell, exchange, carrier, coordinate and growable-table
   modules by `#[path]`. Its monomorphic wrappers only fix concrete types and call the real methods.
-  `regen.sh` selects 43 roots: ten cell/carrier/exchange kernels; six codec/carrier operations;
+  `regen.sh` selects 68 roots: ten cell/carrier/exchange kernels; six codec/carrier operations;
   four public get/build operations; four prepared-shard operations; four straight-line get/insert
   applies; the schedule check; five coordinate operations; four relocation operations; two
   pending-and-commit operations; two prepared-publication operations; and the capacity-bound check.
@@ -57,7 +57,7 @@ proof/regen.sh --check         # fail if ApeironWord.lean is stale, then build
 AENEAS_HOME=/path/to/aeneas proof/regen.sh
 ```
 
-The authoritative Charon selection is the 43 `--start-from` entries in `regen.sh`. In grouped form:
+The authoritative Charon selection is the 68 `--start-from` entries in `regen.sh`. In grouped form:
 
 ```text
 --preset aeneas \
@@ -84,7 +84,7 @@ The authoritative Charon selection is the 43 `--start-from` entries in `regen.sh
   --start-from crate::word_capacity_bound_holds
 ```
 
-`regen.sh` also prints the SHA-256 digest of all 18 extraction sources, and `--check` re-extracts from the current sources and fails on any
+`regen.sh` also prints the SHA-256 digest of all 55 extraction sources, and `--check` re-extracts from the current sources and fails on any
 diff from the committed `ApeironWord.lean`, so a source change that alters the generated
 definitions cannot pass silently.
 
@@ -375,14 +375,14 @@ cd proof/corpus && lake build
 
 ### Corpus / toolchain compatibility
 
-The corpus is at Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`; the corpus and the bridge both pin
+The corpus is at Git `880aa57e47e782ed7a9d9ee1974cfc87360b446b`; the corpus and the bridge both pin
 Lean `4.31.0` and Mathlib `v4.31.0` (manifest revision
 `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`), the same backend the pinned Aeneas extraction uses.
 `proof/corpus/lakefile.lean` requires `mathlib @ v4.31.0`, so the bridge and the corpus resolve one
 revision.
 
 `proof/corpus/lakefile.lean` requires the corpus by Git at
-`3d66ea3aa2fe1de5997b6b757247454a2f771358` with subdirectory `proof`; the generated manifest
+`880aa57e47e782ed7a9d9ee1974cfc87360b446b` with subdirectory `proof`; the generated manifest
 records the same full input and resolved revisions. The bridge no longer reads the sibling corpus
 worktree. This revision retains the carrier results from `d9aefc93` and adds the table authorities
 read for this slice. The earlier commit adds
@@ -442,21 +442,20 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/cell.rs` | `d256ce260acc5372af9af60f59d93f389f6a9bf592df05378eb737b39b1a0a45` |
 | `src/exchange.rs` | `0da6dffc8318cea0179d2e99b20192d63a1b6b7800e36bbd9fedf8f46e3336c6` |
 | `src/carrier.rs` | `f00d8fcf7194c435b6dcbfc1064c426f912f8f6f5fb14e55002a91cff3dd8dbb` |
-| `src/table.rs` | `02ce5b3a9333e8883648b275f38f364c5a461b880cdbadf8f992243c894386c6` |
-| `src/table/state.rs` | `ef89a76e5705d03222efa36b4b372f490173905184bc5cd3ef0260767ada3673` |
-| `src/table/locator.rs` | `5e94080b4c5d8e721a19ca36503c9df8c1139bc0ca10c1d8751f969bacb0b5c8` |
-| `src/table/prepared.rs` | `cf0c12a9564130b1b6dd7e2d9533a5d6fe4e2196e308da92f82c630beca59e13` |
-| `src/table/probe.rs` | `c5aee1a52a999f93db8d70a98243c08c87b3fd7a7368f00b9fddda148706e401` |
+| `src/table.rs` | `aee4526a9538a7e2fdd7710294a7e63e80ad48b815d7d2f9483114693ac4cf5a` |
+| `src/table/state.rs` | `b51e7ed595579535f3301121c13ea1a9e893518d9a2ef66328cb29f3fa0a1976` |
+| `src/table/locator.rs` | `0eca39b418c6e7afda48f8202008fa662e6ecb689eb820effce4d89140024d8e` |
+| `src/table/prepared.rs` | `125f4a33d32f6b865e18e4ec150a5c76d4880610b5d8b96bd36ed272dabab8a0` |
+| `src/table/probe.rs` | `f01d8b275d87f562453988e844b52c683d308b03b42cf136a08f766ed4e0dfb7` |
 | `src/coord.rs` | `c2756de1ff5eccfa3dceefd984f8db9cae544984e34edc4d1a023e6b382e7dbc` |
-| `src/coord/address.rs` | `a8c5c08164c1c007a72e3089f964cb2cc2167f864f76414e641c2b9e563c70e6` |
-| `src/coord/locator.rs` | `996769deb211aeddc0f9ae47de749d4983f54c769ec8ebb952b4a2954525b761` |
-| `src/coord/locator_core.rs` | `8e365c413ad33e395f40a19de15dbd128402a6036b570b8304f45cf38d79155b` |
+| `src/coord/address.rs` | `4dc7fb36580c774e09200dc18b3271bd9853dcedc3eb463b38137c349bd73b44` |
+| `src/coord/locator.rs` | `9c197e7ab15dcb768bf806e66758110fb37957cbf18d851d9f4973d59ac8276f` |
+| `src/coord/locator_core.rs` | `f2708a6f8c78a4904140f80ad9cecf832da4d12631a3816c89c4e2af6be308e7` |
 | `src/table/keyrep.rs` | `2b0db4d24967322b0cc95dd16fd68ec7dae734f7502c24c81db2a7ea242ee03c` |
 | `src/table/partition.rs` | `60e55bd89e81359ef94dccf2a1ac9338f15a50ceef636f8f43e3da24c9f2eb30` |
-| `src/table/resources.rs` | `e6925991d7cf3102d3959322b257a34585f150e33d2add03a54bdbb79e3c61fd` |
-| `src/table/scan.rs` | `ec633507a8ad456a7cb11553f559cf1abc08d3d4984a118e145eb5aa1ad91e97` |
-| `src/table/parallel.rs` | `055eaa8894d73fe119fea0273d0758be6d7fd4afb604484fdf69b5d272b59b1a` |
-| `proof/extract/lib.rs` | `74ee689c0e39a28310bf13817069241b62364cb601cc32201d97e57a362aaff8` |
+| `src/table/resources.rs` | `69bc3c67c30cdda893d74595129b358e59a4b73c3ee6dfe96f404cb3f7dd2b0c` |
+| `src/table/parallel.rs` | `69ecd44da988250c6d45a12a694419e74d3cbf5ababb16f232e5bd1e65cfa10e` |
+| `proof/extract/lib.rs` | `f1b310733a068fdd3fc1f8b338c07b12a18d2a19c23f9fdab1ae317b53ba0d8f` |
 
 The generated `ApeironWord.lean` is `5599fe7d22685de05fa8349b727f852ebf5cb70308a1bb67b95f21128d3e9d40`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. The logs attribute this
