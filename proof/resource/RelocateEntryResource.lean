@@ -9,8 +9,9 @@ import Aeneas
    REGISTER: resource and source refinement of one per-entry relocation. Excluded: the
    flat/spill canonical `HMap` correspondence, the rebuild plan's own checked-sizing claim, the
    `relocate_all` traversal bound, and any hardware timing.
-   CORPUS: `src/table.rs` `Table::relocate_entry` (lines 944-1006) and its `src/table/{state,
-   locator,probe}.rs` children, all read. `../sanguine-apeiron/proof/Apeiron/` was searched for a
+   CORPUS: `src/table.rs` `Table::relocate_entry` (lines 926-988, as the extraction header in
+   `RelocateEntrySource.lean` records) and its `src/table/{state,locator,probe}.rs` children, all
+   read. `../sanguine-apeiron/proof/Apeiron/` was searched for a
    relocation *resource* theorem and none refines a work measure; the object refined here is the
    extracted body itself, not a corpus theorem.
    REFERENCE: `/home/socol/Workspace/apeiron/proof/resource/RelocateEntrySource.lean`,
@@ -71,8 +72,9 @@ def oldLocation : table.RebuildSource → table.PayloadLocation
   | .Spill sh i => .Spill sh i
 
 /-- The payload one plan entry moves: the clone taken from the old resident slot or the old
-    spill slot. `none` exactly when the recorded index is out of range, which is the read the
-    body turns into a refusal rather than a move. -/
+    spill slot, read as its `(sigma, held, value)` triple off the flat `FlatSlot` or the spill
+    `SpillSlot` the extracted body reads. `none` exactly when the recorded index is out of range,
+    which is the read the body turns into a refusal rather than a move. -/
 def sourcePayload {N : Std.Usize} (state : TableAt N) : table.RebuildSource →
     Option (cell.Sigma × StoredI64 × Std.I64)
   | .Resident i =>
@@ -82,7 +84,10 @@ def sourcePayload {N : Std.Usize} (state : TableAt N) : table.RebuildSource →
   | .Spill sh i =>
       match state.shards.val[sh.val]? with
       | none => none
-      | some r => r.slots.val[i.val]?
+      | some r =>
+        match r.slots.val[i.val]? with
+        | none => none
+        | some s => some (s.sigma, s.held, s.value)
 
 /-! ## The flat transition: one planned slot written, nothing else -/
 
@@ -151,12 +156,11 @@ theorem flat_transition
           | none => simp [sourcePayload, hsrc, hshard, hslot] at hsource
           | some p =>
               obtain ⟨nextLocator, hretarget⟩ := hretarget
-              have hpayload : p = payload := by
+              have hpayload : (p.sigma, p.held, p.value) = payload := by
                 simpa [sourcePayload, hsrc, hshard, hslot] using hsource
-              obtain ⟨sigma, held, value⟩ := p
               subst payload
               have hretarget' : table.TableLocator.retarget_held core.clone.CloneI64 HomeInst
-                  KeyRepInst state.locator state.home sigma { key := held.key }
+                  KeyRepInst state.locator state.home p.sigma { key := p.held.key }
                   (table.PayloadLocation.Spill sh i) (table.PayloadLocation.Resident index)
                   = ok nextLocator := by
                 simpa [oldLocation, hsrc] using hretarget
@@ -217,12 +221,11 @@ theorem flat_slot_out_of_bounds_exit
           | none => simp [sourcePayload, hsrc, hshard, hslot] at hsource
           | some p =>
               obtain ⟨nextLocator, hretarget⟩ := hretarget
-              have hpayload : p = payload := by
+              have hpayload : (p.sigma, p.held, p.value) = payload := by
                 simpa [sourcePayload, hsrc, hshard, hslot] using hsource
-              obtain ⟨sigma, held, value⟩ := p
               subst payload
               have hretarget' : table.TableLocator.retarget_held core.clone.CloneI64 HomeInst
-                  KeyRepInst state.locator state.home sigma { key := held.key }
+                  KeyRepInst state.locator state.home p.sigma { key := p.held.key }
                   (table.PayloadLocation.Spill sh i) (table.PayloadLocation.Resident index)
                   = ok nextLocator := by
                 simpa [oldLocation, hsrc] using hretarget
@@ -318,23 +321,22 @@ theorem spill_vacant_transition_at
           | none => simp [sourcePayload, hsrc, hshard, hslot] at hsource
           | some p =>
               obtain ⟨nextLocator, hretarget⟩ := hretarget
-              have hpayload : p = payload := by
+              have hpayload : (p.sigma, p.held, p.value) = payload := by
                 simpa [sourcePayload, hsrc, hshard, hslot] using hsource
-              obtain ⟨sigma, held, value⟩ := p
               subst payload
               have hretarget' : table.TableLocator.retarget_held core.clone.CloneI64 HomeInst
-                  KeyRepInst state.locator state.home sigma { key := held.key }
+                  KeyRepInst state.locator state.home p.sigma { key := p.held.key }
                   (table.PayloadLocation.Spill sh i)
                   (table.PayloadLocation.Spill entry.spill dest) = ok nextLocator := by
                 simpa [oldLocation, hsrc] using hretarget
               have haddress' : table.keyrep.Stored.Insts.Relocate_entry_sourceTableKeyrepKeyRep.address_held
-                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home sigma
-                  { key := held.key } = ok addr := by simpa using haddress
-              have hsite' : table.probe.spill_locate_held KeyRepInst region sigma addr
-                  { key := held.key } N = ok (table.SpillSite.Vacant dest) := by
+                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home p.sigma
+                  { key := p.held.key } = ok addr := by simpa using haddress
+              have hsite' : table.probe.spill_locate_held KeyRepInst region p.sigma addr
+                  { key := p.held.key } N = ok (table.SpillSite.Vacant dest) := by
                 simpa using hsite
               have hpublish' : table.Region.publish_live region dest
-                  (sigma, { key := held.key }, value) addr.place = ok region' := by
+                  (p.sigma, { key := p.held.key }, p.value) addr.place = ok region' := by
                 simpa using hpublish
               unfold RelocateEntryAt table.Table.relocate_entry
               simp [hentry, hsrc, hshard, hslot, hnone, hregion, haddress', hsite', hpublish',
@@ -444,15 +446,14 @@ theorem spill_site_found_exit_at
           cases hslot : r.slots.val[i.val]? with
           | none => simp [sourcePayload, hsrc, hshard, hslot] at hsource
           | some p =>
-              have hpayload : p = payload := by
+              have hpayload : (p.sigma, p.held, p.value) = payload := by
                 simpa [sourcePayload, hsrc, hshard, hslot] using hsource
-              obtain ⟨sigma, held, value⟩ := p
               subst payload
               have haddress' : table.keyrep.Stored.Insts.Relocate_entry_sourceTableKeyrepKeyRep.address_held
-                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home sigma
-                  { key := held.key } = ok addr := by simpa using haddress
-              have hsite' : table.probe.spill_locate_held KeyRepInst region sigma addr
-                  { key := held.key } N = ok (table.SpillSite.Found found) := by simpa using hsite
+                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home p.sigma
+                  { key := p.held.key } = ok addr := by simpa using haddress
+              have hsite' : table.probe.spill_locate_held KeyRepInst region p.sigma addr
+                  { key := p.held.key } N = ok (table.SpillSite.Found found) := by simpa using hsite
               unfold RelocateEntryAt table.Table.relocate_entry
               simp [hentry, hsrc, hshard, hslot, hnone, hregion, haddress', hsite', oldLocation,
                 core.clone.impls.CloneI64.clone, table.keyrep.Stored.Insts.CoreCloneClone.clone,
@@ -521,15 +522,14 @@ theorem spill_site_grow_exit_at
           cases hslot : r.slots.val[i.val]? with
           | none => simp [sourcePayload, hsrc, hshard, hslot] at hsource
           | some p =>
-              have hpayload : p = payload := by
+              have hpayload : (p.sigma, p.held, p.value) = payload := by
                 simpa [sourcePayload, hsrc, hshard, hslot] using hsource
-              obtain ⟨sigma, held, value⟩ := p
               subst payload
               have haddress' : table.keyrep.Stored.Insts.Relocate_entry_sourceTableKeyrepKeyRep.address_held
-                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home sigma
-                  { key := held.key } = ok addr := by simpa using haddress
-              have hsite' : table.probe.spill_locate_held KeyRepInst region sigma addr
-                  { key := held.key } N = ok table.SpillSite.Grow := by simpa using hsite
+                  ExactIdentityInst core.clone.CloneI64 HomeInst state.home p.sigma
+                  { key := p.held.key } = ok addr := by simpa using haddress
+              have hsite' : table.probe.spill_locate_held KeyRepInst region p.sigma addr
+                  { key := p.held.key } N = ok table.SpillSite.Grow := by simpa using hsite
               unfold RelocateEntryAt table.Table.relocate_entry
               simp [hentry, hsrc, hshard, hslot, hnone, hregion, haddress', hsite', oldLocation,
                 core.clone.impls.CloneI64.clone, table.keyrep.Stored.Insts.CoreCloneClone.clone,
