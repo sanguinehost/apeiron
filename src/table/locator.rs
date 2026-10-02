@@ -184,7 +184,13 @@ impl<K, V, H, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
                     Some(slot) => slot,
                     None => return None,
                 };
-                slot.live.then_some((slot.sigma, &slot.held))
+                // An explicit branch, not `bool::then_some`: the closure form reaches the extracted
+                // cone through `assemble_directory` and the audit admits no unlisted axiom.
+                if slot.live {
+                    Some((slot.sigma, &slot.held))
+                } else {
+                    None
+                }
             }
             PayloadLocation::Spill(shard, index) => {
                 let region = match self.shards.get(shard) {

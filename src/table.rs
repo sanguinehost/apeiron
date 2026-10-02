@@ -1480,9 +1480,22 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         home: H,
     ) -> Result<Self, StorageError> {
         let mut t = Self::new(default, home);
-        t.reserve_locator_batch(kvs.len())?;
-        for ((face, k), v) in kvs {
-            t.insert_with_reserved(merge, *face, k.clone(), v.clone())?;
+        // Single-exit: a `?` inside a `for` is an early return, which Aeneas does not translate, so
+        // the first error is recorded and the loop drains. Behaviour is unchanged.
+        let mut failure = None;
+        if t.reserve_locator_batch(kvs.len()).is_err() {
+            failure = Some(StorageError::AllocationFailed);
+        }
+        let mut i = 0;
+        while i < kvs.len() && failure.is_none() {
+            let ((face, k), v) = &kvs[i];
+            if let Err(error) = t.insert_with_reserved(merge, *face, k.clone(), v.clone()) {
+                failure = Some(error);
+            }
+            i += 1;
+        }
+        if let Some(error) = failure {
+            return Err(error);
         }
         t.assemble_directory()?;
         Ok(t)
