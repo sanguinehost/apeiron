@@ -1906,6 +1906,10 @@ fn qwen35_speculative_long_prompt() {
     assert_eq!(ids, llama);
 }
 
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "the reference softmax weights are transcendental (exp), so the fixed-point result is widened to f64 for the tolerance comparison"
+)]
 #[test]
 fn f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err() {
     // The `KvStorage::F32` arm of `KvState::append` is the extraction fragment's index-`while`
