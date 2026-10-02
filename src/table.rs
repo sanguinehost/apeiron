@@ -419,6 +419,18 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
         self.get_at(<H::Faces as FaceDomain<K, H>>::DEFAULT, key)
     }
 }
+/// Maps a vacancy decision's site to the reverse-link location its admitted slot names.
+///
+/// The `Vacant` class carries only the two storage sites, so the conversion is total on that class
+/// and the caller needs no second classification check. Temporal `O(1)`; spatial `O(1)`.
+fn admitted(location: SearchLocation) -> PayloadLocation {
+    match location {
+        SearchLocation::Flat(index) => PayloadLocation::Resident(index),
+        SearchLocation::Spill(shard_at, index) => PayloadLocation::Spill(shard_at, index),
+        SearchLocation::NoIndex => PayloadLocation::Resident(0),
+    }
+}
+
 impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     /// Returns the number of logical overrides.
     #[must_use]
@@ -621,15 +633,13 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             unreachable!("checked spill growth has a pending vacancy")
         };
         let merged = merge.merge(value, self.default.clone());
+        // The vacancy admits a fresh representative: record its reverse-link slot in the batch's
+        // reserved extent before the payload effect, so `self.shards[s] = fresh` is still the first
+        // commit this operation makes.
+        self.locator
+            .record_admitted_link(sigma, PayloadLocation::Spill(s, pending))?;
         fresh.publish_live(pending, (sigma, held, merged), address.place);
         self.shards[s] = fresh;
-        // The pending path was staged before this effect; publish its reverse link now.
-        self.locator.publish_for_query::<K, H, R>(
-            &self.home,
-            sigma,
-            &key,
-            PayloadLocation::Spill(s, pending),
-        );
         self.len += 1;
         Ok(())
     }
@@ -807,12 +817,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
 
     /// Runs the unextracted resource adapter for an already checked plan.
     ///
-    /// The only admitted order is reserve every flat/directory/region allocation, observe and check
-    /// the table capacity receipt, reserve and stage the locator path and check its receipt, hold the
-    /// pending carrier, materialize the flat and region payloads, then publish the exact success
-    /// tuple. A refusal at any step exposes no plan, storage, held carrier or staged link, and the
-    /// locator path is reserved before the holds and the table commit, so no locator failure can
-    /// occur after a table merge.
+    /// The only admitted order is reserve every flat/region allocation, observe and check the table
+    /// capacity receipt, hold the pending carrier, materialize the flat and region payloads, then
+    /// publish the exact success tuple. A refusal at any step exposes no plan, storage or held
+    /// carrier. The locator reserves nothing here: the batch that reached this prepare committed its
+    /// aggregate reservation before the first merge, so no locator allocation is reachable after a
+    /// committed merge and none is made before one.
     fn prepare_from_plan(
         &mut self,
         plan: RebuildPlan,
@@ -828,18 +838,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             Ok(reservation) => reservation,
             Err(error) => return publish_prepared(Err(error)),
         };
-        // Reserve the locator path last, after every table reservation and receipt check, so a
-        // locator refusal drops the uncommitted table storage and stages nothing. The holds below
-        // run only after both reservations succeed, so no locator failure occurs after a hold.
-        let locator = match self.reserve_locator_path(sigma, key) {
-            Ok(receipt) => receipt,
-            Err(error) => return publish_prepared(Err(error)),
-        };
         publish_prepared(Ok(self.materialize_rebuild(
             plan,
             storage,
             reservation,
-            locator,
+            // No locator path is staged for the pending key, so the joint receipt is the empty one.
+            LocatorReservationReceipt::EMPTY,
             sigma,
             key,
             address,
@@ -1048,7 +1052,8 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     /// merges `value` through `merge` exactly once, increments `self.len` exactly once for a fresh
     /// key, and moves `reserved.resident` and `reserved.regions` into `self`.  It does not probe,
     /// initialize payloads, relocate entries, or allocate, and it has no error path, so no clone
-    /// runs on a refusal.
+    /// runs on a refusal. A fresh key's reverse-link slot was admitted by the caller before this
+    /// commit, so this body writes no locator link.
     ///
     /// Complexity: one merge call and one payload clone on a found path, plus the two reserved
     /// vector moves; counted in merges, clones and moved entries.
@@ -1082,12 +1087,6 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
             (SearchClass::Vacant, SearchLocation::Flat(index)) => {
                 let merged = merge.merge(value, self.default.clone());
-                self.locator.publish_for_held::<K, H, R>(
-                    &self.home,
-                    sigma,
-                    &held,
-                    PayloadLocation::Resident(index),
-                );
                 reserved.resident.slots[index] = FlatSlot {
                     live: true,
                     sigma,
@@ -1098,12 +1097,6 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
             (SearchClass::Vacant, SearchLocation::Spill(spill, index)) => {
                 let merged = merge.merge(value, self.default.clone());
-                self.locator.publish_for_held::<K, H, R>(
-                    &self.home,
-                    sigma,
-                    &held,
-                    PayloadLocation::Spill(spill, index),
-                );
                 reserved.regions[spill].publish_live(index, (sigma, held, merged), address.place);
                 self.len += 1;
             }
@@ -1120,9 +1113,10 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ///
     /// On `Prepared` it runs the same order as before: relocate every planned entry through
     /// [`Self::relocate_all`], compute the pending [`SearchDecision`] in the relocated storage
-    /// through [`Self::locate_rebuilt`], apply the pending insertion once through the unchanged
-    /// decision-consuming [`Self::apply_pending_and_commit`], and commit.  On `Refused` it returns
-    /// the error without touching `self`, so no hold, clone, merge or relocation runs.
+    /// through [`Self::locate_rebuilt`], admit the pending key's reverse-link slot while `self` is
+    /// still uncommitted, apply the pending insertion once through the unchanged decision-consuming
+    /// [`Self::apply_pending_and_commit`], and commit.  On `Refused` it returns the error without
+    /// touching `self`, so no hold, clone, merge or relocation runs.
     pub(crate) fn apply_prepared_rebuild<F: Merge<V>>(
         &mut self,
         prepared: PreparedResult<R, V>,
@@ -1151,6 +1145,13 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                 // pending insertion exactly once and commit.
                 let decision =
                     Self::locate_rebuilt(&storage.resident, &storage.regions, sigma, &key, address);
+                // A vacancy admits a fresh representative. `self` is untouched until
+                // `apply_pending_and_commit` moves the rebuilt storage in, so a missing reserved slot
+                // refuses here, before any merge this batch makes.
+                if matches!(decision.class, SearchClass::Vacant) {
+                    self.locator
+                        .record_admitted_link(sigma, admitted(decision.location))?;
+                }
                 self.apply_pending_and_commit(
                     storage,
                     decision,
@@ -1180,11 +1181,16 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         let prepared = self.prepare_rebuild(lanes, sigma, &key, address);
         self.apply_prepared_rebuild(prepared, merge, sigma, key, value, address)
     }
+
     /// Applies one already-classified insertion to the selected real storage location.
     ///
     /// The decision walk is separate from this straight-line storage update so an extraction root
     /// need not contain the probe loop's borrowed generic carrier.  Exhaustion is not applied here:
     /// it returns the pending entry as [`ApplyOutcome::NeedsGrowth`] and never allocates.
+    ///
+    /// This body stores payloads and increments `len`. It writes no locator link and makes no
+    /// locator allocation: the caller has already recorded the admitted reverse-link slot for a
+    /// vacancy, through [`Self::reserve_locator_batch`]'s reserved extent.
     pub(crate) fn apply_insert<F: Merge<V>>(
         &mut self,
         decision: SearchDecision,
@@ -1207,12 +1213,6 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
             (SearchClass::Vacant, SearchLocation::Flat(index)) => {
                 let merged = merge.merge(value, self.default.clone());
-                self.locator.publish_for_query::<K, H, R>(
-                    &self.home,
-                    sigma,
-                    &key,
-                    PayloadLocation::Resident(index),
-                );
                 self.resident.slots[index] = FlatSlot {
                     live: true,
                     sigma,
@@ -1224,12 +1224,6 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
             (SearchClass::Vacant, SearchLocation::Spill(shard_at, index)) => {
                 let merged = merge.merge(value, self.default.clone());
-                self.locator.publish_for_query::<K, H, R>(
-                    &self.home,
-                    sigma,
-                    &key,
-                    PayloadLocation::Spill(shard_at, index),
-                );
                 self.shards[shard_at].publish_live(
                     index,
                     (sigma, R::hold(sigma, &key, address), merged),
@@ -1244,7 +1238,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             _ => unreachable!("the probe walk produces only well-formed decisions"),
         }
     }
-    /// Inserts at a face, applying `merge` exactly once after any required relocation.
+    /// Inserts at a face, taking the batch-level aggregate reservation first.
+    ///
+    /// This is the outer batch operation for one entry: it commits the checked sizing and every
+    /// fallible locator reservation for the batch's worst-case fresh insert — the one this batch can
+    /// admit — and then runs the per-entry merge. Nothing on the merge path reserves, so a locator
+    /// allocation failure is not reachable after a committed merge.
     ///
     /// # Errors
     /// Returns checked sizing or reservation errors without committing a partial relocation.
@@ -1258,6 +1257,32 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         if !valid_n(N) {
             return Err(StorageError::SizeOverflow);
         }
+        // Aggregate reserve before the first merge: one admitted representative is this batch's
+        // worst case, and the reservation costs the same as any larger batch's.
+        self.reserve_locator_batch(1)?;
+        self.insert_with_reserved(merge, face, key, value)
+    }
+
+    /// Inserts at a face inside a batch whose aggregate reservation is already committed.
+    ///
+    /// This is the per-entry merge: the decision walk, the payload effect through
+    /// [`Self::apply_insert`] and, on exhaustion, [`Self::grow_spill`]. It stages no directory path
+    /// and links none, so it costs one probe, one payload store and one write into the reserved
+    /// reverse-link extent. Its caller must have run [`Self::reserve_locator_batch`] for the batch,
+    /// which is what [`Self::insert_with_at`], [`Self::build`] and [`Self::build_at`] do.
+    ///
+    /// # Errors
+    /// Returns the payload-storage refusals of growth and relocation. A reverse-link refusal means
+    /// the batch reservation did not cover this entry and is a contract violation, not a routine
+    /// allocation failure.
+    #[inline]
+    fn insert_with_reserved<F: Merge<V>>(
+        &mut self,
+        merge: &F,
+        face: H::Faces,
+        key: K,
+        value: V,
+    ) -> Result<(), StorageError> {
         // Erasure boundary: the typed token becomes the stored `Sigma` here.
         let sigma = face.sigma();
         let address = Home::address(&self.home, sigma, &key);
@@ -1270,10 +1295,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
         }
         let decision = self.search_decision(sigma, &key, &address);
-        // Stage the pending directory path before any payload effect for every path that can create
-        // a fresh representative. A found update keeps its existing link, so it stages nothing.
-        if matches!(decision.class, SearchClass::Vacant | SearchClass::Exhausted) {
-            self.reserve_locator_path(sigma, &key)?;
+        // A vacancy admits a fresh representative: write its reverse-link slot before any payload
+        // effect, so a missing reserved slot refuses the merge rather than allocating after one.
+        // A found update and an exhausted probe admit nothing here.
+        if matches!(decision.class, SearchClass::Vacant) {
+            self.locator
+                .record_admitted_link(sigma, admitted(decision.location))?;
         }
         match self.apply_insert(decision, merge, sigma, key, value, &address) {
             ApplyOutcome::Committed => Ok(()),
@@ -1284,9 +1311,10 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     }
     /// Applies an insertion to a region whose adapter has already reserved its destination.
     ///
-    /// The region core performs no fallible allocation. This table wrapper stages the fresh
-    /// representative's directory path before the region effect and publishes its reverse link after,
-    /// so the serial prepared path maintains coverage `C`. Its caller supplies the
+    /// The region core performs no fallible allocation. This table wrapper performs the region effect
+    /// only: the parallel assembly already reserved and linked every input key's directory path in
+    /// its own preflight ([`Self::preassemble_directory`]), so a fresh representative's reverse link
+    /// is recorded there and this body stages and publishes nothing. Its caller supplies the
     /// `PreparedResources` vacancy/capacity premise.
     #[allow(
         dead_code,
@@ -1302,10 +1330,6 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         let sigma = face.sigma();
         let address = Home::address(&self.home, sigma, key);
         let shard_at = shard(&address);
-        let site = spill_locate::<K, H, R, V>(&self.shards[shard_at], sigma, &address, key, N);
-        if matches!(site, SpillSite::Vacant(_)) {
-            self.reserve_locator_path(sigma, key)?;
-        }
         let inserted = apply_prepared_shard::<K, V, H, R, F, N>(
             &mut self.shards[shard_at],
             merge,
@@ -1316,15 +1340,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             &address,
         )?;
         if inserted {
-            let SpillSite::Vacant(index) = site else {
-                unreachable!("a fresh prepared apply has a vacancy")
-            };
-            self.locator.publish_for_query::<K, H, R>(
-                &self.home,
-                sigma,
-                key,
-                PayloadLocation::Spill(shard_at, index),
-            );
+            // The preflight's reverse link for this input entry is already recorded and resolved.
             self.len += 1;
         }
         Ok(())
@@ -1341,10 +1357,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ) -> Result<(), StorageError> {
         self.insert_with_at(merge, <H::Faces as FaceDomain<K, H>>::DEFAULT, key, value)
     }
-    /// Folds a face-qualified stream in input order.
+    /// Folds a face-qualified stream in the input order of its entries.
     ///
-    /// Every tuple carries its own [`FaceDomain`] token; the default entry point [`Self::build`]
-    /// supplies `<H::Faces as FaceDomain<K,H>>::DEFAULT`.
+    /// This is the batch entry point: it commits the aggregate reservation for `kvs.len()`
+    /// worst-case fresh inserts before the first merge, folds the entries with the per-entry merge,
+    /// and then assembles the directory, so the returned table's reverse links are resolved. No
+    /// merge and no directory link inside the batch can fail for lack of locator allocation.
     ///
     /// # Errors
     /// Returns the first checked sizing or reservation error and returns no partial table.
@@ -1368,6 +1386,9 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                 Err(StorageError::SizeOverflow)
             } else {
                 let mut t = Self::new(default, home);
+                // Aggregate reserve before the first merge: every input entry fresh is the batch's
+                // worst case, so one reservation covers the whole fold.
+                t.reserve_locator_batch(kvs.len())?;
                 // Every nonempty spill region is reserved from its actual routed load before a merge runs.
                 let mut s = 0;
                 let mut reservation_error = None;
@@ -1423,8 +1444,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                                 let mut run_at = 0;
                                 while run_at < run.len() && assembly_error.is_none() {
                                     let ((face, key), value) = &kvs[run[run_at]];
-                                    match t.insert_with_at(merge, *face, key.clone(), value.clone())
-                                    {
+                                    match t.insert_with_reserved(
+                                        merge,
+                                        *face,
+                                        key.clone(),
+                                        value.clone(),
+                                    ) {
                                         Ok(()) => {}
                                         Err(error) => assembly_error = Some(error),
                                     }
@@ -1436,9 +1461,13 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                         }
                         worker += 1;
                     }
-                    match assembly_error {
-                        Some(error) => Err(error),
-                        None => Ok(t),
+                    if let Some(error) = assembly_error {
+                        Err(error)
+                    } else {
+                        // The batch's directory is complete when it returns: the assembly is the
+                        // batch's own cold pass, and it ran after every merge committed.
+                        t.assemble_directory()?;
+                        Ok(t)
                     }
                 }
             }
@@ -1451,15 +1480,19 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         home: H,
     ) -> Result<Self, StorageError> {
         let mut t = Self::new(default, home);
+        t.reserve_locator_batch(kvs.len())?;
         for ((face, k), v) in kvs {
-            t.insert_with_at(merge, *face, k.clone(), v.clone())?;
+            t.insert_with_reserved(merge, *face, k.clone(), v.clone())?;
         }
+        t.assemble_directory()?;
         Ok(t)
     }
-    /// Folds a default-face stream in input order.
+    /// Folds a default-face stream in the input order of its entries.
     ///
-    /// Every entry takes `<H::Faces as FaceDomain<K,H>>::DEFAULT`; the qualification carries the
-    /// token in the tuple, not a second key clone.
+    /// The short branch is itself a batch operation: it commits one aggregate reservation for
+    /// `kvs.len()` worst-case fresh inserts, folds with the per-entry merge and assembles the
+    /// directory. The long branch qualifies every tuple with [`FaceDomain`]'s default token and
+    /// hands it to [`Self::build_at`].
     ///
     /// # Errors
     /// Returns the first checked sizing or reservation error and returns no partial table.
@@ -1471,9 +1504,16 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ) -> Result<Self, StorageError> {
         if kvs.len() < BUILD_PARTITION_CROSSOVER {
             let mut t = Self::new(default, home);
+            t.reserve_locator_batch(kvs.len())?;
             for (k, v) in kvs {
-                t.insert_with(merge, k.clone(), v.clone())?;
+                t.insert_with_reserved(
+                    merge,
+                    <H::Faces as FaceDomain<K, H>>::DEFAULT,
+                    k.clone(),
+                    v.clone(),
+                )?;
             }
+            t.assemble_directory()?;
             return Ok(t);
         }
         let mut qualified = Vec::new();
