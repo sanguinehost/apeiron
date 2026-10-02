@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "note": "Configuration and fixtures for `tools/rooting/index_check.py`. It fixes the index layout (`evidence_root` holds the files, `ledger_relpath` is the index beside them), the row key set (`required`) and the `kind` domain. `self_test.clean.files` is a synthetic three-receipt tree; the ledger's `bytes` and `sha256` fields carry the sentinel \"auto\", which the loader replaces with the digest of the file the row names, so the clean fixture is accepted on real digests. A case seeds a defect through `files` (write/append/delete/delete_tree under the synthetic tree) and `rows` (a ledger edit: `duplicate` a row, `set` a field, `drop` a field). `expect` is reject (rule fires, exit 1), accept (no rule fires, exit 0) or error (a structural data error, exit 2).",
+  "evidence_root": "docs/evidence",
+  "ledger_relpath": "docs/evidence/ledger.jsonl",
+  "kinds": ["figure", "log", "receipt"],
+  "required": ["bytes", "id", "kind", "path", "sha256", "summary"],
+  "rules": [
+    {
+      "id": "S",
+      "title": "index surface present",
+      "description": "The evidence directory or the ledger itself is absent, so there is no index for the gate to hold to coverage."
+    },
+    {
+      "id": "E1",
+      "title": "unindexed file",
+      "description": "A regular file under the evidence root has no ledger row, so the index does not cover a file it sits beside."
+    },
+    {
+      "id": "E2",
+      "title": "duplicate row",
+      "description": "One file is indexed by more than one row, so its recorded size and sha256 are ambiguous."
+    },
+    {
+      "id": "E3",
+      "title": "dangling row",
+      "description": "A row's path resolves to no file under the scanned root, or escapes it."
+    },
+    {
+      "id": "E4",
+      "title": "duplicate id",
+      "description": "Two rows share an id, so an id lookup in the index is ambiguous. Removal records resolve receipts by id."
+    },
+    {
+      "id": "E5",
+      "title": "stale digest",
+      "description": "A row's recorded byte size or sha256 disagrees with the file on disk, so the row is false about the artefact it indexes."
+    },
+    {
+      "id": "E6",
+      "title": "row content out of domain",
+      "description": "A row omits a required key, or its kind, size, digest or summary is not the value the schema admits."
+    }
+  ],
+  "self_test": {
+    "clean": {
+      "files": {
+        "docs/evidence/alpha.md": "alpha receipt\n",
+        "docs/evidence/beta.json": "{\"run\": \"beta\"}\n",
+        "docs/evidence/figures/gamma.svg": "<svg width=\"1\" height=\"1\"/>\n",
+        "docs/evidence/ledger.jsonl": "{\"bytes\": \"auto\", \"id\": \"alpha\", \"kind\": \"receipt\", \"path\": \"docs/evidence/alpha.md\", \"sha256\": \"auto\", \"summary\": \"Synthetic clean fixture receipt alpha.\"}\n{\"bytes\": \"auto\", \"id\": \"beta\", \"kind\": \"log\", \"path\": \"docs/evidence/beta.json\", \"sha256\": \"auto\", \"summary\": \"Synthetic clean fixture machine record beta.\"}\n{\"bytes\": \"auto\", \"id\": \"gamma\", \"kind\": \"figure\", \"path\": \"docs/evidence/figures/gamma.svg\", \"sha256\": \"auto\", \"summary\": \"Synthetic clean fixture figure gamma.\"}\n"
+      }
+    },
+    "cases": [
+      {
+        "name": "pristine-clean",
+        "rule": "",
+        "expect": "accept",
+        "files": [],
+        "rows": []
+      },
+      {
+        "name": "evidence-directory-absent",
+        "rule": "S",
+        "expect": "reject",
+        "files": [
+          {"action": "delete_tree", "path": "docs/evidence", "text": ""}
+        ],
+        "rows": []
+      },
+      {
+        "name": "ledger-absent",
+        "rule": "S",
+        "expect": "reject",
+        "files": [
+          {"action": "delete", "path": "docs/evidence/ledger.jsonl", "text": ""}
+        ],
+        "rows": []
+      },
+      {
+        "name": "unindexed-file",
+        "rule": "E1",
+        "expect": "reject",
+        "files": [
+          {"action": "write", "path": "docs/evidence/delta.md", "text": "seeded unindexed receipt\n"}
+        ],
+        "rows": []
+      },
+      {
+        "name": "unindexed-file-in-subdirectory",
+        "rule": "E1",
+        "expect": "reject",
+        "files": [
+          {"action": "write", "path": "docs/evidence/figures/epsilon.svg", "text": "<svg/>\n"}
+        ],
+        "rows": []
+      },
+      {
+        "name": "duplicate-row",
+        "rule": "E2",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "duplicate", "line": 1, "field": "", "value": null}
+        ]
+      },
+      {
+        "name": "dangling-row",
+        "rule": "E3",
+        "expect": "reject",
+        "files": [
+          {"action": "delete", "path": "docs/evidence/alpha.md", "text": ""}
+        ],
+        "rows": []
+      },
+      {
+        "name": "dangling-row-escaping-the-root",
+        "rule": "E3",
+        "expect": "reject",
+        "files": [
+          {"action": "write", "path": "docs/evidence/alpha.md", "text": "alpha receipt\n"}
+        ],
+        "rows": [
+          {"op": "set", "line": 1, "field": "path", "value": "../outside.md"}
+        ]
+      },
+      {
+        "name": "duplicate-id",
+        "rule": "E4",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "id", "value": "beta"}
+        ]
+      },
+      {
+        "name": "stale-sha256",
+        "rule": "E5",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "sha256", "value": "0000000000000000000000000000000000000000000000000000000000000000"}
+        ]
+      },
+      {
+        "name": "stale-bytes",
+        "rule": "E5",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "bytes", "value": 4095}
+        ]
+      },
+      {
+        "name": "edited-file-behind-the-row",
+        "rule": "E5",
+        "expect": "reject",
+        "files": [
+          {"action": "append", "path": "docs/evidence/alpha.md", "text": "a trailing line the row does not record\n"}
+        ],
+        "rows": []
+      },
+      {
+        "name": "row-missing-required-key",
+        "rule": "E6",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "drop", "line": 1, "field": "summary", "value": null}
+        ]
+      },
+      {
+        "name": "row-kind-outside-domain",
+        "rule": "E6",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "kind", "value": "note"}
+        ]
+      },
+      {
+        "name": "row-size-not-a-size",
+        "rule": "E6",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "bytes", "value": "13"}
+        ]
+      },
+      {
+        "name": "row-digest-not-hex",
+        "rule": "E6",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "sha256", "value": "abc"}
+        ]
+      },
+      {
+        "name": "row-empty-summary",
+        "rule": "E6",
+        "expect": "reject",
+        "files": [],
+        "rows": [
+          {"op": "set", "line": 1, "field": "summary", "value": "   "}
+        ]
+      },
+      {
+        "name": "ledger-line-not-json",
+        "rule": "",
+        "expect": "error",
+        "files": [
+          {"action": "append", "path": "docs/evidence/ledger.jsonl", "text": "{\"id\": broken\n"}
+        ],
+        "rows": []
+      },
+      {
+        "name": "row-not-an-object",
+        "rule": "",
+        "expect": "error",
+        "files": [
+          {"action": "append", "path": "docs/evidence/ledger.jsonl", "text": "[1, 2, 3]\n"}
+        ],
+        "rows": []
+      },
+      {
+        "name": "row-without-an-id",
+        "rule": "",
+        "expect": "error",
+        "files": [],
+        "rows": [
+          {"op": "drop", "line": 1, "field": "id", "value": null}
+        ]
+      },
+      {
+        "name": "row-without-a-path",
+        "rule": "",
+        "expect": "error",
+        "files": [],
+        "rows": [
+          {"op": "drop", "line": 1, "field": "path", "value": null}
+        ]
+      }
+    ]
+  }
+}
