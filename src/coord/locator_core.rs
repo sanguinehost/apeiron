@@ -626,6 +626,17 @@ pub(crate) struct StagedPath {
     /// half of it. Entries past `I::LEVELS` hold the cleared bytes [`ResidueIndex::digits`] left
     /// there, and no reader goes past `I::LEVELS`.
     pub(crate) residue_digits: [u8; MAX_LEVELS],
+    /// The residue depth at which this path left the committed trie, or `MAX_LEVELS` when it
+    /// stayed inside it.
+    ///
+    /// A residue node's child slot at a given digit is reached by exactly one parent, so once the
+    /// walk passes through a node this staging itself appended, no committed trie can own any
+    /// deeper level of the same path: the fresh levels `residue_fresh_from .. I::LEVELS` are the
+    /// consecutive records `residue_path[fresh_from + 1] .. residue_path[I::LEVELS]` with record
+    /// number rising by one per level. Publication uses this bound to fill that run as one
+    /// contiguous store pass rather than re-reading every level's child slot; the recorded arena
+    /// contents are the same either way.
+    pub(crate) residue_fresh_from: u32,
     pub(crate) identity_path: Vec<u32>,
 }
 
@@ -770,6 +781,7 @@ impl Directory {
         let StagedPath {
             residue_path: _,
             residue_digits: _,
+            residue_fresh_from: _,
             identity_path,
         } = staged;
         self.recycle_scratch(identity_path);
@@ -1291,25 +1303,55 @@ impl Directory {
         let mut refusal: Option<Refusal> = None;
         // A `break` inside a `for` loop is an Aeneas-shape failure; the refusal guard is in the
         // `while` condition instead, so each loop is single-exit.
+        //
+        // Phase one walks the committed trie: every level before the first absent child slot is one
+        // dependent indexed load. The first absent slot ends that walk.
         let mut depth = 0;
-        while depth < I::LEVELS && refusal.is_none() {
+        let mut fresh_from = I::LEVELS;
+        while depth < I::LEVELS && fresh_from == I::LEVELS {
             let digit = digits[depth];
             debug_assert!(usize::from(digit) < I::ARITY);
             let parent = residue_path[depth];
             let child = self.residue_child(parent, digit);
             if child == NO_CHILD {
-                match u32::try_from(self.residue_record_count()) {
-                    Ok(next) => {
-                        self.push_residue_default();
-                        self.bump_face_nodes::<I>();
-                        residue_path[depth + 1] = next;
-                    }
-                    Err(_) => refusal = Some(Refusal::SizeOverflow),
-                }
+                fresh_from = depth;
             } else {
                 residue_path[depth + 1] = child;
+                depth += 1;
             }
-            depth += 1;
+        }
+        // Phase two appends every remaining level as one contiguous run of records. The parent of
+        // each fresh record is the record before it, so record numbers rise by one per level and the
+        // run is `I::LEVELS - fresh_from` records starting at the current record count. Only the
+        // first fresh record is a child of a committed node; the rest are children of records this
+        // staging owns, so no slot beyond the first can already hold a committed child.
+        if refusal.is_none() && fresh_from < I::LEVELS {
+            let first = self.residue_record_count();
+            let run = I::LEVELS - fresh_from;
+            // The refusal is the same checked sizing the one-record-at-a-time loop performed: the
+            // record numbers this run names must fit `u32` on both ends.
+            let first_node = u32::try_from(first);
+            let end_node = match first_node {
+                Ok(start) => start.checked_add(u32::try_from(run).unwrap_or(u32::MAX)),
+                Err(_) => None,
+            };
+            match (first_node, end_node) {
+                (Ok(start), Some(_)) => {
+                    // One bulk append of the whole run: `run` records of `RESIDUE_STRIDE` unset
+                    // words, rather than `run` separately capacity-checked four-word appends. The
+                    // records are consecutive and the words are identical, so the arena bytes and
+                    // the record count are the same either way; the count moves once.
+                    self.push_residue_defaults(RESIDUE_STRIDE * run);
+                    self.bump_face_nodes_by::<I>(run);
+                    let mut fresh = start;
+                    while depth < I::LEVELS && refusal.is_none() {
+                        residue_path[depth + 1] = fresh;
+                        fresh = fresh.wrapping_add(1);
+                        depth += 1;
+                    }
+                }
+                _ => refusal = Some(Refusal::SizeOverflow),
+            }
         }
         let mut node = 0u32;
         if refusal.is_none() {
@@ -1363,6 +1405,7 @@ impl Directory {
             None => Ok(StagedPath {
                 residue_path,
                 residue_digits: digits,
+                residue_fresh_from: u32::try_from(fresh_from).unwrap_or(u32::MAX),
                 identity_path,
             }),
         }
@@ -1373,12 +1416,33 @@ impl Directory {
         self.residue_words.extend_from_slice(&[NO_CHILD; 4]);
     }
 
-    /// Counts one new node in the selected face's logical arena.
-    fn bump_face_nodes<I: ResidueIndex>(&mut self) {
-        if I::ARENA == <Residue as ResidueIndex>::ARENA {
-            self.hyperbolic_nodes += 1;
+    /// Appends `words` unset residue words, which is `words / RESIDUE_STRIDE` default records.
+    ///
+    /// A fresh residue run is a contiguous block of identical records, so it is written as one
+    /// append: one capacity check and one copy of `words` unset words, rather than one
+    /// capacity-checked four-word append per record. [`Directory::reserve_for`] already reserved
+    /// the run, so the append cannot fail here.
+    ///
+    /// Temporal `O(words / RESIDUE_STRIDE)` records appended, counted in arena words copied;
+    /// spatial `O(words)` arena words, contiguous with the records already staged.
+    fn push_residue_defaults(&mut self, words: usize) {
+        let run = words / RESIDUE_STRIDE;
+        if run == 1 {
+            self.push_residue_default();
         } else {
-            self.parabolic_nodes += 1;
+            self.residue_words
+                .resize(self.residue_words.len() + words, NO_CHILD);
+        }
+    }
+
+    /// Counts `count` new nodes in the selected face's logical arena.
+    ///
+    /// Temporal and spatial `O(1)`: one addition, the same total the one-at-a-time counter reached.
+    fn bump_face_nodes_by<I: ResidueIndex>(&mut self, count: usize) {
+        if I::ARENA == <Residue as ResidueIndex>::ARENA {
+            self.hyperbolic_nodes += count;
+        } else {
+            self.parabolic_nodes += count;
         }
     }
 
@@ -1434,10 +1498,14 @@ impl Directory {
     /// underscore-prefixed name, so this signature and the extracted one with it are unchanged.
     ///
     /// Temporal `O(I::LEVELS + |E(k)| * f)`, `f <= 256` the longest per-node sibling-edge chain: one
-    /// indexed load and at most one indexed store per residue level with no digit extraction, then
-    /// `|E(k)|` [`Directory::link_identity_edge`] calls plus one terminal store. Spatial `O(1)`:
-    /// every store lands in storage [`Directory::reserve_for`] reserved, and the staged path is
-    /// consumed rather than copied into new space.
+    /// indexed load and at most one indexed store per residue level **below** the divergence depth
+    /// `staged.residue_fresh_from`, then one indexed store for the shared parent that owns the
+    /// fresh run and one unconditional indexed store per record of that run, then
+    /// `|E(k)|` [`Directory::link_identity_edge`] calls plus one terminal store. The run's records
+    /// were appended consecutively by staging and still read back as unset, so their store needs no
+    /// read; the recorded arena is the same one the per-level `NO_CHILD` test would have produced.
+    /// Spatial `O(1)`: every store lands in storage [`Directory::reserve_for`] reserved, and the
+    /// staged path is consumed rather than copied into new space.
     pub(crate) fn link<I: ResidueIndex, K: ExactIdentity>(
         &mut self,
         _index: &I,
@@ -1445,8 +1513,9 @@ impl Directory {
         staged: StagedPath,
         handle: u32,
     ) {
+        let fresh_from = staged.residue_fresh_from as usize;
         let mut depth = 0;
-        while depth < I::LEVELS {
+        while depth < fresh_from {
             let digit = staged.residue_digits[depth];
             debug_assert!(usize::from(digit) < I::ARITY);
             let parent = staged.residue_path[depth] as usize;
@@ -1454,6 +1523,29 @@ impl Directory {
             if read_word(&self.residue_words, at) == NO_CHILD {
                 store_word(&mut self.residue_words, at, staged.residue_path[depth + 1]);
             }
+            depth += 1;
+        }
+        // The divergence parent is a committed node, so its one absent slot still needs the test;
+        // every parent below it is a record this staging appended, whose child slot under this
+        // digit is unset by construction, so those stores carry no read.
+        if fresh_from < I::LEVELS {
+            let digit = staged.residue_digits[fresh_from];
+            let parent = staged.residue_path[fresh_from] as usize;
+            let at = RESIDUE_STRIDE * parent + usize::from(digit);
+            if read_word(&self.residue_words, at) == NO_CHILD {
+                store_word(
+                    &mut self.residue_words,
+                    at,
+                    staged.residue_path[fresh_from + 1],
+                );
+            }
+            depth = fresh_from + 1;
+        }
+        while depth < I::LEVELS {
+            let digit = staged.residue_digits[depth];
+            let parent = staged.residue_path[depth] as usize;
+            let at = RESIDUE_STRIDE * parent + usize::from(digit);
+            store_word(&mut self.residue_words, at, staged.residue_path[depth + 1]);
             depth += 1;
         }
         let leaf = staged.residue_path[I::LEVELS] as usize;
