@@ -12,6 +12,12 @@ What is checked
 ===============
 * every registered declaration logs exactly one `EMPTY_AXIOMS_OK <name>` line;
   an extra name is an unregistered declaration, a missing one is unaudited;
+* **registry completeness**: every declaration the stage's audit module *defines*
+  is registered or carries an explicit `completeness_exclusions` entry with a
+  reason, and the run names any declaration that has neither. The defined set is
+  read from Lean's own elaborated environment, not from the source text, so a
+  declaration shape the text scan would miss (`private def`, `instance`,
+  `where`-block, generated auxiliary name) is still seen;
 * the audit module's inline `#audit_empty <name> : <type>` lines match the
   registry's names and expected types, so the registry is the authoritative
   registered type rather than a comment;
@@ -33,8 +39,39 @@ Rejection controls
   generated `_native` auxiliary axiom);
 * a wrong registered type, a missing declaration and an `axiom` target;
 * a green declaration not in the registry (coverage rejection);
+* a declaration defined in the audit module with no registry entry, one with an
+  entry but no `completeness_exclusions` entry, a stale exclusion, an exclusion
+  shadowing a registered name, and a registry entry dropped from the stage;
 * a missing stage and a placeholder stage (nonzero exit);
 * a source file carrying a forbidden token.
+
+Completeness method and trust boundary
+======================================
+`module_own_declarations` writes a verbatim copy of the audit module under a
+mirrored path, appends `COMPLETENESS_DRIVER` and runs `lean -R <mirror>
+<mirror>/<module>` in the same bounded lane as the audit itself. The driver is a
+`run_cmd` block, so it declares nothing of its own, and it reports
+
+    own = env.constants - union of every imported module's ModuleData.constNames
+
+with one line per name. `own` is therefore the module's own declaration set under
+Lean's definition of module ownership — the same set the module's `.olean`
+records — read from a fresh elaboration of the current source rather than from a
+possibly stale `.olean`. A regex over source text is rejected precisely because
+it misses declaration shapes silently (an unrecognized shape is an unconstrained
+declaration, the exact failure this check exists to close).
+
+Not covered: a declaration *imported* into the audit module by another module is
+out of scope even when the stage registers it (that is the existing registered
+cross-module coverage), a `placeholder` stage has no audit module and is not
+enumerated, and the enumeration reports what the run elaborated, so a
+declaration that exists only in a stale `.olean` is not seen. The subtraction
+can only over-report, never under-report: a name that some imported module fails
+to record is named as unregistered (a spurious red, not a silent pass). The
+driver reports the module name it elaborated under and the runner rejects a
+mismatch, so a copy that lost its module name (generated auxiliary names embed
+it) refuses instead of registering entries that never match.
+
 
 Isolation
 =========
@@ -49,6 +86,10 @@ Usage::
     python3 tools/slang/zero_axioms.py --list
     python3 tools/slang/zero_axioms.py --stage harness
     python3 tools/slang/zero_axioms.py --stage harness --controls
+    python3 tools/slang/zero_axioms.py --stage harness --registry /tmp/registry.json
+
+`--registry` reads a registry copy instead of the committed one, which is how a
+registry-mutation control runs without touching the working tree.
 
 Exit status: 0 when the stage passes; 1 when it is blocked or a control does not
 reject; 2 on a usage error; 3 when a required tool is missing.
@@ -75,6 +116,7 @@ REPO = HERE.parents[2]
 CORPUS = REPO / "proof/corpus"
 REGISTRY_PATH = HERE.parent / "zero_axioms.json"
 WORK_DIR = Path(tempfile.gettempdir()) / "opencode" / "zero-axioms"
+COMPLETENESS_DIR = "completeness"
 
 EXIT_OK = 0
 EXIT_REJECT = 1
@@ -84,6 +126,29 @@ EXIT_TOOL = 3
 OK_LINE = re.compile(r"^EMPTY_AXIOMS_OK\s+(\S+)\s*$", re.MULTILINE)
 AUDIT_LINE = re.compile(r"^\s*#audit_empty\s+([A-Za-z0-9_.'?✝]+)\s*:\s*(.+?)\s*$")
 LEAN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)+")
+MODULE_MAIN_LINE = re.compile(r"^MODULE_MAIN\s+`?(.+?)`?\s*$", re.MULTILINE)
+MODULE_COUNT_LINE = re.compile(r"^MODULE_OWN_COUNT\s+(\d+)\s*$", re.MULTILINE)
+MODULE_DECL_LINE = re.compile(r"^MODULE_DECL\s+(\S+)\s*$", re.MULTILINE)
+
+# Appended verbatim to a copy of an audited module and run in the same lane as the
+# audit; see "Completeness method and trust boundary" in the module docstring.
+# It declares nothing (`run_cmd` elaborates at elaboration time), so every name it
+# reports is defined by the module under audit. Cost: O(C + M) time and space for
+# C = |env.constants| and M = the total `constNames` of the imported modules, one
+# pass over each, no nesting; the set difference is the module's own declarations
+# under Lean's own definition of module ownership.
+COMPLETENESS_DRIVER = """
+run_cmd do
+  let env ← Lean.getEnv
+  let importedNames : Array Lean.Name := env.header.moduleData.flatMap fun data => data.constNames
+  let imported : Std.HashSet Lean.Name := importedNames.foldl (fun acc n => acc.insert n) ∅
+  let own : Array Lean.Name :=
+    env.constants.fold (fun acc name _ => if imported.contains name then acc else acc.push name) #[]
+  Lean.logInfo s!"MODULE_MAIN {repr env.header.mainModule}"
+  Lean.logInfo s!"MODULE_OWN_COUNT {own.size}"
+  for name in own do
+    Lean.logInfo s!"MODULE_DECL {name}"
+"""
 
 
 class GateError(Exception):
@@ -110,6 +175,10 @@ class CoverageError(GateError):
     """The reported audit population does not match the registry."""
 
 
+class CompletenessError(GateError):
+    """The audit module defines a declaration the registry does not account for."""
+
+
 class TokenError(GateError):
     """A registry source file carries a forbidden token."""
 
@@ -131,6 +200,17 @@ class Declaration:
 
 
 @dataclass(frozen=True)
+class Exclusion:
+    """An audited-module declaration deliberately outside the registry.
+
+    `reason` is required and nonempty: a bare name is not a decision record.
+    """
+
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class SourceImportClosure:
     root: str
     allowed_imports: tuple[str, ...]
@@ -147,6 +227,7 @@ class StageSpec:
     source_files: tuple[str, ...]
     declarations: tuple[Declaration, ...]
     source_import_closures: tuple[SourceImportClosure, ...] = ()
+    completeness_exclusions: tuple[Exclusion, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -250,6 +331,24 @@ def load_registry(path: Path = REGISTRY_PATH) -> Registry:
                  f"{where} has duplicate import-closure roots")
         names = [decl.name for decl in declarations]
         _require(len(names) == len(set(names)), f"{where} has duplicate declaration name(s)")
+        exclusions_raw = raw.get("completeness_exclusions", [])
+        _require(isinstance(exclusions_raw, list), f"{where}.completeness_exclusions must be a list")
+        _require(kind == "active" or not exclusions_raw,
+                 f"{where}: placeholder has a completeness exclusion")
+        exclusions: list[Exclusion] = []
+        for index, item in enumerate(exclusions_raw):
+            ew = f"{where}.completeness_exclusions[{index}]"
+            _require(isinstance(item, dict), f"{ew} must be an object")
+            _require(set(item) == {"name", "reason"}, f"{ew} requires name and reason only")
+            name = _string(item.get("name"), f"{ew}.name")
+            reason = _string(item.get("reason"), f"{ew}.reason")
+            _require(name not in names,
+                     f"{ew}.name {name!r} is a registered declaration of {where}; "
+                     "an exclusion must not shadow an audited name")
+            exclusions.append(Exclusion(name, reason))
+        exclusion_names = [entry.name for entry in exclusions]
+        _require(len(exclusion_names) == len(set(exclusion_names)),
+                 f"{where} has duplicate completeness exclusion(s)")
         stages[stage_id] = StageSpec(
             id=stage_id,
             kind=kind,
@@ -260,6 +359,7 @@ def load_registry(path: Path = REGISTRY_PATH) -> Registry:
             source_files=source_files,
             declarations=tuple(declarations),
             source_import_closures=tuple(closures),
+            completeness_exclusions=tuple(exclusions),
         )
     return Registry(
         memory_max=memory_max,
@@ -407,7 +507,8 @@ def lane_lock():
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def lean_argv(registry: Registry, target: str, timeout: int) -> list[str]:
+def lean_argv(registry: Registry, target: str, timeout: int,
+              root: Path | None = None) -> list[str]:
     if shutil.which("systemd-run") is None:
         raise ToolError("systemd-run is required for the cgroup lane; it is not on PATH")
     inner = [
@@ -418,8 +519,13 @@ def lean_argv(registry: Registry, target: str, timeout: int) -> list[str]:
         "lake",
         "env",
         "lean",
-        target,
     ]
+    if root is not None:
+        # The module name of the input file is derived from `root`; without it Lean
+        # names an out-of-tree file `_stdin`, which generated auxiliary declarations
+        # embed in their own names.
+        inner += ["-R", str(root)]
+    inner.append(target)
     return [
         "systemd-run",
         "--user",
@@ -433,9 +539,10 @@ def lean_argv(registry: Registry, target: str, timeout: int) -> list[str]:
     ]
 
 
-def run_lean(registry: Registry, target: str, timeout: int | None = None) -> tuple[int, str]:
+def run_lean(registry: Registry, target: str, timeout: int | None = None,
+             root: Path | None = None) -> tuple[int, str]:
     seconds = timeout or registry.timeout
-    argv = lean_argv(registry, target, seconds)
+    argv = lean_argv(registry, target, seconds, root)
     environment = dict(os.environ)
     environment["LEAN_NUM_THREADS"] = "1"
     try:
@@ -561,6 +668,118 @@ def check_stage_sources(stage: StageSpec, registry: Registry) -> tuple[Path, ...
 
 
 # ---------------------------------------------------------------------------
+# Registry completeness: the declarations an audited module defines
+# ---------------------------------------------------------------------------
+
+def module_name_of(audit_module: str) -> str:
+    """The module name `lean -R` derives for a mirrored audit-module path."""
+    relative = audit_module.strip()
+    if not relative.endswith(".lean"):
+        raise RegistryError(f"audit module is not a .lean file: {audit_module!r}")
+    parts = relative[:-len(".lean")].split("/")
+    if any(part in ("", ".", "..") or "\\" in part for part in parts):
+        raise RegistryError(f"audit module path is not a relative .lean path: {audit_module!r}")
+    return ".".join(parts)
+
+
+def write_completeness_copy(stage: StageSpec, source_text: str,
+                            extra: str = "") -> tuple[Path, Path]:
+    """Mirror the audit module under WORK_DIR so `-R` keeps its module name.
+
+    O(B) time and space for B bytes of module source: the copy is written once and
+    each byte is copied once. The mirrored path is resolved and required to stay
+    under the mirror root, so a registry path cannot escape the temporary lane.
+    """
+    root = WORK_DIR / COMPLETENESS_DIR
+    target = root / (stage.audit_module or "")
+    resolved = target.resolve()
+    if root.resolve() not in resolved.parents:
+        raise RegistryError(f"audit module escapes the completeness mirror: {stage.audit_module!r}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source_text + extra + COMPLETENESS_DRIVER, encoding="utf-8")
+    return root, target
+
+
+def module_own_declarations(stage: StageSpec, registry: Registry, source_text: str,
+                            extra: str = "") -> tuple[str, ...]:
+    """The declarations the stage's audit module defines, as Lean records them.
+
+    Runs `COMPLETENESS_DRIVER` on a verbatim copy of the module and reads back the
+    module name and the declaration names. O(D log D) time for D names in the
+    Python sort over the driver's O(C + M) Lean pass (C = |env.constants|, M = the
+    imported modules' total `constNames`); O(D) space.
+    """
+    expected_module = module_name_of(stage.audit_module or "")
+    root, target = write_completeness_copy(stage, source_text, extra)
+    returncode, output = run_lean(registry, str(target), root=root)
+    if returncode != 0:
+        raise AuditError(
+            f"completeness driver exited {returncode} for {stage.audit_module}: "
+            f"{failure_lines(output)}"
+        )
+    main = MODULE_MAIN_LINE.findall(output)
+    count = MODULE_COUNT_LINE.findall(output)
+    if len(main) != 1:
+        raise AuditError(f"completeness driver reported {len(main)} module name(s): {failure_lines(output)}")
+    if main[0] != expected_module:
+        raise AuditError(
+            f"completeness driver elaborated {main[0]!r} instead of {expected_module!r}; "
+            "the mirrored module name is not preserved"
+        )
+    declared = MODULE_DECL_LINE.findall(output)
+    if len(count) != 1 or int(count[0]) != len(declared):
+        raise AuditError(
+            f"completeness driver report is inconsistent: {count} count line(s), "
+            f"{len(declared)} declaration line(s)"
+        )
+    if len(set(declared)) != len(declared):
+        raise AuditError("completeness driver reported a duplicate declaration name")
+    return tuple(sorted(declared))
+
+
+def check_completeness(stage: StageSpec, declared: tuple[str, ...],
+                       registered: set[str], excluded: set[str]) -> None:
+    """Every declaration the audit module defines is registered or excluded.
+
+    O(D + R + E) time for D declared, R registered and E excluded names: each set
+    is built once and each of the three differences is a linear pass.
+    """
+    if registered & excluded:
+        raise CompletenessError(
+            f"exclusion(s) shadow registered declaration(s): {sorted(registered & excluded)}"
+        )
+    stale = sorted(excluded - set(declared))
+    if stale:
+        raise CompletenessError(
+            f"completeness exclusion(s) match no declaration of {stage.audit_module}: {stale}"
+        )
+    unregistered = sorted(set(declared) - registered - excluded)
+    if unregistered:
+        raise CompletenessError(
+            f"declaration(s) defined in {stage.audit_module} but neither registered nor "
+            f"excluded in stages.{stage.id}.completeness_exclusions: {unregistered}"
+        )
+
+
+def stage_completeness(stage: StageSpec, registry: Registry, source_text: str,
+                       extra: str = "") -> tuple[str, ...]:
+    """Enumerate the module's own declarations and refuse an incomplete registry."""
+    declared = module_own_declarations(stage, registry, source_text, extra)
+    check_completeness(
+        stage,
+        declared,
+        {decl.name for decl in stage.declarations},
+        {entry.name for entry in stage.completeness_exclusions},
+    )
+    excluded = len(stage.completeness_exclusions)
+    print(
+        f"COMPLETENESS GREEN: {len(declared)} declaration(s) defined in {stage.audit_module}, "
+        f"{len(stage.declarations)} registered, {excluded} excluded"
+    )
+    return declared
+
+
+# ---------------------------------------------------------------------------
 # Stage audit
 # ---------------------------------------------------------------------------
 
@@ -569,7 +788,7 @@ def audit_module_path(stage: StageSpec) -> Path:
     return CORPUS / stage.audit_module
 
 
-def run_baseline(stage: StageSpec, registry: Registry) -> list[str]:
+def run_baseline(stage: StageSpec, registry: Registry) -> tuple[list[str], tuple[str, ...]]:
     path = audit_module_path(stage)
     if not path.is_file():
         raise AuditError(f"audit module missing: {path}")
@@ -577,6 +796,9 @@ def run_baseline(stage: StageSpec, registry: Registry) -> list[str]:
     if not expected:
         raise AuditError(f"stage {stage.id!r} has no registered declarations")
     check_stage_sources(stage, registry)
+    # Completeness first: it constrains the registry against the module, and runs
+    # before the axiom run so a ledger gap is reported as itself.
+    declared = stage_completeness(stage, registry, path.read_text(encoding="utf-8"))
     check_type_binding(stage, path.read_text(encoding="utf-8"))
     returncode, output = run_lean(registry, stage.audit_module)
     if returncode != 0:
@@ -587,7 +809,7 @@ def run_baseline(stage: StageSpec, registry: Registry) -> list[str]:
     reported = parse_ok(output)
     check_coverage(reported, expected)
     print(f"BASELINE GREEN: {len(reported)}/{len(expected)} declarations report an empty axiom set")
-    return reported
+    return reported, declared
 
 
 # ---------------------------------------------------------------------------
@@ -698,8 +920,90 @@ def expect_red(name: str, path: Path, registry: Registry, needle: str) -> None:
     print(f"CONTROL {name}: RED exit={returncode} :: {failure_lines(output)}")
 
 
-def run_controls(stage: StageSpec, registry: Registry, pristine: str) -> None:
+CONTROL_DECLARATION = (
+    "\nnamespace ZeroAxiomsControl\n"
+    "theorem cUnregistered : (0 : Nat) = 0 := rfl\n"
+    "end ZeroAxiomsControl\n"
+)
+CONTROL_DECLARATION_NAME = "ZeroAxiomsControl.cUnregistered"
+CONTROL_ABSENT_NAME = "ZeroAxiomsControl.cNeverDefined"
+
+
+def run_completeness_controls(stage: StageSpec, registry: Registry, pristine: str,
+                              declared: tuple[str, ...]) -> None:
+    """Demonstrate that an incomplete registry refuses, by name, on this module.
+
+    The four rejections and the one acceptance below run against the real module
+    text and the real declaration set the baseline enumerated.
+    """
     expected = {decl.name for decl in stage.declarations}
+    excluded = {entry.name for entry in stage.completeness_exclusions}
+
+    # The driver must report a declaration that carries no `#audit_empty` line at
+    # all: this is the population the previous registry-only gate did not see.
+    seen = module_own_declarations(stage, registry, pristine, CONTROL_DECLARATION)
+    if CONTROL_DECLARATION_NAME not in seen:
+        raise ControlError(
+            f"completeness driver did not report {CONTROL_DECLARATION_NAME}; "
+            "the declared-set enumeration is not observing the module's definitions"
+        )
+    if len(seen) != len(set(seen)):
+        raise ControlError("completeness driver reported a duplicate name")
+
+    # a declaration defined and registered nowhere refuses, by name
+    try:
+        check_completeness(stage, seen, expected, excluded)
+    except CompletenessError as exc:
+        print(f"CONTROL unregistered-definition: RED :: {exc}")
+    else:
+        raise ControlError("an unregistered module declaration survived the completeness check")
+
+    # the same declaration passes only with an explicit exclusion entry
+    try:
+        check_completeness(stage, seen, expected, excluded | {CONTROL_DECLARATION_NAME})
+    except CompletenessError as exc:
+        raise ControlError(f"an explicit exclusion did not satisfy the check: {exc}") from exc
+    print("CONTROL excluded-definition: GREEN with an explicit completeness_exclusions entry")
+
+    # an exclusion that matches nothing is stale, not permission
+    try:
+        check_completeness(stage, declared, expected, excluded | {CONTROL_ABSENT_NAME})
+    except CompletenessError as exc:
+        print(f"CONTROL stale-exclusion: RED :: {exc}")
+    else:
+        raise ControlError("a stale completeness exclusion survived")
+
+    # an exclusion may not shadow a registered (that is, audited) declaration
+    if not expected:
+        raise ControlError("stage has no registered declaration to shadow")
+    shadowed = sorted(expected)[0]
+    try:
+        check_completeness(stage, declared, expected, excluded | {shadowed})
+    except CompletenessError as exc:
+        print(f"CONTROL shadowing-exclusion: RED :: {exc}")
+    else:
+        raise ControlError("an exclusion shadowing a registered declaration survived")
+
+    # dropping a registry entry for a declaration the module defines refuses by name
+    defined_registered = sorted(set(declared) & expected)
+    if not defined_registered:
+        raise ControlError(
+            "stage registers no declaration its own audit module defines; the "
+            "dropped-registry-entry control would be vacuous"
+        )
+    try:
+        check_completeness(stage, declared, expected - set(defined_registered), excluded)
+    except CompletenessError as exc:
+        print(f"CONTROL dropped-registry-entry: RED :: {exc}")
+    else:
+        raise ControlError("a dropped registry entry survived the completeness check")
+
+
+def run_controls(stage: StageSpec, registry: Registry, pristine: str,
+                 declared: tuple[str, ...]) -> None:
+    expected = {decl.name for decl in stage.declarations}
+
+    run_completeness_controls(stage, registry, pristine, declared)
 
     # baseline / red / restored-green on the real audit module
     if MUTATION_OLD not in pristine:
@@ -797,6 +1101,7 @@ def run_controls(stage: StageSpec, registry: Registry, pristine: str) -> None:
 
     print(
         "CONTROLS PASS: baseline green, mutation red, restored green, "
+        "completeness 4 red / 1 green, "
         f"{len(REJECTION_CONTROLS) + 5} rejection controls red"
     )
 
@@ -812,18 +1117,20 @@ def cmd_list(registry: Registry) -> int:
         print(f"{stage_id:<16} [{marker}] wave={stage.wave} {stage.title}")
         if stage.audit_module:
             print(f"    audit module: {stage.audit_module}")
+        for entry in stage.completeness_exclusions:
+            print(f"    excluded: {entry.name} :: {entry.reason}")
         for decl in stage.declarations:
             print(f"    {decl.name} :: {decl.expected_type}")
     return EXIT_OK
 
 
-def run_stage(stage_id: str, controls: bool) -> int:
-    registry = load_registry()
+def run_stage(stage_id: str, controls: bool, registry_path: Path) -> int:
+    registry = load_registry(registry_path)
     stage = select_stage(registry, stage_id)
     with lane_lock():
-        run_baseline(stage, registry)
+        _reported, declared = run_baseline(stage, registry)
         if controls:
-            run_controls(stage, registry, audit_module_path(stage).read_text(encoding="utf-8"))
+            run_controls(stage, registry, audit_module_path(stage).read_text(encoding="utf-8"), declared)
     return EXIT_OK
 
 
@@ -835,18 +1142,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stage", help="registered stage to audit")
     parser.add_argument("--controls", action="store_true", help="run the rejection controls")
     parser.add_argument("--list", action="store_true", help="list the registry")
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        default=REGISTRY_PATH,
+        help="registry to read (default: the committed tools/slang/zero_axioms.json)",
+    )
     args = parser.parse_args(argv)
 
     if args.list:
         try:
-            return cmd_list(load_registry())
+            return cmd_list(load_registry(args.registry))
         except GateError as exc:
             print(f"FAIL: {exc}", file=sys.stderr)
             return EXIT_REJECT
     if not args.stage:
         parser.error("--stage or --list is required")
     try:
-        return run_stage(args.stage, args.controls)
+        return run_stage(args.stage, args.controls, args.registry)
     except ToolError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return EXIT_TOOL
