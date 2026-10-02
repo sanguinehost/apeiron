@@ -112,7 +112,7 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
   have transparent definitions or audited specifications. Answer file:
   `escalation/class-d-f32-boundary-answer.md`. The action is an extraction change (a small
   behaviour-preserving refactor if no allocation helper exists, the opaque-set edit, regenerate) —
-  dispatch `F32-BOUNDARY-NARROW`; the regenerated artifact changes the landing sha and re-shapes
+  `F32-BOUNDARY-NARROW` is in flight; its regenerated artifact changes the landing sha and re-shapes
   the sampler/attn reconciliation.
 - **Penglai headers**: the owner-committable patch is staged (`/home/socol/oc-tmp/penglai-headers/`,
   six tracked files, comment-only, control verified); `git am` refuses on the dirty tree — use route
