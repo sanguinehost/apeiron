@@ -526,8 +526,8 @@ file; one writer per shared build product. The **default worker is `openrouter/s
 (free, OpenRouter, **free window ends 2026-10-05**; measured 147.9 tok/s / TTFT 1.19 s versus the
 slower OpenCode Zen route `opencode-go/space-bunny-free` at 57.5 tok/s / TTFT 6.95 s) for every
 dispatch-ready task. `deepseek-flash` is the paid escalation taken only on a mandatory trigger;
-anything beyond that escalates manually to the owner. `gemini-flash` and `xiaomi-pro` are non-default
-lanes, not spent on ordinary work.
+anything beyond that escalates manually to the owner. `gemini-flash` is a non-default lane, not
+spent on ordinary work.
 
 **Sustained width is a requirement on Intent, not only on this host.** Observed at ~35–50
 concurrent Space Bunny workers through this harness: tool calls slow, sessions restart mid-task and

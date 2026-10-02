@@ -475,7 +475,7 @@ gate whose exit 0 closes it, and a control where soundness is at stake.
 | W1 | `matvec_fixed` / `row_dot_fixed` refinement (G3) | `proof/extract/lib.rs`, `src/engine/<kernel>.rs`, `proof/corpus/Numeric/EngineDotRefinement.lean` | deepseek-flash | `regen.sh --check`; module gate | drop the fixed-point floor → bound red |
 | W2 | composed-margin barrier and G7 row | `Nous/Model/ErrorComposition.lean`, `proof/corpus/AxiomAudit.lean` | lead | `lake build Nous.Model.ErrorComposition AxiomAudit` | perturb a per-layer `ε` → `decision_margin_preserved` red |
 | W2 | D2 per-layer hypothesis discharge | `Nous/Model/ErrorComposition.lean` | worker | `lake build Nous.Model.ErrorComposition` | flip an `ε` sign → red |
-| W3 | G1 `attention_channel_form` | `Nous/Model/Attention.lean` | xiaomi-pro | `lake build Nous.Model.Attention` | drop the normalizer → red |
+| W3 | G1 `attention_channel_form` | `Nous/Model/Attention.lean` | lead | `lake build Nous.Model.Attention` | drop the normalizer → red |
 | W3 | G5 binary-softmax identification (restated) | `Nous/Model/Weighting.lean` | deepseek-flash | `lake build Nous.Model.Weighting` | remove `0 < u` → goal unprovable |
 | W4 | F16/F32 identity faces (A5, in flight) | `src/format/packing.rs`, `proof/extract/lib.rs` | deepseek-flash | cargo trio; extraction probe | non-exact f32 round-trip → test red |
 | W4 | split `src/format/packing.rs` | `src/format/packing.rs` → `src/format/packing/*.rs` | deepseek-flash | cargo trio; conversion-equality tests | n/a — names preserved |
@@ -668,7 +668,7 @@ cd proof/corpus && flock -w 600 /tmp/opencode/apeiron-lane.lock timeout 540 bash
 - **Gate:** `lake build Nous.Model.Attention`. Registration in `proof/corpus/AxiomAudit.lean` is a lead step at the W2-T1 barrier, not the worker's gate: the audit imports every lane, so a sibling lane mid-edit makes it transiently red (the cross-lane coupling the intent records).
 - **Negative control:** drop the normalizer in a throwaway copy → red; restore green.
 - **Evidence to record:** the theorem name and statement; the factorizable domain; the control.
-- **Escalation:** xiaomi-pro; the open-bet domain question (hyperbolic-only vs degenerate fold) is the
+- **Escalation:** the open-bet domain question (hyperbolic-only vs degenerate fold) is the
   escalation trigger. If the domain needs an ordered/invertible setting the abstraction lacks, stop and
   escalate to an independent verifier.
 

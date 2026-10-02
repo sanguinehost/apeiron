@@ -77,8 +77,10 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
 
 Enforcers that are MISSING and named so that prose cannot stand in for them: a Rust gate driver
-(`tools/gate`) replacing the per-task `*_gate.py` scripts, and a reachability gate for the
-documentation and receipt consolidations. Both are tracked in [`docs/plan.md`](docs/plan.md).
+(`tools/gate`) replacing the per-task `*_gate.py` scripts, and a documentation-removal reachability
+gate for the documentation consolidations (the evidence-receipt half now runs as
+[`tools/rooting/index_check.py`](tools/rooting/index_check.py)). Both are tracked in
+[`docs/plan.md`](docs/plan.md).
 
 ## 2 · Lifecycle
 
@@ -351,10 +353,9 @@ TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The
 is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
 proof-search ceiling. `deepseek-flash` (`opencode-go/deepseek-v4-flash`) is the paid escalation lane,
 taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
-Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) and
-`xiaomi-pro` remain available lanes but are not the default, and their balances are not spent on
-ordinary work. Escalation is selected by the artifact at risk, not by a subjective difficulty
-estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
+Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) remains an
+available lane but is not the default, and its balance is not spent on ordinary work. Escalation is
+selected by the artifact at risk, not by a subjective difficulty estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
 Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
 control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
@@ -374,7 +375,7 @@ this key. Attach excerpts, never whole trees; `sol.sh` refuses a prompt over 400
 |---|---|---|---|
 | Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
 | DeepSeek Flash (`deepseek-flash`, `opencode-go/deepseek-v4-flash`) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
-| Gemini Flash (`gemini-flash`), MiMo Pro (`xiaomi-pro`) | non-default lanes, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
+| Gemini Flash (`gemini-flash`) | non-default lane, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
 

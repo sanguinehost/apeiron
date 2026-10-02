@@ -36,7 +36,7 @@ verification cost.
 | 2 | Duty cycle 52% → 85–90% (queued 24/7, never idle) | apeiron 14/27 vs song 79/86 | 1.6–1.7x |
 | 3 | Shovel-ready task specs (exact goal state, adjacent lemmas, file map, expected diagnostics) | recent partial slices hit budget mid-exploration (row 6 twice, W7-T3 pending) | 1.3–1.5x |
 | 4 | Remove serialization points (per-module audit files, lakefile globs, batched controls, frozen extraction per wave) | every new module currently edits `AxiomAudit.lean`/`lakefile.lean` through one writer | 1.1–1.2x |
-| 5 | Decomposition + independent verification pair + kernel arbiter (replaces the Sol-class lever) | the OpenAI lanes are decommissioned and no separate escalation model is available; contract/proof verdicts run through decomposition and independent verification, and Gemini Flash (Vertex) carries the high-throughput work; xiaomi-pro has landed the hard row-5–7 slices under decomposition | 1.1–1.3x |
+| 5 | Decomposition + independent verification pair + kernel arbiter (replaces the Sol-class lever) | the OpenAI lanes are decommissioned and no separate escalation model is available; contract/proof verdicts run through decomposition and independent verification, and Gemini Flash (Vertex) carries the high-throughput work; the hard row-5–7 slices landed under decomposition | 1.1–1.3x |
 | | product before Amdahl | | 5–8x |
 | | realised estimate after integration-lane and dependency-chain caps | row 8 after row 7; A1–A4 after A0; contract/proof verdicts run the decomposed-verification protocol | **2.5–3.5x** |
 
@@ -48,13 +48,11 @@ keeps the programme at ~1.5–2x because contract/proof verdicts queue.
 | model lane | cost | role | constraint |
 |---|---|---|---|
 | `gemini-flash` (Vertex, Gemini 3.8 Flash) | prepaid Vertex balance | default producer (fastest, ~300 tok/s): edits, scans, proof slices, verification replay | balance is the binding budget; Claude on Vertex is out (Messages endpoint rejects API keys; the ADC path did not authenticate) |
-| `xiaomi-pro` (MiMo V2.6 Pro) | ~$0.13/task | higher-ceiling fallback: a task the Gemini lane failed or where the proof-search ceiling binds | slow (58 tok/s, ~1006 s/task); has landed the hard row-5–7 slices |
 | `deepseek-flash` | ~$0.27/task | conserving speed lane: mechanical edits, splits, audit moves, verification replay | lower proof-search ceiling; pair with exact specs |
-| `glm` / `glm-flash` | provider rates | backup producers, bulk casework | none measured |
 
 With Gemini Flash as the default, spend draws the Vertex prepaid balance rather than per-task
 billing; at the recorded ~$1.24/task rate the reported $1,230.34 covers on the order of a thousand
-tasks, so the balance is a governed budget and MiMo/DeepSeek are the overflow lanes. The binding
+tasks, so the balance is a governed budget and DeepSeek is the overflow lane. The binding
 constraint remains dispatch and verification throughput, not model spend. Verify the balance before
 relying on the number.
 
