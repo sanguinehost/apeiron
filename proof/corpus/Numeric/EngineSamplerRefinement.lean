@@ -3,7 +3,7 @@ Refinement of the extracted engine sampler argmax and the attention KV-state
 constructor / append (`APEIRON-ALGEBRA-G3-SAMPLER-KV`).
 
 The Rust bodies are `src/engine/sampler.rs` (`argmax_fixed`) and `src/engine/attn.rs`
-(`KvState::new`, `KvState::append`); `i64` Q32.32 logits and Q32.32 KV planes. The public
+(`KvState::with_carrier`, `KvState::append`); `i64` Q32.32 logits and Q32.32 KV planes. The public
 entry points are `apeiron_word.word_argmax_fixed`, `apeiron_word.word_kv_state_new` and
 `apeiron_word.word_kv_append`.
 
@@ -19,7 +19,7 @@ the row-dot module.
   logit (strictly). `argmax_fixed_loop_spec` proves the loop returns such a `best`; the
   `u32` narrowing either returns it as `Ok` or refuses with `LogitsTooLong`.
   The real reading follows from `toReal` being strictly order-preserving.
-* `attn.KvState.new` is a pure constructor: each geometry guard is an exact refusal equality
+* `attn.KvState.with_carrier` is a pure constructor: each geometry guard is an exact refusal equality
   (`BadGeometry` for a zero parameter or a nonzero `n_head % n_head_kv` remainder), and
   `word_kv_state_new_geometry` projects the `Ok` record's five geometry fields onto the
   arguments. The `scale` field is the `fixed_rsqrt` output and is not pinned by the guards.
@@ -302,7 +302,7 @@ theorem argmaxAt_real (logits : Slice I64) (best : Nat) (h : argmaxAt logits bes
 
 /-! ## The attention KV-state constructor
 
-`attn.KvState.new` is the port-map row 5 allocator: five zero-parameter guards, the GQA
+`attn.KvState.with_carrier` is the port-map row 5 allocator: five zero-parameter guards, the GQA
 divisibility guard, the `fixed_rsqrt` window, and the two checked plane products. The refusals
 below are the guard equalities; `word_kv_state_new_geometry` reads the geometry directly off
 the `Ok` record. -/
@@ -311,28 +311,28 @@ the `Ok` record. -/
 theorem word_kv_state_new_layer_zero (n_head n_head_kv head_dim cap : Usize) :
     word_kv_state_new 0#usize n_head n_head_kv head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new]
+  simp [word_kv_state_new, attn.KvState.with_carrier]
 
 /-- **Zero `n_head`.** Returns `Err BadGeometry` exactly when `n_layer` is nonzero. -/
 theorem word_kv_state_new_head_zero (n_layer n_head_kv head_dim cap : Usize)
     (h : n_layer ≠ 0#usize) :
     word_kv_state_new n_layer 0#usize n_head_kv head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h]
 
 /-- **Zero `n_head_kv`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_kv_zero (n_layer n_head head_dim cap : Usize)
     (h1 : n_layer ≠ 0#usize) (h2 : n_head ≠ 0#usize) :
     word_kv_state_new n_layer n_head 0#usize head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2]
 
 /-- **Zero `head_dim`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_head_dim_zero (n_layer n_head n_head_kv cap : Usize)
     (h1 : n_layer ≠ 0#usize) (h2 : n_head ≠ 0#usize) (h3 : n_head_kv ≠ 0#usize) :
     word_kv_state_new n_layer n_head n_head_kv 0#usize cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3]
 
 /-- **Zero `cap`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_cap_zero (n_layer n_head n_head_kv head_dim : Usize)
@@ -340,7 +340,7 @@ theorem word_kv_state_new_cap_zero (n_layer n_head n_head_kv head_dim : Usize)
     (h4 : head_dim ≠ 0#usize) :
     word_kv_state_new n_layer n_head n_head_kv head_dim 0#usize =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3, h4]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3, h4]
 
 /-- **GQA divisibility.** A nonzero remainder `n_head % n_head_kv` returns `Err BadGeometry`
 exactly when the zero guards pass. -/
@@ -349,7 +349,7 @@ theorem word_kv_state_new_not_multiple (nl nh nk hd cap : Usize)
     (h4 : hd ≠ 0#usize) (h5 : cap ≠ 0#usize) (h6 : nh.val % nk.val ≠ 0) :
     word_kv_state_new nl nh nk hd cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3, h4, h5,
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3, h4, h5,
     core.num.Usize.is_multiple_of, UScalar.is_multiple_of, h6]
 
 /-- **`Ok`-arm geometry projection.** With the five zero guards and the GQA divisibility guard
@@ -364,7 +364,7 @@ theorem word_kv_state_new_geometry (nl nh nk hd cap : Usize) (s : attn.KvState)
     (h4 : hd ≠ 0#usize) (h5 : cap ≠ 0#usize) (h6 : nh.val % nk.val = 0)
     (h : word_kv_state_new nl nh nk hd cap = ok (core.result.Result.Ok s)) :
     s.n_layer = nl ∧ s.n_head = nh ∧ s.n_head_kv = nk ∧ s.head_dim = hd ∧ s.cap = cap := by
-  unfold word_kv_state_new attn.KvState.new at h
+  unfold word_kv_state_new attn.KvState.with_carrier at h
   rw [if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5] at h
   have hb : core.num.Usize.is_multiple_of nh nk = ok true := by
     simp [core.num.Usize.is_multiple_of, UScalar.is_multiple_of, h6]
@@ -425,7 +425,8 @@ theorem word_kv_state_new_geometry (nl nh nk hd cap : Usize) (s : attn.KvState)
                         cases hv2 : alloc.vec.from_elem core.clone.CloneUsize 0#usize nl with
                         | ret vv2 =>
                           rw [hv2, bind_tc_ok] at h
-                          have hs : s = { n_layer := nl, n_head := nh, n_head_kv := nk, head_dim := hd, cap := cap, scale := val1, occupied := vv2, k := kk, v := vv1 } := by
+                          simp only [bind_tc_ok] at h
+                          have hs : s = { carrier := mixer.Carrier.Q32, n_layer := nl, n_head := nh, n_head_kv := nk, head_dim := hd, cap := cap, scale := val1, occupied := vv2, storage := attn.KvStorage.Q32 kk vv1 } := by
                             apply (core.result.Result.Ok.injEq _ _).mp
                             exact (Result.ok_injective h).symm
                           subst hs
@@ -463,7 +464,7 @@ theorem word_kv_state_new_geometry (nl nh nk hd cap : Usize) (s : attn.KvState)
           | Err e =>
             rw [hw] at h
             simp only [core.result.Result.map_err_err, bind_tc_ok,
-              attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once,
+              attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once,
               core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual,
               core.convert.FromSame.from] at h
             exfalso; have hc := congrArg Result.match h; simp at hc
@@ -559,31 +560,39 @@ theorem word_kv_append_capacity_refusal (self : attn.KvState) (layer : Usize)
 /-- **Success law.** With an in-range layer, the checked width, both row blocks at that width, a
 non-full layer and the checked position arithmetic succeeding, `append` returns `pos = occupied[layer]`,
 increments `occupied[layer]` to `v3 = pos + 1`, and writes the two `n_head_kv·head_dim`-wide row
-blocks at `[pos·width, (pos+1)·width)` into `self.k` and `self.v`. The two range writes are the
+blocks at `[pos·width, (pos+1)·width)` into the `Q32` planes of `self.storage` (the extracted
+body matches on `self.storage`, so the `F32` arm is out of this statement's reach; the `carrier`
+field of the state and of the constructor's result are `mixer.Carrier.Q32`). The two range writes are the
 `setSlice!` at the checked product `v1`; the five extracted `index_mut` threads
 (`index_mut_back`…`index_mut_back4`) are reduced by their `@[step]` specs (`Vec.set` for the
-addressable lane, `Vec.setSlice!` for the range) before the record is reassembled. -/
+addressable lane, `Vec.setSlice!` for the range) before the record is reassembled.
+
+**Statement change against the pre-`with_carrier` artifact.** The old statement named the
+non-extracted `attn.KvState.new` and projected the removed `self.k` / `self.v` fields. The live
+artifact stores the planes in `self.storage : attn.KvStorage` and matches on it, so the planes are
+now explicit parameters `k v` with the hypothesis `self.storage = attn.KvStorage.Q32 k v`, and the
+result carries `storage := attn.KvStorage.Q32 …`. The written law is unchanged in content. -/
 theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
-    (k_rows v_rows : Slice I64) (w v1 v2 v3 : Usize)
+    (k_rows v_rows : Slice I64) (k v : alloc.vec.Vec (alloc.vec.Vec I64)) (w v1 v2 v3 : Usize)
     (hlayer : ¬ self.n_layer ≤ layer)
     (hw_eq : self.n_head_kv.checked_mul self.head_dim = some w)
     (hk : Slice.len k_rows = w) (hv : Slice.len v_rows = w)
+    (hstor : self.storage = attn.KvStorage.Q32 k v)
     (hbnd : layer.val < self.occupied.length)
     (hcap : ¬ self.cap ≤ (self.occupied.val[layer.val]).val)
-    (hbndk : layer.val < self.k.length) (hbndv : layer.val < self.v.length)
+    (hbndk : layer.val < k.length) (hbndv : layer.val < v.length)
     (hmul : (self.occupied.val[layer.val]).checked_mul w = some v1)
     (hadd : v1.checked_add w = some v2)
     (hadd3 : (self.occupied.val[layer.val]).checked_add 1#usize = some v3)
-    (hkend : v2.val ≤ (self.k.val[layer.val]).length)
-    (hvend : v2.val ≤ (self.v.val[layer.val]).length) :
+    (hkend : v2.val ≤ (k.val[layer.val]).length)
+    (hvend : v2.val ≤ (v.val[layer.val]).length) :
     word_kv_append self layer k_rows v_rows =
       ok (core.result.Result.Ok (self.occupied.val[layer.val]),
         { self with
             occupied := self.occupied.set layer v3,
-            k := self.k.set layer
-              (alloc.vec.Vec.setSlice! (self.k.val[layer.val]) v1.val k_rows.val),
-            v := self.v.set layer
-              (alloc.vec.Vec.setSlice! (self.v.val[layer.val]) v1.val v_rows.val) }) ∧
+            storage := attn.KvStorage.Q32
+              (k.set layer (alloc.vec.Vec.setSlice! (k.val[layer.val]) v1.val k_rows.val))
+              (v.set layer (alloc.vec.Vec.setSlice! (v.val[layer.val]) v1.val v_rows.val)) }) ∧
       v3.val = (self.occupied.val[layer.val]).val + 1 := by
   constructor
   · unfold word_kv_append attn.KvState.append
@@ -602,6 +611,7 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
     have hcap' : ¬ self.cap ≤ self.occupied.val[layer.val] := by
       rw [UScalar.le_equiv]; exact hcap
     rw [if_neg hcap']
+    rw [hstor]
     have hv2 : v2.val = v1.val + w.val := by
       have h := Usize.checked_add_bv_spec v1 w
       simp only [hadd] at h
@@ -613,14 +623,14 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
     have hvlen : v_rows.length = w.val := by rw [← Slice.len_val, hv]
     -- k: addressable lane
     obtain ⟨p1, hp1_eq, hp1_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_usize_spec self.k layer hbndk)
+      (alloc.vec.Vec.index_mut_usize_spec k layer hbndk)
     rcases p1 with ⟨kplane, kback⟩
     rw [alloc.vec.Vec.index_mut_slice_index, hp1_eq]
     simp only [bind_tc_ok, uncurry_apply_pair]
     rw [hp1_spec.1]
     -- k: row range
     obtain ⟨p2, hp2_eq, hp2_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_Range_spec (self.k.val[layer.val])
+      (alloc.vec.Vec.index_mut_Range_spec (k.val[layer.val])
         { start := v1, «end» := v2 } hle hkend)
     rcases p2 with ⟨kslice, kback1⟩
     rw [hp2_eq]
@@ -635,14 +645,14 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
     simp only [bind_tc_ok]
     -- v: addressable lane
     obtain ⟨q1, hq1_eq, hq1_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_usize_spec self.v layer hbndv)
+      (alloc.vec.Vec.index_mut_usize_spec v layer hbndv)
     rcases q1 with ⟨vplane, vback⟩
     rw [alloc.vec.Vec.index_mut_slice_index, hq1_eq]
     simp only [bind_tc_ok, uncurry_apply_pair]
     rw [hq1_spec.1]
     -- v: row range
     obtain ⟨q2, hq2_eq, hq2_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_Range_spec (self.v.val[layer.val])
+      (alloc.vec.Vec.index_mut_Range_spec (v.val[layer.val])
         { start := v1, «end» := v2 } hle hvend)
     rcases q2 with ⟨vslice, vback3⟩
     rw [hq2_eq]
@@ -674,6 +684,9 @@ The following row of the task statement is a named, unproven obligation at grade
   are proved by `word_kv_state_new_geometry`; pinning `scale` also needs `UScalar.hcast .I64 hd`
   to preserve the value (which uses `hd.val ≤ I64.max`, not implied by `hd ≠ 0`) and
   `I64.checked_mul hd_signed engine.ONE = some (hd.val·2^32)`.
+* `word_kv_append_ok` `F32` arm: the extracted `attn.KvState.append` has a second, `F32`-typed
+  branch under `match self.storage` writing `F32` planes. The proved statement covers the `Q32`
+  arm, the one the `word_kv_state_new` constructor and the `i64` denotation of this module name.
 -/
 
 end
