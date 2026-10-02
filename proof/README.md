@@ -444,7 +444,7 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/carrier.rs` | `f00d8fcf7194c435b6dcbfc1064c426f912f8f6f5fb14e55002a91cff3dd8dbb` |
 | `src/table.rs` | `aee4526a9538a7e2fdd7710294a7e63e80ad48b815d7d2f9483114693ac4cf5a` |
 | `src/table/state.rs` | `b51e7ed595579535f3301121c13ea1a9e893518d9a2ef66328cb29f3fa0a1976` |
-| `src/table/locator.rs` | `0eca39b418c6e7afda48f8202008fa662e6ecb689eb820effce4d89140024d8e` |
+| `src/table/locator.rs` | `050184eceb173ad2ec70a8c4220f799f0ac930d03e78c11e0836f7b3b687a186` |
 | `src/table/prepared.rs` | `125f4a33d32f6b865e18e4ec150a5c76d4880610b5d8b96bd36ed272dabab8a0` |
 | `src/table/probe.rs` | `f01d8b275d87f562453988e844b52c683d308b03b42cf136a08f766ed4e0dfb7` |
 | `src/coord.rs` | `c2756de1ff5eccfa3dceefd984f8db9cae544984e34edc4d1a023e6b382e7dbc` |
@@ -455,9 +455,10 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/table/partition.rs` | `60e55bd89e81359ef94dccf2a1ac9338f15a50ceef636f8f43e3da24c9f2eb30` |
 | `src/table/resources.rs` | `69bc3c67c30cdda893d74595129b358e59a4b73c3ee6dfe96f404cb3f7dd2b0c` |
 | `src/table/parallel.rs` | `69ecd44da988250c6d45a12a694419e74d3cbf5ababb16f232e5bd1e65cfa10e` |
-| `proof/extract/lib.rs` | `f1b310733a068fdd3fc1f8b338c07b12a18d2a19c23f9fdab1ae317b53ba0d8f` |
+| `src/crypto.rs` | `4e2dbe1292783473410d4e7fa505f4c03650fcc3211963499b92bd592581108a` |
+| `proof/extract/lib.rs` | `3cb61e3231aadf4397c9dc146538ff4882e4d40de4c64dda20a9bbbfc32f0634` |
 
-The generated `ApeironWord.lean` is `5599fe7d22685de05fa8349b727f852ebf5cb70308a1bb67b95f21128d3e9d40`
+The generated `ApeironWord.lean` is `4446fb04d80dda4400d711ede47f9b3f30877918e8be137566f5b0e4e437cc77`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. The logs attribute this
 dirty working-source identity by the recorded digests rather than to `HEAD` alone.
 

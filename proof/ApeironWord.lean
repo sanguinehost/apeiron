@@ -2787,6 +2787,338 @@ def coord.finish (h : Std.U64) : Result Std.U64 := do
   let i2 ← h4 >>> 31#i32
   ok (h4 ^^^ i2)
 
+/-- [apeiron_word::crypto::RC]
+    Source: '../../src/crypto.rs', lines 26:0-51:2 -/
+@[global_simps, irreducible]
+def crypto.RC : Array Std.U64 24#usize :=
+  Array.make 24#usize [
+    1#u64, 32898#u64, 9223372036854808714#u64, 9223372039002292224#u64,
+    32907#u64, 2147483649#u64, 9223372039002292353#u64,
+    9223372036854808585#u64, 138#u64, 136#u64, 2147516425#u64, 2147483658#u64,
+    2147516555#u64, 9223372036854775947#u64, 9223372036854808713#u64,
+    9223372036854808579#u64, 9223372036854808578#u64, 9223372036854775936#u64,
+    32778#u64, 9223372039002259466#u64, 9223372039002292353#u64,
+    9223372036854808704#u64, 2147483649#u64, 9223372039002292232#u64
+    ]
+
+/-- [apeiron_word::crypto::ROT]
+    Source: '../../src/crypto.rs', lines 54:0-60:2 -/
+@[global_simps, irreducible]
+def crypto.ROT : Array Std.U32 25#usize :=
+  Array.make 25#usize [
+    0#u32, 1#u32, 62#u32, 28#u32, 27#u32, 36#u32, 44#u32, 6#u32, 55#u32,
+    20#u32, 3#u32, 10#u32, 43#u32, 25#u32, 39#u32, 41#u32, 45#u32, 15#u32,
+    21#u32, 8#u32, 18#u32, 2#u32, 61#u32, 56#u32, 14#u32
+    ]
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 1:
+    Source: '../../src/crypto.rs', lines 77:8-80:9
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop0.body
+  (state : Array Std.U64 25#usize) (c : Array Std.U64 5#usize) (x : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U64 5#usize) × Std.Usize) (Array Std.U64
+    5#usize))
+  := do
+  if x < 5#usize
+  then
+    let i ← Array.index_usize state x
+    let i1 ← x + 5#usize
+    let i2 ← Array.index_usize state i1
+    let i3 ← lift (i ^^^ i2)
+    let i4 ← x + 10#usize
+    let i5 ← Array.index_usize state i4
+    let i6 ← lift (i3 ^^^ i5)
+    let i7 ← x + 15#usize
+    let i8 ← Array.index_usize state i7
+    let i9 ← lift (i6 ^^^ i8)
+    let i10 ← x + 20#usize
+    let i11 ← Array.index_usize state i10
+    let i12 ← lift (i9 ^^^ i11)
+    let a ← Array.update c x i12
+    let x1 ← x + 1#usize
+    ok (cont (a, x1))
+  else ok (done c)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 1:
+    Source: '../../src/crypto.rs', lines 77:8-80:9
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop0
+  (state : Array Std.U64 25#usize) (c : Array Std.U64 5#usize) (x : Std.Usize)
+  :
+  Result (Array Std.U64 5#usize)
+  := do
+  loop
+    (fun (c1, x1) => crypto.keccak_f1600_loop0_loop0.body state c1 x1)
+    (c, x)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 3:
+    Source: '../../src/crypto.rs', lines 85:12-88:13
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop1_loop0.body
+  (x : Std.Usize) (d : Std.U64) (state : Array Std.U64 25#usize)
+  (y : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if y < 5#usize
+  then
+    let i ← 5#usize * y
+    let i1 ← x + i
+    let i2 ← Array.index_usize state i1
+    let i3 ← lift (i2 ^^^ d)
+    let a ← Array.update state i1 i3
+    let y1 ← y + 1#usize
+    ok (cont (a, y1))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 3:
+    Source: '../../src/crypto.rs', lines 85:12-88:13
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop1_loop0
+  (state : Array Std.U64 25#usize) (x : Std.Usize) (d : Std.U64)
+  (y : Std.Usize) :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, y1) => crypto.keccak_f1600_loop0_loop1_loop0.body x d state1
+      y1)
+    (state, y)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 2:
+    Source: '../../src/crypto.rs', lines 82:8-90:9
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop1.body
+  (c : Array Std.U64 5#usize) (state : Array Std.U64 25#usize) (x : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if x < 5#usize
+  then
+    let i ← x + 4#usize
+    let i1 ← i % 5#usize
+    let i2 ← Array.index_usize c i1
+    let i3 ← x + 1#usize
+    let i4 ← i3 % 5#usize
+    let i5 ← Array.index_usize c i4
+    let i6 ← lift (core.num.U64.rotate_left i5 1#u32)
+    let d ← lift (i2 ^^^ i6)
+    let state1 ← crypto.keccak_f1600_loop0_loop1_loop0 state x d 0#usize
+    let x1 ← x + 1#usize
+    ok (cont (state1, x1))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 2:
+    Source: '../../src/crypto.rs', lines 82:8-90:9
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop1
+  (state : Array Std.U64 25#usize) (c : Array Std.U64 5#usize) (x : Std.Usize)
+  :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, x1) => crypto.keccak_f1600_loop0_loop1.body c state1 x1)
+    (state, x)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 5:
+    Source: '../../src/crypto.rs', lines 97:12-100:13
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop2_loop0.body
+  (state : Array Std.U64 25#usize) (y : Std.Usize) (b : Array Std.U64 25#usize)
+  (x : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if x < 5#usize
+  then
+    let i ← 5#usize * y
+    let i1 ← x + i
+    let i2 ← Array.index_usize state i1
+    let i3 ← x + i
+    let i4 ← Array.index_usize crypto.ROT i3
+    let i5 ← lift (core.num.U64.rotate_left i2 i4)
+    let i6 ← 2#usize * x
+    let i7 ← 3#usize * y
+    let i8 ← i6 + i7
+    let i9 ← i8 % 5#usize
+    let i10 ← 5#usize * i9
+    let i11 ← y + i10
+    let a ← Array.update b i11 i5
+    let x1 ← x + 1#usize
+    ok (cont (a, x1))
+  else ok (done b)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 5:
+    Source: '../../src/crypto.rs', lines 97:12-100:13
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop2_loop0
+  (state : Array Std.U64 25#usize) (b : Array Std.U64 25#usize) (y : Std.Usize)
+  (x : Std.Usize) :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (b1, x1) => crypto.keccak_f1600_loop0_loop2_loop0.body state y b1 x1)
+    (b, x)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 4:
+    Source: '../../src/crypto.rs', lines 95:8-102:9
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop2.body
+  (state : Array Std.U64 25#usize) (b : Array Std.U64 25#usize) (y : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if y < 5#usize
+  then
+    let b1 ← crypto.keccak_f1600_loop0_loop2_loop0 state b y 0#usize
+    let y1 ← y + 1#usize
+    ok (cont (b1, y1))
+  else ok (done b)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 4:
+    Source: '../../src/crypto.rs', lines 95:8-102:9
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop2
+  (state : Array Std.U64 25#usize) (b : Array Std.U64 25#usize) (y : Std.Usize)
+  :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (b1, y1) => crypto.keccak_f1600_loop0_loop2.body state b1 y1)
+    (b, y)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 7:
+    Source: '../../src/crypto.rs', lines 108:12-112:13
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop3_loop0.body
+  (b : Array Std.U64 25#usize) (y : Std.Usize) (state : Array Std.U64 25#usize)
+  (x : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if x < 5#usize
+  then
+    let i ← 5#usize * y
+    let i1 ← x + i
+    let i2 ← Array.index_usize b i1
+    let i3 ← x + 1#usize
+    let i4 ← i3 % 5#usize
+    let i5 ← i4 + i
+    let i6 ← Array.index_usize b i5
+    let i7 ← lift (~~~ i6)
+    let i8 ← x + 2#usize
+    let i9 ← i8 % 5#usize
+    let i10 ← i9 + i
+    let i11 ← Array.index_usize b i10
+    let i12 ← lift (i7 &&& i11)
+    let i13 ← x + i
+    let i14 ← lift (i2 ^^^ i12)
+    let a ← Array.update state i13 i14
+    ok (cont (a, i3))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 7:
+    Source: '../../src/crypto.rs', lines 108:12-112:13
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop3_loop0
+  (state : Array Std.U64 25#usize) (b : Array Std.U64 25#usize) (y : Std.Usize)
+  (x : Std.Usize) :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, x1) => crypto.keccak_f1600_loop0_loop3_loop0.body b y state1
+      x1)
+    (state, x)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 6:
+    Source: '../../src/crypto.rs', lines 106:8-114:9
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0_loop3.body
+  (b : Array Std.U64 25#usize) (state : Array Std.U64 25#usize) (y : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if y < 5#usize
+  then
+    let state1 ← crypto.keccak_f1600_loop0_loop3_loop0 state b y 0#usize
+    let y1 ← y + 1#usize
+    ok (cont (state1, y1))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 6:
+    Source: '../../src/crypto.rs', lines 106:8-114:9
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0_loop3
+  (state : Array Std.U64 25#usize) (b : Array Std.U64 25#usize) (y : Std.Usize)
+  :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, y1) => crypto.keccak_f1600_loop0_loop3.body b state1 y1)
+    (state, y)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop body 0:
+    Source: '../../src/crypto.rs', lines 71:4-119:5
+    Visibility: public -/
+@[rust_loop_body]
+def crypto.keccak_f1600_loop0.body
+  (state : Array Std.U64 25#usize) (round : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if round < 24#usize
+  then
+    let rc ← Array.index_usize crypto.RC round
+    let c := Array.repeat 5#usize 0#u64
+    let c1 ← crypto.keccak_f1600_loop0_loop0 state c 0#usize
+    let state1 ← crypto.keccak_f1600_loop0_loop1 state c1 0#usize
+    let b := Array.repeat 25#usize 0#u64
+    let b1 ← crypto.keccak_f1600_loop0_loop2 state1 b 0#usize
+    let state2 ← crypto.keccak_f1600_loop0_loop3 state1 b1 0#usize
+    let i ← Array.index_usize state2 0#usize
+    let i1 ← lift (i ^^^ rc)
+    let a ← Array.update state2 0#usize i1
+    let round1 ← round + 1#usize
+    ok (cont (a, round1))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::keccak_f1600]: loop 0:
+    Source: '../../src/crypto.rs', lines 71:4-119:5
+    Visibility: public -/
+@[rust_loop]
+def crypto.keccak_f1600_loop0
+  (state : Array Std.U64 25#usize) (round : Std.Usize) :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, round1) => crypto.keccak_f1600_loop0.body state1 round1)
+    (state, round)
+
+/-- [apeiron_word::crypto::keccak_f1600]:
+    Source: '../../src/crypto.rs', lines 69:0-120:1
+    Visibility: public -/
+@[reducible]
+def crypto.keccak_f1600
+  (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
+  crypto.keccak_f1600_loop0 state 0#usize
+
 /-- [apeiron_word::attn::AttnError]
     Source: '../../src/engine/attn.rs', lines 36:0-83:1
     Visibility: public -/
@@ -2823,7 +3155,7 @@ axiom attn.alloc_f32_storage
   : Std.Usize → Std.Usize → Result attn.KvStorage
 
 /-- [apeiron_word::mixer::Carrier]
-    Source: '../../src/engine/mixer.rs', lines 300:0-303:1 -/
+    Source: '../../src/engine/mixer.rs', lines 299:0-302:1 -/
 @[discriminant isize]
 inductive mixer.Carrier where
 | Q32 : mixer.Carrier
@@ -3706,7 +4038,7 @@ def value.round_shift_32 (v : Std.I128) : Result Std.I128 := do
   i1 >>> 32#i32
 
 /-- [apeiron_word::mixer::{impl core::cmp::PartialEq<apeiron_word::mixer::Carrier> for apeiron_word::mixer::Carrier}::eq]:
-    Source: '../../src/engine/mixer.rs', lines 299:29-299:38
+    Source: '../../src/engine/mixer.rs', lines 298:29-298:38
     Visibility: public -/
 def mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq
   (self : mixer.Carrier) (other : mixer.Carrier) : Result Bool := do
@@ -9974,7 +10306,7 @@ def moe.gate_weights_loop0
     (j, ok1, err)
 
 /-- [apeiron_word::moe::gate_weights]: loop body 1:
-    Source: '../../src/engine/moe.rs', lines 329:8-335:9
+    Source: '../../src/engine/moe.rs', lines 328:8-334:9
     Visibility: public -/
 @[rust_loop_body]
 def moe.gate_weights_loop1.body
@@ -9996,7 +10328,7 @@ def moe.gate_weights_loop1.body
   else ok (done m)
 
 /-- [apeiron_word::moe::gate_weights]: loop 1:
-    Source: '../../src/engine/moe.rs', lines 329:8-335:9
+    Source: '../../src/engine/moe.rs', lines 328:8-334:9
     Visibility: public -/
 @[rust_loop]
 def moe.gate_weights_loop1
@@ -10009,7 +10341,7 @@ def moe.gate_weights_loop1
     (m, j)
 
 /-- [apeiron_word::moe::gate_weights]: loop body 2:
-    Source: '../../src/engine/moe.rs', lines 342:8-347:9
+    Source: '../../src/engine/moe.rs', lines 341:8-346:9
     Visibility: public -/
 @[rust_loop_body]
 def moe.gate_weights_loop2.body
@@ -10027,7 +10359,7 @@ def moe.gate_weights_loop2.body
   else ok (done m)
 
 /-- [apeiron_word::moe::gate_weights]: loop 2:
-    Source: '../../src/engine/moe.rs', lines 342:8-347:9
+    Source: '../../src/engine/moe.rs', lines 341:8-346:9
     Visibility: public -/
 @[rust_loop]
 def moe.gate_weights_loop2
@@ -10039,7 +10371,7 @@ def moe.gate_weights_loop2
     (m, i)
 
 /-- [apeiron_word::moe::gate_weights]:
-    Source: '../../src/engine/moe.rs', lines 300:0-355:1
+    Source: '../../src/engine/moe.rs', lines 300:0-354:1
     Visibility: public -/
 def moe.gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -23845,5 +24177,12 @@ def word_policy_decide
   Result policy.decide.Verdict
   := do
   policy.decide.decide rules atoms facts known action want
+
+/-- [apeiron_word::word_keccakf]:
+    Source: 'lib.rs', lines 1077:0-1079:1
+    Visibility: public -/
+def word_keccakf
+  (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
+  crypto.keccak_f1600 state
 
 end apeiron_word

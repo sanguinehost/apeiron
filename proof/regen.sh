@@ -81,7 +81,7 @@ echo "== source =="
 # pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
 # pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. Every `#[path]`
 # target of `proof/extract/lib.rs` is listed: the engine closure `loader/step/chart/kern/trace`, the
-# `mixer.rs` and `hadamard.rs` roots, `moe.rs` and `numeric/fixed_ln.rs` are pulled too, so a change
+# `mixer.rs` and `hadamard.rs` roots, `moe.rs`, `numeric/fixed_ln.rs` and `crypto.rs` are pulled too, so a change
 # to any of them moves the generated Lean and moves this digest list with it. `src/table/tests.rs`
 # is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
 SOURCE_FILES="
@@ -137,6 +137,7 @@ $REPO_DIR/src/engine/chart/mod.rs
 $REPO_DIR/src/engine/kern/mod.rs
 $REPO_DIR/src/engine/trace.rs
 $REPO_DIR/src/numeric/fixed_ln.rs
+$REPO_DIR/src/crypto.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -161,6 +162,11 @@ run_extract() {
         --opaque 'crate::mixer::f32_carrier' \
         --opaque 'crate::attn::_::attn_head_f32' \
         --opaque 'crate::attn::alloc_f32_storage' \
+        --opaque 'crate::crypto::sponge' \
+        --opaque 'crate::crypto::sha3_256' \
+        --opaque 'crate::crypto::sha3_512' \
+        --opaque 'crate::crypto::shake128' \
+        --opaque 'crate::crypto::shake256' \
         --dest-file "$llbc" \
         --start-from crate::word_mul \
         --start-from crate::word_norm \
@@ -230,6 +236,7 @@ run_extract() {
         --start-from crate::word_gate_weights \
         --start-from crate::word_check_fragment \
         --start-from crate::word_policy_decide \
+        --start-from crate::word_keccakf \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

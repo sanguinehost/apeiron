@@ -1064,3 +1064,45 @@ pub use rope::{rope_rotate_fixed, RopeError, RopeTable};
 pub use sampler::{argmax_fixed, top_p_fixed, SamplerError};
 pub use step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
 pub use value::fixed_vector_checksum;
+
+/// FIPS-202 hash construction, declared last so no earlier extracted item's source span moves.
+/// `src/crypto.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/crypto.rs"]
+pub mod crypto;
+
+/// `crypto::keccak_f1600`, the Keccak-f[1600] permutation, at the fixed 25-lane state.
+///
+/// This calls the real `src/crypto.rs` body; the wrapper fixes nothing beyond naming the state
+/// type, which is already concrete. It does not restate the theta/rho/pi/chi/iota steps.
+pub fn word_keccakf(state: &mut [u64; 25]) {
+    crypto::keccak_f1600(state)
+}
+
+/// `crypto::sha3_256`, wrapper over the concrete `&[u8]` message and `[u8; 32]` digest.
+///
+/// Not an extraction root while `crypto::sha3_256` is opaque: an opaque body enters the artifact as
+/// an unlisted `axiom`, which the extraction audit rejects. Re-root when the sponge bodies in
+/// `src/crypto.rs` are rewritten for extraction.
+pub fn word_sha3_256(msg: &[u8]) -> [u8; 32] {
+    crypto::sha3_256(msg)
+}
+
+/// `crypto::sha3_512`, wrapper over the concrete `&[u8]` message and `[u8; 64]` digest.
+///
+/// Not an extraction root for the reason given on `word_sha3_256`.
+pub fn word_sha3_512(msg: &[u8]) -> [u8; 64] {
+    crypto::sha3_512(msg)
+}
+
+/// `crypto::shake128`, rooted at the concrete `&[u8]` message and `&mut [u8]` out-parameter.
+///
+/// Not an extraction root: its output length is unbounded at the call site, so the root would be
+/// slice-length-parametric rather than monomorphic.
+pub fn word_shake128(msg: &[u8], out: &mut [u8]) {
+    crypto::shake128(msg, out)
+}
+
+/// `crypto::shake256`, rooted as `word_shake128` is, and likewise not an extraction root.
+pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
+    crypto::shake256(msg, out)
+}
