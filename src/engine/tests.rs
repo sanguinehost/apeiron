@@ -1922,7 +1922,8 @@ fn f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err() {
     // value row bit for bit. This pins value-plane slots 0 and 1 exactly.
     assert_eq!(kv.append(0, &[ONE, 0], &[0, ONE]), Ok(0));
     let mut out = [i64::MIN; 2];
-    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out).expect("attend pos 0");
+    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out)
+        .expect("attend pos 0");
     assert_eq!(out, [0, ONE]);
     // A second key row makes the softmax weights depend on the stored key row: with
     // `scale = 1/sqrt(2)` the scores are `1/sqrt(2)` and `0`, so the weights are
@@ -1930,12 +1931,10 @@ fn f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err() {
     // A key-plane slot swap moves each component by about 1.14e9, far outside the tolerance.
     assert_eq!(kv.append(0, &[0, ONE], &[ONE, 0]), Ok(1));
     let mut out = [i64::MIN; 2];
-    kv.attn_head(0, 0, &[ONE, 0], 1, &mut out).expect("attend pos 1");
+    kv.attn_head(0, 0, &[ONE, 0], 1, &mut out)
+        .expect("attend pos 1");
     let e = (-1.0f64 / 2.0f64.sqrt()).exp();
-    let want = [
-        (e / (1.0 + e)) * ONE as f64,
-        (1.0 / (1.0 + e)) * ONE as f64,
-    ];
+    let want = [(e / (1.0 + e)) * ONE as f64, (1.0 / (1.0 + e)) * ONE as f64];
     for (i, w) in want.iter().enumerate() {
         let got = out[i] as f64;
         assert!(
@@ -1961,6 +1960,7 @@ fn f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err() {
     );
     assert_eq!(kv.occupied(0), Ok(1));
     let mut out = [i64::MIN; 2];
-    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out).expect("attend pos 0");
+    kv.attn_head(0, 0, &[ONE, 0], 0, &mut out)
+        .expect("attend pos 0");
     assert_eq!(out, [0, ONE]);
 }
