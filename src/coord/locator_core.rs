@@ -617,6 +617,15 @@ pub(crate) enum Walk {
 /// The staged node indices of a new representative's complete path.
 pub(crate) struct StagedPath {
     pub(crate) residue_path: [u32; MAX_LEVELS + 1],
+    /// The residue digits of the same path, written once by [`ResidueIndex::digits`] during staging
+    /// and read back by [`Directory::link`] to address each level's child slot.
+    ///
+    /// Publication reuses the staged digits instead of extracting them a second time from the
+    /// index. The two arrays describe one walk: `residue_path[depth]` is the node the walk reached
+    /// at `depth` under `residue_digits[depth]`, so a staged path is the whole residue path, not
+    /// half of it. Entries past `I::LEVELS` hold the cleared bytes [`ResidueIndex::digits`] left
+    /// there, and no reader goes past `I::LEVELS`.
+    pub(crate) residue_digits: [u8; MAX_LEVELS],
     pub(crate) identity_path: Vec<u32>,
 }
 
@@ -760,6 +769,7 @@ impl Directory {
     pub(crate) fn recycle_staged(&mut self, staged: StagedPath) {
         let StagedPath {
             residue_path: _,
+            residue_digits: _,
             identity_path,
         } = staged;
         self.recycle_scratch(identity_path);
@@ -1352,6 +1362,7 @@ impl Directory {
             }
             None => Ok(StagedPath {
                 residue_path,
+                residue_digits: digits,
                 identity_path,
             }),
         }
@@ -1416,18 +1427,27 @@ impl Directory {
 
     /// Publishes the staged path, then returns its scratch buffer to the idle slot. Every write is
     /// infallible: all storage was reserved.
+    ///
+    /// The residue digits are read from `staged` rather than extracted from the index a second
+    /// time: staging walked this path under exactly those digits, so the two staged arrays are one
+    /// walk's record. The index parameter is therefore no longer read; it is kept, under its
+    /// underscore-prefixed name, so this signature and the extracted one with it are unchanged.
+    ///
+    /// Temporal `O(I::LEVELS + |E(k)| * f)`, `f <= 256` the longest per-node sibling-edge chain: one
+    /// indexed load and at most one indexed store per residue level with no digit extraction, then
+    /// `|E(k)|` [`Directory::link_identity_edge`] calls plus one terminal store. Spatial `O(1)`:
+    /// every store lands in storage [`Directory::reserve_for`] reserved, and the staged path is
+    /// consumed rather than copied into new space.
     pub(crate) fn link<I: ResidueIndex, K: ExactIdentity>(
         &mut self,
-        index: &I,
+        _index: &I,
         key: &K,
         staged: StagedPath,
         handle: u32,
     ) {
-        let mut digits = [0u8; MAX_LEVELS];
-        index.digits(&mut digits[..I::LEVELS]);
         let mut depth = 0;
         while depth < I::LEVELS {
-            let digit = digits[depth];
+            let digit = staged.residue_digits[depth];
             debug_assert!(usize::from(digit) < I::ARITY);
             let parent = staged.residue_path[depth] as usize;
             let at = RESIDUE_STRIDE * parent + usize::from(digit);
