@@ -13,27 +13,23 @@
   `view` is needed for that statement; `Array.ext` is reserved for the internal
   loop invariants.
 
-  Staged contents (this file):
+  Contents (this file), each against the canonical step:
   * the state conversion `view` and its read/write lemmas;
   * the extracted constant-table bridges `crypto.ROT` and `crypto.RC`;
   * the theta column loop: `laneW`/`colW`/`colGet`, the per-iteration
     `column_body_step` and the loop invariant `columns_spec` over
     `loop.spec_decr_nat`;
+  * the theta apply loop (`thetaInv`, `thetaRowInv`, `thetaRow_body_step`,
+    `thetaRow_spec`, `thetaApply_body_step`, `thetaApply_spec`);
   * the rho-pi sweep (`rhoPi_body_step`, `rhoPi_row_spec`, `rhoPi_spec`) and the
-    chi sweep (`chi_body_step`, `chi_row_spec`, `chi_spec`), each against the
-    canonical `pi (rho s)` and `chi s`;
+    chi sweep (`chi_body_step`, `chi_row_spec`, `chi_spec`);
   * the iota read-back `iota_write`;
-  * the exact headline target (`WordKeccakfDenotes`) and the per-round target
-    (`RoundStepDenotes`), carried as named propositions until their loop
-    refinements land.
+  * one outer iteration against `round` (`RoundStepDenotes`), the outer loop
+    against the prefix fold `foldRounds`/`permute` (`keccak_f1600_loop0_spec`),
+    and the refinement headline `WordKeccakfDenotes`.
 
-  Open obligations, next stages: the theta apply loop
-  (`crypto.keccak_f1600_loop0_loop1`), the outer 24-round fold
-  (`crypto.keccak_f1600_loop0`) against `List.finRange 24` — which needs the
-  four step specs joined into `round`, i.e. `RoundStepDenotes` — and then the
-  headline. The theta apply loop is the only per-step obligation left; the
-  rho-pi/chi/iota steps of one round are closed, so the round body reduces to
-  that one loop plus the index join.
+  `maxHeartbeats` is a finite bound (not `0`) for the extracted outer-loop body
+  reductions; the `#audit` registration is in `Crypto/Keccak/Audit.lean`.
 -/
 
 import Crypto.Keccak.Round
@@ -44,6 +40,7 @@ set_option warningAsError true
 set_option linter.unusedVariables false
 set_option linter.unusedSimpArgs false
 set_option linter.unnecessarySimpa false
+set_option maxHeartbeats 1500000
 
 namespace apeiron_word
 
@@ -1190,26 +1187,483 @@ theorem iota_write (a : Array Std.U64 25#usize) (n : Fin 24) (rc : Std.U64)
   rw [view_set a 0#usize _ h0, iota, hxor, ← hrc, view_get a ⟨0, by decide⟩]
   rfl
 
-/-! ## Targets
+/-! ## Theta apply loop
 
-The headline and the per-round step, as named propositions. They are not yet
-asserted: the loop refinements below them are the following stages, and a
-`theorem` with an unfinished proof is not admissible in this tree. -/
+`src/crypto.rs:82-90` runs the outer `x` loop that, for each column `x`,
+computes `D[x]` from the column-parity scratch `c` and XORs it into the five
+lanes `state[x + 5y]`, `y = 0..4`. `thetaInv` is the `x`-loop invariant over
+`view`; `thetaRowInv` is the inner `y`-loop invariant; `thetaApply_spec` joins
+them against the canonical `theta`. -/
 
-/-- The refinement target: on every extracted state, `word_keccakf` returns
-    `ok b` with `view b` the canonical 24-round permutation of `view a`. -/
-def WordKeccakfDenotes : Prop :=
-  ∀ a : Array Std.U64 25#usize,
-    ∃ b : Array Std.U64 25#usize,
-      word_keccakf a = ok b ∧ view b = permute (view a)
+/-- The `x`-loop invariant of θ: the lanes whose column index is below `x`
+    already hold the canonical `theta` value, the rest still hold the input. -/
+def thetaInv (state0 state : Array Std.U64 25#usize) (x : Nat) : Prop :=
+  x ≤ 5 ∧ ∀ j : Fin 25, (view state).get j =
+    if j.val % 5 < x then (theta (view state0)).get j else (view state0).get j
 
-/-- The per-round target: one iteration of the extracted outer loop, from
-    `view state = s` at round `n`, returns `view state' = round n s`. -/
-def RoundStepDenotes : Prop :=
-  ∀ (state : Array Std.U64 25#usize) (n : Std.Usize) (hn : n.val < 24),
+/-- The `y`-loop invariant of the θ apply loop: the lanes of column `x` whose
+    row index is below `y` hold the start state XORed with the correction `d`,
+    every other lane is unchanged. -/
+def thetaRowInv (start : Array Std.U64 25#usize) (d : Std.U64) (x y : Nat)
+    (state : Array Std.U64 25#usize) : Prop :=
+  y ≤ 5 ∧ ∀ j : Fin 25, (view state).get j =
+    if j.val % 5 = x ∧ j.val / 5 < y then (view start).get j ^^^ d.bv
+    else (view start).get j
+
+/-- The zeroed 5-word scratch read through `colGet` is bit-vector zero. -/
+theorem colGet_repeat_zero (j : Fin 5) :
+    (colGet (Array.repeat 5#usize 0#u64) j).bv = 0 := by
+  unfold colGet
+  rw [Array.getElem_Nat_eq (Array.repeat 5#usize 0#u64) j.val
+    (by rw [Array.repeat_val, List.length_replicate]; exact j.isLt)]
+  simp only [Array.repeat_val, List.getElem_replicate]
+  rfl
+
+/-- One θ apply row iteration at `(x, y)`: the body reads `state[x + 5y]`,
+    writes it XORed with `d` back in place, and increments `y`. -/
+theorem thetaRow_body_step (state : Array Std.U64 25#usize) (d : Std.U64)
+    (x y : Std.Usize) (hx : x.val < 5) (hy : y.val < 5) :
+    ∃ (w : Std.Usize) (state' : Array Std.U64 25#usize) (y' : Std.Usize),
+      crypto.keccak_f1600_loop0_loop1_loop0.body x d state y
+          = ok (ControlFlow.cont (state', y')) ∧
+        y'.val = y.val + 1 ∧
+        w.val = x.val + 5 * y.val ∧
+        ∀ j : Fin 25, (view state').get j =
+          if j.val = w.val then (view state).get j ^^^ d.bv else (view state).get j := by
+  have h1v : (1#usize).val = 1 := rfl
+  have h5v : (5#usize).val = 5 := rfl
+  have hs : state.val.length = 25 := by simpa using state.property
+  have hlt : y < 5#usize := (UScalar.lt_equiv y 5#usize).mpr hy
+  have hmax5 : (5#usize).val * y.val ≤ Usize.max := by scalar_tac
+  obtain ⟨i, hi, hiv⟩ := WP.spec_imp_exists (Usize.mul_spec (x := 5#usize) (y := y) hmax5)
+  have hival : i.val = 5 * y.val := by rw [hiv, h5v]
+  have hmax1 : x.val + i.val ≤ Usize.max := by scalar_tac
+  obtain ⟨i1, hi1, hi1v⟩ := WP.spec_imp_exists (Usize.add_spec (x := x) (y := i) hmax1)
+  have hi1val : i1.val = x.val + 5 * y.val := by rw [hi1v, hival]
+  have hxy : i1.val < state.val.length := by rw [hi1val, hs]; omega
+  have hxy25 : i1.val < 25 := by rw [hi1val]; omega
+  have hidx : Array.index_usize state i1 = ok (state.val[i1.val]'hxy) :=
+    array_index_usize_eq state i1 hxy
+  have hmaxy1 : y.val + (1#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨y1, hy1, hy1v⟩ := WP.spec_imp_exists (Usize.add_spec (x := y) (y := 1#usize) hmaxy1)
+  have hy1val : y1.val = y.val + 1 := by rw [hy1v, h1v]
+  obtain ⟨a, ha, haeq⟩ := WP.spec_imp_exists (Array.update_spec state i1
+    (state.val[i1.val]'hxy ^^^ d) hxy)
+  refine ⟨i1, a, y1, ?_, hy1val, hi1val, ?_⟩
+  · unfold crypto.keccak_f1600_loop0_loop1_loop0.body
+    rw [if_pos hlt]
+    simp only [lift, bind_tc_ok, hi, hi1, hidx, ha, hy1]
+  · intro j
+    rw [haeq, view_set_get state i1 (state.val[i1.val]'hxy ^^^ d) hxy25 j]
+    by_cases h : j.val = i1.val
+    · simp only [if_pos h]
+      have hv : U64.bv (state.val[i1.val]'hxy ^^^ d) = (view state).get j ^^^ d.bv := by
+        show U64.bv (state.val[i1.val]'hxy) ^^^ U64.bv d = (view state).get j ^^^ d.bv
+        have hj : j = ⟨i1.val, hxy25⟩ := Fin.ext h
+        rw [hj]
+        rw [view_get]
+        rfl
+      exact hv
+    · simp only [if_neg h]
+
+/-- The `y` loop of the θ apply loop: from `y ≤ 5` it XORs `d` into every lane
+    of column `x` at or above row `y`. -/
+theorem thetaRow_spec (start state : Array Std.U64 25#usize) (d : Std.U64)
+    (x : Std.Usize) (hx : x.val < 5) (y : Std.Usize) (hy : y.val ≤ 5)
+    (hinv : thetaRowInv start d x.val y.val state) :
+    crypto.keccak_f1600_loop0_loop1_loop0 state x d y ⦃ state' =>
+      ∀ j : Fin 25, (view state').get j =
+        if j.val % 5 = x.val then (view start).get j ^^^ d.bv
+        else (view start).get j ⦄ := by
+  unfold crypto.keccak_f1600_loop0_loop1_loop0
+  apply loop.spec_decr_nat
+    (measure := fun s : Array Std.U64 25#usize × Std.Usize => 5 - s.2.val)
+    (inv := fun s => thetaRowInv start d x.val s.2.val s.1)
+    (post := fun state' => ∀ j : Fin 25, (view state').get j =
+      if j.val % 5 = x.val then (view start).get j ^^^ d.bv else (view start).get j)
+  · intro s hs
+    rcases s with ⟨st, y1⟩
+    dsimp only at hs ⊢
+    obtain ⟨hyle, hs'⟩ := hs
+    by_cases hlt : y1.val < 5
+    · obtain ⟨w, st2, y2, hbody, hy2, hw, hst2⟩ := thetaRow_body_step st d x y1 hx hlt
+      have hwx : w.val % 5 = x.val := by
+        rw [hw, Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt hx]
+      have hwd : w.val / 5 = y1.val := by
+        rw [hw, Nat.add_mul_div_left _ _ (by decide : 0 < 5), Nat.div_eq_of_lt hx, Nat.zero_add]
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      refine ⟨⟨by omega, ?_⟩, by omega⟩
+      intro j
+      rw [hy2]
+      rw [hst2 j]
+      by_cases hcol : j.val % 5 = x.val
+      · by_cases hrow : j.val / 5 < y1.val
+        · have hneq : ¬ (j.val = w.val) := by
+            intro hje
+            rw [hje, hwd] at hrow
+            omega
+          rw [if_neg hneq, hs' j, if_pos ⟨hcol, hrow⟩, if_pos ⟨hcol, by omega⟩]
+        · by_cases heq : j.val = w.val
+          · have hrow2 : j.val / 5 < y1.val + 1 := by rw [heq, hwd]; omega
+            have hncond : ¬ (j.val % 5 = x.val ∧ j.val / 5 < y1.val) := by
+              intro hc; rw [heq, hwd] at hc; omega
+            rw [if_pos heq, hs' j, if_neg hncond, if_pos ⟨hcol, hrow2⟩]
+          · have hncond : ¬ (j.val % 5 = x.val ∧ j.val / 5 < y1.val) := by
+              intro hc; exact hrow hc.2
+            have hncond2 : ¬ (j.val % 5 = x.val ∧ j.val / 5 < y1.val + 1) := by
+              rintro ⟨h1, h2⟩
+              have hd : j.val / 5 = y1.val := by omega
+              have hmad := Nat.mod_add_div j.val 5
+              rw [h1, hd, Nat.mul_comm] at hmad
+              have hjw : j.val = w.val := by rw [hw]; omega
+              exact heq hjw
+            rw [if_neg heq, hs' j, if_neg hncond, if_neg hncond2]
+      · have hneq : ¬ (j.val = w.val) := by
+          intro hje
+          exact hcol (by rw [hje, hwx])
+        rw [if_neg hneq, hs' j,
+          if_neg (by intro hc; exact hcol hc.1), if_neg (by intro hc; exact hcol hc.1)]
+    · have hy5 : y1.val = 5 := by omega
+      have hnot : ¬ (y1 < 5#usize) := fun hc' => hlt ((UScalar.lt_equiv y1 5#usize).mp hc')
+      have hbody : crypto.keccak_f1600_loop0_loop1_loop0.body x d st y1
+          = ok (ControlFlow.done st) := by
+        unfold crypto.keccak_f1600_loop0_loop1_loop0.body
+        rw [if_neg hnot]
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      intro j
+      rw [hs' j]
+      by_cases hcol : j.val % 5 = x.val
+      · have hj5 : j.val / 5 < y1.val := by
+          rw [hy5]
+          exact Nat.div_lt_of_lt_mul (by have := j.isLt; omega)
+        rw [if_pos ⟨hcol, hj5⟩, if_pos hcol]
+      · rw [if_neg (by intro hc; exact hcol hc.1), if_neg hcol]
+  · show thetaRowInv start d x.val y.val state
+    exact hinv
+
+/-- One θ apply iteration at `x < 5`: computes `D[x]` from the scratch column
+    parities and applies the row loop, advancing the invariant to `x + 1`. -/
+theorem thetaApply_body_step (state0 : Array Std.U64 25#usize) (c : Array Std.U64 5#usize)
+    (hc : ∀ j : Fin 5, (colGet c j).bv = (colW state0 j.val).bv)
+    (state : Array Std.U64 25#usize) (x : Std.Usize) (hx : x.val < 5)
+    (hinv : thetaInv state0 state x.val) :
+    ∃ (state' : Array Std.U64 25#usize) (x' : Std.Usize),
+      crypto.keccak_f1600_loop0_loop1.body c state x
+          = ok (ControlFlow.cont (state', x')) ∧
+        x'.val = x.val + 1 ∧
+        thetaInv state0 state' x'.val := by
+  obtain ⟨hxle, hstate⟩ := hinv
+  have h1v : (1#usize).val = 1 := rfl
+  have h4v : (4#usize).val = 4 := rfl
+  have h5v : (5#usize).val = 5 := rfl
+  have hlt : x < 5#usize := (UScalar.lt_equiv x 5#usize).mpr hx
+  have hmax4 : x.val + (4#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨i, hi, hiv⟩ := WP.spec_imp_exists (Usize.add_spec (x := x) (y := 4#usize) hmax4)
+  have hival : i.val = x.val + 4 := by rw [hiv, h4v]
+  obtain ⟨i1, hi1, hi1v⟩ := WP.spec_imp_exists (Usize.rem_spec (x := i) (y := 5#usize) (by decide))
+  have hi1val : i1.val = (x.val + 4) % 5 := by rw [hi1v, hival, h5v]
+  have hi1lt : i1.val < 5 := by rw [hi1val]; exact Nat.mod_lt _ (by decide)
+  have hi1c : i1.val < c.val.length := by
+    have : c.val.length = 5 := by simpa using c.property
+    omega
+  obtain ⟨i2, hi2, hi2v⟩ := WP.spec_imp_exists (Array.index_usize_spec c i1 hi1c)
+  have hi2col : i2 = colGet c ⟨i1.val, hi1lt⟩ := by rw [hi2v]; rfl
+  have hmaxx1 : x.val + (1#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨i3, hi3, hi3v⟩ := WP.spec_imp_exists (Usize.add_spec (x := x) (y := 1#usize) hmaxx1)
+  have hi3val : i3.val = x.val + 1 := by rw [hi3v, h1v]
+  obtain ⟨i4, hi4, hi4v⟩ := WP.spec_imp_exists (Usize.rem_spec (x := i3) (y := 5#usize) (by decide))
+  have hi4val : i4.val = (x.val + 1) % 5 := by rw [hi4v, hi3val, h5v]
+  have hi4lt : i4.val < 5 := by rw [hi4val]; exact Nat.mod_lt _ (by decide)
+  have hi4c : i4.val < c.val.length := by
+    have : c.val.length = 5 := by simpa using c.property
+    omega
+  obtain ⟨i5, hi5, hi5v⟩ := WP.spec_imp_exists (Array.index_usize_spec c i4 hi4c)
+  have hi5col : i5 = colGet c ⟨i4.val, hi4lt⟩ := by rw [hi5v]; rfl
+  have h2bv : i2.bv = (colW state0 ((x.val + 4) % 5)).bv := by
+    have h := hc ⟨(x.val + 4) % 5, Nat.mod_lt _ (by decide)⟩
+    have hc' : (colGet c ⟨(x.val + 4) % 5, Nat.mod_lt _ (by decide)⟩).bv
+        = (colGet c ⟨i1.val, hi1lt⟩).bv :=
+      congrArg (fun k : Fin 5 => (colGet c k).bv) (Fin.ext hi1val.symm)
+    rw [hi2col, ← hc']
+    exact h
+  have h5bv : i5.bv = (colW state0 ((x.val + 1) % 5)).bv := by
+    have h := hc ⟨(x.val + 1) % 5, Nat.mod_lt _ (by decide)⟩
+    have hc' : (colGet c ⟨(x.val + 1) % 5, Nat.mod_lt _ (by decide)⟩).bv
+        = (colGet c ⟨i4.val, hi4lt⟩).bv :=
+      congrArg (fun k : Fin 5 => (colGet c k).bv) (Fin.ext hi4val.symm)
+    rw [hi5col, ← hc']
+    exact h
+  have hD : (i2 ^^^ core.num.U64.rotate_left i5 1#u32).bv = thetaD state0 x.val := by
+    show i2.bv ^^^ (core.num.U64.rotate_left i5 1#u32).bv = thetaD state0 x.val
+    have hr : (core.num.U64.rotate_left i5 1#u32).bv = (i5.bv).rotateLeft 1 := rfl
+    simp only [hr, h2bv, h5bv]
+    unfold thetaD
+    rfl
+  have hrow0 : thetaRowInv state (i2 ^^^ core.num.U64.rotate_left i5 1#u32) x.val 0 state := by
+    refine ⟨by omega, ?_⟩
+    intro j
+    rw [if_neg (by omega : ¬ (j.val % 5 = x.val ∧ j.val / 5 < 0))]
+  obtain ⟨state1, hrow, hrowpost⟩ := WP.spec_imp_exists
+    (thetaRow_spec state state (i2 ^^^ core.num.U64.rotate_left i5 1#u32) x hx 0#usize
+      (by decide) hrow0)
+  refine ⟨state1, i3, ?_, hi3val, ?_⟩
+  · unfold crypto.keccak_f1600_loop0_loop1.body
+    rw [if_pos hlt]
+    simp only [lift, bind_tc_ok, hi, hi1, hi2, hi3, hi4, hi5, hrow]
+  · refine ⟨by omega, ?_⟩
+    intro j
+    rw [hrowpost j, hi3val]
+    by_cases hcol : j.val % 5 = x.val
+    · have hnotlt : ¬ (j.val % 5 < x.val) := by omega
+      rw [if_pos hcol, hstate j, if_neg hnotlt,
+        if_pos (by omega : j.val % 5 < x.val + 1)]
+      rw [theta_get (view state0) j]
+      simp only [hD]
+      unfold thetaD
+      rw [hcol, colW_bv, colW_bv]
+    · by_cases hltx : j.val % 5 < x.val
+      · rw [if_neg hcol, hstate j, if_pos hltx,
+          if_pos (by omega : j.val % 5 < x.val + 1)]
+      · rw [if_neg hcol, hstate j, if_neg hltx,
+          if_neg (by omega : ¬ (j.val % 5 < x.val + 1))]
+
+/-- The θ apply loop of FIPS-202 §3.2.1: from the scratch parity array `c` the
+    extracted `x` loop returns the canonical `theta` of the input. -/
+theorem thetaApply_spec (state0 : Array Std.U64 25#usize) (c : Array Std.U64 5#usize)
+    (hc : ∀ j : Fin 5, (colGet c j).bv = (colW state0 j.val).bv) :
+    crypto.keccak_f1600_loop0_loop1 state0 c 0#usize ⦃ state' =>
+      ∀ j : Fin 25, (view state').get j = (theta (view state0)).get j ⦄ := by
+  unfold crypto.keccak_f1600_loop0_loop1
+  apply loop.spec_decr_nat
+    (measure := fun s : Array Std.U64 25#usize × Std.Usize => 5 - s.2.val)
+    (inv := fun s => thetaInv state0 s.1 s.2.val)
+    (post := fun state' => ∀ j : Fin 25, (view state').get j = (theta (view state0)).get j)
+  · intro s hs
+    rcases s with ⟨st, x1⟩
+    dsimp only at hs ⊢
+    by_cases hlt : x1.val < 5
+    · obtain ⟨st1, x2, hbody, hx2, hinv2⟩ := thetaApply_body_step state0 c hc st x1 hlt hs
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      exact ⟨hinv2, by omega⟩
+    · have hx5 : x1.val = 5 := by obtain ⟨hxle, _⟩ := hs; omega
+      have hnot : ¬ (x1 < 5#usize) := fun hc' => hlt ((UScalar.lt_equiv x1 5#usize).mp hc')
+      have hbody : crypto.keccak_f1600_loop0_loop1.body c st x1
+          = ok (ControlFlow.done st) := by
+        unfold crypto.keccak_f1600_loop0_loop1.body
+        rw [if_neg hnot]
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      intro j
+      rw [hs.2 j, hx5, if_pos (by have := j.isLt; omega)]
+  · show (0#usize).val ≤ 5 ∧ ∀ j : Fin 25, (view state0).get j =
+        if j.val % 5 < (0#usize).val then (theta (view state0)).get j else (view state0).get j
+    refine ⟨by decide, ?_⟩
+    intro j
+    rw [if_neg (by show ¬ (j.val % 5 < 0); omega)]
+
+/-! ## The outer 24-round fold
+
+`src/crypto.rs:71-119` runs one `round < 24` loop over the four step sweeps and
+the iota XOR. `RoundStepDenotes` is one iteration against the canonical `round`;
+`foldRounds` is the prefix fold the loop invariant carries; `RoundStepDenotes`
+and `WordKeccakfDenotes` are the refinement stages, proved below. -/
+
+/-- The round `n` of the canonical permutation if `n < 24`, and the identity
+    otherwise. Total so it can appear in a `Fin.foldl`. -/
+private def roundAt (m : Nat) : Vector (BitVec 64) 25 → Vector (BitVec 64) 25 :=
+  fun s => if h : m < 24 then round ⟨m, h⟩ s else s
+
+/-- The canonical permutation prefix: rounds `0, …, m-1` folded over `s`. -/
+private def foldRounds (s : Vector (BitVec 64) 25) (m : Nat) : Vector (BitVec 64) 25 :=
+  Fin.foldl m (fun acc (j : Fin m) => roundAt j.val acc) s
+
+private theorem foldRounds_zero (s : Vector (BitVec 64) 25) : foldRounds s 0 = s := by
+  unfold foldRounds
+  exact Fin.foldl_zero _ _
+
+private theorem foldRounds_succ (s : Vector (BitVec 64) 25) (m : Nat) (hm : m < 24) :
+    foldRounds s (m + 1) = round ⟨m, hm⟩ (foldRounds s m) := by
+  unfold foldRounds
+  rw [Fin.foldl_succ_last]
+  have hfold : Fin.foldl m (fun acc (i : Fin m) => roundAt (Fin.castSucc i).val acc) s
+      = Fin.foldl m (fun acc (i : Fin m) => roundAt i.val acc) s := by
+    apply congrArg (fun g => Fin.foldl m g s)
+    funext acc i
+    rfl
+  rw [hfold, show (Fin.last m).val = m from rfl]
+  unfold roundAt
+  rw [dif_pos hm]
+
+private theorem foldRounds_permute (s : Vector (BitVec 64) 25) :
+    foldRounds s 24 = permute s := by
+  unfold foldRounds permute
+  rw [Fin.foldl_eq_finRange_foldl]
+  apply congrArg (fun g => (List.finRange 24).foldl g s)
+  funext acc j
+  show roundAt j.val acc = round j acc
+  unfold roundAt
+  rw [dif_pos j.isLt]
+
+theorem usize_add_one_val {n n' : Std.Usize} (h : n + 1#usize = ok n') :
+    n'.val = n.val + 1 := by
+  have ha := UScalar.add_equiv n (1#usize : Std.Usize)
+  have he : n + 1#usize = UScalar.add n (1#usize : Std.Usize) := rfl
+  rw [he] at h
+  rw [he] at ha
+  rw [h] at ha
+  simp only [Result.match.ok] at ha
+  have hv := ha.2.1
+  rw [show (1#usize : Std.Usize).val = 1 from rfl] at hv
+  exact hv
+
+/-- The outer-loop body equation, isolated so the do-block reduction gets its own
+    heartbeat budget: from the intermediate results and their equations, the body
+    returns `cont (a, n')`. -/
+private theorem keccak_f1600_loop0_body_eq (state : Array Std.U64 25#usize) (n : Std.Usize)
+    (rc : Std.U64) (c1 : Array Std.U64 5#usize) (state1 : Array Std.U64 25#usize)
+    (b1 state2 a : Array Std.U64 25#usize) (i0 : Std.U64) (n' : Std.Usize)
+    (hlt : n < 24#usize)
+    (hrcEq : Array.index_usize crypto.RC n = ok rc)
+    (hc1Eq : crypto.keccak_f1600_loop0_loop0 state (Array.repeat 5#usize 0#u64) 0#usize = ok c1)
+    (hstate1Eq : crypto.keccak_f1600_loop0_loop1 state c1 0#usize = ok state1)
+    (hb1Eq : crypto.keccak_f1600_loop0_loop2 state1 (Array.repeat 25#usize 0#u64) 0#usize = ok b1)
+    (hstate2Eq : crypto.keccak_f1600_loop0_loop3 state1 b1 0#usize = ok state2)
+    (hi0Eq : Array.index_usize state2 0#usize = ok i0)
+    (haEq : Array.update state2 0#usize (i0 ^^^ rc) = ok a)
+    (hn'Eq : n + 1#usize = ok n') :
+    crypto.keccak_f1600_loop0.body state n = ok (ControlFlow.cont (a, n')) := by
+  unfold crypto.keccak_f1600_loop0.body
+  rw [if_pos hlt]
+  simp only [lift, bind_tc_ok]
+  rw [hrcEq]; simp only [bind_tc_ok]
+  rw [hc1Eq]; simp only [bind_tc_ok]
+  rw [hstate1Eq]; simp only [bind_tc_ok]
+  rw [hb1Eq]; simp only [bind_tc_ok]
+  rw [hstate2Eq]; simp only [bind_tc_ok]
+  rw [hi0Eq]; simp only [lift, bind_tc_ok]
+  rw [haEq]; simp only [bind_tc_ok]
+  rw [hn'Eq]; simp only [bind_tc_ok]
+
+/-- The iota step of one outer iteration: the in-place XOR of lane 0 is the
+    canonical `iota` through `view`. -/
+private theorem roundBody_iota (state2 a : Array Std.U64 25#usize) (n : Fin 24)
+    (rc i0 : Std.U64) (haSet : a = state2.set 0#usize (i0 ^^^ rc))
+    (hi0V : i0 = state2.val[(0#usize).val]) (hrc : rc.bv = RC.get n) :
+    view a = iota n (view state2) := by
+  rw [haSet]
+  show view (state2.set 0#usize (i0 ^^^ rc)) = iota n (view state2)
+  rw [hi0V]
+  exact iota_write state2 n rc hrc
+
+/-- The view chain of one outer iteration: the four sweep posts and the iota
+    step compose to `round`. -/
+private theorem roundBody_view (state : Array Std.U64 25#usize) (n : Fin 24)
+    (a b1 state1 state2 : Array Std.U64 25#usize)
+    (hstate1post : ∀ j : Fin 25, (view state1).get j = (theta (view state)).get j)
+    (hb1post : ∀ j : Fin 25, (view b1).get j = (pi (rho (view state1))).get j)
+    (hstate2post : ∀ j : Fin 25, (view state2).get j = (chi (view b1)).get j)
+    (hav : view a = iota n (view state2)) :
+    view a = round n (view state) := by
+  rw [hav]
+  have e2 : view state2 = chi (view b1) := by
+    apply Vector.ext; intro j hj; exact hstate2post ⟨j, hj⟩
+  have e1 : view b1 = pi (rho (view state1)) := by
+    apply Vector.ext; intro j hj; exact hb1post ⟨j, hj⟩
+  have e0 : view state1 = theta (view state) := by
+    apply Vector.ext; intro j hj; exact hstate1post ⟨j, hj⟩
+  rw [e2, e1, e0]
+  rfl
+
+/-- One iteration of the extracted outer loop: for `n < 24` the body runs the
+    four sweeps and the iota write, returning `view state' = round n (view state)`
+    and advancing the round counter. -/
+theorem RoundStepDenotes (state : Array Std.U64 25#usize) (n : Std.Usize) (hn : n.val < 24) :
     ∃ (state' : Array Std.U64 25#usize) (n' : Std.Usize),
       crypto.keccak_f1600_loop0.body state n = ok (ControlFlow.cont (state', n')) ∧
       n + 1#usize = ok n' ∧
-      view state' = round ⟨n.val, hn⟩ (view state)
+      view state' = round ⟨n.val, hn⟩ (view state) := by
+  have hs : state.val.length = 25 := by simpa using state.property
+  have hRClen : crypto.RC.length = 24 := by
+    show crypto.RC.val.length = 24
+    rw [Array.property crypto.RC]
+    rfl
+  have hlt : n < 24#usize := (UScalar.lt_equiv n 24#usize).mpr hn
+  obtain ⟨rc, hrcEq, hrcV⟩ := WP.spec_imp_exists
+    (Array.index_usize_spec crypto.RC n (by rw [hRClen]; omega))
+  obtain ⟨c1, hc1Eq, hc1post⟩ := WP.spec_imp_exists
+    (columns_spec state (Array.repeat 5#usize 0#u64) 0#usize (by decide)
+      (fun j => by
+        rw [if_neg (by show ¬ (j.val < 0); omega)]
+        exact colGet_repeat_zero j))
+  obtain ⟨state1, hstate1Eq, hstate1post⟩ := WP.spec_imp_exists (thetaApply_spec state c1 hc1post)
+  obtain ⟨b1, hb1Eq, hb1post⟩ := WP.spec_imp_exists (rhoPi_zero_spec state1)
+  obtain ⟨state2, hstate2Eq, hstate2post⟩ := WP.spec_imp_exists (chi_of_spec b1 state1)
+  have hs2 : state2.val.length = 25 := by simpa using state2.property
+  have h0b : (0#usize).val < state2.val.length := by rw [hs2]; decide
+  obtain ⟨i0, hi0Eq, hi0V⟩ := WP.spec_imp_exists (Array.index_usize_spec state2 0#usize h0b)
+  have hmaxx1 : n.val + (1#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨n', hn'Eq, hn'V⟩ := WP.spec_imp_exists (Usize.add_spec (x := n) (y := 1#usize) hmaxx1)
+  have hn'val : n'.val = n.val + 1 := by rw [hn'V, show (1#usize).val = 1 from rfl]
+  obtain ⟨a, haEq, haSet⟩ := WP.spec_imp_exists
+    (Array.update_spec state2 0#usize (i0 ^^^ rc)
+      (by show (0#usize).val < state2.val.length; rw [hs2]; decide))
+  have hrc : rc.bv = RC.get ⟨n.val, hn⟩ := by
+    rw [hrcV]
+    exact RC_get ⟨n.val, hn⟩
+  have hav : view a = iota ⟨n.val, hn⟩ (view state2) :=
+    roundBody_iota state2 a ⟨n.val, hn⟩ rc i0 haSet hi0V hrc
+  refine ⟨a, n', ?_, hn'Eq, ?_⟩
+  · exact keccak_f1600_loop0_body_eq state n rc c1 state1 b1 state2 a i0 n' hlt
+      hrcEq hc1Eq hstate1Eq hb1Eq hstate2Eq hi0Eq haEq hn'Eq
+  · exact roundBody_view state ⟨n.val, hn⟩ a b1 state1 state2
+      hstate1post hb1post hstate2post hav
+
+/-- The extracted outer 24-round loop computes the canonical `permute`. -/
+theorem keccak_f1600_loop0_spec (state0 : Array Std.U64 25#usize) :
+    crypto.keccak_f1600_loop0 state0 0#usize ⦃ state' =>
+      view state' = permute (view state0) ⦄ := by
+  unfold crypto.keccak_f1600_loop0
+  apply loop.spec_decr_nat
+    (measure := fun s : Array Std.U64 25#usize × Std.Usize => 24 - s.2.val)
+    (inv := fun s => s.2.val ≤ 24 ∧ view s.1 = foldRounds (view state0) s.2.val)
+    (post := fun state' => view state' = permute (view state0))
+  · intro s hs
+    rcases s with ⟨st, m⟩
+    dsimp only at hs ⊢
+    obtain ⟨hmle, hsv⟩ := hs
+    by_cases hlt : m.val < 24
+    · obtain ⟨st1, m1, hbody, hm1eq, hview⟩ := RoundStepDenotes st m hlt
+      have hm1val : m1.val = m.val + 1 := usize_add_one_val hm1eq
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      refine ⟨⟨by omega, ?_⟩, by omega⟩
+      rw [hview, hsv, hm1val]
+      exact (foldRounds_succ (view state0) m.val hlt).symm
+    · have hm24 : m.val = 24 := by omega
+      have hnot : ¬ (m < 24#usize) := fun hc' => hlt ((UScalar.lt_equiv m 24#usize).mp hc')
+      have hbody : crypto.keccak_f1600_loop0.body st m = ok (ControlFlow.done st) := by
+        unfold crypto.keccak_f1600_loop0.body
+        rw [if_neg hnot]
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      rw [hsv, hm24, foldRounds_permute]
+  · show (0#usize).val ≤ 24 ∧ view state0 = foldRounds (view state0) (0#usize).val
+    refine ⟨by decide, ?_⟩
+    simpa using (foldRounds_zero (view state0)).symm
+
+/-- The refinement headline: on every extracted state, `word_keccakf` returns
+    `ok b` with `view b` the canonical 24-round permutation of `view a`. -/
+theorem WordKeccakfDenotes :
+    ∀ a : Array Std.U64 25#usize,
+      ∃ b : Array Std.U64 25#usize,
+        word_keccakf a = ok b ∧ view b = permute (view a) := by
+  intro a
+  obtain ⟨b, hb, hview⟩ := WP.spec_imp_exists (keccak_f1600_loop0_spec a)
+  refine ⟨b, ?_, hview⟩
+  show crypto.keccak_f1600_loop0 a 0#usize = ok b
+  exact hb
 
 end apeiron_word

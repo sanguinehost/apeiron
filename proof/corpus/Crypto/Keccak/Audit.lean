@@ -10,6 +10,7 @@ evaluator and are not proofs; the audit below gates the constants themselves.
 
 import Crypto.Keccak.Constants
 import Crypto.Keccak.Round
+import Crypto.Keccak.Certificate
 import Crypto.Sponge
 import Lean
 
@@ -68,3 +69,7 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Crypto.Keccak.sha3_512
 #audit Apeiron.Crypto.Keccak.shake128
 #audit Apeiron.Crypto.Keccak.shake256
+
+-- Refinement: the extracted `word_keccakf` computes `permute` on `view` (bridge corpus)
+#audit apeiron_word.RoundStepDenotes
+#audit apeiron_word.WordKeccakfDenotes
