@@ -432,14 +432,14 @@ def coord.unspread (id : Std.U64) : Result Std.U64 := do
   ok (core.num.U64.wrapping_mul id coord.PHI_INV)
 
 /-- [i64_codec_source::table::TableAddress]
-    Source: 'src/table.rs', lines 101:0-106:1
+    Source: 'src/table.rs', lines 109:0-114:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
   direct_word : Option Std.U32
 
 /-- Trait declaration: [i64_codec_source::table::Home]
-    Source: 'src/table.rs', lines 124:0-131:1
+    Source: 'src/table.rs', lines 132:0-139:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -487,13 +487,13 @@ def
   core.num.U64.cast_signed i
 
 /-- [i64_codec_source::table::WordHome]
-    Source: 'src/table.rs', lines 148:0-148:20
+    Source: 'src/table.rs', lines 156:0-156:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [i64_codec_source::table::{impl i64_codec_source::coord::address::EllipticPacking<i64> for i64_codec_source::table::WordHome}::elliptic_unpack]:
-    Source: 'src/table.rs', lines 182:4-184:5
+    Source: 'src/table.rs', lines 190:4-192:5
     Visibility: public -/
 def
   table.WordHome.Insts.I64_codec_sourceCoordAddressEllipticPackingI64.elliptic_unpack
@@ -502,7 +502,7 @@ def
     () word
 
 /-- [i64_codec_source::table::{impl i64_codec_source::coord::address::EllipticPacking<i64> for i64_codec_source::table::WordHome}::elliptic_pack]:
-    Source: 'src/table.rs', lines 179:4-181:5
+    Source: 'src/table.rs', lines 187:4-189:5
     Visibility: public -/
 def
   table.WordHome.Insts.I64_codec_sourceCoordAddressEllipticPackingI64.elliptic_pack
@@ -511,7 +511,7 @@ def
     () key
 
 /-- Trait implementation: [i64_codec_source::table::{impl i64_codec_source::coord::address::EllipticPacking<i64> for i64_codec_source::table::WordHome}]
-    Source: 'src/table.rs', lines 178:0-185:1 -/
+    Source: 'src/table.rs', lines 186:0-193:1 -/
 @[reducible]
 def table.WordHome.Insts.I64_codec_sourceCoordAddressEllipticPackingI64 :
   coord.address.EllipticPacking table.WordHome Std.I64 := {
@@ -522,7 +522,7 @@ def table.WordHome.Insts.I64_codec_sourceCoordAddressEllipticPackingI64 :
 }
 
 /-- [i64_codec_source::table::{impl i64_codec_source::coord::address::FaceResidueCapability<i64> for i64_codec_source::table::WordHome}::hyperbolic_scalar]:
-    Source: 'src/table.rs', lines 174:4-176:5
+    Source: 'src/table.rs', lines 182:4-184:5
     Visibility: public -/
 def
   table.WordHome.Insts.I64_codec_sourceCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -533,7 +533,7 @@ def
     () profile key
 
 /-- [i64_codec_source::table::{impl i64_codec_source::coord::address::FaceResidueCapability<i64> for i64_codec_source::table::WordHome}::parabolic_dual]:
-    Source: 'src/table.rs', lines 171:4-173:5
+    Source: 'src/table.rs', lines 179:4-181:5
     Visibility: public -/
 def
   table.WordHome.Insts.I64_codec_sourceCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -544,7 +544,7 @@ def
     () key
 
 /-- Trait implementation: [i64_codec_source::table::{impl i64_codec_source::coord::address::FaceResidueCapability<i64> for i64_codec_source::table::WordHome}]
-    Source: 'src/table.rs', lines 170:0-177:1 -/
+    Source: 'src/table.rs', lines 178:0-185:1 -/
 @[reducible]
 def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceResidueCapabilityI64 :
   coord.address.FaceResidueCapability table.WordHome Std.I64 := {
@@ -555,7 +555,7 @@ def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceResidueCapabilityI64 :
 }
 
 /-- Trait implementation: [i64_codec_source::table::{impl i64_codec_source::coord::address::FaceCoord<i64, i64_codec_source::cell::Sigma> for i64_codec_source::table::WordHome}]
-    Source: 'src/table.rs', lines 186:0-188:1 -/
+    Source: 'src/table.rs', lines 194:0-196:1 -/
 @[reducible]
 impl_def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceCoordI64Sigma :
   coord.address.FaceCoord table.WordHome Std.I64 cell.Sigma := {
@@ -569,7 +569,7 @@ impl_def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceCoordI64Sigma :
 }
 
 /-- Trait implementation: [i64_codec_source::table::{impl i64_codec_source::coord::address::FaceHome<i64, i64_codec_source::cell::Sigma> for i64_codec_source::table::WordHome}]
-    Source: 'src/table.rs', lines 189:0-189:34 -/
+    Source: 'src/table.rs', lines 197:0-197:34 -/
 @[reducible]
 impl_def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceHomeI64Sigma :
   coord.address.FaceHome table.WordHome Std.I64 cell.Sigma := {
@@ -580,7 +580,7 @@ impl_def table.WordHome.Insts.I64_codec_sourceCoordAddressFaceHomeI64Sigma :
 }
 
 /-- [i64_codec_source::table::{impl i64_codec_source::table::Home<i64, i64_codec_source::cell::Sigma> for i64_codec_source::table::WordHome}::address]:
-    Source: 'src/table.rs', lines 158:4-168:5
+    Source: 'src/table.rs', lines 166:4-176:5
     Visibility: public -/
 def table.WordHome.Insts.I64_codec_sourceTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -596,7 +596,7 @@ def table.WordHome.Insts.I64_codec_sourceTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [i64_codec_source::table::{impl i64_codec_source::table::Home<i64, i64_codec_source::cell::Sigma> for i64_codec_source::table::WordHome}::home]:
-    Source: 'src/table.rs', lines 150:4-152:5
+    Source: 'src/table.rs', lines 158:4-160:5
     Visibility: public -/
 def table.WordHome.Insts.I64_codec_sourceTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -605,7 +605,7 @@ def table.WordHome.Insts.I64_codec_sourceTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait implementation: [i64_codec_source::table::{impl i64_codec_source::table::Home<i64, i64_codec_source::cell::Sigma> for i64_codec_source::table::WordHome}]
-    Source: 'src/table.rs', lines 149:0-169:1 -/
+    Source: 'src/table.rs', lines 157:0-177:1 -/
 @[reducible]
 def table.WordHome.Insts.I64_codec_sourceTableHomeI64Sigma : table.Home
   table.WordHome Std.I64 cell.Sigma := {

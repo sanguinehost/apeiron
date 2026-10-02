@@ -18,7 +18,7 @@ set_option maxRecDepth 2048
 namespace capacity_source
 
 /-- [capacity_source::table::resources::capacity_bound_holds]:
-    Source: 'src/table/resources.rs', lines 208:0-210:1 -/
+    Source: 'src/table/resources.rs', lines 204:0-206:1 -/
 def table.resources.capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result Bool
