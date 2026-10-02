@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Gguf_gate.py"
+kind     = "gate"
+path     = "proof/resource/Gguf_gate.py"
+sha256   = "e9f88888e0d4674fd672babf686011e2a61d0a966f8f817601e029587114423f"
+gate     = "python3 proof/resource/Gguf_gate.py --check"
+control  = "python3 proof/resource/Gguf_gate.py --controls"
+budget_s = 540

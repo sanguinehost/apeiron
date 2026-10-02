@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Fwht_gate.py"
+kind     = "gate"
+path     = "proof/resource/Fwht_gate.py"
+sha256   = "05e2536a1578ddff0b02506d9d3ef1e697b663c84e72d2e0c6292d71a5de6d0a"
+gate     = "python3 proof/resource/Fwht_gate.py --check"
+control  = "python3 proof/resource/Fwht_gate.py --controls"
+budget_s = 540

@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/I64Codec_gate.py"
+kind     = "gate"
+path     = "proof/resource/I64Codec_gate.py"
+sha256   = "e9b1f94365b1d2e75aafd7a1fa1a2bcb2017029da15b2760f60337b1693945d3"
+gate     = "python3 proof/resource/I64Codec_gate.py --check"
+control  = "python3 proof/resource/I64Codec_gate.py --controls"
+budget_s = 540

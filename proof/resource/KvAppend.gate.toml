@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/KvAppend_gate.py"
+kind     = "gate"
+path     = "proof/resource/KvAppend_gate.py"
+sha256   = "c8a0af7566bd4790e984b1a8b7c6c55acaac77a049541e584bb3ab20acdb7266"
+gate     = "python3 proof/resource/KvAppend_gate.py --check"
+control  = "python3 proof/resource/KvAppend_gate.py --controls"
+budget_s = 540

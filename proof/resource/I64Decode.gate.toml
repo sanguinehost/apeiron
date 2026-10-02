@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/I64Decode_gate.py"
+kind     = "gate"
+path     = "proof/resource/I64Decode_gate.py"
+sha256   = "fc7dc571b061c44b06295db8ac6c8a04b53fd057769d11bd044fa85dbb941503"
+gate     = "python3 proof/resource/I64Decode_gate.py --check"
+control  = "python3 proof/resource/I64Decode_gate.py --controls"
+budget_s = 540
