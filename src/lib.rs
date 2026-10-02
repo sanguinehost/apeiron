@@ -8,6 +8,7 @@
 pub mod carrier;
 pub mod cell;
 pub mod coord;
+pub mod crypto;
 pub mod engine;
 pub mod exchange;
 pub mod fold;
