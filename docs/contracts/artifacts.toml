@@ -74,7 +74,7 @@
 id       = "docs/plan.md"
 kind     = "doc"
 path     = "docs/plan.md"
-sha256   = "7d7ae74338b121c7cf857d0a2ee5d6b5f7926a608490540a3cab93a513d1657b"
+sha256   = "83199829c3caa193fbd43f1b775e10c93f3f490873535a48545e3f2a97ca4a09"
 gate     = "python3 tools/check-claims.py"
 control  = "python3 tools/check-claims.py --self-test"
 budget_s = 540
@@ -290,7 +290,7 @@ budget_s = 540
 id       = "proof/resource/RegenRelocateAll_gate.py"
 kind     = "gate"
 path     = "proof/resource/RegenRelocateAll_gate.py"
-sha256   = "0d935970665ba4a34c7c3719793bb087bb2ed15166bc117b2134ec80763c75c0"
+sha256   = "d69d313d70045f5f3a4392c3c538b09691c796a7b81f8bfc1590a030a421b35a"
 gate     = "python3 proof/resource/RegenRelocateAll_gate.py --check"
 control  = "python3 proof/resource/RegenRelocateAll_gate.py --controls"
 budget_s = 540

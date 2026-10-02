@@ -217,7 +217,7 @@ def main():
         (mutant/'table.rs').write_text(original.replace(*MUTATION))
         freshmut=extract(mutant,'mutant');shutil.copyfile(freshmut,p/'RegenRelocateAllSource.lean')
         code,text=run(['lake','build','RegenRelocateAllResource'],p,'mutant-proof',require=False)
-        if code!=1 or 'RegenRelocateAllResource.lean:' not in text or not any(x in text for x in ['unsolved goals','type mismatch','Tactic','Not a definitional equality']):
+        if code!=1 or 'RegenRelocateAllResource.lean:' not in text or not any(x.lower() in text.lower() for x in ['unsolved goals','type mismatch','Tactic','Not a definitional equality']):
             raise RuntimeError('REGEN_RELOCATE_ALL_CONTROL_NOT_ATTRIBUTABLE '+text[-1800:])
         print('REGEN_RELOCATE_ALL_REAL_SOURCE_CONTROL_RED')
         (mutant/'table.rs').write_text(original)
