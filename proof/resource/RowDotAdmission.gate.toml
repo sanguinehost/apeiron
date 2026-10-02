@@ -12,7 +12,7 @@
 id       = "proof/resource/RowDotAdmission_gate.py"
 kind     = "gate"
 path     = "proof/resource/RowDotAdmission_gate.py"
-sha256   = "5e3ed2929b97788303313fb3f80fb97d4a56e9cb8cdd4541cdbb2d45006c941f"
+sha256   = "fcfae20de49328406439b5a678bc904f66251afe638b623cef2580e7ab125c56"
 gate     = "python3 proof/resource/RowDotAdmission_gate.py --check"
 control  = "python3 proof/resource/RowDotAdmission_gate.py --controls"
 budget_s = 540

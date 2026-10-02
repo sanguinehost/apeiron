@@ -59,8 +59,8 @@ Every script self-bounds its whole invocation with an outer `timeout`, an inner
 | [`I64Codec`](../../proof/resource/I64Codec_gate.py) | yes | `158a6afecb99` | `I64_CODEC_SOURCE_RESOURCE_OK` | `src/table/keyrep.rs` | 1 | 14 | `apeiron-lane-3.lock` | 540/525/530 |
 | [`I64Decode`](../../proof/resource/I64Decode_gate.py) | yes | `5f4e43a29185` | `I64_DECODE_SOURCE_RESOURCE_OK` | `src/table/keyrep.rs` | 1 | 27 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`KvAppend`](../../proof/resource/KvAppend_gate.py) | yes | `5a6039d0c0f3` | `KV_APPEND_SOURCE_RESOURCE_OK` | `src/engine/attn.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
-| [`LmHead`](../../proof/resource/LmHead_gate.py) | no | `0b9cc8f5d9c6` | `LM_HEAD_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
-| [`Matvec`](../../proof/resource/Matvec_gate.py) | no | `4b761ea3c69f` | `MATVEC_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 20 | `apeiron-lane.lock` | 540/525/530 |
+| [`LmHead`](../../proof/resource/LmHead_gate.py) | no | `8bf805a78260` | `LM_HEAD_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
+| [`Matvec`](../../proof/resource/Matvec_gate.py) | no | `7344c308f187` | `MATVEC_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 20 | `apeiron-lane.lock` | 540/525/530 |
 | [`Packing`](../../proof/resource/Packing_gate.py) | yes | `5f90a33913c2` | `PACKING_SOURCE_RESOURCE_OK` | `src/format/packing.rs` | 1 | 16 | `apeiron-lane.lock` | 540/525/530 |
 | [`Policy`](../../proof/resource/Policy_gate.py) | yes | `b8eb08ec02a8` | `POLICY_SOURCE_RESOURCE_OK` | `src/policy/decide.rs` | 1 | 18 | `apeiron-lane-3.lock` | 540/525/530 |
 | [`PublishPrepared`](../../proof/resource/PublishPrepared_gate.py) | yes | `f9fb9b6c61df` | `PUBLISH_PREPARED_SOURCE_RESOURCE_OK` | `src/table/resources.rs` | 1 | 22 | `apeiron-lane-1.lock` | 540/525/530 |
@@ -72,7 +72,7 @@ Every script self-bounds its whole invocation with an outer `timeout`, an inner
 | [`RmsNorm`](../../proof/resource/RmsNorm_gate.py) | yes | `4e2d1b45cd36` | `RMS_NORM_SOURCE_RESOURCE_OK` | `src/engine/norm.rs` | 1 | 21 | `apeiron-lane.lock` | 540/525/530 |
 | [`Rope`](../../proof/resource/Rope_gate.py) | yes | `568c56f54d2d` | `ROPE_SOURCE_RESOURCE_OK` | `src/engine/rope.rs` | 1 | 7 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`RouteTopk`](../../proof/resource/RouteTopk_gate.py) | yes | `24fac87eb7b8` | `ROUTE_TOPK_SOURCE_RESOURCE_OK` | `src/engine/moe.rs` | 1 | 22 | `apeiron-lane-2.lock` | 540/525/530 |
-| [`RowDotAdmission`](../../proof/resource/RowDotAdmission_gate.py) | yes | `5e3ed2929b97` | `ROW_DOT_ADMISSION_COST_CERTIFICATE_OK` | `proof/resource/RowDotAdmission.lean` | 2 | 48 | `apeiron-lane.lock` | 540/525/530 |
+| [`RowDotAdmission`](../../proof/resource/RowDotAdmission_gate.py) | yes | `fcfae20de493` | `ROW_DOT_ADMISSION_COST_CERTIFICATE_OK` | `proof/resource/RowDotAdmission.lean` | 2 | 48 | `apeiron-lane.lock` | 540/525/530 |
 | [`RowDot`](../../proof/resource/RowDot_gate.py) | yes | `2a8f077abf2f` | `ROW_DOT_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 20 | `apeiron-lane.lock` | 540/525/530 |
 | [`Schedule`](../../proof/resource/Schedule_gate.py) | yes | `458f33af1682` | `SCHEDULE_SOURCE_RESOURCE_OK` | `src/table/partition.rs` | 1 | 31 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`Silu`](../../proof/resource/Silu_gate.py) | yes | `019c6b0fb0ec` | `SILU_SOURCE_RESOURCE_OK` | `src/engine/silu.rs` | 1 | 20 | `apeiron-lane-1.lock` | 540/525/530 |

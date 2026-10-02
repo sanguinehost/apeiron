@@ -19,9 +19,17 @@ checked addition and every refusal. This gate
    `I128` operands instead of the `I64` ones, and a per-visit checked-operation count of 3 instead of
    2 — requires both to name and break their own headline, and requires the restored copy green.
 
+The two certificate builds of step 4 and step 5 are independent scratch packages with independent
+build trees, so they compile at the same time instead of one after the other; step 5's package is then
+reverted to the committed bytes in place and rebuilt, so the restore is still the same package that
+went red. No leg inherits another's build product: every leg drops this certificate's own artifacts
+first and must show Lake compiling the module, never replaying it. That is what lets the wall clock
+fall without any leg's evidence changing.
+
 The claim is about source-level checked-arithmetic counts. No hardware speed follows from it.
 `--module` and `--proposed` override the two certificate paths for a pre-integration check; the gate
-of record is the invocation without them, which reads the committed files.
+of record is the invocation without them, which reads the committed files. `--cache-probe` is the
+separate control on the build-freshness rule above; it is not part of `--check --controls`.
 """
 from pathlib import Path
 import argparse
@@ -34,6 +42,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,6 +63,9 @@ REJECT = 'ROW_DOT_ADMISSION_AXIOM_REJECT'
 MODULE_IMPORTS = ('import RowDotProposedSource', 'import RowDotResource', 'import CostBridge')
 BUDGET = 540
 INNER = 525
+# The legs that compile the certificate, as opposed to the legs that extract its Rust body.
+CERTIFICATE_LEGS = ('fresh-proof', 'mutant-controls', 'restored',
+                    'probe-base', 'probe-inert', 'probe-mutant')
 
 # The identities this admission is bound to (HEAD d5cf5d9). A drift in any of them makes the
 # evidence about a different object, so the gate refuses rather than re-binding silently.
@@ -189,8 +201,12 @@ def left():
                - time.time() - 3)
 
 
-def run(argv, cwd, label, require=True):
-    """Run inside the shared budget and keep the complete output."""
+def run(argv, cwd, label, require=True, certificate=None):
+    """Run inside the shared budget and keep the complete output.
+
+    `certificate` is the sha256 of the certificate bytes this leg installed; it is recorded with
+    the leg that installed them, which is what ties a leg's log to the source it answered for.
+    """
     remaining = left()
     if remaining <= 0:
         raise RuntimeError('ROW_DOT_ADMISSION_BUDGET_EXHAUSTED')
@@ -208,7 +224,8 @@ def run(argv, cwd, label, require=True):
             raise
     text = log.read_text(errors='replace')
     RECORDS.append(dict(label=label, argv=[str(a) for a in argv], cwd=str(cwd), exit=proc.returncode,
-                        seconds=round(time.monotonic() - begin, 3), log=str(log)))
+                        seconds=round(time.monotonic() - begin, 3), log=str(log),
+                        certificate_sha256=certificate))
     if require and proc.returncode:
         raise RuntimeError(f'{label}_REJECT {proc.returncode}\n{text[-3000:]}')
     return proc.returncode, text
@@ -326,9 +343,12 @@ def preflight(module, proposed):
     return module.read_text()
 
 
-def prepare(module_text, package_proposed):
-    """Private package; dependency artifacts are read from the pinned lane, never rebuilt."""
-    package = SCRATCH / 'lean'
+def prepare(module_text, package_proposed, name='lean'):
+    """Private package; dependency artifacts are read from the pinned lane, never rebuilt.
+
+    `name` keeps concurrent legs in separate packages, each with its own `.lake/build`.
+    """
+    package = SCRATCH / name
     package.mkdir()
     (package / 'lean-toolchain').write_bytes((AENEAS_MODEL / 'lean-toolchain').read_bytes())
     (package / 'lakefile.lean').write_text(
@@ -372,10 +392,47 @@ def clean_build_artifacts(package):
 
 
 def build(package, text, label, require=True):
-    """Install one certificate copy, build it, and return the complete log."""
+    """Install one certificate copy, compile it from scratch in this package, and return the log.
+
+    `clean_build_artifacts` drops this certificate's own olean first, so the leg cannot inherit the
+    previous leg's build; the log must then show Lake compiling the module. A leg that reports a
+    replay would be answering with another byte sequence's build, and the gate refuses.
+    """
+    installed = hashlib.sha256(text.encode()).hexdigest()
     (package / 'RowDotAdmission.lean').write_text(text)
     clean_build_artifacts(package)
-    return run(['lake', 'build', 'RowDotAdmission'], package, label, require=require)
+    code, log = run(['lake', 'build', 'RowDotAdmission'], package, label, require=require,
+                    certificate=installed)
+    if 'Replayed RowDotAdmission' in log:
+        raise RuntimeError(label + '_CACHED_BUILD_SERVED ' + installed + '\n' + log[-2000:])
+    return code, log
+
+
+def build_at_once(jobs):
+    """Compile several independent scratch packages at the same time.
+
+    Each job is `(package, text, label, require)` and gets its own Lake package with its own build
+    tree, so no two legs share a build product; the only state they share is the pinned dependency
+    tree, which they read. Every leg is still a full `lake build` of the real module from its own
+    scratch copy, so running two at once changes the wall clock and nothing else. A leg that raises
+    is re-raised here, after both legs have stopped.
+    """
+    results, failures = {}, []
+
+    def leg(job):
+        try:
+            results[job[2]] = build(*job)
+        except BaseException as failure:                      # re-raised below, in the caller
+            failures.append(failure)
+
+    workers = [threading.Thread(target=leg, args=(job,)) for job in jobs]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    if failures:
+        raise failures[0]
+    return results
 
 
 def audited_headlines(module):
@@ -440,10 +497,59 @@ def attributable(code, text, module, targets, label):
     return locations
 
 
+def mutant_certificate(module):
+    """The certificate with every seeded defect applied at once, one red build carrying both."""
+    mutant = module
+    for name, needle, replacement, targets in CONTROLS:
+        mutant = mutant.replace(needle, replacement)
+    if mutant == module:
+        raise RuntimeError('ROW_DOT_ADMISSION_CONTROL_MUTATION_EMPTY')
+    return mutant
+
+
+def prove(text, module, label):
+    """A green leg: the audits, the marker, and the three renamed dependency markers."""
+    green(text, module, label)
+    for marker in ('COST_ALGEBRA_KERNEL_OK', 'ROW_DOT_KERNEL_OK', 'COST_BRIDGE_KERNEL_OK'):
+        if marker not in text:
+            raise RuntimeError(label + '_RENAMED_DEPENDENCY_INCOMPLETE ' + marker + '\n'
+                               + text[-2000:])
+
+
+def cache_probe(module, package_proposed):
+    """Control on the build-freshness rule `build` enforces: a package holding a green build of
+    other bytes must not answer for a byte sequence it has not compiled.
+
+    Three legs in one scratch package: the committed certificate green, then a third byte sequence
+    — the same certificate behind an inert comment — which must be recompiled and stay green, then
+    the seeded mutant bytes, which must be recompiled and go red. A cache that ignored the bytes
+    would replay leg one for legs two and three; `build` refuses a replayed module, so this control
+    ends either in a rebuild or in a refusal.
+    """
+    package = prepare(module, package_proposed, 'lean-probe')
+    targets = [target for _, _, _, group in CONTROLS for target in group]
+    code, text = build(package, module, 'probe-base')
+    prove(text, module, 'PROBE_BASE')
+    inert = module + '\n-- cache probe: an inert third byte sequence, no declaration attached\n'
+    if inert == module or not inert.startswith(module):
+        raise RuntimeError('ROW_DOT_ADMISSION_PROBE_SEQUENCE_NOT_DISTINCT')
+    code, text = build(package, inert, 'probe-inert')
+    prove(text, module, 'PROBE_INERT')
+    print('ROW_DOT_ADMISSION_CACHE_PROBE_INERT_REBUILT base=%s inert=%s'
+          % (hashlib.sha256(module.encode()).hexdigest()[:16],
+             hashlib.sha256(inert.encode()).hexdigest()[:16]))
+    code, text = build(package, mutant_certificate(module), 'probe-mutant', require=False)
+    locations = attributable(code, text, module, targets, 'ROW_DOT_ADMISSION_PROBE_MUTANT')
+    print('ROW_DOT_ADMISSION_CACHE_PROBE_MUTANT_RED defects=%s targets=%s lines=%s'
+          % (','.join(name for name, _, _, _ in CONTROLS), ','.join(targets), locations))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--controls', action='store_true')
+    parser.add_argument('--cache-probe', action='store_true',
+                        help='control on the build-freshness rule; not part of --check --controls')
     parser.add_argument('--module', default=str(MODULE),
                         help='certificate path; the gate of record uses the committed file')
     parser.add_argument('--proposed', default=str(PROPOSED),
@@ -457,28 +563,37 @@ def main():
         raise RuntimeError('ROW_DOT_ADMISSION_EXTRACTION_DRIFT')
     print('ROW_DOT_ADMISSION_EXTRACTION_OK mutant_sha256=%s committed_sha256=%s'
           % (mutant_digest, digest(proposed_path)))
-    package = prepare(module, package_proposed)
-    code, text = build(package, module, 'fresh-proof')
-    green(text, module, 'FRESH')
-    for marker in ('COST_ALGEBRA_KERNEL_OK', 'ROW_DOT_KERNEL_OK', 'COST_BRIDGE_KERNEL_OK'):
-        if marker not in text:
-            raise RuntimeError('FRESH_RENAMED_DEPENDENCY_INCOMPLETE ' + marker + '\n' + text[-2000:])
     headlines = audited_headlines(module)
-    print('ROW_DOT_ADMISSION_PROOF_OK check=%s headlines=%d extracts=%s'
-          % (args.check, len(headlines), 'RowDotProposedSource'))
-    if args.controls:
-        mutant = module
-        for name, needle, replacement, targets in CONTROLS:
-            mutant = mutant.replace(needle, replacement)
-        code, text = build(package, mutant, 'mutant-controls', require=False)
+    package = prepare(module, package_proposed)
+    if args.cache_probe:
+        cache_probe(module, package_proposed)
+    elif args.controls:
+        # Two independent packages, compiled together; the mutant's package is then reverted in
+        # place, so the restore build is the same package that went red.
+        control_package = prepare(module, package_proposed, 'lean-control')
+        results = build_at_once(((package, module, 'fresh-proof', True),
+                                 (control_package, mutant_certificate(module),
+                                  'mutant-controls', False)))
+        prove(results['fresh-proof'][1], module, 'FRESH')
+        print('ROW_DOT_ADMISSION_PROOF_OK check=%s headlines=%d extracts=%s'
+              % (args.check, len(headlines), 'RowDotProposedSource'))
+        code, text = results['mutant-controls']
         targets = [target for _, _, _, group in CONTROLS for target in group]
         locations = attributable(code, text, module, targets, 'ROW_DOT_ADMISSION_CONTROLS')
         print('ROW_DOT_ADMISSION_CONTROL_RED defects=%s targets=%s lines=%s'
               % (','.join(name for name, _, _, _ in CONTROLS), ','.join(targets), locations))
-        code, text = build(package, module, 'restored')
-        green(text, module, 'RESTORED')
+        code, text = build(control_package, module, 'restored')
+        prove(text, module, 'RESTORED')
         print('ROW_DOT_ADMISSION_CONTROL_RESTORED defects=%d'
               % len(CONTROLS))
+    else:
+        code, text = build(package, module, 'fresh-proof')
+        prove(text, module, 'FRESH')
+        print('ROW_DOT_ADMISSION_PROOF_OK check=%s headlines=%d extracts=%s'
+              % (args.check, len(headlines), 'RowDotProposedSource'))
+    print('ROW_DOT_ADMISSION_LEG_SECONDS %s'
+          % ' '.join('%s=%.1f' % (record['label'], record['seconds']) for record in RECORDS
+                     if record['label'] in CERTIFICATE_LEGS))
     print('ROW_DOT_ADMISSION_COST_CERTIFICATE_OK')
     print('generated_bytes=%d committed_bytes=%d' % (len(generated.encode()), len(package_proposed.encode())))
 

@@ -1144,7 +1144,7 @@
     {
       "id": "LmHead",
       "path": "proof/resource/LmHead_gate.py",
-      "sha256": "0b9cc8f5d9c69b3197ae55e6f79315280dce8d7135efcf9317ac0fbc39179c5f",
+      "sha256": "8bf805a78260dc3d5e0a63aba2e430e516202c796e922f819b62a6591bae40e0",
       "tracked": false,
       "green_marker": "LM_HEAD_SOURCE_RESOURCE_OK",
       "red_marker": {
@@ -1184,7 +1184,7 @@
     {
       "id": "Matvec",
       "path": "proof/resource/Matvec_gate.py",
-      "sha256": "4b761ea3c69f34ea2503cfd7c7a45caa2f98ea772f8ee081d2ca4fe7f5de04ab",
+      "sha256": "7344c308f187450a2aef3544dd681ab56b61b157f9cdaae4327e2d713a3badb1",
       "tracked": false,
       "green_marker": "MATVEC_SOURCE_RESOURCE_OK",
       "red_marker": {
@@ -1880,7 +1880,7 @@
     {
       "id": "RowDotAdmission",
       "path": "proof/resource/RowDotAdmission_gate.py",
-      "sha256": "5e3ed2929b97788303313fb3f80fb97d4a56e9cb8cdd4541cdbb2d45006c941f",
+      "sha256": "fcfae20de49328406439b5a678bc904f66251afe638b623cef2580e7ab125c56",
       "tracked": true,
       "green_marker": "ROW_DOT_ADMISSION_COST_CERTIFICATE_OK",
       "red_marker": {
