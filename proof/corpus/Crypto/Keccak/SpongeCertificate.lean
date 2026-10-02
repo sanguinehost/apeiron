@@ -240,6 +240,45 @@ theorem from_le_bytes_denote (a : Array Std.U8 8#usize) :
     (core.num.U64.from_le_bytes a).bv =
       (BitVec.fromLEBytes (byteView a)).cast (by simp [byteView_length, Array.property]) := rfl
 
+/-! ## Reading a lane through a write
+
+`Array.update` (3182) returns `Array.set`; `Array.set` replaces one element of the underlying list, so
+the canonical state read `stateView` sees exactly that lane replaced. `Certificate.lean` carries the
+same fact for `view`; it is repeated here for `stateView`, which reads through `List.getD`. -/
+
+/-- A written list element reads as the written value and every other element as before. -/
+theorem list_getD_set {α : Type} (l : List α) (i j : Nat) (v d : α) (hi : i < l.length) :
+    (l.set i v).getD j d = if j = i then v else l.getD j d := by
+  by_cases h : j = i
+  · subst h
+    rw [List.getD_eq_getElem?_getD, List.getElem?_set, if_pos rfl, if_pos hi, if_pos rfl]
+    rfl
+  · rw [List.getD_eq_getElem?_getD, List.getElem?_set, if_neg (Ne.symm h),
+      List.getD_eq_getElem?_getD, if_neg h]
+
+/-- Pointwise read of `stateView` after a lane write: the written lane reads as the written word's
+bit vector, every other lane is unchanged. -/
+theorem stateView_set_get (a : Array Std.U64 25#usize) (i : Std.Usize) (v : Std.U64)
+    (hi : i.val < 25) (j : Fin 25) :
+    (stateView (a.set i v)).get j = if j.val = i.val then v.bv else (stateView a).get j := by
+  show (stateView (a.set i v))[j.val] = if j.val = i.val then v.bv else (stateView a)[j.val]
+  simp only [stateView, Vector.getElem_ofFn]
+  show ((a.set i v).val.getD j.val (0#u64)).bv
+      = if j.val = i.val then v.bv else (a.val.getD j.val (0#u64)).bv
+  have ha : a.val.length = 25 := by simpa using a.property
+  have hset : ((↑(a.set i v) : List Std.U64).getD j.val (0#u64))
+      = ((↑a : List Std.U64).set i.val v).getD j.val (0#u64) :=
+    congrArg (fun l : List Std.U64 => l.getD j.val (0#u64)) (Array.set_val_eq a i v)
+  rw [hset]
+  have hg : ((↑a : List Std.U64).set i.val v).getD j.val (0#u64)
+      = if j.val = i.val then v else (↑a : List Std.U64).getD j.val (0#u64) :=
+    list_getD_set _ _ _ _ _ (by omega)
+  rw [hg]
+  by_cases h : j.val = i.val
+  · rw [if_pos h, if_pos h]
+  · rw [if_neg h, if_neg h]
+
+
 /-! ## Rates, offsets and domain separation
 
 `crypto.sponge` (3377-3380) requires `rate % 8 = 0` and `rate ≤ 200`; the rate is the byte rate, so
