@@ -19,7 +19,7 @@ pub(crate) struct CapacityBound {
 /// Per-region slot-array capacity bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RegionReservation {
-    /// The region's single open-addressed slot-array bound: capacity, tags included.
+    /// The region's single open-addressed slot-array bound: capacity, one slot per entry.
     pub(crate) slots: CapacityBound,
 }
 

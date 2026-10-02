@@ -1102,7 +1102,7 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
         "a present read stops inside the cycle"
     );
     assert_eq!(
-        read_trace::summary_misses(),
+        read_trace::absence_certificates(),
         0,
         "a present read certifies nothing"
     );
@@ -1120,7 +1120,7 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
         "the absence certificate is one completed cycle over the whole region"
     );
     assert_eq!(
-        read_trace::summary_misses(),
+        read_trace::absence_certificates(),
         0,
         "a completed cycle is certified by the bound, not by a zero tag"
     );
@@ -1139,7 +1139,7 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
         "with a vacancy at the home slot the same absent key stops on the first zero tag"
     );
     assert_eq!(
-        read_trace::summary_misses(),
+        read_trace::absence_certificates(),
         1,
         "the vacancy is the certificate now"
     );
@@ -1455,7 +1455,7 @@ fn read_clones_and_merges_nothing_and_leaves_storage_unchanged() {
 }
 
 /// Timing diagnostic, ignored by default: the old decision-then-apply read versus the specialized
-/// `get_at`, on a resident hit and a summary-negative spill miss. Run with
+/// `get_at`, on a resident hit and an absence-negative spill miss. Run with
 /// `cargo test --release --lib read_path_timing -- --ignored --nocapture`.
 #[test]
 #[ignore = "timing diagnostic; run with --ignored --nocapture"]
@@ -1491,7 +1491,7 @@ fn read_path_timing_old_decision_versus_specialized() {
         new.as_nanos() as f64 / ITERS as f64
     );
 
-    // A summary-negative miss on a placement-only spill region: the lever this slice targets.
+    // An absence-negative miss on a placement-only spill region: the lever this slice targets.
     let home = WordKeyHome;
     let mut spill = Table::<i64, i64, _, 16>::new(-1, home);
     spill.insert_with(&ReplacementMerge, 7, 41).unwrap();
@@ -1518,7 +1518,7 @@ fn read_path_timing_old_decision_versus_specialized() {
     }
     let new = new.elapsed();
     println!(
-        "summary-negative spill miss: old {:.3} ns/op, specialized {:.3} ns/op (acc {acc})",
+        "absence-negative spill miss: old {:.3} ns/op, specialized {:.3} ns/op (acc {acc})",
         old.as_nanos() as f64 / ITERS as f64,
         new.as_nanos() as f64 / ITERS as f64
     );

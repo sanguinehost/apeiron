@@ -1,4 +1,4 @@
-// Region, summary, decision, scalar-geometry and rebuild-plan state for the growable table.
+// Region, decision, scalar-geometry and rebuild-plan state for the growable table.
 // Included textually by `include!("table/state.rs")` from `src/table.rs`, so these items stay
 // definitions of the `table` module and keep their generated type identities. Bodies, layout,
 // field privacy, signatures and visibility are unchanged; this is a physical-file cut only.
