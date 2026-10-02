@@ -1,19 +1,21 @@
 /-
 Axiom-cone audit of the crypto headlines outside `Crypto.Keccak.Audit`: the group-law keystream
 theorems of `Crypto.Security.Core`, the modular-arithmetic and Legendre/square-root theorems of
-`Crypto.Field.ZModPrime`, and the `GF(2^n)` arithmetic of `Crypto.Field.GF2n`.
+`Crypto.Field.ZModPrime`, the `GF(2^n)` arithmetic of `Crypto.Field.GF2n`, and the transcript
+determinism and absorb laws of `Crypto.Transcript`.
 
 The `#audit` command below is the same one `Crypto/Keccak/Audit.lean` defines: it collects each
 constant's transitive axiom dependencies with `Lean.collectAxioms` — the mechanism
 `#print axioms` uses — and calls `throwError` on anything outside
 `{propext, Classical.choice, Quot.sound}`. `Crypto.Sponge`, `Crypto.ChaCha`, `Crypto.Sha2`,
-`Crypto.Hmac`, `Crypto.Merkle` and `Crypto.Transcript` carry known-answer `#guard` checks over the
-untrusted evaluator and no proved headlines, so they register nothing here.
+`Crypto.Hmac` and `Crypto.Merkle` carry known-answer `#guard` checks over the untrusted evaluator and
+no proved headlines, so they register nothing here.
 -/
 
 import Crypto.Security.Core
 import Crypto.Field.ZModPrime
 import Crypto.Field.GF2n
+import Crypto.Transcript
 import Lean
 
 set_option autoImplicit false
@@ -113,3 +115,16 @@ elab "#audit " id:ident : command => do
 #audit Crypto.Field.GF2n.mul_assoc
 #audit Crypto.Field.GF2n.one_ne_zero
 #audit Crypto.Field.GF2n.inv_ne_zero
+
+-- Crypto.Transcript: `squeeze` is a function of the absorbed bytes alone, so equal histories give
+-- equal challenges at every length; `absorbBytes` appends and leaves the counter alone; absorbing a
+-- challenge records it without advancing the counter; and a nonempty absorb changes both the
+-- absorbed list and the wire.
+#audit Apeiron.Crypto.Transcript.squeeze_eq_shake128
+#audit Apeiron.Crypto.Transcript.squeeze_congr_absorbed
+#audit Apeiron.Crypto.Transcript.absorbBytes_absorbed
+#audit Apeiron.Crypto.Transcript.absorbBytes_counter
+#audit Apeiron.Crypto.Transcript.absorbBytes_assoc
+#audit Apeiron.Crypto.Transcript.absorbChallenge_absorbed
+#audit Apeiron.Crypto.Transcript.absorbChallenge_counter
+#audit Apeiron.Crypto.Transcript.changes_the_wire_absorbed
