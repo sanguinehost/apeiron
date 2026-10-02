@@ -8,9 +8,9 @@ executes no gate and establishes nothing about the correctness of any theorem.
 | fact | value |
 |---|---|
 | scripts on disk | 36 |
-| tracked / untracked at HEAD | 31 / 5 |
+| tracked / untracked at HEAD | 33 / 3 |
 | seeded mutation controls | 39 |
-| generated at HEAD | `360b5ff1d7c1aa50d94d7c4a7f67844b938296ee` |
+| generated at HEAD | `fcd58e978c9115ab1ff9013bb857add895cfdb2d` (payload identities unchanged: all 36 `sha256` match the scripts on disk) |
 
 ## Field reading order
 
@@ -58,7 +58,7 @@ Every script self-bounds its whole invocation with an outer `timeout`, an inner
 | [`Gguf`](../../proof/resource/Gguf_gate.py) | yes | `e9f88888e0d4` | `GGUF_SOURCE_RESOURCE_OK` | `src/format/gguf.rs` | 2 | 29 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`I64Codec`](../../proof/resource/I64Codec_gate.py) | yes | `158a6afecb99` | `I64_CODEC_SOURCE_RESOURCE_OK` | `src/table/keyrep.rs` | 1 | 14 | `apeiron-lane-3.lock` | 540/525/530 |
 | [`I64Decode`](../../proof/resource/I64Decode_gate.py) | yes | `5f4e43a29185` | `I64_DECODE_SOURCE_RESOURCE_OK` | `src/table/keyrep.rs` | 1 | 27 | `apeiron-lane-2.lock` | 540/525/530 |
-| [`KvAppend`](../../proof/resource/KvAppend_gate.py) | no | `5a6039d0c0f3` | `KV_APPEND_SOURCE_RESOURCE_OK` | `src/engine/attn.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
+| [`KvAppend`](../../proof/resource/KvAppend_gate.py) | yes | `5a6039d0c0f3` | `KV_APPEND_SOURCE_RESOURCE_OK` | `src/engine/attn.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
 | [`LmHead`](../../proof/resource/LmHead_gate.py) | no | `0b9cc8f5d9c6` | `LM_HEAD_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 0 | `apeiron-lane-1.lock` | 540/525/530 |
 | [`Matvec`](../../proof/resource/Matvec_gate.py) | no | `4b761ea3c69f` | `MATVEC_SOURCE_RESOURCE_OK` | `src/engine/matvec.rs` | 1 | 20 | `apeiron-lane.lock` | 540/525/530 |
 | [`Packing`](../../proof/resource/Packing_gate.py) | yes | `5f90a33913c2` | `PACKING_SOURCE_RESOURCE_OK` | `src/format/packing.rs` | 1 | 16 | `apeiron-lane.lock` | 540/525/530 |
@@ -66,7 +66,7 @@ Every script self-bounds its whole invocation with an outer `timeout`, an inner
 | [`PublishPrepared`](../../proof/resource/PublishPrepared_gate.py) | yes | `f9fb9b6c61df` | `PUBLISH_PREPARED_SOURCE_RESOURCE_OK` | `src/table/resources.rs` | 1 | 22 | `apeiron-lane-1.lock` | 540/525/530 |
 | [`Q4KCodes`](../../proof/resource/Q4KCodes_gate.py) | yes | `6937c678fb67` | `Q4K_CODES_SOURCE_RESOURCE_OK` | `src/format/quant.rs` | 1 | 20 | `apeiron-lane-1.lock` | 540/525/530 |
 | [`Q6KCodes`](../../proof/resource/Q6KCodes_gate.py) | yes | `6c0f8ff06434` | `Q6K_CODES_SOURCE_RESOURCE_OK` | `src/format/quant.rs` | 2 | 18 | `apeiron-lane-2.lock` | 540/525/530 |
-| [`RegenRelocateAll`](../../proof/resource/RegenRelocateAll_gate.py) | no | `4aefb25b3a59` | `REGEN_RELOCATE_ALL_SOURCE_RESOURCE_OK` | `src/table.rs` | 1 | 0 | `apeiron-lane-2.lock` | 540/525/530 |
+| [`RegenRelocateAll`](../../proof/resource/RegenRelocateAll_gate.py) | yes | `4aefb25b3a59` | `REGEN_RELOCATE_ALL_SOURCE_RESOURCE_OK` | `src/table.rs` | 1 | 0 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`RegenRelocateEntry`](../../proof/resource/RegenRelocateEntry_gate.py) | no | `a44144551c22` | `REGEN_RELOCATE_ENTRY_SOURCE_RESOURCE_OK` | `src/table.rs` | 1 | 20 | `apeiron-lane-3.lock` | 540/525/530 |
 | [`RelocateEntry`](../../proof/resource/RelocateEntry_gate.py) | yes | `d748b7c57cf1` | `RELOCATE_ENTRY_SOURCE_RESOURCE_OK` | `src/table.rs` | 1 | 12 | `apeiron-lane-3.lock` | 540/525/530 |
 | [`RmsNorm`](../../proof/resource/RmsNorm_gate.py) | yes | `4e2d1b45cd36` | `RMS_NORM_SOURCE_RESOURCE_OK` | `src/engine/norm.rs` | 1 | 21 | `apeiron-lane.lock` | 540/525/530 |
@@ -77,6 +77,32 @@ Every script self-bounds its whole invocation with an outer `timeout`, an inner
 | [`Schedule`](../../proof/resource/Schedule_gate.py) | yes | `458f33af1682` | `SCHEDULE_SOURCE_RESOURCE_OK` | `src/table/partition.rs` | 1 | 31 | `apeiron-lane-2.lock` | 540/525/530 |
 | [`Silu`](../../proof/resource/Silu_gate.py) | yes | `019c6b0fb0ec` | `SILU_SOURCE_RESOURCE_OK` | `src/engine/silu.rs` | 1 | 20 | `apeiron-lane-1.lock` | 540/525/530 |
 | [`StoredRelocateAll`](../../proof/resource/StoredRelocateAll_gate.py) | yes | `845520ce9325` | `STORED_RELOCATE_ALL_SOURCE_RESOURCE_OK` | `src/table.rs` | 1 | 33 | `apeiron-lane-1.lock` | 540/525/530 |
+
+## Re-run sample
+
+Seven commands at `fcd58e978c9115ab1ff9013bb857add895cfdb2d`, each under a 200 s outer
+`timeout`; grade `tested`. Machine-readable form: `conformance.json` `sample_rerun`.
+
+| command | exit | elapsed | terminal token | frozen marker reproduced |
+|---|---|---|---|---|
+| `python3 proof/resource/CoordId_gate.py --check` | 0 | 9.27 s | `COORD_ID_SOURCE_RESOURCE_OK` | yes |
+| `python3 proof/resource/RowDot_gate.py --check` | 0 | 10.57 s | `ROW_DOT_SOURCE_RESOURCE_OK` | yes |
+| `python3 proof/resource/CoordUnspread_gate.py --check` | 0 | 7.04 s | `COORD_UNSPREAD_SOURCE_RESOURCE_OK` | yes |
+| `python3 proof/resource/CoordId_gate.py --controls` | 0 | 14.89 s | `COORD_ID_SOURCE_RESOURCE_OK` | yes, after `COORD_ID_REAL_SOURCE_CONTROL_RED` and `COORD_ID_REAL_SOURCE_CONTROL_RESTORED` |
+| `python3 proof/resource/Capacity_gate.py --check` | 1 | 3.61 s | `RuntimeError: CAPACITY_EXTRACTION_DRIFT` | no — red before any marker |
+| `python3 proof/resource/RegenRelocateEntry_gate.py` | 1 | 2.29 s | `RuntimeError: REGEN_RELOCATE_ENTRY_EXTRACTION_DRIFT` | no — red before any marker |
+| `python3 proof/resource/LmHead_gate.py --check` | 1 | 72.25 s | `LmHeadResource.dot_body_visit: forbidden axioms [sorryAx]` | no — red before any marker |
+
+The three reds are attributable to the tree, not to a stale record. `Capacity` and
+`RegenRelocateEntry` extract the real `src/table.rs`, which is modified and uncommitted in
+this working tree, so the extraction no longer equals the committed `.lean`; `LmHead` builds
+`proof/resource/LmHeadResource.lean`, which carries a `sorry` in `dot_body_visit` — the
+open `APEIRON-E3-W1` item. A `RowDot_gate.py --controls` run was also started and could not
+take `/tmp/opencode/apeiron-lane.lock`, held by `APEIRON-E3-W2`; it is recorded as not run,
+not as a green.
+
+Not observed: 30 `gate` columns and 35 `control` columns. Their markers are transcribed from
+the scripts, at grade `tested` only once a run prints them.
 
 ## Deviations from the uniform shape
 
@@ -132,7 +158,7 @@ PY
 
 ## Not established
 
-- The record freezes what each script already carries. It runs no gate, so it establishes nothing about the correctness of any theorem.
-- The sha256 values bind this record to the scripts on disk at generation time. generated_at_head is a snapshot that drifts as other tasks commit; it is not a gate input.
-- No script here was executed. green_marker and red_marker are transcribed from the scripts, not observed from a run.
+- The record freezes what each script already carries. Except for the re-run sample above, running it executes no gate and establishes nothing about the correctness of any theorem.
+- The sha256 values bind this record to the scripts on disk. generated_at_head and the tracked flags are a snapshot of the index at that revision and drift as other tasks commit; the sha256 is the gate input.
+- Outside the re-run sample, green_marker and red_marker are transcribed from the scripts, not observed from a run.
 

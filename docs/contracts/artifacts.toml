@@ -9,10 +9,10 @@
 #   path     repo-relative; a file or a directory
 #   sha256   64 lowercase hex digits, no `sha256:` prefix, of `path`:
 #              file      the sha256 of its bytes
-#              directory the sha256 of the concatenation, in ascending repo-relative path order, of
-#                       one `<hex>  <repo-relative path>\n` line per contained file; path components
-#                       beginning with `.` and the component `target` are skipped, so build products
-#                       and editor scratch do not enter an identity
+#              directory the sha256 of the concatenation, in ascending order, of one
+#                       `<hex>  <path relative to the registered path>\n` line per contained file;
+#                       path components beginning with `.` and the component `target` are skipped,
+#                       so build products and editor scratch do not enter an identity
 #   gate     the exact command that checks this artefact, run from the repository root
 #   control  the exact command that exercises the rejecting path, or "" when the artefact exposes
 #            none. A control is a command that must itself require a refusal: the `*_gate.py`
@@ -37,11 +37,27 @@
 # silence as a pass is the quiet success `AGENTS.md` §10 records. A non-zero exit is not a refusal —
 # it is the child's own verdict, carried by the exit status.
 #
-# Seeded rows: `docs/plan.md`, `tools/gate/`, and the 36 `proof/resource/*_gate.py` (30 tracked,
-# 6 untracked: KvAppend, LmHead, Matvec, RegenRelocateAll, RegenRelocateEntry, RowDotAdmission).
-# `RegenRelocateEntry_gate.py` exposes no `--check` flag, so its `gate` column carries the bare
-# command. No `gate` or `control` column here has been executed: the columns record the command each
-# row must be checked with, and running them is the owning wave's evidence.
+# Seeded rows: `docs/plan.md`, `tools/gate/`, and the 36 `proof/resource/*_gate.py`. Tracked at
+# `fcd58e978c9115ab1ff9013bb857add895cfdb2d`: 33 tracked, 3 untracked (LmHead, Matvec,
+# RegenRelocateEntry), by `git ls-files --error-unmatch` per path. `RegenRelocateEntry_gate.py`
+# exposes no `--check` flag, so its `gate` column carries the bare command.
+#
+# Which `gate` columns have been executed. Seven were run at that revision, each under a 200 s outer
+# timeout, and one `control` column; the sample is recorded in `tools/gate/conformance.json` under
+# `sample_rerun` and in `tools/gate/conformance.md`. Three `gate` columns reproduced their frozen
+# green marker exactly (CoordId 9.27 s, RowDot 10.57 s, CoordUnspread 7.04 s); three went red with an
+# attributable diagnostic that is not a marker mismatch — Capacity and RegenRelocateEntry on
+# extraction drift, because `src/table.rs` is modified in this tree, and LmHead on
+# `LmHeadResource.dot_body_visit: forbidden axioms [sorryAx]`. One `control` column, RowDot, could
+# not start: `/tmp/opencode/apeiron-lane.lock` was held by APEIRON-E3-W2. The other 30 `gate` and 35
+# `control` columns remain unexecuted: the columns record the command each row must be checked with,
+# and running them is the owning wave's evidence.
+#
+# The reader's own refusing control, observed rather than asserted. A `tools/gate` row carrying a
+# directory digest computed over repository-relative names instead of the names `adapter.rs` records
+# (`790b082e…` where the loader computed `2d38721d…`) was refused with both identities named and exit
+# 1; recomputing it through the loader's rule restored exit 0. A reader that had never refused would
+# not have separated the two spellings.
 #
 # The `tools/gate` row hashes a directory, so it re-reports a drift whenever a sibling wave adds or
 # changes a file in that crate. That is the identity working, not a defect: the wave that writes the
@@ -66,7 +82,7 @@ budget_s = 540
 id       = "tools/gate"
 kind     = "rust"
 path     = "tools/gate/"
-sha256   = "5bf5515d984e679a07696c7308eb32e4fdf8a9ebc3459cf6d11d7f93296860ea"
+sha256   = "2d38721da9e153e4723d80fed81899fe04552c64a6eb0571c9c5168c67b9b7c6"
 gate     = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets"
 control  = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets repeated_id_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets digest_mismatch_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets missing_path_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets over_budget_run_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets run_records_exit_status_and_output_digest"
 budget_s = 540

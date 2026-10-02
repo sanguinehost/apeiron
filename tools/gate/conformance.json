@@ -2,12 +2,12 @@
   "record": "per-module gate script conformance",
   "task": "APEIRON-E1-W1-T1",
   "generated_by": "throwaway generator /home/socol/oc-tmp/confgen.py (not committed)",
-  "generated_at_head": "360b5ff1d7c1aa50d94d7c4a7f67844b938296ee",
+  "generated_at_head": "fcd58e978c9115ab1ff9013bb857add895cfdb2d",
   "generated_at_head_note": "The HEAD observed when the record was written. Other tasks commit in this tree, so it drifts and is not a gate input: the gate binds each row by the sha256 of the script on disk, which is authoritative.",
   "gate_script_glob": "proof/resource/*_gate.py",
   "gate_script_count": 36,
-  "tracked_count": 31,
-  "untracked_count": 5,
+  "tracked_count": 33,
+  "untracked_count": 3,
   "mutation_control_count": 39,
   "reading_order": [
     "targets.audit_marker: the literal string the script requires in the Lean build output.",
@@ -16,9 +16,9 @@
     "mutation[].occurrences: the count the script itself asserts for its needle."
   ],
   "not_established": [
-    "The record freezes what each script already carries. It runs no gate, so it establishes nothing about the correctness of any theorem.",
-    "The sha256 values bind this record to the scripts on disk at generation time. generated_at_head is a snapshot that drifts as other tasks commit; it is not a gate input.",
-    "No script here was executed. green_marker and red_marker are transcribed from the scripts, not observed from a run."
+    "The record freezes what each script already carries. Running it executes no gate and establishes nothing about the correctness of any theorem.",
+    "The sha256 values bind this record to the scripts on disk. generated_at_head and the tracked flags are a snapshot of the index at that revision and drift as other tasks commit; the sha256 is the gate input.",
+    "Only the sample_rerun rows were executed. The other 30 gate columns and 35 control columns are transcribed from the scripts, not observed from a run."
   ],
   "gates": [
     {
@@ -1105,7 +1105,7 @@
       "id": "KvAppend",
       "path": "proof/resource/KvAppend_gate.py",
       "sha256": "c8a0af7566bd4790e984b1a8b7c6c55acaac77a049541e584bb3ab20acdb7266",
-      "tracked": false,
+      "tracked": true,
       "green_marker": "KV_APPEND_SOURCE_RESOURCE_OK",
       "red_marker": {
         "printed": [
@@ -1554,7 +1554,7 @@
       "id": "RegenRelocateAll",
       "path": "proof/resource/RegenRelocateAll_gate.py",
       "sha256": "5e2d89f09ed404c784e0bc67827751c9f8f20a7b78ca7fadc6f06d4bb89089d3",
-      "tracked": false,
+      "tracked": true,
       "green_marker": "REGEN_RELOCATE_ALL_SOURCE_RESOURCE_OK",
       "red_marker": {
         "printed": [
@@ -2257,5 +2257,185 @@
       "flock_wait_s": 530,
       "lane": "/tmp/opencode/apeiron-lane-1.lock"
     }
-  ]
+  ],
+  "tracked_source": "git ls-files --error-unmatch <path>, per row; `git ls-files` reports the index, so a row is `tracked` only when the path is in it",
+  "tracked_rederived": {
+    "at_head": "fcd58e978c9115ab1ff9013bb857add895cfdb2d",
+    "flipped_to_tracked": [
+      "KvAppend",
+      "RegenRelocateAll"
+    ],
+    "untracked": [
+      "LmHead",
+      "Matvec",
+      "RegenRelocateEntry"
+    ]
+  },
+  "sample_rerun": {
+    "task": "APEIRON-E1-W1-T1 re-run sample",
+    "at_head": "fcd58e978c9115ab1ff9013bb857add895cfdb2d",
+    "outer_timeout_s": 200,
+    "reads": "each row's frozen green_marker compared against the marker the run printed; a run that printed a different terminal token is recorded as a red, not as a match",
+    "untracked_covered": [
+      "LmHead",
+      "RegenRelocateEntry"
+    ],
+    "runs": [
+      {
+        "command": "python3 proof/resource/CoordId_gate.py --check",
+        "exit_status": 0,
+        "elapsed_s": 9.27,
+        "printed": [
+          "COORD_ID_SOURCE_RESOURCE_OK"
+        ],
+        "log": "/tmp/opencode/e1w1/CoordId.log",
+        "verdict": "green marker reproduced",
+        "frozen_green_marker": "COORD_ID_SOURCE_RESOURCE_OK"
+      },
+      {
+        "command": "python3 proof/resource/RowDot_gate.py --check",
+        "exit_status": 0,
+        "elapsed_s": 10.57,
+        "printed": [
+          "ROW_DOT_SOURCE_RESOURCE_OK"
+        ],
+        "log": "/tmp/opencode/e1w1/RowDot.log",
+        "verdict": "green marker reproduced",
+        "frozen_green_marker": "ROW_DOT_SOURCE_RESOURCE_OK"
+      },
+      {
+        "command": "python3 proof/resource/CoordUnspread_gate.py --check",
+        "exit_status": 0,
+        "elapsed_s": 7.04,
+        "printed": [
+          "COORD_UNSPREAD_SOURCE_RESOURCE_OK"
+        ],
+        "log": "/tmp/opencode/e1w1/CoordUnspread.log",
+        "verdict": "green marker reproduced",
+        "frozen_green_marker": "COORD_UNSPREAD_SOURCE_RESOURCE_OK"
+      },
+      {
+        "command": "python3 proof/resource/CoordId_gate.py --controls",
+        "exit_status": 0,
+        "elapsed_s": 14.89,
+        "printed": [
+          "COORD_ID_REAL_SOURCE_CONTROL_RED",
+          "COORD_ID_REAL_SOURCE_CONTROL_RESTORED",
+          "COORD_ID_SOURCE_RESOURCE_OK"
+        ],
+        "log": "/tmp/opencode/e1w1/CoordId.controls.log",
+        "verdict": "mutation control: red, restore, green marker reproduced",
+        "frozen_green_marker": "COORD_ID_SOURCE_RESOURCE_OK",
+        "frozen_red_marker_printed": [
+          "COORD_ID_REAL_SOURCE_CONTROL_RED"
+        ],
+        "frozen_red_marker_reproduced": true
+      },
+      {
+        "command": "python3 proof/resource/Capacity_gate.py --check",
+        "exit_status": 1,
+        "elapsed_s": 3.61,
+        "printed": [
+          "Traceback (most recent call last):",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/Capacity_gate.py\", line 192, in <module>",
+          "main();status=0",
+          "~~~~^^",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/Capacity_gate.py\", line 159, in main",
+          "if generated.read_bytes()!=dest.read_bytes():raise RuntimeError('CAPACITY_EXTRACTION_DRIFT')",
+          "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "RuntimeError: CAPACITY_EXTRACTION_DRIFT",
+          "Command exited with non-zero status 1"
+        ],
+        "log": "/tmp/opencode/e1w1/Capacity.log",
+        "verdict": "red before any marker",
+        "frozen_green_marker": "CAPACITY_SOURCE_RESOURCE_OK"
+      },
+      {
+        "command": "python3 proof/resource/RegenRelocateEntry_gate.py",
+        "exit_status": 1,
+        "elapsed_s": 2.29,
+        "printed": [
+          "Traceback (most recent call last):",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/RegenRelocateEntry_gate.py\", line 221, in <module>",
+          "main(); status = 0",
+          "~~~~^^",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/RegenRelocateEntry_gate.py\", line 179, in main",
+          "raise RuntimeError('REGEN_RELOCATE_ENTRY_EXTRACTION_DRIFT')",
+          "RuntimeError: REGEN_RELOCATE_ENTRY_EXTRACTION_DRIFT",
+          "Command exited with non-zero status 1"
+        ],
+        "log": "/tmp/opencode/e1w1/RegenRelocateEntry.log",
+        "verdict": "red before any marker",
+        "frozen_green_marker": "REGEN_RELOCATE_ENTRY_SOURCE_RESOURCE_OK"
+      },
+      {
+        "command": "python3 proof/resource/LmHead_gate.py --check",
+        "exit_status": 1,
+        "elapsed_s": 72.25,
+        "printed": [
+          "Traceback (most recent call last):",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/LmHead_gate.py\", line 205, in <module>",
+          "main(); status = 0",
+          "~~~~^^",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/LmHead_gate.py\", line 178, in main",
+          "code, text = run(['lake','build','LmHeadResource'], p, 'fresh-proof')",
+          "~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "File \"/home/socol/Workspace/apeiron/proof/resource/LmHead_gate.py\", line 99, in run",
+          "raise RuntimeError(f'{label}_REJECT {p.returncode}\\n{text[-3500:]}')",
+          "RuntimeError: fresh-proof_REJECT 1",
+          "dResource.rowRead_some: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:715:0: LmHeadResource.usize_checked_mul_some: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:716:0: LmHeadResource.vis_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:717:0: LmHeadResource.div_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:718:0: LmHeadResource.pairBind_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:719:0: LmHeadResource.pairBind_div_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:720:0: LmHeadResource.VisitTrace.projection: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:721:0: LmHeadResource.VisitTrace.deterministic: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:722:0: LmHeadResource.VisitTrace.excludes_divergence: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:723:0: LmHeadResource.matvec_ctor_call: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:724:0: LmHeadResource.headTail_none: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:725:0: LmHeadResource.headTail_some_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:726:0: LmHeadResource.headTail_some_err: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:727:0: LmHeadResource.head_shape_refusal: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:728:0: LmHeadResource.head_quant_refusal: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:729:0: LmHeadResource.matvec_unsupported: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:730:0: LmHeadResource.matvec_div_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:731:0: LmHeadResource.matvec_vis_ne_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:732:0: LmHeadResource.head_delegates_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:733:0: LmHeadResource.head_delegates_err: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:734:0: LmHeadResource.head_quant_lookup_ok: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:735:0: LmHeadResource.row_body_exit_rows: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:736:0: LmHeadResource.row_body_exit_flag: axioms [propext, Classical.choice, Quot.sound]",
+          "error: LmHeadResource.lean:737:0: LmHeadResource.row_body_visit: forbidden axioms [sorryAx]",
+          "info: LmHeadResource.lean:738:0: LmHeadResource.row_visits_closed_form: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:739:0: LmHeadResource.lm_head_weight_positions: axioms [propext, Classical.choice, Quot.sound]",
+          "error: LmHeadResource.lean:740:0: LmHeadResource.dot_body_visit: forbidden axioms [sorryAx]",
+          "info: LmHeadResource.lean:741:0: LmHeadResource.dot_body_exit_end: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:742:0: LmHeadResource.dot_body_exit_flag: axioms [propext, Classical.choice, Quot.sound]",
+          "info: LmHeadResource.lean:743:0: LmHeadResource.dot_body_exhaustive: axioms [propext, Quot.sound]",
+          "info: LmHeadResource.lean:745:0: LM_HEAD_KERNEL_OK",
+          "error: Lean exited with code 1",
+          "Some required targets logged failures:",
+          "- LmHeadResource",
+          "error: build failed",
+          "Command exited with non-zero status 1"
+        ],
+        "log": "/tmp/opencode/e1w1/LmHead.log",
+        "verdict": "red before any marker",
+        "frozen_green_marker": "LM_HEAD_SOURCE_RESOURCE_OK"
+      }
+    ],
+    "not_run": [
+      {
+        "command": "python3 proof/resource/RowDot_gate.py --controls",
+        "reason": "blocked in flock -w 530 on /tmp/opencode/apeiron-lane.lock, held by APEIRON-E3-W2; killed without a verdict and recorded as not run"
+      }
+    ],
+    "attribution": {
+      "Capacity": "CAPACITY_EXTRACTION_DRIFT: the gate extracts the real src/table.rs, modified and uncommitted in this tree, so the extraction no longer equals the committed proof/resource/CapacitySource.lean",
+      "RegenRelocateEntry": "REGEN_RELOCATE_ENTRY_EXTRACTION_DRIFT: same cause; MODULES includes table.rs",
+      "LmHead": "LmHeadResource.dot_body_visit: forbidden axioms [sorryAx] -- a sorry in the committed proof/resource/LmHeadResource.lean, the open APEIRON-E3-W1 item"
+    },
+    "grade": "tested"
+  }
 }
