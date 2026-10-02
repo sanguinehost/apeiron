@@ -43,9 +43,12 @@ What is checked
 * ``M2`` removal record's consumer inventory is empty, or a consumer path does
   not resolve under the repository root;
 * ``M3`` removal record's reachability evidence names no command, or a command
-  whose ``cwd`` is not a directory in the tree, or whose repo-relative file
-  token does not resolve;
-* ``M4`` removal record carries no receipt id: a bare deletion record;
+  whose ``cwd`` is not a directory in the tree, whose ``argv[0]`` resolves
+  neither as a path under that ``cwd`` nor on ``PATH``, or whose repo-relative
+  file token does not resolve;
+* ``M4`` removal record carries no receipt id (a bare deletion record), or a
+  receipt that resolves to no ``docs/evidence/ledger.jsonl`` id and to no file
+  in the tree;
 * ``S`` surface: a reference surface the gate must read is missing.
 
 Structure is strict and loud: a record that is not an object, a duplicate id, a
@@ -54,16 +57,17 @@ data error (exit 2). Content is what ``M1``-``M4`` refuse (exit 1).
 
 Trust boundary
 ==============
-The gate reads the tree and the registry. It resolves no ``PATH`` entry, so an
-external program named in a reachability ``argv`` is not checked for existence
-(only its ``cwd`` and its repo-relative file tokens are); it does not check that
-a removed path is now absent (``removed`` is recorded for the receipt, and
-``R1`` is what gates absence for the binned route); it does not resolve a
-``receipt`` id to a ``docs/evidence/ledger.jsonl`` row; it runs no command, so a
-named command is evidence of record, not evidence of its exit status; and it
-cannot see a deletion that was never registered, because there is no record to
-refuse and no baseline of the previous tree to diff. That last exclusion is the
-open obligation: this gate reads the registry, not history. No network, no
+The gate reads the tree and the registry. It resolves the ``receipt`` field and
+``argv[0]`` of a reachability command, but it runs no command, so a named
+command is evidence of record, not evidence of its exit status; it does not
+check that a removed path is now absent (``removed`` is recorded for the
+receipt, and ``R1`` is what gates absence for the binned route); and it cannot
+see a deletion that was never registered, because there is no record to refuse
+and no baseline of the previous tree to diff. That last exclusion is the open
+obligation: this gate reads the registry, not history. Resolution is existence,
+not correctness: a receipt id is read out of ``docs/evidence/ledger.jsonl`` and
+never checked for content, and ``PATH`` is the ambient one, so the recorded
+program must be installed for ``--check`` to accept the record. No network, no
 clock, no Lean, no Rust.
 
 Isolation
@@ -71,8 +75,10 @@ Isolation
 ``--self-test`` and ``--controls`` materialise synthetic fixtures under the
 system temporary directory and never read or write the repository tree; the
 working tree is never mutated. The ``--controls`` removal mutation runs against
-an in-memory copy of the real registry, so no file is written either.
-``--paths`` and ``--check`` are read-only.
+an in-memory copy of the real registry, so no file is written either. Both read
+``PATH`` from the environment, because M3 resolves ``argv[0]``; a fixture
+program is chosen to be absent from it. ``--paths`` and ``--check`` are
+read-only.
 
 Usage::
 
@@ -105,6 +111,9 @@ HERE = Path(__file__).resolve()
 REPO = HERE.parents[2]
 CASES_PATH = HERE.parent / "retire_cases.json"
 REMOVALS_PATH = HERE.parent / "removals.json"
+
+# The evidence ledger a receipt id resolves against, relative to the scanned root.
+LEDGER_RELPATH = "docs/evidence/ledger.jsonl"
 
 EXIT_OK = 0
 EXIT_REJECT = 1
@@ -658,12 +667,74 @@ def entry_line(source: str, entry_id: str) -> int:
 
 
 def file_tokens(argv: Sequence[str]) -> list[str]:
-    """Repo-relative file tokens in an argv; flags, schemes and bare names are not files."""
+    """Repo-relative file tokens in an argv; flags, schemes and bare names are not files.
+
+    ``argv[0]`` is excluded: it is the program, resolved by ``resolve_program``.
+    """
     return [
         token
-        for token in argv
-        if not token.startswith("-") and "://" not in token and _FILE_TOKEN.match(token)
+        for index, token in enumerate(argv)
+        if index
+        and not token.startswith("-")
+        and "://" not in token
+        and _FILE_TOKEN.match(token)
     ]
+
+
+def _ledger_ids(root: Path) -> frozenset[str] | None:
+    """The receipt ids in the evidence ledger under ``root``, or None when absent.
+
+    A ledger line that is not an object, or an object with no ``id``, is a data
+    error: the id set cannot be established, so no receipt resolves against it
+    and the gate says so instead of guessing. An absent ledger resolves no id,
+    which leaves M4 to report the affected record rather than the whole run.
+    """
+    path = root / LEDGER_RELPATH
+    if not path.is_file():
+        return None
+    ids: set[str] = set()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for number, line in enumerate(lines, 1):
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            row = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise DataError(f"{LEDGER_RELPATH}:{number} is not valid JSON: {exc}") from exc
+        _require(isinstance(row, dict), f"{LEDGER_RELPATH}:{number} must be an object")
+        ident = row.get("id")
+        _require(
+            isinstance(ident, str) and ident.strip() != "",
+            f"{LEDGER_RELPATH}:{number} must carry a nonempty id",
+        )
+        ids.add(ident)
+    return frozenset(ids)
+
+
+def receipt_resolves(root: Path, receipt: str, ledger: frozenset[str] | None) -> bool:
+    """True when a receipt names an evidence-ledger row or a file in the tree."""
+    if ledger is not None and receipt in ledger:
+        return True
+    resolved = resolve_under(root, receipt)
+    return resolved is not None and resolved.is_file()
+
+
+def resolve_program(base: Path, token: str) -> Path | None:
+    """Where ``argv[0]`` resolves, or None: a path under the record's cwd, or PATH.
+
+    A token carrying a separator is a path (absolute, or relative to the record's
+    ``cwd``) and must be an existing file; a bare name is looked up on the
+    ambient ``PATH``. A bare name that happens to exist in ``cwd`` is not
+    resolved, so a record must name the installed program or the path to it.
+    """
+    if "/" in token or "://" in token:
+        candidate = Path(token)
+        if candidate.is_absolute():
+            return candidate if candidate.is_file() else None
+        resolved = resolve_under(base, token)
+        return resolved if resolved is not None and resolved.is_file() else None
+    return shutil.which(token)
 
 
 def scan_removals(
@@ -671,6 +742,7 @@ def scan_removals(
 ) -> list[Violation]:
     """Every M1-M4 violation in the removal records, each naming its record."""
     violations: list[Violation] = []
+    ledger = _ledger_ids(root)
     for removal in entries:
         line = entry_line(text, removal.id)
         where = source
@@ -748,6 +820,19 @@ def scan_removals(
                         )
                     )
                     continue
+                program = command.argv[0]
+                if resolve_program(base, program) is None:
+                    shown = " ".join(command.argv)
+                    violations.append(
+                        Violation(
+                            "M3",
+                            where,
+                            line,
+                            f"removal record {removal.id!r} reachability[{index}] names a "
+                            f"program that resolves neither as a path under its cwd nor on "
+                            f"PATH: {program} (command: {shown})",
+                        )
+                    )
                 for token in file_tokens(command.argv):
                     resolved = resolve_under(base, token)
                     if resolved is None or not resolved.exists():
@@ -769,6 +854,17 @@ def scan_removals(
                     where,
                     line,
                     f"bare deletion record {removal.id!r} carries no receipt id",
+                )
+            )
+        elif not receipt_resolves(root, removal.receipt.strip(), ledger):
+            violations.append(
+                Violation(
+                    "M4",
+                    where,
+                    line,
+                    f"removal record {removal.id!r} names a receipt that resolves to no "
+                    f"{LEDGER_RELPATH} id and to no file in the tree: "
+                    f"{removal.receipt.strip()}",
                 )
             )
     return violations

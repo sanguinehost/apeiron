@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Removal records for tools/rooting/retire_check.py rules M1-M4 (AGENTS.md section 10, failure register row 'Consolidation lost files': a removal is a migration or an authorized retirement; name the replacement or the retained obligation, inventory affected consumers, and gate reachability; no bare rm). SCHEMA. Top level: schema (1), note (this text), rules (the M1-M4 id/title/description triples the gate prints under --list), removals (the records), self_test (the synthetic tree, the accepted fixture registry and one seeded defect per rejected record, so --self-test and --controls need no network, clock, Lean or Rust). Each record: id (nonempty, unique, the key every diagnostic names); kind ('migration' | 'retirement'); removed (repo-relative paths the removal deleted, recorded for the receipt - absence is not gated here, R1 gates the binned route); replacement (repo-relative paths that take over the removed ones; empty for a retirement); retained_obligation (what stays open instead of a replacement; empty for a migration); consumers (nonempty repo-relative inventory of what consumed the removed paths - every entry must resolve); reachability (nonempty list of {cwd, argv}; cwd is a repo-relative directory that must resolve, argv is the exact command, and every repo-relative file token in argv must resolve - the gate does not resolve PATH, so an external program name is not checked); receipt (nonempty discharge receipt id: a docs/evidence/ledger.jsonl id where the ledger carries one, else the governing document path that authorizes the removal). Rules: M1 refuses a record naming neither replacement nor retained obligation; M2 refuses an empty consumer inventory or a consumer path that does not resolve; M3 refuses reachability evidence naming no command, or a command whose cwd or repo-relative file token does not resolve; M4 refuses a deletion record carrying no receipt id. Structure is strict (a nonobject record, a duplicate id, a bad kind or a wrong field type is a data error, exit 2); content is what M1-M4 refuse (exit 1).",
+  "note": "Removal records for tools/rooting/retire_check.py rules M1-M4 (AGENTS.md section 10, failure register row 'Consolidation lost files': a removal is a migration or an authorized retirement; name the replacement or the retained obligation, inventory affected consumers, and gate reachability; no bare rm). SCHEMA. Top level: schema (1), note (this text), rules (the M1-M4 id/title/description triples the gate prints under --list), removals (the records), self_test (the synthetic tree, the accepted fixture registry and one seeded defect per rejected record, so --self-test and --controls need no network, clock, Lean or Rust). Each record: id (nonempty, unique, the key every diagnostic names); kind ('migration' | 'retirement'); removed (repo-relative paths the removal deleted, recorded for the receipt - absence is not gated here, R1 gates the binned route); replacement (repo-relative paths that take over the removed ones; empty for a retirement); retained_obligation (what stays open instead of a replacement; empty for a migration); consumers (nonempty repo-relative inventory of what consumed the removed paths - every entry must resolve); reachability (nonempty list of {cwd, argv}; cwd is a repo-relative directory that must resolve, argv is the exact command, argv[0] must resolve as a path under cwd or as a program on the ambient PATH, and every later repo-relative file token in argv must resolve); receipt (nonempty discharge receipt: either a docs/evidence/ledger.jsonl id or the repo-relative path of the governing document that authorizes the removal - it is resolved, so an id the ledger does not carry and a path absent from the tree are both refused). Rules: M1 refuses a record naming neither replacement nor retained obligation; M2 refuses an empty consumer inventory or a consumer path that does not resolve; M3 refuses reachability evidence naming no command, or a command whose cwd, argv[0] or repo-relative file token does not resolve; M4 refuses a deletion record carrying no receipt id, or a receipt that resolves to nothing. Structure is strict (a nonobject record, a duplicate id, a bad kind or a wrong field type is a data error, exit 2); content is what M1-M4 refuse (exit 1). Resolution is existence, not correctness: a ledger row is read for its id only, and no command is run, so a record whose program is not installed on the PATH that runs the gate is refused there.",
   "rules": [
     {
       "id": "M1",
@@ -15,12 +15,12 @@
     {
       "id": "M3",
       "title": "Reachability evidence absent or unresolvable",
-      "description": "A removal record names no reachability command, or names a command whose cwd is not a directory in the tree, or whose repo-relative file token does not resolve. An external program name is not resolved: PATH lookup is outside this gate."
+      "description": "A removal record names no reachability command, or names a command whose cwd is not a directory in the tree, whose argv[0] resolves neither as a path under that cwd nor as a program on PATH, or whose later repo-relative file token does not resolve. The program is resolved, not run: PATH is the ambient one, so a record naming a program this machine does not install is refused here."
     },
     {
       "id": "M4",
-      "title": "Bare deletion record",
-      "description": "A removal record carries no receipt id, so the deletion is a bare rm with no discharge receipt (docs/evidence/ledger.jsonl id, or the governing document that authorizes it)."
+      "title": "Bare deletion record or unresolvable receipt",
+      "description": "A removal record carries no receipt id, so the deletion is a bare rm with no discharge receipt, or names a receipt that resolves to no docs/evidence/ledger.jsonl id and to no file in the tree. The receipt is a ledger id or the repo-relative path of the authorizing document, and it must resolve."
     }
   ],
   "removals": [
@@ -148,6 +148,8 @@
     "clean": {
       "files": {
         "Cargo.toml": "[package]\nname = \"slab\"\nversion = \"0.0.0\"\n",
+        "docs/contracts/slab-retirement.md": "# Synthetic authorizing document\n\nStands in for a governing document named as a receipt path.\n",
+        "docs/evidence/ledger.jsonl": "{\"id\": \"slab-retirement\", \"kind\": \"receipt\", \"path\": \"docs/evidence/slab-retirement.md\", \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"bytes\": 1, \"summary\": \"Synthetic ledger row: the fixture receipt id resolves here.\"}\n",
         "proof/lane.md": "# Synthetic lane directory\n\nPresent so a clean fixture cwd resolves.\n",
         "src/table/probe.rs": "// production probe body, retained after the harness deletion\n",
         "tools/slab/probe_gate.py": "#!/usr/bin/env python3\n\"\"\"Synthetic reachability gate for the self-test tree.\"\"\"\nimport sys\n\n\ndef main():\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n"
@@ -157,7 +159,7 @@
       {
         "id": "slab-probe-harness-retirement",
         "kind": "retirement",
-        "note": "Clean fixture record: a retained obligation, a resolving consumer inventory and two resolvable commands.",
+        "note": "Clean fixture record: a retained obligation, a resolving consumer inventory, two resolvable commands and a receipt id the synthetic ledger carries.",
         "removed": [
           "tools/slab/probe_harness.rs"
         ],
@@ -185,6 +187,31 @@
           }
         ],
         "receipt": "slab-retirement"
+      },
+      {
+        "id": "slab-run-receipt-consolidation",
+        "kind": "migration",
+        "note": "Second accepted record: the receipt is a governing-document path in the tree rather than a ledger id, so both accepted receipt forms are exercised by the clean fixture.",
+        "removed": [
+          "docs/slab/run-1.md"
+        ],
+        "replacement": [
+          "docs/evidence/ledger.jsonl"
+        ],
+        "retained_obligation": "",
+        "consumers": [
+          "docs/contracts/slab-retirement.md"
+        ],
+        "reachability": [
+          {
+            "cwd": ".",
+            "argv": [
+              "python3",
+              "tools/slab/probe_gate.py"
+            ]
+          }
+        ],
+        "receipt": "docs/contracts/slab-retirement.md"
       }
     ],
     "cases": [
@@ -266,6 +293,27 @@
         "text": ""
       },
       {
+        "name": "removal names a reachability program that does not resolve",
+        "rule": "M3",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [],
+        "set": {
+          "reachability": [
+            {
+              "cwd": ".",
+              "argv": [
+                "slab-absent-probe-gate",
+                "--check"
+              ]
+            }
+          ]
+        },
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
         "name": "bare deletion record without a receipt id",
         "rule": "M4",
         "expect": "reject",
@@ -274,6 +322,19 @@
           "receipt"
         ],
         "set": {},
+        "action": "none",
+        "path": "",
+        "text": ""
+      },
+      {
+        "name": "removal names a receipt that resolves to no ledger id and no file",
+        "rule": "M4",
+        "expect": "reject",
+        "entry": "slab-probe-harness-retirement",
+        "drop": [],
+        "set": {
+          "receipt": "no-such-receipt-xyz"
+        },
         "action": "none",
         "path": "",
         "text": ""
