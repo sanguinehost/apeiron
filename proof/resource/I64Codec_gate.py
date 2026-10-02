@@ -261,7 +261,7 @@ if __name__ == '__main__':
             TOOLS/'proof/dispatch/lean-toolchain', ROOT/'src/scalar.rs', ROOT/'src/cell.rs',
             ROOT/'src/coord.rs', ROOT/'src/table.rs', ROOT/'src/table/keyrep.rs',
             ROOT/'src/table/state.rs', ROOT/'src/table/locator.rs', ROOT/'src/table/prepared.rs',
-            ROOT/'src/table/probe.rs', ROOT/'src/table/resources.rs', ROOT/'src/table/scan.rs',
+            ROOT/'src/table/probe.rs', ROOT/'src/table/resources.rs',
             ROOT/'src/table/parallel.rs', ROOT/'src/table/partition.rs', ROOT/'src/coord/address.rs',
             ROOT/'src/coord/locator.rs', ROOT/'src/coord/locator_core.rs',
             ROOT/'proof/strip-modeled-axioms.py', ROOT/'proof/resource/I64Codec_gate.py',

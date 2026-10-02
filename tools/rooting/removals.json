@@ -141,6 +141,59 @@
         }
       ],
       "receipt": "docs/contracts/slang-source-refinement-plan.md"
+    },
+    {
+      "id": "spill-group-descent-scanner-retirement",
+      "kind": "retirement",
+      "note": "The SwissTable group-descent scanner src/table/scan.rs (sha256 ec633507...) is retired, not migrated: the flat open-addressed spill port replaced its five production callers (three scan::match_tag, two scan::match_empty, all in src/table/probe.rs) with a bounded linear cycle whose tag == 0 test is the vacancy test, so the module is reached only by its own unit tests. cargo clippy --release --example spill_read_probe -- -D warnings named all eleven of its items never used, each in that file and nowhere else. Receipt: docs/evidence/spill-group-descent-retirement.md.",
+      "removed": [
+        "src/table/scan.rs"
+      ],
+      "replacement": [],
+      "retained_obligation": "The extracted definitions of the removed scanner still live in proof/resource/StoredRelocateAllSource.lean and reach the generated Lean through proof/ApeironWord.lean; that is regeneration output and is discharged by the extraction re-link APEIRON-E6-W3-T3 in docs/plan.md, not by this removal. proof/README.md and docs/ keep the pre-port digests as the historical record.",
+      "consumers": [
+        "src/table.rs",
+        "proof/regen.sh",
+        "proof/resource/Capacity_gate.py",
+        "proof/resource/Schedule_gate.py",
+        "proof/resource/I64Codec_gate.py",
+        "proof/resource/CoordUnspread_gate.py",
+        "proof/resource/StoredRelocateAllSource.lean",
+        "docs/evidence/spill-group-descent-retirement.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--controls"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--workspace",
+            "--all-features",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings"
+          ]
+        }
+      ],
+      "receipt": "spill-group-descent-retirement"
     }
   ],
   "self_test": {
