@@ -39,21 +39,19 @@ structure table.resources.CapacityBound where
   observed_capacity : Std.Usize
 
 /-- [publish_prepared_source::table::resources::RegionReservation]
-    Source: 'src/table/resources.rs', lines 21:0-28:1 -/
+    Source: 'src/table/resources.rs', lines 21:0-24:1 -/
 structure table.resources.RegionReservation where
-  tags : table.resources.CapacityBound
-  payloads : table.resources.CapacityBound
-  summary : table.resources.CapacityBound
+  slots : table.resources.CapacityBound
 
 /-- [publish_prepared_source::table::resources::ReservationReceipt]
-    Source: 'src/table/resources.rs', lines 32:0-39:1 -/
+    Source: 'src/table/resources.rs', lines 28:0-35:1 -/
 structure table.resources.ReservationReceipt where
   flat : table.resources.CapacityBound
   directory : table.resources.CapacityBound
   regions : Array table.resources.RegionReservation 256#usize
 
 /-- [publish_prepared_source::table::resources::LocatorReservationReceipt]
-    Source: 'src/table/resources.rs', lines 77:0-94:1 -/
+    Source: 'src/table/resources.rs', lines 73:0-90:1 -/
 structure table.resources.LocatorReservationReceipt where
   parabolic_nodes : table.resources.CapacityBound
   residue_nodes : table.resources.CapacityBound
@@ -65,14 +63,14 @@ structure table.resources.LocatorReservationReceipt where
   retained_identity : table.resources.CapacityBound
 
 /-- [publish_prepared_source::table::resources::PreparedOutcome]
-    Source: 'src/table/resources.rs', lines 166:0-173:1 -/
+    Source: 'src/table/resources.rs', lines 162:0-169:1 -/
 structure table.resources.PreparedOutcome (R : Type) where
   reservation : table.resources.ReservationReceipt
   locator : table.resources.LocatorReservationReceipt
   pending_held : R
 
 /-- [publish_prepared_source::table::StorageError]
-    Source: 'src/table.rs', lines 90:0-97:1
+    Source: 'src/table.rs', lines 98:0-105:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.StorageError where
@@ -81,7 +79,7 @@ inductive table.StorageError where
 | ShardFull : table.StorageError
 
 /-- [publish_prepared_source::table::FlatSlot]
-    Source: 'src/table/state.rs', lines 419:0-424:1 -/
+    Source: 'src/table/state.rs', lines 355:0-360:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -89,47 +87,54 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [publish_prepared_source::table::Flat]
-    Source: 'src/table/state.rs', lines 426:0-429:1 -/
+    Source: 'src/table/state.rs', lines 362:0-365:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
 
+/-- [publish_prepared_source::table::SpillSlot]
+    Source: 'src/table/state.rs', lines 49:0-58:1 -/
+structure table.SpillSlot (R : Type) (V : Type) where
+  tag : Std.U8
+  sigma : cell.Sigma
+  held : R
+  value : V
+
 /-- [publish_prepared_source::table::Region]
-    Source: 'src/table/state.rs', lines 107:0-118:1 -/
+    Source: 'src/table/state.rs', lines 93:0-98:1 -/
 structure table.Region (R : Type) (V : Type) where
-  tags : alloc.vec.Vec Std.U8
-  slots : alloc.vec.Vec (cell.Sigma × R × V)
-  summary : alloc.vec.Vec Std.U64
+  slots : alloc.vec.Vec (table.SpillSlot R V)
+  live : Std.Usize
 
 /-- [publish_prepared_source::table::RebuildReserved]
-    Source: 'src/table/state.rs', lines 449:0-452:1 -/
+    Source: 'src/table/state.rs', lines 385:0-388:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- [publish_prepared_source::table::RebuildSource]
-    Source: 'src/table/state.rs', lines 432:0-435:1 -/
+    Source: 'src/table/state.rs', lines 368:0-371:1 -/
 @[discriminant isize]
 inductive table.RebuildSource where
 | Resident : Std.Usize → table.RebuildSource
 | Spill : Std.Usize → Std.Usize → table.RebuildSource
 
 /-- [publish_prepared_source::table::RebuildPlanEntry]
-    Source: 'src/table/state.rs', lines 437:0-441:1 -/
+    Source: 'src/table/state.rs', lines 373:0-377:1 -/
 structure table.RebuildPlanEntry where
   source : table.RebuildSource
   flat : Option Std.Usize
   spill : Std.Usize
 
 /-- [publish_prepared_source::table::RebuildPlan]
-    Source: 'src/table/state.rs', lines 443:0-447:1 -/
+    Source: 'src/table/state.rs', lines 379:0-383:1 -/
 structure table.RebuildPlan where
   lanes : Std.Usize
   entries : alloc.vec.Vec table.RebuildPlanEntry
   spill_loads : alloc.vec.Vec Std.Usize
 
 /-- [publish_prepared_source::table::resources::PreparedResult]
-    Source: 'src/table/resources.rs', lines 183:0-195:1 -/
+    Source: 'src/table/resources.rs', lines 179:0-191:1 -/
 @[discriminant isize]
 inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Prepared :
@@ -140,7 +145,7 @@ inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Refused : table.StorageError → table.resources.PreparedResult R V
 
 /-- [publish_prepared_source::table::resources::publish_prepared]:
-    Source: 'src/table/resources.rs', lines 217:0-228:1 -/
+    Source: 'src/table/resources.rs', lines 213:0-224:1 -/
 def table.resources.publish_prepared
   {R : Type} {V : Type}
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved R

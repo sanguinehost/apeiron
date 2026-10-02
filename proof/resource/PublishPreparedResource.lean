@@ -338,9 +338,10 @@ zero receipts.
 def emptyBound : publish_prepared_source.table.resources.CapacityBound :=
   { required_len := 0#usize, observed_capacity := 0#usize }
 
-/-- The zero region reservation. -/
+/-- The zero region reservation: the region's single open-addressed slot-array bound, tags
+    included. -/
 def emptyRegionReservation : publish_prepared_source.table.resources.RegionReservation :=
-  { tags := emptyBound, payloads := emptyBound, summary := emptyBound }
+  { slots := emptyBound }
 
 /-- The 256-entry region array of a reservation receipt, every entry the zero reservation. -/
 def emptyRegions : Array publish_prepared_source.table.resources.RegionReservation 256#usize :=
