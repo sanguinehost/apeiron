@@ -301,15 +301,32 @@ fn matches<K, H, R: KeyRep<K, H>, V>(
 ///
 /// One flat open-addressed region needs a power-of-two capacity so the probe mask is
 /// `capacity - 1`, and it needs at least one vacant slot, so the capacity is the least power of two
-/// `>= 2 * load` and at least `n`. Growth at the bound therefore leaves the load factor at or below
-/// `1/2`, which is the classic linear-probing bound: an unsuccessful probe visits
-/// `1 / (1 - alpha)` slots on average. `O(log(load))`; spatial `O(1)`.
+/// `>= 2 * load` and at least `2 * n`.  Every reserved region therefore satisfies
+/// `capacity >= 2 * load`, and a region the insert path builds itself is reserved for the whole
+/// group width, so it holds a vacancy at every load up to `n`: the load factor stays at or below
+/// `1/2`, which is the classic linear-probing bound, under which an absent read stops at the first
+/// vacancy after `1 / (1 - alpha)` slots on average instead of completing a whole cycle.
+///
+/// The floor is `2 * n` rather than `n` because `n` is a load a shard fills, not a capacity.  A
+/// floor of `n` reserved `n` slots for the region's first entry, and the insert path then filled
+/// those `n` slots: at load factor `1` the bounded read cycle has no vacancy to stop on, so every
+/// absent read cost the region's whole capacity in tag compares, and the completed-cycle absence
+/// certificate became reachable through [`Table::insert_with`] rather than only through a
+/// deliberately filled region.
+///
+/// Temporal `O(log(load))` doublings; spatial `O(1)` words beyond the reserved region.
 fn slots_for(load: usize, n: usize) -> Result<usize, StorageError> {
     if load == 0 {
         return Ok(0);
     }
     let twice = load.checked_mul(2).ok_or(StorageError::SizeOverflow)?;
-    let mut capacity = n.max(2);
+    // `n.max(2)` keeps the zero-width floor of the original rule; `valid_n` admits `n = 1`, so
+    // `2 * n` is a power of two above the smallest group the table accepts.
+    let floor = n
+        .max(2)
+        .checked_mul(2)
+        .ok_or(StorageError::SizeOverflow)?;
+    let mut capacity = floor;
     while capacity < twice {
         capacity = capacity.checked_mul(2).ok_or(StorageError::SizeOverflow)?;
     }

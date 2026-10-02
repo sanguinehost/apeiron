@@ -1026,8 +1026,8 @@ fn prepared_shard_reserves_the_checked_flat_capacity_at_a_real_load() {
     .expect("the checked capacity of one live entry is reservable");
     assert_eq!(
         region.slots.len(),
-        16,
-        "the rule reserves the least power of two at or above max(n, 2*load)"
+        32,
+        "the rule reserves the least power of two at or above max(2 * n, 2 * load)"
     );
     assert_eq!(region.live, 1, "one live entry is published");
     assert!(
@@ -1038,9 +1038,11 @@ fn prepared_shard_reserves_the_checked_flat_capacity_at_a_real_load() {
 
 /// The whole-table read path certifies absence on a completed spill cycle, not only on a zero tag.
 ///
-/// The capacity rule of [`slots_for`] reserves at least twice the load, so a region the insert path
-/// builds itself always keeps a vacancy and the completed-cycle certificate is unreachable through
-/// `insert_with`. The fixture therefore fills one shard's region to its exact capacity through the
+/// The capacity rule of [`slots_for`] reserves at least twice the load and at least twice the group
+/// width, so a region the insert path builds itself keeps a vacancy at every load up to `n` and the
+/// completed-cycle certificate is unreachable through `insert_with` there.  Above `n` the region
+/// grows only when a cycle finds it full, so the certificate becomes reachable once its load passes
+/// `n`.  The fixture therefore fills one shard's region to its exact capacity through the
 /// production locator and reads through `Table::get`, and attributes which certificate decided each
 /// read: the absent key costs exactly one cycle of `capacity` steps with no zero-tag certificate,
 /// the stored key costs fewer, so the two certificates are not conflated.
@@ -1289,6 +1291,88 @@ fn grow_spill_sizes_the_successor_from_the_live_count() {
 // rejected by the compiler. Read allocation-freedom is therefore checked by the clone/merge
 // counters below plus an unchanged-capacity snapshot; see the task residual for the shared
 // allocator hook.
+
+/// A placement-only home for one shard: distinct placements, shard byte zero, no direct word.
+///
+/// `place = key << 8` leaves the shard selector — the low byte of the placement — at zero while
+/// keeping every placement word distinct, so all keys reach shard zero's one region and the
+/// region's own home mixer spreads them over its slots instead of stacking them at slot zero.
+struct OneShardHome;
+
+impl Home<i64> for OneShardHome {
+    fn home(&self, key: &i64) -> u64 {
+        (*key).cast_unsigned() << 8
+    }
+
+    /// Placement-only: no certified direct word, so every key reaches the spill region.
+    fn address(&self, _sigma: Sigma, key: &i64) -> TableAddress {
+        TableAddress {
+            place: self.home(key),
+            direct_word: None,
+        }
+    }
+}
+
+sigma_word_face!(OneShardHome, i64);
+
+/// A shard region at the compile-time group width keeps a vacancy, so an absent read is certified by
+/// the zero tag instead of by a completed cycle.
+///
+/// This is the read-path cost the region capacity rule decides. [`slots_for`] reserves `2 * n`
+/// slots for a region's first entry, so after `n` real `insert_with` calls the region holds `n` live
+/// entries in `2 * n` slots: load factor `1 / 2`, where a bounded read cycle meets a vacancy after
+/// `1 / (1 - alpha) = 2` slots on average. A floor of `n` reserved `n` slots for the first entry and
+/// let the insert path reach load factor `1`, where no vacancy exists and every absent read walks the
+/// region's whole cycle before the bound certifies it. The assertions read the table's own state and
+/// its own read counters: `n` live entries in `2 * n` slots, an absent read carrying one zero-tag
+/// certificate and strictly fewer steps than the cycle, and every inserted key still readable.
+#[test]
+fn a_group_width_shard_region_keeps_a_vacancy_for_an_absent_read() {
+    const N: usize = 16;
+    let group = i64::try_from(N).expect("the group width fits i64");
+    let mut table = Table::<i64, i64, OneShardHome, N>::new(0, OneShardHome);
+    for key in 1..=group {
+        table.insert_with(&ReplacementMerge, key, key + 1).unwrap();
+    }
+
+    let region = &table.shards[0];
+    assert_eq!(table.len(), N, "every key is admitted exactly once");
+    assert_eq!(region.live, N, "every key reaches shard zero's one region");
+    assert_eq!(
+        region.slots.len(),
+        2 * N,
+        "the reserved capacity is twice the group width, so the load factor is at most one half"
+    );
+
+    // The absent key shares shard zero with a half-full region and was never stored.
+    let absent = group + 1;
+    read_trace::clear();
+    assert_eq!(
+        table.get(&absent),
+        &table.default,
+        "a key the region never stored reads the default"
+    );
+    let steps = read_trace::sweep_steps();
+    assert_eq!(
+        read_trace::absence_certificates(),
+        1,
+        "a half-full region has a vacancy, so the zero tag certifies absence"
+    );
+    assert!(
+        steps < region.slots.len(),
+        "the read stops at the first vacancy after {steps} steps instead of completing the region's \
+         whole cycle of {} steps",
+        region.slots.len()
+    );
+
+    for key in 1..=group {
+        assert_eq!(
+            table.get(&key),
+            &(key + 1),
+            "every inserted key is still readable after the reservations"
+        );
+    }
+}
 
 /// The read helper walks the bounded cycle past same-fingerprint rejects to a late match.
 #[test]
