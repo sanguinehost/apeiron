@@ -1383,13 +1383,14 @@ inductive coord.locator.locator_core.Walk where
 | Miss : Std.Usize → Std.Usize → coord.locator.locator_core.Walk
 
 /-- [apeiron_word::coord::locator::locator_core::StagedPath]
-    Source: '../../src/coord/locator_core.rs', lines 618:0-621:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 618:0-630:1 -/
 structure coord.locator.locator_core.StagedPath where
   residue_path : Array Std.U32 65#usize
+  residue_digits : Array Std.U8 64#usize
   identity_path : alloc.vec.Vec Std.U32
 
 /-- [apeiron_word::coord::locator::locator_core::Directory]
-    Source: '../../src/coord/locator_core.rs', lines 649:0-669:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 658:0-678:1 -/
 structure coord.locator.locator_core.Directory where
   residue_words : alloc.vec.Vec Std.U32
   identity_words : alloc.vec.Vec Std.U32
@@ -1399,58 +1400,58 @@ structure coord.locator.locator_core.Directory where
   staged_scratch : Option (alloc.vec.Vec Std.U32)
 
 /-- [apeiron_word::coord::locator::locator_core::RESIDUE_STRIDE]
-    Source: '../../src/coord/locator_core.rs', lines 672:0-672:32 -/
+    Source: '../../src/coord/locator_core.rs', lines 681:0-681:32 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.RESIDUE_STRIDE : Std.Usize := 4#usize
 
 /-- [apeiron_word::coord::locator::locator_core::RESIDUE_IDENTITY]
-    Source: '../../src/coord/locator_core.rs', lines 674:0-674:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 683:0-683:34 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.RESIDUE_IDENTITY : Std.Usize := 3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_STRIDE]
-    Source: '../../src/coord/locator_core.rs', lines 676:0-676:33 -/
+    Source: '../../src/coord/locator_core.rs', lines 685:0-685:33 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_STRIDE : Std.Usize := 2#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_TERMINAL]
-    Source: '../../src/coord/locator_core.rs', lines 678:0-678:35 -/
+    Source: '../../src/coord/locator_core.rs', lines 687:0-687:35 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_TERMINAL : Std.Usize := 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::IDENTITY_FIRST_EDGE]
-    Source: '../../src/coord/locator_core.rs', lines 680:0-680:37 -/
+    Source: '../../src/coord/locator_core.rs', lines 689:0-689:37 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.IDENTITY_FIRST_EDGE : Std.Usize := 1#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_STRIDE]
-    Source: '../../src/coord/locator_core.rs', lines 682:0-682:29 -/
+    Source: '../../src/coord/locator_core.rs', lines 691:0-691:29 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_STRIDE : Std.Usize := 3#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_LABEL]
-    Source: '../../src/coord/locator_core.rs', lines 684:0-684:28 -/
+    Source: '../../src/coord/locator_core.rs', lines 693:0-693:28 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_LABEL : Std.Usize := 0#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_CHILD]
-    Source: '../../src/coord/locator_core.rs', lines 686:0-686:28 -/
+    Source: '../../src/coord/locator_core.rs', lines 695:0-695:28 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_CHILD : Std.Usize := 1#usize
 
 /-- [apeiron_word::coord::locator::locator_core::EDGE_NEXT]
-    Source: '../../src/coord/locator_core.rs', lines 688:0-688:27 -/
+    Source: '../../src/coord/locator_core.rs', lines 697:0-697:27 -/
 @[global_simps, irreducible]
 def coord.locator.locator_core.EDGE_NEXT : Std.Usize := 2#usize
 
 /-- [apeiron_word::coord::locator::locator_core::read_word]:
-    Source: '../../src/coord/locator_core.rs', lines 691:0-693:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 700:0-702:1 -/
 def coord.locator.locator_core.read_word
   (words : Slice Std.U32) (index : Std.Usize) : Result Std.U32 := do
   Slice.index_usize words index
 
 /-- [apeiron_word::coord::locator::locator_core::store_word]:
-    Source: '../../src/coord/locator_core.rs', lines 706:0-708:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 715:0-717:1 -/
 def coord.locator.locator_core.store_word
   (words : Slice Std.U32) (index : Std.Usize) (value : Std.U32) :
   Result (Slice Std.U32)
@@ -1458,7 +1459,7 @@ def coord.locator.locator_core.store_word
   Slice.update words index value
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::new]:
-    Source: '../../src/coord/locator_core.rs', lines 712:4-721:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 721:4-730:5 -/
 def coord.locator.locator_core.Directory.new
   : Result coord.locator.locator_core.Directory := do
   ok
@@ -1472,7 +1473,7 @@ def coord.locator.locator_core.Directory.new
     }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::recycle_scratch]:
-    Source: '../../src/coord/locator_core.rs', lines 751:4-753:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 760:4-762:5 -/
 def coord.locator.locator_core.Directory.recycle_scratch
   (self : coord.locator.locator_core.Directory)
   (identity_path : alloc.vec.Vec Std.U32) :
@@ -1481,7 +1482,7 @@ def coord.locator.locator_core.Directory.recycle_scratch
   ok { self with staged_scratch := (some identity_path) }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::take_staged_scratch]:
-    Source: '../../src/coord/locator_core.rs', lines 729:4-745:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 738:4-754:5 -/
 def coord.locator.locator_core.Directory.take_staged_scratch
   (self : coord.locator.locator_core.Directory) (path_len : Std.Usize) :
   Result ((core.result.Result (alloc.vec.Vec Std.U32)
@@ -1509,7 +1510,7 @@ def coord.locator.locator_core.Directory.take_staged_scratch
       { self with staged_scratch := o })
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::recycle_staged]:
-    Source: '../../src/coord/locator_core.rs', lines 760:4-766:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 769:4-776:5 -/
 def coord.locator.locator_core.Directory.recycle_staged
   (self : coord.locator.locator_core.Directory)
   (staged : coord.locator.locator_core.StagedPath) :
@@ -1519,14 +1520,14 @@ def coord.locator.locator_core.Directory.recycle_staged
     staged.identity_path
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_record_count]:
-    Source: '../../src/coord/locator_core.rs', lines 769:4-771:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 779:4-781:5 -/
 def coord.locator.locator_core.Directory.residue_record_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.residue_words
   i / coord.locator.locator_core.RESIDUE_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::arena_len]:
-    Source: '../../src/coord/locator_core.rs', lines 774:4-780:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 784:4-790:5 -/
 def coord.locator.locator_core.Directory.arena_len
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
   (self : coord.locator.locator_core.Directory) :
@@ -1539,21 +1540,21 @@ def coord.locator.locator_core.Directory.arena_len
   else ok self.parabolic_nodes
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::identity_node_count]:
-    Source: '../../src/coord/locator_core.rs', lines 783:4-785:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 793:4-795:5 -/
 def coord.locator.locator_core.Directory.identity_node_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.identity_words
   i / coord.locator.locator_core.IDENTITY_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::edge_count]:
-    Source: '../../src/coord/locator_core.rs', lines 788:4-790:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 798:4-800:5 -/
 def coord.locator.locator_core.Directory.edge_count
   (self : coord.locator.locator_core.Directory) : Result Std.Usize := do
   let i := alloc.vec.Vec.len self.edge_words
   i / coord.locator.locator_core.EDGE_STRIDE
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_identity_root]:
-    Source: '../../src/coord/locator_core.rs', lines 853:4-858:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 863:4-868:5 -/
 def coord.locator.locator_core.Directory.residue_identity_root
   (self : coord.locator.locator_core.Directory) (node : Std.U32) :
   Result Std.U32
@@ -1565,7 +1566,7 @@ def coord.locator.locator_core.Directory.residue_identity_root
   coord.locator.locator_core.read_word s i2
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::residue_child]:
-    Source: '../../src/coord/locator_core.rs', lines 862:4-870:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 872:4-880:5 -/
 def coord.locator.locator_core.Directory.residue_child
   (self : coord.locator.locator_core.Directory) (node : Std.U32)
   (digit : Std.U8) :
@@ -1585,7 +1586,7 @@ def coord.locator.locator_core.Directory.residue_child
   else ok coord.locator.locator_core.NO_CHILD
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1517:10-1518:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 1537:10-1538:34 -/
 @[rust_loop_body]
 def coord.locator.locator_core.walk_residue_loop.body
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
@@ -1615,7 +1616,7 @@ def coord.locator.locator_core.walk_residue_loop.body
   else ok (done (node, depth))
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1517:10-1518:34 -/
+    Source: '../../src/coord/locator_core.rs', lines 1537:10-1538:34 -/
 @[rust_loop]
 def coord.locator.locator_core.walk_residue_loop
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
@@ -1629,7 +1630,7 @@ def coord.locator.locator_core.walk_residue_loop
     (node, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::walk_residue]:
-    Source: '../../src/coord/locator_core.rs', lines 1508:0-1533:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 1528:0-1553:1 -/
 def coord.locator.locator_core.walk_residue
   (residue_words : Slice Std.U32) (digits : Array Std.U8 64#usize)
   (levels : Std.Usize) (arity : Std.Usize) (root : Std.U32) :
@@ -1642,7 +1643,7 @@ def coord.locator.locator_core.walk_residue
   ok (node, i)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1545:4-1551:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1565:4-1571:5 -/
 @[rust_loop_body]
 def coord.locator.locator_core.find_edge_loop.body
   (edge_words : Slice Std.U32) (label : Std.U8) (edge : Std.U32)
@@ -1672,7 +1673,7 @@ def coord.locator.locator_core.find_edge_loop.body
   else ok (done found)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1545:4-1551:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1565:4-1571:5 -/
 @[rust_loop]
 def coord.locator.locator_core.find_edge_loop
   (edge_words : Slice Std.U32) (label : Std.U8) (edge : Std.U32)
@@ -1685,7 +1686,7 @@ def coord.locator.locator_core.find_edge_loop
     (edge, found)
 
 /-- [apeiron_word::coord::locator::locator_core::find_edge]:
-    Source: '../../src/coord/locator_core.rs', lines 1539:0-1553:1 -/
+    Source: '../../src/coord/locator_core.rs', lines 1559:0-1573:1 -/
 def coord.locator.locator_core.find_edge
   (identity_words : Slice Std.U32) (edge_words : Slice Std.U32)
   (node : Std.U32) (label : Std.U8) :
@@ -1699,7 +1700,7 @@ def coord.locator.locator_core.find_edge
     coord.locator.locator_core.NO_CHILD
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 903:8-915:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 913:8-925:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.walk_identity_loop.body
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -1735,7 +1736,7 @@ def coord.locator.locator_core.Directory.walk_identity_loop.body
   else ok (done (self, idnode, miss))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 903:8-915:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 913:8-925:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.walk_identity_loop
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -1755,7 +1756,7 @@ def coord.locator.locator_core.Directory.walk_identity_loop
     (idnode, miss, index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk_identity]:
-    Source: '../../src/coord/locator_core.rs', lines 898:4-932:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 908:4-942:5 -/
 def coord.locator.locator_core.Directory.walk_identity
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1783,7 +1784,7 @@ def coord.locator.locator_core.Directory.walk_identity
   | some miss1 => ok miss1
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::walk]:
-    Source: '../../src/coord/locator_core.rs', lines 873:4-895:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 883:4-905:5 -/
 def coord.locator.locator_core.Directory.walk
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1817,7 +1818,7 @@ def coord.locator.locator_core.Directory.walk
         ExactIdentityInst self identity_root key
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::rollback]:
-    Source: '../../src/coord/locator_core.rs', lines 1402:4-1415:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1413:4-1426:5 -/
 def coord.locator.locator_core.Directory.rollback
   (self : coord.locator.locator_core.Directory) (residue_len : Std.Usize)
   (identity_len : Std.Usize) (edge_len : Std.Usize)
@@ -1839,7 +1840,7 @@ def coord.locator.locator_core.Directory.rollback
     }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::reserve_edge]:
-    Source: '../../src/coord/locator_core.rs', lines 1379:4-1388:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1390:4-1399:5 -/
 def coord.locator.locator_core.Directory.reserve_edge
   (self : coord.locator.locator_core.Directory) :
   Result ((core.result.Result Unit coord.locator.locator_core.Refusal) ×
@@ -1857,7 +1858,7 @@ def coord.locator.locator_core.Directory.reserve_edge
   else ok (core.result.Result.Ok (), { self with edge_words := v })
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::new_identity_node]:
-    Source: '../../src/coord/locator_core.rs', lines 1391:4-1399:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1402:4-1410:5 -/
 def coord.locator.locator_core.Directory.new_identity_node
   (self : coord.locator.locator_core.Directory) :
   Result ((core.result.Result Std.U32 coord.locator.locator_core.Refusal) ×
@@ -1889,7 +1890,7 @@ def coord.locator.locator_core.Directory.new_identity_node
       self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::bump_face_nodes]:
-    Source: '../../src/coord/locator_core.rs', lines 1366:4-1372:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1377:4-1383:5 -/
 def coord.locator.locator_core.Directory.bump_face_nodes
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
   (self : coord.locator.locator_core.Directory) :
@@ -1906,7 +1907,7 @@ def coord.locator.locator_core.Directory.bump_face_nodes
     ok { self with parabolic_nodes := i1 }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::push_residue_default]:
-    Source: '../../src/coord/locator_core.rs', lines 1361:4-1363:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1372:4-1374:5 -/
 def coord.locator.locator_core.Directory.push_residue_default
   (self : coord.locator.locator_core.Directory) :
   Result coord.locator.locator_core.Directory
@@ -1918,7 +1919,7 @@ def coord.locator.locator_core.Directory.push_residue_default
   ok { self with residue_words := v }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1295:14-1296:38 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.stage_reserved_loop0.body
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1971,7 +1972,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop0.body
   else ok (done (self, residue_path, refusal))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1285:14-1286:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1295:14-1296:38 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.stage_reserved_loop0
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -1988,7 +1989,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop0
     (self, residue_path, refusal, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop body 1:
-    Source: '../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1336:12-1355:13 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.stage_reserved_loop1.body
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2043,7 +2044,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop1.body
   else ok (done (self, identity_path, refusal))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]: loop 1:
-    Source: '../../src/coord/locator_core.rs', lines 1326:12-1345:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1336:12-1355:13 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.stage_reserved_loop1
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2064,7 +2065,7 @@ def coord.locator.locator_core.Directory.stage_reserved_loop1
     (self, identity_path, refusal, node, byte_index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::stage_reserved]:
-    Source: '../../src/coord/locator_core.rs', lines 1269:4-1358:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1279:4-1369:5 -/
 def coord.locator.locator_core.Directory.stage_reserved
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2125,8 +2126,11 @@ def coord.locator.locator_core.Directory.stage_reserved
     match refusal2 with
     | none =>
       ok (core.result.Result.Ok
-        { residue_path := residue_path1, identity_path := identity_path2 },
-        self3)
+        {
+          residue_path := residue_path1,
+          residue_digits := digits1,
+          identity_path := identity_path2
+        }, self3)
     | some refusal3 =>
       let self4 ←
         coord.locator.locator_core.Directory.recycle_scratch self3
@@ -2136,8 +2140,11 @@ def coord.locator.locator_core.Directory.stage_reserved
     match refusal1 with
     | none =>
       ok (core.result.Result.Ok
-        { residue_path := residue_path1, identity_path := identity_path1 },
-        self2)
+        {
+          residue_path := residue_path1,
+          residue_digits := digits1,
+          identity_path := identity_path1
+        }, self2)
     | some refusal2 =>
       let self3 ←
         coord.locator.locator_core.Directory.recycle_scratch self2
@@ -2145,7 +2152,7 @@ def coord.locator.locator_core.Directory.stage_reserved
       ok (core.result.Result.Err refusal2, self3)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1263:12-1266:13 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.materialize_roots_loop.body
   (v : alloc.vec.Vec Std.U32) (word : Std.Usize) :
@@ -2161,7 +2168,7 @@ def coord.locator.locator_core.Directory.materialize_roots_loop.body
   else ok (done v)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1253:12-1256:13 -/
+    Source: '../../src/coord/locator_core.rs', lines 1263:12-1266:13 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.materialize_roots_loop
   (v : alloc.vec.Vec Std.U32) (word : Std.Usize) :
@@ -2174,7 +2181,7 @@ def coord.locator.locator_core.Directory.materialize_roots_loop
     (v, word)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::materialize_roots]:
-    Source: '../../src/coord/locator_core.rs', lines 1250:4-1258:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1260:4-1268:5 -/
 def coord.locator.locator_core.Directory.materialize_roots
   (self : coord.locator.locator_core.Directory) :
   Result coord.locator.locator_core.Directory
@@ -2189,7 +2196,7 @@ def coord.locator.locator_core.Directory.materialize_roots
   else ok self
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::reserve_for]:
-    Source: '../../src/coord/locator_core.rs', lines 1004:4-1103:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1014:4-1113:5 -/
 def coord.locator.locator_core.Directory.reserve_for
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
@@ -2496,7 +2503,7 @@ def coord.locator.locator_core.Directory.reserve_for
     ok (r1, self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1472:8-1478:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1492:8-1498:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_identity_edge_loop.body
   (v : alloc.vec.Vec Std.U32) (label : Std.U8) (previous : Std.U32)
@@ -2523,7 +2530,7 @@ def coord.locator.locator_core.Directory.link_identity_edge_loop.body
   else ok (done (previous, edge))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1472:8-1478:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1492:8-1498:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_identity_edge_loop
   (v : alloc.vec.Vec Std.U32) (label : Std.U8) (previous : Std.U32)
@@ -2537,7 +2544,7 @@ def coord.locator.locator_core.Directory.link_identity_edge_loop
     (previous, edge)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link_identity_edge]:
-    Source: '../../src/coord/locator_core.rs', lines 1468:4-1499:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1488:4-1519:5 -/
 def coord.locator.locator_core.Directory.link_identity_edge
   (self : coord.locator.locator_core.Directory) (parent : Std.U32)
   (label : Std.U8) (child : Std.U32) :
@@ -2589,20 +2596,20 @@ def coord.locator.locator_core.Directory.link_identity_edge
       ok { self with edge_words := v3 }
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop body 0:
-    Source: '../../src/coord/locator_core.rs', lines 1429:14-1430:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1449:14-1450:53 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_loop0.body
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
-  (i : Std.Usize) (staged : coord.locator.locator_core.StagedPath)
-  (digits : Array Std.U8 64#usize)
+  (staged : coord.locator.locator_core.StagedPath)
   (self : coord.locator.locator_core.Directory) (depth : Std.Usize) :
   Result (ControlFlow (coord.locator.locator_core.Directory × Std.Usize)
     (coord.locator.locator_core.Directory ×
     coord.locator.locator_core.StagedPath))
   := do
+  let i ← ResidueIndexInst.LEVELS
   if depth < i
   then
-    let digit ← Array.index_usize digits depth
+    let digit ← Array.index_usize staged.residue_digits depth
     let i1 ← lift (core.convert.num.FromUsizeU8.from digit)
     let i2 ← ResidueIndexInst.ARITY
     massert (i1 < i2)
@@ -2629,24 +2636,23 @@ def coord.locator.locator_core.Directory.link_loop0.body
   else ok (done (self, staged))
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop 0:
-    Source: '../../src/coord/locator_core.rs', lines 1429:14-1430:38 -/
+    Source: '../../src/coord/locator_core.rs', lines 1449:14-1450:53 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_loop0
   {I : Type} (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
-  (i : Std.Usize) (self : coord.locator.locator_core.Directory)
-  (staged : coord.locator.locator_core.StagedPath)
-  (digits : Array Std.U8 64#usize) (depth : Std.Usize) :
+  (self : coord.locator.locator_core.Directory)
+  (staged : coord.locator.locator_core.StagedPath) (depth : Std.Usize) :
   Result (coord.locator.locator_core.Directory ×
     coord.locator.locator_core.StagedPath)
   := do
   loop
     (fun (self1, depth1) =>
-      coord.locator.locator_core.Directory.link_loop0.body ResidueIndexInst i
-      staged digits self1 depth1)
+      coord.locator.locator_core.Directory.link_loop0.body ResidueIndexInst
+      staged self1 depth1)
     (self, depth)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop body 1:
-    Source: '../../src/coord/locator_core.rs', lines 1446:8-1452:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1466:8-1472:9 -/
 @[rust_loop_body]
 def coord.locator.locator_core.Directory.link_loop1.body
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2673,7 +2679,7 @@ def coord.locator.locator_core.Directory.link_loop1.body
   else ok (done self)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]: loop 1:
-    Source: '../../src/coord/locator_core.rs', lines 1446:8-1452:9 -/
+    Source: '../../src/coord/locator_core.rs', lines 1466:8-1472:9 -/
 @[rust_loop]
 def coord.locator.locator_core.Directory.link_loop1
   {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
@@ -2690,44 +2696,37 @@ def coord.locator.locator_core.Directory.link_loop1
     (self, byte_index)
 
 /-- [apeiron_word::coord::locator::locator_core::{apeiron_word::coord::locator::locator_core::Directory}::link]:
-    Source: '../../src/coord/locator_core.rs', lines 1419:4-1461:5 -/
+    Source: '../../src/coord/locator_core.rs', lines 1441:4-1481:5 -/
 def coord.locator.locator_core.Directory.link
   {I : Type} {K : Type} {Clause1_Retained : Type} {Clause1_Reserved : Type}
   (ResidueIndexInst : coord.locator.locator_core.ResidueIndex I)
   (ExactIdentityInst : coord.locator.locator_core.ExactIdentity K
   Clause1_Retained Clause1_Reserved)
-  (self : coord.locator.locator_core.Directory) (index : I) (key : K)
+  (self : coord.locator.locator_core.Directory) (_index : I) (key : K)
   (staged : coord.locator.locator_core.StagedPath) (handle : Std.U32) :
   Result coord.locator.locator_core.Directory
   := do
-  let digits := Array.repeat 64#usize 0#u8
-  let i ← ResidueIndexInst.LEVELS
-  let (s, index_mut_back) ←
-    core.array.Array.index_mut (core.ops.index.IndexMutSlice
-      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8)) digits
-      { «end» := i }
-  let s1 ← ResidueIndexInst.digits index s
-  let digits1 := index_mut_back s1
   let (self1, staged1) ←
-    coord.locator.locator_core.Directory.link_loop0 ResidueIndexInst i self
-      staged digits1 0#usize
+    coord.locator.locator_core.Directory.link_loop0 ResidueIndexInst self
+      staged 0#usize
+  let i ← ResidueIndexInst.LEVELS
   let i1 ← Array.index_usize staged1.residue_path i
   let leaf ← lift (UScalar.cast .Usize i1)
   let i2 ← coord.locator.locator_core.RESIDUE_STRIDE * leaf
   let root_at ← i2 + coord.locator.locator_core.RESIDUE_IDENTITY
-  let s2 := alloc.vec.Vec.deref self1.residue_words
-  let i3 ← coord.locator.locator_core.read_word s2 root_at
+  let s := alloc.vec.Vec.deref self1.residue_words
+  let i3 ← coord.locator.locator_core.read_word s root_at
   let v ←
     if i3 = coord.locator.locator_core.NO_CHILD
     then
       do
-      let (s3, deref_mut_back) ←
+      let (s1, deref_mut_back) ←
         lift (alloc.vec.Vec.deref_mut self1.residue_words)
       let i4 ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32)
           staged1.identity_path 0#usize
-      let s4 ← coord.locator.locator_core.store_word s3 root_at i4
-      ok (deref_mut_back s4)
+      let s2 ← coord.locator.locator_core.store_word s1 root_at i4
+      ok (deref_mut_back s2)
     else ok self1.residue_words
   let byte_len ← ExactIdentityInst.encoding_len key
   let self2 ←
@@ -2738,13 +2737,13 @@ def coord.locator.locator_core.Directory.link
   let terminal_node ←
     alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32)
       staged1.identity_path i4
-  let (s3, deref_mut_back) ←
+  let (s1, deref_mut_back) ←
     lift (alloc.vec.Vec.deref_mut self2.identity_words)
   let i5 ← lift (UScalar.cast .Usize terminal_node)
   let i6 ← coord.locator.locator_core.IDENTITY_STRIDE * i5
   let i7 ← i6 + coord.locator.locator_core.IDENTITY_TERMINAL
-  let s4 ← coord.locator.locator_core.store_word s3 i7 handle
-  let v1 := deref_mut_back s4
+  let s2 ← coord.locator.locator_core.store_word s1 i7 handle
+  let v1 := deref_mut_back s2
   coord.locator.locator_core.Directory.recycle_staged
     { self2 with identity_words := v1 } staged1
 
