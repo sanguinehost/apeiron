@@ -769,8 +769,8 @@ the compile. Each task still owns at most three files, one arc, one gate and one
 `src/table/scan.rs` is **not** in the set: the tag bitmap and the group descent are retired from the
 probe path, and all five production callers they had — three `scan::match_tag` and two
 `scan::match_empty` — are inside `src/table/probe.rs`. After the port those two helpers are reached
-only by their own unit tests in `src/table/scan.rs`, so retiring them is a separate ≤3-file task
-under the retirement rule, not part of the port.
+only by their own unit tests in `src/table/scan.rs`, so retiring them was the separate task
+`c3b0d63` under section 10, not part of the port; the module and its helpers are deleted.
 
 | task | files | change | gate | control |
 |---|---|---|---|---|

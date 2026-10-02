@@ -727,7 +727,7 @@ port's graded acceptance and is `measured` only from
 The port's file set is the eight `src` files the scratch port at `/home/socol/oc-tmp/e6w1` changes,
 sliced in compile order. It is one representation change to one type, so no intermediate state
 compiles: the three W2 tasks are serialized in the order below, share one gate, and the wave barrier
-carries the compile. `src/table/scan.rs` is **not** in the set — the port retires the tag bitmap and
+carries the compile. `src/table/scan.rs` is **not** in the port's set (it was retired under section 10 in `c3b0d63`) — the port retires the tag bitmap and
 the group descent, and all five production callers it had — three `scan::match_tag` and two
 `scan::match_empty`, in `src/table/probe.rs` — are inside the set, so those two helpers are left
 reached only by their own unit tests.
