@@ -71,7 +71,7 @@ pathological cells of the earlier strict run were the spill absent-miss distribu
 resident growth-insert cells (worst `apeiron_table`/`hashtrinity_table`
 `occ16-direct-index-resident-growth-insert-replacement`, median ratio 231.8779); the resident
 direct-index healthy cells are not pathological (present-hit 3.3860x and absent-miss 4.6780x versus
-serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band), and the current cut measures
+serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band when the receipt was cut; the current cut reproduces 1.68–2.63x across the same cells), and the current cut measures
 those two cells at 23.59x and 1.53x. No speed recovery is
 claimed. That receipt binds `examples/reg1/acceptance.rs` sha256 `f0f9aff0…` and `src/table.rs`
 sha256 `a89e9ec7…`; the current tree carries the T1 registry (`examples/reg1/acceptance.rs` sha256
@@ -311,7 +311,7 @@ unsettled and its refresh belongs to the measurement owner. Address-face and con
 pairs fail regardless of ratio, as does every applicable pair whose interval maximum exceeds `1.0`;
 the failures are dominated by the
 spill absent-miss distributions (373.85x; 23.59x on the current cut) and the resident growth-insert cells (231.9x; 1.53x on the current cut), while the
-resident direct-index healthy cells are about 2.7–4.7x behind the serial load-bearing incumbents;
+resident direct-index healthy cells reproduce at 1.68–2.63x behind the pinned predecessor on the current cut (the 2.7–4.7x band is stale; E6 resident spike, measured);
 `reg1_pass=false` and `report_complete=false`. No speed recovery is claimed. The remaining
 [RFC rows](direction.md#required-r0-acceptance-g1--reg-1) — identity, round-trip, cross-process
 determinism, growth/merge with refusal and coverage — are not all closed by it: `quality ∧ speed ∧
@@ -763,7 +763,7 @@ Each item is open, not a completed result:
   regardless of ratio and the rest are ratio failures, dominated by the spill absent-miss
   distributions (373.85x; 23.59x on the current cut) and the
   resident growth-insert cells (231.9x; 1.53x on the current cut), while the resident direct-index healthy cells are about
-  2.7–4.7x behind the serial load-bearing incumbents. The
+  2.7–4.7x when the receipt was cut; the current cut reproduces 1.68–2.63x (E6 resident spike, measured). The
   non-strict diagnostic mode exits 0 and reports the axis `boundary`. `reg1_pass=false`,
   `report_complete=false`; S8/G1 remains OPEN pending joint performance/refinement evidence. The two
   missing rows are the `10^8` identity row and the coverage census. No speed recovery is claimed.
