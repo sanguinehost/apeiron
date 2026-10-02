@@ -31,6 +31,7 @@ def Tuple.Insts.CoreCmpEq : core.cmp.Eq Unit := {
 
 
 
+
 /-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for usize}]
     Source: '/rustc/library/core/src/fmt/num.rs', lines 134:8-134:39
     Name pattern: [core::fmt::Display<usize>] -/
@@ -45,6 +46,13 @@ def Usize.Insts.CoreFmtDisplay : core.fmt.Display Std.Usize := {
     Visibility: public -/
 @[reducible, rust_type "core::marker::PhantomData"]
 def core.marker.PhantomData (T : Type) := Unit
+
+/-- [core::f32::{f32}::is_finite]:
+    Source: '/rustc/library/core/src/num/f32.rs', lines 747:4-747:40
+    Name pattern: [core::f32::{f32}::is_finite]
+    Visibility: public -/
+@[rust_fun "core::f32::{f32}::is_finite"]
+axiom core.f32.F32.is_finite : F32 → Result Bool
 
 
 
@@ -873,7 +881,7 @@ structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   retained_encoding_byte : Self_Retained → Std.Usize → Result Std.U8
 
 /-- [apeiron_word::table::TableAddress]
-    Source: '../../src/table.rs', lines 101:0-106:1
+    Source: '../../src/table.rs', lines 109:0-114:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
@@ -886,13 +894,13 @@ def coord.locator.locator_core.identity_address
   ok { place := 0#u64, direct_word := none }
 
 /-- [apeiron_word::table::WordHome]
-    Source: '../../src/table.rs', lines 148:0-148:20
+    Source: '../../src/table.rs', lines 156:0-156:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_unpack]:
-    Source: '../../src/table.rs', lines 182:4-184:5
+    Source: '../../src/table.rs', lines 190:4-192:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack
@@ -901,7 +909,7 @@ def
     () word
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_pack]:
-    Source: '../../src/table.rs', lines 179:4-181:5
+    Source: '../../src/table.rs', lines 187:4-189:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
@@ -910,7 +918,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 178:0-185:1 -/
+    Source: '../../src/table.rs', lines 186:0-193:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
   coord.address.EllipticPacking table.WordHome Std.I64 := {
@@ -921,7 +929,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::hyperbolic_scalar]:
-    Source: '../../src/table.rs', lines 174:4-176:5
+    Source: '../../src/table.rs', lines 182:4-184:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -932,7 +940,7 @@ def
     () profile key
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::parabolic_dual]:
-    Source: '../../src/table.rs', lines 171:4-173:5
+    Source: '../../src/table.rs', lines 179:4-181:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -943,7 +951,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 170:0-177:1 -/
+    Source: '../../src/table.rs', lines 178:0-185:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
   coord.address.FaceResidueCapability table.WordHome Std.I64 := {
@@ -954,7 +962,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceCoord<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 186:0-188:1 -/
+    Source: '../../src/table.rs', lines 194:0-196:1 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
   coord.address.FaceCoord table.WordHome Std.I64 cell.Sigma := {
@@ -968,7 +976,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceHome<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 189:0-189:34 -/
+    Source: '../../src/table.rs', lines 197:0-197:34 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
   coord.address.FaceHome table.WordHome Std.I64 cell.Sigma := {
@@ -979,7 +987,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::address]:
-    Source: '../../src/table.rs', lines 158:4-168:5
+    Source: '../../src/table.rs', lines 166:4-176:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -995,7 +1003,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::home]:
-    Source: '../../src/table.rs', lines 150:4-152:5
+    Source: '../../src/table.rs', lines 158:4-160:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -1004,7 +1012,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait declaration: [apeiron_word::table::Home]
-    Source: '../../src/table.rs', lines 124:0-131:1
+    Source: '../../src/table.rs', lines 132:0-139:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -1014,7 +1022,7 @@ structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   address : Self → cell.Sigma → K → Result table.TableAddress
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 149:0-169:1 -/
+    Source: '../../src/table.rs', lines 157:0-177:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma : table.Home
   table.WordHome Std.I64 cell.Sigma := {
@@ -2780,7 +2788,7 @@ def coord.finish (h : Std.U64) : Result Std.U64 := do
   ok (h4 ^^^ i2)
 
 /-- [apeiron_word::attn::AttnError]
-    Source: '../../src/engine/attn.rs', lines 11:0-58:1
+    Source: '../../src/engine/attn.rs', lines 36:0-83:1
     Visibility: public -/
 @[discriminant isize]
 inductive attn.AttnError where
@@ -2795,10 +2803,37 @@ inductive attn.AttnError where
 | Overflow : attn.AttnError
 | ZeroSum : attn.AttnError
 
+/-- [apeiron_word::attn::KvStorage]
+    Source: '../../src/engine/attn.rs', lines 87:0-102:1
+    Visibility: public -/
+@[discriminant isize]
+inductive attn.KvStorage where
+| Q32 :
+  alloc.vec.Vec (alloc.vec.Vec Std.I64) →
+  alloc.vec.Vec (alloc.vec.Vec Std.I64) →
+  attn.KvStorage
+| F32 :
+  alloc.vec.Vec (alloc.vec.Vec F32) →
+  alloc.vec.Vec (alloc.vec.Vec F32) →
+  attn.KvStorage
+
+/-- [apeiron_word::attn::alloc_f32_storage]:
+    Source: '../../src/engine/attn.rs', lines 118:0-123:1 -/
+axiom attn.alloc_f32_storage
+  : Std.Usize → Std.Usize → Result attn.KvStorage
+
+/-- [apeiron_word::mixer::Carrier]
+    Source: '../../src/engine/mixer.rs', lines 300:0-303:1 -/
+@[discriminant isize]
+inductive mixer.Carrier where
+| Q32 : mixer.Carrier
+| F32 : mixer.Carrier
+
 /-- [apeiron_word::attn::KvState]
-    Source: '../../src/engine/attn.rs', lines 69:0-79:1
+    Source: '../../src/engine/attn.rs', lines 134:0-144:1
     Visibility: public -/
 structure attn.KvState where
+  carrier : mixer.Carrier
   n_layer : Std.Usize
   n_head : Std.Usize
   n_head_kv : Std.Usize
@@ -2806,313 +2841,15 @@ structure attn.KvState where
   cap : Std.Usize
   scale : Std.I64
   occupied : alloc.vec.Vec Std.Usize
-  k : alloc.vec.Vec (alloc.vec.Vec Std.I64)
-  v : alloc.vec.Vec (alloc.vec.Vec Std.I64)
-
-/-- [apeiron_word::attn::plane_at]:
-    Source: '../../src/engine/attn.rs', lines 86:0-91:1 -/
-def attn.plane_at
-  (kv : Std.Usize) (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize)
-  (i : Std.Usize) :
-  Result (core.result.Result Std.Usize attn.AttnError)
-  := do
-  let o ← lift (Usize.checked_mul s kv)
-  let r ← core.option.Option.ok_or o attn.AttnError.Overflow
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let o1 ← lift (Usize.checked_add val kvh)
-    let r1 ← core.option.Option.ok_or o1 attn.AttnError.Overflow
-    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue val1 =>
-      let o2 ← lift (Usize.checked_mul val1 hd)
-      let r2 ← core.option.Option.ok_or o2 attn.AttnError.Overflow
-      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-      match cf2 with
-      | core.ops.control_flow.ControlFlow.Continue val2 =>
-        let o3 ← lift (Usize.checked_add val2 i)
-        core.option.Option.ok_or o3 attn.AttnError.Overflow
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.Usize (core.convert.FromSame attn.AttnError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.Usize (core.convert.FromSame attn.AttnError) residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      Std.Usize (core.convert.FromSame attn.AttnError) residual
-
-/-- [apeiron_word::value::round_shift_32]:
-    Source: '../../src/engine/value.rs', lines 10:0-12:1 -/
-def value.round_shift_32 (v : Std.I128) : Result Std.I128 := do
-  let i ← 1#i128 <<< 31#i32
-  let i1 ← v + i
-  i1 >>> 32#i32
-
-/-- [apeiron_word::quant::QuantError]
-    Source: '../../src/format/quant.rs', lines 95:0-107:1
-    Visibility: public -/
-@[discriminant isize]
-inductive quant.QuantError where
-| Truncated : Std.Usize → Std.Usize → quant.QuantError
-| UnknownType : Std.U32 → quant.QuantError
-| LengthOverflow : quant.QuantError
-
-/-- [apeiron_word::gguf::GgufError]
-    Source: '../../src/format/gguf.rs', lines 26:0-57:1
-    Visibility: public -/
-@[discriminant isize]
-inductive gguf.GgufError where
-| Io : String → gguf.GgufError
-| BadMagic : Array Std.U8 4#usize → gguf.GgufError
-| UnsupportedVersion : Std.U32 → gguf.GgufError
-| Truncated : Str → gguf.GgufError
-| TooManyDims : Std.U32 → gguf.GgufError
-| LengthOverflow : gguf.GgufError
-| UnknownType : Std.U32 → gguf.GgufError
-| OutOfBounds : Std.U64 → Std.U64 → Std.U64 → gguf.GgufError
-| MissingTensor : String → gguf.GgufError
-| Quant : quant.QuantError → gguf.GgufError
-
-/-- [apeiron_word::f32_convert::F32Error]
-    Source: '../../src/engine/f32_convert.rs', lines 5:0-17:1
-    Visibility: public -/
-@[discriminant isize]
-inductive f32_convert.F32Error where
-| NonFinite : f32_convert.F32Error
-| OutOfRange : f32_convert.F32Error
-| Truncated : Std.Usize → Std.Usize → f32_convert.F32Error
-
-/-- [apeiron_word::error::EngineError]
-    Source: '../../src/engine/error.rs', lines 16:0-88:1
-    Visibility: public -/
-@[discriminant isize]
-inductive error.EngineError where
-| Io : String → error.EngineError
-| Gguf : gguf.GgufError → error.EngineError
-| Quant : quant.QuantError → error.EngineError
-| MissingMetadata : String → error.EngineError
-| BadMetadata : String → error.EngineError
-| ConfigMismatch : String → error.EngineError
-| MissingTensor : String → error.EngineError
-| TensorOutOfBounds :
-  String →
-  Std.U64 →
-  Std.U64 →
-  Std.U64 →
-  error.EngineError
-| UnknownQuantKind : String → Std.U32 → error.EngineError
-| LengthOverflow : error.EngineError
-| TokenOutOfRange : Std.U32 → Std.Usize → error.EngineError
-| RowOutOfBounds : Std.U64 → Std.U64 → Std.U64 → error.EngineError
-| NonFiniteScale : Std.U16 → error.EngineError
-| FixedOverflow : error.EngineError
-| UnsupportedEmbeddingQuant : Std.U32 → error.EngineError
-| F32 : f32_convert.F32Error → error.EngineError
-| BadVector : String → Str → error.EngineError
-
-/-- [apeiron_word::matvec::MatvecError]
-    Source: '../../src/engine/matvec.rs', lines 11:0-48:1
-    Visibility: public -/
-@[discriminant isize]
-inductive matvec.MatvecError where
-| ShapeMismatch : Std.Usize → Std.Usize → matvec.MatvecError
-| RowLength : Std.Usize → Std.Usize → Std.Usize → matvec.MatvecError
-| ShortPayload : Std.Usize → Std.Usize → matvec.MatvecError
-| LengthOverflow : matvec.MatvecError
-| UnsupportedQuant : Std.U32 → matvec.MatvecError
-| Dequant : error.EngineError → matvec.MatvecError
-| AccumulatorOverflow : matvec.MatvecError
-| OutputOverflow : matvec.MatvecError
-
-/-- [apeiron_word::matvec::row_dot_fixed]: loop body 0:
-    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
-    Visibility: public -/
-@[rust_loop_body]
-def matvec.row_dot_fixed_loop.body
-  (w_row : Slice Std.I64) (x : Slice Std.I64) (acc : Std.I128) (i : Std.Usize)
-  (acc_ok : Bool) :
-  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
-  := do
-  let i1 := Slice.len w_row
-  if i < i1
-  then
-    if acc_ok
-    then
-      let i2 ← Slice.index_usize w_row i
-      let a ← lift (core.convert.num.FromI128I64.from i2)
-      let i3 ← Slice.index_usize x i
-      let b ← lift (core.convert.num.FromI128I64.from i3)
-      let o ← lift (I128.checked_mul a b)
-      let (acc1, acc_ok1) ←
-        match o with
-        | none => ok (acc, false)
-        | some prod =>
-          do
-          let o1 ← lift (I128.checked_add acc prod)
-          match o1 with
-          | none => ok (acc, false)
-          | some total => ok (total, true)
-      let i4 ← i + 1#usize
-      ok (cont (acc1, i4, acc_ok1))
-    else ok (done (acc, false))
-  else ok (done (acc, acc_ok))
-
-/-- [apeiron_word::matvec::row_dot_fixed]: loop 0:
-    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
-    Visibility: public -/
-@[rust_loop]
-def matvec.row_dot_fixed_loop
-  (w_row : Slice Std.I64) (x : Slice Std.I64) (acc : Std.I128) (i : Std.Usize)
-  (acc_ok : Bool) :
-  Result (Std.I128 × Bool)
-  := do
-  loop
-    (fun (acc1, i1, acc_ok1) => matvec.row_dot_fixed_loop.body w_row x acc1 i1
-      acc_ok1)
-    (acc, i, acc_ok)
-
-/-- [apeiron_word::matvec::row_dot_fixed]:
-    Source: '../../src/engine/matvec.rs', lines 86:0-117:1
-    Visibility: public -/
-def matvec.row_dot_fixed
-  (w_row : Slice Std.I64) (x : Slice Std.I64) :
-  Result (core.result.Result Std.I64 matvec.MatvecError)
-  := do
-  let i := Slice.len w_row
-  let i1 := Slice.len x
-  if i != i1
-  then
-    let i2 := Slice.len w_row
-    let i3 := Slice.len x
-    ok (core.result.Result.Err (matvec.MatvecError.RowLength 0#usize i2 i3))
-  else
-    let (acc, acc_ok) ← matvec.row_dot_fixed_loop w_row x 0#i128 0#usize true
-    if acc_ok
-    then
-      let rounded ← value.round_shift_32 acc
-      let i2 ← lift (IScalar.cast .I128 core.num.I64.MAX)
-      if rounded > i2
-      then ok (core.result.Result.Err matvec.MatvecError.OutputOverflow)
-      else
-        let i3 ← lift (IScalar.cast .I128 core.num.I64.MIN)
-        if rounded < i3
-        then ok (core.result.Result.Err matvec.MatvecError.OutputOverflow)
-        else
-          let i4 ← lift (IScalar.cast .I64 rounded)
-          ok (core.result.Result.Ok i4)
-    else ok (core.result.Result.Err matvec.MatvecError.AccumulatorOverflow)
-
-/-- [apeiron_word::attn::score_at::{closure}]
-    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
-@[reducible]
-def attn.score_at.closure := Unit
-
-/-- [apeiron_word::attn::score_at::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::attn::AttnError> for apeiron_word::attn::score_at::{closure}}::call_once]:
-    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
-def
-  attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError.call_once
-  (c : attn.score_at.closure) (tupled_args : matvec.MatvecError) :
-  Result attn.AttnError
-  := do
-  ok attn.AttnError.Overflow
-
-/-- Trait implementation: [apeiron_word::attn::score_at::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::attn::AttnError> for apeiron_word::attn::score_at::{closure}}]
-    Source: '../../src/engine/attn.rs', lines 114:59-114:82 -/
-@[reducible]
-def attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError
-  : core.ops.function.FnOnce attn.score_at.closure matvec.MatvecError
-  attn.AttnError := {
-  call_once :=
-    attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError.call_once
-}
-
-/-- [apeiron_word::attn::score_at]:
-    Source: '../../src/engine/attn.rs', lines 101:0-123:1 -/
-def attn.score_at
-  (kplane : Slice Std.I64) (q : Slice Std.I64) (scale : Std.I64)
-  (kv : Std.Usize) (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize) :
-  Result (core.result.Result Std.I64 attn.AttnError)
-  := do
-  let o ← lift (Usize.checked_mul s kv)
-  let r ← core.option.Option.ok_or o attn.AttnError.Overflow
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let o1 ← lift (Usize.checked_add val kvh)
-    let r1 ← core.option.Option.ok_or o1 attn.AttnError.Overflow
-    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue val1 =>
-      let o2 ← lift (Usize.checked_mul val1 hd)
-      let r2 ← core.option.Option.ok_or o2 attn.AttnError.Overflow
-      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-      match cf2 with
-      | core.ops.control_flow.ControlFlow.Continue val2 =>
-        let o3 ← lift (Usize.checked_add val2 hd)
-        let r3 ← core.option.Option.ok_or o3 attn.AttnError.Overflow
-        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-        match cf3 with
-        | core.ops.control_flow.ControlFlow.Continue val3 =>
-          let s1 ←
-            core.slice.index.Slice.index
-              (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) kplane
-              { start := val2, «end» := val3 }
-          let r4 ← matvec.row_dot_fixed s1 q
-          let r5 ←
-            core.result.Result.map_err
-              attn.score_at.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorAttnError
-              r4 ()
-          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
-          match cf4 with
-          | core.ops.control_flow.ControlFlow.Continue val4 =>
-            let i ← lift (core.convert.num.FromI128I64.from val4)
-            let i1 ← lift (core.convert.num.FromI128I64.from scale)
-            let o4 ← lift (I128.checked_mul i i1)
-            let r6 ← core.option.Option.ok_or o4 attn.AttnError.Overflow
-            let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r6
-            match cf5 with
-            | core.ops.control_flow.ControlFlow.Continue val5 =>
-              let rounded ← value.round_shift_32 val5
-              let i2 ←
-                lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-              if rounded > i2
-              then ok (core.result.Result.Err attn.AttnError.Overflow)
-              else
-                let i3 ←
-                  lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-                if rounded < i3
-                then ok (core.result.Result.Err attn.AttnError.Overflow)
-                else
-                  let i4 ← lift (IScalar.cast .I64 rounded)
-                  ok (core.result.Result.Ok i4)
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                Std.I64 (core.convert.FromSame attn.AttnError) residual
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              Std.I64 (core.convert.FromSame attn.AttnError) residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            Std.I64 (core.convert.FromSame attn.AttnError) residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.I64 (core.convert.FromSame attn.AttnError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.I64 (core.convert.FromSame attn.AttnError) residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      Std.I64 (core.convert.FromSame attn.AttnError) residual
+  storage : attn.KvStorage
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'lib.rs', lines 109:4-109:40
+    Source: 'lib.rs', lines 122:4-122:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'lib.rs', lines 111:4-111:46
+    Source: 'lib.rs', lines 124:4-124:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
@@ -3305,12 +3042,12 @@ def fixed_exp.fixed_exp
   | core.result.Result.Err e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::attn::exp_at::{closure}]
-    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 211:35-211:63 -/
 @[reducible]
 def attn.exp_at.closure := Unit
 
 /-- [apeiron_word::attn::exp_at::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::attn::AttnError> for apeiron_word::attn::exp_at::{closure}}::call_once]:
-    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 211:35-211:63 -/
 def
   attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError.call_once
   (c : attn.exp_at.closure) (tupled_args : fixed_exp.ExpError) :
@@ -3319,7 +3056,7 @@ def
   ok attn.AttnError.ExpOutOfRange
 
 /-- Trait implementation: [apeiron_word::attn::exp_at::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::attn::AttnError> for apeiron_word::attn::exp_at::{closure}}]
-    Source: '../../src/engine/attn.rs', lines 132:35-132:63 -/
+    Source: '../../src/engine/attn.rs', lines 211:35-211:63 -/
 @[reducible]
 def attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError :
   core.ops.function.FnOnce attn.exp_at.closure fixed_exp.ExpError
@@ -3329,7 +3066,7 @@ def attn.exp_at.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorAttnError :
 }
 
 /-- [apeiron_word::attn::exp_at]:
-    Source: '../../src/engine/attn.rs', lines 127:0-134:1 -/
+    Source: '../../src/engine/attn.rs', lines 206:0-213:1 -/
 def attn.exp_at
   (score : Std.I64) (mx : Std.I64) :
   Result (core.result.Result Std.I64 attn.AttnError)
@@ -3361,7 +3098,7 @@ def value.div_round_nearest
   i1 / den
 
 /-- [apeiron_word::attn::weight_at]:
-    Source: '../../src/engine/attn.rs', lines 143:0-152:1 -/
+    Source: '../../src/engine/attn.rs', lines 222:0-231:1 -/
 def attn.weight_at
   (e : Std.I64) (total : Std.I128) :
   Result (core.result.Result Std.I64 attn.AttnError)
@@ -3388,103 +3125,78 @@ def attn.weight_at
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       Std.I64 (core.convert.FromSame attn.AttnError) residual
 
-/-- [apeiron_word::attn::value_term]:
-    Source: '../../src/engine/attn.rs', lines 155:0-169:1 -/
-def attn.value_term
-  (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
-  (kvh : Std.Usize) (hd : Std.Usize) (s : Std.Usize) (i : Std.Usize) :
-  Result (core.result.Result Std.I128 attn.AttnError)
-  := do
-  let r ← attn.plane_at kv kvh hd s i
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let o ←
-      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.I64)
-        vplane val
-    let r1 ← core.option.Option.ok_or o attn.AttnError.Overflow
-    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue val1 =>
-      let i1 ← Slice.index_usize weights s
-      let i2 ← lift (core.convert.num.FromI128I64.from i1)
-      let i3 ← lift (core.convert.num.FromI128I64.from val1)
-      let o1 ← lift (I128.checked_mul i2 i3)
-      core.option.Option.ok_or o1 attn.AttnError.Overflow
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.I128 (core.convert.FromSame attn.AttnError) residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      Std.I128 (core.convert.FromSame attn.AttnError) residual
+/-- [apeiron_word::attn::recip_u64]:
+    Source: '../../src/engine/attn.rs', lines 252:0-258:1 -/
+def attn.recip_u64 (total : Std.I128) : Result (Option Std.U64) := do
+  if total < 2#i128
+  then ok none
+  else
+    let i ← core.num.U64.MAX / 2#u64
+    let i1 ← I128.Insts.CoreConvertFromU64.from i
+    if total > i1
+    then ok none
+    else
+      let i2 ← 1#u128 <<< 64#i32
+      let i3 ← lift (IScalar.hcast .U128 total)
+      let i4 ← i2 / i3
+      let base ← lift (UScalar.cast .U64 i4)
+      ok (U64.checked_add base 1#u64)
 
-/-- [apeiron_word::attn::value_component]: loop body 0:
-    Source: '../../src/engine/attn.rs', lines 193:4-209:5 -/
-@[rust_loop_body]
-def attn.value_component_loop.body
-  (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
-  (kvh : Std.Usize) (hd : Std.Usize) (pos : Std.Usize) (i : Std.Usize)
-  (acc : Std.I128) (s : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
-  Result (ControlFlow (Std.I128 × Std.Usize × Bool × (Option
-    attn.AttnError)) (Std.I128 × (Option attn.AttnError)))
-  := do
-  if s <= pos
-  then
-    if ok1
-    then
-      let r ← attn.value_term vplane weights kv kvh hd s i
-      let (acc1, ok2, err1) ←
-        match r with
-        | core.result.Result.Ok term =>
-          do
-          let o ← lift (I128.checked_add acc term)
-          match o with
-          | none => ok (acc, false, some attn.AttnError.Overflow)
-          | some a => ok (a, true, err)
-        | core.result.Result.Err e => ok (acc, false, some e)
-      let s1 ← s + 1#usize
-      ok (cont (acc1, s1, ok2, err1))
-    else ok (done (acc, err))
-  else ok (done (acc, err))
-
-/-- [apeiron_word::attn::value_component]: loop 0:
-    Source: '../../src/engine/attn.rs', lines 193:4-209:5 -/
-@[rust_loop]
-def attn.value_component_loop
-  (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
-  (kvh : Std.Usize) (hd : Std.Usize) (pos : Std.Usize) (i : Std.Usize)
-  (acc : Std.I128) (s : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
-  Result (Std.I128 × (Option attn.AttnError))
-  := do
-  loop
-    (fun (acc1, s1, ok2, err1) => attn.value_component_loop.body vplane weights
-      kv kvh hd pos i acc1 s1 ok2 err1)
-    (acc, s, ok1, err)
-
-/-- [apeiron_word::attn::value_component]:
-    Source: '../../src/engine/attn.rs', lines 180:0-218:1 -/
-def attn.value_component
-  (vplane : Slice Std.I64) (weights : Slice Std.I64) (kv : Std.Usize)
-  (kvh : Std.Usize) (hd : Std.Usize) (pos : Std.Usize) (i : Std.Usize) :
+/-- [apeiron_word::attn::weight_at_recip]:
+    Source: '../../src/engine/attn.rs', lines 279:0-315:1 -/
+def attn.weight_at_recip
+  (e : Std.I64) (total : Std.I128) (recip : Std.U64) :
   Result (core.result.Result Std.I64 attn.AttnError)
   := do
-  let (acc, err) ←
-    attn.value_component_loop vplane weights kv kvh hd pos i 0#i128 0#usize
-      true none
-  match err with
-  | none =>
-    let rounded ← value.round_shift_32 acc
-    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-    if rounded > i1
+  let i ← lift (core.convert.num.FromI128I64.from e)
+  let i1 ← engine.ONE
+  let i2 ← lift (core.convert.num.FromI128I64.from i1)
+  let scaled ← lift (I128.checked_mul i i2)
+  let narrowed ←
+    match scaled with
+    | none => ok none
+    | some s =>
+      do
+      let i3 ← total / 2#i128
+      let o ← lift (I128.checked_add s i3)
+      match o with
+      | none => ok none
+      | some n =>
+        if e >= 0#i64
+        then
+          let i4 ← I128.Insts.CoreConvertFromU64.from core.num.U64.MAX
+          if n <= i4
+          then let i5 ← lift (IScalar.hcast .U64 n)
+               ok (some i5)
+          else ok none
+        else ok none
+  match narrowed with
+  | none => attn.weight_at e total
+  | some n2 =>
+    let d ← lift (IScalar.hcast .U64 total)
+    let i3 ← lift (core.convert.num.FromU128U64.from n2)
+    let i4 ← lift (core.convert.num.FromU128U64.from recip)
+    let i5 ← i3 * i4
+    let i6 ← i5 >>> 64#i32
+    let q ← lift (UScalar.cast .U64 i6)
+    let i7 ← lift (core.convert.num.FromU128U64.from q)
+    let i8 ← lift (core.convert.num.FromU128U64.from d)
+    let i9 ← i7 * i8
+    let i10 ← lift (core.convert.num.FromU128U64.from n2)
+    let q1 ← if i9 > i10
+               then q - 1#u64
+               else ok q
+    let p ← I128.Insts.CoreConvertFromU64.from q1
+    let i11 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if p > i11
     then ok (core.result.Result.Err attn.AttnError.Overflow)
     else
-      let i2 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-      if rounded < i2
+      let i12 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+      if p < i12
       then ok (core.result.Result.Err attn.AttnError.Overflow)
       else
-        let i3 ← lift (IScalar.cast .I64 rounded)
-        ok (core.result.Result.Ok i3)
-  | some e => ok (core.result.Result.Err e)
+        let i13 ← lift (IScalar.cast .I64 p)
+        ok (core.result.Result.Ok i13)
 
 /-- [apeiron_word::fixed_rsqrt::ONE]
     Source: '../../src/numeric/fixed_rsqrt.rs', lines 22:0-22:25 -/
@@ -3603,37 +3315,37 @@ def fixed_rsqrt.fixed_rsqrt
         let i6 ← lift (IScalar.cast .I64 out)
         ok (core.result.Result.Ok i6)
 
-/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}]
-    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier::{closure}]
+    Source: '../../src/engine/attn.rs', lines 797:50-797:80 -/
 @[reducible]
-def attn.KvState.new.closure := Unit
+def attn.KvState.with_carrier.closure := Unit
 
-/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}}::call_once]:
-    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier::{closure}}::call_once]:
+    Source: '../../src/engine/attn.rs', lines 797:50-797:80 -/
 def
-  attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once
-  (c : attn.KvState.new.closure) (tupled_args : fixed_rsqrt.RsqrtError) :
+  attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once
+  (c : attn.KvState.with_carrier.closure)
+  (tupled_args : fixed_rsqrt.RsqrtError) :
   Result attn.AttnError
   := do
   ok attn.AttnError.ScaleOutOfRange
 
-/-- Trait implementation: [apeiron_word::attn::{apeiron_word::attn::KvState}::new::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::new::{closure}}]
-    Source: '../../src/engine/attn.rs', lines 266:50-266:80 -/
+/-- Trait implementation: [apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier::{impl core::ops::function::FnOnce<(apeiron_word::fixed_rsqrt::RsqrtError,), apeiron_word::attn::AttnError> for apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier::{closure}}]
+    Source: '../../src/engine/attn.rs', lines 797:50-797:80 -/
 @[reducible]
 def
-  attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError
-  : core.ops.function.FnOnce attn.KvState.new.closure fixed_rsqrt.RsqrtError
-  attn.AttnError := {
+  attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError
+  : core.ops.function.FnOnce attn.KvState.with_carrier.closure
+  fixed_rsqrt.RsqrtError attn.AttnError := {
   call_once :=
-    attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once
+    attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once
 }
 
-/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::new]:
-    Source: '../../src/engine/attn.rs', lines 236:4-289:5
-    Visibility: public -/
-def attn.KvState.new
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::with_carrier]:
+    Source: '../../src/engine/attn.rs', lines 766:4-826:5 -/
+def attn.KvState.with_carrier
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
-  (head_dim : Std.Usize) (cap : Std.Usize) :
+  (head_dim : Std.Usize) (cap : Std.Usize) (carrier : mixer.Carrier) :
   Result (core.result.Result attn.KvState attn.AttnError)
   := do
   if n_layer = 0#usize
@@ -3668,7 +3380,7 @@ def attn.KvState.new
                   let r1 ← fixed_rsqrt.fixed_rsqrt val
                   let r2 ←
                     core.result.Result.map_err
-                      attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError
+                      attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError
                       r1 ()
                   let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
                   match cf1 with
@@ -3683,30 +3395,39 @@ def attn.KvState.new
                       | none =>
                         ok (core.result.Result.Err attn.AttnError.Overflow)
                       | some plane =>
-                        let blank ←
-                          alloc.vec.from_elem core.clone.CloneI64 0#i64 plane
+                        let storage ←
+                          match carrier with
+                          | mixer.Carrier.Q32 =>
+                            do
+                            let blank ←
+                              alloc.vec.from_elem core.clone.CloneI64 0#i64
+                                plane
+                            let v ←
+                              alloc.vec.CloneVec.clone core.clone.CloneI64
+                                blank
+                            let k ←
+                              alloc.vec.from_elem (core.clone.CloneallocvecVec
+                                core.clone.CloneI64) v n_layer
+                            let v1 ←
+                              alloc.vec.from_elem (core.clone.CloneallocvecVec
+                                core.clone.CloneI64) blank n_layer
+                            ok (attn.KvStorage.Q32 k v1)
+                          | mixer.Carrier.F32 =>
+                            attn.alloc_f32_storage plane n_layer
                         let v ←
-                          alloc.vec.CloneVec.clone core.clone.CloneI64 blank
-                        let k ←
-                          alloc.vec.from_elem (core.clone.CloneallocvecVec
-                            core.clone.CloneI64) v n_layer
-                        let v1 ←
-                          alloc.vec.from_elem (core.clone.CloneallocvecVec
-                            core.clone.CloneI64) blank n_layer
-                        let v2 ←
                           alloc.vec.from_elem core.clone.CloneUsize 0#usize
                             n_layer
                         ok (core.result.Result.Ok
                           {
+                            carrier,
                             n_layer,
                             n_head,
                             n_head_kv,
                             head_dim,
                             cap,
                             scale := val1,
-                            occupied := v2,
-                            k,
-                            v := v1
+                            occupied := v,
+                            storage
                           })
                   | core.ops.control_flow.ControlFlow.Break residual =>
                     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
@@ -3718,8 +3439,84 @@ def attn.KvState.new
                     residual
             else ok (core.result.Result.Err attn.AttnError.BadGeometry)
 
+/-- [apeiron_word::mixer::f32_carrier::q32_to_f32]:
+    Source: '../../src/engine/mixer/f32_carrier.rs', lines 826:0-828:1 -/
+axiom mixer.f32_carrier.q32_to_f32 : Std.I64 → Result F32
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]: loop body 0:
+    Source: '../../src/engine/attn.rs', lines 969:16-974:17
+    Visibility: public -/
+@[rust_loop_body]
+def attn.KvState.append_loop0.body
+  (k_rows : Slice Std.I64) (width : Std.Usize) (bad : Std.U32)
+  (k_dst : Slice F32) (i : Std.Usize) :
+  Result (ControlFlow (Std.U32 × (Slice F32) × Std.Usize) (Std.U32 × (Slice
+    F32)))
+  := do
+  if i < width
+  then
+    let i1 ← Slice.index_usize k_rows i
+    let f ← mixer.f32_carrier.q32_to_f32 i1
+    let b ← core.f32.F32.is_finite f
+    let i2 ← lift (core.convert.num.FromU32Bool.from (¬ b))
+    let bad1 ← bad + i2
+    let s ← Slice.update k_dst i f
+    let i3 ← i + 1#usize
+    ok (cont (bad1, s, i3))
+  else ok (done (bad, k_dst))
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]: loop 0:
+    Source: '../../src/engine/attn.rs', lines 969:16-974:17
+    Visibility: public -/
+@[rust_loop]
+def attn.KvState.append_loop0
+  (k_rows : Slice Std.I64) (width : Std.Usize) (bad : Std.U32)
+  (k_dst : Slice F32) (i : Std.Usize) :
+  Result (Std.U32 × (Slice F32))
+  := do
+  loop
+    (fun (bad1, k_dst1, i1) => attn.KvState.append_loop0.body k_rows width bad1
+      k_dst1 i1)
+    (bad, k_dst, i)
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]: loop body 1:
+    Source: '../../src/engine/attn.rs', lines 977:16-982:17
+    Visibility: public -/
+@[rust_loop_body]
+def attn.KvState.append_loop1.body
+  (v_rows : Slice Std.I64) (width : Std.Usize) (bad : Std.U32)
+  (v_dst : Slice F32) (i : Std.Usize) :
+  Result (ControlFlow (Std.U32 × (Slice F32) × Std.Usize) (Std.U32 × (Slice
+    F32)))
+  := do
+  if i < width
+  then
+    let i1 ← Slice.index_usize v_rows i
+    let f ← mixer.f32_carrier.q32_to_f32 i1
+    let b ← core.f32.F32.is_finite f
+    let i2 ← lift (core.convert.num.FromU32Bool.from (¬ b))
+    let bad1 ← bad + i2
+    let s ← Slice.update v_dst i f
+    let i3 ← i + 1#usize
+    ok (cont (bad1, s, i3))
+  else ok (done (bad, v_dst))
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]: loop 1:
+    Source: '../../src/engine/attn.rs', lines 977:16-982:17
+    Visibility: public -/
+@[rust_loop]
+def attn.KvState.append_loop1
+  (v_rows : Slice Std.I64) (width : Std.Usize) (bad : Std.U32)
+  (v_dst : Slice F32) (i : Std.Usize) :
+  Result (Std.U32 × (Slice F32))
+  := do
+  loop
+    (fun (bad1, v_dst1, i1) => attn.KvState.append_loop1.body v_rows width bad1
+      v_dst1 i1)
+    (bad, v_dst, i)
+
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::append]:
-    Source: '../../src/engine/attn.rs', lines 359:4-401:5
+    Source: '../../src/engine/attn.rs', lines 912:4-990:5
     Visibility: public -/
 def attn.KvState.append
   (self : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -3766,52 +3563,125 @@ def attn.KvState.append
               let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
               match cf2 with
               | core.ops.control_flow.ControlFlow.Continue val2 =>
-                let (v, index_mut_back) ←
-                  alloc.vec.Vec.index_mut
-                    (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
-                    Std.I64)) self.k layer
-                let (s, index_mut_back1) ←
-                  alloc.vec.Vec.index_mut
-                    (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) v
-                    { start := val1, «end» := val2 }
-                let s1 ←
-                  core.slice.Slice.copy_from_slice core.marker.CopyI64 s k_rows
-                let (v1, index_mut_back2) ←
-                  alloc.vec.Vec.index_mut
-                    (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
-                    Std.I64)) self.v layer
-                let (s2, index_mut_back3) ←
-                  alloc.vec.Vec.index_mut
-                    (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) v1
-                    { start := val1, «end» := val2 }
-                let s3 ←
-                  core.slice.Slice.copy_from_slice core.marker.CopyI64 s2
-                    v_rows
-                let o3 ← lift (Usize.checked_add pos 1#usize)
-                let r3 ← core.option.Option.ok_or o3 attn.AttnError.Overflow
-                let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-                match cf3 with
-                | core.ops.control_flow.ControlFlow.Continue val3 =>
-                  let (_, index_mut_back4) ←
+                match self.storage with
+                | attn.KvStorage.Q32 k v =>
+                  let (v1, index_mut_back) ←
                     alloc.vec.Vec.index_mut
-                      (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-                      self.occupied layer
-                  let v2 := index_mut_back4 val3
-                  let v3 := index_mut_back1 s1
-                  let v4 := index_mut_back v3
-                  let v5 := index_mut_back3 s3
-                  let v6 := index_mut_back2 v5
-                  ok (core.result.Result.Ok pos,
-                    { self with occupied := v2, k := v4, v := v6 })
-                | core.ops.control_flow.ControlFlow.Break residual =>
-                  let r4 ←
-                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                      Std.Usize (core.convert.FromSame attn.AttnError) residual
-                  let v2 := index_mut_back1 s1
-                  let v3 := index_mut_back v2
-                  let v4 := index_mut_back3 s3
-                  let v5 := index_mut_back2 v4
-                  ok (r4, { self with k := v3, v := v5 })
+                      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+                      Std.I64)) k layer
+                  let (s, index_mut_back1) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) v1
+                      { start := val1, «end» := val2 }
+                  let s1 ←
+                    core.slice.Slice.copy_from_slice core.marker.CopyI64 s
+                      k_rows
+                  let (v2, index_mut_back2) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+                      Std.I64)) v layer
+                  let (s2, index_mut_back3) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) v2
+                      { start := val1, «end» := val2 }
+                  let s3 ←
+                    core.slice.Slice.copy_from_slice core.marker.CopyI64 s2
+                      v_rows
+                  let o3 ← lift (Usize.checked_add pos 1#usize)
+                  let r3 ←
+                    core.option.Option.ok_or o3 attn.AttnError.Overflow
+                  let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+                  match cf3 with
+                  | core.ops.control_flow.ControlFlow.Continue val3 =>
+                    let (_, index_mut_back4) ←
+                      alloc.vec.Vec.index_mut
+                        (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+                        self.occupied layer
+                    let v3 := index_mut_back4 val3
+                    let v4 := index_mut_back1 s1
+                    let k1 := index_mut_back v4
+                    let v5 := index_mut_back3 s3
+                    let v6 := index_mut_back2 v5
+                    ok (core.result.Result.Ok pos,
+                      {
+                        self
+                          with
+                          occupied := v3, storage := (attn.KvStorage.Q32 k1 v6)
+                      })
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    let r4 ←
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        Std.Usize (core.convert.FromSame attn.AttnError)
+                        residual
+                    let v3 := index_mut_back1 s1
+                    let k1 := index_mut_back v3
+                    let v4 := index_mut_back3 s3
+                    let v5 := index_mut_back2 v4
+                    ok (r4,
+                      { self with storage := (attn.KvStorage.Q32 k1 v5) })
+                | attn.KvStorage.F32 k v =>
+                  let (v1, index_mut_back) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+                      F32)) k layer
+                  let (k_dst, index_mut_back1) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexRangeUsizeSlice F32) v1
+                      { start := val1, «end» := val2 }
+                  let (bad, k_dst1) ←
+                    attn.KvState.append_loop0 k_rows val 0#u32 k_dst 0#usize
+                  let (v2, index_mut_back2) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+                      F32)) v layer
+                  let (v_dst, index_mut_back3) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexRangeUsizeSlice F32) v2
+                      { start := val1, «end» := val2 }
+                  let (bad1, v_dst1) ←
+                    attn.KvState.append_loop1 v_rows val bad v_dst 0#usize
+                  if bad1 != 0#u32
+                  then
+                    let v3 := index_mut_back1 k_dst1
+                    let k1 := index_mut_back v3
+                    let v4 := index_mut_back3 v_dst1
+                    let v5 := index_mut_back2 v4
+                    ok (core.result.Result.Err attn.AttnError.Overflow,
+                      { self with storage := (attn.KvStorage.F32 k1 v5) })
+                  else
+                    let o3 ← lift (Usize.checked_add pos 1#usize)
+                    let r3 ←
+                      core.option.Option.ok_or o3 attn.AttnError.Overflow
+                    let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+                    match cf3 with
+                    | core.ops.control_flow.ControlFlow.Continue val3 =>
+                      let (_, index_mut_back4) ←
+                        alloc.vec.Vec.index_mut
+                          (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+                          self.occupied layer
+                      let v3 := index_mut_back4 val3
+                      let v4 := index_mut_back1 k_dst1
+                      let k1 := index_mut_back v4
+                      let v5 := index_mut_back3 v_dst1
+                      let v6 := index_mut_back2 v5
+                      ok (core.result.Result.Ok pos,
+                        {
+                          self
+                            with
+                            occupied := v3,
+                            storage := (attn.KvStorage.F32 k1 v6)
+                        })
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      let r4 ←
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          Std.Usize (core.convert.FromSame attn.AttnError)
+                          residual
+                      let v3 := index_mut_back1 k_dst1
+                      let k1 := index_mut_back v3
+                      let v4 := index_mut_back3 v_dst1
+                      let v5 := index_mut_back2 v4
+                      ok (r4,
+                        { self with storage := (attn.KvStorage.F32 k1 v5) })
               | core.ops.control_flow.ControlFlow.Break residual =>
                 let r3 ←
                   core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
@@ -3828,13 +3698,192 @@ def attn.KvState.append
           Std.Usize (core.convert.FromSame attn.AttnError) residual
       ok (r1, self)
 
+/-- [apeiron_word::value::round_shift_32]:
+    Source: '../../src/engine/value.rs', lines 10:0-12:1 -/
+def value.round_shift_32 (v : Std.I128) : Result Std.I128 := do
+  let i ← 1#i128 <<< 31#i32
+  let i1 ← v + i
+  i1 >>> 32#i32
+
+/-- [apeiron_word::mixer::{impl core::cmp::PartialEq<apeiron_word::mixer::Carrier> for apeiron_word::mixer::Carrier}::eq]:
+    Source: '../../src/engine/mixer.rs', lines 299:29-299:38
+    Visibility: public -/
+def mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq
+  (self : mixer.Carrier) (other : mixer.Carrier) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- [apeiron_word::quant::QuantError]
+    Source: '../../src/format/quant.rs', lines 95:0-107:1
+    Visibility: public -/
+@[discriminant isize]
+inductive quant.QuantError where
+| Truncated : Std.Usize → Std.Usize → quant.QuantError
+| UnknownType : Std.U32 → quant.QuantError
+| LengthOverflow : quant.QuantError
+
+/-- [apeiron_word::gguf::GgufError]
+    Source: '../../src/format/gguf.rs', lines 26:0-57:1
+    Visibility: public -/
+@[discriminant isize]
+inductive gguf.GgufError where
+| Io : String → gguf.GgufError
+| BadMagic : Array Std.U8 4#usize → gguf.GgufError
+| UnsupportedVersion : Std.U32 → gguf.GgufError
+| Truncated : Str → gguf.GgufError
+| TooManyDims : Std.U32 → gguf.GgufError
+| LengthOverflow : gguf.GgufError
+| UnknownType : Std.U32 → gguf.GgufError
+| OutOfBounds : Std.U64 → Std.U64 → Std.U64 → gguf.GgufError
+| MissingTensor : String → gguf.GgufError
+| Quant : quant.QuantError → gguf.GgufError
+
+/-- [apeiron_word::f32_convert::F32Error]
+    Source: '../../src/engine/f32_convert.rs', lines 5:0-17:1
+    Visibility: public -/
+@[discriminant isize]
+inductive f32_convert.F32Error where
+| NonFinite : f32_convert.F32Error
+| OutOfRange : f32_convert.F32Error
+| Truncated : Std.Usize → Std.Usize → f32_convert.F32Error
+
+/-- [apeiron_word::error::EngineError]
+    Source: '../../src/engine/error.rs', lines 16:0-88:1
+    Visibility: public -/
+@[discriminant isize]
+inductive error.EngineError where
+| Io : String → error.EngineError
+| Gguf : gguf.GgufError → error.EngineError
+| Quant : quant.QuantError → error.EngineError
+| MissingMetadata : String → error.EngineError
+| BadMetadata : String → error.EngineError
+| ConfigMismatch : String → error.EngineError
+| MissingTensor : String → error.EngineError
+| TensorOutOfBounds :
+  String →
+  Std.U64 →
+  Std.U64 →
+  Std.U64 →
+  error.EngineError
+| UnknownQuantKind : String → Std.U32 → error.EngineError
+| LengthOverflow : error.EngineError
+| TokenOutOfRange : Std.U32 → Std.Usize → error.EngineError
+| RowOutOfBounds : Std.U64 → Std.U64 → Std.U64 → error.EngineError
+| NonFiniteScale : Std.U16 → error.EngineError
+| FixedOverflow : error.EngineError
+| UnsupportedEmbeddingQuant : Std.U32 → error.EngineError
+| F32 : f32_convert.F32Error → error.EngineError
+| BadVector : String → Str → error.EngineError
+
+/-- [apeiron_word::matvec::MatvecError]
+    Source: '../../src/engine/matvec.rs', lines 11:0-48:1
+    Visibility: public -/
+@[discriminant isize]
+inductive matvec.MatvecError where
+| ShapeMismatch : Std.Usize → Std.Usize → matvec.MatvecError
+| RowLength : Std.Usize → Std.Usize → Std.Usize → matvec.MatvecError
+| ShortPayload : Std.Usize → Std.Usize → matvec.MatvecError
+| LengthOverflow : matvec.MatvecError
+| UnsupportedQuant : Std.U32 → matvec.MatvecError
+| Dequant : error.EngineError → matvec.MatvecError
+| AccumulatorOverflow : matvec.MatvecError
+| OutputOverflow : matvec.MatvecError
+
+/-- [apeiron_word::matvec::row_dot_fixed]: loop body 0:
+    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
+    Visibility: public -/
+@[rust_loop_body]
+def matvec.row_dot_fixed_loop.body
+  (w_row : Slice Std.I64) (x : Slice Std.I64) (acc : Std.I128) (i : Std.Usize)
+  (acc_ok : Bool) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool) (Std.I128 × Bool))
+  := do
+  let i1 := Slice.len w_row
+  if i < i1
+  then
+    if acc_ok
+    then
+      let i2 ← Slice.index_usize w_row i
+      let a ← lift (core.convert.num.FromI128I64.from i2)
+      let i3 ← Slice.index_usize x i
+      let b ← lift (core.convert.num.FromI128I64.from i3)
+      let o ← lift (I128.checked_mul a b)
+      let (acc1, acc_ok1) ←
+        match o with
+        | none => ok (acc, false)
+        | some prod =>
+          do
+          let o1 ← lift (I128.checked_add acc prod)
+          match o1 with
+          | none => ok (acc, false)
+          | some total => ok (total, true)
+      let i4 ← i + 1#usize
+      ok (cont (acc1, i4, acc_ok1))
+    else ok (done (acc, false))
+  else ok (done (acc, acc_ok))
+
+/-- [apeiron_word::matvec::row_dot_fixed]: loop 0:
+    Source: '../../src/engine/matvec.rs', lines 97:4-108:5
+    Visibility: public -/
+@[rust_loop]
+def matvec.row_dot_fixed_loop
+  (w_row : Slice Std.I64) (x : Slice Std.I64) (acc : Std.I128) (i : Std.Usize)
+  (acc_ok : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (acc1, i1, acc_ok1) => matvec.row_dot_fixed_loop.body w_row x acc1 i1
+      acc_ok1)
+    (acc, i, acc_ok)
+
+/-- [apeiron_word::matvec::row_dot_fixed]:
+    Source: '../../src/engine/matvec.rs', lines 86:0-117:1
+    Visibility: public -/
+def matvec.row_dot_fixed
+  (w_row : Slice Std.I64) (x : Slice Std.I64) :
+  Result (core.result.Result Std.I64 matvec.MatvecError)
+  := do
+  let i := Slice.len w_row
+  let i1 := Slice.len x
+  if i != i1
+  then
+    let i2 := Slice.len w_row
+    let i3 := Slice.len x
+    ok (core.result.Result.Err (matvec.MatvecError.RowLength 0#usize i2 i3))
+  else
+    let (acc, acc_ok) ← matvec.row_dot_fixed_loop w_row x 0#i128 0#usize true
+    if acc_ok
+    then
+      let rounded ← value.round_shift_32 acc
+      let i2 ← lift (IScalar.cast .I128 core.num.I64.MAX)
+      if rounded > i2
+      then ok (core.result.Result.Err matvec.MatvecError.OutputOverflow)
+      else
+        let i3 ← lift (IScalar.cast .I128 core.num.I64.MIN)
+        if rounded < i3
+        then ok (core.result.Result.Err matvec.MatvecError.OutputOverflow)
+        else
+          let i4 ← lift (IScalar.cast .I64 rounded)
+          ok (core.result.Result.Ok i4)
+    else ok (core.result.Result.Err matvec.MatvecError.AccumulatorOverflow)
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head_f32]:
+    Source: '../../src/engine/attn.rs', lines 1263:4-1398:5
+    Visibility: public -/
+axiom attn.KvState.attn_head_f32
+  :
+  attn.KvState → Std.Usize → Std.Usize → Slice Std.I64 → Std.Usize →
+    Slice Std.I64 → Result ((core.result.Result Unit attn.AttnError) ×
+    (Slice Std.I64))
+
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 0:
-    Source: '../../src/engine/attn.rs', lines 483:8-497:9
+    Source: '../../src/engine/attn.rs', lines 1090:8-1120:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop0.body
-  (self : attn.KvState) (kv : Std.Usize) (i : Std.I64) (q : Slice Std.I64)
-  (pos : Std.Usize) (kvh : Std.Usize) (kplane : alloc.vec.Vec Std.I64)
+  (hd : Std.Usize) (i : Std.I64) (q : Slice Std.I64) (pos : Std.Usize)
+  (kplane : alloc.vec.Vec Std.I64) (stride : Std.Usize) (first : Std.Usize)
   (scores : alloc.vec.Vec Std.I64) (mx : Std.I64) (s : Std.Usize) (ok1 : Bool)
   (err : Option attn.AttnError) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I64 × Std.Usize × Bool
@@ -3845,41 +3894,70 @@ def attn.KvState.attn_head_loop0.body
   then
     if ok1
     then
-      let s1 := alloc.vec.Vec.deref kplane
-      let r ← attn.score_at s1 q i kv kvh self.head_dim s
+      let i1 ← s * stride
+      let base ← first + i1
+      let i2 := alloc.vec.Vec.len kplane
+      let i3 ← lift (core.num.Usize.saturating_sub i2 hd)
       let (scores1, mx1, ok2, err1) ←
-        match r with
-        | core.result.Result.Ok score =>
+        if base > i3
+        then ok (scores, mx, false, some attn.AttnError.Overflow)
+        else
           do
-          let mx2 ← if score > mx
-                      then ok score
-                      else ok mx
-          let scores2 ← alloc.vec.Vec.push scores score
-          ok (scores2, mx2, true, err)
-        | core.result.Result.Err e => ok (scores, mx, false, some e)
-      let s2 ← s + 1#usize
-      ok (cont (scores1, mx1, s2, ok2, err1))
+          let «end» ← base + hd
+          let s1 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+              Std.I64) kplane { start := base, «end» }
+          let r ← matvec.row_dot_fixed s1 q
+          match r with
+          | core.result.Result.Ok raw =>
+            let i4 ← lift (core.convert.num.FromI128I64.from raw)
+            let i5 ← lift (core.convert.num.FromI128I64.from i)
+            let o ← lift (I128.checked_mul i4 i5)
+            match o with
+            | none => ok (scores, mx, false, some attn.AttnError.Overflow)
+            | some prod =>
+              let rounded ← value.round_shift_32 prod
+              let i6 ←
+                lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+              if rounded > i6
+              then ok (scores, mx, false, some attn.AttnError.Overflow)
+              else
+                let i7 ←
+                  lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+                if rounded < i7
+                then ok (scores, mx, false, some attn.AttnError.Overflow)
+                else
+                  let score ← lift (IScalar.cast .I64 rounded)
+                  let mx2 ← if score > mx
+                              then ok score
+                              else ok mx
+                  let scores2 ← alloc.vec.Vec.push scores score
+                  ok (scores2, mx2, true, err)
+          | core.result.Result.Err _ =>
+            ok (scores, mx, false, some attn.AttnError.Overflow)
+      let s1 ← s + 1#usize
+      ok (cont (scores1, mx1, s1, ok2, err1))
     else ok (done (scores, mx, err))
   else ok (done (scores, mx, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 0:
-    Source: '../../src/engine/attn.rs', lines 483:8-497:9
+    Source: '../../src/engine/attn.rs', lines 1090:8-1120:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop0
-  (self : attn.KvState) (kv : Std.Usize) (i : Std.I64) (q : Slice Std.I64)
-  (pos : Std.Usize) (kvh : Std.Usize) (scores : alloc.vec.Vec Std.I64)
-  (mx : Std.I64) (kplane : alloc.vec.Vec Std.I64) (s : Std.Usize) (ok1 : Bool)
+  (hd : Std.Usize) (i : Std.I64) (q : Slice Std.I64) (pos : Std.Usize)
+  (kplane : alloc.vec.Vec Std.I64) (stride : Std.Usize) (first : Std.Usize)
+  (scores : alloc.vec.Vec Std.I64) (mx : Std.I64) (s : Std.Usize) (ok1 : Bool)
   (err : Option attn.AttnError) :
   Result ((alloc.vec.Vec Std.I64) × Std.I64 × (Option attn.AttnError))
   := do
   loop
-    (fun (scores1, mx1, s1, ok2, err1) => attn.KvState.attn_head_loop0.body
-      self kv i q pos kvh kplane scores1 mx1 s1 ok2 err1)
+    (fun (scores1, mx1, s1, ok2, err1) => attn.KvState.attn_head_loop0.body hd
+      i q pos kplane stride first scores1 mx1 s1 ok2 err1)
     (scores, mx, s, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 1:
-    Source: '../../src/engine/attn.rs', lines 509:8-526:9
+    Source: '../../src/engine/attn.rs', lines 1132:8-1149:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop1.body
@@ -3916,7 +3994,7 @@ def attn.KvState.attn_head_loop1.body
   else ok (done (exps, total, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 1:
-    Source: '../../src/engine/attn.rs', lines 509:8-526:9
+    Source: '../../src/engine/attn.rs', lines 1132:8-1149:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop1
@@ -3930,188 +4008,312 @@ def attn.KvState.attn_head_loop1
       pos scores mx exps1 total1 s1 ok2 err1)
     (exps, total, s, ok1, err)
 
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 3:
+    Source: '../../src/engine/attn.rs', lines 1194:24-1207:25
+    Visibility: public -/
+@[rust_loop_body]
+def attn.KvState.attn_head_loop2_loop0.body
+  (hd : Std.Usize) (row : Slice Std.I64) (w : Std.I128)
+  (acc : alloc.vec.Vec Std.I128) (ok1 : Bool) (err : Option attn.AttnError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Bool × (Option
+    attn.AttnError) × Std.Usize) ((alloc.vec.Vec Std.I128) × Bool × (Option
+    attn.AttnError)))
+  := do
+  if i < hd
+  then
+    if ok1
+    then
+      let i1 ← Slice.index_usize row i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let o ← lift (I128.checked_mul w i2)
+      let (acc1, ok2, err1) ←
+        match o with
+        | none => ok (acc, false, some attn.AttnError.Overflow)
+        | some term =>
+          do
+          let i3 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+              Std.I128) acc i
+          let o1 ← lift (I128.checked_add i3 term)
+          match o1 with
+          | none => ok (acc, false, some attn.AttnError.Overflow)
+          | some next =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I128) acc i
+            let acc2 := index_mut_back next
+            ok (acc2, true, err)
+      let i3 ← i + 1#usize
+      ok (cont (acc1, ok2, err1, i3))
+    else ok (done (acc, false, err))
+  else ok (done (acc, ok1, err))
+
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 3:
+    Source: '../../src/engine/attn.rs', lines 1194:24-1207:25
+    Visibility: public -/
+@[rust_loop]
+def attn.KvState.attn_head_loop2_loop0
+  (hd : Std.Usize) (acc : alloc.vec.Vec Std.I128) (ok1 : Bool)
+  (err : Option attn.AttnError) (row : Slice Std.I64) (w : Std.I128)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × Bool × (Option attn.AttnError))
+  := do
+  loop
+    (fun (acc1, ok2, err1, i1) => attn.KvState.attn_head_loop2_loop0.body hd
+      row w acc1 ok2 err1 i1)
+    (acc, ok1, err, i)
+
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 2:
-    Source: '../../src/engine/attn.rs', lines 539:8-548:9
+    Source: '../../src/engine/attn.rs', lines 1178:8-1216:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop2.body
-  (pos : Std.Usize) (exps : alloc.vec.Vec Std.I64) (total : Std.I128)
-  (weights : alloc.vec.Vec Std.I64) (s : Std.Usize) (ok1 : Bool)
-  (err : Option attn.AttnError) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × Bool × (Option
-    attn.AttnError)) ((alloc.vec.Vec Std.I64) × (Option attn.AttnError)))
+  (hd : Std.Usize) (pos : Std.Usize) (vplane : alloc.vec.Vec Std.I64)
+  (stride : Std.Usize) (first : Std.Usize) (exps : alloc.vec.Vec Std.I64)
+  (total : Std.I128) (recip : Option Std.U64) (acc : alloc.vec.Vec Std.I128)
+  (s : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize × Bool × (Option
+    attn.AttnError)) ((alloc.vec.Vec Std.I128) × (Option attn.AttnError)))
   := do
   if s <= pos
   then
     if ok1
     then
-      let i ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
-          exps s
-      let r ← attn.weight_at i total
-      let (weights1, ok2, err1) ←
-        match r with
-        | core.result.Result.Ok w =>
+      let w ←
+        match recip with
+        | none =>
           do
-          let weights2 ← alloc.vec.Vec.push weights w
-          ok (weights2, true, err)
-        | core.result.Result.Err e => ok (weights, false, some e)
-      let s1 ← s + 1#usize
-      ok (cont (weights1, s1, ok2, err1))
-    else ok (done (weights, err))
-  else ok (done (weights, err))
+          let i ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              exps s
+          attn.weight_at i total
+        | some r =>
+          do
+          let i ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              exps s
+          attn.weight_at_recip i total r
+      match w with
+      | core.result.Result.Ok weight =>
+        let i ← s * stride
+        let base ← first + i
+        let i1 := alloc.vec.Vec.len vplane
+        let i2 ← lift (core.num.Usize.saturating_sub i1 hd)
+        if base > i2
+        then
+          let s1 ← s + 1#usize
+          ok (cont (acc, s1, false, some attn.AttnError.Overflow))
+        else
+          let «end» ← base + hd
+          let row ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+              Std.I64) vplane { start := base, «end» }
+          let w1 ← lift (core.convert.num.FromI128I64.from weight)
+          let (acc1, ok2, err1) ←
+            attn.KvState.attn_head_loop2_loop0 hd acc true err row w1 0#usize
+          let s1 ← s + 1#usize
+          ok (cont (acc1, s1, ok2, err1))
+      | core.result.Result.Err e =>
+        let s1 ← s + 1#usize
+        ok (cont (acc, s1, false, some e))
+    else ok (done (acc, err))
+  else ok (done (acc, err))
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 2:
-    Source: '../../src/engine/attn.rs', lines 539:8-548:9
+    Source: '../../src/engine/attn.rs', lines 1178:8-1216:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop2
-  (pos : Std.Usize) (exps : alloc.vec.Vec Std.I64) (total : Std.I128)
-  (weights : alloc.vec.Vec Std.I64) (s : Std.Usize) (ok1 : Bool)
-  (err : Option attn.AttnError) :
-  Result ((alloc.vec.Vec Std.I64) × (Option attn.AttnError))
+  (hd : Std.Usize) (pos : Std.Usize) (vplane : alloc.vec.Vec Std.I64)
+  (stride : Std.Usize) (first : Std.Usize) (exps : alloc.vec.Vec Std.I64)
+  (total : Std.I128) (recip : Option Std.U64) (acc : alloc.vec.Vec Std.I128)
+  (s : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
+  Result ((alloc.vec.Vec Std.I128) × (Option attn.AttnError))
   := do
   loop
-    (fun (weights1, s1, ok2, err1) => attn.KvState.attn_head_loop2.body pos
-      exps total weights1 s1 ok2 err1)
-    (weights, s, ok1, err)
+    (fun (acc1, s1, ok2, err1) => attn.KvState.attn_head_loop2.body hd pos
+      vplane stride first exps total recip acc1 s1 ok2 err1)
+    (acc, s, ok1, err)
 
-/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 3:
-    Source: '../../src/engine/attn.rs', lines 558:8-567:9
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop body 4:
+    Source: '../../src/engine/attn.rs', lines 1223:8-1232:9
     Visibility: public -/
 @[rust_loop_body]
 def attn.KvState.attn_head_loop3.body
-  (self : attn.KvState) (kv : Std.Usize) (pos : Std.Usize) (kvh : Std.Usize)
-  (weights : alloc.vec.Vec Std.I64) (vplane : alloc.vec.Vec Std.I64)
-  (out : Slice Std.I64) (i : Std.Usize) (ok1 : Bool)
-  (err : Option attn.AttnError) :
+  (hd : Std.Usize) (acc : alloc.vec.Vec Std.I128) (out : Slice Std.I64)
+  (i : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
   Result (ControlFlow ((Slice Std.I64) × Std.Usize × Bool × (Option
     attn.AttnError)) ((Slice Std.I64) × (Option attn.AttnError)))
   := do
-  if i < self.head_dim
+  if i < hd
   then
     if ok1
     then
-      let s := alloc.vec.Vec.deref vplane
-      let s1 := alloc.vec.Vec.deref weights
-      let r ← attn.value_component s s1 kv kvh self.head_dim pos i
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          acc i
+      let rounded ← value.round_shift_32 i1
+      let i2 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
       let (out1, ok2, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
+        if rounded > i2
+        then ok (out, false, some attn.AttnError.Overflow)
+        else
           do
-          let s2 ← Slice.update out i v
-          ok (s2, true, err)
-        | core.result.Result.Err e => ok (out, false, some e)
-      let i1 ← i + 1#usize
-      ok (cont (out1, i1, ok2, err1))
+          let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+          if rounded < i3
+          then ok (out, false, some attn.AttnError.Overflow)
+          else
+            let i4 ← lift (IScalar.cast .I64 rounded)
+            let s ← Slice.update out i i4
+            ok (s, true, err)
+      let i3 ← i + 1#usize
+      ok (cont (out1, i3, ok2, err1))
     else ok (done (out, err))
   else ok (done (out, err))
 
-/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 3:
-    Source: '../../src/engine/attn.rs', lines 558:8-567:9
+/-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]: loop 4:
+    Source: '../../src/engine/attn.rs', lines 1223:8-1232:9
     Visibility: public -/
 @[rust_loop]
 def attn.KvState.attn_head_loop3
-  (self : attn.KvState) (kv : Std.Usize) (pos : Std.Usize)
-  (out : Slice Std.I64) (kvh : Std.Usize) (weights : alloc.vec.Vec Std.I64)
-  (vplane : alloc.vec.Vec Std.I64) (i : Std.Usize) (ok1 : Bool)
-  (err : Option attn.AttnError) :
+  (hd : Std.Usize) (out : Slice Std.I64) (acc : alloc.vec.Vec Std.I128)
+  (i : Std.Usize) (ok1 : Bool) (err : Option attn.AttnError) :
   Result ((Slice Std.I64) × (Option attn.AttnError))
   := do
   loop
-    (fun (out1, i1, ok2, err1) => attn.KvState.attn_head_loop3.body self kv pos
-      kvh weights vplane out1 i1 ok2 err1)
+    (fun (out1, i1, ok2, err1) => attn.KvState.attn_head_loop3.body hd acc out1
+      i1 ok2 err1)
     (out, i, ok1, err)
 
 /-- [apeiron_word::attn::{apeiron_word::attn::KvState}::attn_head]:
-    Source: '../../src/engine/attn.rs', lines 432:4-572:5
+    Source: '../../src/engine/attn.rs', lines 1027:4-1237:5
     Visibility: public -/
 def attn.KvState.attn_head
   (self : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
   (q : Slice Std.I64) (pos : Std.Usize) (out : Slice Std.I64) :
   Result ((core.result.Result Unit attn.AttnError) × (Slice Std.I64))
   := do
-  if layer >= self.n_layer
-  then
-    ok (core.result.Result.Err (attn.AttnError.LayerOutOfRange layer
-      self.n_layer), out)
+  let b ←
+    mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq self.carrier
+      mixer.Carrier.F32
+  if b
+  then attn.KvState.attn_head_f32 self layer q_head q pos out
   else
-    if q_head >= self.n_head
+    if layer >= self.n_layer
     then
-      ok (core.result.Result.Err (attn.AttnError.HeadOutOfRange q_head
-        self.n_head), out)
+      ok (core.result.Result.Err (attn.AttnError.LayerOutOfRange layer
+        self.n_layer), out)
     else
-      let i := Slice.len q
-      if i != self.head_dim
+      if q_head >= self.n_head
       then
-        let i1 := Slice.len q
-        ok (core.result.Result.Err (attn.AttnError.RowLength self.head_dim i1),
-          out)
+        ok (core.result.Result.Err (attn.AttnError.HeadOutOfRange q_head
+          self.n_head), out)
       else
-        let i1 := Slice.len out
-        if i1 != self.head_dim
+        let i := Slice.len q
+        if i != self.head_dim
         then
-          let i2 := Slice.len out
+          let i1 := Slice.len q
           ok (core.result.Result.Err (attn.AttnError.RowLength self.head_dim
-            i2), out)
+            i1), out)
         else
-          let len ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-              Std.Usize) self.occupied layer
-          if pos >= len
+          let i1 := Slice.len out
+          if i1 != self.head_dim
           then
-            ok (core.result.Result.Err (attn.AttnError.PositionOutOfRange pos
-              len), out)
+            let i2 := Slice.len out
+            ok (core.result.Result.Err (attn.AttnError.RowLength self.head_dim
+              i2), out)
           else
-            let group ← self.n_head / self.n_head_kv
-            let kvh ← q_head / group
-            let o ← lift (Usize.checked_add pos 1#usize)
-            let r ← core.option.Option.ok_or o attn.AttnError.Overflow
-            let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-            match cf with
-            | core.ops.control_flow.ControlFlow.Continue val =>
-              let scores := alloc.vec.Vec.with_capacity Std.I64 val
-              let kplane ←
-                alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-                  (alloc.vec.Vec Std.I64)) self.k layer
-              let (scores1, mx, err) ←
-                attn.KvState.attn_head_loop0 self self.n_head_kv self.scale q
-                  pos kvh scores core.num.I64.MIN kplane 0#usize true none
-              match err with
-              | none =>
-                let exps := alloc.vec.Vec.with_capacity Std.I64 val
-                let (exps1, total, err1) ←
-                  attn.KvState.attn_head_loop1 pos scores1 mx exps 0#i128
-                    0#usize true none
-                match err1 with
-                | none =>
-                  if total <= 0#i128
-                  then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-                  else
-                    let weights := alloc.vec.Vec.with_capacity Std.I64 val
-                    let (weights1, err2) ←
-                      attn.KvState.attn_head_loop2 pos exps1 total weights
-                        0#usize true none
-                    match err2 with
-                    | none =>
-                      let vplane ←
-                        alloc.vec.Vec.index
-                          (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
-                          Std.I64)) self.v layer
-                      let (out1, err3) ←
-                        attn.KvState.attn_head_loop3 self self.n_head_kv pos
-                          out kvh weights1 vplane 0#usize true none
-                      match err3 with
-                      | none => ok (core.result.Result.Ok (), out1)
-                      | some e => ok (core.result.Result.Err e, out1)
-                    | some e => ok (core.result.Result.Err e, out)
-                | some e => ok (core.result.Result.Err e, out)
-              | some e => ok (core.result.Result.Err e, out)
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              let r1 ←
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  Unit (core.convert.FromSame attn.AttnError) residual
-              ok (r1, out)
+            let len ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                Std.Usize) self.occupied layer
+            if pos >= len
+            then
+              ok (core.result.Result.Err (attn.AttnError.PositionOutOfRange pos
+                len), out)
+            else
+              match self.storage with
+              | attn.KvStorage.Q32 k v =>
+                let kplane ←
+                  alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                    (alloc.vec.Vec Std.I64)) k layer
+                let vplane ←
+                  alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                    (alloc.vec.Vec Std.I64)) v layer
+                let group ← self.n_head / self.n_head_kv
+                let kvh ← q_head / group
+                let o ← lift (Usize.checked_add pos 1#usize)
+                let r ← core.option.Option.ok_or o attn.AttnError.Overflow
+                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                match cf with
+                | core.ops.control_flow.ControlFlow.Continue val =>
+                  let o1 ←
+                    lift (Usize.checked_mul self.n_head_kv self.head_dim)
+                  let r1 ←
+                    core.option.Option.ok_or o1 attn.AttnError.Overflow
+                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                  match cf1 with
+                  | core.ops.control_flow.ControlFlow.Continue val1 =>
+                    let o2 ← lift (Usize.checked_mul kvh self.head_dim)
+                    let r2 ←
+                      core.option.Option.ok_or o2 attn.AttnError.Overflow
+                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                    match cf2 with
+                    | core.ops.control_flow.ControlFlow.Continue val2 =>
+                      let scores := alloc.vec.Vec.with_capacity Std.I64 val
+                      let (scores1, mx, err) ←
+                        attn.KvState.attn_head_loop0 self.head_dim self.scale q
+                          pos kplane val1 val2 scores core.num.I64.MIN 0#usize
+                          true none
+                      match err with
+                      | none =>
+                        let exps := alloc.vec.Vec.with_capacity Std.I64 val
+                        let (exps1, total, err1) ←
+                          attn.KvState.attn_head_loop1 pos scores1 mx exps
+                            0#i128 0#usize true none
+                        match err1 with
+                        | none =>
+                          if total <= 0#i128
+                          then
+                            ok (core.result.Result.Err attn.AttnError.ZeroSum,
+                              out)
+                          else
+                            let recip ← attn.recip_u64 total
+                            let acc ←
+                              alloc.vec.from_elem core.clone.CloneI128 0#i128
+                                self.head_dim
+                            let (acc1, err2) ←
+                              attn.KvState.attn_head_loop2 self.head_dim pos
+                                vplane val1 val2 exps1 total recip acc 0#usize
+                                true none
+                            match err2 with
+                            | none =>
+                              let (out1, err3) ←
+                                attn.KvState.attn_head_loop3 self.head_dim out
+                                  acc1 0#usize true none
+                              match err3 with
+                              | none => ok (core.result.Result.Ok (), out1)
+                              | some e => ok (core.result.Result.Err e, out1)
+                            | some e => ok (core.result.Result.Err e, out)
+                        | some e => ok (core.result.Result.Err e, out)
+                      | some e => ok (core.result.Result.Err e, out)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      let r3 ←
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          Unit (core.convert.FromSame attn.AttnError) residual
+                      ok (r3, out)
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    let r2 ←
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        Unit (core.convert.FromSame attn.AttnError) residual
+                    ok (r2, out)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  let r1 ←
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      Unit (core.convert.FromSame attn.AttnError) residual
+                  ok (r1, out)
+              | attn.KvStorage.F32 _ _ =>
+                ok (core.result.Result.Err attn.AttnError.BadGeometry, out)
 
 /-- [apeiron_word::dequant::f16_to_fixed]:
     Source: '../../src/engine/dequant.rs', lines 25:0-41:1
@@ -17129,7 +17331,7 @@ def
 }
 
 /-- [apeiron_word::table::StorageError]
-    Source: '../../src/table.rs', lines 90:0-97:1
+    Source: '../../src/table.rs', lines 98:0-105:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.StorageError where
@@ -17138,7 +17340,7 @@ inductive table.StorageError where
 | ShardFull : table.StorageError
 
 /-- [apeiron_word::table::resources::LocatorReservationPlan]
-    Source: '../../src/table/resources.rs', lines 49:0-66:1 -/
+    Source: '../../src/table/resources.rs', lines 45:0-62:1 -/
 structure table.resources.LocatorReservationPlan where
   parabolic_nodes : Std.Usize
   residue_nodes : Std.Usize
@@ -17150,7 +17352,7 @@ structure table.resources.LocatorReservationPlan where
   retained_identity_bytes : Std.Usize
 
 /-- [apeiron_word::table::locator_path_plan]:
-    Source: '../../src/table/locator.rs', lines 185:0-218:1 -/
+    Source: '../../src/table/locator.rs', lines 178:0-211:1 -/
 def table.locator_path_plan
   {I : Type} (coordlocatorlocator_coreResidueIndexInst :
   coord.locator.locator_core.ResidueIndex I) (encoding_len : Std.Usize) :
@@ -17220,7 +17422,7 @@ structure table.resources.CapacityBound where
   observed_capacity : Std.Usize
 
 /-- [apeiron_word::table::resources::LocatorReservationReceipt]
-    Source: '../../src/table/resources.rs', lines 77:0-94:1 -/
+    Source: '../../src/table/resources.rs', lines 73:0-90:1 -/
 structure table.resources.LocatorReservationReceipt where
   parabolic_nodes : table.resources.CapacityBound
   residue_nodes : table.resources.CapacityBound
@@ -17232,7 +17434,7 @@ structure table.resources.LocatorReservationReceipt where
   retained_identity : table.resources.CapacityBound
 
 /-- [apeiron_word::table::locator_bound]:
-    Source: '../../src/table/locator.rs', lines 268:0-273:1 -/
+    Source: '../../src/table/locator.rs', lines 264:0-269:1 -/
 def table.locator_bound
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result table.resources.CapacityBound
@@ -17240,7 +17442,7 @@ def table.locator_bound
   ok { required_len, observed_capacity }
 
 /-- [apeiron_word::table::observe_locator_receipt]:
-    Source: '../../src/table/locator.rs', lines 231:0-251:1 -/
+    Source: '../../src/table/locator.rs', lines 224:0-247:1 -/
 def table.observe_locator_receipt
   (plan : table.resources.LocatorReservationPlan)
   (staged : coord.locator.locator_core.StagedPath) (links_capacity : Std.Usize)
@@ -17281,7 +17483,7 @@ def table.observe_locator_receipt
     }
 
 /-- [apeiron_word::table::locator_refusal]:
-    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 253:0-261:1 -/
 def table.locator_refusal
   (refusal : coord.locator.locator_core.Refusal) :
   Result table.StorageError
@@ -17299,7 +17501,7 @@ def table.locator_refusal
     ok table.StorageError.AllocationFailed
 
 /-- [apeiron_word::table::{impl core::ops::function::FnOnce<(apeiron_word::coord::locator::locator_core::Refusal,), apeiron_word::table::StorageError> for apeiron_word::table::locator_refusal}::call_once]:
-    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 253:0-261:1 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError.call_once
   (state : coord.locator.locator_core.Refusal → Result table.StorageError)
   (args : coord.locator.locator_core.Refusal) :
@@ -17308,7 +17510,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError.call_once
   table.locator_refusal args
 
 /-- Trait implementation: [apeiron_word::table::{impl core::ops::function::FnOnce<(apeiron_word::coord::locator::locator_core::Refusal,), apeiron_word::table::StorageError> for apeiron_word::table::locator_refusal}]
-    Source: '../../src/table/locator.rs', lines 257:0-265:1 -/
+    Source: '../../src/table/locator.rs', lines 253:0-261:1 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError :
   core.ops.function.FnOnce (coord.locator.locator_core.Refusal → Result
@@ -17318,13 +17520,13 @@ def P.Insts.CoreOpsFunctionFnOnceTupleRefusalStorageError :
 }
 
 /-- [apeiron_word::table::QueryIdentity]
-    Source: '../../src/table/locator.rs', lines 282:0-287:1 -/
+    Source: '../../src/table/locator.rs', lines 278:0-283:1 -/
 structure table.QueryIdentity (K : Type) (H : Type) (R : Type) where
   key : K
   _carrier : core.marker.PhantomData (H × R)
 
 /-- [apeiron_word::table::query_identity_bytes_equal]: loop body 0:
-    Source: '../../src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '../../src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop_body]
 def table.query_identity_bytes_equal_loop.body
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17342,7 +17544,7 @@ def table.query_identity_bytes_equal_loop.body
   else ok (done true)
 
 /-- [apeiron_word::table::query_identity_bytes_equal]: loop 0:
-    Source: '../../src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '../../src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop]
 def table.query_identity_bytes_equal_loop
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17355,7 +17557,7 @@ def table.query_identity_bytes_equal_loop
     index
 
 /-- [apeiron_word::table::query_identity_bytes_equal]:
-    Source: '../../src/table/locator.rs', lines 294:0-307:1 -/
+    Source: '../../src/table/locator.rs', lines 290:0-303:1 -/
 def table.query_identity_bytes_equal
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
   H) (left : K) (right : K) :
@@ -17370,7 +17572,7 @@ def table.query_identity_bytes_equal
       0#usize
 
 /-- [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::QueryIdentity<'_0, K, H, R>> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::eq]:
-    Source: '../../src/table/locator.rs', lines 318:4-320:5
+    Source: '../../src/table/locator.rs', lines 314:4-316:5
     Visibility: public -/
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -17380,7 +17582,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   table.query_identity_bytes_equal keyrepKeyRepInst self.key other.key
 
 /-- Trait implementation: [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::QueryIdentity<'_0, K, H, R>> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '../../src/table/locator.rs', lines 309:0-321:1 -/
+    Source: '../../src/table/locator.rs', lines 305:0-317:1 -/
 @[reducible]
 impl_def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H
   : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K H) :
@@ -17393,7 +17595,7 @@ impl_def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl core::cmp::Eq for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '../../src/table/locator.rs', lines 322:0-322:72 -/
+    Source: '../../src/table/locator.rs', lines 318:0-318:72 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
   (keyrepKeyRepInst : table.keyrep.KeyRep R K H) : core.cmp.Eq
@@ -17403,7 +17605,7 @@ def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_byte]:
-    Source: '../../src/table/locator.rs', lines 360:4-362:5
+    Source: '../../src/table/locator.rs', lines 356:4-358:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_byte
@@ -17414,7 +17616,7 @@ def
   ok 0#u8
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_len]:
-    Source: '../../src/table/locator.rs', lines 353:4-355:5
+    Source: '../../src/table/locator.rs', lines 349:4-351:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_len
@@ -17425,7 +17627,7 @@ def
   ok 0#usize
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::encoding_byte]:
-    Source: '../../src/table/locator.rs', lines 346:4-348:5
+    Source: '../../src/table/locator.rs', lines 342:4-344:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_byte
@@ -17436,7 +17638,7 @@ def
   keyrepKeyRepInst.query_encoding_byte self.key index
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::encoding_len]:
-    Source: '../../src/table/locator.rs', lines 343:4-345:5
+    Source: '../../src/table/locator.rs', lines 339:4-341:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_len
@@ -17447,7 +17649,7 @@ def
   keyrepKeyRepInst.query_encoding_len self.key
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::matches_retained]:
-    Source: '../../src/table/locator.rs', lines 340:4-342:5
+    Source: '../../src/table/locator.rs', lines 336:4-338:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.matches_retained
@@ -17458,7 +17660,7 @@ def
   ok false
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retain_reserved]:
-    Source: '../../src/table/locator.rs', lines 335:4-335:40
+    Source: '../../src/table/locator.rs', lines 331:4-331:40
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retain_reserved
@@ -17469,7 +17671,7 @@ def
   ok ()
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::reserve_retain]:
-    Source: '../../src/table/locator.rs', lines 332:4-334:5
+    Source: '../../src/table/locator.rs', lines 328:4-330:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.reserve_retain
@@ -17480,7 +17682,7 @@ def
   ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}::retain]:
-    Source: '../../src/table/locator.rs', lines 331:4-331:23
+    Source: '../../src/table/locator.rs', lines 327:4-327:23
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple.retain
@@ -17491,7 +17693,7 @@ def
   ok ()
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::locator::locator_core::ExactIdentity<(), ()> for apeiron_word::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '../../src/table/locator.rs', lines 324:0-363:1 -/
+    Source: '../../src/table/locator.rs', lines 320:0-359:1 -/
 @[reducible]
 def
   table.QueryIdentity.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityTupleTuple
@@ -17528,14 +17730,14 @@ def
 }
 
 /-- [apeiron_word::table::PayloadLocation]
-    Source: '../../src/table/state.rs', lines 510:0-515:1 -/
+    Source: '../../src/table/state.rs', lines 448:0-453:1 -/
 @[discriminant isize]
 inductive table.PayloadLocation where
 | Resident : Std.Usize → table.PayloadLocation
 | Spill : Std.Usize → Std.Usize → table.PayloadLocation
 
 /-- [apeiron_word::table::same_location]:
-    Source: '../../src/table/locator.rs', lines 371:0-380:1 -/
+    Source: '../../src/table/locator.rs', lines 367:0-376:1 -/
 def table.same_location
   (left : table.PayloadLocation) (right : table.PayloadLocation) :
   Result Bool
@@ -17554,7 +17756,7 @@ def table.same_location
       else ok false
 
 /-- [apeiron_word::table::TableLocator]
-    Source: '../../src/table/state.rs', lines 523:0-532:1 -/
+    Source: '../../src/table/state.rs', lines 461:0-470:1 -/
 structure table.TableLocator where
   profile : Option coord.address.H3_40
   directory : Option coord.locator.locator_core.Directory
@@ -17562,7 +17764,7 @@ structure table.TableLocator where
   staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::profile_or_init]:
-    Source: '../../src/table/locator.rs', lines 384:4-391:5 -/
+    Source: '../../src/table/locator.rs', lines 380:4-387:5 -/
 def table.TableLocator.profile_or_init
   (self : table.TableLocator) :
   Result ((core.result.Result coord.address.H3_40 table.StorageError) ×
@@ -17585,7 +17787,7 @@ def table.TableLocator.profile_or_init
   | some profile => ok (core.result.Result.Ok profile, self)
 
 /-- [apeiron_word::table::resources::{apeiron_word::table::resources::LocatorReservationReceipt}::EMPTY]
-    Source: '../../src/table/resources.rs', lines 98:4-131:6 -/
+    Source: '../../src/table/resources.rs', lines 94:4-127:6 -/
 @[global_simps, irreducible]
 def table.resources.LocatorReservationReceipt.EMPTY
   : table.resources.LocatorReservationReceipt :=
@@ -17604,7 +17806,7 @@ def table.resources.LocatorReservationReceipt.EMPTY
   }
 
 /-- [apeiron_word::table::resources::capacity_bound_holds]:
-    Source: '../../src/table/resources.rs', lines 208:0-210:1 -/
+    Source: '../../src/table/resources.rs', lines 204:0-206:1 -/
 def table.resources.capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result Bool
@@ -17612,7 +17814,7 @@ def table.resources.capacity_bound_holds
   ok (required_len <= observed_capacity)
 
 /-- [apeiron_word::table::resources::{apeiron_word::table::resources::LocatorReservationReceipt}::holds]:
-    Source: '../../src/table/resources.rs', lines 138:4-162:5 -/
+    Source: '../../src/table/resources.rs', lines 134:4-158:5 -/
 def table.resources.LocatorReservationReceipt.holds
   (self : table.resources.LocatorReservationReceipt) : Result Bool := do
   let b ←
@@ -17664,7 +17866,7 @@ def table.resources.LocatorReservationReceipt.holds
   else ok false
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_bytes]:
-    Source: '../../src/table/locator.rs', lines 459:4-492:5 -/
+    Source: '../../src/table/locator.rs', lines 455:4-488:5 -/
 def table.TableLocator.reserve_bytes
   {I : Type} {K : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (coordlocatorlocator_coreResidueIndexInst :
@@ -17730,14 +17932,14 @@ def table.TableLocator.reserve_bytes
     ok (r1, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}]
-    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 427:21-427:55 -/
 @[reducible]
 def table.TableLocator.reserve_path.closure (K : Type) (H : Type) (R : Type)
   (Clause1_Clause0_Clause0_Faces : Type) :=
 Unit
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}<K, H, R, Clause1_Clause0_Clause0_Faces>}::call_once]:
-    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 427:21-427:55 -/
 def
   table.TableLocator.reserve_path.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
@@ -17751,7 +17953,7 @@ def
   ok table.StorageError.AllocationFailed
 
 /-- Trait implementation: [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path::{closure}<K, H, R, Clause1_Clause0_Clause0_Faces>}]
-    Source: '../../src/table/locator.rs', lines 431:21-431:55 -/
+    Source: '../../src/table/locator.rs', lines 427:21-427:55 -/
 @[reducible]
 def
   table.TableLocator.reserve_path.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
@@ -17767,7 +17969,7 @@ def
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::reserve_path]:
-    Source: '../../src/table/locator.rs', lines 406:4-452:5 -/
+    Source: '../../src/table/locator.rs', lines 402:4-448:5 -/
 def table.TableLocator.reserve_path
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17853,7 +18055,7 @@ def table.TableLocator.reserve_path
         ok (r2, { self with directory := o, links := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::record_link]:
-    Source: '../../src/table/locator.rs', lines 691:4-698:5 -/
+    Source: '../../src/table/locator.rs', lines 687:4-694:5 -/
 def table.TableLocator.record_link
   (self : table.TableLocator) (handle : Std.U32) (identity_node : Std.U32)
   (location : table.PayloadLocation) :
@@ -17873,7 +18075,7 @@ def table.TableLocator.record_link
     ok { self with links := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::publish_for_query]:
-    Source: '../../src/table/locator.rs', lines 615:4-669:5 -/
+    Source: '../../src/table/locator.rs', lines 611:4-665:5 -/
 def table.TableLocator.publish_for_query
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17955,7 +18157,7 @@ def table.TableLocator.publish_for_query
           location
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::publish_for_held]:
-    Source: '../../src/table/locator.rs', lines 672:4-688:5 -/
+    Source: '../../src/table/locator.rs', lines 668:4-684:5 -/
 def table.TableLocator.publish_for_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -17973,7 +18175,7 @@ def table.TableLocator.publish_for_held
       keyrepKeyRepInst self home sigma key location
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::linked_handle]:
-    Source: '../../src/table/locator.rs', lines 716:4-752:5 -/
+    Source: '../../src/table/locator.rs', lines 712:4-748:5 -/
 def table.TableLocator.linked_handle
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -18028,7 +18230,7 @@ def table.TableLocator.linked_handle
       Std.U32 residual
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::retarget_held]:
-    Source: '../../src/table/locator.rs', lines 773:4-800:5 -/
+    Source: '../../src/table/locator.rs', lines 769:4-796:5 -/
 def table.TableLocator.retarget_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -18066,7 +18268,7 @@ def table.TableLocator.retarget_held
       else ok self
 
 /-- [apeiron_word::table::FlatSlot]
-    Source: '../../src/table/state.rs', lines 419:0-424:1 -/
+    Source: '../../src/table/state.rs', lines 355:0-360:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -18074,20 +18276,27 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [apeiron_word::table::Flat]
-    Source: '../../src/table/state.rs', lines 426:0-429:1 -/
+    Source: '../../src/table/state.rs', lines 362:0-365:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
 
+/-- [apeiron_word::table::SpillSlot]
+    Source: '../../src/table/state.rs', lines 49:0-58:1 -/
+structure table.SpillSlot (R : Type) (V : Type) where
+  tag : Std.U8
+  sigma : cell.Sigma
+  held : R
+  value : V
+
 /-- [apeiron_word::table::Region]
-    Source: '../../src/table/state.rs', lines 107:0-118:1 -/
+    Source: '../../src/table/state.rs', lines 93:0-98:1 -/
 structure table.Region (R : Type) (V : Type) where
-  tags : alloc.vec.Vec Std.U8
-  slots : alloc.vec.Vec (cell.Sigma × R × V)
-  summary : alloc.vec.Vec Std.U64
+  slots : alloc.vec.Vec (table.SpillSlot R V)
+  live : Std.Usize
 
 /-- [apeiron_word::table::Table]
-    Source: '../../src/table.rs', lines 218:0-230:1
+    Source: '../../src/table.rs', lines 226:0-238:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   Std.Usize) where
@@ -18100,7 +18309,7 @@ structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   locator : table.TableLocator
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_locator_path]:
-    Source: '../../src/table/locator.rs', lines 815:4-821:5 -/
+    Source: '../../src/table/locator.rs', lines 811:4-817:5 -/
 def table.Table.reserve_locator_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -18139,12 +18348,12 @@ structure table.partition.Parts where
   ends : Array Std.Usize 257#usize
 
 /-- [apeiron_word::table::SHARD_MASK]
-    Source: '../../src/table.rs', lines 62:0-62:48 -/
+    Source: '../../src/table.rs', lines 60:0-60:48 -/
 @[global_simps, irreducible]
 def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
 
 /-- [apeiron_word::table::shard]:
-    Source: '../../src/table/state.rs', lines 325:0-330:1 -/
+    Source: '../../src/table/state.rs', lines 274:0-279:1 -/
 def table.shard (address : table.TableAddress) : Result Std.Usize := do
   match address.direct_word with
   | none =>
@@ -18967,21 +19176,21 @@ def table.partition.Schedule.is_complete
   table.partition.Schedule.is_complete_loop1 seen1 complete 0#usize
 
 /-- [apeiron_word::table::SHARDS]
-    Source: '../../src/table.rs', lines 60:0-60:40 -/
+    Source: '../../src/table.rs', lines 58:0-58:40 -/
 @[global_simps, irreducible]
 def table.SHARDS : Result Std.Usize := table.partition.SHARDS
 
 /-- [apeiron_word::table::slots_for]: loop body 0:
-    Source: '../../src/table/state.rs', lines 357:4-361:1 -/
+    Source: '../../src/table/state.rs', lines 313:4-317:1 -/
 @[rust_loop_body]
 def table.slots_for_loop.body
-  (n : Std.Usize) (groups_needed : Std.Usize) (groups : Std.Usize) :
+  (twice : Std.Usize) (capacity : Std.Usize) :
   Result (ControlFlow Std.Usize (core.result.Result Std.Usize
     table.StorageError))
   := do
-  if groups < groups_needed
+  if capacity < twice
   then
-    let o ← lift (Usize.checked_mul groups 2#usize)
+    let o ← lift (Usize.checked_mul capacity 2#usize)
     let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
     let cf ← core.result.Result.Insts.CoreOpsTry.branch r
     match cf with
@@ -18991,24 +19200,21 @@ def table.slots_for_loop.body
         core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
           Std.Usize (core.convert.FromSame table.StorageError) residual
       ok (done r1)
-  else
-    let o ← lift (Usize.checked_mul groups n)
-    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
-    ok (done r)
+  else ok (done (core.result.Result.Ok capacity))
 
 /-- [apeiron_word::table::slots_for]: loop 0:
-    Source: '../../src/table/state.rs', lines 357:4-361:1 -/
+    Source: '../../src/table/state.rs', lines 313:4-317:1 -/
 @[rust_loop]
 def table.slots_for_loop
-  (n : Std.Usize) (groups_needed : Std.Usize) (groups : Std.Usize) :
+  (twice : Std.Usize) (capacity : Std.Usize) :
   Result (core.result.Result Std.Usize table.StorageError)
   := do
   loop
-    (fun groups1 => table.slots_for_loop.body n groups_needed groups1)
-    groups
+    (fun capacity1 => table.slots_for_loop.body twice capacity1)
+    capacity
 
 /-- [apeiron_word::table::slots_for]:
-    Source: '../../src/table/state.rs', lines 350:0-361:1 -/
+    Source: '../../src/table/state.rs', lines 307:0-317:1 -/
 def table.slots_for
   (load : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result Std.Usize table.StorageError)
@@ -19021,139 +19227,19 @@ def table.slots_for
     let cf ← core.result.Result.Insts.CoreOpsTry.branch r
     match cf with
     | core.ops.control_flow.ControlFlow.Continue val =>
-      let i ← n - 1#usize
-      let o1 ← lift (Usize.checked_add val i)
-      let r1 ← core.option.Option.ok_or o1 table.StorageError.SizeOverflow
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue val1 =>
-        let groups_needed ← val1 / n
-        table.slots_for_loop n groups_needed 2#usize
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.Usize (core.convert.FromSame table.StorageError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.Usize (core.convert.FromSame table.StorageError) residual
-
-/-- [apeiron_word::table::summary_trailing_zeros]: loop body 0:
-    Source: '../../src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop_body]
-def table.summary_trailing_zeros_loop.body
-  (value : Std.Usize) (zeros : Std.U32) :
-  Result (ControlFlow (Std.Usize × Std.U32) Std.U32)
-  := do
-  if zeros < core.num.Usize.BITS
-  then
-    let i ← lift (value &&& 1#usize)
-    if i = 0#usize
-    then
-      let zeros1 ← zeros + 1#u32
-      let value1 ← value >>> 1#i32
-      ok (cont (value1, zeros1))
-    else ok (done zeros)
-  else ok (done zeros)
-
-/-- [apeiron_word::table::summary_trailing_zeros]: loop 0:
-    Source: '../../src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop]
-def table.summary_trailing_zeros_loop
-  (value : Std.Usize) (zeros : Std.U32) : Result Std.U32 := do
-  loop
-    (fun (value1, zeros1) => table.summary_trailing_zeros_loop.body value1
-      zeros1)
-    (value, zeros)
-
-/-- [apeiron_word::table::summary_trailing_zeros]:
-    Source: '../../src/table/state.rs', lines 22:0-29:1 -/
-@[reducible]
-def table.summary_trailing_zeros (value : Std.Usize) : Result Std.U32 := do
-  table.summary_trailing_zeros_loop value 0#u32
-
-/-- [apeiron_word::table::SUMMARY_MIN_BITS]
-    Source: '../../src/table/state.rs', lines 9:0-9:36 -/
-@[global_simps, irreducible]
-def table.SUMMARY_MIN_BITS : Std.Usize := 256#usize
-
-/-- [apeiron_word::table::SUMMARY_BITS_PER_SLOT]
-    Source: '../../src/table/state.rs', lines 7:0-7:40 -/
-@[global_simps, irreducible]
-def table.SUMMARY_BITS_PER_SLOT : Std.Usize := 32#usize
-
-/-- [apeiron_word::table::summary_words]: loop body 0:
-    Source: '../../src/table/state.rs', lines 58:4-63:5 -/
-@[rust_loop_body]
-def table.summary_words_loop.body
-  (words : Std.Usize) (power : Std.Usize) (overflow : Bool) :
-  Result (ControlFlow (Std.Usize × Bool) (Std.Usize × Bool))
-  := do
-  if power < words
-  then
-    if overflow
-    then ok (done (power, true))
-    else
-      let o ← lift (Usize.checked_mul power 2#usize)
-      match o with
-      | none => ok (cont (power, true))
-      | some next => ok (cont (next, false))
-  else ok (done (power, overflow))
-
-/-- [apeiron_word::table::summary_words]: loop 0:
-    Source: '../../src/table/state.rs', lines 58:4-63:5 -/
-@[rust_loop]
-def table.summary_words_loop
-  (words : Std.Usize) (power : Std.Usize) (overflow : Bool) :
-  Result (Std.Usize × Bool)
-  := do
-  loop
-    (fun (power1, overflow1) => table.summary_words_loop.body words power1
-      overflow1)
-    (power, overflow)
-
-/-- [apeiron_word::table::summary_words]:
-    Source: '../../src/table/state.rs', lines 39:0-72:1 -/
-def table.summary_words
-  (slots : Std.Usize) :
-  Result (core.result.Result Std.Usize table.StorageError)
-  := do
-  if slots = 0#usize
-  then ok (core.result.Result.Ok 0#usize)
-  else
-    let o ← lift (Usize.checked_mul slots table.SUMMARY_BITS_PER_SLOT)
-    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let bits ←
-        core.cmp.Ord.max.default core.cmp.OrdUsize val table.SUMMARY_MIN_BITS
-      let words ← bits / 64#usize
-      let i ← bits % 64#usize
-      let words1 ← if i != 0#usize
-                     then words + 1#usize
-                     else ok words
-      let words2 ← if words1 = 0#usize
-                     then ok 1#usize
-                     else ok words1
-      let (words3, overflow) ← table.summary_words_loop words2 1#usize false
-      if overflow
-      then ok (core.result.Result.Err table.StorageError.SizeOverflow)
-      else
-        let i1 ← table.summary_trailing_zeros words3
-        let i2 ← i1 + 6#u32
-        if i2 >= core.num.U64.BITS
-        then ok (core.result.Result.Err table.StorageError.SizeOverflow)
-        else ok (core.result.Result.Ok words3)
+      let capacity ← core.cmp.Ord.max.default core.cmp.OrdUsize n 2#usize
+      table.slots_for_loop val capacity
     | core.ops.control_flow.ControlFlow.Break residual =>
       core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
         Std.Usize (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::resources::try_reserve_exact::{closure}]
-    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 200:17-200:51 -/
 @[reducible]
 def table.resources.try_reserve_exact.closure (T : Type) := Unit
 
 /-- [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}::call_once]:
-    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 200:17-200:51 -/
 def
   table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
   {T : Type} (c : table.resources.try_reserve_exact.closure T)
@@ -19163,7 +19249,7 @@ def
   ok table.StorageError.AllocationFailed
 
 /-- Trait implementation: [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}]
-    Source: '../../src/table/resources.rs', lines 204:17-204:51 -/
+    Source: '../../src/table/resources.rs', lines 200:17-200:51 -/
 @[reducible]
 def
   table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
@@ -19175,7 +19261,7 @@ def
 }
 
 /-- [apeiron_word::table::resources::try_reserve_exact]:
-    Source: '../../src/table/resources.rs', lines 198:0-205:1 -/
+    Source: '../../src/table/resources.rs', lines 194:0-201:1 -/
 def table.resources.try_reserve_exact
   {T : Type} (items : alloc.vec.Vec T) (additional : Std.Usize) :
   Result ((core.result.Result Unit table.StorageError) × (alloc.vec.Vec T))
@@ -19188,61 +19274,27 @@ def table.resources.try_reserve_exact
   ok (r1, items1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::reserve_empty]:
-    Source: '../../src/table/state.rs', lines 210:4-227:5 -/
+    Source: '../../src/table/state.rs', lines 163:4-167:5 -/
 def table.Region.reserve_empty
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
-  (corecloneCloneInst1 : core.clone.Clone V) (n : Std.Usize) :
+  (corecloneCloneInst1 : core.clone.Clone V) (capacity : Std.Usize) :
   Result (core.result.Result (table.Region R V) table.StorageError)
   := do
-  let r ← table.summary_words n
+  let (r, slots) ←
+    table.resources.try_reserve_exact (alloc.vec.Vec.new (table.SpillSlot R V))
+      capacity
   let cf ← core.result.Result.Insts.CoreOpsTry.branch r
   match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let (r1, tags) ←
-      table.resources.try_reserve_exact (alloc.vec.Vec.new Std.U8) n
-    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue _ =>
-      let (r2, slots) ←
-        table.resources.try_reserve_exact (alloc.vec.Vec.new (cell.Sigma × R
-          × V)) n
-      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-      match cf2 with
-      | core.ops.control_flow.ControlFlow.Continue _ =>
-        let (r3, summary) ←
-          table.resources.try_reserve_exact (alloc.vec.Vec.new Std.U64) val
-        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-        match cf3 with
-        | core.ops.control_flow.ControlFlow.Continue _ =>
-          let tags1 ← alloc.vec.Vec.resize core.clone.CloneU8 tags n 0#u8
-          let summary1 ←
-            alloc.vec.Vec.resize core.clone.CloneU64 summary val 0#u64
-          ok (core.result.Result.Ok
-            { tags := tags1, slots, summary := summary1 })
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            (table.Region R V) (core.convert.FromSame table.StorageError)
-            residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          (table.Region R V) (core.convert.FromSame table.StorageError)
-          residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        (table.Region R V) (core.convert.FromSame table.StorageError) residual
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    ok (core.result.Result.Ok { slots, live := 0#usize })
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       (table.Region R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::empty]:
-    Source: '../../src/table/state.rs', lines 120:4-126:5 -/
+    Source: '../../src/table/state.rs', lines 100:4-105:5 -/
 def table.Region.empty (R : Type) (V : Type) : Result (table.Region R V) := do
-  ok
-    {
-      tags := (alloc.vec.Vec.new Std.U8),
-      slots := (alloc.vec.Vec.new (cell.Sigma × R × V)),
-      summary := (alloc.vec.Vec.new Std.U64)
-    }
+  ok { slots := (alloc.vec.Vec.new (table.SpillSlot R V)), live := 0#usize }
 
 /-- [apeiron_word::table::reserve_plan_regions]: loop body 0:
     Source: '../../src/table/prepared.rs', lines 18:4-33:5 -/
@@ -19330,52 +19382,55 @@ def table.reserve_plan_regions
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 0:
-    Source: '../../src/table/state.rs', lines 230:8-232:9 -/
+    Source: '../../src/table/state.rs', lines 174:8-181:9 -/
 @[rust_loop_body]
 def table.Region.initialize_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (sigma : cell.Sigma) (held : R)
-  (default : V) (self : table.Region R V) :
-  Result (ControlFlow (table.Region R V) ((alloc.vec.Vec Std.U8) ×
-    (alloc.vec.Vec (cell.Sigma × R × V)) × (alloc.vec.Vec Std.U64)))
+  (default : V) (capacity : Std.Usize)
+  (v : alloc.vec.Vec (table.SpillSlot R V)) :
+  Result (ControlFlow (alloc.vec.Vec (table.SpillSlot R V)) (alloc.vec.Vec
+    (table.SpillSlot R V)))
   := do
-  let i := alloc.vec.Vec.len self.slots
-  let i1 := alloc.vec.Vec.len self.tags
-  if i < i1
+  let i := alloc.vec.Vec.len v
+  if i < capacity
   then
     let t ← corecloneCloneInst.clone held
     let t1 ← corecloneCloneInst1.clone default
-    let v ← alloc.vec.Vec.push self.slots (sigma, t, t1)
-    ok (cont { self with slots := v })
-  else ok (done (self.tags, self.slots, self.summary))
+    let v1 ←
+      alloc.vec.Vec.push v ({ tag := 0#u8, sigma, held := t, value := t1 } :
+        table.SpillSlot R V)
+    ok (cont v1)
+  else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop 0:
-    Source: '../../src/table/state.rs', lines 230:8-232:9 -/
+    Source: '../../src/table/state.rs', lines 174:8-181:9 -/
 @[rust_loop]
 def table.Region.initialize_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
-  (corecloneCloneInst1 : core.clone.Clone V) (self : table.Region R V)
-  (sigma : cell.Sigma) (held : R) (default : V) :
-  Result ((alloc.vec.Vec Std.U8) × (alloc.vec.Vec (cell.Sigma × R × V)) ×
-    (alloc.vec.Vec Std.U64))
+  (corecloneCloneInst1 : core.clone.Clone V)
+  (v : alloc.vec.Vec (table.SpillSlot R V)) (sigma : cell.Sigma) (held : R)
+  (default : V) (capacity : Std.Usize) :
+  Result (alloc.vec.Vec (table.SpillSlot R V))
   := do
   loop
-    (fun self1 => table.Region.initialize_loop.body corecloneCloneInst
-      corecloneCloneInst1 sigma held default self1)
-    self
+    (fun v1 => table.Region.initialize_loop.body corecloneCloneInst
+      corecloneCloneInst1 sigma held default capacity v1)
+    v
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]:
-    Source: '../../src/table/state.rs', lines 229:4-233:5 -/
+    Source: '../../src/table/state.rs', lines 172:4-182:5 -/
 def table.Region.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Region R V)
   (sigma : cell.Sigma) (held : R) (default : V) :
   Result (table.Region R V)
   := do
-  let (v, v1, v2) ←
-    table.Region.initialize_loop corecloneCloneInst corecloneCloneInst1 self
-      sigma held default
-  ok { tags := v, slots := v1, summary := v2 }
+  let capacity ← alloc.vec.Vec.capacity Global self.slots
+  let v ←
+    table.Region.initialize_loop corecloneCloneInst corecloneCloneInst1
+      self.slots sigma held default capacity
+  ok { self with slots := v }
 
 /-- [apeiron_word::table::initialize_reserved_regions]: loop body 0:
     Source: '../../src/table/prepared.rs', lines 52:4-55:5 -/
@@ -19464,87 +19519,61 @@ def table.account_spill_load
   then ok (none, spill_loads)
   else table.increment_spill_load spill_loads spill
 
-/-- [apeiron_word::table::WINDOWS]
-    Source: '../../src/table.rs', lines 86:0-86:25 -/
-@[global_simps, irreducible] def table.WINDOWS : Std.Usize := 7#usize
-
-/-- [apeiron_word::table::WINDOW_MASK]
-    Source: '../../src/table.rs', lines 85:0-85:30 -/
-@[global_simps, irreducible] def table.WINDOW_MASK : Std.U64 := 127#u64
-
-/-- [apeiron_word::table::DESCENT_MASK]
-    Source: '../../src/table.rs', lines 84:0-84:40 -/
-@[global_simps, irreducible]
-def table.DESCENT_MASK : Result Std.U64 := do
-  let i ← 1#u64 <<< 49#i32
-  i - 1#u64
-
-/-- [apeiron_word::table::group]:
-    Source: '../../src/table/state.rs', lines 379:0-386:1 -/
-def table.group
-  (place : Std.U64) (step : Std.Usize) (mask : Std.Usize) :
-  Result Std.Usize
-  := do
-  let i ← place >>> 8#i32
-  let i1 ← table.DESCENT_MASK
-  let d ← lift (i &&& i1)
-  if step < table.WINDOWS
-  then
-    let i2 ← step + 1#usize
-    let i3 ← 7#usize * i2
-    let i4 ← 49#usize - i3
-    let i5 ← d >>> i4
-    let i6 ← lift (i5 &&& table.WINDOW_MASK)
-    let i7 ← lift (UScalar.cast .Usize i6)
-    ok (i7 &&& mask)
-  else
-    let i2 ← lift (UScalar.cast .Usize d)
-    let i3 ← lift (i2 &&& mask)
-    let i4 ← step - table.WINDOWS
-    let i5 ← i4 + 1#usize
-    let i6 ← lift (core.num.Usize.wrapping_add i3 i5)
-    ok (i6 &&& mask)
-
 /-- [apeiron_word::table::matches]:
-    Source: '../../src/table/state.rs', lines 341:0-348:1 -/
+    Source: '../../src/table/state.rs', lines 291:0-298:1 -/
 def table.matches
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (slot : (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (key : K) (address : table.TableAddress) :
+  table.keyrep.KeyRep R K H) (slot : table.SpillSlot R V) (sigma : cell.Sigma)
+  (key : K) (address : table.TableAddress) :
   Result Bool
   := do
-  let (s, t, _) := slot
-  let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq s sigma
+  let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq slot.sigma sigma
   if b
-  then keyrepKeyRepInst.«matches» sigma t key address
+  then keyrepKeyRepInst.«matches» sigma slot.held key address
   else ok false
 
+/-- [apeiron_word::table::TAG_FINGERPRINT_BITS]
+    Source: '../../src/table.rs', lines 72:0-72:36 -/
+@[global_simps, irreducible] def table.TAG_FINGERPRINT_BITS : Std.U32 := 7#u32
+
 /-- [apeiron_word::table::TAG_FINGERPRINT_MASK]
-    Source: '../../src/table.rs', lines 83:0-83:38 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_MASK : Std.U8 := 127#u8
+    Source: '../../src/table.rs', lines 94:0-94:65 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_MASK : Result Std.U8 := do
+  let i ← 1#u8 <<< table.TAG_FINGERPRINT_BITS
+  i - 1#u8
+
+/-- [apeiron_word::table::TAG_SPREAD]
+    Source: '../../src/table.rs', lines 92:0-92:42 -/
+@[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_SHIFT]
-    Source: '../../src/table.rs', lines 81:0-81:37 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_SHIFT : Std.U32 := 8#u32
+    Source: '../../src/table.rs', lines 87:0-87:61 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_SHIFT : Result Std.U32 :=
+  64#u32 - table.TAG_FINGERPRINT_BITS
 
 /-- [apeiron_word::table::TAG_LIVE]
-    Source: '../../src/table.rs', lines 72:0-72:26 -/
+    Source: '../../src/table.rs', lines 70:0-70:26 -/
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [apeiron_word::table::tag]:
-    Source: '../../src/table/state.rs', lines 337:0-339:1 -/
+    Source: '../../src/table/state.rs', lines 286:0-289:1 -/
 def table.tag (place : Std.U64) : Result Std.U8 := do
-  let i ← place >>> table.TAG_FINGERPRINT_SHIFT
-  let i1 ← lift (UScalar.cast .U8 i)
-  let i2 ← lift (i1 &&& table.TAG_FINGERPRINT_MASK)
-  ok (table.TAG_LIVE ||| i2)
+  let spread ← lift (core.num.U64.wrapping_mul place table.TAG_SPREAD)
+  let i ← table.TAG_FINGERPRINT_SHIFT
+  let i1 ← spread >>> i
+  let i2 ← lift (UScalar.cast .U8 i1)
+  let i3 ← table.TAG_FINGERPRINT_MASK
+  let i4 ← lift (i2 &&& i3)
+  ok (table.TAG_LIVE ||| i4)
 
 /-- [apeiron_word::table::MAX_GROUP]
-    Source: '../../src/table.rs', lines 70:0-70:28 -/
+    Source: '../../src/table.rs', lines 68:0-68:28 -/
 @[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
 
 /-- [apeiron_word::table::valid_n]:
-    Source: '../../src/table/state.rs', lines 317:0-319:1 -/
+    Source: '../../src/table/state.rs', lines 266:0-268:1 -/
 def table.valid_n (n : Std.Usize) : Result Bool := do
   if n != 0#usize
   then
@@ -19553,386 +19582,85 @@ def table.valid_n (n : Std.Usize) : Result Bool := do
     else ok false
   else ok false
 
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_index]:
-    Source: '../../src/table/state.rs', lines 149:4-165:5 -/
-def table.Region.summary_index
-  (R : Type) (V : Type) (place : Std.U64) (len_words : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  if len_words = 0#usize
-  then ok none
-  else
-    let b ← core.num.Usize.is_power_of_two len_words
-    if b
-    then
-      let i ← core.num.Usize.MAX >>> 6#i32
-      if len_words <= i
-      then
-        let i1 ← lift (UScalar.cast .U64 len_words)
-        let i2 ← i1 <<< 6#i32
-        let mask ← i2 - 1#u64
-        let i3 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-        let i4 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i4)
-        let i5 ← lift (mixed1 &&& mask)
-        let i6 ← lift (UScalar.cast .Usize i5)
-        ok (some i6)
-      else
-        let i1 ← table.summary_trailing_zeros len_words
-        let bits ← i1 + 6#u32
-        if bits >= core.num.U64.BITS
-        then ok none
-        else
-          let i2 ← 1#u64 <<< bits
-          let mask ← i2 - 1#u64
-          let i3 ← place >>> 8#i32
-          let mixed ←
-            lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-          let i4 ← mixed >>> 29#i32
-          let mixed1 ← lift (mixed ^^^ i4)
-          let i5 ← lift (mixed1 &&& mask)
-          let i6 ← lift (UScalar.cast .Usize i5)
-          ok (some i6)
-    else
-      let i ← table.summary_trailing_zeros len_words
-      let bits ← i + 6#u32
-      if bits >= core.num.U64.BITS
-      then ok none
-      else
-        let i1 ← 1#u64 <<< bits
-        let mask ← i1 - 1#u64
-        let i2 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i2 11400714819323198485#u64)
-        let i3 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i3)
-        let i4 ← lift (mixed1 &&& mask)
-        let i5 ← lift (UScalar.cast .Usize i4)
-        ok (some i5)
-
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_maybe]:
-    Source: '../../src/table/state.rs', lines 183:4-188:5 -/
-def table.Region.summary_maybe
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::home]:
+    Source: '../../src/table/state.rs', lines 125:4-129:5 -/
+def table.Region.home
   {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result Bool
+  Result Std.Usize
   := do
-  let i := alloc.vec.Vec.len self.summary
-  let o ← table.Region.summary_index R V place i
-  match o with
-  | none => ok true
-  | some index =>
-    let i1 ← index / 64#usize
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.summary i1
-    let i3 ← index % 64#usize
-    let i4 ← 1#u64 <<< i3
-    let i5 ← lift (i2 &&& i4)
-    ok (i5 != 0#u64)
+  let i ← place >>> 8#i32
+  let mixed ← lift (core.num.U64.wrapping_mul i 11400714819323198485#u64)
+  let i1 ← mixed >>> 29#i32
+  let mixed1 ← lift (mixed ^^^ i1)
+  let i2 ← lift (UScalar.cast .Usize mixed1)
+  let i3 := alloc.vec.Vec.len self.slots
+  let i4 ← i3 - 1#usize
+  ok (i2 &&& i4)
 
-/-- [apeiron_word::table::scan::least_set_lane]:
-    Source: '../../src/table/scan.rs', lines 138:0-168:1
-    Visibility: public -/
-def table.scan.least_set_lane (bits : Std.U64) : Result Std.Usize := do
-  if bits = 0#u64
-  then ok 64#usize
-  else
-    let i ← lift (bits &&& 4294967295#u64)
-    let (lane, rest) ←
-      if i = 0#u64
-      then
-        do
-        let rest1 ← bits >>> 32#i32
-        let lane1 ← 0#usize + 32#usize
-        ok (lane1, rest1)
-      else ok (0#usize, bits)
-    let i1 ← lift (rest &&& 65535#u64)
-    let (lane1, rest1) ←
-      if i1 = 0#u64
-      then
-        do
-        let rest2 ← rest >>> 16#i32
-        let lane2 ← lane + 16#usize
-        ok (lane2, rest2)
-      else ok (lane, rest)
-    let i2 ← lift (rest1 &&& 255#u64)
-    let (lane2, rest2) ←
-      if i2 = 0#u64
-      then
-        do
-        let rest3 ← rest1 >>> 8#i32
-        let lane3 ← lane1 + 8#usize
-        ok (lane3, rest3)
-      else ok (lane1, rest1)
-    let i3 ← lift (rest2 &&& 15#u64)
-    let (lane3, rest3) ←
-      if i3 = 0#u64
-      then
-        do
-        let rest4 ← rest2 >>> 4#i32
-        let lane4 ← lane2 + 4#usize
-        ok (lane4, rest4)
-      else ok (lane2, rest2)
-    let i4 ← lift (rest3 &&& 3#u64)
-    let (lane4, rest4) ←
-      if i4 = 0#u64
-      then
-        do
-        let rest5 ← rest3 >>> 2#i32
-        let lane5 ← lane3 + 2#usize
-        ok (lane5, rest5)
-      else ok (lane3, rest3)
-    let i5 ← lift (rest4 &&& 1#u64)
-    if i5 = 0#u64
-    then lane4 + 1#usize
-    else ok lane4
-
-/-- [apeiron_word::table::scan::LANES_PER_WORD]
-    Source: '../../src/table/scan.rs', lines 14:0-14:36
-    Visibility: public -/
-@[global_simps, irreducible]
-def table.scan.LANES_PER_WORD : Std.Usize := 8#usize
-
-/-- [apeiron_word::table::scan::word_at]:
-    Source: '../../src/table/scan.rs', lines 64:0-68:1 -/
-def table.scan.word_at
-  (line : Slice Std.U8) (off : Std.Usize) : Result Std.U64 := do
-  let buf := Array.repeat 8#usize 0#u8
-  let (s, to_slice_mut_back) ← lift (Array.to_slice_mut buf)
-  let i ← off + table.scan.LANES_PER_WORD
-  let s1 ←
-    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
-      Std.U8) line { start := off, «end» := i }
-  let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
-  let buf1 := to_slice_mut_back s2
-  ok (core.num.U64.from_le_bytes buf1)
-
-/-- [apeiron_word::table::scan::GATHER]
-    Source: '../../src/table/scan.rs', lines 26:0-26:42 -/
-@[global_simps, irreducible]
-def table.scan.GATHER : Std.U64 := 567382630219905#u64
-
-/-- [apeiron_word::table::scan::gather]:
-    Source: '../../src/table/scan.rs', lines 55:0-57:1 -/
-def table.scan.gather (marked : Std.U64) : Result Std.U8 := do
-  let i ← lift (core.num.U64.wrapping_mul marked table.scan.GATHER)
-  let i1 ← i >>> 56#i32
-  ok (UScalar.cast .U8 i1)
-
-/-- [apeiron_word::table::scan::HI]
-    Source: '../../src/table/scan.rs', lines 19:0-19:38 -/
-@[global_simps, irreducible]
-def table.scan.HI : Std.U64 := 9259542123273814144#u64
-
-/-- [apeiron_word::table::scan::LO]
-    Source: '../../src/table/scan.rs', lines 17:0-17:38 -/
-@[global_simps, irreducible]
-def table.scan.LO : Std.U64 := 72340172838076673#u64
-
-/-- [apeiron_word::table::scan::eq_swar]:
-    Source: '../../src/table/scan.rs', lines 35:0-38:1 -/
-def table.scan.eq_swar (word : Std.U64) (byte : Std.U8) : Result Std.U64 := do
-  let i ← lift (UScalar.cast .U64 byte)
-  let i1 ← lift (core.num.U64.wrapping_mul table.scan.LO i)
-  let x ← lift (word ^^^ i1)
-  let i2 ← lift (x ||| table.scan.HI)
-  let i3 ← lift (core.num.U64.wrapping_sub i2 table.scan.LO)
-  let i4 ← lift (x ||| i3)
-  let i5 ← lift (~~~ i4)
-  ok (i5 &&& table.scan.HI)
-
-/-- [apeiron_word::table::scan::match_tag]: loop body 0:
-    Source: '../../src/table/scan.rs', lines 81:4-86:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_tag_loop0.body
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) (Std.U64 × Std.Usize
-    × Std.U32))
-  := do
-  let i ← off + table.scan.LANES_PER_WORD
-  let i1 := Slice.len line
-  if i <= i1
-  then
-    let i2 ← base + 8#u32
-    if i2 <= 64#u32
-    then
-      let word ← table.scan.word_at line off
-      let i3 ← table.scan.eq_swar word tag
-      let i4 ← table.scan.gather i3
-      let i5 ← lift (core.convert.num.FromU64U8.from i4)
-      let i6 ← i5 <<< base
-      let mask1 ← lift (mask ||| i6)
-      ok (cont (mask1, i, i2))
-    else ok (done (mask, off, base))
-  else ok (done (mask, off, base))
-
-/-- [apeiron_word::table::scan::match_tag]: loop 0:
-    Source: '../../src/table/scan.rs', lines 81:4-86:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_tag_loop0
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (Std.U64 × Std.Usize × Std.U32)
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_tag_loop0.body line tag mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [apeiron_word::table::scan::match_tag]: loop body 1:
-    Source: '../../src/table/scan.rs', lines 87:4-93:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_tag_loop1.body
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) Std.U64)
-  := do
-  let i := Slice.len line
-  if off < i
-  then
-    if base < 64#u32
-    then
-      let i1 ← Slice.index_usize line off
-      let mask1 ←
-        if i1 = tag
-        then do
-             let i2 ← 1#u64 <<< base
-             ok (mask ||| i2)
-        else ok mask
-      let off1 ← off + 1#usize
-      let base1 ← base + 1#u32
-      ok (cont (mask1, off1, base1))
-    else ok (done mask)
-  else ok (done mask)
-
-/-- [apeiron_word::table::scan::match_tag]: loop 1:
-    Source: '../../src/table/scan.rs', lines 87:4-93:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_tag_loop1
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result Std.U64
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_tag_loop1.body line tag mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [apeiron_word::table::scan::match_tag]:
-    Source: '../../src/table/scan.rs', lines 77:0-95:1
-    Visibility: public -/
-def table.scan.match_tag
-  (line : Slice Std.U8) (tag : Std.U8) : Result Std.U64 := do
-  let (mask, off, base) ←
-    table.scan.match_tag_loop0 line tag 0#u64 0#usize 0#u32
-  table.scan.match_tag_loop1 line tag mask off base
-
-/-- [apeiron_word::table::probe::spill_read]: loop body 1:
-    Source: '../../src/table/probe.rs', lines 238:20-247:21 -/
-@[rust_loop_body]
-def table.probe.spill_read_loop0_loop0.body
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K)
-  (base : Std.Usize) (hit : Option Std.Usize) (hits : Std.U64) :
-  Result (ControlFlow ((Option Std.Usize) × Std.U64) (Option Std.Usize))
-  := do
-  if hits != 0#u64
-  then
-    let b := core.option.Option.is_none hit
-    if b
-    then
-      let lane ← table.scan.least_set_lane hits
-      let slot ← base + lane
-      let t ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) v slot
-      let b1 ←
-        table.matches keyrepKeyRepInst t sigma key
-          { place := i, direct_word := o }
-      let hit1 ← if b1
-                   then ok (some slot)
-                   else ok hit
-      let i1 ← hits - 1#u64
-      let hits1 ← lift (hits &&& i1)
-      ok (cont (hit1, hits1))
-    else ok (done hit)
-  else ok (done hit)
-
-/-- [apeiron_word::table::probe::spill_read]: loop 1:
-    Source: '../../src/table/probe.rs', lines 238:20-247:21 -/
-@[rust_loop]
-def table.probe.spill_read_loop0_loop0
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K)
-  (hit : Option Std.Usize) (base : Std.Usize) (hits : Std.U64) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun (hit1, hits1) => table.probe.spill_read_loop0_loop0.body
-      keyrepKeyRepInst v sigma i o key base hit1 hits1)
-    (hit, hits)
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::bound]:
+    Source: '../../src/table/state.rs', lines 112:4-114:5 -/
+def table.Region.bound
+  {R : Type} {V : Type} (self : table.Region R V) : Result Std.Usize := do
+  ok (alloc.vec.Vec.len self.slots)
 
 /-- [apeiron_word::table::probe::spill_read]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 229:16-249:17 -/
+    Source: '../../src/table/probe.rs', lines 262:8-289:9 -/
 @[rust_loop_body]
-def table.probe.spill_read_loop0.body
+def table.probe.spill_read_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (n : Std.Usize)
-  (groups : Std.Usize) (mask : Std.Usize) (wanted : Std.U8)
+  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (table.SpillSlot R V))
+  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K)
+  (bound : Std.Usize) (mask : Std.Usize) (home : Std.Usize) (wanted : Std.U8)
   (hit : Option Std.Usize) (step : Std.Usize) :
   Result (ControlFlow ((Option Std.Usize) × Std.Usize) (Option Std.Usize))
   := do
-  let i1 ← table.WINDOWS + groups
-  if step < i1
+  if step < bound
   then
     let b := core.option.Option.is_none hit
     if b
     then
-      let i2 ← table.group i step mask
-      let base ← i2 * n
-      let i3 ← base + n
-      let s ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)
-          v { start := base, «end» := i3 }
-      let hits ← table.scan.match_tag s wanted
-      let hit1 ←
-        table.probe.spill_read_loop0_loop0 keyrepKeyRepInst v1 sigma i o key
-          hit base hits
-      let step1 ← step + 1#usize
-      ok (cont (hit1, step1))
+      let i1 ← home + step
+      let slot ← lift (i1 &&& mask)
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) v slot
+      if ss.tag = 0#u8
+      then ok (cont (hit, bound))
+      else
+        let hit1 ←
+          if ss.tag = wanted
+          then
+            do
+            let b1 ←
+              table.matches keyrepKeyRepInst ss sigma key
+                { place := i, direct_word := o }
+            if b1
+            then ok (some slot)
+            else ok hit
+          else ok hit
+        let step1 ← step + 1#usize
+        ok (cont (hit1, step1))
     else ok (done hit)
   else ok (done hit)
 
 /-- [apeiron_word::table::probe::spill_read]: loop 0:
-    Source: '../../src/table/probe.rs', lines 229:16-249:17 -/
+    Source: '../../src/table/probe.rs', lines 262:8-289:9 -/
 @[rust_loop]
-def table.probe.spill_read_loop0
+def table.probe.spill_read_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (n : Std.Usize)
-  (hit : Option Std.Usize) (groups : Std.Usize) (mask : Std.Usize)
-  (wanted : Std.U8) (step : Std.Usize) :
+  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (table.SpillSlot R V))
+  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K)
+  (hit : Option Std.Usize) (bound : Std.Usize) (mask : Std.Usize)
+  (home : Std.Usize) (wanted : Std.U8) (step : Std.Usize) :
   Result (Option Std.Usize)
   := do
   loop
-    (fun (hit1, step1) => table.probe.spill_read_loop0.body keyrepKeyRepInst v
-      v1 sigma i o key n groups mask wanted hit1 step1)
+    (fun (hit1, step1) => table.probe.spill_read_loop.body keyrepKeyRepInst v
+      sigma i o key bound mask home wanted hit1 step1)
     (hit, step)
 
 /-- [apeiron_word::table::probe::spill_read]:
-    Source: '../../src/table/probe.rs', lines 212:0-259:1 -/
+    Source: '../../src/table/probe.rs', lines 246:0-297:1 -/
 def table.probe.spill_read
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -19945,29 +19673,18 @@ def table.probe.spill_read
     let b ← table.valid_n n
     if b
     then
-      let i1 := alloc.vec.Vec.len r.slots
-      let groups ← i1 / n
-      if groups >= 2#usize
-      then
-        let i2 ← groups * n
-        let i3 := alloc.vec.Vec.len r.slots
-        if i2 = i3
-        then
-          let b1 ← core.num.Usize.is_power_of_two groups
-          if b1
-          then
-            let b2 ← table.Region.summary_maybe r address.place
-            if b2
-            then
-              let mask ← groups - 1#usize
-              let wanted ← table.tag address.place
-              table.probe.spill_read_loop0 keyrepKeyRepInst r.tags r.slots
-                sigma address.place address.direct_word key n none groups mask
-                wanted 0#usize
-            else ok none
-          else ok none
-        else ok none
-      else ok none
+      let bound ← table.Region.bound r
+      let mask ← bound - 1#usize
+      let home ← table.Region.home r address.place
+      let wanted ← table.tag address.place
+      let hit ←
+        table.probe.spill_read_loop keyrepKeyRepInst r.slots sigma
+          address.place address.direct_word key none bound mask home wanted
+          0#usize
+      let b1 := core.option.Option.is_none hit
+      if b1
+      then ok hit
+      else ok hit
     else ok none
   else ok none
 
@@ -19986,368 +19703,121 @@ def table.get_prepared_shard
   match o with
   | none => ok none
   | some index =>
-    let (_, _, t) ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma ×
-        R × V)) region.slots index
-    ok (some t)
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) region.slots index
+    ok (some ss.value)
 
 /-- Trait declaration: [apeiron_word::table::Merge]
-    Source: '../../src/table.rs', lines 134:0-137:1
+    Source: '../../src/table.rs', lines 142:0-145:1
     Visibility: public -/
 structure table.Merge (Self : Type) (V : Type) where
   merge : Self → V → V → Result V
 
 /-- [apeiron_word::table::SpillSite]
-    Source: '../../src/table/state.rs', lines 237:0-241:1 -/
+    Source: '../../src/table/state.rs', lines 186:0-190:1 -/
 @[discriminant isize]
 inductive table.SpillSite where
 | Found : Std.Usize → table.SpillSite
 | Vacant : Std.Usize → table.SpillSite
 | Grow : table.SpillSite
 
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::summary_set]:
-    Source: '../../src/table/state.rs', lines 169:4-174:5 -/
-def table.Region.summary_set
-  {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result (table.Region R V)
-  := do
-  let i := alloc.vec.Vec.len self.summary
-  let o ← table.Region.summary_index R V place i
-  match o with
-  | none => ok self
-  | some index =>
-    let i1 ← index % 64#usize
-    let i2 ← 1#u64 <<< i1
-    let i3 ← index / 64#usize
-    let (i4, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.summary i3
-    let i5 ← lift (i4 ||| i2)
-    let v := index_mut_back i5
-    ok { self with summary := v }
-
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::publish_live]:
-    Source: '../../src/table/state.rs', lines 197:4-207:5 -/
+    Source: '../../src/table/state.rs', lines 137:4-147:5 -/
 def table.Region.publish_live
   {R : Type} {V : Type} (self : table.Region R V) (index : Std.Usize)
   (payload : (cell.Sigma × R × V)) (place : Std.U64) :
   Result (table.Region R V)
   := do
-  let (_, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-      × R × V)) self.slots index
-  let v := index_mut_back payload
-  let self1 ← table.Region.summary_set { self with slots := v } place
+  let (s, t, t1) := payload
+  let (ss, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) self.slots index
+  let v := index_mut_back { ss with sigma := s }
+  let (ss1, index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v index
+  let v1 := index_mut_back1 { ss1 with held := t }
+  let (ss2, index_mut_back2) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v1 index
   let i ← table.tag place
-  let (_, index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
-      self1.tags index
-  let v1 := index_mut_back1 i
-  ok { self1 with tags := v1 }
-
-/-- [apeiron_word::table::least_set_lane]: loop body 0:
-    Source: '../../src/table/state.rs', lines 392:4-394:5 -/
-@[rust_loop_body]
-def table.least_set_lane_loop.body
-  (bits : Std.U64) (lane : Std.Usize) :
-  Result (ControlFlow Std.Usize Std.Usize)
-  := do
-  let i ← lift (UScalar.cast .Usize core.num.U64.BITS)
-  if lane < i
-  then
-    let i1 ← bits >>> lane
-    let i2 ← lift (i1 &&& 1#u64)
-    if i2 = 0#u64
-    then let lane1 ← lane + 1#usize
-         ok (cont lane1)
-    else ok (done lane)
-  else ok (done lane)
-
-/-- [apeiron_word::table::least_set_lane]: loop 0:
-    Source: '../../src/table/state.rs', lines 392:4-394:5 -/
-@[rust_loop]
-def table.least_set_lane_loop
-  (bits : Std.U64) (lane : Std.Usize) : Result Std.Usize := do
-  loop
-    (fun lane1 => table.least_set_lane_loop.body bits lane1)
-    lane
-
-/-- [apeiron_word::table::least_set_lane]:
-    Source: '../../src/table/state.rs', lines 390:0-396:1 -/
-@[reducible]
-def table.least_set_lane (bits : Std.U64) : Result Std.Usize := do
-  table.least_set_lane_loop bits 0#usize
-
-/-- [apeiron_word::table::scan::zero_swar]:
-    Source: '../../src/table/scan.rs', lines 44:0-46:1 -/
-def table.scan.zero_swar (word : Std.U64) : Result Std.U64 := do
-  let i ← lift (word ||| table.scan.HI)
-  let i1 ← lift (core.num.U64.wrapping_sub i table.scan.LO)
-  let i2 ← lift (word ||| i1)
-  let i3 ← lift (~~~ i2)
-  ok (i3 &&& table.scan.HI)
-
-/-- [apeiron_word::table::scan::match_empty]: loop body 0:
-    Source: '../../src/table/scan.rs', lines 107:4-112:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_empty_loop0.body
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) (Std.U64 × Std.Usize
-    × Std.U32))
-  := do
-  let i ← off + table.scan.LANES_PER_WORD
-  let i1 := Slice.len line
-  if i <= i1
-  then
-    let i2 ← base + 8#u32
-    if i2 <= 64#u32
-    then
-      let word ← table.scan.word_at line off
-      let i3 ← table.scan.zero_swar word
-      let i4 ← table.scan.gather i3
-      let i5 ← lift (core.convert.num.FromU64U8.from i4)
-      let i6 ← i5 <<< base
-      let mask1 ← lift (mask ||| i6)
-      ok (cont (mask1, i, i2))
-    else ok (done (mask, off, base))
-  else ok (done (mask, off, base))
-
-/-- [apeiron_word::table::scan::match_empty]: loop 0:
-    Source: '../../src/table/scan.rs', lines 107:4-112:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_empty_loop0
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (Std.U64 × Std.Usize × Std.U32)
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_empty_loop0.body line mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [apeiron_word::table::scan::match_empty]: loop body 1:
-    Source: '../../src/table/scan.rs', lines 113:4-119:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_empty_loop1.body
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) Std.U64)
-  := do
-  let i := Slice.len line
-  if off < i
-  then
-    if base < 64#u32
-    then
-      let i1 ← Slice.index_usize line off
-      let mask1 ←
-        if i1 = 0#u8
-        then do
-             let i2 ← 1#u64 <<< base
-             ok (mask ||| i2)
-        else ok mask
-      let off1 ← off + 1#usize
-      let base1 ← base + 1#u32
-      ok (cont (mask1, off1, base1))
-    else ok (done mask)
-  else ok (done mask)
-
-/-- [apeiron_word::table::scan::match_empty]: loop 1:
-    Source: '../../src/table/scan.rs', lines 113:4-119:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_empty_loop1
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result Std.U64
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_empty_loop1.body line mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [apeiron_word::table::scan::match_empty]:
-    Source: '../../src/table/scan.rs', lines 103:0-121:1
-    Visibility: public -/
-def table.scan.match_empty (line : Slice Std.U8) : Result Std.U64 := do
-  let (mask, off, base) ←
-    table.scan.match_empty_loop0 line 0#u64 0#usize 0#u32
-  table.scan.match_empty_loop1 line mask off base
-
-/-- [apeiron_word::table::probe::spill_locate]: loop body 1:
-    Source: '../../src/table/probe.rs', lines 42:20-50:21 -/
-@[rust_loop_body]
-def table.probe.spill_locate_loop0_loop0.body
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K)
-  (base : Std.Usize) (b : Bool) (i1 : Std.Usize) (hits : Std.U64) :
-  Result (ControlFlow (Bool × Std.Usize × Std.U64) (Bool × Std.Usize))
-  := do
-  if hits != 0#u64
-  then
-    if b
-    then ok (done (true, i1))
-    else
-      let lane ← table.least_set_lane hits
-      let slot ← base + lane
-      let t ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) v slot
-      let matched ←
-        table.matches keyrepKeyRepInst t sigma key
-          { place := i, direct_word := o }
-      let i2 ← if matched
-                 then ok slot
-                 else ok i1
-      let i3 ← hits - 1#u64
-      let hits1 ← lift (hits &&& i3)
-      ok (cont (matched, i2, hits1))
-  else ok (done (b, i1))
-
-/-- [apeiron_word::table::probe::spill_locate]: loop 1:
-    Source: '../../src/table/probe.rs', lines 42:20-50:21 -/
-@[rust_loop]
-def table.probe.spill_locate_loop0_loop0
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (i : Std.U64) (o : Option Std.U32) (key : K) (b : Bool)
-  (i1 : Std.Usize) (base : Std.Usize) (hits : Std.U64) :
-  Result (Bool × Std.Usize)
-  := do
-  loop
-    (fun (b1, i2, hits1) => table.probe.spill_locate_loop0_loop0.body
-      keyrepKeyRepInst v sigma i o key base b1 i2 hits1)
-    (b, i1, hits)
+  let v2 := index_mut_back2 { ss2 with value := t1 }
+  let (ss3, index_mut_back3) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v2 index
+  let i1 ← self.live + 1#usize
+  let v3 := index_mut_back3 { ss3 with tag := i }
+  ok { slots := v3, live := i1 }
 
 /-- [apeiron_word::table::probe::spill_locate]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 38:12-59:13 -/
+    Source: '../../src/table/probe.rs', lines 40:4-56:1 -/
 @[rust_loop_body]
-def table.probe.spill_locate_loop0.body
+def table.probe.spill_locate_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (n : Std.Usize)
-  (groups : Std.Usize) (mask : Std.Usize) (wanted : Std.U8) (b : Bool)
-  (i1 : Std.Usize) (b1 : Bool) (i2 : Std.Usize) (may_match : Bool)
-  (step : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize × Bool × Std.Usize × Bool ×
-    Std.Usize) (Bool × Std.Usize × Bool × Std.Usize))
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (i : Std.U64) (o : Option Std.U32) (key : K) (bound : Std.Usize)
+  (home : Std.Usize) (wanted : Std.U8) (step : Std.Usize) :
+  Result (ControlFlow Std.Usize table.SpillSite)
   := do
-  let i3 ← table.WINDOWS + groups
-  if step < i3
+  if step < bound
   then
-    if b1
-    then ok (done (b, i1, true, i2))
+    let i1 ← home + step
+    let i2 ← bound - 1#usize
+    let slot ← lift (i1 &&& i2)
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) r.slots slot
+    if ss.tag = 0#u8
+    then ok (done (table.SpillSite.Vacant slot))
     else
-      if may_match
+      if ss.tag = wanted
       then
-        let i4 ← table.group i step mask
-        let base ← i4 * n
-        let i5 ← base + n
-        let s ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-            Std.U8) v { start := base, «end» := i5 }
-        let hits ← table.scan.match_tag s wanted
-        let (b2, i6) ←
-          table.probe.spill_locate_loop0_loop0 keyrepKeyRepInst v1 sigma i o
-            key false i2 base hits
-        let (b3, i7) ←
-          if b
-          then ok (true, i1)
-          else
-            do
-            let i8 ← base + n
-            let s1 ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-                Std.U8) v { start := base, «end» := i8 }
-            let empty ← table.scan.match_empty s1
-            if empty != 0#u64
-            then
-              let i9 ← table.least_set_lane empty
-              let i10 ← base + i9
-              ok (true, i10)
-            else ok (false, i1)
-        let step1 ← step + 1#usize
-        ok (cont (b3, i7, b2, i6, true, step1))
-      else
+        let b ←
+          table.matches keyrepKeyRepInst ss sigma key
+            { place := i, direct_word := o }
         if b
-        then ok (done (true, i1, false, i2))
-        else
-          let i4 ← table.group i step mask
-          let base ← i4 * n
-          let i5 ← base + n
-          let s ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-              Std.U8) v { start := base, «end» := i5 }
-          let empty ← table.scan.match_empty s
-          let (b2, i6) ←
-            if empty != 0#u64
-            then
-              do
-              let i7 ← table.least_set_lane empty
-              let i8 ← base + i7
-              ok (true, i8)
-            else ok (false, i1)
-          let step1 ← step + 1#usize
-          ok (cont (b2, i6, false, i2, false, step1))
-  else ok (done (b, i1, b1, i2))
+        then ok (done (table.SpillSite.Found slot))
+        else let step1 ← step + 1#usize
+             ok (cont step1)
+      else let step1 ← step + 1#usize
+           ok (cont step1)
+  else ok (done table.SpillSite.Grow)
 
 /-- [apeiron_word::table::probe::spill_locate]: loop 0:
-    Source: '../../src/table/probe.rs', lines 38:12-59:13 -/
+    Source: '../../src/table/probe.rs', lines 40:4-56:1 -/
 @[rust_loop]
-def table.probe.spill_locate_loop0
+def table.probe.spill_locate_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (n : Std.Usize)
-  (groups : Std.Usize) (b : Bool) (i1 : Std.Usize) (b1 : Bool) (i2 : Std.Usize)
-  (mask : Std.Usize) (wanted : Std.U8) (may_match : Bool) (step : Std.Usize) :
-  Result (Bool × Std.Usize × Bool × Std.Usize)
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (i : Std.U64) (o : Option Std.U32) (key : K) (bound : Std.Usize)
+  (home : Std.Usize) (wanted : Std.U8) (step : Std.Usize) :
+  Result table.SpillSite
   := do
   loop
-    (fun (b2, i3, b3, i4, may_match1, step1) =>
-      table.probe.spill_locate_loop0.body keyrepKeyRepInst v v1 sigma i o key n
-      groups mask wanted b2 i3 b3 i4 may_match1 step1)
-    (b, i1, b1, i2, may_match, step)
+    (fun step1 => table.probe.spill_locate_loop.body keyrepKeyRepInst r sigma i
+      o key bound home wanted step1)
+    step
 
 /-- [apeiron_word::table::probe::spill_locate]:
-    Source: '../../src/table/probe.rs', lines 17:0-68:1 -/
+    Source: '../../src/table/probe.rs', lines 26:0-56:1 -/
 def table.probe.spill_locate
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
   (address : table.TableAddress) (key : K) (n : Std.Usize) :
   Result table.SpillSite
   := do
-  let i := alloc.vec.Vec.len r.slots
-  if i != 0#usize
+  let b ← table.valid_n n
+  if b
   then
-    let i1 := alloc.vec.Vec.len r.slots
-    let groups ← i1 / n
-    if groups >= 2#usize
-    then
-      let i2 ← groups * n
-      let i3 := alloc.vec.Vec.len r.slots
-      if i2 = i3
-      then
-        let b ← core.num.Usize.is_power_of_two groups
-        if b
-        then
-          let mask ← groups - 1#usize
-          let wanted ← table.tag address.place
-          let may_match ← table.Region.summary_maybe r address.place
-          let (b1, i4, b2, i5) ←
-            table.probe.spill_locate_loop0 keyrepKeyRepInst r.tags r.slots
-              sigma address.place address.direct_word key n groups false
-              0#usize false 0#usize mask wanted may_match 0#usize
-          if b2
-          then ok (table.SpillSite.Found i5)
-          else
-            if b1
-            then ok (table.SpillSite.Vacant i4)
-            else ok table.SpillSite.Grow
-        else ok table.SpillSite.Grow
-      else ok table.SpillSite.Grow
-    else ok table.SpillSite.Grow
+    let i ← table.Region.bound r
+    if i = 0#usize
+    then ok table.SpillSite.Grow
+    else
+      let home ← table.Region.home r address.place
+      let wanted ← table.tag address.place
+      table.probe.spill_locate_loop keyrepKeyRepInst r sigma address.place
+        address.direct_word key i home wanted 0#usize
   else ok table.SpillSite.Grow
 
 /-- [apeiron_word::table::apply_prepared_shard_placed]:
@@ -20369,15 +19839,15 @@ def table.apply_prepared_shard_placed
     table.probe.spill_locate keyrepKeyRepInst region sigma address key N
   match ss with
   | table.SpillSite.Found index =>
-    let (_, _, t) ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma ×
-        R × V)) region.slots index
-    let old ← corecloneCloneInst.clone t
-    let t1 ← MergeInst.merge merge value old
-    let ((s, t2, _), index_mut_back) ←
+    let ss1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) region.slots index
+    let old ← corecloneCloneInst.clone ss1.value
+    let t ← MergeInst.merge merge value old
+    let (ss2, index_mut_back) ←
       alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (cell.Sigma × R × V)) region.slots index
-    let v := index_mut_back (s, t2, t1)
+        (table.SpillSlot R V)) region.slots index
+    let v := index_mut_back { ss2 with value := t }
     ok (core.result.Result.Ok (false, index), { region with slots := v })
   | table.SpillSite.Vacant index =>
     let t ← keyrepKeyRepInst.hold sigma key address
@@ -20410,237 +19880,127 @@ def table.apply_prepared_shard
     ok (core.result.Result.Ok fresh, region1)
   | core.result.Result.Err error => ok (core.result.Result.Err error, region1)
 
-/-- [apeiron_word::table::probe::spill_locate_held]: loop body 1:
-    Source: '../../src/table/probe.rs', lines 286:20-295:21 -/
-@[rust_loop_body]
-def table.probe.spill_locate_held_loop0_loop0.body
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (carrier : R) (base : Std.Usize) (b : Bool)
-  (i : Std.Usize) (hits : Std.U64) :
-  Result (ControlFlow (Bool × Std.Usize × Std.U64) (Bool × Std.Usize))
-  := do
-  if hits != 0#u64
-  then
-    if b
-    then ok (done (true, i))
-    else
-      let lane ← table.least_set_lane hits
-      let slot ← base + lane
-      let (s, t, _) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) v slot
-      let b1 ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq s sigma
-      let (b2, i1) ←
-        if b1
-        then
-          do
-          let b3 ← keyrepKeyRepInst.matches_held sigma t carrier
-          let i2 ← if b3
-                     then ok slot
-                     else ok i
-          ok (b3, i2)
-        else ok (false, i)
-      let i2 ← hits - 1#u64
-      let hits1 ← lift (hits &&& i2)
-      ok (cont (b2, i1, hits1))
-  else ok (done (b, i))
-
-/-- [apeiron_word::table::probe::spill_locate_held]: loop 1:
-    Source: '../../src/table/probe.rs', lines 286:20-295:21 -/
-@[rust_loop]
-def table.probe.spill_locate_held_loop0_loop0
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (carrier : R) (b : Bool) (i : Std.Usize)
-  (base : Std.Usize) (hits : Std.U64) :
-  Result (Bool × Std.Usize)
-  := do
-  loop
-    (fun (b1, i1, hits1) => table.probe.spill_locate_held_loop0_loop0.body
-      keyrepKeyRepInst v sigma carrier base b1 i1 hits1)
-    (b, i, hits)
-
 /-- [apeiron_word::table::probe::spill_locate_held]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 282:12-304:13 -/
+    Source: '../../src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop_body]
-def table.probe.spill_locate_held_loop0.body
+def table.probe.spill_locate_held_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (carrier : R) (n : Std.Usize) (groups : Std.Usize)
-  (mask : Std.Usize) (wanted : Std.U8) (b : Bool) (i1 : Std.Usize) (b1 : Bool)
-  (i2 : Std.Usize) (may_match : Bool) (step : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize × Bool × Std.Usize × Bool ×
-    Std.Usize) (Bool × Std.Usize × Bool × Std.Usize))
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (carrier : R) (bound : Std.Usize) (home : Std.Usize) (wanted : Std.U8)
+  (step : Std.Usize) :
+  Result (ControlFlow Std.Usize table.SpillSite)
   := do
-  let i3 ← table.WINDOWS + groups
-  if step < i3
+  if step < bound
   then
-    if b1
-    then ok (done (b, i1, true, i2))
+    let i ← home + step
+    let i1 ← bound - 1#usize
+    let slot ← lift (i &&& i1)
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) r.slots slot
+    if ss.tag = 0#u8
+    then ok (done (table.SpillSite.Vacant slot))
     else
-      if may_match
+      if ss.tag = wanted
       then
-        let i4 ← table.group i step mask
-        let base ← i4 * n
-        let i5 ← base + n
-        let s ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-            Std.U8) v { start := base, «end» := i5 }
-        let hits ← table.scan.match_tag s wanted
-        let (b2, i6) ←
-          table.probe.spill_locate_held_loop0_loop0 keyrepKeyRepInst v1 sigma
-            carrier false i2 base hits
-        let (b3, i7) ←
-          if b
-          then ok (true, i1)
-          else
-            do
-            let i8 ← base + n
-            let s1 ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-                Std.U8) v { start := base, «end» := i8 }
-            let empty ← table.scan.match_empty s1
-            if empty != 0#u64
-            then
-              let i9 ← table.least_set_lane empty
-              let i10 ← base + i9
-              ok (true, i10)
-            else ok (false, i1)
-        let step1 ← step + 1#usize
-        ok (cont (b3, i7, b2, i6, true, step1))
-      else
+        let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq ss.sigma sigma
         if b
-        then ok (done (true, i1, false, i2))
-        else
-          let i4 ← table.group i step mask
-          let base ← i4 * n
-          let i5 ← base + n
-          let s ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-              Std.U8) v { start := base, «end» := i5 }
-          let empty ← table.scan.match_empty s
-          let (b2, i6) ←
-            if empty != 0#u64
-            then
-              do
-              let i7 ← table.least_set_lane empty
-              let i8 ← base + i7
-              ok (true, i8)
-            else ok (false, i1)
-          let step1 ← step + 1#usize
-          ok (cont (b2, i6, false, i2, false, step1))
-  else ok (done (b, i1, b1, i2))
+        then
+          let b1 ← keyrepKeyRepInst.matches_held sigma ss.held carrier
+          if b1
+          then ok (done (table.SpillSite.Found slot))
+          else let step1 ← step + 1#usize
+               ok (cont step1)
+        else let step1 ← step + 1#usize
+             ok (cont step1)
+      else let step1 ← step + 1#usize
+           ok (cont step1)
+  else ok (done table.SpillSite.Grow)
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop 0:
-    Source: '../../src/table/probe.rs', lines 282:12-304:13 -/
+    Source: '../../src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop]
-def table.probe.spill_locate_held_loop0
+def table.probe.spill_locate_held_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (carrier : R) (n : Std.Usize) (groups : Std.Usize) (b : Bool)
-  (i1 : Std.Usize) (b1 : Bool) (i2 : Std.Usize) (mask : Std.Usize)
-  (wanted : Std.U8) (may_match : Bool) (step : Std.Usize) :
-  Result (Bool × Std.Usize × Bool × Std.Usize)
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (carrier : R) (bound : Std.Usize) (home : Std.Usize) (wanted : Std.U8)
+  (step : Std.Usize) :
+  Result table.SpillSite
   := do
   loop
-    (fun (b2, i3, b3, i4, may_match1, step1) =>
-      table.probe.spill_locate_held_loop0.body keyrepKeyRepInst v v1 sigma i
-      carrier n groups mask wanted b2 i3 b3 i4 may_match1 step1)
-    (b, i1, b1, i2, may_match, step)
+    (fun step1 => table.probe.spill_locate_held_loop.body keyrepKeyRepInst r
+      sigma carrier bound home wanted step1)
+    step
 
 /-- [apeiron_word::table::probe::spill_locate_held]:
-    Source: '../../src/table/probe.rs', lines 265:0-313:1 -/
+    Source: '../../src/table/probe.rs', lines 62:0-91:1 -/
 def table.probe.spill_locate_held
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
   (address : table.TableAddress) (carrier : R) (n : Std.Usize) :
   Result table.SpillSite
   := do
-  let i := alloc.vec.Vec.len r.slots
-  if i != 0#usize
+  let b ← table.valid_n n
+  if b
   then
-    let i1 := alloc.vec.Vec.len r.slots
-    let groups ← i1 / n
-    if groups >= 2#usize
-    then
-      let i2 ← groups * n
-      let i3 := alloc.vec.Vec.len r.slots
-      if i2 = i3
-      then
-        let b ← core.num.Usize.is_power_of_two groups
-        if b
-        then
-          let mask ← groups - 1#usize
-          let wanted ← table.tag address.place
-          let may_match ← table.Region.summary_maybe r address.place
-          let (b1, i4, b2, i5) ←
-            table.probe.spill_locate_held_loop0 keyrepKeyRepInst r.tags
-              r.slots sigma address.place carrier n groups false 0#usize false
-              0#usize mask wanted may_match 0#usize
-          if b2
-          then ok (table.SpillSite.Found i5)
-          else
-            if b1
-            then ok (table.SpillSite.Vacant i4)
-            else ok table.SpillSite.Grow
-        else ok table.SpillSite.Grow
-      else ok table.SpillSite.Grow
-    else ok table.SpillSite.Grow
+    let i ← table.Region.bound r
+    if i = 0#usize
+    then ok table.SpillSite.Grow
+    else
+      let home ← table.Region.home r address.place
+      let wanted ← table.tag address.place
+      table.probe.spill_locate_held_loop keyrepKeyRepInst r sigma carrier i
+        home wanted 0#usize
   else ok table.SpillSite.Grow
 
 /-- [apeiron_word::table::resources::RegionReservation]
-    Source: '../../src/table/resources.rs', lines 21:0-28:1 -/
+    Source: '../../src/table/resources.rs', lines 21:0-24:1 -/
 structure table.resources.RegionReservation where
-  tags : table.resources.CapacityBound
-  payloads : table.resources.CapacityBound
-  summary : table.resources.CapacityBound
+  slots : table.resources.CapacityBound
 
 /-- [apeiron_word::table::resources::ReservationReceipt]
-    Source: '../../src/table/resources.rs', lines 32:0-39:1 -/
+    Source: '../../src/table/resources.rs', lines 28:0-35:1 -/
 structure table.resources.ReservationReceipt where
   flat : table.resources.CapacityBound
   directory : table.resources.CapacityBound
   regions : Array table.resources.RegionReservation 256#usize
 
 /-- [apeiron_word::table::resources::PreparedOutcome]
-    Source: '../../src/table/resources.rs', lines 166:0-173:1 -/
+    Source: '../../src/table/resources.rs', lines 162:0-169:1 -/
 structure table.resources.PreparedOutcome (R : Type) where
   reservation : table.resources.ReservationReceipt
   locator : table.resources.LocatorReservationReceipt
   pending_held : R
 
 /-- [apeiron_word::table::RebuildReserved]
-    Source: '../../src/table/state.rs', lines 449:0-452:1 -/
+    Source: '../../src/table/state.rs', lines 385:0-388:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- [apeiron_word::table::RebuildSource]
-    Source: '../../src/table/state.rs', lines 432:0-435:1 -/
+    Source: '../../src/table/state.rs', lines 368:0-371:1 -/
 @[discriminant isize]
 inductive table.RebuildSource where
 | Resident : Std.Usize → table.RebuildSource
 | Spill : Std.Usize → Std.Usize → table.RebuildSource
 
 /-- [apeiron_word::table::RebuildPlanEntry]
-    Source: '../../src/table/state.rs', lines 437:0-441:1 -/
+    Source: '../../src/table/state.rs', lines 373:0-377:1 -/
 structure table.RebuildPlanEntry where
   source : table.RebuildSource
   flat : Option Std.Usize
   spill : Std.Usize
 
 /-- [apeiron_word::table::RebuildPlan]
-    Source: '../../src/table/state.rs', lines 443:0-447:1 -/
+    Source: '../../src/table/state.rs', lines 379:0-383:1 -/
 structure table.RebuildPlan where
   lanes : Std.Usize
   entries : alloc.vec.Vec table.RebuildPlanEntry
   spill_loads : alloc.vec.Vec Std.Usize
 
 /-- [apeiron_word::table::resources::PreparedResult]
-    Source: '../../src/table/resources.rs', lines 183:0-195:1 -/
+    Source: '../../src/table/resources.rs', lines 179:0-191:1 -/
 @[discriminant isize]
 inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Prepared :
@@ -20651,7 +20011,7 @@ inductive table.resources.PreparedResult (R : Type) (V : Type) where
 | Refused : table.StorageError → table.resources.PreparedResult R V
 
 /-- [apeiron_word::table::resources::publish_prepared]:
-    Source: '../../src/table/resources.rs', lines 217:0-228:1 -/
+    Source: '../../src/table/resources.rs', lines 213:0-224:1 -/
 def table.resources.publish_prepared
   {R : Type} {V : Type}
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved R
@@ -20666,12 +20026,12 @@ def table.resources.publish_prepared
     ok (table.resources.PreparedResult.Refused error)
 
 /-- [apeiron_word::table::ASSUMED_SLOT_BYTES]
-    Source: '../../src/table/state.rs', lines 14:0-14:37 -/
+    Source: '../../src/table/state.rs', lines 10:0-10:37 -/
 @[global_simps, irreducible]
 def table.ASSUMED_SLOT_BYTES : Std.Usize := 32#usize
 
 /-- [apeiron_word::table::SearchClass]
-    Source: '../../src/table/state.rs', lines 244:0-251:1
+    Source: '../../src/table/state.rs', lines 193:0-200:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchClass where
@@ -20680,7 +20040,7 @@ inductive table.SearchClass where
 | Exhausted : table.SearchClass
 
 /-- [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::SearchClass> for apeiron_word::table::SearchClass}::eq]:
-    Source: '../../src/table/state.rs', lines 243:29-243:38
+    Source: '../../src/table/state.rs', lines 192:29-192:38
     Visibility: public -/
 def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   (self : table.SearchClass) (other : table.SearchClass) : Result Bool := do
@@ -20689,7 +20049,7 @@ def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::table::SearchLocation]
-    Source: '../../src/table/state.rs', lines 255:0-262:1
+    Source: '../../src/table/state.rs', lines 204:0-211:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchLocation where
@@ -20698,14 +20058,14 @@ inductive table.SearchLocation where
 | NoIndex : table.SearchLocation
 
 /-- [apeiron_word::table::SearchDecision]
-    Source: '../../src/table/state.rs', lines 266:0-271:1
+    Source: '../../src/table/state.rs', lines 215:0-220:1
     Visibility: public -/
 structure table.SearchDecision where
   «class» : table.SearchClass
   location : table.SearchLocation
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::found_flat]:
-    Source: '../../src/table/state.rs', lines 274:4-279:5 -/
+    Source: '../../src/table/state.rs', lines 223:4-228:5 -/
 def table.SearchDecision.found_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -20715,7 +20075,7 @@ def table.SearchDecision.found_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::vacant_flat]:
-    Source: '../../src/table/state.rs', lines 280:4-285:5 -/
+    Source: '../../src/table/state.rs', lines 229:4-234:5 -/
 def table.SearchDecision.vacant_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -20725,7 +20085,7 @@ def table.SearchDecision.vacant_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::from_spill]:
-    Source: '../../src/table/state.rs', lines 286:4-301:5 -/
+    Source: '../../src/table/state.rs', lines 235:4-250:5 -/
 def table.SearchDecision.from_spill
   (shard : Std.Usize) (site : table.SpillSite) :
   Result table.SearchDecision
@@ -20751,14 +20111,14 @@ def table.SearchDecision.from_spill
       }
 
 /-- [apeiron_word::table::ApplyOutcome]
-    Source: '../../src/table/state.rs', lines 309:0-314:1 -/
+    Source: '../../src/table/state.rs', lines 258:0-263:1 -/
 @[discriminant isize]
 inductive table.ApplyOutcome (K : Type) (V : Type) where
 | Committed : table.ApplyOutcome K V
 | NeedsGrowth : K → V → table.ApplyOutcome K V
 
 /-- [apeiron_word::table::capacity_bound]:
-    Source: '../../src/table/state.rs', lines 368:0-377:1 -/
+    Source: '../../src/table/state.rs', lines 324:0-333:1 -/
 def table.capacity_bound
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result table.resources.CapacityBound
@@ -20785,7 +20145,7 @@ def table.capacity_bound
     fail panic
 
 /-- [apeiron_word::table::mark_direct_word]:
-    Source: '../../src/table/state.rs', lines 406:0-417:1 -/
+    Source: '../../src/table/state.rs', lines 342:0-353:1 -/
 def table.mark_direct_word
   (seen : Slice Std.U64) (count : Std.Usize) (word : Std.U32) (limit : Std.U64)
   :
@@ -20811,17 +20171,17 @@ def table.mark_direct_word
          ok (seen1, count)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::empty]:
-    Source: '../../src/table/state.rs', lines 455:4-460:5 -/
+    Source: '../../src/table/state.rs', lines 391:4-396:5 -/
 def table.Flat.empty (R : Type) (V : Type) : Result (table.Flat R V) := do
   ok { lanes := 0#usize, slots := (alloc.vec.Vec.new (table.FlatSlot R V)) }
 
 /-- [apeiron_word::table::SHARD_BITS]
-    Source: '../../src/table.rs', lines 61:0-61:46 -/
+    Source: '../../src/table.rs', lines 59:0-59:46 -/
 @[global_simps, irreducible]
 def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::index]:
-    Source: '../../src/table/state.rs', lines 467:4-478:5 -/
+    Source: '../../src/table/state.rs', lines 403:4-414:5 -/
 def table.Flat.index
   {R : Type} {V : Type} (self : table.Flat R V) (word : Std.U32) :
   Result (Option Std.Usize)
@@ -20842,7 +20202,7 @@ def table.Flat.index
     | some base => ok (Usize.checked_add base lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::byte_len_for]:
-    Source: '../../src/table/state.rs', lines 479:4-481:5 -/
+    Source: '../../src/table/state.rs', lines 415:4-417:5 -/
 def table.Flat.byte_len_for
   (R : Type) (V : Type) (lanes : Std.Usize) : Result (Option Std.Usize) := do
   let i ← table.SHARDS
@@ -20856,7 +20216,7 @@ def table.Flat.byte_len_for
       Std.Usize residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::reserve]:
-    Source: '../../src/table/state.rs', lines 485:4-490:5 -/
+    Source: '../../src/table/state.rs', lines 421:4-428:5 -/
 def table.Flat.reserve
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (lanes : Std.Usize) :
@@ -20883,7 +20243,7 @@ def table.Flat.reserve
       (table.Flat R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop body 0:
-    Source: '../../src/table/state.rs', lines 494:8-501:9 -/
+    Source: '../../src/table/state.rs', lines 432:8-439:9 -/
 @[rust_loop_body]
 def table.Flat.initialize_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20904,7 +20264,7 @@ def table.Flat.initialize_loop.body
   else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop 0:
-    Source: '../../src/table/state.rs', lines 494:8-501:9 -/
+    Source: '../../src/table/state.rs', lines 432:8-439:9 -/
 @[rust_loop]
 def table.Flat.initialize_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20919,7 +20279,7 @@ def table.Flat.initialize_loop
     v
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]:
-    Source: '../../src/table/state.rs', lines 492:4-502:5 -/
+    Source: '../../src/table/state.rs', lines 430:4-440:5 -/
 def table.Flat.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Flat R V)
@@ -20934,7 +20294,7 @@ def table.Flat.initialize
   ok { self with slots := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::new]:
-    Source: '../../src/table/state.rs', lines 536:4-543:5 -/
+    Source: '../../src/table/state.rs', lines 474:4-481:5 -/
 def table.TableLocator.new : Result table.TableLocator := do
   ok
     {
@@ -20945,35 +20305,35 @@ def table.TableLocator.new : Result table.TableLocator := do
     }
 
 /-- [apeiron_word::table::DEFAULT_BUDGET_BYTES]
-    Source: '../../src/table.rs', lines 57:0-57:50 -/
+    Source: '../../src/table.rs', lines 55:0-55:50 -/
 @[global_simps, irreducible]
 def table.DEFAULT_BUDGET_BYTES : Result Std.Usize := do
   let i ← table.SHARDS
   i * 1024#usize
 
 /-- [apeiron_word::table::MAX_LANE_BITS]
-    Source: '../../src/table.rs', lines 58:0-58:43 -/
+    Source: '../../src/table.rs', lines 56:0-56:43 -/
 @[global_simps, irreducible]
 def table.MAX_LANE_BITS : Result Std.U32 := 32#u32 - table.SHARD_BITS
 
 /-- [apeiron_word::table::BUILD_PARTITION_CROSSOVER]
-    Source: '../../src/table.rs', lines 68:0-68:46 -/
+    Source: '../../src/table.rs', lines 66:0-66:46 -/
 @[global_simps, irreducible]
 def table.BUILD_PARTITION_CROSSOVER : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::PARTITION_CHUNK]
-    Source: '../../src/table.rs', lines 69:0-69:36 -/
+    Source: '../../src/table.rs', lines 67:0-67:36 -/
 @[global_simps, irreducible]
 def table.PARTITION_CHUNK : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::WordMerge]
-    Source: '../../src/table.rs', lines 191:0-191:21
+    Source: '../../src/table.rs', lines 199:0-199:21
     Visibility: public -/
 @[reducible]
 def table.WordMerge := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}::merge]:
-    Source: '../../src/table.rs', lines 193:4-195:5
+    Source: '../../src/table.rs', lines 201:4-203:5
     Visibility: public -/
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   (self : table.WordMerge) (new : Std.I64) (old : Std.I64) :
@@ -20982,7 +20342,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   ok (core.num.I64.wrapping_add new old)
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}]
-    Source: '../../src/table.rs', lines 192:0-196:1 -/
+    Source: '../../src/table.rs', lines 200:0-204:1 -/
 @[reducible]
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
   table.WordMerge Std.I64 := {
@@ -20990,7 +20350,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop body 0:
-    Source: '../../src/table.rs', lines 237:8-240:9
+    Source: '../../src/table.rs', lines 245:8-248:9
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.new_loop.body
@@ -21009,7 +20369,7 @@ def table.Table.new_loop.body
   else ok (done shards)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop 0:
-    Source: '../../src/table.rs', lines 237:8-240:9
+    Source: '../../src/table.rs', lines 245:8-248:9
     Visibility: public -/
 @[rust_loop]
 def table.Table.new_loop
@@ -21022,7 +20382,7 @@ def table.Table.new_loop
     (shards, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]:
-    Source: '../../src/table.rs', lines 234:4-250:5
+    Source: '../../src/table.rs', lines 242:4-258:5
     Visibility: public -/
 def table.Table.new
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21047,7 +20407,7 @@ def table.Table.new
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::search_decision]:
-    Source: '../../src/table.rs', lines 266:4-283:5 -/
+    Source: '../../src/table.rs', lines 274:4-291:5 -/
 def table.Table.search_decision
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21106,7 +20466,7 @@ def table.Table.search_decision
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_get]:
-    Source: '../../src/table.rs', lines 297:4-307:5 -/
+    Source: '../../src/table.rs', lines 305:4-315:5 -/
 def table.Table.apply_get
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21135,15 +20495,15 @@ def table.Table.apply_get
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) self.shards shard_at
-      let (_, _, t) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      ok t
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      ok ss.value
     else ok self.default
   | table.SearchLocation.NoIndex => ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_at]:
-    Source: '../../src/table.rs', lines 360:4-380:5
+    Source: '../../src/table.rs', lines 368:4-388:5
     Visibility: public -/
 def table.Table.get_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21166,10 +20526,10 @@ def table.Table.get_at
     match o with
     | none => ok self.default
     | some index =>
-      let (_, _, t) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      ok t
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      ok ss.value
   | some word =>
     let o ← table.Flat.index self.resident word
     match o with
@@ -21182,10 +20542,10 @@ def table.Table.get_at
       match o1 with
       | none => ok self.default
       | some index =>
-        let (_, _, t) ←
+        let ss ←
           alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (cell.Sigma × R × V)) r.slots index
-        ok t
+            (table.SpillSlot R V)) r.slots index
+        ok ss.value
     | some index =>
       let flat ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
@@ -21208,10 +20568,10 @@ def table.Table.get_at
             match o1 with
             | none => ok self.default
             | some index1 =>
-              let (_, _, t) ←
+              let ss ←
                 alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-                  (cell.Sigma × R × V)) r.slots index1
-              ok t
+                  (table.SpillSlot R V)) r.slots index1
+              ok ss.value
         else
           let shard_at ← table.shard address
           let r ←
@@ -21222,14 +20582,14 @@ def table.Table.get_at
           match o1 with
           | none => ok self.default
           | some index1 =>
-            let (_, _, t) ←
+            let ss ←
               alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-                (cell.Sigma × R × V)) r.slots index1
-            ok t
+                (table.SpillSlot R V)) r.slots index1
+            ok ss.value
       else ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 387:4-392:5 -/
+    Source: '../../src/table.rs', lines 395:4-400:5 -/
 def table.Table.get_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21251,7 +20611,7 @@ def table.Table.get_prepared_shard_at
   ok (core.option.Option.unwrap_or o self.default)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 0:
-    Source: '../../src/table.rs', lines 445:8-456:9 -/
+    Source: '../../src/table.rs', lines 453:8-464:9 -/
 @[rust_loop_body]
 def table.Table.density_at_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize} (keyrepKeyRepInst
@@ -21288,7 +20648,7 @@ def table.Table.density_at_loop0.body
   else ok (done (self.home, self.shards, seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 0:
-    Source: '../../src/table.rs', lines 445:8-456:9 -/
+    Source: '../../src/table.rs', lines 453:8-464:9 -/
 @[rust_loop]
 def table.Table.density_at_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize} (keyrepKeyRepInst
@@ -21303,7 +20663,7 @@ def table.Table.density_at_loop0
     (seen, count, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 2:
-    Source: '../../src/table.rs', lines 460:12-472:13 -/
+    Source: '../../src/table.rs', lines 468:12-480:13 -/
 @[rust_loop_body]
 def table.Table.density_at_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21319,20 +20679,20 @@ def table.Table.density_at_loop1_loop0.body
   let i := alloc.vec.Vec.len r.slots
   if j < i
   then
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
-        r.tags j
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) r.slots j
     let direct ←
-      if i1 != 0#u8
+      if ss.tag != 0#u8
       then
         do
-        let (sigma, _, _) ←
+        let ss1 ←
           alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (cell.Sigma × R × V)) r.slots j
-        let (_, t1, _) ←
+            (table.SpillSlot R V)) r.slots j
+        let ss2 ←
           alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (cell.Sigma × R × V)) r.slots j
-        let ta ← keyrepKeyRepInst.address_held t sigma t1
+            (table.SpillSlot R V)) r.slots j
+        let ta ← keyrepKeyRepInst.address_held t ss1.sigma ss2.held
         ok ta.direct_word
       else ok none
     let (seen1, count1) ←
@@ -21349,7 +20709,7 @@ def table.Table.density_at_loop1_loop0.body
   else ok (done (seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 2:
-    Source: '../../src/table.rs', lines 460:12-472:13 -/
+    Source: '../../src/table.rs', lines 468:12-480:13 -/
 @[rust_loop]
 def table.Table.density_at_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21364,7 +20724,7 @@ def table.Table.density_at_loop1_loop0
     (seen, count, j)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop body 1:
-    Source: '../../src/table.rs', lines 458:8-474:9 -/
+    Source: '../../src/table.rs', lines 466:8-482:9 -/
 @[rust_loop_body]
 def table.Table.density_at_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21385,7 +20745,7 @@ def table.Table.density_at_loop1.body
   else ok (done (seen, count))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]: loop 1:
-    Source: '../../src/table.rs', lines 458:8-474:9 -/
+    Source: '../../src/table.rs', lines 466:8-482:9 -/
 @[rust_loop]
 def table.Table.density_at_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} (keyrepKeyRepInst :
@@ -21400,7 +20760,7 @@ def table.Table.density_at_loop1
     (seen, count, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::density_at]:
-    Source: '../../src/table.rs', lines 425:4-479:5 -/
+    Source: '../../src/table.rs', lines 433:4-487:5 -/
 def table.Table.density_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21457,7 +20817,7 @@ def table.Table.density_at
       Std.Usize (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 0:
-    Source: '../../src/table.rs', lines 491:8-500:9 -/
+    Source: '../../src/table.rs', lines 499:8-508:9 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop0.body
   (V : Type) (R : Type) (error : Option table.StorageError)
@@ -21494,7 +20854,7 @@ def table.Table.selected_lanes_loop0.body
   else ok (done (error, budget_lanes))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 0:
-    Source: '../../src/table.rs', lines 491:8-500:9 -/
+    Source: '../../src/table.rs', lines 499:8-508:9 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop0
   (V : Type) (R : Type) (error : Option table.StorageError)
@@ -21508,7 +20868,7 @@ def table.Table.selected_lanes_loop0
     (error, budget_lanes, budget_reached)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 1:
-    Source: '../../src/table.rs', lines 506:12-530:13 -/
+    Source: '../../src/table.rs', lines 514:12-538:13 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21575,7 +20935,7 @@ def table.Table.selected_lanes_loop1.body
   else ok (done (error, best))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 1:
-    Source: '../../src/table.rs', lines 506:12-530:13 -/
+    Source: '../../src/table.rs', lines 514:12-538:13 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21595,7 +20955,7 @@ def table.Table.selected_lanes_loop1
     (error, lane, best, budget_exceeded)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]:
-    Source: '../../src/table.rs', lines 480:4-541:5 -/
+    Source: '../../src/table.rs', lines 488:4-549:5 -/
 def table.Table.selected_lanes
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21635,59 +20995,16 @@ def table.Table.selected_lanes
     | some error1 => ok (core.result.Result.Err error1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 0:
-    Source: '../../src/table.rs', lines 557:8-560:9 -/
+    Source: '../../src/table.rs', lines 577:8-600:9 -/
 @[rust_loop_body]
-def table.Table.grow_spill_loop0.body
-  {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize}
-  (self : table.Table K V H R N) (s : Std.Usize) (load : Std.Usize)
-  (tag_at : Std.Usize) :
-  Result (ControlFlow (Std.Usize × Std.Usize) (V × H × (table.Flat R V) ×
-    (alloc.vec.Vec (table.Region R V)) × Std.Usize × (core.marker.PhantomData
-    K) × table.TableLocator × Std.Usize))
-  := do
-  let r ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.Region R
-      V)) self.shards s
-  let i := alloc.vec.Vec.len r.tags
-  if tag_at < i
-  then
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
-        r.tags tag_at
-    let i2 ← lift (core.convert.num.FromUsizeBool.from (i1 != 0#u8))
-    let load1 ← load + i2
-    let tag_at1 ← tag_at + 1#usize
-    ok (cont (load1, tag_at1))
-  else
-    ok (done (self.default, self.home, self.resident, self.shards, self.len,
-      self.key, self.locator, load))
-
-/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
-    Source: '../../src/table.rs', lines 557:8-560:9 -/
-@[rust_loop]
-def table.Table.grow_spill_loop0
-  {K : Type} {V : Type} {H : Type} {R : Type} {N : Std.Usize}
-  (self : table.Table K V H R N) (s : Std.Usize) (load : Std.Usize)
-  (tag_at : Std.Usize) :
-  Result (V × H × (table.Flat R V) × (alloc.vec.Vec (table.Region R V)) ×
-    Std.Usize × (core.marker.PhantomData K) × table.TableLocator ×
-    Std.Usize)
-  := do
-  loop
-    (fun (load1, tag_at1) => table.Table.grow_spill_loop0.body self s load1
-      tag_at1)
-    (load, tag_at)
-
-/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 1:
-    Source: '../../src/table.rs', lines 573:8-594:9 -/
-@[rust_loop_body]
-def table.Table.grow_spill_loop1.body
+def table.Table.grow_spill_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
-  Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K) (HomeInst :
-  table.Home H K Clause2_Clause0_Clause0_Faces) (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (t : H) (v : alloc.vec.Vec (table.Region R V))
-  (s : Std.Usize) (tl : table.TableLocator) (fresh : table.Region R V)
-  (i : Std.Usize) (relocation_error : Option table.StorageError) :
+  Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
+  (corecloneCloneInst1 : core.clone.Clone V) (HomeInst : table.Home H K
+  Clause2_Clause0_Clause0_Faces) (keyrepKeyRepInst : table.keyrep.KeyRep R K H)
+  (t : H) (v : alloc.vec.Vec (table.Region R V)) (s : Std.Usize)
+  (tl : table.TableLocator) (fresh : table.Region R V) (i : Std.Usize)
+  (relocation_error : Option table.StorageError) :
   Result (ControlFlow (table.TableLocator × (table.Region R V) × Std.Usize ×
     (Option table.StorageError)) (table.TableLocator × (table.Region R V) ×
     (Option table.StorageError)))
@@ -21701,64 +21018,65 @@ def table.Table.grow_spill_loop1.body
     let b := core.option.Option.is_none relocation_error
     if b
     then
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
-          r.tags i
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots i
       let (tl1, fresh1, relocation_error1) ←
-        if i2 != 0#u8
+        if ss.tag != 0#u8
         then
           do
-          let t1 ←
+          let source ←
             alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-              (cell.Sigma × R × V)) r.slots i
-          let (p_sigma, p_held, p_value) ←
-            (BuiltinClone (cell.Sigma × R × V)).clone t1
-          let a ← keyrepKeyRepInst.address_held t p_sigma p_held
-          let ss ←
-            table.probe.spill_locate_held keyrepKeyRepInst fresh p_sigma a
+              (table.SpillSlot R V)) r.slots i
+          let p_held ← keyrepKeyRepInst.corecloneCloneInst.clone source.held
+          let p_value ← corecloneCloneInst1.clone source.value
+          let a ← keyrepKeyRepInst.address_held t source.sigma p_held
+          let ss1 ←
+            table.probe.spill_locate_held keyrepKeyRepInst fresh source.sigma a
               p_held N
-          match ss with
+          match ss1 with
           | table.SpillSite.Found _ =>
             ok (tl, fresh, some table.StorageError.SizeOverflow)
           | table.SpillSite.Vacant x =>
             let tl2 ←
               table.TableLocator.retarget_held corecloneCloneInst HomeInst
-                keyrepKeyRepInst tl t p_sigma p_held
+                keyrepKeyRepInst tl t source.sigma p_held
                 (table.PayloadLocation.Spill s i) (table.PayloadLocation.Spill
                 s x)
             let fresh2 ←
-              table.Region.publish_live fresh x (p_sigma, p_held, p_value)
+              table.Region.publish_live fresh x (source.sigma, p_held, p_value)
                 a.place
             ok (tl2, fresh2, relocation_error)
           | table.SpillSite.Grow =>
             ok (tl, fresh, some table.StorageError.SizeOverflow)
         else ok (tl, fresh, relocation_error)
-      let i3 ← i + 1#usize
-      ok (cont (tl1, fresh1, i3, relocation_error1))
+      let i2 ← i + 1#usize
+      ok (cont (tl1, fresh1, i2, relocation_error1))
     else ok (done (tl, fresh, relocation_error))
   else ok (done (tl, fresh, relocation_error))
 
-/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 1:
-    Source: '../../src/table.rs', lines 573:8-594:9 -/
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
+    Source: '../../src/table.rs', lines 577:8-600:9 -/
 @[rust_loop]
-def table.Table.grow_spill_loop1
+def table.Table.grow_spill_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
-  Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K) (HomeInst :
-  table.Home H K Clause2_Clause0_Clause0_Faces) (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (t : H) (v : alloc.vec.Vec (table.Region R V))
-  (tl : table.TableLocator) (s : Std.Usize) (fresh : table.Region R V)
-  (i : Std.Usize) (relocation_error : Option table.StorageError) :
+  Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
+  (corecloneCloneInst1 : core.clone.Clone V) (HomeInst : table.Home H K
+  Clause2_Clause0_Clause0_Faces) (keyrepKeyRepInst : table.keyrep.KeyRep R K H)
+  (t : H) (v : alloc.vec.Vec (table.Region R V)) (tl : table.TableLocator)
+  (s : Std.Usize) (fresh : table.Region R V) (i : Std.Usize)
+  (relocation_error : Option table.StorageError) :
   Result (table.TableLocator × (table.Region R V) × (Option
     table.StorageError))
   := do
   loop
     (fun (tl1, fresh1, i1, relocation_error1) =>
-      table.Table.grow_spill_loop1.body N corecloneCloneInst HomeInst
-      keyrepKeyRepInst t v s tl1 fresh1 i1 relocation_error1)
+      table.Table.grow_spill_loop.body N corecloneCloneInst corecloneCloneInst1
+      HomeInst keyrepKeyRepInst t v s tl1 fresh1 i1 relocation_error1)
     (tl, fresh, i, relocation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]:
-    Source: '../../src/table.rs', lines 546:4-615:5 -/
+    Source: '../../src/table.rs', lines 554:4-621:5 -/
 def table.Table.grow_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -21770,18 +21088,16 @@ def table.Table.grow_spill
   Result ((core.result.Result Unit table.StorageError) × (table.Table K V H R
     N))
   := do
-  let (t, t1, f, v, i, pd, tl, load) ←
-    table.Table.grow_spill_loop0 self s 0#usize 0#usize
-  let i1 ← core.cmp.Ord.max.default core.cmp.OrdUsize load 1#usize
-  let r ← table.slots_for i1 N
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  let r ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.Region R
+      V)) self.shards s
+  let i ← core.cmp.Ord.max.default core.cmp.OrdUsize r.live 1#usize
+  let r1 ← table.slots_for i N
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
   match cf with
   | core.ops.control_flow.ControlFlow.Continue val =>
-    let r1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.Region
-        R V)) v s
-    let i2 := alloc.vec.Vec.len r1.slots
-    let o ← lift (Usize.checked_mul i2 2#usize)
+    let i1 := alloc.vec.Vec.len r.slots
+    let o ← lift (Usize.checked_mul i1 2#usize)
     let r2 ← core.option.Option.ok_or o table.StorageError.SizeOverflow
     let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
     match cf1 with
@@ -21796,10 +21112,11 @@ def table.Table.grow_spill
         let held ← keyrepKeyRepInst.hold sigma key address
         let val3 ←
           table.Region.initialize keyrepKeyRepInst.corecloneCloneInst
-            corecloneCloneInst1 val2 sigma held t
-        let (tl1, fresh, relocation_error) ←
-          table.Table.grow_spill_loop1 N corecloneCloneInst HomeInst
-            keyrepKeyRepInst t1 v tl s val3 0#usize none
+            corecloneCloneInst1 val2 sigma held self.default
+        let (tl, fresh, relocation_error) ←
+          table.Table.grow_spill_loop N corecloneCloneInst corecloneCloneInst1
+            HomeInst keyrepKeyRepInst self.home self.shards self.locator s val3
+            0#usize none
         match relocation_error with
         | none =>
           let ss ←
@@ -21808,87 +21125,43 @@ def table.Table.grow_spill
           match ss with
           | table.SpillSite.Found _ => fail panic
           | table.SpillSite.Vacant pending =>
-            let t2 ← corecloneCloneInst1.clone t
-            let merged ← MergeInst.merge merge value t2
+            let t ← corecloneCloneInst1.clone self.default
+            let merged ← MergeInst.merge merge value t
             let fresh1 ←
               table.Region.publish_live fresh pending (sigma, held, merged)
                 address.place
             let (_, index_mut_back) ←
               alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-                (table.Region R V)) v s
-            let tl2 ←
+                (table.Region R V)) self.shards s
+            let tl1 ←
               table.TableLocator.publish_for_query corecloneCloneInst HomeInst
-                keyrepKeyRepInst tl1 t1 sigma key (table.PayloadLocation.Spill
-                s pending)
-            let i3 ← i + 1#usize
-            let v1 := index_mut_back fresh1
+                keyrepKeyRepInst tl self.home sigma key
+                (table.PayloadLocation.Spill s pending)
+            let i2 ← self.len + 1#usize
+            let v := index_mut_back fresh1
             ok (core.result.Result.Ok (),
-              {
-                default := t,
-                home := t1,
-                resident := f,
-                shards := v1,
-                len := i3,
-                key := pd,
-                locator := tl2
-              })
+              { self with shards := v, len := i2, locator := tl1 })
           | table.SpillSite.Grow => fail panic
         | some error =>
-          ok (core.result.Result.Err error,
-            {
-              default := t,
-              home := t1,
-              resident := f,
-              shards := v,
-              len := i,
-              key := pd,
-              locator := tl1
-            })
+          ok (core.result.Result.Err error, { self with locator := tl })
       | core.ops.control_flow.ControlFlow.Break residual =>
         let r4 ←
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
             Unit (core.convert.FromSame table.StorageError) residual
-        ok (r4,
-          {
-            default := t,
-            home := t1,
-            resident := f,
-            shards := v,
-            len := i,
-            key := pd,
-            locator := tl
-          })
+        ok (r4, self)
     | core.ops.control_flow.ControlFlow.Break residual =>
       let r3 ←
         core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
           Unit (core.convert.FromSame table.StorageError) residual
-      ok (r3,
-        {
-          default := t,
-          home := t1,
-          resident := f,
-          shards := v,
-          len := i,
-          key := pd,
-          locator := tl
-        })
+      ok (r3, self)
   | core.ops.control_flow.ControlFlow.Break residual =>
-    let r1 ←
+    let r2 ←
       core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
         Unit (core.convert.FromSame table.StorageError) residual
-    ok (r1,
-      {
-        default := t,
-        home := t1,
-        resident := f,
-        shards := v,
-        len := i,
-        key := pd,
-        locator := tl
-      })
+    ok (r2, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::flat_index_for]:
-    Source: '../../src/table.rs', lines 884:4-899:5 -/
+    Source: '../../src/table.rs', lines 866:4-881:5 -/
 def table.Table.flat_index_for
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21914,7 +21187,7 @@ def table.Table.flat_index_for
       | some value => ok (Usize.checked_add value lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::keep_unoccupied]:
-    Source: '../../src/table.rs', lines 871:4-882:5 -/
+    Source: '../../src/table.rs', lines 853:4-864:5 -/
 def table.Table.keep_unoccupied
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21932,7 +21205,7 @@ def table.Table.keep_unoccupied
     else ok index
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 0:
-    Source: '../../src/table.rs', lines 635:8-651:9 -/
+    Source: '../../src/table.rs', lines 641:8-657:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21996,7 +21269,7 @@ def table.Table.plan_rebuild_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 0:
-    Source: '../../src/table.rs', lines 635:8-651:9 -/
+    Source: '../../src/table.rs', lines 641:8-657:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22019,7 +21292,7 @@ def table.Table.plan_rebuild_loop0
     (occupied, entries, spill_loads, planning_error, resident_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 2:
-    Source: '../../src/table.rs', lines 655:12-672:13 -/
+    Source: '../../src/table.rs', lines 661:12-678:13 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22046,31 +21319,32 @@ def table.Table.plan_rebuild_loop1_loop0.body
     let b := core.option.Option.is_none planning_error
     if b
     then
-      let i1 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
-          r.tags slot_at
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots slot_at
       let (occupied1, entries1, spill_loads1, planning_error1) ←
-        if i1 != 0#u8
+        if ss.tag != 0#u8
         then
           do
-          let (s, t1, _) ←
+          let entry ←
             alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-              (cell.Sigma × R × V)) r.slots slot_at
-          let entry_address ← keyrepKeyRepInst.address_held t s t1
+              (table.SpillSlot R V)) r.slots slot_at
+          let entry_address ←
+            keyrepKeyRepInst.address_held t entry.sigma entry.held
           let flat ←
             table.Table.flat_index_for N corecloneCloneInst corecloneCloneInst1
               HomeInst keyrepKeyRepInst lanes entry_address.direct_word
-          let s1 := alloc.vec.Vec.deref occupied
+          let s := alloc.vec.Vec.deref occupied
           let selected ←
             table.Table.keep_unoccupied N corecloneCloneInst
-              corecloneCloneInst1 HomeInst keyrepKeyRepInst flat s1
-          let (s2, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut occupied)
-          let s3 ← table.mark_selected_occupied s2 selected
+              corecloneCloneInst1 HomeInst keyrepKeyRepInst flat s
+          let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut occupied)
+          let s2 ← table.mark_selected_occupied s1 selected
           let spill ← table.shard entry_address
-          let (s4, deref_mut_back1) ←
+          let (s3, deref_mut_back1) ←
             lift (alloc.vec.Vec.deref_mut spill_loads)
-          let (planning_error2, s5) ←
-            table.account_spill_load s4 spill selected
+          let (planning_error2, s4) ←
+            table.account_spill_load s3 spill selected
           let entries2 ←
             alloc.vec.Vec.push entries
               ({
@@ -22078,8 +21352,8 @@ def table.Table.plan_rebuild_loop1_loop0.body
                  flat := selected,
                  spill
                } : table.RebuildPlanEntry)
-          let spill_loads2 := deref_mut_back1 s5
-          let occupied2 := deref_mut_back s3
+          let spill_loads2 := deref_mut_back1 s4
+          let occupied2 := deref_mut_back s2
           ok (occupied2, entries2, spill_loads2, planning_error2)
         else ok (occupied, entries, spill_loads, planning_error)
       let slot_at1 ← slot_at + 1#usize
@@ -22088,7 +21362,7 @@ def table.Table.plan_rebuild_loop1_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 2:
-    Source: '../../src/table.rs', lines 655:12-672:13 -/
+    Source: '../../src/table.rs', lines 661:12-678:13 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22112,7 +21386,7 @@ def table.Table.plan_rebuild_loop1_loop0
     (occupied, entries, spill_loads, planning_error, slot_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 1:
-    Source: '../../src/table.rs', lines 653:8-674:9 -/
+    Source: '../../src/table.rs', lines 659:8-680:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22146,7 +21420,7 @@ def table.Table.plan_rebuild_loop1.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 1:
-    Source: '../../src/table.rs', lines 653:8-674:9 -/
+    Source: '../../src/table.rs', lines 659:8-680:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22169,7 +21443,7 @@ def table.Table.plan_rebuild_loop1
     (occupied, entries, spill_loads, planning_error, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]:
-    Source: '../../src/table.rs', lines 616:4-692:5 -/
+    Source: '../../src/table.rs', lines 622:4-698:5 -/
 def table.Table.plan_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22259,7 +21533,7 @@ def table.Table.plan_rebuild
       table.RebuildPlan (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_rebuild]:
-    Source: '../../src/table.rs', lines 694:4-698:5 -/
+    Source: '../../src/table.rs', lines 700:4-704:5 -/
 def table.Table.reserve_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22292,7 +21566,7 @@ def table.Table.reserve_rebuild
       residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop body 0:
-    Source: '../../src/table.rs', lines 736:8-760:9 -/
+    Source: '../../src/table.rs', lines 732:8-742:9 -/
 @[rust_loop_body]
 def table.Table.observe_receipt_loop.body
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22315,33 +21589,23 @@ def table.Table.observe_receipt_loop.body
       let r ← table.slots_for i1 N
       match r with
       | core.result.Result.Ok required =>
-        let r1 ← table.summary_words required
-        match r1 with
-        | core.result.Result.Ok summary_required =>
-          let r2 ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-              (table.Region R V)) v1 shard_at
-          let i2 ← alloc.vec.Vec.capacity Global r2.tags
-          let cb ← table.capacity_bound required i2
-          let i3 ← alloc.vec.Vec.capacity Global r2.slots
-          let cb1 ← table.capacity_bound required i3
-          let i4 ← alloc.vec.Vec.capacity Global r2.summary
-          let cb2 ← table.capacity_bound summary_required i4
-          let a ←
-            Array.update regions shard_at
-              ({ tags := cb, payloads := cb1, summary := cb2 } :
-              table.resources.RegionReservation)
-          let shard_at1 ← shard_at + 1#usize
-          ok (cont (a, shard_at1, error))
-        | core.result.Result.Err inner =>
-          ok (cont (regions, shard_at, some inner))
+        let r1 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+            (table.Region R V)) v1 shard_at
+        let i2 ← alloc.vec.Vec.capacity Global r1.slots
+        let cb ← table.capacity_bound required i2
+        let a ←
+          Array.update regions shard_at ({ slots := cb } :
+            table.resources.RegionReservation)
+        let shard_at1 ← shard_at + 1#usize
+        ok (cont (a, shard_at1, error))
       | core.result.Result.Err inner =>
         ok (cont (regions, shard_at, some inner))
     else ok (done (regions, error))
   else ok (done (regions, error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop 0:
-    Source: '../../src/table.rs', lines 736:8-760:9 -/
+    Source: '../../src/table.rs', lines 732:8-742:9 -/
 @[rust_loop]
 def table.Table.observe_receipt_loop
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22357,7 +21621,7 @@ def table.Table.observe_receipt_loop
     (regions, shard_at, error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]:
-    Source: '../../src/table.rs', lines 708:4-769:5 -/
+    Source: '../../src/table.rs', lines 712:4-751:5 -/
 def table.Table.observe_receipt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22379,11 +21643,7 @@ def table.Table.observe_receipt
     let directory ← table.capacity_bound i i2
     let regions :=
       Array.repeat 256#usize
-        {
-          tags := { required_len := 0#usize, observed_capacity := 0#usize },
-          payloads := { required_len := 0#usize, observed_capacity := 0#usize },
-          summary := { required_len := 0#usize, observed_capacity := 0#usize }
-        }
+        { slots := { required_len := 0#usize, observed_capacity := 0#usize } }
     let (regions1, error) ←
       table.Table.observe_receipt_loop N i plan.spill_loads storage.regions
         regions 0#usize none
@@ -22397,7 +21657,7 @@ def table.Table.observe_receipt
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::materialize_rebuild]:
-    Source: '../../src/table.rs', lines 781:4-810:5 -/
+    Source: '../../src/table.rs', lines 763:4-792:5 -/
 def table.Table.materialize_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22424,7 +21684,7 @@ def table.Table.materialize_rebuild
     { reservation, locator, pending_held })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_from_plan]:
-    Source: '../../src/table.rs', lines 820:4-851:5 -/
+    Source: '../../src/table.rs', lines 802:4-833:5 -/
 def table.Table.prepare_from_plan
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22468,7 +21728,7 @@ def table.Table.prepare_from_plan
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_rebuild]:
-    Source: '../../src/table.rs', lines 854:4-865:5 -/
+    Source: '../../src/table.rs', lines 836:4-847:5 -/
 def table.Table.prepare_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22490,7 +21750,7 @@ def table.Table.prepare_rebuild
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::locate_rebuilt]:
-    Source: '../../src/table.rs', lines 908:4-930:5 -/
+    Source: '../../src/table.rs', lines 890:4-912:5 -/
 def table.Table.locate_rebuilt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22542,7 +21802,7 @@ def table.Table.locate_rebuilt
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: '../../src/table.rs', lines 944:4-1006:5 -/
+    Source: '../../src/table.rs', lines 926:4-988:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22570,12 +21830,12 @@ def table.Table.relocate_entry
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) self.shards shard
-      let (s, t, t1) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      let t2 ← keyrepKeyRepInst.corecloneCloneInst.clone t
-      let t3 ← corecloneCloneInst1.clone t1
-      ok (self.resident, entry.source, s, t2, t3)
+      let source1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      let t ← keyrepKeyRepInst.corecloneCloneInst.clone source1.held
+      let t1 ← corecloneCloneInst1.clone source1.value
+      ok (self.resident, entry.source, source1.sigma, t, t1)
   let old_location ←
     match source with
     | table.RebuildSource.Resident index =>
@@ -22629,7 +21889,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: '../../src/table.rs', lines 1023:8-1026:9 -/
+    Source: '../../src/table.rs', lines 1005:8-1008:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22652,7 +21912,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: '../../src/table.rs', lines 1023:8-1026:9 -/
+    Source: '../../src/table.rs', lines 1005:8-1008:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22670,7 +21930,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: '../../src/table.rs', lines 1017:4-1027:5 -/
+    Source: '../../src/table.rs', lines 999:4-1009:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22685,7 +21945,7 @@ def table.Table.relocate_all
     keyrepKeyRepInst self plan reserved 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: '../../src/table.rs', lines 1036:4-1046:5 -/
+    Source: '../../src/table.rs', lines 1018:4-1028:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22714,7 +21974,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: '../../src/table.rs', lines 1063:4-1121:5 -/
+    Source: '../../src/table.rs', lines 1045:4-1103:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22756,18 +22016,18 @@ def table.Table.apply_pending_and_commit
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) reserved.regions spill
-      let (_, _, t) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      let old ← corecloneCloneInst1.clone t
-      let t1 ← MergeInst.merge merge value old
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      let old ← corecloneCloneInst1.clone ss.value
+      let t ← MergeInst.merge merge value old
       let (r1, index_mut_back) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) reserved.regions spill
-      let ((s, t2, _), index_mut_back1) ←
+      let (ss1, index_mut_back1) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (cell.Sigma × R × V)) r1.slots index
-      let v := index_mut_back1 (s, t2, t1)
+          (table.SpillSlot R V)) r1.slots index
+      let v := index_mut_back1 { ss1 with value := t }
       let v1 := index_mut_back { r1 with slots := v }
       ok { self1 with resident := reserved.resident, shards := v1 }
     | table.SearchLocation.NoIndex => fail panic
@@ -22826,7 +22086,7 @@ def table.Table.apply_pending_and_commit
     fail panic
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_rebuild]:
-    Source: '../../src/table.rs', lines 1130:4-1171:5 -/
+    Source: '../../src/table.rs', lines 1112:4-1153:5 -/
 def table.Table.apply_prepared_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22857,7 +22117,7 @@ def table.Table.apply_prepared_rebuild
     ok (core.result.Result.Err error, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::rebuild_resident]:
-    Source: '../../src/table.rs', lines 1175:4-1186:5 -/
+    Source: '../../src/table.rs', lines 1157:4-1168:5 -/
 def table.Table.rebuild_resident
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22877,7 +22137,7 @@ def table.Table.rebuild_resident
     address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_insert]:
-    Source: '../../src/table.rs', lines 1192:4-1250:5 -/
+    Source: '../../src/table.rs', lines 1174:4-1232:5 -/
 def table.Table.apply_insert
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22907,18 +22167,18 @@ def table.Table.apply_insert
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) self.shards shard_at
-      let (_, _, t) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      let old ← corecloneCloneInst1.clone t
-      let t1 ← MergeInst.merge merge value old
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      let old ← corecloneCloneInst1.clone ss.value
+      let t ← MergeInst.merge merge value old
       let (r1, index_mut_back) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) self.shards shard_at
-      let ((s, t2, _), index_mut_back1) ←
+      let (ss1, index_mut_back1) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (cell.Sigma × R × V)) r1.slots index
-      let v := index_mut_back1 (s, t2, t1)
+          (table.SpillSlot R V)) r1.slots index
+      let v := index_mut_back1 { ss1 with value := t }
       let v1 := index_mut_back { r1 with slots := v }
       ok (table.ApplyOutcome.Committed, { self with shards := v1 })
     | table.SearchLocation.NoIndex => fail panic
@@ -22972,7 +22232,7 @@ def table.Table.apply_insert
       ok (table.ApplyOutcome.NeedsGrowth key value, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::insert_with_at]:
-    Source: '../../src/table.rs', lines 1255:4-1288:5
+    Source: '../../src/table.rs', lines 1237:4-1270:5
     Visibility: public -/
 def table.Table.insert_with_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23160,7 +22420,7 @@ def table.Table.insert_with_at
   else ok (core.result.Result.Err table.StorageError.SizeOverflow, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 1299:4-1335:5 -/
+    Source: '../../src/table.rs', lines 1281:4-1317:5 -/
 def table.Table.apply_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23266,7 +22526,7 @@ def table.Table.apply_prepared_shard_at
       ok (r4, { self with shards := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop body 0:
-    Source: '../../src/table.rs', lines 1458:8-1462:5 -/
+    Source: '../../src/table.rs', lines 1440:8-1444:5 -/
 @[rust_loop_body]
 def table.Table.build_at_sequential_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23301,7 +22561,7 @@ def table.Table.build_at_sequential_loop.body
       ok (done r1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop 0:
-    Source: '../../src/table.rs', lines 1458:8-1462:5 -/
+    Source: '../../src/table.rs', lines 1440:8-1444:5 -/
 @[rust_loop]
 def table.Table.build_at_sequential_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23320,7 +22580,7 @@ def table.Table.build_at_sequential_loop
     (iter, t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]:
-    Source: '../../src/table.rs', lines 1451:4-1462:5 -/
+    Source: '../../src/table.rs', lines 1433:4-1444:5 -/
 def table.Table.build_at_sequential
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -23338,7 +22598,7 @@ def table.Table.build_at_sequential
     HomeInst keyrepKeyRepInst MergeInst iter merge t
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 0:
-    Source: '../../src/table.rs', lines 1378:16-1399:17
+    Source: '../../src/table.rs', lines 1360:16-1381:17
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop0.body
@@ -23403,7 +22663,7 @@ def table.Table.build_at_loop0.body
   else ok (done (t, reservation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 0:
-    Source: '../../src/table.rs', lines 1378:16-1399:17
+    Source: '../../src/table.rs', lines 1360:16-1381:17
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop0
@@ -23423,7 +22683,7 @@ def table.Table.build_at_loop0
     (t, s, reservation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 1:
-    Source: '../../src/table.rs', lines 1404:20-1415:21
+    Source: '../../src/table.rs', lines 1386:20-1397:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop1.body
@@ -23469,7 +22729,7 @@ def table.Table.build_at_loop1.body
   else ok (done t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 1:
-    Source: '../../src/table.rs', lines 1404:20-1415:21
+    Source: '../../src/table.rs', lines 1386:20-1397:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop1
@@ -23489,7 +22749,7 @@ def table.Table.build_at_loop1
     (t, initialized)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 5:
-    Source: '../../src/table.rs', lines 1428:32-1436:33
+    Source: '../../src/table.rs', lines 1410:32-1418:33
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0_loop0.body
@@ -23527,7 +22787,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 5:
-    Source: '../../src/table.rs', lines 1428:32-1436:33
+    Source: '../../src/table.rs', lines 1410:32-1418:33
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0_loop0
@@ -23549,7 +22809,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0
     (t, assembly_error, run_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 4:
-    Source: '../../src/table.rs', lines 1425:28-1438:29
+    Source: '../../src/table.rs', lines 1407:28-1420:29
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0.body
@@ -23582,7 +22842,7 @@ def table.Table.build_at_loop2_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 4:
-    Source: '../../src/table.rs', lines 1425:28-1438:29
+    Source: '../../src/table.rs', lines 1407:28-1420:29
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0
@@ -23605,7 +22865,7 @@ def table.Table.build_at_loop2_loop0_loop0
     (t, assembly_error, chunk)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 3:
-    Source: '../../src/table.rs', lines 1422:24-1440:25
+    Source: '../../src/table.rs', lines 1404:24-1422:25
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0.body
@@ -23638,7 +22898,7 @@ def table.Table.build_at_loop2_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 3:
-    Source: '../../src/table.rs', lines 1422:24-1440:25
+    Source: '../../src/table.rs', lines 1404:24-1422:25
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0
@@ -23661,7 +22921,7 @@ def table.Table.build_at_loop2_loop0
     (t, assembly_error, bin_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 2:
-    Source: '../../src/table.rs', lines 1419:20-1442:21
+    Source: '../../src/table.rs', lines 1401:20-1424:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2.body
@@ -23694,7 +22954,7 @@ def table.Table.build_at_loop2.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 2:
-    Source: '../../src/table.rs', lines 1419:20-1442:21
+    Source: '../../src/table.rs', lines 1401:20-1424:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2
@@ -23716,7 +22976,7 @@ def table.Table.build_at_loop2
     (t, assembly_error, worker)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]:
-    Source: '../../src/table.rs', lines 1355:4-1450:5
+    Source: '../../src/table.rs', lines 1337:4-1432:5
     Visibility: public -/
 def table.Table.build_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23775,7 +23035,7 @@ def table.Table.build_at
     else ok (core.result.Result.Err table.StorageError.SizeOverflow)
 
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 144:0-146:1
+    Source: 'lib.rs', lines 157:0-159:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -23784,14 +23044,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 149:0-151:1
+    Source: 'lib.rs', lines 162:0-164:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 158:0-160:1
+    Source: 'lib.rs', lines 171:0-173:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -23801,7 +23061,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 163:0-171:1
+    Source: 'lib.rs', lines 176:0-184:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -23812,7 +23072,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 175:0-182:1
+    Source: 'lib.rs', lines 188:0-195:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -23822,14 +23082,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 185:0-187:1
+    Source: 'lib.rs', lines 198:0-200:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 191:0-196:1
+    Source: 'lib.rs', lines 204:0-209:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -23838,7 +23098,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 199:0-201:1
+    Source: 'lib.rs', lines 212:0-214:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23847,7 +23107,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 204:0-206:1
+    Source: 'lib.rs', lines 217:0-219:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23856,7 +23116,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 213:0-219:1
+    Source: 'lib.rs', lines 226:0-232:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -23866,7 +23126,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 260:0-266:1
+    Source: 'lib.rs', lines 273:0-279:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -23876,7 +23136,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 269:0-273:1
+    Source: 'lib.rs', lines 282:0-286:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -23884,7 +23144,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 276:0-286:1
+    Source: 'lib.rs', lines 289:0-299:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -23899,7 +23159,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 289:0-300:1
+    Source: 'lib.rs', lines 302:0-313:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -23915,7 +23175,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 303:0-311:1
+    Source: 'lib.rs', lines 316:0-324:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23928,7 +23188,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 314:0-323:1
+    Source: 'lib.rs', lines 327:0-336:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23941,7 +23201,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 336:0-338:1
+    Source: 'lib.rs', lines 349:0-351:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23955,7 +23215,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 352:0-357:1
+    Source: 'lib.rs', lines 365:0-370:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -23970,7 +23230,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 369:0-371:1
+    Source: 'lib.rs', lines 382:0-384:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23985,7 +23245,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 386:0-391:1
+    Source: 'lib.rs', lines 399:0-404:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -24003,7 +23263,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 394:0-400:1
+    Source: 'lib.rs', lines 407:0-413:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24018,7 +23278,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 404:0-412:1
+    Source: 'lib.rs', lines 417:0-425:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24036,7 +23296,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 415:0-417:1
+    Source: 'lib.rs', lines 428:0-430:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24052,7 +23312,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 421:0-429:1
+    Source: 'lib.rs', lines 434:0-442:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24074,7 +23334,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 437:0-439:1
+    Source: 'lib.rs', lines 450:0-452:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24088,7 +23348,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 446:0-458:1
+    Source: 'lib.rs', lines 459:0-471:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24111,7 +23371,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 461:0-463:1
+    Source: 'lib.rs', lines 474:0-476:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24126,7 +23386,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 466:0-478:1
+    Source: 'lib.rs', lines 479:0-491:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24152,7 +23412,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 481:0-486:1
+    Source: 'lib.rs', lines 494:0-499:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -24160,37 +23420,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 491:0-493:1
+    Source: 'lib.rs', lines 504:0-506:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 499:0-501:1
+    Source: 'lib.rs', lines 512:0-514:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 504:0-506:1
+    Source: 'lib.rs', lines 517:0-519:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 512:0-514:1
+    Source: 'lib.rs', lines 525:0-527:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 520:0-522:1
+    Source: 'lib.rs', lines 533:0-535:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 530:0-541:1
+    Source: 'lib.rs', lines 543:0-554:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24209,7 +23469,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 547:0-558:1
+    Source: 'lib.rs', lines 560:0-571:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24230,7 +23490,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 566:0-576:1
+    Source: 'lib.rs', lines 579:0-589:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24248,7 +23508,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 581:0-591:1
+    Source: 'lib.rs', lines 594:0-604:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24268,7 +23528,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 600:0-619:1
+    Source: 'lib.rs', lines 613:0-632:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24288,7 +23548,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 625:0-644:1
+    Source: 'lib.rs', lines 638:0-657:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24312,7 +23572,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 652:0-659:1
+    Source: 'lib.rs', lines 665:0-672:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24323,7 +23583,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 665:0-672:1
+    Source: 'lib.rs', lines 678:0-685:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24336,7 +23596,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 677:0-679:1
+    Source: 'lib.rs', lines 690:0-692:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -24345,40 +23605,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 686:0-688:1
+    Source: 'lib.rs', lines 699:0-701:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 693:0-695:1
+    Source: 'lib.rs', lines 706:0-708:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 700:0-702:1
+    Source: 'lib.rs', lines 713:0-715:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 707:0-709:1
+    Source: 'lib.rs', lines 720:0-722:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 716:0-718:1
+    Source: 'lib.rs', lines 729:0-731:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 726:0-731:1
+    Source: 'lib.rs', lines 739:0-744:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -24387,7 +23647,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 738:0-745:1
+    Source: 'lib.rs', lines 751:0-758:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -24398,7 +23658,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 749:0-751:1
+    Source: 'lib.rs', lines 762:0-764:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -24407,7 +23667,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 755:0-757:1
+    Source: 'lib.rs', lines 768:0-770:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -24416,7 +23676,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 763:0-765:1
+    Source: 'lib.rs', lines 776:0-778:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -24427,7 +23687,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 771:0-773:1
+    Source: 'lib.rs', lines 784:0-786:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -24436,7 +23696,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 789:0-791:1
+    Source: 'lib.rs', lines 802:0-804:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -24445,7 +23705,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 808:0-813:1
+    Source: 'lib.rs', lines 821:0-826:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -24454,7 +23714,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 819:0-821:1
+    Source: 'lib.rs', lines 832:0-834:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -24463,7 +23723,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 827:0-833:1
+    Source: 'lib.rs', lines 840:0-846:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -24472,7 +23732,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 839:0-845:1
+    Source: 'lib.rs', lines 852:0-858:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -24481,7 +23741,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 853:0-861:1
+    Source: 'lib.rs', lines 866:0-874:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -24491,7 +23751,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 868:0-870:1
+    Source: 'lib.rs', lines 881:0-883:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -24500,7 +23760,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 880:0-888:1
+    Source: 'lib.rs', lines 893:0-901:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -24510,17 +23770,18 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 896:0-904:1
+    Source: 'lib.rs', lines 918:0-933:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
   (head_dim : Std.Usize) (cap : Std.Usize) :
   Result (core.result.Result attn.KvState attn.AttnError)
   := do
-  attn.KvState.new n_layer n_head n_head_kv head_dim cap
+  attn.KvState.with_carrier n_layer n_head n_head_kv head_dim cap
+    mixer.Carrier.Q32
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 910:0-917:1
+    Source: 'lib.rs', lines 939:0-946:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -24530,7 +23791,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 924:0-933:1
+    Source: 'lib.rs', lines 953:0-962:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -24540,7 +23801,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 939:0-941:1
+    Source: 'lib.rs', lines 968:0-970:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -24549,7 +23810,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 965:0-967:1
+    Source: 'lib.rs', lines 994:0-996:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -24558,7 +23819,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 983:0-992:1
+    Source: 'lib.rs', lines 1012:0-1021:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
