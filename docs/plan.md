@@ -57,23 +57,31 @@ bounded-admission proofs are revision-bound historical evidence; the growable ex
 integration wave remains open. The fixed-shard table fails performance-preserving
 consolidation on the measured full16/direct-index-resident boundary; it is not accepted as the final
 migrated primitive solely because proofs exist. This is not a universal slowdown claim: offset
-coordinates give different results. G1/REG-1 remains OPEN on the fresh strict full-profile run
-([receipt](evidence/perf-ledger.md), sha256 `e164f808…`, superseding the stale
-figures): the HEADLINE is `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572
-missing=0 concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`, exit 1. The
-pathological cells are the spill absent-miss distributions (worst `apeiron_table`/`hashbrown_fxhash`
+coordinates give different results. G1/REG-1 remains OPEN: the strict command exits 1 and the applicable-pair tally is unsettled. The
+receipt of record is [perf-ledger](evidence/perf-ledger.md) (sha256 `5b94d6cd…` measured on this
+tree): its `HEADLINE` line reads `registered=2592 load_bearing=2268 applicable=1450 pass=421
+fail=1029 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, its
+earlier strict section reads `applicable=650 pass=133 fail=517 missing=0 unauthorized=0
+not_applicable=808 informational=1134`, and the authority records 387 passing / 1063 failing
+applicable pairs ([direction](direction.md#current-cut-partition-validation-before-payload-layout-replacement)).
+Three tallies disagree; the refresh belongs to the measurement owner (`APEIRON-REANCHOR-W5-T1`), and
+the exit status and `full_acceptance=false` stand on every one of them. The
+pathological cells of the earlier strict run were the spill absent-miss distributions (worst `apeiron_table`/`hashbrown_fxhash`
 `occ16-seeded-random-absent-miss-replacement`, median ratio 373.8538, interval max 375.1818) and the
 resident growth-insert cells (worst `apeiron_table`/`hashtrinity_table`
 `occ16-direct-index-resident-growth-insert-replacement`, median ratio 231.8779); the resident
 direct-index healthy cells are not pathological (present-hit 3.3860x and absent-miss 4.6780x versus
-serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band). No speed recovery is
+serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band), and the current cut measures
+those two cells at 23.59x and 1.53x. No speed recovery is
 claimed. That receipt binds `examples/reg1/acceptance.rs` sha256 `f0f9aff0…` and `src/table.rs`
 sha256 `a89e9ec7…`; the current tree carries the T1 registry (`examples/reg1/acceptance.rs` sha256
-`d2f8c034…`) and a post-receipt spill/growth fix (`src/table.rs` sha256 `79621926…`), so the receipt
+`ce927a49…`) and a post-receipt spill/growth fix (`src/table.rs` sha256 `93f15f15…`; both digests
+measured here with `sha256sum`), so the receipt
 is the last strict full-profile result but not a measurement of the current identity. The
 re-anchored performance workstream in the barrier section continues: comparison coverage is repaired
 (T1) and the combined `get_each` arm is now `concurrency_unmatched`; serial direct-path overhead and
-spatial recovery on disjoint paths remain — with `W7-SearchCommitBoundary` frozen.
+spatial recovery on disjoint paths remain — with `W7-SearchCommitBoundary` frozen, unchanged under
+`APEIRON-STRATEGY-DECISION-T2` and `-T3`.
 
 The per-entry relocation step is extracted and proved for both carriers and both destinations:
 `word_stored_relocate_entry` and `word_regen_relocate_entry` are rooted in the fresh
@@ -116,9 +124,14 @@ sha256 `2a60a19d…`, audit clean, `proof/` `lake build` 1708 jobs; all six
 `proof/corpus/Growable/Rebuild.lean` (sha256 `8db24388…`) proves `word_stored_rebuild_preserves` and
 `word_regen_rebuild_preserves` over the traversal, closed cone, `lake build` 3474 jobs,
 relocation-write mutation red then green. Still open and frozen: the W7 retry `prepared_rebuild_refines_insertWith`
-(needs `SearchDecisionCorrect` + `CallbackLaws`), suspended under `W7-SearchCommitBoundary` because the
+(needs `SearchDecisionCorrect` + the callback laws, carried by the seven named boundary-ledger
+premises `ResourceAdapterSimulates`, `SearchDecisionCorrect`, `DecisionSymbolicCorrespondence`,
+`QueryAddressCorrect`, `FreshLengthBound`, `GrowableCallbackLaws` and `SpillVacantDirectGuard`,
+[`kernel-boundary.md`](kernel-boundary.md#w7-searchcommitboundary)), suspended under
+`W7-SearchCommitBoundary` because the
 reachable publication witness is conditional on the explicit unproved `ResourceAdapterSimulates`
-premise; the W6-T1 disjoint-write frames are landed. W6-T4 interface repair landed: `proof/corpus/Growable/Representation.lean` (sha256
+premise; the W6-T1 disjoint-write frames are landed, and the freeze and its reopening condition are
+unchanged under `APEIRON-STRATEGY-DECISION-T2` and `-T3`. W6-T4 interface repair landed: `proof/corpus/Growable/Representation.lean` (sha256
 `4dc7df700d8fc9eb50a88755934f5e632c702f77b7de0992114611a70c3139c1`) adds
 `reservedRepR_of_components` and the
 `reservedRepR_{liveSet,unique,coverage,directCover,directory,length}` projections, and
@@ -163,13 +176,14 @@ and the arbitrary-merge semantic identity are input-side; `DecisionSymbolicCorre
 conditional trust-boundary premises with discharge paths in
 [`kernel-boundary.md`](kernel-boundary.md#pending-composition-premise-boundary); no existing headline
 or grade changed. The W7 retry `prepared_rebuild_refines_insertWith` is suspended under
-`W7-SearchCommitBoundary` and not asserted.
+`W7-SearchCommitBoundary` and not asserted; the freeze and its reopening condition are unchanged
+under `APEIRON-STRATEGY-DECISION-T2` and `-T3`.
 Whole-table
 `RepR`/`ReservedRepR`/`PendingCommittedR`
 landed in `proof/corpus/Growable/Representation.lean` (W5); payload-initialization placement remains
 open. Kani is retired and supplies no current coverage requirement.
 
-### Joint prepared-resource boundary (Astra verdict; Sol contract W0; W1 landed; W2 landed; W3 landed; W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen)
+### Joint prepared-resource boundary (Astra verdict; Sol contract W0; W1 landed; W2 landed; W3 landed; W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen, unchanged under APEIRON-STRATEGY-DECISION-T2/-T3)
 
 Astra approved the adjusted extraction boundary (`kernel-boundary.md` Joint prepared-resource
 boundary): extract the joint resource handoff, not reservation or initialization. `R::hold`,
@@ -228,14 +242,15 @@ two operations-binding projections; `proof/corpus/Growable/Resources.lean` sha25
 sha256 `8db24388…`) → W7-T2 premise interface landed (Search/Resources interfaces, see above) → W7
 retry composition `prepared_rebuild_refines_insertWith` suspended under `W7-SearchCommitBoundary`.
 W7 composes `rebuild_preserves`
-with the commit equality, `SearchDecisionCorrect` and `CallbackLaws` to canonical
-`Apeiron.Table.insertWith`; it is not asserted here.
+with the commit equality, `SearchDecisionCorrect` and the callback laws (`GrowableCallbackLaws`) to
+canonical `Apeiron.Table.insertWith`; it is not asserted here, and the freeze is unchanged under
+`APEIRON-STRATEGY-DECISION-T2` and `-T3`.
 
 ### Supplied measurement receipts (REG-1, Kani and historical figures not rerun; the relocation control was rerun, receipt `docs/evidence/relocation-controls.md`)
 
 | Evidence / grade | Result and limit |
 |---|---|
-| REG-1 runtime, `measured` (fresh receipt `docs/evidence/perf-ledger.md`, sha256 `e164f808…`, supersedes the stale figures) | Fresh strict full-profile run on `src/table.rs` sha256 `a89e9ec7…`: HEADLINE `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0 concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`, exit 1. Pathological: spill absent-miss 373.85x (interval max 375.18) and resident growth-insert 231.9x; resident direct-index healthy about 2.7–4.7x behind the serial load-bearing incumbents. Sole full16 workload is an extreme boundary, not a representative aggregate. |
+| REG-1 runtime, `measured` (receipt of record `docs/evidence/perf-ledger.md`, sha256 `5b94d6cd…` measured on this tree; the applicable-pair tally is unsettled and is not refreshed here) | The receipt's `HEADLINE` line is `registered=2592 load_bearing=2268 applicable=1450 pass=421 fail=1029 missing=0 concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`, exit 1; its earlier strict section is `applicable=650 pass=133 fail=517 missing=0 unauthorized=0 not_applicable=808 informational=1134`, and the authority records 387 passing / 1063 failing applicable pairs. All three exit 1 with `full_acceptance=false`, and the refresh belongs to the measurement owner (`APEIRON-REANCHOR-W5-T1`). Earlier strict-run pathological cells: spill absent-miss 373.85x (interval max 375.18) and resident growth-insert 231.9x, measured at 23.59x and 1.53x by the current cut; resident direct-index healthy about 2.7–4.7x behind the serial load-bearing incumbents. Sole full16 workload is an extreme boundary, not a representative aggregate. |
 | Spill/growth micro, `measured` (diagnostic; not a pair-gate result) | `cargo run --release --locked --example micro_spill` on the post-receipt spill/growth fix, same 4096-op schedules: `occ16-seeded-random-absent-miss-replacement` median `1314468`/`1328764` → `78758` ns (`320.92`/`324.41` → `19.23` ns/op) and `occ16-direct-index-resident-growth-insert-replacement` median `7294013`/`6805921` → `93218` ns (`1780.76`/`1661.60` → `22.76` ns/op); before logs `/tmp/opencode/diag.out`/`diag2.out`, after `/tmp/opencode/micro-final.out`. The two cells remain the strict receipt's worst; no post-fix full-profile receipt exists and the pair-gate grade is unchanged. |
 | Cached-placement experiment, reported `measured` | Candidate/hashtrinity 2.65–2.69 on the measured boundary; rejected, benchmark-only, not production or proof-covered. |
 | Historical spatial reproduction, archival pending identity registration | `71942db` parallel CountTable: historical 3.16 ms versus packed hashtrinity 10.27 ms; supplied temporary-worktree rerun 2.494 ms versus 8.976 ms (~3.6x win), i9-14900KF / rustc 1.97 nightly. No CountTable refinement is established. |
@@ -286,12 +301,16 @@ pass. The full statement is in
 It exits nonzero when any applicable strata speed cell is `fail`/`rejected`/`missing` or when a
 `pass` cell's ratio interval max is above `1.0`; `not-applicable` speed cells and the separate
 resource rows are excluded. Without `--accept` the same run is diagnostic, exits 0 and reports the
-axis `boundary`. The command currently exits 1: the fresh strict full-profile run
-([receipt](evidence/perf-ledger.md), sha256 `e164f808…`) gives
-`registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0
-concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false`; the 6 address-face
-unmatched pairs fail regardless of ratio and the other 566 are ratio failures, dominated by the
-spill absent-miss distributions (373.85x) and the resident growth-insert cells (231.9x), while the
+axis `boundary`. The command currently exits 1: the receipt of record
+([receipt](evidence/perf-ledger.md), sha256 `5b94d6cd…` measured on this tree) reports
+`registered=2592 load_bearing=2268 applicable=1450 pass=421 fail=1029 missing=0
+concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false` on its headline line,
+`applicable=650 pass=133 fail=517 missing=0 unauthorized=0` on its earlier strict section, and the
+authority records 387 passing / 1063 failing applicable pairs, so the applicable-pair tally is
+unsettled and its refresh belongs to the measurement owner. Address-face and concurrency-unmatched
+pairs fail regardless of ratio, as does every applicable pair whose interval maximum exceeds `1.0`;
+the failures are dominated by the
+spill absent-miss distributions (373.85x; 23.59x on the current cut) and the resident growth-insert cells (231.9x; 1.53x on the current cut), while the
 resident direct-index healthy cells are about 2.7–4.7x behind the serial load-bearing incumbents;
 `reg1_pass=false` and `report_complete=false`. No speed recovery is claimed. The remaining
 [RFC rows](direction.md#required-r0-acceptance-g1--reg-1) — identity, round-trip, cross-process
@@ -304,7 +323,11 @@ Named incumbents: `hashtrinity::{Table,CoordMap,FreqMap}` serial and packed-para
 (`count_par`/`get_each`), `hashbrown+foldhash`, `hashbrown+fxhash`, `hashbrown+rayon`, `std`
 SipHash, `foldhash`/`fxhash` par16, and — per the landed `docs/hash-comparison.md` and
 `examples/reg1/acceptance.rs` — `xxHash` XXH3/XXH64, `wyhash`, `ahash` and `fnv`, each now
-load-bearing on the opaque-key exact map face. Applicability is registered per cell/incumbent pair before
+load-bearing on the opaque-key exact map face; `blake3` and `sha256` are registered informational
+cryptographic comparators and carry no ratio bound, because this harness names no
+authentication/integrity contract. Coverage of `hashtrinity` `CoordMap` and the serial `FreqMap` is
+**open**: no adapter for either is registered, which is a coverage gap and not a `not-applicable`
+finding. Applicability is registered per cell/incumbent pair before
 timing with a semantic or API reason; no family-wide exemption; missing, duplicate, invalid or
 inconclusive pairs reject. `--accept --profile smoke` is diagnostic only; full acceptance requires
 all registered pairs. This supersedes the RFC elapsed-median floor `selected/hashtrinity <= 1.25`;
@@ -419,6 +442,22 @@ is not progress through this condition. Performance parity does not itself reope
 once the measured production mechanism is selected, restoring this proof route is mandatory before
 G1 closure, and freezing it indefinitely leaves the epic incomplete.
 
+**`APEIRON-STRATEGY-DECISION-T2` and `-T3` reconcile this schedule; neither reopens W7.** They
+supersede immediate W7 retry scheduling in earlier records, not its requirements, gates, controls or
+trust statements: the freeze stands with the reopening condition above unchanged, regression re-proof
+continues, whole-state `apply_insert` composition and `prepared_rebuild_refines_insertWith` remain
+unproved/open and suspended, and local arithmetic/generated-body repairs continue at their own gates.
+T2 authorizes the partition-validation cost cut, **rejects** removal of the region payload
+initialization in the current dispatch, and adds `SpillSummaryShape`, `SpillSummaryRecorded`,
+`SpillSummaryMissSound` and `SpillFingerprintExact` to W7's
+[ledger](kernel-boundary.md#spill-filter-obligations-and-partition-cut) as temporary named premises at
+grade `anchor` — not axioms, not established `RepR` fields, not replacements for preservation — each
+with a Sol-owned bridge contract and a source-linked proof owed for both carriers; every premise must
+be discharged before end-to-end acceptance and no existing theorem is weakened to accommodate the new
+state. T3 keeps the all-pair interval ceiling `selected/incumbent <= 1.0`, authorizes size-only
+factoring and then measured read-path specialization, and retains every named incumbent, the coverage
+gaps, the HashDOS requirement, the controls, both axiom cones and the realization exclusions.
+
 **Performance workstream order.** Consume the fresh full-profile receipt before changing timed
 source or harness. Then, in order: (1) comparison coverage repaired — `APEIRON-REANCHOR-W1-T1`
 made the five named hashers (`xxHash` XXH3/XXH64, `wyhash`, `ahash`, `fnv`) load-bearing in
@@ -428,7 +467,9 @@ changes; (3) reduce serial direct-path overhead; (4) restore spatial partition/b
 on disjoint paths; (5) publish a matched before/after full-profile receipt. The
 [roadmap dispatch table](roadmap.md#performance-re-anchor-and-bounded-dispatch) owns
 the task IDs, files and gates. No aggregate, std-only win, historical envelope, reduced matrix or
-trusted-boundary grade closes G1.
+trusted-boundary grade closes G1. `APEIRON-STRATEGY-DECISION-T3` keeps that order: size-only factoring
+of `src/table.rs` first, then measured read-path specialization, with the spatial recovery prepared on
+disjoint paths.
 
 **Revised representation boundary (Astra verdict).** The selected structure becomes a table-level
 flat resident area (shard-major `256 x L`, admission `direct_word = Some(w) ∧ lane < L`, checked
@@ -711,13 +752,17 @@ Each item is open, not a completed result:
 
 - **G1/REG-1.** The strict all-row acceptance command
   `cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`
-  exists and currently exits 1: the fresh strict full-profile run
-  ([receipt](evidence/perf-ledger.md), sha256 `e164f808…`) gives
-  `registered=2592 load_bearing=1458 applicable=650 pass=78 fail=572 missing=0
-  concurrency_unmatched=0 address_face_unmatched=6 full_acceptance=false` at
-  `selected/incumbent <= 1.0`; the 6 address-face unmatched pairs fail regardless of ratio and the
-  other 566 are ratio failures, dominated by the spill absent-miss distributions (373.85x) and the
-  resident growth-insert cells (231.9x), while the resident direct-index healthy cells are about
+  exists and currently exits 1: the receipt of record
+  ([receipt](evidence/perf-ledger.md), sha256 `5b94d6cd…` measured on this tree) gives
+  `registered=2592 load_bearing=2268 applicable=1450 pass=421 fail=1029 missing=0
+  concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false` at
+  `selected/incumbent <= 1.0`, its earlier strict section gives
+  `applicable=650 pass=133 fail=517 missing=0 unauthorized=0`, and the authority records 387 passing /
+  1063 failing applicable pairs; the applicable-pair tally is unsettled and belongs to the
+  measurement owner, while the exit status does not. Address-face and concurrency-unmatched pairs fail
+  regardless of ratio and the rest are ratio failures, dominated by the spill absent-miss
+  distributions (373.85x; 23.59x on the current cut) and the
+  resident growth-insert cells (231.9x; 1.53x on the current cut), while the resident direct-index healthy cells are about
   2.7–4.7x behind the serial load-bearing incumbents. The
   non-strict diagnostic mode exits 0 and reports the axis `boundary`. `reg1_pass=false`,
   `report_complete=false`; S8/G1 remains OPEN pending joint performance/refinement evidence. The two
@@ -729,7 +774,7 @@ Each item is open, not a completed result:
   modules remain revision-bound historical evidence. Allocator success/failure correspondence is an
   unextracted trust boundary with a simulation statement and must not enter the `Slang.*` empty-cone
   chain. The canonical release/commit remains separately authorized.
-- **Resource-handoff extraction (W1 landed; W2 landed; W3/W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen).** The joint
+- **Resource-handoff extraction (W1 landed; W2 landed; W3/W4 landed; W5 landed; W6-T1 landed; W6-T4 interface repair landed; W6-T5 landed; W6-T2 landed; W7-T2 premise interface landed; W7-SearchCommitBoundary frozen, unchanged under APEIRON-STRATEGY-DECISION-T2/-T3).** The joint
   handoff is landed at
   `src/table.rs` sha256 `a89e9ec743405ac7d80183e431f6e932ba90353bc777f142865f44005261d09a` and
   `src/table/resources.rs` sha256
@@ -786,8 +831,10 @@ Each item is open, not a completed result:
 then green. The W7-T2 premise interface is landed (`proof/corpus/Growable/Search.lean` sha256 `d349cd48…`,
 `proof/corpus/Growable/Resources.lean` sha256 `3708d69c…`; `QueryAddressCorrect`, `FreshLengthBound`,
 `GrowableCallbackLaws`, `DecisionSymbolicCorrespondence`, `resourceAdapter_refusal_stutter`), and the
-W7 retry `prepared_rebuild_refines_insertWith` is suspended under `W7-SearchCommitBoundary` and not
-asserted.
+  W7 retry `prepared_rebuild_refines_insertWith` is suspended under `W7-SearchCommitBoundary` and not
+  asserted; the freeze and its reopening condition are unchanged under `APEIRON-STRATEGY-DECISION-T2`
+  and `-T3`, which add `SpillSummaryShape`, `SpillSummaryRecorded`, `SpillSummaryMissSound` and
+  `SpillFingerprintExact` to the boundary ledger as temporary named premises at grade `anchor`.
 - **Identity-injectivity integration.** Canonical odd-multiply injectivity at
   `Table/WordIdentity.lean`, the extracted `coord` roots and `TableRefinement/CoordIdentity.lean`
   (`coord_spread_id_injective`) are present and registered for audit; binding that chain to the

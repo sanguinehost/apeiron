@@ -106,7 +106,13 @@ the five load-bearing in `examples/reg1/acceptance.rs`: each is the same `hashbr
 surface as `hashbrown_foldhash` with a different `BuildHasher`, measured over the same admitted key
 set, lookup trace, update trace and canonical readback, so each is applicable on the opaque-key
 exact map face and subject to `selected/incumbent <= 1.0`. Each is listed in
-`REQUIRED_LOAD_BEARING`; demotion to informational or omission rejects. `blake3` and `sha256` stay
+`REQUIRED_LOAD_BEARING`; demotion to informational or omission rejects. The registry-integrity
+controls are `examples/reg1/acceptance/registry_tests.rs` — `required_incumbents_are_present_load_bearing_and_built`,
+`every_registered_incumbent_is_classified`, `required_incumbent_classification_is_correct`,
+`omitted_required_pair_is_reported_missing`, `get_each_combined_arm_is_concurrency_unmatched` and
+`acceptance_threshold_is_one` — reached by `cargo test --locked --example reg1 acceptance::`; they
+read the compiled registry and the pure classification helpers and run no benchmark and no adapter.
+No run of that command is claimed by this note. `blake3` and `sha256` stay
 informational (no named authentication/integrity contract in the R0 matrix) and are carried in
 `INFORMATIONAL_COMPARATORS` with that reason; `blake2b`/`blake2s` are not registered in the harness.
 
