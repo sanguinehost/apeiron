@@ -248,16 +248,29 @@ read in this review. Current acceptance requires rerunning its exact gate on the
 ## Required R0 acceptance: G1 / REG-1
 
 <!-- APEIRON-STRATEGY-DECISION-T3-STATUS BEGIN -->
-**Current performance status.** The [post-correctness receipt](evidence/perf-ledger.md)
-supersedes the older performance checkpoints below: strict exit 1, `pass=421 fail=1029`,
-`applicable=1450`, `full_acceptance=false`; every spatial pair fails. The worst serial pair is
-spill absent-miss, 20.4682x against `hashbrown_fxhash` (interval [20.0871,20.5922], 16.161 ns/op).
-Offset misses cost 18.8–18.9 ns/op; occ16 spill hits improve from about 30.7x to 12.3x, not parity.
-Growth-insert remains about 1.5x. The supplied resident 2.7–4.7x band is not a new measurement;
-the receipt's named resident miss is 4.9286x against `hashtrinity_table`, 2.645 ns/op.
-These are receipt-bound measurements on `leviathan`, not reruns or measurements of subsequent edits.
-The reported extraction (`ApeironWord.lean` SHA-256 prefix `b590a393`, 1708 jobs) is green;
-Sol's bridge re-proof is in flight, not accepted by that extraction result. G1 remains **OPEN**.
+**Current performance status.** Fresh full-profile REG-1 on the current source (`a2866eb`,
+dirty=yes; `cargo run --release --locked --example reg1 -- --check performance --profile full
+--accept --controls`), 2026-10-03 on this box (`i9-14900KF`, `rustc 1.97.0-nightly`, single strict
+accept run): exit 1, `registered=2592 load_bearing=2268 applicable=1450 pass=545 fail=905 missing=0
+concurrency_unmatched=2 address_face_unmatched=4 full_acceptance=false`. Three commits landed this
+session, each a named mechanism: `a3104c9` (append a fresh locator residue run in one `Vec::resize`
+instead of 53 checked appends), `a6e03a8` (`slots_for` floor `n -> 2n`, so a group-width region
+keeps a vacancy and an absent read stops early), `a2866eb` (reserve the batch's locator extent before
+the first merge; the per-insert 64-level directory walk is removed). Headline trajectory: `654c6f2`
+453/997 -> `a6e03a8` 466/984 -> `a2866eb` 545/905. The dominant failing class remains the
+**mutating insert paths**: `admitted-fresh-insert` worst
+`occ1-direct-index-resident-admitted-fresh-insert-wrapping-add` **8.0898** (was 79.3958 at
+`a6e03a8`; cells pass 0/32 -> 8/24), `growth-insert` worst **3.4173** (was 69.7023; 0/8 -> 2/6).
+Other failing classes: `direct-index-resident` 0/40, `offset-beyond-direct` 1/39, `existing-update`
+10/30; read classes pass at 0.25x–0.60x. The parallel spatial face (10 pairs, all failing
+10.16x–67.29x at `a6e03a8`) is a separate axis, registered at only 2 cells. The earlier
+[post-correctness receipt](evidence/perf-ledger.md) (`pass=421 fail=1029`; "worst serial pair spill
+absent-miss 20.4682x"; "growth-insert remains about 1.5x") is SUPERSEDED — both headline claims fail
+to hold on this source — and its absolute ns/op is not cross-receipt comparable. Ratios and the
+pass/fail census are the evidence; intervals are within-run only. The extraction (`ApeironWord.lean`)
+is NOT regenerated against `a2866eb`: `src/table.rs` and `src/table/locator.rs` drift until
+`proof/regen.sh`, blocked on the patched translator (`AENEAS-TOOLCHAIN-BUILD`); the committed
+extraction therefore still refines `654c6f2`, not this tip. G1 remains **OPEN**.
 <!-- APEIRON-STRATEGY-DECISION-T3-STATUS END -->
 
 RFC 0001's [G1/REG-1](rfcs/0001-core-architecture/RFC.md), lines 196-209,
@@ -426,6 +439,15 @@ equivalence. The artifacts remain distinct; their canonical semantic authority i
 **this repository is the canonical root**, with both as predecessors. A theorem is cited from the
 canonical root; a predecessor is provenance at its recorded revision, not a second authority and not
 a fallback.
+
+**Primitive provenance — search the lineage first.** A primitive this tree lacks very often exists
+already in a predecessor corpus in some form — most likely `../sanguine` or `../sanguine-apeiron`,
+and sometimes solved in another sibling repo. That form is a port with a named target, not a
+derivation from nothing, and the search is part of the spec: name the declaration, its revision and
+digest, and what the port must add. When the primitive is absent everywhere, one gets made — and the
+record says the search happened, because "we made it" is a claim about prior art as much as about
+code. Milestone 7 is the worked example: the exact three-axis, six-side, `dt`-bearing law is proved at
+`CarrierVolumeAnyRing.lean:472` and referenced nowhere in Penglai, so the missing work was a port.
 
 The physical canonical source remains at `../sanguine-apeiron/proof/Apeiron/`. The bridge's
 `proof/corpus/lake-manifest.json` resolves corpus Git
