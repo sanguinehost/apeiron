@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/CheckFragment_gate.py"
+kind     = "gate"
+path     = "proof/resource/CheckFragment_gate.py"
+sha256   = "abcffb9b444eddd553416712817e389050a6c0eabb9cdf050658d4f0779d9641"
+gate     = "python3 proof/resource/CheckFragment_gate.py --check"
+control  = "python3 proof/resource/CheckFragment_gate.py --controls"
+budget_s = 540
