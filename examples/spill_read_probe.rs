@@ -643,8 +643,7 @@ fn main() {
     let ratio = spill_median / resident_median;
     let parity = in_parity_ratio(ratio);
     println!(
-        "ratio={:.4} arms=canonical_spill/canonical_resident median_ns_per_key={:.4}/{:.4}",
-        ratio, spill_median, resident_median
+        "ratio={ratio:.4} arms=canonical_spill/canonical_resident median_ns_per_key={spill_median:.4}/{resident_median:.4}"
     );
 
     let clean = spill_arm.wrong_present == 0
@@ -683,12 +682,8 @@ fn main() {
     // enforced.
     assert!(
         parity || cfg!(feature = "read-stats"),
-        "spill_read_probe parity: spill/resident ratio {:.4} exceeds {:.2} \
-         (spill median {:.4} ns/key against resident {:.4} ns/key)",
-        ratio,
-        PARITY_RATIO_MAX,
-        spill_median,
-        resident_median
+        "spill_read_probe parity: spill/resident ratio {ratio:.4} exceeds {PARITY_RATIO_MAX:.2} \
+         (spill median {spill_median:.4} ns/key against resident {resident_median:.4} ns/key)"
     );
 }
 

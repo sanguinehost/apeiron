@@ -229,7 +229,10 @@ fn observe_locator_receipt(
 ) -> LocatorReservationReceipt {
     let edge_capacity = directory.identity_node_count();
     LocatorReservationReceipt {
-        parabolic_nodes: locator_bound(plan.parabolic_nodes, directory.arena_len::<ParabolicDual>()),
+        parabolic_nodes: locator_bound(
+            plan.parabolic_nodes,
+            directory.arena_len::<ParabolicDual>(),
+        ),
         residue_nodes: locator_bound(plan.residue_nodes, directory.arena_len::<Residue>()),
         identity_nodes: locator_bound(plan.identity_nodes, directory.identity_node_count()),
         identity_edges: locator_bound(plan.identity_edges, edge_capacity),
@@ -991,8 +994,14 @@ mod locator_tests {
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
-        assert!(table.locator.directory.is_some(), "the first insert materializes the directory");
-        assert!(table.locator.staged.is_none(), "publication clears the staging");
+        assert!(
+            table.locator.directory.is_some(),
+            "the first insert materializes the directory"
+        );
+        assert!(
+            table.locator.staged.is_none(),
+            "publication clears the staging"
+        );
         assert_eq!(table.locator.links.len(), 1);
         assert!(table.check_storage_coverage());
 
@@ -1000,7 +1009,10 @@ mod locator_tests {
         elliptic
             .insert_with_at(&ReplacementMerge, Sigma::Elliptic, 7, 41)
             .unwrap();
-        assert!(elliptic.locator.directory.is_none(), "elliptic has no locator");
+        assert!(
+            elliptic.locator.directory.is_none(),
+            "elliptic has no locator"
+        );
         assert!(elliptic.locator.links.is_empty());
     }
 
@@ -1020,8 +1032,15 @@ mod locator_tests {
                 .insert_with_at(&ReplacementMerge, Sigma::Hyperbolic, 7, 42)
                 .unwrap();
             assert_eq!(table.len(), 3, "{label}: exact live length");
-            assert_eq!(table.locator.links.len(), 3, "{label}: one reverse link per payload");
-            assert!(table.check_storage_coverage(), "{label}: coverage after fresh inserts");
+            assert_eq!(
+                table.locator.links.len(),
+                3,
+                "{label}: one reverse link per payload"
+            );
+            assert!(
+                table.check_storage_coverage(),
+                "{label}: coverage after fresh inserts"
+            );
             assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41);
             assert_eq!(*table.get_at(Sigma::Parabolic, &8), -1);
             assert_eq!(*table.get_at(Sigma::Hyperbolic, &7), 42);
@@ -1043,7 +1062,10 @@ mod locator_tests {
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 99)
             .unwrap();
         assert_eq!(table.len(), 1, "an update does not change the live length");
-        assert_eq!(table.locator.links, links, "an update keeps the existing reverse link");
+        assert_eq!(
+            table.locator.links, links,
+            "an update keeps the existing reverse link"
+        );
         assert_eq!(*table.get_at(Sigma::Parabolic, &7), 99);
         assert!(table.check_storage_coverage());
     }
@@ -1090,13 +1112,18 @@ mod locator_tests {
             .insert_with_at(&merge, Sigma::Parabolic, 256, 1)
             .unwrap();
         // Key 0 grows the resident extent to one lane; key 256 stays in spill.
-        table.insert_with_at(&merge, Sigma::Parabolic, 0, 2).unwrap();
+        table
+            .insert_with_at(&merge, Sigma::Parabolic, 0, 2)
+            .unwrap();
         for key in 1..256_i64 {
             table
                 .insert_with_at(&merge, Sigma::Parabolic, key, key + 1)
                 .unwrap();
         }
-        assert!(table.check_storage_coverage(), "{label}: coverage before the relocation");
+        assert!(
+            table.check_storage_coverage(),
+            "{label}: coverage before the relocation"
+        );
         // Key 257 doubles the extent: key 256 relocates from spill to flat index 1.
         table
             .insert_with_at(&merge, Sigma::Parabolic, 257, 9)
@@ -1104,13 +1131,21 @@ mod locator_tests {
 
         assert_eq!(table.len(), 258, "{label}: exact live length");
         let relocated = table.search_decision_at(Sigma::Parabolic, &256);
-        assert_eq!(relocated.class, SearchClass::Found, "{label}: relocated key found");
+        assert_eq!(
+            relocated.class,
+            SearchClass::Found,
+            "{label}: relocated key found"
+        );
         assert_eq!(
             relocated.location,
             SearchLocation::Flat(1),
             "{label}: key 256 moved from spill to flat"
         );
-        assert_eq!(*table.get_at(Sigma::Parabolic, &256), 1, "{label}: relocated readback");
+        assert_eq!(
+            *table.get_at(Sigma::Parabolic, &256),
+            1,
+            "{label}: relocated readback"
+        );
         assert_eq!(*table.get_at(Sigma::Parabolic, &0), 2);
         assert_eq!(*table.get_at(Sigma::Parabolic, &257), 9);
         assert!(
