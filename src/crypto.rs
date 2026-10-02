@@ -125,10 +125,21 @@ pub fn keccak_f1600(state: &mut [u64; 25]) {
 /// records that precondition.
 fn absorb_block(state: &mut [u64; 25], block: &[u8]) {
     debug_assert_eq!(block.len() % 8, 0);
-    for (i, lane) in block.chunks_exact(8).enumerate() {
+    let lanes = block.len() / 8;
+    let mut i = 0usize;
+    while i < lanes {
+        let o = i * 8;
         state[i] ^= u64::from_le_bytes([
-            lane[0], lane[1], lane[2], lane[3], lane[4], lane[5], lane[6], lane[7],
+            block[o],
+            block[o + 1],
+            block[o + 2],
+            block[o + 3],
+            block[o + 4],
+            block[o + 5],
+            block[o + 6],
+            block[o + 7],
         ]);
+        i += 1;
     }
 }
 
@@ -147,14 +158,15 @@ fn sponge(msg: &[u8], rate: usize, pad10: u8, pad_final: u8, out: &mut [u8]) {
     let mut state = [0u64; 25];
 
     // Absorb full blocks.
-    let mut chunks = msg.chunks_exact(rate);
-    for block in chunks.by_ref() {
-        absorb_block(&mut state, block);
+    let mut consumed = 0usize;
+    while consumed + rate <= msg.len() {
+        absorb_block(&mut state, &msg[consumed..consumed + rate]);
         keccak_f1600(&mut state);
+        consumed += rate;
     }
 
     // Absorb the final (possibly empty) padded block.
-    let rem = chunks.remainder();
+    let rem = &msg[consumed..];
     let mut last = [0u8; 200];
     last[..rem.len()].copy_from_slice(rem);
     last[rem.len()] ^= pad10;
@@ -164,16 +176,22 @@ fn sponge(msg: &[u8], rate: usize, pad10: u8, pad_final: u8, out: &mut [u8]) {
 
     // Squeeze.
     let mut squeezed = [0u8; 200];
-    for (i, lane) in squeezed[..rate].chunks_exact_mut(8).enumerate() {
-        lane.copy_from_slice(&state[i].to_le_bytes());
+    let mut i = 0usize;
+    while i < rate / 8 {
+        let o = i * 8;
+        squeezed[o..o + 8].copy_from_slice(&state[i].to_le_bytes());
+        i += 1;
     }
     let mut off = 0usize;
     let mut filled = 0usize;
     while off < out.len() {
         if filled == rate {
             keccak_f1600(&mut state);
-            for (i, lane) in squeezed[..rate].chunks_exact_mut(8).enumerate() {
-                lane.copy_from_slice(&state[i].to_le_bytes());
+            let mut i = 0usize;
+            while i < rate / 8 {
+                let o = i * 8;
+                squeezed[o..o + 8].copy_from_slice(&state[i].to_le_bytes());
+                i += 1;
             }
             filled = 0;
         }

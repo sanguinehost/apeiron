@@ -455,10 +455,10 @@ The extraction binds to these working-source digests, printed by `proof/regen.sh
 | `src/table/partition.rs` | `60e55bd89e81359ef94dccf2a1ac9338f15a50ceef636f8f43e3da24c9f2eb30` |
 | `src/table/resources.rs` | `69bc3c67c30cdda893d74595129b358e59a4b73c3ee6dfe96f404cb3f7dd2b0c` |
 | `src/table/parallel.rs` | `69ecd44da988250c6d45a12a694419e74d3cbf5ababb16f232e5bd1e65cfa10e` |
-| `src/crypto.rs` | `4e2dbe1292783473410d4e7fa505f4c03650fcc3211963499b92bd592581108a` |
-| `proof/extract/lib.rs` | `3cb61e3231aadf4397c9dc146538ff4882e4d40de4c64dda20a9bbbfc32f0634` |
+| `src/crypto.rs` | `16bd3f9ffd20dc250957be25718446ee0ddcaa1cae349b33896b92aef428aa94` |
+| `proof/extract/lib.rs` | `a18e9d4de1deb25168b5cedecac48111782b35dba975662aedd2ae8856174086` |
 
-The generated `ApeironWord.lean` is `4446fb04d80dda4400d711ede47f9b3f30877918e8be137566f5b0e4e437cc77`
+The generated `ApeironWord.lean` is `1c8021b950d306def66c8f8b5a936231f44a259721f50f64dda10d7f219a6d59`
 at the digests above; `regen.sh --check` re-extracts and fails on any diff. The logs attribute this
 dirty working-source identity by the recorded digests rather than to `HEAD` alone.
 
