@@ -335,7 +335,8 @@ theorem stored_matches_iff (slotSigma querySigma : Sigma) (held : StoredI64) (va
     (query : I64) (address : table.TableAddress) :
     table.matches
         storedKeyRep
-        (slotSigma, held, value) querySigma query address = ok true ↔
+        { tag := 0#u8, sigma := slotSigma, held := held, value := value }
+        querySigma query address = ok true ↔
       logicalStored slotSigma held = (querySigma, query) := by
   cases slotSigma <;> cases querySigma <;> cases held <;>
     simp [table.matches, cell.Sigma.Insts.CoreCmpPartialEqSigma.eq,
@@ -409,7 +410,8 @@ theorem regen_slot_matches_iff_of_reachable (slotSigma querySigma : Sigma) (held
     (hheld : word_regen_hold slotSigma original = ok held) :
     table.matches
         regenKeyRep
-        (slotSigma, held, value) querySigma query address = ok true ↔
+        { tag := 0#u8, sigma := slotSigma, held := held, value := value }
+        querySigma query address = ok true ↔
       (slotSigma, original) = (querySigma, query) := by
   cases slotSigma <;> cases querySigma
   · simpa [table.matches, cell.Sigma.Insts.CoreCmpPartialEqSigma.eq,
@@ -464,13 +466,15 @@ def MatchesIdentity : Prop :=
         (address : table.TableAddress),
       table.matches
           storedKeyRep
-          (slotSigma, held, value) querySigma query address = ok true ↔
+          { tag := 0#u8, sigma := slotSigma, held := held, value := value }
+          querySigma query address = ok true ↔
         logicalStored slotSigma held = (querySigma, query)) ∧
     (∀ (slotSigma querySigma : Sigma) (held : RegenI64) (original query value : I64)
         (address : table.TableAddress), word_regen_hold slotSigma original = ok held →
       (table.matches
           regenKeyRep
-          (slotSigma, held, value) querySigma query address = ok true ↔
+          { tag := 0#u8, sigma := slotSigma, held := held, value := value }
+          querySigma query address = ok true ↔
         (slotSigma, original) = (querySigma, query)))
 
 /-- Carrier identity is the codec, equality, clone, `Sigma`, and reconstructed-address contract. -/
