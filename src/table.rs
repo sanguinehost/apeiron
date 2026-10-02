@@ -211,7 +211,7 @@ impl Merge<i64> for ReplacementMerge {
     }
 }
 
-// The region/summary/decision/scalar-geometry and rebuild-state declarations are included
+// The region/decision/scalar-geometry and rebuild-state declarations are included
 // textually so they keep the `table` module namespace and generated type identities; the
 // moved bodies live in `src/table/state.rs` unchanged. See the plan's exact size cut.
 include!("table/state.rs");
@@ -318,7 +318,8 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     /// The read inlines resident classification, flat indexing and read application, then routes
     /// every occupied non-match or out-of-extent coordinate to the read-only spill matcher.  It
     /// performs no insertion vacancy search: absence is the direct-empty `DirectCover` certificate,
-    /// a routed-spill summary miss after direct exclusion, or complete finite match coverage.
+    /// a routed-spill bounded-cycle absence after direct exclusion, or complete finite match
+    /// coverage.
     ///
     /// The face argument is the home's own [`FaceDomain`] token, so a locator-only home cannot be
     /// passed the elliptic face: the restriction is a type, not a runtime branch. The token is

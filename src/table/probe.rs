@@ -108,7 +108,7 @@ pub(super) mod read_trace {
     }
 
     /// Records one read that returned absence on a zero tag.
-    pub(crate) fn record_summary_miss() {
+    pub(crate) fn record_absence_certificate() {
         ABSENCE_CERTIFICATES.with(|count| count.set(count.get() + 1));
     }
 
@@ -118,7 +118,7 @@ pub(super) mod read_trace {
     }
 
     /// Returns the absence-certificate count on this thread.
-    pub(crate) fn summary_misses() -> usize {
+    pub(crate) fn absence_certificates() -> usize {
         ABSENCE_CERTIFICATES.with(Cell::get)
     }
 
@@ -270,7 +270,7 @@ pub(super) fn spill_read<K, H, R: KeyRep<K, H>, V>(
                 // Absence certificate: nothing is ever removed, so a live key cannot sit past a
                 // vacancy.
                 #[cfg(test)]
-                read_trace::record_summary_miss();
+                read_trace::record_absence_certificate();
                 #[cfg(feature = "read-stats")]
                 read_stats::record_absence(true);
                 step = bound;

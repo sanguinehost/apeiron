@@ -209,7 +209,7 @@ where
         .ok_or(StorageError::SizeOverflow)?;
     let ((face, key), _) = &input[first];
     let address = Home::address(home, face.sigma(), key);
-    // Reserve the complete checked region (tags, payloads, summary) before the first hold or
+    // Reserve the complete checked slot array before the first hold or
     // clone; a refusal here leaves no partial region and runs no callback.
     let mut region = Region::reserve_empty(slots_for(load, N)?)?;
     let sigma = face.sigma();
