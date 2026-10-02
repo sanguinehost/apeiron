@@ -33,20 +33,6 @@ def committedResult {R : Type}
   | none => ok next
   | some _ => fail Error.panic
 
-private theorem committedProjection {R : Type}
-    (next : table.Table I64 I64 table.WordHome R 16#usize) :
-    ok next = (do
-      let result ←
-        ok ((table.ApplyOutcome.Committed : table.ApplyOutcome I64 I64), next)
-      let (state, pending) ← match result.1 with
-        | .Committed => ok (result.2, none)
-        | .NeedsGrowth key value => ok (result.2, some (key, value))
-      match pending with
-  | none => ok state
-  | some _ => fail Error.panic) := by
-  rw [bind_tc_ok, bind_tc_ok]
-  rfl
-
 /--
 The stored-carrier rebuild commit is the ordinary extracted insert apply on `rebuiltView`.  The
 carrier equation is the input-side pending carrier certificate from `RebuildPlanCorrect`.
@@ -85,10 +71,6 @@ theorem word_stored_apply_pending_and_commit_eq_apply_insert
       table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge,
       alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
       alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
-  all_goals repeat' first | split <;> simp_all
-  all_goals cases_type Prod
-  all_goals cases_type Prod
-  all_goals exact committedProjection _
 
 /--
 The regenerating-carrier rebuild commit is the ordinary extracted insert apply on `rebuiltView`.
@@ -123,9 +105,5 @@ theorem word_regen_apply_pending_and_commit_eq_apply_insert
       table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge,
       alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
       alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
-  all_goals repeat' first | split <;> simp_all
-  all_goals cases_type Prod
-  all_goals cases_type Prod
-  all_goals exact committedProjection _
 
 end Apeiron.GrowableRefinement
