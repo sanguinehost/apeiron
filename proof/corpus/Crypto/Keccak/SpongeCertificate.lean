@@ -331,6 +331,32 @@ theorem stateView_set_get (a : Array Std.U64 25#usize) (i : Std.Usize) (v : Std.
   · rw [if_pos h, if_pos h]
   · rw [if_neg h, if_neg h]
 
+/-- One iteration of the extracted absorb loop (`crypto.absorb_block_loop.body`, 3139-3164), read
+through the state view: lane `i` takes its old value XOR the little-endian block window at `8 * i`
+- the `foldLane` the canonical `xorBlock` computes for that lane (FIPS-202 §4) - and every other
+lane is unchanged. The written word `x` is `i17 ^^^ i16` of the loop body, where `i17` is the
+`Array.index_usize` read of lane `i` and `i16` the `from_le_bytes` read of the eight block bytes;
+`absorbLane_eq_foldLane` pins `i16` to `foldLane`. -/
+theorem absorb_step (a : Array Std.U64 25#usize) (block : Slice Std.U8) (i : Std.Usize)
+    (hi : i.val < 25) (x : Std.U64)
+    (hx : x.bv = (stateView a).get ⟨i.val, hi⟩ ^^^ (core.num.U64.from_le_bytes
+      (Array.make 8#usize (blockBytes block (8 * i.val))
+        (blockBytes_length block (8 * i.val)))).bv) :
+    ∀ k : Fin 25, (stateView (a.set i x)).get k
+      = if k.val = i.val then
+          (stateView a).get ⟨i.val, hi⟩ ^^^ foldLane (sliceView block) (8 * i.val)
+        else (stateView a).get k := by
+  have hxl : (core.num.U64.from_le_bytes
+      (Array.make 8#usize (blockBytes block (8 * i.val))
+        (blockBytes_length block (8 * i.val)))).bv
+      = foldLane (sliceView block) (8 * i.val) :=
+    absorbLane_eq_foldLane block (8 * i.val)
+  intro k
+  rw [stateView_set_get a i x hi k]
+  by_cases h : k.val = i.val
+  · rw [if_pos h, if_pos h, ← hxl]
+    exact hx
+  · rw [if_neg h, if_neg h]
 
 /-! ## Rates, offsets and domain separation
 
