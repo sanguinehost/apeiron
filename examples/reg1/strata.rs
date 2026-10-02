@@ -43,7 +43,8 @@ use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
 use std::time::Instant;
 
-use apeiron::table::Table;
+use apeiron::table::{SearchLocation, Table};
+use apeiron::Sigma;
 use hashtrinity::Table as HtTable;
 
 use crate::matrix::{
@@ -639,6 +640,60 @@ fn touch_ht(table: &Ht, keys: &[StrataKey]) {
     black_box(acc);
 }
 
+/// The observed read-path split of every current cell, keyed by cell id, as the `(spill, resident)`
+/// present-key counts. [`Table::search_decision_at`] runs the classifier [`Table::get_at`] inlines
+/// at `src/table.rs:372` — the `direct_word`/`resident.index` descent, then the spill region — so a
+/// `Spill` location is exactly the set of reads that enter `spill_read`. It is the executing
+/// table's own classification over each timed cell's population: no counter, no inference.
+pub(crate) fn read_path_split_by_cell() -> HashMap<String, (usize, usize)> {
+    let mut out = HashMap::new();
+    for spec in all_specs() {
+        let (capacity, bits) = probe_capacity(SHARDS * spec.occupancy);
+        let Ok(plan) = make_plan(spec, capacity, bits) else {
+            continue;
+        };
+        let (table, admitted) = build_apeiron(&plan.present, merge_fn(spec.merge));
+        if admitted == plan.present.len() {
+            let (mut spill, mut resident) = (0usize, 0usize);
+            for key in &plan.present {
+                match table.search_decision_at(Sigma::Parabolic, key).location {
+                    SearchLocation::Flat(_) => resident += 1,
+                    SearchLocation::Spill(_, _) => spill += 1,
+                    SearchLocation::NoIndex => {}
+                }
+            }
+            out.insert(spec.id(), (spill, resident));
+        }
+    }
+    out
+}
+
+/// Every current cell specification, in the order [`run_strata`] measures and
+/// [`read_path_split_by_cell`] observes.
+fn all_specs() -> Vec<CellSpec> {
+    let mut specs = Vec::new();
+    for operation in Operation::ALL {
+        for occupancy in OCCUPANCIES {
+            if (operation == Operation::AdmittedFreshInsert && occupancy == APEIRON_N)
+                || (operation == Operation::GrowthInsert && occupancy != APEIRON_N)
+            {
+                continue;
+            }
+            for distribution in Distribution::ALL {
+                for merge in MergeMode::ALL {
+                    specs.push(CellSpec {
+                        occupancy,
+                        distribution,
+                        operation,
+                        merge,
+                    });
+                }
+            }
+        }
+    }
+    specs
+}
+
 /// Run the timed schedule against Apeiron, then the untimed canonical readback.
 fn measure_apeiron(
     table: &mut Apeiron,
@@ -971,28 +1026,8 @@ pub(crate) fn run_strata(profile: Profile) -> StrataWitness {
         Profile::Smoke => SMOKE_CAMPAIGNS,
     };
     let mut cells = Vec::new();
-    for operation in Operation::ALL {
-        for occupancy in OCCUPANCIES {
-            if operation == Operation::AdmittedFreshInsert && occupancy == APEIRON_N {
-                continue;
-            }
-            if operation == Operation::GrowthInsert && occupancy != APEIRON_N {
-                continue;
-            }
-            for distribution in Distribution::ALL {
-                for merge in MergeMode::ALL {
-                    cells.push(run_cell(
-                        CellSpec {
-                            occupancy,
-                            distribution,
-                            operation,
-                            merge,
-                        },
-                        campaigns,
-                    ));
-                }
-            }
-        }
+    for spec in all_specs() {
+        cells.push(run_cell(spec, campaigns));
     }
     let mut witness = StrataWitness {
         cells,

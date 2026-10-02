@@ -1245,6 +1245,127 @@ fn run_control(name: &str, profile: Profile) -> Result<i32, String> {
     Ok(output.status.code().unwrap_or(-1))
 }
 
+/// One registered spill-read comparator cell: a registered current-strata cell whose selected read
+/// enters the spill region, with the observed present-key split that names it.
+///
+/// The registry is the coverage record the spill read needs. Every current-strata cell is measured
+/// against every applicable incumbent already, but the selected read's route — resident flat array
+/// or spill region — was not recorded, so a reader could not tell which registered cells exercise
+/// the ported `spill_read` and which exercise the resident read. The split is observed on the real
+/// table (see [`crate::strata::read_path_split_by_cell`]), not inferred from a cell name.
+struct SpillReadCell {
+    id: String,
+    spill_read_keys: usize,
+    resident_read_keys: usize,
+}
+
+/// The registered comparison matrix, embedded so the gate reads the compiled contract.
+const MATRIX_JSON: &str = include_str!("matrix.json");
+
+/// Load the registered spill-read comparator cells from the embedded matrix.
+///
+/// # Errors
+/// Returns a description of a malformed registration document or a missing required field.
+fn load_spill_read_cells() -> Result<Vec<SpillReadCell>, String> {
+    let root = crate::Reader::new(MATRIX_JSON).parse()?;
+    let obj = root.as_obj()?;
+    let crate::Json::Arr(entries) = crate::field(obj, "spill_read_cells")? else {
+        return Err("field spill_read_cells: expected array".to_string());
+    };
+    let mut cells = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let fields = entry.as_obj()?;
+        let count = |key: &str| -> Result<usize, String> {
+            crate::str_field(fields, key)?
+                .parse::<usize>()
+                .map_err(|e| format!("registered spill-read cell field {key}: {e}"))
+        };
+        cells.push(SpillReadCell {
+            id: crate::str_field(fields, "id")?,
+            spill_read_keys: count("spill_read_keys")?,
+            resident_read_keys: count("resident_read_keys")?,
+        });
+    }
+    Ok(cells)
+}
+
+/// Load the registered spill-read comparator cells and enforce them against the observed read-path
+/// split: every registered cell must be a current cell whose split agrees, and every current cell
+/// whose reads enter the spill region must be registered. The registry is closed in both
+/// directions, so no spill-read cell is measured and unrecorded, and no recorded cell is
+/// resident-only. A registered cell with a zero spill count, a registered split that does not sum
+/// to the cell's present population, or an absent cell rejects.
+///
+/// # Errors
+/// Returns a description of the first duplicate, absent, unregistered or disagreeing cell. A caller
+/// that observes `Ok(())` has a closed spill-read registry, not a spill-read acceptance.
+fn validate_spill_read_registry() -> Result<usize, String> {
+    let registered = load_spill_read_cells()?;
+    let observed = strata::read_path_split_by_cell();
+    let mut seen = HashSet::with_capacity(registered.len());
+    for cell in &registered {
+        if !seen.insert(cell.id.as_str()) {
+            return Err(format!("duplicate registered spill-read cell {}", cell.id));
+        }
+        if cell.spill_read_keys == 0 {
+            return Err(format!(
+                "registered spill-read cell {} records zero spill-read keys",
+                cell.id
+            ));
+        }
+        if cell.spill_read_keys + cell.resident_read_keys == 0 {
+            return Err(format!(
+                "registered spill-read cell {} records an empty present population",
+                cell.id
+            ));
+        }
+        let Some(&(spill, resident)) = observed.get(cell.id.as_str()) else {
+            return Err(format!(
+                "registered spill-read cell {} is absent from the current enumeration",
+                cell.id
+            ));
+        };
+        if (spill, resident) != (cell.spill_read_keys, cell.resident_read_keys) {
+            return Err(format!(
+                "registered spill-read cell {} split {spill}+{resident} != registered {}+{}",
+                cell.id, cell.spill_read_keys, cell.resident_read_keys
+            ));
+        }
+    }
+    let mut spill_read_cells = 0usize;
+    for (id, (spill, resident)) in &observed {
+        if *spill > 0 {
+            spill_read_cells += 1;
+            if !seen.contains(id.as_str()) {
+                return Err(format!(
+                    "required spill-read cell {id} ({spill} spill / {resident} resident) is absent \
+                     from the registration"
+                ));
+            }
+        }
+    }
+    for cell in &registered {
+        println!(
+            "spill_read_cell={} spill_read_keys={} resident_read_keys={} incumbent={} \
+             baseline_revision={}",
+            cell.id,
+            cell.spill_read_keys,
+            cell.resident_read_keys,
+            HASHTRINITY_TABLE,
+            matrix::REGISTERED_BASELINE_REVISION
+        );
+    }
+    println!(
+        "spill_read_registry cells={} spill_read_cells={spill_read_cells} \
+         resident_only_cells={} incumbent={} baseline_revision={} observed=search_decision_at",
+        observed.len(),
+        observed.len() - spill_read_cells,
+        HASHTRINITY_TABLE,
+        matrix::REGISTERED_BASELINE_REVISION
+    );
+    Ok(registered.len())
+}
+
 pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     // Phase 1: the existing measurement, registration enforcement and diagnostics, unchanged except
     // that the acceptance path prints its own table, so the phase-1 dump is silent.
@@ -1271,6 +1392,14 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         eprintln!("acceptance registration validation failed: {e}");
         return 1;
     }
+    let spill_read_cells = match validate_spill_read_registry() {
+        Ok(count) => count,
+        Err(e) => {
+            eprintln!("spill-read registration validation failed: {e}");
+            return 1;
+        }
+    };
+    performance::phase_mark("accept.spill_read_validation", t_total, &mut t_last);
     performance::phase_mark("accept.registration_validation", t_total, &mut t_last);
     if let Err(e) = strata::validate_strata(&strata) {
         eprintln!("acceptance strata validation failed: {e}");
@@ -1289,7 +1418,8 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     let campaign = build_campaign(&strata, &registered, &spatial);
     performance::phase_mark("accept.campaign", t_total, &mut t_last);
     println!(
-        "acceptance_phase=per-pair profile={} registered_cells={} spatial_cells={} json={json}",
+        "acceptance_phase=per-pair profile={} registered_cells={} spatial_cells={} \
+         spill_read_cells={spill_read_cells} json={json}",
         profile.name(),
         strata.cells.len(),
         spatial.cells.len()
@@ -1307,16 +1437,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     }
     print_headline(&outcome);
     if controls {
-        for name in performance::CONTROLS {
-            match run_control(name, profile) {
-                Ok(code) => println!("control={name} observed=red child_exit={code}"),
-                Err(e) => {
-                    eprintln!("control {name} failed: {e}");
-                    return 1;
-                }
-            }
-        }
-        for name in CONTROLS {
+        for name in performance::CONTROLS.into_iter().chain(CONTROLS) {
             match run_control(name, profile) {
                 Ok(code) => println!("control={name} observed=red child_exit={code}"),
                 Err(e) => {
