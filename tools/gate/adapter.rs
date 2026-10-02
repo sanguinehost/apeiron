@@ -21,6 +21,15 @@
 //!   components beginning with `.` and the component `target` are skipped, so build products and
 //!   editor scratch do not enter an identity.
 //!
+//! **A throwaway copy.** [`copy_tree`] and [`ControlCopy`] make the tree a control runs in. A
+//! control mutates the source it is handed (`AGENTS.md` §3: "a mutation control edits a throwaway
+//! copy, never the working tree"), so `gate docs check --controls` in `main.rs` hands it a copy and
+//! not the working tree. The copy uses the digest rule's own exclusion set — path components
+//! beginning with `.` and the component `target` — so the copy and a recorded directory identity
+//! agree on what the tree contains, and a row whose `sha256` matches the working tree matches the
+//! copy. A control that needs an excluded build product is therefore reported blocked by name; it
+//! is not run against a tree that is missing what it needs.
+//!
 //! **A recorded run.** [`run_captured`] returns a [`RunRecord`]: the child's exit status, whether it
 //! was killed at the budget, its elapsed time, and the sha256 of what it printed on each stream.
 //! That record is what a receipt names, so a run's result and its output identity are one value
@@ -531,14 +540,163 @@ fn strip_prefix<'a>(path: &'a Path, base: &Path) -> &'a Path {
     path.strip_prefix(base).unwrap_or(path)
 }
 
+// -- throwaway copy ----------------------------------------------------------------------
+
+/// Prefix of a control copy's directory. Distinct from [`run_dir`]'s `gate-run-` prefix so the
+/// scratch census in `controls::scratch_dirs` can name both and a copy is never mistaken for a run's
+/// output directory.
+const CONTROL_COPY_PREFIX: &str = "gate-ctrl-";
+
+/// What one throwaway copy covered. The counts are the receipt's evidence that the control ran
+/// against the tree and not against a subtree of it: `skipped` names what the exclusion rule left
+/// out, and a control that needed one of those files is reported blocked rather than run blind.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CopyReport {
+    /// Files written into the copy.
+    pub files: u64,
+    /// Bytes written, summed over the copied files.
+    pub bytes: u64,
+    /// Entries the exclusion rule skipped: every path component beginning with `.` and every
+    /// component named `target`, so build products and editor scratch enter neither the copy nor
+    /// an identity.
+    pub skipped: u64,
+    /// Symlinks recreated as symlinks. Every one of them is relative and climbs nowhere, or the
+    /// copy is refused; see [`copy_tree`].
+    pub symlinks: u64,
+}
+
+/// A throwaway copy of the repository, removed when it goes out of scope unless the caller keeps it.
+///
+/// A control mutates the source it is handed, so it is handed a copy: `AGENTS.md` §3 — "a mutation
+/// control edits a throwaway copy, never the working tree". Dropping the value removes the copy, so
+/// a run that refused early, was killed, or ran a control that mutated the payload leaves nothing
+/// behind; `keep` holds it for a reader who wants to see what the control saw.
+#[derive(Debug)]
+pub struct ControlCopy {
+    root: PathBuf,
+    keep: bool,
+}
+
+impl ControlCopy {
+    /// Copy `src` into a fresh directory under `base` and return it with the report.
+    ///
+    /// The directory is named from the process, the clock and a process-local counter, so two
+    /// concurrent copies cannot collide, and a copy whose transfer failed is removed rather than
+    /// left as a partial tree a later run would treat as a repository.
+    ///
+    /// Complexity: one directory walk of `src`, O(files) writes and O(bytes) copied, plus O(1)
+    /// registry entries. The walk uses an explicit stack, as [`walk`] does, so its depth is bounded
+    /// by the pushed list rather than the call stack, and it terminates because the tree is finite.
+    pub fn create(base: &Path, src: &Path, keep: bool) -> io::Result<(ControlCopy, CopyReport)> {
+        let dir = control_copy_dir(base);
+        match copy_tree(src, &dir) {
+            Ok(report) => Ok((
+                ControlCopy {
+                    root: dir,
+                    keep,
+                },
+                report,
+            )),
+            Err(error) => {
+                let _ = fs::remove_dir_all(&dir);
+                Err(error)
+            }
+        }
+    }
+
+    /// The copy's root: the working directory a control is spawned in, and the tree its registered
+    /// identity is re-read from.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
+impl Drop for ControlCopy {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+}
+
+/// A control copy's directory under `base`, unique per process and per call.
+fn control_copy_dir(base: &Path) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
+    base.join(format!("{CONTROL_COPY_PREFIX}{}-{nanos}-{seq}", std::process::id()))
+}
+
+/// Copy `src` to `dst` under the exclusion rule a directory digest already uses: path components
+/// beginning with `.` and the component `target` are skipped. The copy and the identity then agree
+/// on what the tree contains, so a row whose recorded `sha256` matches the working tree matches the
+/// copy too — which is what lets a control be required to restore what it is given.
+///
+/// A symlink is recreated as a symlink rather than followed, and **refused** when its target leaves
+/// the copy root: an absolute target or a `..` component could carry a control's mutation out of
+/// the copy and into the working tree the copy exists to protect, so a copy that would do that is
+/// not made. Nothing in this repository contains a symlink, so the refusal costs no row.
+///
+/// Complexity: O(files) writes and O(bytes) copied in one directory walk, O(1) beyond the pending
+/// stack; the walk terminates because the tree is finite and each directory is pushed once.
+pub fn copy_tree(src: &Path, dst: &Path) -> io::Result<CopyReport> {
+    let mut report = CopyReport::default();
+    let mut pending = vec![src.to_path_buf()];
+    while let Some(from) = pending.pop() {
+        let relative = from
+            .strip_prefix(src)
+            .map_or_else(|_| PathBuf::new(), Path::to_path_buf);
+        let to = dst.join(&relative);
+        let meta = fs::symlink_metadata(&from)?;
+        if meta.is_dir() {
+            fs::create_dir_all(&to)?;
+            for entry in fs::read_dir(&from)? {
+                let entry = entry?;
+                let name = entry.file_name();
+                if excluded(&name.to_string_lossy()) {
+                    report.skipped += 1;
+                    continue;
+                }
+                pending.push(from.join(&name));
+            }
+        } else if meta.is_symlink() {
+            let target = fs::read_link(&from)?;
+            if target.is_absolute()
+                || target
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "{}: symlink target {target:?} leaves the copy root, so a control run in \
+                         the copy could mutate the working tree through it",
+                        from.display()
+                    ),
+                ));
+            }
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            std::os::unix::fs::symlink(&target, &to)?;
+            report.symlinks += 1;
+        } else if meta.is_file() {
+            report.bytes += fs::copy(&from, &to)?;
+            report.files += 1;
+        }
+    }
+    Ok(report)
+}
+
 // -- process, clock, lock --------------------------------------------------------------
 
-// `RunRecord`, `RunRefusal` and `run_captured` are the budgeted-execution primitive. `gate run`
-// (`main.rs`) executes a row's `gate` column through `run_captured_with_tail`, which is this same
-// body plus the refusal tail; `docs/plan.md` E1 W4 owns the aggregate `gate docs check --controls`
-// over those runs. In a build without the test configuration the tail-free entry point is unused, so
-// the `allow` says exactly that rather than leaving a warning or an invented caller. The controls
-// below are the reason they exist and the reason they work.
+// `RunRecord`, `RunRefusal` and `run_captured` are the budgeted-execution primitive. `gate run` and
+// `gate docs check --controls` (`main.rs`) execute a row's `gate` and `control` columns through
+// `run_captured_with_tail`, which is this same body plus the refusal tail. In a build without the
+// test configuration the tail-free entry point is unused, so the `allow` says exactly that rather
+// than leaving a warning or an invented caller. The controls below are the reason they exist and the
+// reason they work.
 
 /// Why a run is refused, as the adapter sees it. Not a core `Refusal`: admission is
 /// `core.rs`'s decision, and these are the observations a pure decision cannot make for itself.
@@ -913,9 +1071,14 @@ pub(crate) mod controls {
         SCRATCH.lock().unwrap_or_else(|error| error.into_inner())
     }
 
-    /// The scratch directories this process has created and not yet removed.
+    /// The scratch directories this process has created and not yet removed: a budgeted run's and a
+    /// control copy's alike. Both prefixes carry the process id, so a directory another control has
+    /// in flight is named rather than silently missing from the census.
     fn scratch_dirs() -> Vec<PathBuf> {
-        let prefix = format!("gate-run-{}-", std::process::id());
+        let prefixes = [
+            format!("gate-run-{}-", std::process::id()),
+            format!("{CONTROL_COPY_PREFIX}{}-", std::process::id()),
+        ];
         let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
             return Vec::new();
         };
@@ -923,8 +1086,10 @@ pub(crate) mod controls {
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| {
-                path.file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+                path.file_name().is_some_and(|name| {
+                    let name = name.to_string_lossy();
+                    prefixes.iter().any(|prefix| name.starts_with(prefix))
+                })
             })
             .collect()
     }
@@ -1130,5 +1295,113 @@ pub(crate) mod controls {
         drop(held);
         let second = Lock::acquire(&path, 1).expect("released lock is re-acquirable");
         drop(second);
+    }
+
+    // -- throwaway copy ------------------------------------------------------------------
+
+    /// A tree holding one payload and three entries the exclusion rule must leave out: a dot
+    /// component at the root, a `target` at the root, and a `target` nested two deep. A copy that
+    /// took them would carry build products into a control's tree, and — worse for the aggregate —
+    /// would carry them into a directory identity the registry recorded without them, so the copy's
+    /// digest would not be the recorded one and every directory row would read as drifted.
+    #[test]
+    fn copy_uses_the_digest_exclusion_rule() {
+        let src = std::env::temp_dir().join(format!("gate-copysrc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&src);
+        fs::create_dir_all(src.join("sub/target")).expect("src dirs");
+        fs::create_dir_all(src.join(".hidden")).expect("src dot dir");
+        fs::create_dir_all(src.join("target")).expect("src target dir");
+        fs::write(src.join("a.rs"), b"fn a() {}\n").expect("payload");
+        fs::write(src.join("sub/b.rs"), b"fn b() {}\n").expect("nested payload");
+        fs::write(src.join("sub/target/c.rs"), b"built\n").expect("nested build product");
+        fs::write(src.join(".hidden/d.rs"), b"scratch\n").expect("dot payload");
+        fs::write(src.join("target/e.rs"), b"built\n").expect("build product");
+
+        let dst = std::env::temp_dir().join(format!("gate-copydst-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dst);
+        let report = copy_tree(&src, &dst).expect("copy");
+
+        assert!(dst.join("a.rs").is_file(), "the payload is copied");
+        assert!(dst.join("sub/b.rs").is_file(), "a nested payload is copied");
+        assert!(!dst.join("target").exists(), "a root `target` is skipped");
+        assert!(!dst.join("sub/target").exists(), "a nested `target` is skipped");
+        assert!(!dst.join(".hidden").exists(), "a dot component is skipped");
+        assert_eq!(report.files, 2, "{report:?}");
+        assert_eq!(report.skipped, 3, "{report:?}");
+        assert_eq!(report.symlinks, 0, "{report:?}");
+        assert_eq!(report.bytes, 20, "{report:?}");
+
+        // Restore: the identity of a copied directory equals the identity of the original, under the
+        // rule the registry recorded it with. Without this the exclusion above could be wrong in a
+        // way that only a directory row would notice.
+        assert_eq!(
+            sha256_path(&dst, &dst).expect("copy digest"),
+            sha256_path(&src, &src).expect("src digest")
+        );
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dst);
+    }
+
+    /// A control copy is removed when it goes out of scope and kept only on request. The census is
+    /// the same one every run control asserts against, so a copy left behind by a refused aggregate
+    /// is a leak the suite would already be counting.
+    #[test]
+    fn control_copy_is_removed_on_drop_unless_kept() {
+        let _serial = SCRATCH.lock().unwrap_or_else(|error| error.into_inner());
+        let before = scratch_dirs();
+        let here = Path::new(".");
+
+        let (copy, report) = ControlCopy::create(&std::env::temp_dir(), here, false).expect("copy");
+        let root = copy.root().to_path_buf();
+        assert!(root.is_dir(), "the copy exists while it is held");
+        assert!(report.files > 0, "the copy carried files: {report:?}");
+        drop(copy);
+        assert!(!root.exists(), "the copy is removed on drop");
+        assert_eq!(scratch_dirs(), before, "a dropped copy leaves no scratch");
+
+        let (kept, _) = ControlCopy::create(&std::env::temp_dir(), here, true).expect("kept copy");
+        let kept_root = kept.root().to_path_buf();
+        assert!(kept_root.is_dir(), "a kept copy exists while it is held");
+        drop(kept);
+        assert!(kept_root.is_dir(), "a kept copy outlives its holder");
+        let _ = fs::remove_dir_all(&kept_root);
+        assert_eq!(scratch_dirs(), before, "a removed kept copy leaves no scratch");
+    }
+
+    /// A symlink whose target leaves the copy root is refused, and the refusal names the link and
+    /// its target. Recreated as a link it would carry a control's mutation out of the copy into the
+    /// working tree, which is the one thing the copy is for; followed instead it would silently
+    /// materialise whatever it pointed at into the copy, so neither reading is made.
+    #[test]
+    fn symlink_leaving_the_copy_root_is_refused() {
+        let src = std::env::temp_dir().join(format!("gate-linksrc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&src);
+        fs::create_dir_all(&src).expect("src dir");
+        fs::write(src.join("a.rs"), b"fn a() {}\n").expect("payload");
+        std::os::unix::fs::symlink("/home/socol/Workspace/apeiron", src.join("escape")).expect("link");
+
+        let dst = std::env::temp_dir().join(format!("gate-linkdst-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dst);
+        let error = copy_tree(&src, &dst).expect_err("an escaping link is refused");
+        let text = error.to_string();
+        assert!(text.contains("escape"), "{text}");
+        assert!(text.contains("leaves the copy root"), "{text}");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{text}");
+
+        // A relative link that climbs nowhere is recreated, so a tree that carries one is still
+        // copyable and the copy is still confined.
+        fs::remove_file(src.join("escape")).expect("drop the escaping link");
+        fs::write(src.join("b.rs"), b"fn b() {}\n").expect("second payload");
+        std::os::unix::fs::symlink("b.rs", src.join("alias")).expect("relative link");
+        let report = copy_tree(&src, &dst).expect("a confined link is copied");
+        assert_eq!(report.symlinks, 1, "{report:?}");
+        assert_eq!(
+            fs::read_link(dst.join("alias")).expect("link recreated"),
+            Path::new("b.rs")
+        );
+        assert_eq!(report.files, 2, "{report:?}");
+
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dst);
     }
 }
