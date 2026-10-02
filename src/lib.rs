@@ -7,6 +7,7 @@
 
 pub mod carrier;
 pub mod cell;
+pub mod chacha;
 pub mod coord;
 pub mod crypto;
 pub mod engine;
@@ -20,6 +21,7 @@ pub mod numeric;
 pub mod pepper;
 pub mod policy;
 pub mod scalar;
+pub mod sha256;
 pub mod spirv;
 pub mod table;
 
