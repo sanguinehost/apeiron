@@ -644,8 +644,8 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRelocationWF.retarget_held_hstep_of_wf
 
 -- Extracted production relocation preserves one canonical observation for both carriers
-#audit Apeiron.GrowableRelocation.nested_region_payload_set_readback
-#audit Apeiron.GrowableRelocation.nested_region_set_readback
+#audit Apeiron.GrowableRelocation.reservedObservation_writeFlat_same
+#audit Apeiron.GrowableRelocation.reservedObservation_writeSpill_same
 #audit Apeiron.GrowableRelocation.writeFlat_frame_flat
 #audit Apeiron.GrowableRelocation.writeFlat_frame_spill
 #audit Apeiron.GrowableRelocation.writeSpill_frame_flat
