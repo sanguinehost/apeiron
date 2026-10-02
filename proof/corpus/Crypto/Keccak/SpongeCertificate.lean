@@ -1,0 +1,260 @@
+/-
+  Crypto/Keccak/SpongeCertificate.lean
+
+  Stage 1 of the `word_sha3_256` refinement: the state/byte conversion layer.
+
+  `proof/ApeironWord.lean` carries the extraction of `apeiron_word::word_sha3_256`
+  (`crypto.sha3_256` -> `crypto.sponge`), whose data lives in `Array Std.U64 25#usize`,
+  `Array Std.U8` and `Slice Std.U8`. `Crypto/Sponge.lean` carries the canonical
+  FIPS-202 sponge over `Vector (BitVec 64) 25` with messages as `List (BitVec 8)`.
+  The two sides live at different types, so this file carries the one-way
+  conversions between them and the arithmetic that pins the extracted constants
+  to the canonical ones:
+
+  * `byteView` / `sliceView`: `Array Std.U8` and `Slice Std.U8` read as
+    `List (BitVec 8)` (elementwise `U8.bv`, the model's own byte view);
+  * `stateView`: `Array Std.U64 25#usize` read as the canonical `State`, with
+    `stateView_zero` fixing the `Array.repeat 25 0` initial state;
+  * `laneBytes` / `foldLane` / `byteOf_eq_laneBytes_get`: the little-endian lane
+    packing in both shapes - `byteOf`'s `extractLsb' (8 * j) 8` and the
+    `List.range 8` fold of `xorBlock` - plus the extracted `U64::from_le_bytes`
+    read, which the model defines as `BitVec.fromLEBytes` of the byte view;
+  * `rate_256_denote`, `rate_512_denote`, `domain_denote`, `pad_final_denote`:
+    the extracted `SHA3_256_RATE` / `SHA3_512_RATE` / `6#u8` / `128#u8` against
+    `rate_sha3_256` / `rate_sha3_512` / `domain_sha3` / `0x80`, with the rate
+    offsets (lanes per block, `rate % 8 = 0` for the `massert`, `rate ≤ 200` for
+    the padding buffer, and the `32 ≤ 136` squeeze bound of stage 5);
+  * `WordSha3_256Denotes`: the stage-6 headline, carried as a `def` of a `Prop`
+    and deliberately not asserted here.
+
+  `#guard` pins run the untrusted evaluator; they guard byte order, lane order
+  and rate arithmetic against regressions and are not kernel proofs.
+
+  Open obligations, next stages: the `xorBlock` fold against `fromLEBytes` in
+  general (stage 2 needs `foldLane bs o = BitVec.fromLEBytes (bs.extract o 8).toList` for
+  `o + 8 ≤ bs.length` - `extract` returns a `Vector`, so `.toList` is required for the
+  statement to typecheck at width 64 - not only the concrete pin below), the absorb loop against
+  `absorb_block` with the lane index `x + 5 * y`, the 24-round permutation fold
+  (stage 3, alongside `Crypto/Keccak/Certificate.lean`), the padding merge
+  (stage 4) and the squeeze bound (stage 5).
+-/
+
+import Crypto.Sponge
+import ApeironWord
+
+set_option autoImplicit false
+set_option warningAsError true
+set_option linter.unusedVariables false
+set_option linter.unusedSimpArgs false
+set_option linter.unnecessarySimpa false
+
+namespace apeiron_word
+
+open Aeneas Aeneas.Std Result
+open Apeiron.Crypto.Keccak (Lane State rate_sha3_256 rate_sha3_512 domain_sha3 byteOf xorBlock
+  sha3_256)
+
+/-! ## Byte views
+
+`Array Std.U8` is a `ListN` wrapper (`Array.val`, `Array.property`), `Slice Std.U8` is a
+length-bounded `ListN` (`Slice.val`, `Slice.len`), and `U8.bv` is the model's own byte view.
+The digest of the headline is an `Array Std.U8 32#usize` and the input is a `Slice Std.U8`, so
+both are read through the same elementwise `List (BitVec 8)` view. -/
+
+/-- An extracted byte array read as the canonical message/digest byte list. -/
+def byteView {n : Std.Usize} (a : Array Std.U8 n) : List (BitVec 8) :=
+  a.val.map Std.U8.bv
+
+/-- An extracted byte slice read as the canonical message byte list. -/
+def sliceView (s : Slice Std.U8) : List (BitVec 8) :=
+  s.val.map Std.U8.bv
+
+theorem byteView_length {n : Std.Usize} (a : Array Std.U8 n) :
+    (byteView a).length = n.val := by
+  simp [byteView, Array.property]
+
+/-- The digest array of the headline has canonical length 32. -/
+theorem byteView_digest_length (a : Array Std.U8 32#usize) :
+    (byteView a).length = 32 := by
+  have h : (byteView a).length = (32#usize).val := byteView_length a
+  rw [h]
+  decide
+
+/-- Pointwise read: the extracted byte at `i` is the canonical byte at `i`. -/
+theorem byteView_getD {n : Std.Usize} (a : Array Std.U8 n) (i : Nat) :
+    (byteView a).getD i (Std.U8.bv (0#u8)) = (a.val.getD i (0#u8)).bv :=
+  List.getD_map _ _ _
+
+theorem byteView_repeat (n : Std.Usize) (b : Std.U8) :
+    byteView (Array.repeat n b) = List.replicate n.val b.bv := by
+  simp [byteView, Array.repeat_val]
+
+theorem sliceView_length (s : Slice Std.U8) :
+    (sliceView s).length = s.val.length := by
+  simp [sliceView]
+
+/-- The extracted `Slice::len` is the canonical message length. -/
+theorem sliceView_len (s : Slice Std.U8) :
+    (Std.Slice.len s).val = (sliceView s).length := by
+  simp [Std.Slice.len_val, sliceView]
+
+theorem sliceView_of_list (l : List Std.U8) (h : l.length ≤ Std.Usize.max) :
+    sliceView (Std.Slice.from l h) = l.map Std.U8.bv := by
+  simp [sliceView, Std.Slice.from, Std.Slice.val, Aeneas.Data.ListN.ListN.from_to_inverse]
+
+/-! ## State view
+
+`Array Std.U64 25#usize` is read lane by lane; `Crypto.Keccak.Certificate` carries the same
+conversion under the name `view` for the permutation certificate. -/
+
+/-- The extracted 25-lane state read as the canonical `Vector (BitVec 64) 25`. -/
+def stateView (a : Array Std.U64 25#usize) : State :=
+  Vector.ofFn fun i : Fin 25 => (a.val.getD i.val (0#u64)).bv
+
+theorem stateView_get (a : Array Std.U64 25#usize) (i : Fin 25) :
+    (stateView a).get i = (a.val.getD i.val (0#u64)).bv := by
+  show (stateView a)[i.val] = _
+  simp only [stateView, Vector.getElem_ofFn]
+
+/-- The initial state of the extracted sponge is the canonical zero state. -/
+theorem stateView_zero : stateView (Array.repeat 25#usize 0#u64) = Vector.replicate 25 0 := by
+  apply Vector.ext
+  intro i hi
+  show (stateView (Array.repeat 25#usize 0#u64))[i] = _
+  simp only [stateView, Array.repeat_val, Vector.getElem_ofFn]
+  rw [List.getD_replicate _ (by simpa using hi)]
+  simp
+
+/-! ## Little-endian lane packing
+
+FIPS-202 §3.1.2: state byte `k` is byte `k % 8` of lane `k / 8`, least significant byte first.
+`laneBytes` is that lane view, `foldLane` is the `List.range 8` fold shape used by `xorBlock` and
+by the extracted `absorb_block`, and `core.num.U64.from_le_bytes` is the extracted little-endian
+64-bit read, which the model defines as `BitVec.fromLEBytes` of the byte view. -/
+
+/-- Byte `j` of a lane, least significant first (FIPS-202 §3.1.2). -/
+def laneByte (l : Lane) (j : Nat) : BitVec 8 := l.extractLsb' (8 * j) 8
+
+/-- The eight canonical bytes of a lane, least significant first. -/
+def laneBytes (l : Lane) : List (BitVec 8) :=
+  (List.range 8).map (laneByte l)
+
+theorem laneBytes_length (l : Lane) : (laneBytes l).length = 8 := rfl
+
+theorem laneBytes_getD (l : Lane) (j : Nat) (hj : j < 8) :
+    (laneBytes l).getD j (laneByte l 0) = laneByte l j := by
+  simp [laneBytes]
+  rw [List.getElem?_range (by simpa using hj)]
+  rfl
+
+/-- Lane `(k / 8) % 25` of the canonical state, the lane `byteOf` reads at state byte `k`. -/
+abbrev laneAt (s : State) (k : Nat) : Lane :=
+  s.get ⟨(k / 8) % 25, Nat.mod_lt (k / 8) (by decide : (0 : Nat) < 25)⟩
+
+/-- `byteOf` is the FIPS-202 §3.1.2 lane byte view of the canonical state: state byte `k` is byte
+`k % 8` of lane `(k / 8) % 25`, least significant byte first. -/
+theorem byteOf_eq_laneBytes_getD (s : State) (k : Nat) :
+    byteOf s k = (laneBytes (laneAt s k)).getD (k % 8) (laneByte (laneAt s k) 0) := by
+  simp only [byteOf, laneAt]
+  exact (laneBytes_getD _ _ (Nat.mod_lt _ (by decide : (0 : Nat) < 8))).symm
+
+/-- The `List.range 8` fold that packs a byte window into a lane, in the shape used by
+`xorBlock` and by the extracted `absorb_block` (`U64::from_le_bytes`). -/
+def foldLane (bs : List (BitVec 8)) (o : Nat) : Lane :=
+  (List.range 8).foldl
+    (fun acc j => acc ^^^ ((bs.getD (o + j) 0).setWidth 64 <<< (8 * j))) 0
+
+/-- The extracted little-endian 64-bit lane read is `BitVec.fromLEBytes` of the byte view: the
+same value `foldLane` computes, at the definitional level of the model. -/
+theorem from_le_bytes_denote (a : Array Std.U8 8#usize) :
+    (core.num.U64.from_le_bytes a).bv =
+      (BitVec.fromLEBytes (byteView a)).cast (by simp [byteView_length, Array.property]) := rfl
+
+/-! ## Rates, offsets and domain separation
+
+`crypto.sponge` (3377-3380) requires `rate % 8 = 0` and `rate ≤ 200`; the rate is the byte rate, so
+a block is `rate / 8` lanes, and the state byte offsets of a block run `0 .. rate - 1`. -/
+
+theorem rate_256_denote : crypto.SHA3_256_RATE.val = rate_sha3_256 := by
+  simp [rate_sha3_256, crypto.SHA3_256_RATE]
+
+theorem rate_512_denote : crypto.SHA3_512_RATE.val = rate_sha3_512 := by
+  simp [rate_sha3_512, crypto.SHA3_512_RATE]
+
+theorem domain_denote : (6#u8).bv = domain_sha3 := by decide
+
+theorem pad_final_denote : (128#u8).bv = 0x80 := by decide
+
+/-- A rate block is a whole number of lanes. -/
+theorem rate_lanes_256 : rate_sha3_256 / 8 = 17 := by decide
+
+theorem rate_lanes_512 : rate_sha3_512 / 8 = 9 := by decide
+
+/-- The `massert (rate % 8 = 0)` of `crypto.sponge` holds for both canonical rates. -/
+theorem rate_mod_8_256 : rate_sha3_256 % 8 = 0 := by decide
+
+theorem rate_mod_8_512 : rate_sha3_512 % 8 = 0 := by decide
+
+/-- The `massert (rate ≤ 200)` of `crypto.sponge` - the `Array.repeat 200` padding buffer - holds
+for both canonical rates. -/
+theorem rate_le_200_256 : rate_sha3_256 ≤ 200 := by decide
+
+theorem rate_le_200_512 : rate_sha3_512 ≤ 200 := by decide
+
+/-- Bit rates, for the FIPS-202 parameter names. -/
+theorem rate_bits_256 : rate_sha3_256 * 8 = 1088 := by decide
+
+theorem rate_bits_512 : rate_sha3_512 * 8 = 576 := by decide
+
+/-- The squeeze stage reads 32 output bytes out of one rate block: the stage-5 bound `32 ≤ 136`
+that keeps the second permutation out of the picture. -/
+theorem outLen_le_rate_256 : 32 ≤ rate_sha3_256 := by decide
+
+theorem outLen_div_rate_256 : 32 / rate_sha3_256 = 0 := by decide
+
+/-! ## Known-answer pins
+
+These run the untrusted evaluator: they guard byte order, lane order and rate arithmetic against
+regressions, they are not kernel proofs. -/
+
+#guard (6#u8).bv == 0x06
+#guard (128#u8).bv == 0x80
+#guard crypto.SHA3_256_RATE.val == 136
+#guard crypto.SHA3_512_RATE.val == 72
+
+-- Little-endian packing: byte 0 is the least significant byte.
+#guard BitVec.fromLEBytes [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08] == 0x0807060504030201
+#guard foldLane [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08] 0 == 0x0807060504030201
+
+-- The fold shape agrees with the byte order at a nonzero window offset, and the byte window of a
+-- lane reads back in the same order.
+#guard foldLane ([0xff, 0xff] ++ [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]) 2 ==
+  0x0807060504030201
+#guard laneBytes 0x0807060504030201 == [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+
+/-! ## The headline (stage 6)
+
+`Result α` is `ITree RustEffect α` and `ok = Result.ok`; the model has no `Result.map`, so
+`resultMap` is the `map` the headline statement needs. `crypto.sha3_256` returns
+`Result (Array Std.U8 32#usize)` and the canonical `sha3_256` returns `Vector (BitVec 8) 32`, so
+the statement is carried over the byte views, type-adapted from the plan. -/
+
+/-- `Result α` is `ITree RustEffect α`, an irreducible definition, so the `map` is read through
+`Result.match`; `ok` is dispatched by `Result.match.ok`. -/
+def resultMap {α β : Type} (f : α → β) (r : Result α) : Result β :=
+  match r.match with
+  | .ok a => Result.ok (f a)
+  | .vis e k => Result.vis e (fun o => Std.bind (k o) fun x => Result.ok (f x))
+  | .div => Result.div
+
+theorem resultMap_ok {α β : Type} (f : α → β) (a : α) :
+    resultMap f (Result.ok a) = Result.ok (f a) := by
+  simp [resultMap, Result.match.ok]
+
+/-- The refinement target: the extracted `word_sha3_256` computes the canonical
+`Apeiron.Crypto.Keccak.sha3_256` on the byte view of its input. Carried, not asserted; stages 2-5
+supply the loop and conversion lemmas it is built from. -/
+def WordSha3_256Denotes (msg : Slice Std.U8) : Prop :=
+  resultMap (fun a => byteView a) (word_sha3_256 msg) = ok (sha3_256 (sliceView msg)).toList
+
+end apeiron_word
