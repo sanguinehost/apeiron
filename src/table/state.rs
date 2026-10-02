@@ -3,73 +3,11 @@
 // definitions of the `table` module and keep their generated type identities. Bodies, layout,
 // field privacy, signatures and visibility are unchanged; this is a physical-file cut only.
 
-/// Bits of the per-region occupancy summary reserved per slot.
-const SUMMARY_BITS_PER_SLOT: usize = 32;
-/// Minimum summary width, so a small region still filters.
-const SUMMARY_MIN_BITS: usize = 256;
 /// Assumed upper bound, in bytes, of one flat slot, used only for the byte-budget heuristic.
 ///
 /// The executing slots are fixed-width words; `core::mem::size_of` is an unmodeled Aeneas external,
 /// so the budget uses this bound. A larger element type is capped to correspondingly fewer lanes.
 const ASSUMED_SLOT_BYTES: usize = 32;
-
-/// The number of trailing zero bits of `value`, or `usize::BITS` at zero.
-///
-/// A plain shift-and-count loop rather than the `usize::trailing_zeros` intrinsic, which the
-/// extraction leaves unmodeled. It is total, agrees with `usize::trailing_zeros` on every `usize`
-/// including zero, and executes at most `usize::BITS` iterations: temporal `O(usize::BITS)` counted
-/// in loop steps at a fixed word width, spatial `O(1)`.
-fn summary_trailing_zeros(mut value: usize) -> u32 {
-    let mut zeros = 0;
-    while zeros < usize::BITS && value & 1 == 0 {
-        zeros += 1;
-        value >>= 1;
-    }
-    zeros
-}
-
-/// The number of `u64` words in a region summary sized for `slots` reserved lanes, or
-/// [`StorageError::SizeOverflow`] when the checked bit, round-up or power-of-two arithmetic
-/// overflows, or when the resulting width would not fit the shift.
-///
-/// The summary carries [`SUMMARY_BITS_PER_SLOT`] Bloom bits per reserved slot, rounded up to a
-/// power-of-two word count. It is at least [`SUMMARY_MIN_BITS`] wide so a single group still
-/// filters. An empty region has no summary storage. The bit count is `trailingZeros(wordCount) + 6`
-/// and must stay below `u64::BITS`, so the computed word count is bounded below `2^58`.
-fn summary_words(slots: usize) -> Result<usize, StorageError> {
-    if slots == 0 {
-        return Ok(0);
-    }
-    let bits = slots
-        .checked_mul(SUMMARY_BITS_PER_SLOT)
-        .ok_or(StorageError::SizeOverflow)?
-        .max(SUMMARY_MIN_BITS);
-    // Explicit ceiling division and next-power-of-two: `div_ceil`/`checked_next_power_of_two` are
-    // opaque to the extractor, and this keeps the two operations as scalar arithmetic.
-    let mut words = bits / 64;
-    if bits % 64 != 0 {
-        words += 1;
-    }
-    if words == 0 {
-        words = 1;
-    }
-    let mut power = 1usize;
-    let mut overflow = false;
-    while power < words && !overflow {
-        match power.checked_mul(2) {
-            Some(next) => power = next,
-            None => overflow = true,
-        }
-    }
-    if overflow {
-        return Err(StorageError::SizeOverflow);
-    }
-    let words = power;
-    if summary_trailing_zeros(words) + 6 >= u64::BITS {
-        return Err(StorageError::SizeOverflow);
-    }
-    Ok(words)
-}
 
 /// Test-only record of the spill publication steps, so the contract order can be checked on the
 /// real write path. Inert outside `cfg(test)`; it is not a production or reference path.
@@ -79,10 +17,8 @@ mod publication_trace {
 
     /// The payload write of one fresh live spill slot.
     pub(super) const PAYLOAD: u8 = 0;
-    /// The summary-bit recording of one fresh live spill slot.
-    pub(super) const SUMMARY: u8 = 1;
     /// The nonzero tag publication of one fresh live spill slot.
-    pub(super) const TAG: u8 = 2;
+    pub(super) const TAG: u8 = 1;
 
     thread_local! {
         static EVENTS: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -104,131 +40,144 @@ mod publication_trace {
     }
 }
 
+/// One spill slot: the occupancy marker, the face, the held carrier and the payload.
+///
+/// `tag` is the occupancy marker and fingerprint in one `u8`: `0` is a vacancy, and any nonzero
+/// value is the live marker [`TAG_LIVE`] OR the query fingerprint of the stored key's place. The
+/// tag is a fingerprint only — a matching tag still requires the full `(Sigma, K)` compare — and it
+/// is derived, never stored twice.
+pub(crate) struct SpillSlot<R, V> {
+    /// `0` while vacant; the nonzero occupancy marker after publication.
+    pub(crate) tag: u8,
+    /// The face this slot's payload belongs to.
+    pub(crate) sigma: Sigma,
+    /// The held carrier; the key material the full compare runs against.
+    pub(crate) held: R,
+    /// The merged value.
+    pub(crate) value: V,
+}
+
+impl<R, V> SpillSlot<R, V> {
+    /// Reports whether this slot is occupied: the nonzero-tag test.
+    #[inline]
+    pub(crate) fn live(&self) -> bool {
+        self.tag != 0
+    }
+}
+
+/// One open-addressed spill region per shard: a single flat slot array with linear probing.
+///
+/// **Invariants.** `slots.len()` is the capacity and is either `0` or a power of two, so the probe
+/// mask is `slots.len() - 1`; `live` is the exact number of occupied slots, so
+/// `live <= slots.len()` always. A slot is occupied exactly when its `tag` is nonzero.
+///
+/// **Probe sequence.** Slot `i` of a query with placement `place` is visited at
+/// `((home(place) + step) & mask)` for `step = 0, 1, ..., capacity - 1` — linear probing over one
+/// cycle, in increasing index with wraparound. The **bound is the capacity**: after `capacity`
+/// steps every slot has been visited exactly once, so a cycle that finds no vacancy has observed
+/// every slot occupied. That is the absence certificate the read path relies on, and it is what
+/// `SpillProbeBoundAbsentSound` states: no key can be stored in a slot of a completed cycle without
+/// that cycle having visited it.
+///
+/// **No deletion.** Nothing in the table removes a spill entry; a repeated key merges in place.
+/// There are therefore no tombstones, and a zero tag terminates a probe correctly: no live slot can
+/// sit beyond a vacancy, because a linear insert only ever places at the first vacancy at or after
+/// its home. (A future deletion would have to introduce a tombstone and would void this argument.)
+///
+/// **Publication order.** A fresh write stores `sigma`, `held` and `value` first, then writes the
+/// nonzero `tag` last. The tag write is the occupancy publication point, so no search-visible state
+/// has a live tag over an unpublished payload.
+///
+/// The occupancy summary, the per-slot tag array and the group/window descent are retired: the tag
+/// travels with its payload in one array, and absence is certified by the bounded probe.
 pub(crate) struct Region<R, V> {
-    tags: Vec<u8>,
-    slots: Vec<(Sigma, R, V)>,
-    /// Bloom bits over `place >> 8` of the live slots.
-    ///
-    /// A live slot's placement word is recorded before its tag becomes nonzero, so a query whose
-    /// placement word is absent from the summary cannot match any live slot. A collision is a false
-    /// positive that costs the full sweep; it is never a false absence. Fresh writes publish the
-    /// payload, then the summary bit, then the nonzero tag, so no search-visible state has a live
-    /// tag without its recorded bit.
-    summary: Vec<u64>,
+    /// The open-addressed slot array; length is the capacity, a power of two or zero.
+    slots: Vec<SpillSlot<R, V>>,
+    /// The number of occupied slots.
+    live: usize,
 }
 impl<R, V> Region<R, V> {
     fn empty() -> Self {
         Self {
-            tags: vec![],
-            slots: vec![],
-            summary: vec![],
+            slots: Vec::new(),
+            live: 0,
         }
     }
 
-    /// The summary bit index of `place` for a summary of `len_words` `u64` words, or `None` when
-    /// no bit index exists.
+    /// The probe bound of this region: its capacity, or `0` when it has no storage.
     ///
-    /// The representation is `Option<usize>`: `None` means "no usable summary word", so a caller
-    /// must not index. The bit count is `trailingZeros(len_words) + 6`. A zero length yields
-    /// `64 + 6`; a length whose trailing-zero count reaches `58` yields `>= 64`. Both are rejected
-    /// here rather than shifted, so no call shifts a `u64` by `>= 64` and every returned index is in
-    /// bounds: for any accepted length, `2^bits <= 64 * len_words`, hence `index / 64 < len_words`.
-    /// A valid region's length is a power of two in `4..=2^57`, so this is `Some` and byte-identical
-    /// to the pre-totalization index.
+    /// This is the number of distinct slots one bounded linear-probe cycle visits, and therefore the
+    /// absence certificate's width. `O(1)`; spatial `O(1)`.
+    #[inline]
+    fn bound(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// The home slot of `place`: the mixed placement word masked to the region capacity.
     ///
-    /// A valid summary length is a power of two, so the general trailing-zero loop is replaced on
-    /// that hot case by the exact mask `(len_words << 6) - 1`: for `len_words = 2^t` the bit count
-    /// is `t + 6`, hence `2^bits == 64 * len_words` and the two masks are equal. The guard keeps
-    /// the shift inside `usize` and the implied bit count below `u64::BITS`; every other length,
-    /// including the out-of-range power of two, falls through to the trailing-zero loop unchanged.
+    /// The mixing is the retired summary's mixer, so the home of a placement is unchanged by the
+    /// flat port. `O(1)`; spatial `O(1)`.
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "the low-`bits` mask bounds the mixed value below 2^bits, and bits fits usize"
+        reason = "the mask is `capacity - 1`, so the retained value is below capacity and fits usize"
     )]
     #[inline]
-    fn summary_index(place: u64, len_words: usize) -> Option<usize> {
-        if len_words == 0 {
-            return None;
-        }
-        let mask = if len_words.is_power_of_two() && len_words <= (usize::MAX >> 6) {
-            ((len_words as u64) << 6) - 1
-        } else {
-            let bits = summary_trailing_zeros(len_words) + 6;
-            if bits >= u64::BITS {
-                return None;
-            }
-            (1u64 << bits) - 1
-        };
+    fn home(&self, place: u64) -> usize {
         let mixed = (place >> 8).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let mixed = mixed ^ (mixed >> 29);
-        Some((mixed & mask) as usize)
+        (mixed as usize) & (self.slots.len() - 1)
     }
 
-    /// Records `place` in the summary; a no-op when the region has no usable summary word.
-    #[inline]
-    fn summary_set(&mut self, place: u64) {
-        let Some(index) = Self::summary_index(place, self.summary.len()) else {
-            return;
-        };
-        self.summary[index / 64] |= 1u64 << (index % 64);
-    }
-
-    /// Reports whether `place` may be present.
+    /// Publishes one fresh live spill slot in the contract order: payload, then the nonzero tag.
     ///
-    /// A summary with no usable word (`len_words == 0`, or a length whose bit count is `>= 64`)
-    /// cannot certify absence, so filtering is disabled and the result is `true`; the caller's sweep
-    /// then runs and can still find a match. This preserves the `SpillSummaryShape` empty-summary
-    /// case and `SpillSummaryMissSound`, and is exactly the pre-totalization empty guard.
-    #[inline]
-    fn summary_maybe(&self, place: u64) -> bool {
-        let Some(index) = Self::summary_index(place, self.summary.len()) else {
-            return true;
-        };
-        self.summary[index / 64] & (1u64 << (index % 64)) != 0
-    }
-
-    /// Publishes one fresh live spill slot in the contract order: payload, summary bit, then the
-    /// nonzero tag.
-    ///
-    /// The tag write is the occupancy publication point. No fallible operation and no search-visible
-    /// handoff runs between the summary recording and the tag publication, so every search-visible
-    /// state with a live tag has its summary bit recorded.
+    /// The tag write is the occupancy publication point; no fallible operation and no
+    /// search-visible handoff runs between the payload store and the tag store, so every
+    /// search-visible state with a live tag has its published payload.
     #[inline]
     fn publish_live(&mut self, index: usize, payload: (Sigma, R, V), place: u64) {
-        self.slots[index] = payload;
+        self.slots[index].sigma = payload.0;
+        self.slots[index].held = payload.1;
+        self.slots[index].value = payload.2;
         #[cfg(test)]
         publication_trace::record(publication_trace::PAYLOAD);
-        self.summary_set(place);
-        #[cfg(test)]
-        publication_trace::record(publication_trace::SUMMARY);
-        self.tags[index] = tag(place);
+        self.slots[index].tag = tag(place);
+        self.live += 1;
         #[cfg(test)]
         publication_trace::record(publication_trace::TAG);
     }
 }
+impl<R, V> Region<R, V> {
+    /// The occupancy marker of every slot, for a before/after no-mutation assertion.
+    ///
+    /// Test-only: the read path never materializes this vector.
+    #[cfg(test)]
+    fn markers(&self) -> Vec<u8> {
+        self.slots.iter().map(|slot| slot.tag).collect()
+    }
+}
 impl<R: Clone, V: Clone> Region<R, V> {
-    fn reserve_empty(n: usize) -> Result<Self, StorageError> {
-        // Compute the complete checked layout before any reservation: a sizing overflow refuses
-        // before a tag, payload or summary allocation is attempted.
-        let words = summary_words(n)?;
-        let mut tags = Vec::new();
+    /// Reserves `capacity` initialized-length slots of storage without writing any slot.
+    ///
+    /// The capacity is checked before any reservation, so a sizing overflow refuses without a
+    /// partial allocation. `O(capacity)`; spatial `O(capacity)` slots.
+    fn reserve_empty(capacity: usize) -> Result<Self, StorageError> {
         let mut slots = Vec::new();
-        let mut summary = Vec::new();
-        try_reserve_exact(&mut tags, n)?;
-        try_reserve_exact(&mut slots, n)?;
-        try_reserve_exact(&mut summary, words)?;
-        tags.resize(n, 0);
-        summary.resize(words, 0);
-        Ok(Self {
-            tags,
-            slots,
-            summary,
-        })
+        try_reserve_exact(&mut slots, capacity)?;
+        Ok(Self { slots, live: 0 })
     }
 
+    /// Writes the vacant marker into every slot, filling the array to its reserved capacity.
+    ///
+    /// Temporal `O(capacity)` clones; spatial `O(capacity)`.
     fn initialize(&mut self, sigma: Sigma, held: &R, default: &V) {
-        while self.slots.len() < self.tags.len() {
-            self.slots.push((sigma, held.clone(), default.clone()));
+        let capacity = self.slots.capacity();
+        while self.slots.len() < capacity {
+            self.slots.push(SpillSlot {
+                tag: 0,
+                sigma,
+                held: held.clone(),
+                value: default.clone(),
+            });
         }
     }
 }
@@ -340,25 +289,31 @@ fn tag(place: u64) -> u8 {
 }
 #[inline]
 fn matches<K, H, R: KeyRep<K, H>, V>(
-    slot: &(Sigma, R, V),
+    slot: &SpillSlot<R, V>,
     sigma: Sigma,
     key: &K,
     address: &TableAddress,
 ) -> bool {
-    slot.0 == sigma && R::matches(sigma, &slot.1, key, address)
+    slot.sigma == sigma && R::matches(sigma, &slot.held, key, address)
 }
 
+/// The capacity a region holding `load` live entries reserves, or `Ok(0)` for an empty region.
+///
+/// One flat open-addressed region needs a power-of-two capacity so the probe mask is
+/// `capacity - 1`, and it needs at least one vacant slot, so the capacity is the least power of two
+/// `>= 2 * load` and at least `n`. Growth at the bound therefore leaves the load factor at or below
+/// `1/2`, which is the classic linear-probing bound: an unsuccessful probe visits
+/// `1 / (1 - alpha)` slots on average. `O(log(load))`; spatial `O(1)`.
 fn slots_for(load: usize, n: usize) -> Result<usize, StorageError> {
     if load == 0 {
         return Ok(0);
     }
     let twice = load.checked_mul(2).ok_or(StorageError::SizeOverflow)?;
-    let groups_needed = twice.checked_add(n - 1).ok_or(StorageError::SizeOverflow)? / n;
-    let mut groups = 2usize;
-    while groups < groups_needed {
-        groups = groups.checked_mul(2).ok_or(StorageError::SizeOverflow)?;
+    let mut capacity = n.max(2);
+    while capacity < twice {
+        capacity = capacity.checked_mul(2).ok_or(StorageError::SizeOverflow)?;
     }
-    groups.checked_mul(n).ok_or(StorageError::SizeOverflow)
+    Ok(capacity)
 }
 
 /// Builds a [`CapacityBound`] from a checked target and the capacity the reservation observed.

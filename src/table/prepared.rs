@@ -99,7 +99,7 @@ pub(crate) fn get_prepared_shard<'a, K, H: FaceCoord<K>, R: KeyRep<K, H>, V>(
     n: usize,
 ) -> Option<&'a V> {
     match spill_read::<K, H, R, V>(region, face.sigma(), address, key, n) {
-        Some(index) => Some(&region.slots[index].2),
+        Some(index) => Some(&region.slots[index].value),
         None => None,
     }
 }
@@ -131,8 +131,8 @@ where
     let sigma = face.sigma();
     match spill_locate::<K, H, R, V>(region, sigma, address, key, N) {
         SpillSite::Found(index) => {
-            let old = region.slots[index].2.clone();
-            region.slots[index].2 = merge.merge(value, old);
+            let old = region.slots[index].value.clone();
+            region.slots[index].value = merge.merge(value, old);
             Ok((false, index))
         }
         SpillSite::Vacant(index) => {
@@ -267,7 +267,7 @@ mod prepared_placement_tests {
             .expect("a fresh entry fits");
         assert_eq!(first, (true, 0), "a fresh key lands in the first vacant slot");
         assert_eq!(
-            region.slots[0].2,
+            region.slots[0].value,
             70,
             "the placed slot holds the merged value"
         );
@@ -295,7 +295,7 @@ mod prepared_placement_tests {
             )
             .expect("a repeat entry fits");
         assert_eq!(second, (false, 0), "a repeat key keeps its slot");
-        assert_eq!(region.slots[0].2, 80, "the merge result replaces the value");
+        assert_eq!(region.slots[0].value, 80, "the merge result replaces the value");
 
         let projected =
             apply_prepared_shard::<i64, i64, WordHome, Stored<i64>, ReplacementMerge, 16>(
@@ -310,7 +310,7 @@ mod prepared_placement_tests {
             .expect("the projection fits");
         assert!(!projected, "the projection reports the repeat as not fresh");
         assert_eq!(
-            region.slots[0].2,
+            region.slots[0].value,
             90,
             "the projection applies the same merge"
         );

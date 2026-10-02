@@ -1,19 +1,28 @@
 //! Probe, read and placement helpers factored out of `src/table.rs` without behavior change.
 //!
 //! Declared as the private child module `table::probe`; `src/table.rs` re-exports each moved
-//! name so existing callers and tests keep the same `table.*` path. Bodies, signatures and the
-//! summary branches are unchanged.
+//! name so existing callers and tests keep the same `table.*` path. The spill region is one flat
+//! open-addressed array: the probe is bounded linear probing over one cycle, the zero tag
+//! terminates it, and a completed cycle with no vacancy is the growth signal.
 
-use super::{
-    group, least_set_lane, matches, scan, tag, valid_n, KeyRep, Region, Sigma, SpillSite,
-    TableAddress, WINDOWS,
-};
+use super::{matches, tag, valid_n, KeyRep, Region, Sigma, SpillSite, TableAddress};
 
-#[allow(
-    clippy::len_zero,
-    clippy::similar_names,
-    reason = "the tag line and its selected lane are conventional probe terms; len avoids the unmodeled Vec::is_empty extraction"
-)]
+/// Walks one bounded linear-probe cycle and classifies the query.
+///
+/// Returns the unique full `(Sigma,K)` match, the first vacant slot at or after the query's home,
+/// or [`SpillSite::Grow`] when the whole cycle was visited and every slot was occupied — the growth
+/// signal, and equally the absence certificate for the read path.
+///
+/// **Probe sequence and bound.** Step `k` visits `(home + k) & (capacity - 1)` for
+/// `k = 0 .. capacity`, so a cycle visits each of the `capacity` slots exactly once. A tag
+/// fingerprint mismatch advances; a matching tag runs the full `(Sigma,K)` compare; a zero tag
+/// stops with a vacancy, because nothing is ever removed from a region (no tombstones).
+///
+/// **Growth.** `Grow` means a complete probe cycle found every slot occupied, which is what forces
+/// `grow_spill` to reserve a larger region and relocate.
+///
+/// Temporal `O(capacity)` slot visits counted in tag compares plus the full-key compares of the
+/// lanes whose fingerprint matches; spatial `O(1)`.
 pub(super) fn spill_locate<K, H, R: KeyRep<K, H>, V>(
     r: &Region<R, V>,
     sigma: Sigma,
@@ -21,85 +30,99 @@ pub(super) fn spill_locate<K, H, R: KeyRep<K, H>, V>(
     key: &K,
     n: usize,
 ) -> SpillSite {
-    let mut result = SpillSite::Grow;
-    if r.slots.len() != 0 {
-        let groups = r.slots.len() / n;
-        if groups >= 2 && groups * n == r.slots.len() && groups.is_power_of_two() {
-            let mut vacant = (false, 0);
-            let mut found = (false, 0);
-            let mask = groups - 1;
-            let wanted = tag(address.place);
-            // A summary miss proves the query absent, so the match scan can be skipped and the walk
-            // may stop at the first vacancy. A summary hit (or an absent summary) runs the tag
-            // scan, which rejects every lane whose fingerprint differs from `wanted` before the
-            // full-key compare; a fingerprint or summary collision only costs that compare.
-            let may_match = r.summary_maybe(address.place);
-            let mut step = 0;
-            while step < WINDOWS + groups && !found.0 && (may_match || !vacant.0) {
-                let base = group(address.place, step, mask) * n;
-                if may_match {
-                    let mut hits = scan::match_tag(&r.tags[base..base + n], wanted);
-                    while hits != 0 && !found.0 {
-                        let lane = least_set_lane(hits);
-                        let slot = base + lane;
-                        let matched = matches::<K, H, R, V>(&r.slots[slot], sigma, key, address);
-                        if matched {
-                            found = (true, base + lane);
-                        }
-                        hits &= hits - 1;
-                    }
-                }
-                if !vacant.0 {
-                    let empty = scan::match_empty(&r.tags[base..base + n]);
-                    if empty != 0 {
-                        vacant = (true, base + least_set_lane(empty));
-                    }
-                }
-                step += 1;
-            }
-            if found.0 {
-                result = SpillSite::Found(found.1);
-            } else if vacant.0 {
-                result = SpillSite::Vacant(vacant.1);
+    if !valid_n(n) || r.bound() == 0 {
+        return SpillSite::Grow;
+    }
+    let bound = r.bound();
+    let home = r.home(address.place);
+    let wanted = tag(address.place);
+    let mut step = 0;
+    while step < bound {
+        let slot = (home + step) & (bound - 1);
+        let found = r.slots[slot].tag;
+        if found == 0 {
+            return SpillSite::Vacant(slot);
+        }
+        if found == wanted {
+            #[cfg(feature = "read-stats")]
+            read_stats::record_full_compare();
+            if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
+                return SpillSite::Found(slot);
             }
         }
+        step += 1;
     }
-    result
+    SpillSite::Grow
 }
 
-/// Test-only counters for the read path, so a read can be shown to skip the summary-negative
-/// sweep and to run complete summary-positive coverage. Inert outside `cfg(test)`.
+/// Walks one bounded linear-probe cycle against an already-held carrier.
+///
+/// Same sequence, bound and growth meaning as [`spill_locate`]; the compare runs on the held
+/// carrier without materializing the key, which is the relocation path's requirement.
+pub(super) fn spill_locate_held<K, H, R: KeyRep<K, H>, V>(
+    r: &Region<R, V>,
+    sigma: Sigma,
+    address: &TableAddress,
+    carrier: &R,
+    n: usize,
+) -> SpillSite {
+    if !valid_n(n) || r.bound() == 0 {
+        return SpillSite::Grow;
+    }
+    let bound = r.bound();
+    let home = r.home(address.place);
+    let wanted = tag(address.place);
+    let mut step = 0;
+    while step < bound {
+        let slot = (home + step) & (bound - 1);
+        let found = r.slots[slot].tag;
+        if found == 0 {
+            return SpillSite::Vacant(slot);
+        }
+        if found == wanted
+            && r.slots[slot].sigma == sigma
+            && R::matches_held(sigma, &r.slots[slot].held, carrier)
+        {
+            return SpillSite::Found(slot);
+        }
+        step += 1;
+    }
+    SpillSite::Grow
+}
+
+/// Test-only counters for the read path, so a read's probe cost is attributable. Inert outside
+/// `cfg(test)`.
 #[cfg(test)]
 pub(super) mod read_trace {
     use std::cell::Cell;
 
     thread_local! {
-        static SUMMARY_MISSES: Cell<usize> = const { Cell::new(0) };
+        static ABSENCE_CERTIFICATES: Cell<usize> = const { Cell::new(0) };
         static SWEEP_STEPS: Cell<usize> = const { Cell::new(0) };
     }
 
     /// Clears both counters on this thread.
     pub(crate) fn clear() {
-        SUMMARY_MISSES.with(|count| count.set(0));
+        ABSENCE_CERTIFICATES.with(|count| count.set(0));
         SWEEP_STEPS.with(|count| count.set(0));
     }
 
-    /// Records one read that returned absence on a summary miss.
+    /// Records one read that returned absence on a zero tag.
     pub(crate) fn record_summary_miss() {
-        SUMMARY_MISSES.with(|count| count.set(count.get() + 1));
+        ABSENCE_CERTIFICATES.with(|count| count.set(count.get() + 1));
     }
 
-    /// Records one group step of a read's coverage sweep.
+    /// Records one probe step of a read's bounded linear cycle.
     pub(crate) fn record_sweep_step() {
         SWEEP_STEPS.with(|count| count.set(count.get() + 1));
     }
 
-    /// Returns the summary-miss count on this thread.
+    /// Returns the absence-certificate count on this thread.
     pub(crate) fn summary_misses() -> usize {
-        SUMMARY_MISSES.with(Cell::get)
+        ABSENCE_CERTIFICATES.with(Cell::get)
     }
 
-    /// Returns the coverage-sweep step count on this thread.
+    /// Returns the bounded-cycle step count on this thread.
     pub(crate) fn sweep_steps() -> usize {
         SWEEP_STEPS.with(Cell::get)
     }
@@ -119,15 +142,15 @@ pub mod read_stats {
     /// Stage counts accumulated over the reads on one thread since the last [`clear`].
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct ReadStats {
-        /// `spill_read` calls that reached the summary test.
+        /// `spill_read` calls that entered the bounded cycle.
         pub summary_tests: u64,
-        /// Summary hits that entered the tag sweep.
+        /// Reads that stopped on a zero tag, certified absent by the no-deletion policy.
         pub summary_hits: u64,
-        /// Summary misses that returned absence without a sweep.
+        /// Reads that completed a full cycle without a vacancy, certified absent by the bound.
         pub summary_misses: u64,
-        /// Group steps of the tag sweep, the window iteration.
+        /// Probe steps of the bounded linear cycle.
         pub sweep_steps: u64,
-        /// Tag lanes equal to the query fingerprint, the SWAR `match_tag` result popcount.
+        /// Tag lanes equal to the query fingerprint.
         pub tag_matches: u64,
         /// Full `(Sigma, K)` compares reached through a fingerprint match.
         pub full_compares: u64,
@@ -149,12 +172,22 @@ pub mod read_stats {
         STATS.with(|stats| stats.set(ReadStats::default()));
     }
 
-    /// Records one summary test and whether it hit.
-    pub(super) fn record_summary(hit: bool) {
+    /// Records one entry into the bounded cycle.
+    pub(super) fn record_summary(_hit: bool) {
         STATS.with(|stats| {
             let mut s = stats.get();
             s.summary_tests += 1;
-            if hit {
+            stats.set(s);
+        });
+    }
+
+    /// Records one read that returned absence, and which certificate ended it.
+    ///
+    /// `by_vacancy` is `true` for the zero-tag stop and `false` for a completed full cycle.
+    pub(super) fn record_absence(by_vacancy: bool) {
+        STATS.with(|stats| {
+            let mut s = stats.get();
+            if by_vacancy {
                 s.summary_hits += 1;
             } else {
                 s.summary_misses += 1;
@@ -163,7 +196,7 @@ pub mod read_stats {
         });
     }
 
-    /// Records one group step of a tag sweep.
+    /// Records one step of the bounded cycle.
     pub(super) fn record_step() {
         STATS.with(|stats| {
             let mut s = stats.get();
@@ -172,7 +205,7 @@ pub mod read_stats {
         });
     }
 
-    /// Records the fingerprint-match count of one tag scan.
+    /// Records the fingerprint-match count of one cycle.
     pub(super) fn record_tag_matches(count: u64) {
         STATS.with(|stats| {
             let mut s = stats.get();
@@ -198,13 +231,14 @@ pub mod read_stats {
 
 /// Reads one routed spill region without any insertion bookkeeping.
 ///
-/// Returns the slot index of the unique full `(Sigma,K)` match, or `None` for absence.  Absence is
-/// certified by the caller's direct exclusion plus a summary miss, or by complete finite match
-/// coverage; this function never searches for a vacancy and never computes a first fit.
+/// Returns the slot index of the unique full `(Sigma,K)` match, or `None` for absence. **Absence is
+/// certified by the bounded probe**: either a zero tag terminates the cycle, which is sound because
+/// no entry is ever removed from a region, or the cycle visits all `capacity` slots without a
+/// match, in which case every slot was visited and the bound `SpillProbeBoundAbsentSound` states
+/// applies. This function never searches for a vacancy and never computes a first fit.
 ///
-/// Temporal O(`WINDOWS + groups`) group steps, each O(`n`) tag lanes plus the full-key compares of
-/// the lanes whose fingerprint matches, counted in tag-lane comparisons; spatial O(1).  Every group
-/// is visited in probe order, so a matching key after an earlier empty lane is still found.
+/// Temporal `O(capacity)` slot visits counted in tag compares plus the full-key compares of the
+/// lanes whose fingerprint matches; spatial `O(1)`.
 #[allow(
     clippy::len_zero,
     reason = "len avoids the unmodeled Vec::is_empty extraction"
@@ -218,112 +252,65 @@ pub(super) fn spill_read<K, H, R: KeyRep<K, H>, V>(
 ) -> Option<usize> {
     let mut hit = None;
     if r.slots.len() != 0 && valid_n(n) {
-        let groups = r.slots.len() / n;
-        if groups >= 2 && groups * n == r.slots.len() && groups.is_power_of_two() {
-            if r.summary_maybe(address.place) {
-                #[cfg(feature = "read-stats")]
-                read_stats::record_summary(true);
-                let mask = groups - 1;
-                let wanted = tag(address.place);
-                let mut step = 0;
-                while step < WINDOWS + groups && hit.is_none() {
-                    #[cfg(test)]
-                    read_trace::record_sweep_step();
-                    #[cfg(feature = "read-stats")]
-                    read_stats::record_step();
-                    let base = group(address.place, step, mask) * n;
-                    let mut hits = scan::match_tag(&r.tags[base..base + n], wanted);
-                    #[cfg(feature = "read-stats")]
-                    read_stats::record_tag_matches(u64::from(hits.count_ones()));
-                    while hits != 0 && hit.is_none() {
-                        let lane = scan::least_set_lane(hits);
-                        let slot = base + lane;
-                        #[cfg(feature = "read-stats")]
-                        read_stats::record_full_compare();
-                        if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
-                            hit = Some(slot);
-                        }
-                        hits &= hits - 1;
-                    }
-                    step += 1;
-                }
-            } else {
+        #[cfg(feature = "read-stats")]
+        read_stats::record_summary(true);
+        let bound = r.bound();
+        let mask = bound - 1;
+        let home = r.home(address.place);
+        let wanted = tag(address.place);
+        let mut step = 0;
+        while step < bound && hit.is_none() {
+            #[cfg(test)]
+            read_trace::record_sweep_step();
+            #[cfg(feature = "read-stats")]
+            read_stats::record_step();
+            let slot = (home + step) & mask;
+            let found = r.slots[slot].tag;
+            if found == 0 {
+                // Absence certificate: nothing is ever removed, so a live key cannot sit past a
+                // vacancy.
                 #[cfg(test)]
                 read_trace::record_summary_miss();
                 #[cfg(feature = "read-stats")]
-                read_stats::record_summary(false);
+                read_stats::record_absence(true);
+                step = bound;
+            } else {
+                if found == wanted {
+                    #[cfg(feature = "read-stats")]
+                    read_stats::record_tag_matches(1);
+                    #[cfg(feature = "read-stats")]
+                    read_stats::record_full_compare();
+                    if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
+                        hit = Some(slot);
+                    }
+                }
+                step += 1;
             }
+        }
+        if hit.is_none() {
+            // Absence certificate: the cycle visited every slot and found no match.
+            #[cfg(feature = "read-stats")]
+            read_stats::record_absence(false);
         }
     }
     hit
 }
 
-#[allow(
-    clippy::len_zero,
-    reason = "len avoids the unmodeled Vec::is_empty extraction"
-)]
-pub(super) fn spill_locate_held<K, H, R: KeyRep<K, H>, V>(
-    r: &Region<R, V>,
-    sigma: Sigma,
-    address: &TableAddress,
-    carrier: &R,
-    n: usize,
-) -> SpillSite {
-    let mut result = SpillSite::Grow;
-    if r.slots.len() != 0 {
-        let groups = r.slots.len() / n;
-        if groups >= 2 && groups * n == r.slots.len() && groups.is_power_of_two() {
-            let mut vacant = (false, 0);
-            let mut found = (false, 0);
-            let mask = groups - 1;
-            let wanted = tag(address.place);
-            let may_match = r.summary_maybe(address.place);
-            let mut step = 0;
-            while step < WINDOWS + groups && !found.0 && (may_match || !vacant.0) {
-                let base = group(address.place, step, mask) * n;
-                if may_match {
-                    let mut hits = scan::match_tag(&r.tags[base..base + n], wanted);
-                    while hits != 0 && !found.0 {
-                        let lane = least_set_lane(hits);
-                        let slot = base + lane;
-                        if r.slots[slot].0 == sigma
-                            && R::matches_held(sigma, &r.slots[slot].1, carrier)
-                        {
-                            found = (true, slot);
-                        }
-                        hits &= hits - 1;
-                    }
-                }
-                if !vacant.0 {
-                    let empty = scan::match_empty(&r.tags[base..base + n]);
-                    if empty != 0 {
-                        vacant = (true, base + least_set_lane(empty));
-                    }
-                }
-                step += 1;
-            }
-            if found.0 {
-                result = SpillSite::Found(found.1);
-            } else if vacant.0 {
-                result = SpillSite::Vacant(vacant.1);
-            }
-        }
-    }
-    result
-}
-
-/// Finite regression fixtures for the real `spill_read` and `spill_locate` bodies.
+/// Finite regression fixtures for the real `spill_read`, `spill_locate` and `spill_locate_held`
+/// bodies on the flat open-addressed region.
 ///
-/// These tests run the real helpers, `Region`, tags, summary and `Stored<i64>` comparison at
-/// `n = 2`, four slots and two groups. They cover named concrete cases only. They do not establish
-/// whole-`Table` construction, production geometry, canonical refinement or universal behavior.
+/// These tests run the real helpers, `Region`, the nonzero tag marker and `Stored<i64>` comparison
+/// at `n = 2` over a four-slot region whose home is slot 0 (placement 0). The fixtures are built in
+/// first-fit order, which is the only state a linear insert can produce: a live slot never sits
+/// past a vacancy. They cover named concrete cases only. They do not establish whole-`Table`
+/// construction, production geometry, canonical refinement or universal behavior.
 #[cfg(test)]
 mod tests {
     use crate::table::keyrep::{KeyRep, Stored};
     use crate::table::{Region, TableAddress, WordHome};
     use crate::Sigma;
 
-    use super::{spill_locate, spill_read, SpillSite};
+    use super::{spill_locate, spill_locate_held, spill_read, tag, SpillSite};
 
     const N: usize = 2;
     const LEN: usize = 4;
@@ -339,57 +326,43 @@ mod tests {
         }
     }
 
-    /// Two groups of two. Group 0: lane 0 a same-fingerprint live slot whose key differs, lane 1
-    /// vacant. Group 1: lane 0 the matching key, lane 1 a same-fingerprint live slot whose key
-    /// differs. Placement `0` sends every prefix window to group 0, so group 1 is only reached in
-    /// the cyclic sweep.
-    fn fixture(stored2: i64, stored0: i64, stored3: i64) -> Region<Stored<i64>, i64> {
+    /// Four slots, home 0, published in first-fit order with keys `k0, k1, k2` in slots 0, 1, 2
+    /// and slot 3 vacant. Every published slot carries the query fingerprint (placement 0), so a
+    /// walk past any of them costs a full-key reject.
+    fn fixture(k0: i64, k1: i64, k2: i64) -> Region<Stored<i64>, i64> {
         let address = address();
-        let mut region = Region::reserve_empty(LEN).expect("two groups of two");
-        region.initialize(Sigma::Parabolic, &held(stored2, &address), &0);
-        region.publish_live(
-            0,
-            (Sigma::Parabolic, held(stored0, &address), 41),
-            address.place,
-        );
-        region.publish_live(
-            2,
-            (Sigma::Parabolic, held(stored2, &address), 7),
-            address.place,
-        );
-        region.publish_live(
-            3,
-            (Sigma::Parabolic, held(stored3, &address), 11),
-            address.place,
-        );
+        let mut region = Region::reserve_empty(LEN).expect("four slots");
+        region.initialize(Sigma::Parabolic, &held(k0, &address), &0);
+        region.publish_live(0, (Sigma::Parabolic, held(k0, &address), 41), address.place);
+        region.publish_live(1, (Sigma::Parabolic, held(k1, &address), 43), address.place);
+        region.publish_live(2, (Sigma::Parabolic, held(k2, &address), 7), address.place);
         region
     }
 
-    /// The same two-group shape as [`fixture`], with the remaining lane published. Every live
-    /// lane has the query fingerprint, so absence requires full-key rejection before growth.
-    fn full_fixture() -> Region<Stored<i64>, i64> {
+    /// The same region with the fourth slot published: every slot occupied, so a query with no
+    /// full-key match must exhaust the bounded cycle.
+    fn full_fixture(k0: i64, k1: i64, k2: i64) -> Region<Stored<i64>, i64> {
         let address = address();
-        let mut region = fixture(8, 7, 9);
-        region.publish_live(1, (Sigma::Parabolic, held(11, &address), 13), address.place);
+        let mut region = fixture(k0, k1, k2);
+        region.publish_live(3, (Sigma::Parabolic, held(11, &address), 13), address.place);
         region
     }
 
-    /// The real insertion locator distinguishes a late match, the first vacancy and exhaustion on
-    /// assumption-free, initialized two-group regions. These fixtures establish helper-domain
-    /// satisfiability; they do not establish that public `Table` construction reaches these states.
+    /// The real insertion locator classifies a match past two same-fingerprint rejects, the first
+    /// vacancy, and exhaustion on assumption-free, initialized flat regions.
     #[test]
     fn spill_locate_classifies_a_fixed_initialized_region() {
-        let region = fixture(8, 7, 9);
+        let region = fixture(7, 8, 9);
         assert_eq!(
             spill_locate::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Parabolic,
                 &address(),
-                &8,
+                &9,
                 N,
             ),
             SpillSite::Found(2),
-            "an earlier vacancy must not hide the late full-key match"
+            "two same-fingerprint rejects must not hide the full-key match at slot 2"
         );
         assert_eq!(
             spill_locate::<i64, WordHome, Stored<i64>, i64>(
@@ -399,52 +372,64 @@ mod tests {
                 &10,
                 N,
             ),
-            SpillSite::Vacant(1),
+            SpillSite::Vacant(3),
             "same-fingerprint key collisions must retain the first vacancy"
         );
         assert_eq!(
             spill_locate::<i64, WordHome, Stored<i64>, i64>(
-                &full_fixture(),
+                &full_fixture(7, 8, 9),
                 Sigma::Parabolic,
                 &address(),
                 &10,
                 N,
             ),
             SpillSite::Grow,
-            "a full region with no full-key match requires growth"
+            "a full region with no full-key match exhausts the cycle and requires growth"
         );
         assert_eq!(
             spill_locate::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Elliptic,
                 &address(),
-                &8,
+                &9,
                 N,
             ),
-            SpillSite::Vacant(1),
-            "an equal key under a different Sigma is not a match"
+            SpillSite::Vacant(3),
+            "an equal key under a different Sigma is not a match, so the walk continues to the \
+             vacancy"
+        );
+        assert_eq!(
+            spill_locate_held::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &address(),
+                &held(9, &address()),
+                N,
+            ),
+            SpillSite::Found(2),
+            "the held carrier walk finds the same slot"
         );
     }
 
     #[test]
-    fn spill_read_returns_the_late_matching_slot() {
-        let region = fixture(8, 7, 9);
+    fn spill_read_returns_the_matching_slot() {
+        let region = fixture(7, 8, 9);
         assert_eq!(
             spill_read::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Parabolic,
                 &address(),
-                &8,
+                &9,
                 N,
             ),
             Some(2),
-            "the slot-0 collision and the slot-1 vacancy must not stop the sweep to slot 2"
+            "the two slot-0 and slot-1 fingerprint collisions must not stop the walk to slot 2"
         );
     }
 
     #[test]
     fn spill_read_reports_absence_without_a_full_key_match() {
-        let region = fixture(8, 7, 9);
+        let region = fixture(7, 8, 9);
         for query in [10, i64::MIN, i64::MAX] {
             assert_eq!(
                 spill_read::<i64, WordHome, Stored<i64>, i64>(
@@ -455,43 +440,172 @@ mod tests {
                     N,
                 ),
                 None,
-                "a fingerprint collision on every live lane is still absence without a full match"
+                "a fingerprint collision on every occupied slot is still absence without a full match"
             );
         }
     }
 
     #[test]
-    fn spill_read_returns_absence_on_a_summary_miss() {
-        let region = fixture(8, 7, 9);
-        let miss = TableAddress {
+    fn spill_read_certifies_absence_on_a_zero_tag() {
+        let region = fixture(7, 8, 9);
+        let other = TableAddress {
             place: 1 << 40,
             direct_word: None,
         };
-        assert!(
-            !region.summary_maybe(miss.place),
-            "the miss address must not be recorded in the summary"
-        );
         assert_eq!(
-            spill_read::<i64, WordHome, Stored<i64>, i64>(&region, Sigma::Parabolic, &miss, &8, N,),
+            spill_read::<i64, WordHome, Stored<i64>, i64>(&region, Sigma::Parabolic, &other, &99, N,),
             None,
-            "a summary miss certifies absence without a sweep"
+            "a different placement homes elsewhere; its zero tag certifies absence"
         );
     }
 
     #[test]
-    fn spill_read_sweeps_when_the_summary_is_unavailable() {
-        let mut region = fixture(8, 7, 9);
-        region.summary.clear();
+    fn spill_read_certifies_absence_on_a_completed_cycle() {
+        let region = full_fixture(7, 8, 9);
         assert_eq!(
             spill_read::<i64, WordHome, Stored<i64>, i64>(
                 &region,
                 Sigma::Parabolic,
                 &address(),
-                &8,
+                &10,
                 N,
             ),
-            Some(2),
-            "an unavailable summary disables filtering; the sweep still finds the match"
+            None,
+            "a full region with no match exhausts the bound, which certifies absence"
         );
+    }
+
+    /// A `place` whose bits `[8, 15)` are the nonzero fingerprint `PRINT`, so every placement
+    /// agreeing on them publishes one tag.
+    fn print_place(print: u64) -> u64 {
+        (print << 8) | 0x34
+    }
+
+    /// The first placement at or above [`FINGERPRINT_BASE`] that carries the base's tag and homes
+    /// elsewhere. The search is a forced collision: the fixture never assumes the two homes differ.
+    fn same_tag_other_home(region: &Region<Stored<i64>, i64>) -> u64 {
+        for bit in 1..64u64 {
+            let place = print_place(18) | (bit << 15);
+            assert_eq!(
+                tag(place),
+                tag(print_place(18)),
+                "a placement above the fingerprint window keeps the base tag"
+            );
+            if region.home(place) != region.home(print_place(18)) {
+                return place;
+            }
+        }
+        panic!("some placement below 2^78 keeps the tag and homes elsewhere");
+    }
+
+    /// Publishes `key` at the slot the real locator selects: the first vacancy at or after its home,
+    /// which is exactly where a linear insert places it.
+    fn publish_first_fit(
+        region: &mut Region<Stored<i64>, i64>,
+        key: i64,
+        place: u64,
+    ) -> usize {
+        let address = TableAddress {
+            place,
+            direct_word: None,
+        };
+        let slot =
+            match spill_locate::<i64, WordHome, Stored<i64>, i64>(
+                region,
+                Sigma::Parabolic,
+                &address,
+                &key,
+                N,
+            ) {
+                SpillSite::Vacant(slot) => slot,
+                other => panic!("a fresh key selects a vacancy, not {other:?}"),
+            };
+        region.publish_live(slot, (Sigma::Parabolic, held(key, &address), 100 + key), place);
+        slot
+    }
+
+    /// Two distinct keys under one forced same-fingerprint collision: every published slot carries
+    /// the same nonzero tag, so the walk must resolve each key by its full compare and must not
+    /// stop on the tag, merge the keys, or report absence for a stored one.
+    ///
+    /// The pair is forced, not assumed: the fixture searches for a placement that shares the tag
+    /// and homes elsewhere, then fills the region through the production locator, so every state is
+    /// one a linear insert produces. This covers distinct placements, distinct homes and a shared
+    /// tag, which the place-0 fixtures above cannot reach.
+    #[test]
+    fn spill_read_resolves_a_forced_same_fingerprint_collision() {
+        const WIDE: usize = 16;
+        let mut region = Region::reserve_empty(WIDE).expect("sixteen slots");
+        region.initialize(Sigma::Parabolic, &held(0, &address()), &0);
+        let other = same_tag_other_home(&region);
+        let base = print_place(18);
+        assert_eq!(tag(base), tag(other), "the forced pair shares one nonzero tag");
+        assert_ne!(
+            region.home(base),
+            region.home(other),
+            "the forced pair homes elsewhere, so the two probe orders differ"
+        );
+
+        // Eight keys alternate between the two placements: every slot carries the shared tag and
+        // every walk runs a full compare at each one.
+        let mut placed: Vec<(i64, u64, usize)> = Vec::new();
+        for key in 1..=8i64 {
+            let place = if key % 2 == 0 { other } else { base };
+            let slot = publish_first_fit(&mut region, key, place);
+            placed.push((key, place, slot));
+        }
+        let live = region.slots.iter().filter(|slot| slot.live()).count();
+        assert_eq!(live, 8, "one live slot per key");
+        assert!(
+            region
+                .slots
+                .iter()
+                .filter(|slot| slot.live())
+                .all(|slot| slot.tag == tag(base)),
+            "every live slot carries the shared tag, so no tag alone can resolve the walk"
+        );
+
+        // No false negative: every stored key is found at the slot its own insert published.
+        for (key, place, slot) in &placed {
+            let at = TableAddress {
+                place: *place,
+                direct_word: None,
+            };
+            assert_eq!(
+                spill_read::<i64, WordHome, Stored<i64>, i64>(
+                    &region,
+                    Sigma::Parabolic,
+                    &at,
+                    key,
+                    N,
+                ),
+                Some(*slot),
+                "a same-tag neighbour must not hide the full-key match"
+            );
+        }
+
+        // No false positive and no merge: the shared tag is not identity.
+        let base_at = TableAddress {
+            place: base,
+            direct_word: None,
+        };
+        assert_eq!(
+            spill_read::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &base_at,
+                &99,
+                N,
+            ),
+            None,
+            "an absent key under the shared tag is absence, not the neighbour's entry"
+        );
+        for (key, _place, slot) in &placed {
+            assert_eq!(
+                region.slots[*slot].value,
+                100 + key,
+                "one key owns one slot; a shared tag merges nothing"
+            );
+        }
     }
 }

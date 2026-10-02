@@ -568,7 +568,8 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
 | W1 | the three corrections: D7 rebase epoch, D2 cost bound, loop-brief target | `intent/docs/EVOLVER.md`, `intent/crates/intent-core/src/selection.rs`, `docs/epics/apeiron-intent-loop.md` | each names its new statement and its control | 3 | 0 |
-| W2 | Ring 6 gate `ring6_selection.rs` with its four controls | `intent/crates/intent-cli/tests/ring6_selection.rs` | `cargo test -p intent-cli --test ring6_selection` | 1 | 0 |
+| W2 | Ring 6 selection gate — **landed** `df33ee9`/`14c6932` (four D1–D4 controls; reddens under a Ring-3 admission mutation, sha-clean restore). Plan-line correction per Sol: the memorizer / reference-grading / held-out controls belong to the oracle slice W2b, not here | `intent/crates/intent-cli/tests/ring6_selection.rs` | `cargo test -p intent-cli --locked --test ring6_selection -- --test-threads=1` | 1 | 0 |
+| W2b | oracle Ring 6 (Sol route: randomised, reference-graded inputs first; secret held-out cases later): seeded generator + trusted-reference labels, then candidate grading with the public-table memorizer control; 540 s is the candidate-grading budget, not the gate command's | `intent/crates/intent-cli/tests/oracle_cases.rs`, the generator, one focused test | T1: reproducible seed + inputs absent from the public table; T2: reference passes, memorizer fails | 2 | 0 |
 | W3 | evaluator and isolation repairs (Ring 2 `--unshare-pid`) | `intent/crates/` | the named probes | 2 | 0 |
 | W4 | runtime linkage and canonical rooting of the admission cores | `intent/Cargo.toml`, `intent/crates/intent-core/` | executing-source correspondence to `Apeiron.Table` | 2 | 1 |
 | W5 | calibration: ≥30 paired incumbent reruns | `intent/runs/`, receipts | registered population, no protocol change | 1 | 0 |
@@ -847,16 +848,18 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   This proceeds separately from the Apeiron–Intent engine; the file count alone does not justify
   rebuilding the harness.
 - **Apeiron–Intent, decision A (repair).** Retain the lane; hold candidate acceptance until the
-  selection instrument passes rejecting controls. Ring 6 gate MISSING:
-  `crates/intent-cli/tests/ring6_selection.rs`, command
-  `cargo test -p intent-cli --locked --test ring6_selection -- --test-threads=1`, 540 s budget,
-  evolve-split inputs with candidates never receiving expected answers, held-out
-  reporting/checkpoint policy preserved. Controls: reference passes; public-table memorizer fails;
-  wrong-result and frame-forgery fail; a static-table-grading mutation makes memorizer-rejection fail
-  and restoration passes. Rooting: direct linkage supplies no refinement; the `e_±` / null-cone /
-  σ→0 reading stays a proposed mapping until carrier, hypotheses and connecting theorems exist.
-  Sequence: Ring 6 spec/gate → evaluator and isolation repairs → Apeiron linkage and canonical
-  refinement → calibration and candidate screens → one accepted improvement cycle.
+  selection instrument passes rejecting controls. The selection gate is **landed**
+  (`crates/intent-cli/tests/ring6_selection.rs`, `df33ee9`/`14c6932`; four D1–D4 controls green in
+  0.4 s; it reddens under a Ring-3 admission mutation with a sha-clean restore; not vacuous). The
+  earlier "MISSING" line and its memorizer/static-table controls describe a different, future
+  object: the oracle Ring 6, decided by Sol as **seeded randomised inputs whose expected outputs
+  come from the trusted reference** (secret held-out cases later); the minimal falsifying control
+  is a public-table memorizer that fails on inputs confirmed absent from the table while the
+  reference passes. 540 s is the candidate-grading budget inside that slice, not the existing
+  0.4 s gate command (W2b; task 1 in flight). Rooting: direct linkage supplies no refinement; the
+  `e_±` / null-cone / σ→0 reading stays a proposed mapping until carrier, hypotheses and connecting
+  theorems exist. Sequence: oracle Ring 6 (W2b) → evaluator and isolation repairs → Apeiron linkage
+  and canonical refinement → calibration and candidate screens → one accepted improvement cycle.
 - **Outstanding returns (5).** RowDotAdmission, LmHead, RegenRelocateEntry (never returned);
   extraction-root repair and `regen_relocate_all` (returned empty — a no-artifact return does not
   close the task). All five agents are live; their files are owned; no second writer.

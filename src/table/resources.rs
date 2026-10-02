@@ -16,15 +16,11 @@ pub(crate) struct CapacityBound {
     pub(crate) observed_capacity: usize,
 }
 
-/// Per-region tag, payload and summary capacity bounds.
+/// Per-region slot-array capacity bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RegionReservation {
-    /// The region's tag-vector bound.
-    pub(crate) tags: CapacityBound,
-    /// The region's payload-vector bound.
-    pub(crate) payloads: CapacityBound,
-    /// The region's occupancy-summary bound; zero for an empty region.
-    pub(crate) summary: CapacityBound,
+    /// The region's single open-addressed slot-array bound: capacity, tags included.
+    pub(crate) slots: CapacityBound,
 }
 
 /// The fixed-size capacity observations for one reserved rebuild.

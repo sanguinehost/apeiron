@@ -133,8 +133,8 @@ where
             }
         }
         for (shard, region) in self.shards.iter().enumerate() {
-            for (index, tag) in region.tags.iter().enumerate() {
-                if *tag != 0 {
+            for (index, slot) in region.slots.iter().enumerate() {
+                if slot.live() {
                     locations.push(PayloadLocation::Spill(shard, index));
                 }
             }
@@ -157,18 +157,11 @@ where
                     Some(region) => region,
                     None => return None,
                 };
-                let tag = match region.tags.get(index) {
-                    Some(tag) => *tag,
-                    None => return None,
-                };
-                if tag == 0 {
-                    return None;
-                }
                 let slot = match region.slots.get(index) {
-                    Some(slot) => slot,
-                    None => return None,
+                    Some(slot) if slot.live() => slot,
+                    _ => return None,
                 };
-                Some((slot.0, &slot.1))
+                Some((slot.sigma, &slot.held))
             }
         }
     }
@@ -1235,7 +1228,7 @@ mod locator_tests {
 
         let before_len = table.len();
         let before_lanes = table.resident.lanes;
-        let before_tags: Vec<u8> = table.shards[0].tags.clone();
+        let before_tags: Vec<u8> = table.shards[0].markers();
         let before_slots = table.shards[0].slots.len();
 
         // A checked rebuild plan that would grow the resident area and commit if it were applied.
@@ -1270,7 +1263,7 @@ mod locator_tests {
         // No table merge ran: length, resident extent, tags and payloads are unchanged.
         assert_eq!(table.len(), before_len);
         assert_eq!(table.resident.lanes, before_lanes);
-        assert_eq!(table.shards[0].tags, before_tags);
+        assert_eq!(table.shards[0].markers(), before_tags);
         assert_eq!(table.shards[0].slots.len(), before_slots);
         assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41);
         assert!(table.locator.staged.is_none(), "a refusal stages nothing");

@@ -294,7 +294,7 @@ where
             }
         }
     }
-    Ok(region.tags.iter().filter(|&&tag| tag != 0).count())
+    Ok(region.slots.iter().filter(|slot| slot.live()).count())
 }
 
 /// A shard's reserved region, or `None` for a zero-load shard.
