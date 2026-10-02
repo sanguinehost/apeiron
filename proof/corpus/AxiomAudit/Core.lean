@@ -371,37 +371,7 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableGeometry.prepared_destination_in_bounds
 #audit Apeiron.GrowableGeometry.geometry_wellFormed
 
--- Extracted SWAR byte marker and structural no-cross-byte-borrow decomposition
-#audit Apeiron.GrowableScan.summary_set_maybe_one_word_witness
-#audit Apeiron.GrowableScan.oneWordZeroRegion
-#audit Apeiron.GrowableScan.oneSlotZeroRegion
-#audit Apeiron.GrowableScan.summary_set_implies_maybe
-#audit Apeiron.GrowableScan.publish_live_implies_summary_maybe
-#audit Apeiron.GrowableScan.u64_one_shift_nonzero
-#audit Apeiron.GrowableScan.u64_or_mask_and_mask
-#audit Apeiron.GrowableScan.summary_remainder_lt64
-#audit Apeiron.GrowableScan.summary_mask_nonzero
-#audit Apeiron.GrowableScan.summary_mask_zero_word_witness
-#audit Apeiron.GrowableScan.summary_index_word_lt_len
-#audit Apeiron.GrowableScan.summary_max_shift_six
-#audit Apeiron.GrowableScan.FixedWidthTrailingZeros
-#audit Apeiron.GrowableScan.TrailingZerosInv
-#audit Apeiron.GrowableScan.usize_and_one_val
-#audit Apeiron.GrowableScan.summary_trailing_zeros_eq
-#audit Apeiron.GrowableScan.append_sub_byte_noBorrow
-#audit Apeiron.GrowableScan.byte_zero_marker
-#audit Apeiron.GrowableScan.zero_marker_decomposition
-#audit Apeiron.GrowableScan.extracted_zero_swar_exact
-#audit Apeiron.GrowableScan.lo_mul_broadcast
-#audit Apeiron.GrowableScan.extracted_eq_swar_exact
-#audit Apeiron.GrowableScan.gather_spreadMarkerBits
-#audit Apeiron.GrowableScan.scan_exact
-
--- Summary shape, recorded-bit exclusion, tag readback and fingerprint exactness (read-classifier row 2)
-#audit Apeiron.GrowableScan.SpillSummaryShape
-#audit Apeiron.GrowableScan.spillSummaryShape
-#audit Apeiron.GrowableScan.SummaryBitRecorded
-#audit Apeiron.GrowableScan.summary_maybe_false_excludes_recorded
+-- Tag readback and fingerprint exactness (read-classifier row 2)
 #audit Apeiron.GrowableScan.tag_ne_zero
 #audit Apeiron.GrowableScan.publish_live_tag_readback
 #audit Apeiron.GrowableScan.spillFingerprint
@@ -409,27 +379,7 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableScan.spillFingerprintExact
 #audit Apeiron.GrowableScan.spillFingerprint_eq_of_identity
 #audit Apeiron.GrowableScan.spillFingerprint_collision_witness
-#audit Apeiron.GrowableScan.SpillTagHit
 #audit Apeiron.GrowableScan.fingerprint_hit_requires_full_matches
-#audit Apeiron.GrowableScan.word_at_exact
-#audit Apeiron.GrowableScan.ascendingByteLine
-#audit Apeiron.GrowableScan.mapBytes_lane
-#audit Apeiron.GrowableScan.from_le_bytes_lane
-#audit Apeiron.GrowableScan.from_le_bytes_end_lanes
-#audit Apeiron.GrowableScan.tagMarkers_from_le_bytes_lane
-#audit Apeiron.GrowableScan.tagMarkers_from_le_bytes_word
-#audit Apeiron.GrowableScan.tagMarkers_asymmetric_witness
-#audit Apeiron.GrowableScan.generated_clear_hits_strict
-#audit Apeiron.GrowableScan.generated_tail_steps_in_bound
-#audit Apeiron.GrowableScan.least_set_lane_selects
-#audit Apeiron.GrowableScan.least_set_lane_exact
-#audit Apeiron.GrowableScan.least_set_lane_in_range
-#audit Apeiron.GrowableScan.least_set_lane_high_fixture
-#audit Apeiron.GrowableScan.match_tag_window_exact
-#audit Apeiron.GrowableScan.match_tag_exact
-#audit Apeiron.GrowableScan.generated_clear_hits_exact
-#audit Apeiron.GrowableScan.generated_clear_hits_live_decrease
-#audit Apeiron.GrowableScan.generated_spill_read_clears_selected
 #audit Apeiron.GrowableReadLoop.generated_outer_stops_on_hit
 #audit Apeiron.GrowableReadLoop.generated_outer_stops_at_limit
 #audit Apeiron.GrowableReadLoop.generated_tail_indices_eligible
@@ -897,11 +847,9 @@ elab "#audit " id:ident : command => do
 #audit Nous.Model.run_eq
 #audit Nous.Model.readout_add_lowerReadout
 
--- Locate-loop slice (APEIRON-READLINK-W8-T1): the `spill_locate` inner completion invariant and the
--- scanner-coincidence transfer; `SpillLocateFoundFullMatch` closes after the outer sweep (L4-L6)
-#audit Apeiron.GrowableLocateLoop.least_set_lane_loop_selects
-#audit Apeiron.GrowableLocateLoop.least_set_lane_loop_in_range
-#audit Apeiron.GrowableLocateLoop.scan_lane_of_loop_lane
+-- Locate-loop slice (APEIRON-READLINK-W8-T1): the `spill_locate` inner completion invariant;
+-- `SpillLocateFoundFullMatch` closes after the outer sweep (L4-L6). The scanner-coincidence
+-- transfer and the `table.least_set_lane` rows were retired with the linear-probe port.
 #audit Apeiron.GrowableLocateLoop.generated_spill_locate_clears_selected
 #audit Apeiron.GrowableLocateLoop.generated_locate_inner_outcome
 
