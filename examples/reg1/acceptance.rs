@@ -666,13 +666,9 @@ pub(crate) fn build_campaign(
                 incumbent_id: inc.id,
                 class: inc.class,
                 adapter: inc.adapter,
-                applicability: Applicability::Applicable(match cell.key_face {
-                    "packed" => "packed spatial count workload on the registered 71942db scene",
-                    _ => {
-                        "tuple-fold spatial count workload on the registered 71942db scene \
-                         (colliding fold)"
-                    }
-                }),
+                applicability: Applicability::Applicable(
+                    "spatial count workload on the registered 71942db scene and key face",
+                ),
                 sel_impl: SELECTED_IMPL,
                 sel_workers,
                 sample_basis,
@@ -1370,121 +1366,9 @@ fn validate_spill_read_registry() -> Result<usize, String> {
     Ok(registered.len())
 }
 
-/// One registered required spatial cell: the `matrix.json` `spatial_cells` registration.
-#[derive(Clone)]
-pub(crate) struct RegisteredSpatialCell {
-    pub(crate) id: String,
-    pub(crate) workload: String,
-    pub(crate) key_face: String,
-    pub(crate) population: String,
-}
-
-/// Load the registered required spatial cells from the embedded matrix.
-///
-/// # Errors
-/// Returns a description of a malformed registration document or a missing required field.
-pub(crate) fn load_registered_spatial_cells() -> Result<Vec<RegisteredSpatialCell>, String> {
-    let root = crate::Reader::new(MATRIX_JSON).parse()?;
-    let obj = root.as_obj()?;
-    let crate::Json::Arr(entries) = crate::field(obj, "spatial_cells")? else {
-        return Err("field spatial_cells: expected array".to_string());
-    };
-    let mut cells = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let fields = entry.as_obj()?;
-        cells.push(RegisteredSpatialCell {
-            id: crate::str_field(fields, "id")?,
-            workload: crate::str_field(fields, "workload")?,
-            key_face: crate::str_field(fields, "key_face")?,
-            population: crate::str_field(fields, "population")?,
-        });
-    }
-    Ok(cells)
-}
-
-/// Enforce the registered required spatial cells against the measured spatial witness and the
-/// per-pair applicability. Every measured spatial cell must be registered, every registered spatial
-/// cell must be measured with the registered workload, key face and population, and each of the
-/// five [`SPATIAL_INCUMBENTS`] must be applicable (load-bearing) on it. A measured cell absent from
-/// the registration, a registered cell absent from the run, or a demoted incumbent rejects by name.
-///
-/// # Errors
-/// Returns a description of the first unregistered measured cell, absent registered cell, field
-/// disagreement, or non-applicable spatial incumbent.
-pub(crate) fn validate_spatial_registration(
-    spatial: &performance::spatial::SpatialWitness,
-    campaign: &Campaign,
-) -> Result<(), String> {
-    let registered = load_registered_spatial_cells()?;
-    if registered.is_empty() {
-        return Err("spatial registration is empty".to_string());
-    }
-    let mut ids: HashSet<&str> = HashSet::with_capacity(registered.len());
-    for reg in &registered {
-        if !ids.insert(reg.id.as_str()) {
-            return Err(format!("duplicate registered spatial cell {}", reg.id));
-        }
-    }
-    for cell in &spatial.cells {
-        if !ids.contains(cell.cell_id.as_str()) {
-            return Err(format!(
-                "required spatial cell {} is absent from the registration",
-                cell.cell_id
-            ));
-        }
-    }
-    for reg in &registered {
-        let Some(cell) = spatial.cells.iter().find(|c| c.cell_id == reg.id) else {
-            return Err(format!(
-                "registered spatial cell {} is absent from the current run",
-                reg.id
-            ));
-        };
-        if cell.workload != reg.workload {
-            return Err(format!(
-                "registered spatial cell {} workload {} != current run {}",
-                reg.id, reg.workload, cell.workload
-            ));
-        }
-        if cell.key_face != reg.key_face {
-            return Err(format!(
-                "registered spatial cell {} key_face {} != current run {}",
-                reg.id, reg.key_face, cell.key_face
-            ));
-        }
-        if cell.population.to_string() != reg.population {
-            return Err(format!(
-                "registered spatial cell {} population {} != current run {}",
-                reg.id, reg.population, cell.population
-            ));
-        }
-        for incumbent in SPATIAL_INCUMBENTS {
-            let Some(pair) = campaign
-                .pairs
-                .iter()
-                .find(|p| p.cell_id == reg.id && p.incumbent_id == incumbent)
-            else {
-                return Err(format!(
-                    "registered spatial cell {} is missing required incumbent {incumbent}",
-                    reg.id
-                ));
-            };
-            if !matches!(pair.applicability, Applicability::Applicable(_)) {
-                return Err(format!(
-                    "registered spatial cell {} incumbent {incumbent} must be applicable, found {}",
-                    reg.id,
-                    pair.applicability.name()
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
 #[allow(
     clippy::too_many_lines,
-    reason = "one function states the acceptance path's phase sequence, registration checks and \
-              verdict"
+    reason = "one function states the acceptance campaign's full phase sequence"
 )]
 pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     // Phase 1: the existing measurement, registration enforcement and diagnostics, unchanged except
@@ -1535,16 +1419,18 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         eprintln!("acceptance spatial validation failed: {e}");
         return 1;
     }
+    let spatial_registry_cells = match performance::spatial::validate_registry(&spatial) {
+        Ok(count) => count,
+        Err(e) => {
+            eprintln!("acceptance spatial registration validation failed: {e}");
+            return 1;
+        }
+    };
     let campaign = build_campaign(&strata, &registered, &spatial);
     performance::phase_mark("accept.campaign", t_total, &mut t_last);
-    if let Err(e) = validate_spatial_registration(&spatial, &campaign) {
-        eprintln!("acceptance spatial registration validation failed: {e}");
-        return 1;
-    }
-    performance::phase_mark("accept.spatial_registration", t_total, &mut t_last);
     println!(
         "acceptance_phase=per-pair profile={} registered_cells={} spatial_cells={} \
-         spill_read_cells={spill_read_cells} json={json}",
+         spatial_registry_cells={spatial_registry_cells} spill_read_cells={spill_read_cells} json={json}",
         profile.name(),
         strata.cells.len(),
         spatial.cells.len()
