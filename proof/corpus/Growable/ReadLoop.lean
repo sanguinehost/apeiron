@@ -620,17 +620,338 @@ theorem generated_spill_read_none_run
       simpa using hne'
     exact Or.inl hlenZero
 
+/-! ## Run-anchored probe certificates
+
+The sweep outcomes above take `StoredProbeReady`, a genuine premise: a run that stops at an early
+hit or zero tag says nothing about the checked sums at later offsets. The certificates below are
+anchored to the run itself: each executed step's admission is read off the body evaluation. An
+`ok (some slot)` run therefore yields its full-key witness, and an `ok none` run its clear-prefix
+witness, without a separate readiness premise. -/
+
+/-- Generic bind inversion on the generated `do` form: a successful bind ran its head to `ok`. -/
+private theorem bind_ret_inv {α β : Type} (x : Result α) (f : α → Result β) (r : β)
+    (hrun : (do let y ← x; f y) = ok r) : ∃ y, x = ok y ∧ f y = ok r := by
+  cases hx : x with
+  | vis eff k =>
+      rw [hx] at hrun
+      simp only [bind_tc_vis] at hrun
+      exact (vis_not_ok hrun).elim
+  | div =>
+      rw [hx] at hrun
+      simp only [bind_tc_div] at hrun
+      exact (div_not_ok hrun).elim
+  | ret y =>
+      rw [hx] at hrun
+      simp only [bind_tc_ok] at hrun
+      exact ⟨y, rfl, hrun⟩
+
+/-- Forward evaluation of one hit-free generated body step under the guard. -/
+private theorem generated_probe_body_none_cases
+    (slots : StoredSpillSlots) (sigma : cell.Sigma) (place : U64)
+    (direct : Option U32) (key : I64) (bound mask home : Usize) (wanted : U8) (step : Usize)
+    (r : ControlFlow (Option Usize × Usize) (Option Usize))
+    (hlt : step < bound)
+    (h : table.probe.spill_read_loop.body Apeiron.GrowableIdentity.storedKeyRep slots sigma
+        place direct key bound mask home wanted none step = ok r) :
+    (∃ (hstep slot : Usize) (entry : StoredSpillSlot),
+      home + step = ok hstep ∧ slot = hstep &&& mask ∧
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice StoredSpillSlot)
+        slots slot = ok entry ∧ entry.tag = 0#u8 ∧ r = ControlFlow.cont (none, bound)) ∨
+    (∃ (hstep slot : Usize) (entry : StoredSpillSlot) (matched : Bool) (next : Usize),
+      home + step = ok hstep ∧ slot = hstep &&& mask ∧
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice StoredSpillSlot)
+        slots slot = ok entry ∧ entry.tag ≠ 0#u8 ∧
+      table.matches Apeiron.GrowableIdentity.storedKeyRep entry sigma key
+        { place := place, direct_word := direct } = ok matched ∧
+      step + 1#usize = ok next ∧
+      r = ControlFlow.cont
+        ((if entry.tag = wanted then (if matched = true then some slot else none) else none),
+          next)) := by
+  unfold table.probe.spill_read_loop.body at h
+  rw [if_pos hlt] at h
+  simp only [core.option.Option.is_none, Option.isNone_none, if_true] at h
+  obtain ⟨hstep, hadd, h⟩ := bind_ret_inv _ _ _ h
+  rw [show lift (hstep &&& mask) = ok (hstep &&& mask) from rfl, bind_tc_ok] at h
+  obtain ⟨entry, hidx, h⟩ := bind_ret_inv _ _ _ h
+  by_cases hzero : entry.tag = 0#u8
+  · rw [if_pos hzero] at h
+    exact Or.inl
+      ⟨hstep, hstep &&& mask, entry, hadd, rfl, hidx, hzero, (Result.ok_injective h).symm⟩
+  · rw [if_neg hzero] at h
+    by_cases hw : entry.tag = wanted
+    · rw [if_pos hw] at h
+      obtain ⟨hit1, hb1, h⟩ := bind_ret_inv _ _ _ h
+      obtain ⟨matched, hmatch, hb2⟩ := bind_ret_inv _ _ _ hb1
+      by_cases hmt : matched = true
+      · rw [if_pos hmt] at hb2
+        have hhit1 : hit1 = some (hstep &&& mask) := (Result.ok_injective hb2).symm
+        subst hhit1
+        obtain ⟨next, hnext, h⟩ := bind_ret_inv _ _ _ h
+        refine Or.inr ⟨hstep, hstep &&& mask, entry, matched, next, hadd, rfl, hidx,
+          hzero, hmatch, hnext, ?_⟩
+        rw [if_pos hw, if_pos hmt]
+        exact (Result.ok_injective h).symm
+      · rw [if_neg hmt] at hb2
+        have hhit1 : hit1 = none := (Result.ok_injective hb2).symm
+        subst hhit1
+        obtain ⟨next, hnext, h⟩ := bind_ret_inv _ _ _ h
+        refine Or.inr ⟨hstep, hstep &&& mask, entry, matched, next, hadd, rfl, hidx,
+          hzero, hmatch, hnext, ?_⟩
+        rw [if_pos hw, if_neg hmt]
+        exact (Result.ok_injective h).symm
+    · rw [if_neg hw] at h
+      obtain ⟨hit1, hb1, h⟩ := bind_ret_inv _ _ _ h
+      have hhit1 : hit1 = none := (Result.ok_injective hb1).symm
+      subst hhit1
+      obtain ⟨next, hnext, h⟩ := bind_ret_inv _ _ _ h
+      obtain ⟨matched, hmatch⟩ :=
+        stored_matcher_slot_total entry sigma key { place := place, direct_word := direct }
+      refine Or.inr ⟨hstep, hstep &&& mask, entry, matched, next, hadd, rfl, hidx,
+        hzero, hmatch, hnext, ?_⟩
+      rw [if_neg hw]
+      exact (Result.ok_injective h).symm
+
+/-- A carried hit makes the loop return that hit at once, whatever the bound and step. -/
+private theorem generated_probe_loop_hit_returns {K H R V : Type}
+    (keyRep : table.keyrep.KeyRep R K H) (slots : alloc.vec.Vec (table.SpillSlot R V))
+    (sigma : cell.Sigma) (place : U64) (direct : Option U32) (key : K)
+    (bound mask home : Usize) (wanted : U8) (index step : Usize) :
+    table.probe.spill_read_loop keyRep slots sigma place direct key (some index) bound mask home
+      wanted step = ok (some index) := by
+  have hspec : table.probe.spill_read_loop keyRep slots sigma place direct key (some index)
+      bound mask home wanted step ⦃ fun result => result = some index ⦄ := by
+    unfold table.probe.spill_read_loop
+    apply loop.spec_decr_nat
+      (measure := fun _ : Option Usize × Usize => 0)
+      (inv := fun st : Option Usize × Usize => st.1 = some index)
+      (post := fun result => result = some index)
+    · intro state hstate
+      rcases state with ⟨hit, step'⟩
+      dsimp only at hstate ⊢
+      subst hstate
+      rw [generated_probe_stops_on_hit keyRep slots sigma place direct key bound mask home wanted
+        index step', WP.spec_ok]
+    · rfl
+  obtain ⟨result, hrun, hpost⟩ := WP.spec_imp_exists hspec
+  rw [hpost] at hrun
+  exact hrun
+
+/-- The loop halts at `none` as soon as the guard fails. -/
+private theorem generated_probe_loop_none_at_end {K H R V : Type}
+    (keyRep : table.keyrep.KeyRep R K H) (slots : alloc.vec.Vec (table.SpillSlot R V))
+    (sigma : cell.Sigma) (place : U64) (direct : Option U32) (key : K)
+    (bound mask home : Usize) (wanted : U8) (step : Usize) (hnot : ¬ step < bound) :
+    table.probe.spill_read_loop keyRep slots sigma place direct key none bound mask home
+      wanted step = ok none := by
+  have hspec : table.probe.spill_read_loop keyRep slots sigma place direct key none bound mask home
+      wanted step ⦃ fun result => result = none ⦄ := by
+    unfold table.probe.spill_read_loop
+    apply loop.spec_decr_nat
+      (measure := fun _ : Option Usize × Usize => 0)
+      (inv := fun st : Option Usize × Usize => st.1 = none ∧ ¬ st.2 < bound)
+      (post := fun result => result = none)
+    · intro state hstate
+      rcases state with ⟨hit, step'⟩
+      dsimp only at hstate ⊢
+      obtain ⟨hhit, hnot'⟩ := hstate
+      subst hhit
+      rw [generated_probe_stops_at_bound keyRep slots sigma place direct key bound mask home
+        wanted none step' hnot', WP.spec_ok]
+    · exact ⟨rfl, hnot⟩
+  obtain ⟨result, hrun, hpost⟩ := WP.spec_imp_exists hspec
+  rw [hpost] at hrun
+  exact hrun
+
+/-- Run-anchored certificate for a hit-free probe run from any start offset carrying no hit.
+Each executed step contributes its own admission and clear/hit witness, so no readiness premise
+for unexecuted offsets is required. -/
+private theorem generated_probe_run_certificate
+    (slots : StoredSpillSlots) (sigma : cell.Sigma) (place : U64)
+    (direct : Option U32) (key : I64) (home mask bound : Usize) (wanted : U8)
+    (result : Option Usize) (start : Usize)
+    (pre : ∀ j, j < start.val → ∃ slot entry,
+      StoredProbeClear slots home mask wanted sigma place direct key j slot entry)
+    (hle : start.val ≤ bound.val)
+    (hrun : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots sigma place
+      direct key none bound mask home wanted start = ok result) :
+    (result = none ∧ ∃ stop : Nat, start.val ≤ stop ∧ stop ≤ bound.val ∧
+      (∀ j, start.val ≤ j → j < stop → ∃ slot entry,
+        StoredProbeClear slots home mask wanted sigma place direct key j slot entry) ∧
+      (stop = bound.val ∨ ∃ slot, StoredProbeZero slots home mask stop slot)) ∨
+    (∃ (j : Nat) (slot : Usize), start.val ≤ j ∧ j < bound.val ∧
+      StoredProbeHit slots home mask wanted sigma place direct key j slot ∧ result = some slot) := by
+  have aux : ∀ n : Nat, ∀ (start : Usize), start.val ≤ bound.val →
+      (pre : ∀ j, j < start.val → ∃ slot entry,
+        StoredProbeClear slots home mask wanted sigma place direct key j slot entry) →
+      bound.val - start.val = n →
+      (hrun : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots sigma place
+        direct key none bound mask home wanted start = ok result) →
+      ((result = none ∧ ∃ stop : Nat, start.val ≤ stop ∧ stop ≤ bound.val ∧
+        (∀ j, start.val ≤ j → j < stop → ∃ slot entry,
+          StoredProbeClear slots home mask wanted sigma place direct key j slot entry) ∧
+        (stop = bound.val ∨ ∃ slot, StoredProbeZero slots home mask stop slot)) ∨
+      (∃ (j : Nat) (slot : Usize), start.val ≤ j ∧ j < bound.val ∧
+        StoredProbeHit slots home mask wanted sigma place direct key j slot ∧
+        result = some slot)) := by
+    intro n
+    refine Nat.strong_induction_on n ?_
+    intro n ih start hle pre hn hrun
+    by_cases hltVal : start.val < bound.val
+    · have hlt : start < bound := (UScalar.lt_equiv start bound).mpr hltVal
+      unfold table.probe.spill_read_loop at hrun
+      unfold loop at hrun
+      dsimp only at hrun
+      obtain ⟨r, hbody, hrun⟩ := bind_ret_inv _ _ _ hrun
+      rcases generated_probe_body_none_cases slots sigma place direct key bound mask home wanted
+          start r hlt hbody with
+        hzeroCase | hcontCase
+      · rcases hzeroCase with ⟨hstep, slot, entry, hadd, hslotEq, hidx, hzero, hr⟩
+        rw [hr] at hrun
+        have hrunEnd : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots
+            sigma place direct key none bound mask home wanted bound = ok result := by
+          simpa only [table.probe.spill_read_loop] using hrun
+        have hboundNone := generated_probe_loop_none_at_end
+          Apeiron.GrowableIdentity.storedKeyRep slots sigma place direct key bound mask home
+          wanted bound (by
+            intro hb
+            exact Nat.lt_irrefl bound.val ((UScalar.lt_equiv bound bound).mp hb))
+        have hresultNone : result = none :=
+          (Result.ok_injective (hboundNone.symm.trans hrunEnd)).symm
+        refine Or.inl ⟨hresultNone, start.val, le_rfl, by omega, ?_,
+          Or.inr ⟨slot, entry, ⟨start, hstep, rfl, hadd, hslotEq, hidx⟩, hzero⟩⟩
+        intro j hj1 hj2
+        omega
+      · rcases hcontCase with ⟨hstep, slot, entry, matched, next, hadd, hslotEq,
+          hidx, hnonzero, hmatch, hnext, hr⟩
+        rw [hr] at hrun
+        have hnextVal : next.val = start.val + 1 := by
+          have hcap : start.val + 1 ≤ Usize.max := by
+            have hb := bound.hBounds
+            simp only [UScalarTy.Usize_numBits_eq] at hb
+            have hmax : Usize.max = 2 ^ System.Platform.numBits - 1 := by
+              simp [Usize.max, Usize.numBits]
+            omega
+          have hspec := Usize.add_spec (x := start) (y := 1#usize) hcap
+          rw [hnext] at hspec
+          rw [WP.spec_ok] at hspec
+          exact hspec
+        have hnextLe : next.val ≤ bound.val := by omega
+        cases hif : (if entry.tag = wanted then
+            (if matched = true then (some slot : Option Usize) else none) else none) with
+        | none =>
+            rw [hif] at hrun
+            have hrunNext : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots
+                sigma place direct key none bound mask home wanted next = ok result := by
+              simpa only [table.probe.spill_read_loop] using hrun
+            have hclearStep : ∃ slot entry,
+                StoredProbeClear slots home mask wanted sigma place direct key start.val slot entry := by
+              refine ⟨slot, entry, ⟨start, hstep, rfl, hadd, hslotEq, hidx⟩, Or.inr ?_⟩
+              intro hw
+              have hif' : (if matched = true then (some slot : Option Usize) else none) =
+                  none := by simpa [hw] using hif
+              cases matched with
+              | false => simpa using hmatch
+              | true => simp at hif'
+            have hpre' : ∀ j, j < next.val → ∃ slot entry,
+                StoredProbeClear slots home mask wanted sigma place direct key j slot entry := by
+              intro j hj
+              by_cases hjl : j < start.val
+              · exact pre j hjl
+              · have hjEq : j = start.val := by omega
+                subst hjEq
+                exact hclearStep
+            have hmeasure : bound.val - next.val < n := by omega
+            have hcert' := ih (bound.val - next.val) hmeasure next hnextLe hpre' rfl hrunNext
+            rcases hcert' with
+              ⟨hnone, stop, hstopStart, hstopLe, hprefix', hstopcase⟩ |
+              ⟨j, slot', hjStart, hjBound, hhit, hres⟩
+            · refine Or.inl ⟨hnone, stop, by omega, hstopLe, ?_, hstopcase⟩
+              intro j hjStart hjStop
+              by_cases hjNext : j < next.val
+              · have hjEq : j = start.val := by omega
+                subst hjEq
+                exact hclearStep
+              · exact hprefix' j (by omega) hjStop
+            · exact Or.inr ⟨j, slot', by omega, hjBound, hhit, hres⟩
+        | some s =>
+            have hw : entry.tag = wanted := by
+              by_contra hw
+              simp [hw] at hif
+            have hmt : matched = true := by
+              by_cases hm : matched = true
+              · exact hm
+              · have hmf : matched = false := by cases matched <;> simp_all
+                simp [hw, hmf] at hif
+            have hsEq : s = slot := by
+              have hsome : (some slot : Option Usize) = some s := by
+                simpa [hw, hmt] using hif
+              exact (Option.some.inj hsome).symm
+            subst s
+            have hrunSome : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots
+                sigma place direct key (some slot) bound mask home wanted next = ok result := by
+              rw [hif] at hrun
+              simpa only [table.probe.spill_read_loop] using hrun
+            have hreturn := generated_probe_loop_hit_returns
+              Apeiron.GrowableIdentity.storedKeyRep slots sigma place direct key bound mask home
+              wanted slot next
+            have hresultSome : result = some slot :=
+              (Result.ok_injective (hreturn.symm.trans hrunSome)).symm
+            exact Or.inr ⟨start.val, slot, le_rfl, hltVal,
+              ⟨entry, ⟨start, hstep, rfl, hadd, hslotEq, hidx⟩, hw,
+                by simpa [hmt] using hmatch⟩, hresultSome⟩
+    · have hnot : ¬ start < bound := by
+        intro hb
+        exact hltVal ((UScalar.lt_equiv start bound).mp hb)
+      have hboundNone := generated_probe_loop_none_at_end
+        Apeiron.GrowableIdentity.storedKeyRep slots sigma place direct key bound mask home wanted
+        start hnot
+      have hresultNone : result = none :=
+        (Result.ok_injective (hboundNone.symm.trans hrun)).symm
+      refine Or.inl ⟨hresultNone, start.val, le_rfl, by omega, ?_, Or.inl ?_⟩
+      · intro j hj1 hj2
+        omega
+      · omega
+  exact aux (bound.val - start.val) start hle pre rfl hrun
+
+/-- Project the hit witness from a generated `ok (some slot)` run, with no readiness premise. -/
+private theorem generated_probe_run_some
+    (slots : StoredSpillSlots) (sigma : cell.Sigma) (place : U64)
+    (direct : Option U32) (key : I64) (home mask bound : Usize) (wanted : U8)
+    (slot : Usize)
+    (hrun : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots sigma place
+      direct key none bound mask home wanted 0#usize = ok (some slot)) :
+    ∃ j : Nat, j < bound.val ∧
+      StoredProbeHit slots home mask wanted sigma place direct key j slot := by
+  have hcert := generated_probe_run_certificate slots sigma place direct key home mask bound wanted
+    (some slot) 0#usize (by intro j hj; simp at hj) (by simp) hrun
+  rcases hcert with ⟨hnone, -⟩ | ⟨j, slot', -, hjbound, hhit, hres⟩
+  · cases hnone
+  · have hslotEq : slot = slot' := Option.some.inj hres
+    subst hslotEq
+    exact ⟨j, hjbound, hhit⟩
+
+/-- Project the clear visited prefix from a generated `ok none` run, with no readiness premise. -/
+private theorem generated_probe_run_none
+    (slots : StoredSpillSlots) (sigma : cell.Sigma) (place : U64)
+    (direct : Option U32) (key : I64) (home mask bound : Usize) (wanted : U8)
+    (hrun : table.probe.spill_read_loop Apeiron.GrowableIdentity.storedKeyRep slots sigma place
+      direct key none bound mask home wanted 0#usize = ok none) :
+    ∃ stop : Nat, stop ≤ bound.val ∧
+      (∀ j, j < stop → ∃ slot entry,
+        StoredProbeClear slots home mask wanted sigma place direct key j slot entry) ∧
+      (stop = bound.val ∨ ∃ slot, StoredProbeZero slots home mask stop slot) := by
+  have hcert := generated_probe_run_certificate slots sigma place direct key home mask bound wanted
+    none 0#usize (by intro j hj; simp at hj) (by simp) hrun
+  rcases hcert with ⟨-, stop, -, hstopLe, hprefix, hstopcase⟩ | ⟨j, slot, -, -, -, hres⟩
+  · exact ⟨stop, hstopLe, (fun j hj => hprefix j (by simp) hj), hstopcase⟩
+  · cases hres
+
 /-- Deliverable 2: a generated `spill_read` hit returns an in-bounds slot entry holding the full
-query `(Sigma, key)` and a nonzero generated tag. -/
+query `(Sigma, key)` and a nonzero generated tag. No probe-readiness premise: the hit witness is
+read off the run itself by `generated_probe_run_some`. -/
 theorem spill_read_some_implies_full_match
     (region : table.Region Apeiron.GrowableIdentity.StoredI64 I64) (sigma : cell.Sigma)
     (address : table.TableAddress) (key : I64) (n : Usize) (slot : Usize)
-    (hprobe : ∀ (bound mask home : Usize) (wanted : U8),
-      table.Region.bound region = ok bound →
-      bound - 1#usize = ok mask →
-      table.Region.home region address.place = ok home →
-      table.tag address.place = ok wanted →
-      StoredProbeReady region.slots sigma address.place address.direct_word key home mask bound)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
       key n = ok (some slot)) :
     slot.val < region.slots.length ∧
@@ -641,8 +962,8 @@ theorem spill_read_some_implies_full_match
   obtain ⟨-, -, bound, mask, home, wanted, hbound, -, hmask, hhome, htag, hrun⟩ :=
     generated_spill_read_some_run region sigma address key n slot hresult
   obtain ⟨j, -, entry, hvisit, htagEq, hmatch⟩ :=
-    generated_probe_sweep_some region.slots sigma address.place address.direct_word key home mask
-      bound wanted (hprobe bound mask home wanted hbound hmask hhome htag) slot hrun
+    generated_probe_run_some region.slots sigma address.place address.direct_word key home mask
+      bound wanted slot hrun
   rcases hvisit with ⟨step, hstep, -, -, -, hindex⟩
   obtain ⟨hinBounds, hlogical⟩ := stored_candidate_full_match region.slots slot entry sigma key
     { place := address.place, direct_word := address.direct_word } hindex hmatch
@@ -650,11 +971,11 @@ theorem spill_read_some_implies_full_match
   rw [htagEq]
   exact Apeiron.GrowableScan.tag_ne_zero address.place wanted htag
 
-/-- Deliverable 1: on an admitted region under the live tag/address invariant and the probe
-chain placement premise, a generated `spill_read` `ok none` result excludes every live full
-`(Sigma, key)` match in the region. The probe chain premise is not derivable from the
-tag/address invariant: a zero tag before a live full-match slot makes the read return `none`
-while a live representative exists. -/
+/-- Deliverable 1: under the live tag/address invariant and the probe chain placement premise, a
+generated `spill_read` `ok none` result excludes every live full `(Sigma, key)` match in the
+region. `hvalid` and `hchain` are required beyond the run equation: `valid_n = ok false` returns
+`none` without scanning, and the tag/address invariant does not place live slots before zero tags.
+The clear-prefix witness is read off the run itself by `generated_probe_run_none`. -/
 theorem spill_read_none_implies_no_full_match
     (state : Apeiron.GrowableRepresentation.WordTable Apeiron.GrowableIdentity.StoredI64)
     (hstate : StoredLiveTagAddress state)
@@ -663,16 +984,10 @@ theorem spill_read_none_implies_no_full_match
     (sigma : cell.Sigma) (key : I64) (address : table.TableAddress)
     (haddress : Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key = ok address)
     (n : Usize)
-    (hvalid : table.valid_n n = ok true)
-    (hprobe : ∀ (bound mask home : Usize) (wanted : U8),
-      table.Region.bound region = ok bound →
-      bound - 1#usize = ok mask →
-      table.Region.home region address.place = ok home →
-      table.tag address.place = ok wanted →
-      StoredProbeReady region.slots sigma address.place address.direct_word key home mask bound)
-    (hchain : StoredProbeChainSafe region address.place sigma key)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok none) :
+      key n = ok none)
+    (hvalid : table.valid_n n = ok true)
+    (hchain : StoredProbeChainSafe region address.place sigma key) :
     ∀ (index : Usize) (entry : StoredSpillSlot),
       region.slots.val[index.val]? = some entry → entry.tag ≠ 0#u8 →
       Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held ≠ (sigma, key) := by
@@ -682,12 +997,10 @@ theorem spill_read_none_implies_no_full_match
       hrun⟩
   · have hbound' : index.val < region.slots.length := (List.getElem?_eq_some_iff.mp hslot).1
     omega
-  · rw [hvalid] at hvalidFalse
-    exact Bool.false_ne_true (Result.ok_injective hvalidFalse).symm
-  · have hready := hprobe bound mask home wanted hbound hmask hhome htag
-    obtain ⟨stop, hstopLe, hprefix, hstopcase⟩ :=
-      generated_probe_sweep_none region.slots sigma address.place address.direct_word key home
-        mask bound wanted hready hrun
+  · exact Bool.noConfusion (Result.ok_injective (hvalid.symm.trans hvalidFalse))
+  · obtain ⟨stop, hstopLe, hprefix, hstopcase⟩ :=
+      generated_probe_run_none region.slots sigma address.place address.direct_word key home mask
+        bound wanted hrun
     have hpair : (entry.sigma, entry.held.key) = (sigma, key) := hfull
     have hsigma : entry.sigma = sigma := congrArg Prod.fst hpair
     have hkey : entry.held.key = key := congrArg Prod.snd hpair
@@ -695,9 +1008,8 @@ theorem spill_read_none_implies_no_full_match
       hstate shard index region entry hregion hslot htagNz
     rw [hsigma, hkey] at haddrEntry
     have haddrEq : addr = address := Result.ok_injective (haddrEntry.symm.trans haddress)
-    have hentryTag : entry.tag = wanted := by
-      rw [haddrEq] at htagEntry
-      exact Result.ok_injective (htagEntry.symm.trans htag)
+    subst addr
+    have hentryTag : entry.tag = wanted := Result.ok_injective (htagEntry.symm.trans htag)
     have hmatchTrue : table.matches Apeiron.GrowableIdentity.storedKeyRep entry sigma key
         { place := address.place, direct_word := address.direct_word } = ok true :=
       (stored_matches_slot_iff entry sigma key address).mpr hfull
@@ -709,18 +1021,16 @@ theorem spill_read_none_implies_no_full_match
       · by_contra hnot
         have hle : stop ≤ j := by omega
         by_cases heq : stop = j
-        · have hvisit' : StoredProbeVisit region.slots home mask stop index entry :=
-            heq.symm ▸ hvisit
-          have hentryEq := (stored_probe_visit_unique region.slots home mask stop index zslot
-            entry zentry hvisit' zvisit).2
+        · subst stop
+          have hentryEq := (stored_probe_visit_unique region.slots home mask j index zslot entry
+            zentry hvisit zvisit).2
           rw [← hentryEq] at ztag0
           exact htagNz ztag0
         · have hjstop' : stop < j := by omega
           obtain ⟨sk, ek, hvisitk, hek⟩ := hpreds stop hjstop'
           have hentryEq := (stored_probe_visit_unique region.slots home mask stop sk zslot ek
             zentry hvisitk zvisit).2
-          rw [hentryEq] at hek
-          exact hek ztag0
+          exact hek (hentryEq.symm ▸ ztag0)
     obtain ⟨slot, cEntry, hclearVisit, hclearCond⟩ := hprefix j hjstop
     have hentryEq := (stored_probe_visit_unique region.slots home mask j slot index cEntry entry
       hclearVisit hvisit).2
