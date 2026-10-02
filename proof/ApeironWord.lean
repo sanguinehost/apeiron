@@ -2787,6 +2787,14 @@ def coord.finish (h : Std.U64) : Result Std.U64 := do
   let i2 ← h4 >>> 31#i32
   ok (h4 ^^^ i2)
 
+/-- [apeiron_word::crypto::SHA3_256_RATE]
+    Source: '../../src/crypto.rs', lines 17:0-17:33 -/
+@[global_simps, irreducible] def crypto.SHA3_256_RATE : Std.Usize := 136#usize
+
+/-- [apeiron_word::crypto::SHA3_512_RATE]
+    Source: '../../src/crypto.rs', lines 19:0-19:32 -/
+@[global_simps, irreducible] def crypto.SHA3_512_RATE : Std.Usize := 72#usize
+
 /-- [apeiron_word::crypto::RC]
     Source: '../../src/crypto.rs', lines 26:0-51:2 -/
 @[global_simps, irreducible]
@@ -3118,6 +3126,307 @@ def crypto.keccak_f1600_loop0
 def crypto.keccak_f1600
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600_loop0 state 0#usize
+
+/-- [apeiron_word::crypto::absorb_block]: loop body 0:
+    Source: '../../src/crypto.rs', lines 130:4-143:5 -/
+@[rust_loop_body]
+def crypto.absorb_block_loop.body
+  (block : Slice Std.U8) (lanes : Std.Usize) (state : Array Std.U64 25#usize)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) (Array Std.U64
+    25#usize))
+  := do
+  if i < lanes
+  then
+    let o ← i * 8#usize
+    let i1 ← Slice.index_usize block o
+    let i2 ← o + 1#usize
+    let i3 ← Slice.index_usize block i2
+    let i4 ← o + 2#usize
+    let i5 ← Slice.index_usize block i4
+    let i6 ← o + 3#usize
+    let i7 ← Slice.index_usize block i6
+    let i8 ← o + 4#usize
+    let i9 ← Slice.index_usize block i8
+    let i10 ← o + 5#usize
+    let i11 ← Slice.index_usize block i10
+    let i12 ← o + 6#usize
+    let i13 ← Slice.index_usize block i12
+    let i14 ← o + 7#usize
+    let i15 ← Slice.index_usize block i14
+    let i16 ←
+      lift (core.num.U64.from_le_bytes
+        (Array.make 8#usize [ i1, i3, i5, i7, i9, i11, i13, i15 ]))
+    let i17 ← Array.index_usize state i
+    let i18 ← lift (i17 ^^^ i16)
+    let a ← Array.update state i i18
+    let i19 ← i + 1#usize
+    ok (cont (a, i19))
+  else ok (done state)
+
+/-- [apeiron_word::crypto::absorb_block]: loop 0:
+    Source: '../../src/crypto.rs', lines 130:4-143:5 -/
+@[rust_loop]
+def crypto.absorb_block_loop
+  (state : Array Std.U64 25#usize) (block : Slice Std.U8) (lanes : Std.Usize)
+  (i : Std.Usize) :
+  Result (Array Std.U64 25#usize)
+  := do
+  loop
+    (fun (state1, i1) => crypto.absorb_block_loop.body block lanes state1 i1)
+    (state, i)
+
+/-- [apeiron_word::crypto::absorb_block]:
+    Source: '../../src/crypto.rs', lines 126:0-144:1 -/
+def crypto.absorb_block
+  (state : Array Std.U64 25#usize) (block : Slice Std.U8) :
+  Result (Array Std.U64 25#usize)
+  := do
+  let i := Slice.len block
+  let left_val ← i % 8#usize
+  massert (left_val = 0#usize)
+  let i1 := Slice.len block
+  let lanes ← i1 / 8#usize
+  crypto.absorb_block_loop state block lanes 0#usize
+
+/-- [apeiron_word::crypto::sponge]: loop body 0:
+    Source: '../../src/crypto.rs', lines 162:4-166:5 -/
+@[rust_loop_body]
+def crypto.sponge_loop0.body
+  (msg : Slice Std.U8) (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (consumed : Std.Usize) :
+  Result (ControlFlow ((Array Std.U64 25#usize) × Std.Usize) ((Array Std.U64
+    25#usize) × Std.Usize))
+  := do
+  let i ← consumed + rate
+  let i1 := Slice.len msg
+  if i <= i1
+  then
+    let s ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.U8) msg { start := consumed, «end» := i }
+    let state1 ← crypto.absorb_block state s
+    let state2 ← crypto.keccak_f1600 state1
+    ok (cont (state2, i))
+  else ok (done (state, consumed))
+
+/-- [apeiron_word::crypto::sponge]: loop 0:
+    Source: '../../src/crypto.rs', lines 162:4-166:5 -/
+@[rust_loop]
+def crypto.sponge_loop0
+  (msg : Slice Std.U8) (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (consumed : Std.Usize) :
+  Result ((Array Std.U64 25#usize) × Std.Usize)
+  := do
+  loop
+    (fun (state1, consumed1) => crypto.sponge_loop0.body msg rate state1
+      consumed1)
+    (state, consumed)
+
+/-- [apeiron_word::crypto::sponge]: loop body 1:
+    Source: '../../src/crypto.rs', lines 180:4-184:5 -/
+@[rust_loop_body]
+def crypto.sponge_loop1.body
+  (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U8 200#usize) × Std.Usize) (Array Std.U8
+    200#usize))
+  := do
+  let i1 ← rate / 8#usize
+  if i < i1
+  then
+    let o ← i * 8#usize
+    let i2 ← o + 8#usize
+    let (s, index_mut_back) ←
+      core.array.Array.index_mut (core.ops.index.IndexMutSlice
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) squeezed
+        { start := o, «end» := i2 }
+    let i3 ← Array.index_usize state i
+    let a ← lift (core.num.U64.to_le_bytes i3)
+    let s1 ← lift (Array.to_slice a)
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let i4 ← i + 1#usize
+    let squeezed1 := index_mut_back s2
+    ok (cont (squeezed1, i4))
+  else ok (done squeezed)
+
+/-- [apeiron_word::crypto::sponge]: loop 1:
+    Source: '../../src/crypto.rs', lines 180:4-184:5 -/
+@[rust_loop]
+def crypto.sponge_loop1
+  (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (i : Std.Usize) :
+  Result (Array Std.U8 200#usize)
+  := do
+  loop
+    (fun (squeezed1, i1) => crypto.sponge_loop1.body rate state squeezed1 i1)
+    (squeezed, i)
+
+/-- [apeiron_word::crypto::sponge]: loop body 3:
+    Source: '../../src/crypto.rs', lines 191:12-195:13 -/
+@[rust_loop_body]
+def crypto.sponge_loop2_loop0.body
+  (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U8 200#usize) × Std.Usize) (Array Std.U8
+    200#usize))
+  := do
+  let i1 ← rate / 8#usize
+  if i < i1
+  then
+    let o ← i * 8#usize
+    let i2 ← o + 8#usize
+    let (s, index_mut_back) ←
+      core.array.Array.index_mut (core.ops.index.IndexMutSlice
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) squeezed
+        { start := o, «end» := i2 }
+    let i3 ← Array.index_usize state i
+    let a ← lift (core.num.U64.to_le_bytes i3)
+    let s1 ← lift (Array.to_slice a)
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let i4 ← i + 1#usize
+    let squeezed1 := index_mut_back s2
+    ok (cont (squeezed1, i4))
+  else ok (done squeezed)
+
+/-- [apeiron_word::crypto::sponge]: loop 3:
+    Source: '../../src/crypto.rs', lines 191:12-195:13 -/
+@[rust_loop]
+def crypto.sponge_loop2_loop0
+  (rate : Std.Usize) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (i : Std.Usize) :
+  Result (Array Std.U8 200#usize)
+  := do
+  loop
+    (fun (squeezed1, i1) => crypto.sponge_loop2_loop0.body rate state squeezed1
+      i1)
+    (squeezed, i)
+
+/-- [apeiron_word::crypto::sponge]: loop body 2:
+    Source: '../../src/crypto.rs', lines 187:4-202:5 -/
+@[rust_loop_body]
+def crypto.sponge_loop2.body
+  (rate : Std.Usize) (out : Slice Std.U8) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (off : Std.Usize) (filled : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × (Array Std.U64 25#usize) × (Array
+    Std.U8 200#usize) × Std.Usize × Std.Usize) (Slice Std.U8))
+  := do
+  let i := Slice.len out
+  if off < i
+  then
+    if filled = rate
+    then
+      let state1 ← crypto.keccak_f1600 state
+      let squeezed1 ← crypto.sponge_loop2_loop0 rate state1 squeezed 0#usize
+      let i1 ← rate - 0#usize
+      let i2 := Slice.len out
+      let i3 ← i2 - off
+      let n ← core.cmp.min core.cmp.OrdUsize i1 i3
+      let i4 ← off + n
+      let (s, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) out
+          { start := off, «end» := i4 }
+      let i5 ← 0#usize + n
+      let s1 ←
+        core.array.Array.index (core.ops.index.IndexSlice
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) squeezed1
+          { start := 0#usize, «end» := i5 }
+      let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+      let out1 := index_mut_back s2
+      ok (cont (out1, state1, squeezed1, i4, i5))
+    else
+      let i1 ← rate - filled
+      let i2 := Slice.len out
+      let i3 ← i2 - off
+      let n ← core.cmp.min core.cmp.OrdUsize i1 i3
+      let i4 ← off + n
+      let (s, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) out
+          { start := off, «end» := i4 }
+      let i5 ← filled + n
+      let s1 ←
+        core.array.Array.index (core.ops.index.IndexSlice
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) squeezed
+          { start := filled, «end» := i5 }
+      let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+      let out1 := index_mut_back s2
+      ok (cont (out1, state, squeezed, i4, i5))
+  else ok (done out)
+
+/-- [apeiron_word::crypto::sponge]: loop 2:
+    Source: '../../src/crypto.rs', lines 187:4-202:5 -/
+@[rust_loop]
+def crypto.sponge_loop2
+  (rate : Std.Usize) (out : Slice Std.U8) (state : Array Std.U64 25#usize)
+  (squeezed : Array Std.U8 200#usize) (off : Std.Usize) (filled : Std.Usize) :
+  Result (Slice Std.U8)
+  := do
+  loop
+    (fun (out1, state1, squeezed1, off1, filled1) => crypto.sponge_loop2.body
+      rate out1 state1 squeezed1 off1 filled1)
+    (out, state, squeezed, off, filled)
+
+/-- [apeiron_word::crypto::sponge]:
+    Source: '../../src/crypto.rs', lines 156:0-203:1 -/
+def crypto.sponge
+  (msg : Slice Std.U8) (rate : Std.Usize) (pad10 : Std.U8) (pad_final : Std.U8)
+  (out : Slice Std.U8) :
+  Result (Slice Std.U8)
+  := do
+  let i ← rate % 8#usize
+  massert (i = 0#usize)
+  massert (rate <= 200#usize)
+  let state := Array.repeat 25#usize 0#u64
+  let (state1, consumed) ← crypto.sponge_loop0 msg rate state 0#usize
+  let rem ←
+    core.slice.index.Slice.index
+      (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) msg
+      { start := consumed }
+  let last := Array.repeat 200#usize 0#u8
+  let i1 := Slice.len rem
+  let (s, index_mut_back) ←
+    core.array.Array.index_mut (core.ops.index.IndexMutSlice
+      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8)) last
+      { «end» := i1 }
+  let s1 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s rem
+  let i2 := Slice.len rem
+  let last1 := index_mut_back s1
+  let i3 ← Array.index_usize last1 i2
+  let i4 ← lift (i3 ^^^ pad10)
+  let last2 ← Array.update last1 i2 i4
+  let i5 ← rate - 1#usize
+  let i6 ← Array.index_usize last2 i5
+  let i7 ← lift (i6 ^^^ pad_final)
+  let last3 ← Array.update last2 i5 i7
+  let s2 ←
+    core.array.Array.index (core.ops.index.IndexSlice
+      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8)) last3
+      { «end» := rate }
+  let state2 ← crypto.absorb_block state1 s2
+  let state3 ← crypto.keccak_f1600 state2
+  let squeezed := Array.repeat 200#usize 0#u8
+  let squeezed1 ← crypto.sponge_loop1 rate state3 squeezed 0#usize
+  crypto.sponge_loop2 rate out state3 squeezed1 0#usize 0#usize
+
+/-- [apeiron_word::crypto::sha3_256]:
+    Source: '../../src/crypto.rs', lines 209:0-213:1
+    Visibility: public -/
+def crypto.sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
+  let out := Array.repeat 32#usize 0#u8
+  let (s, to_slice_mut_back) ← lift (Array.to_slice_mut out)
+  let s1 ← crypto.sponge msg crypto.SHA3_256_RATE 6#u8 128#u8 s
+  ok (to_slice_mut_back s1)
+
+/-- [apeiron_word::crypto::sha3_512]:
+    Source: '../../src/crypto.rs', lines 219:0-223:1
+    Visibility: public -/
+def crypto.sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
+  let out := Array.repeat 64#usize 0#u8
+  let (s, to_slice_mut_back) ← lift (Array.to_slice_mut out)
+  let s1 ← crypto.sponge msg crypto.SHA3_512_RATE 6#u8 128#u8 s
+  ok (to_slice_mut_back s1)
 
 /-- [apeiron_word::attn::AttnError]
     Source: '../../src/engine/attn.rs', lines 36:0-83:1
@@ -24184,5 +24493,17 @@ def word_policy_decide
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
+
+/-- [apeiron_word::word_sha3_256]:
+    Source: 'lib.rs', lines 1084:0-1086:1
+    Visibility: public -/
+def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
+  crypto.sha3_256 msg
+
+/-- [apeiron_word::word_sha3_512]:
+    Source: 'lib.rs', lines 1089:0-1091:1
+    Visibility: public -/
+def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
+  crypto.sha3_512 msg
 
 end apeiron_word

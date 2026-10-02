@@ -1078,18 +1078,14 @@ pub fn word_keccakf(state: &mut [u64; 25]) {
     crypto::keccak_f1600(state)
 }
 
-/// `crypto::sha3_256`, wrapper over the concrete `&[u8]` message and `[u8; 32]` digest.
-///
-/// Not an extraction root while `crypto::sha3_256` is opaque: an opaque body enters the artifact as
-/// an unlisted `axiom`, which the extraction audit rejects. Re-root when the sponge bodies in
-/// `src/crypto.rs` are rewritten for extraction.
+/// `crypto::sha3_256`, rooted at the concrete `&[u8]` message and `[u8; 32]` digest. The sponge
+/// bodies are translatable after the `absorb_block`/`sponge` `while` rewrites; the extraction audit
+/// verifies the remaining cone.
 pub fn word_sha3_256(msg: &[u8]) -> [u8; 32] {
     crypto::sha3_256(msg)
 }
 
-/// `crypto::sha3_512`, wrapper over the concrete `&[u8]` message and `[u8; 64]` digest.
-///
-/// Not an extraction root for the reason given on `word_sha3_256`.
+/// `crypto::sha3_512`, rooted at the concrete `&[u8]` message and `[u8; 64]` digest.
 pub fn word_sha3_512(msg: &[u8]) -> [u8; 64] {
     crypto::sha3_512(msg)
 }

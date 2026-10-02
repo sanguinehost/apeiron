@@ -162,9 +162,6 @@ run_extract() {
         --opaque 'crate::mixer::f32_carrier' \
         --opaque 'crate::attn::_::attn_head_f32' \
         --opaque 'crate::attn::alloc_f32_storage' \
-        --opaque 'crate::crypto::sponge' \
-        --opaque 'crate::crypto::sha3_256' \
-        --opaque 'crate::crypto::sha3_512' \
         --opaque 'crate::crypto::shake128' \
         --opaque 'crate::crypto::shake256' \
         --dest-file "$llbc" \
@@ -237,6 +234,8 @@ run_extract() {
         --start-from crate::word_check_fragment \
         --start-from crate::word_policy_decide \
         --start-from crate::word_keccakf \
+        --start-from crate::word_sha3_256 \
+        --start-from crate::word_sha3_512 \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \
