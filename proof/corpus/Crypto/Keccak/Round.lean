@@ -18,8 +18,9 @@ private abbrev Lane := BitVec 64
 /-- The Keccak-f[1600] state, 25 lanes indexed `x + 5 * y`. -/
 private abbrev State := Vector Lane 25
 
-/-- Lane at index `k` (reduced mod 25), for FIPS index arithmetic in `Nat`. -/
-private def lane (s : State) (k : Nat) : Lane :=
+/-- Lane at index `k` (reduced mod 25), for FIPS index arithmetic in `Nat`. Public so downstream
+componentwise proofs can unfold `pi`/`chi`/`rho` without re-deriving the index map. -/
+def lane (s : State) (k : Nat) : Lane :=
   s.get ⟨k % 25, Nat.mod_lt k (by decide)⟩
 
 /-- The θ column parity `C[x] = A[x,0] ⊕ A[x,1] ⊕ A[x,2] ⊕ A[x,3] ⊕ A[x,4]`. -/
