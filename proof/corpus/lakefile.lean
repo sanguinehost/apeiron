@@ -131,3 +131,8 @@ lean_lib Spirv where
 -- here until the corpus migration, its laws, and (W2) the analysis layer over Apeiron.Decider.
 lean_lib Policy where
   globs := #[.submodules `Policy]
+
+-- FIPS-202 Keccak-f[1600] constants and the refinement chain over them. Module discovery under
+-- Crypto/.
+lean_lib Crypto where
+  globs := #[.submodules `Crypto]
