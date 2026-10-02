@@ -24,7 +24,9 @@
 //! **A recorded run.** [`run_captured`] returns a [`RunRecord`]: the child's exit status, whether it
 //! was killed at the budget, its elapsed time, and the sha256 of what it printed on each stream.
 //! That record is what a receipt names, so a run's result and its output identity are one value
-//! rather than a claim about a terminal scrollback.
+//! rather than a claim about a terminal scrollback. [`run_captured_with_tail`] is the same run and
+//! also returns a bounded excerpt of what the child printed, which is what a refusal quotes: the
+//! record binds the whole output, the tail is what a reader can read.
 //!
 //! **Complexity.** [`sha256_path`] on a file is O(bytes) time and O(1) space beyond the 64-byte
 //! padding block: one pass, no buffering of the payload. On a directory it is O(files + bytes) time
@@ -33,7 +35,9 @@
 //! [`run_captured`] is O(`COPY_CHUNK`) space whatever the child prints, and its wall time is
 //! bounded by `budget_s + POLL_MS + output bytes`: the child is polled every [`POLL_MS`] and killed
 //! on expiry, then its two output files are relayed once. [`relay`] is O(bytes) time and
-//! O(`COPY_CHUNK`) space.
+//! O(`COPY_CHUNK`) space. [`run_captured_with_tail`] adds O(`tail_limit`) space and O(bytes kept)
+//! work over the same two passes; [`Tail::push`] drains from the front only when a chunk overflows
+//! the limit, so a child that stays under it costs one `extend_from_slice` per chunk.
 
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -529,11 +533,12 @@ fn strip_prefix<'a>(path: &'a Path, base: &Path) -> &'a Path {
 
 // -- process, clock, lock --------------------------------------------------------------
 
-// `RunRecord`, `RunRefusal` and `run_captured` are the budgeted-execution primitive. Nothing in
-// this wave runs a gate — `docs/plan.md` E1 W4 owns the aggregate that does — so in a build without
-// the test configuration they are unused, and the `allow` says exactly that rather than leaving a
-// warning or an invented caller. The controls below are the reason they exist and the reason they
-// work.
+// `RunRecord`, `RunRefusal` and `run_captured` are the budgeted-execution primitive. `gate run`
+// (`main.rs`) executes a row's `gate` column through `run_captured_with_tail`, which is this same
+// body plus the refusal tail; `docs/plan.md` E1 W4 owns the aggregate `gate docs check --controls`
+// over those runs. In a build without the test configuration the tail-free entry point is unused, so
+// the `allow` says exactly that rather than leaving a warning or an invented caller. The controls
+// below are the reason they exist and the reason they work.
 
 /// Why a run is refused, as the adapter sees it. Not a core `Refusal`: admission is
 /// `core.rs`'s decision, and these are the observations a pure decision cannot make for itself.
@@ -658,6 +663,65 @@ fn relay(path: &Path, out: &mut dyn Write) -> io::Result<String> {
     Ok(hasher.finish())
 }
 
+/// The last `limit` bytes written to it, and nothing else. A child may print without bound and this
+/// tool's memory may not, so a refusal's excerpt is bounded by the same constant as the relay's
+/// buffer rather than by the child's output.
+#[derive(Debug, Default)]
+struct Tail {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl Tail {
+    fn new(limit: usize) -> Tail {
+        Tail {
+            bytes: Vec::new(),
+            limit,
+        }
+    }
+
+    /// Push `chunk`, dropping from the front until at most `limit` bytes remain. Amortised O(bytes
+    /// kept) per call: a chunk that fits appends, and only a full chunk costs the drain.
+    fn push(&mut self, chunk: &[u8]) {
+        self.bytes.extend_from_slice(chunk);
+        if self.bytes.len() > self.limit {
+            let drop = self.bytes.len() - self.limit;
+            self.bytes.drain(..drop);
+        }
+    }
+}
+
+impl Write for Tail {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.push(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Forwards every byte to the caller's stream and keeps the last `limit` of them. The relayed bytes
+/// are the same bytes that were digested, so the tail and `RunRecord::stdout_sha256` name one
+/// output rather than two.
+struct Tee<'a> {
+    out: &'a mut dyn Write,
+    tail: &'a mut Tail,
+}
+
+impl Write for Tee<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.out.write_all(buf)?;
+        self.tail.push(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
+}
+
 /// Run `command` through `/bin/sh -c` in `cwd`, killing it once `budget_s` has elapsed, and record
 /// its exit status together with the sha256 of what it printed on each stream.
 ///
@@ -673,8 +737,28 @@ fn relay(path: &Path, out: &mut dyn Write) -> io::Result<String> {
 /// The digests bind what the direct child wrote before it was reaped. An orphaned grandchild that
 /// inherited the descriptors can still append afterwards; nothing here can see that, and it is
 /// recorded here rather than claimed closed.
+///
+/// The tail-free entry point, for a caller that needs only the record.
 #[allow(dead_code)]
 pub fn run_captured(command: &str, cwd: &Path, budget_s: u64) -> Result<RunRecord, RunRefusal> {
+    run_captured_with_tail(command, cwd, budget_s, 0).map(|(record, _)| record)
+}
+
+/// [`run_captured`], plus the last `tail_limit` bytes the child wrote, as one string: stdout's tail
+/// then stderr's, in the order they were relayed.
+///
+/// The tail is what a refusal quotes, and it is bounded by `tail_limit` rather than by the child's
+/// output: a caller that printed a child's whole gigabyte would report the failure with the failure.
+/// A `tail_limit` of 0 collects nothing.
+///
+/// Time and space are `run_captured`'s plus O(`tail_limit`); the tail is drained from the front on
+/// each full chunk, so the work is bounded by the bytes kept, not by the bytes printed.
+pub fn run_captured_with_tail(
+    command: &str,
+    cwd: &Path,
+    budget_s: u64,
+    tail_limit: usize,
+) -> Result<(RunRecord, String), RunRefusal> {
     let unrunnable = |message: String| RunRefusal::Unrunnable {
         command: command.to_string(),
         message,
@@ -717,21 +801,37 @@ pub fn run_captured(command: &str, cwd: &Path, budget_s: u64) -> Result<RunRecor
     };
     let elapsed_ms = start.elapsed().as_millis();
 
-    let stdout_sha256 =
-        relay(&stdout_path, &mut std::io::stdout()).map_err(|e| unrunnable(e.to_string()))?;
-    let stderr_sha256 =
-        relay(&stderr_path, &mut std::io::stderr()).map_err(|e| unrunnable(e.to_string()))?;
+    let mut stdout_tail = Tail::new(tail_limit);
+    let mut stderr_tail = Tail::new(tail_limit);
+    let (stdout_sha256, stderr_sha256) = {
+        let mut out = Tee {
+            out: &mut std::io::stdout(),
+            tail: &mut stdout_tail,
+        };
+        let stdout_sha256 = relay(&stdout_path, &mut out).map_err(|e| unrunnable(e.to_string()))?;
+        let mut err = Tee {
+            out: &mut std::io::stderr(),
+            tail: &mut stderr_tail,
+        };
+        let stderr_sha256 = relay(&stderr_path, &mut err).map_err(|e| unrunnable(e.to_string()))?;
+        (stdout_sha256, stderr_sha256)
+    };
+    let mut tail = String::from_utf8_lossy(&stdout_tail.bytes).into_owned();
+    tail.push_str(&String::from_utf8_lossy(&stderr_tail.bytes));
 
-    Ok(RunRecord {
-        command: command.to_string(),
-        cwd: cwd.to_string_lossy().into_owned(),
-        budget_s,
-        code,
-        timed_out,
-        elapsed_ms,
-        stdout_sha256,
-        stderr_sha256,
-    })
+    Ok((
+        RunRecord {
+            command: command.to_string(),
+            cwd: cwd.to_string_lossy().into_owned(),
+            budget_s,
+            code,
+            timed_out,
+            elapsed_ms,
+            stdout_sha256,
+            stderr_sha256,
+        },
+        tail,
+    ))
 }
 
 /// An exclusive lock file, released when it is dropped.
@@ -796,15 +896,22 @@ pub fn load_manifest(path: &Path) -> Result<Vec<Row>, String> {
 }
 
 #[cfg(test)]
-mod controls {
+pub(crate) mod controls {
     use super::*;
     use std::sync::Mutex;
 
-    /// Serialises the controls that count scratch directories, so a run another control has in
-    /// flight cannot be counted as a leak. The four they guard are the only `run_captured` and
-    /// `run_dir` callers, and each is an IO-bound subprocess test, so serialising them costs the
-    /// suite about the wall time of one `sleep`.
-    static SCRATCH: Mutex<()> = Mutex::new(());
+    /// Serialises every control that counts scratch directories — here and in `main.rs` — so a run
+    /// another control has in flight cannot be counted as a leak. The census in [`scratch_dirs`] is
+    /// process-wide and its prefix carries the process id, so a `run` control in `main.rs` would
+    /// otherwise show up in this module's before/after snapshot and fail the leak check it exists
+    /// to make. Each is an IO-bound subprocess test, so serialising them costs the suite about the
+    /// wall time of one `sleep`.
+    pub(crate) static SCRATCH: Mutex<()> = Mutex::new(());
+
+    /// Hold the scratch census for the duration of a control that creates scratch directories.
+    pub(crate) fn serialise_scratch() -> std::sync::MutexGuard<'static, ()> {
+        SCRATCH.lock().unwrap_or_else(|error| error.into_inner())
+    }
 
     /// The scratch directories this process has created and not yet removed.
     fn scratch_dirs() -> Vec<PathBuf> {
