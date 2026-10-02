@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/LmHead_gate.py"
+kind     = "gate"
+path     = "proof/resource/LmHead_gate.py"
+sha256   = "0b9cc8f5d9c69b3197ae55e6f79315280dce8d7135efcf9317ac0fbc39179c5f"
+gate     = "python3 proof/resource/LmHead_gate.py --check"
+control  = "python3 proof/resource/LmHead_gate.py --controls"
+budget_s = 540

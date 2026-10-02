@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Matvec_gate.py"
+kind     = "gate"
+path     = "proof/resource/Matvec_gate.py"
+sha256   = "4b761ea3c69f34ea2503cfd7c7a45caa2f98ea772f8ee081d2ca4fe7f5de04ab"
+gate     = "python3 proof/resource/Matvec_gate.py --check"
+control  = "python3 proof/resource/Matvec_gate.py --controls"
+budget_s = 540

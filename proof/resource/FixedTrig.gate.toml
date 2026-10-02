@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/FixedTrig_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedTrig_gate.py"
+sha256   = "3d2bb299b778a9bb083d1d8a2186e06425fc1ffceb025977fa4f97b155f29320"
+gate     = "python3 proof/resource/FixedTrig_gate.py --check"
+control  = "python3 proof/resource/FixedTrig_gate.py --controls"
+budget_s = 540

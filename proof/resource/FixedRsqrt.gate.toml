@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/FixedRsqrt_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedRsqrt_gate.py"
+sha256   = "196aa10a924fc38569f4b8b801e644c941a2e012889592b3471807c71be860d9"
+gate     = "python3 proof/resource/FixedRsqrt_gate.py --check"
+control  = "python3 proof/resource/FixedRsqrt_gate.py --controls"
+budget_s = 540

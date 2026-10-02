@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/FixedExp_gate.py"
+kind     = "gate"
+path     = "proof/resource/FixedExp_gate.py"
+sha256   = "7740a947986f56c2f8a5b552bb1c70b5021cc76df9ecfb31d5da6c23443688ee"
+gate     = "python3 proof/resource/FixedExp_gate.py --check"
+control  = "python3 proof/resource/FixedExp_gate.py --controls"
+budget_s = 540
