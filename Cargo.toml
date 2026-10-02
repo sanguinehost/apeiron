@@ -71,7 +71,7 @@ libc = "0.2"
 # `hex` and `base64` masquerade modules, so those two are the minimum set that compiles; the
 # default `rustls-provider`/`webauthn`/`syncfold` features stay off.
 [dev-dependencies.hashtrinity]
-git = "file:///home/socol/Workspace/fold"
+git = "file:///home/lucas/Workspace/fold"
 rev = "4cc14471ae24f3f204fb0b0e91736ef75c909358"
 default-features = false
 features = ["hex", "base64"]

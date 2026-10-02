@@ -421,7 +421,7 @@ dependencies = [
 [[package]]
 name = "hashtrinity"
 version = "0.1.0"
-source = "git+file:///home/socol/Workspace/fold?rev=4cc14471ae24f3f204fb0b0e91736ef75c909358#4cc14471ae24f3f204fb0b0e91736ef75c909358"
+source = "git+file:///home/lucas/Workspace/fold?rev=4cc14471ae24f3f204fb0b0e91736ef75c909358#4cc14471ae24f3f204fb0b0e91736ef75c909358"
 dependencies = [
  "serde",
  "serde_json",

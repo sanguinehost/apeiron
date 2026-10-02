@@ -1,6 +1,6 @@
 diff -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
---- a/Aeneas/Std/Core/Cmp.lean	2026-09-26 15:53:50.784439693 +1000
-+++ b/Aeneas/Std/Core/Cmp.lean	2026-09-26 15:53:50.810313017 +1000
+--- a/Aeneas/Std/Core/Cmp.lean	2026-10-02 15:35:35.490149147 +1000
++++ b/Aeneas/Std/Core/Cmp.lean	2026-10-02 15:35:35.515972007 +1000
 @@ -152,10 +152,12 @@
      core.cmp.Ord.clamp_body partialOrdInst.le partialOrdInst.lt partialOrdInst.gt
  
@@ -18,8 +18,8 @@ diff -ruN a/Aeneas/Std/Core/Cmp.lean b/Aeneas/Std/Core/Cmp.lean
  def core.cmp.Ord.min.default {Self : Type} (lt : Self → Self → Result Bool)
    (x y : Self) : Result Self :=
 diff -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
---- a/Aeneas/Std/Core/CoreOption.lean	2026-09-26 15:53:50.784439693 +1000
-+++ b/Aeneas/Std/Core/CoreOption.lean	2026-09-26 15:53:56.839729911 +1000
+--- a/Aeneas/Std/Core/CoreOption.lean	2026-10-02 15:35:35.490610116 +1000
++++ b/Aeneas/Std/Core/CoreOption.lean	2026-10-02 15:35:35.514611611 +1000
 @@ -1,5 +1,7 @@
  import Aeneas.Std.Core.Core
  import Aeneas.Std.Core.Result
@@ -62,8 +62,8 @@ diff -ruN a/Aeneas/Std/Core/CoreOption.lean b/Aeneas/Std/Core/CoreOption.lean
 +
  end Aeneas.Std
 diff -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
---- a/Aeneas/Std/Core/CoreResult.lean	2026-09-26 15:53:50.784439693 +1000
-+++ b/Aeneas/Std/Core/CoreResult.lean	2026-09-26 15:57:24.454242320 +1000
+--- a/Aeneas/Std/Core/CoreResult.lean	2026-10-02 15:35:35.491030906 +1000
++++ b/Aeneas/Std/Core/CoreResult.lean	2026-10-02 15:35:35.515778022 +1000
 @@ -32,4 +32,18 @@
      let mapped ← fnOnce.call_once f error
      ok (core.result.Result.Err mapped : core.result.Result T F)) := rfl
@@ -84,9 +84,25 @@ diff -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
 +
  end Aeneas.Std
 diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
---- a/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:53:50.784693136 +1000
-+++ b/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:54:09.258998932 +1000
-@@ -100,6 +100,18 @@
+--- a/Aeneas/Std/Scalar/Casts.lean	2026-10-02 15:35:35.492768970 +1000
++++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-02 15:35:35.513632185 +1000
+@@ -6,6 +6,15 @@
+ 
+ open Result Error Arith
+ 
++/-- SPIKE model: the Rust `f32` value type. Opaque: the generated proof file axiomatizes the
++    operations (`core.f32.F32.is_finite`, `mixer.f32_carrier.q32_to_f32`, …), so only the type needs
++    to resolve here. -/
++@[rust_type "core::f32::{f32}"]
++structure core.f32.F32 where
++
++/-- Bare `F32`, as used by the generated `core.f32.F32.is_finite` axiom under `open Aeneas.Std`. -/
++abbrev F32 := core.f32.F32
++
+ 
+ /-!
+ # Casts: Definitions
+@@ -100,6 +109,22 @@
  def IScalar.cast_fromBool (ty : IScalarTy) (x : Bool) : IScalar ty :=
    if x then ⟨ 1#ty.numBits ⟩ else ⟨ 0#ty.numBits ⟩
  
@@ -102,12 +118,16 @@ diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 +@[rust_fun "core::convert::num::{core::convert::From<i32, u8>}::from"]
 +def I32.Insts.CoreConvertFromU8.from (x : U8) : Result I32 := ok (UScalar.hcast .I32 x)
 +
++/-- SPIKE model: `From<u64> for i128`, a zero-extending widening conversion. -/
++@[rust_fun "core::convert::num::{core::convert::From<i128, u64>}::from"]
++def I128.Insts.CoreConvertFromU64.from (x : U64) : Result I128 := ok (UScalar.hcast .I128 x)
++
  /-!
  # Casts: Theorems
  -/
 diff -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
---- a/Aeneas/Std/Scalar/Ops.lean	2026-09-26 15:53:50.784799782 +1000
-+++ b/Aeneas/Std/Scalar/Ops.lean	2026-09-26 15:54:09.258998932 +1000
+--- a/Aeneas/Std/Scalar/Ops.lean	2026-10-02 15:35:35.494700736 +1000
++++ b/Aeneas/Std/Scalar/Ops.lean	2026-10-02 15:35:35.512799794 +1000
 @@ -4,3 +4,19 @@
  import Aeneas.Std.Scalar.Ops.Neg
  import Aeneas.Std.Scalar.Ops.Rem
@@ -129,8 +149,8 @@ diff -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
 +
 +end Aeneas.Std
 diff -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/WrappingOps/Shl.lean
---- a/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-09-26 15:53:50.785029548 +1000
-+++ b/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-09-26 15:54:00.480808769 +1000
+--- a/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-02 15:35:35.496761979 +1000
++++ b/Aeneas/Std/Scalar/WrappingOps/Shl.lean	2026-10-02 15:35:35.512549165 +1000
 @@ -17,6 +17,13 @@
  def IScalar.wrapping_shl {ty} (x : IScalar ty) (s : U32) : IScalar ty :=
    ⟨ x.bv.shiftLeft (s.val % ty.numBits) ⟩
@@ -146,8 +166,8 @@ diff -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/WrappingO
  def «%S».wrapping_shl (x : «%S») (s : U32) : «%S» := @UScalar.wrapping_shl UScalarTy.«%S» x s
  
 diff -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
---- a/Aeneas/Std/String.lean	2026-09-26 15:53:50.784296986 +1000
-+++ b/Aeneas/Std/String.lean	2026-09-26 15:53:50.811028990 +1000
+--- a/Aeneas/Std/String.lean	2026-10-02 15:35:35.487235871 +1000
++++ b/Aeneas/Std/String.lean	2026-10-02 15:35:35.513720965 +1000
 @@ -24,8 +24,10 @@
    rw [loop_length 0 [] (Nat.zero_le _)]
    simp
@@ -162,8 +182,8 @@ diff -ruN a/Aeneas/Std/String.lean b/Aeneas/Std/String.lean
      (fun x => ⟨ x.toNat, by cases x; simp only [UInt8.toNat_ofBitVec, UScalarTy.U8_numBits_eq, Nat.reducePow]; omega  ⟩))
      (by
 diff -ruN a/Aeneas/Std/Vec.lean b/Aeneas/Std/Vec.lean
---- a/Aeneas/Std/Vec.lean	2026-09-26 15:53:50.784296986 +1000
-+++ b/Aeneas/Std/Vec.lean	2026-09-26 15:53:50.810797278 +1000
+--- a/Aeneas/Std/Vec.lean	2026-10-02 15:35:35.486901579 +1000
++++ b/Aeneas/Std/Vec.lean	2026-10-02 15:35:35.519009620 +1000
 @@ -17,6 +17,13 @@
  local macro_rules
  | `(tactic| get_elem_tactic) => `(tactic| grind)
