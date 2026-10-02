@@ -76,7 +76,7 @@ those two cells at 23.59x and 1.53x. No speed recovery is
 claimed. That receipt binds `examples/reg1/acceptance.rs` sha256 `f0f9aff0…` and `src/table.rs`
 sha256 `a89e9ec7…`; the current tree carries the T1 registry (`examples/reg1/acceptance.rs` sha256
 `ce927a49…`) and a post-receipt spill/growth fix (`src/table.rs` sha256 `93f15f15…`; both digests
-measured here with `sha256sum`), so the receipt
+recomputed here with `sha256sum`), so the receipt
 is the last strict full-profile result but not a measurement of the current identity. The
 re-anchored performance workstream in the barrier section continues: comparison coverage is repaired
 (T1) and the combined `get_each` arm is now `concurrency_unmatched`; serial direct-path overhead and
@@ -468,7 +468,7 @@ on disjoint paths; (5) publish a matched before/after full-profile receipt. The
 [roadmap dispatch table](roadmap.md#performance-re-anchor-and-bounded-dispatch) owns
 the task IDs, files and gates. No aggregate, std-only win, historical envelope, reduced matrix or
 trusted-boundary grade closes G1. `APEIRON-STRATEGY-DECISION-T3` keeps that order: size-only factoring
-of `src/table.rs` first, then measured read-path specialization, with the spatial recovery prepared on
+of `src/table.rs` first, then read-path specialization on the covered workload, with the spatial recovery prepared on
 disjoint paths.
 
 **Revised representation boundary (Astra verdict).** The selected structure becomes a table-level
