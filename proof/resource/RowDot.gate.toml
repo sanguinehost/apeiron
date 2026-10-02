@@ -1,0 +1,24 @@
+# RowDot gate of record, E1.W5 pilot. Schema: the one `tools/gate/adapter.rs::parse` accepts —
+# `[[artifact]]` tables with exactly `id`, `kind`, `path`, `sha256`, `gate`, `control`, `budget_s`;
+# any other key is refused as unknown and nothing is defaulted. The seven values below are the
+# frozen `proof/resource/RowDot_gate.py` row of `docs/contracts/artifacts.toml` verbatim, so this file
+# is that registry row and not a second spelling of it.
+#
+# Root derivation: `tools/gate/main.rs::root_for` resolves each `path` against the manifest's
+# three-levels-up directory. `proof/resource/RowDot.gate.toml` -> `proof/resource` -> `proof` -> the
+# repository root, which is the root the `gate` column's command runs from.
+#
+# What this file is checked with, as of `caacbf3`: `tools/gate` has the verbs `hold` and
+# `docs check [manifest]`, and `docs check` hashes `path` and asks `core.rs` whether the recorded
+# identity still describes the tree. It does not run `gate` or `control`. The green marker
+# `ROW_DOT_SOURCE_RESOURCE_OK` is therefore not obtainable through `tools/gate` at this revision;
+# it is the row's `gate` column, run directly as the frozen record runs it.
+
+[[artifact]]
+id       = "proof/resource/RowDot_gate.py"
+kind     = "gate"
+path     = "proof/resource/RowDot_gate.py"
+sha256   = "2a8f077abf2f3feb893b3f838edf21c822a2b855db53644a8e1ca496fb7341ee"
+gate     = "python3 proof/resource/RowDot_gate.py --check"
+control  = "python3 proof/resource/RowDot_gate.py --controls"
+budget_s = 540
