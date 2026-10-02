@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Q4KCodes_gate.py"
+kind     = "gate"
+path     = "proof/resource/Q4KCodes_gate.py"
+sha256   = "6937c678fb67087b4a6c1b1466476c2c0c0fe5bb80729cd289eae3b351c49ffc"
+gate     = "python3 proof/resource/Q4KCodes_gate.py --check"
+control  = "python3 proof/resource/Q4KCodes_gate.py --controls"
+budget_s = 540

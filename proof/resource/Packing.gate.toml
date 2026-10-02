@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Packing_gate.py"
+kind     = "gate"
+path     = "proof/resource/Packing_gate.py"
+sha256   = "5f90a33913c2d812a02ff4f404ade611fd08a3e315bfd1e5a804242d3932e2ff"
+gate     = "python3 proof/resource/Packing_gate.py --check"
+control  = "python3 proof/resource/Packing_gate.py --controls"
+budget_s = 540

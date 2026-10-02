@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Policy_gate.py"
+kind     = "gate"
+path     = "proof/resource/Policy_gate.py"
+sha256   = "b8eb08ec02a8757f0cbb6af0e8d5057073b3ffe5cb57a3de3097c42525015af9"
+gate     = "python3 proof/resource/Policy_gate.py --check"
+control  = "python3 proof/resource/Policy_gate.py --controls"
+budget_s = 540

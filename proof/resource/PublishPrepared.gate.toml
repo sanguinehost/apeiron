@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/PublishPrepared_gate.py"
+kind     = "gate"
+path     = "proof/resource/PublishPrepared_gate.py"
+sha256   = "4aa9f69c435d31b04644203d8df8ee734c18b7b226b99e5577a34914632b02c1"
+gate     = "python3 proof/resource/PublishPrepared_gate.py --check"
+control  = "python3 proof/resource/PublishPrepared_gate.py --controls"
+budget_s = 540

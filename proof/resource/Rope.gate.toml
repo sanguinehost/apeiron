@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/Rope_gate.py"
+kind     = "gate"
+path     = "proof/resource/Rope_gate.py"
+sha256   = "568c56f54d2d47e5c6e472470e42a5fd1ba9f4484240f72234c61aa14a98007b"
+gate     = "python3 proof/resource/Rope_gate.py --check"
+control  = "python3 proof/resource/Rope_gate.py --controls"
+budget_s = 540

@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/RelocateEntry_gate.py"
+kind     = "gate"
+path     = "proof/resource/RelocateEntry_gate.py"
+sha256   = "d748b7c57cf13d57750c955b70c6e403c53407da83465e4e466202354e7a92b5"
+gate     = "python3 proof/resource/RelocateEntry_gate.py --check"
+control  = "python3 proof/resource/RelocateEntry_gate.py --controls"
+budget_s = 540

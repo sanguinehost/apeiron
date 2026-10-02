@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/RmsNorm_gate.py"
+kind     = "gate"
+path     = "proof/resource/RmsNorm_gate.py"
+sha256   = "4e2d1b45cd364dbe2af7f21251d58d7514c09258b2c1170f59c4a471bbac549e"
+gate     = "python3 proof/resource/RmsNorm_gate.py --check"
+control  = "python3 proof/resource/RmsNorm_gate.py --controls"
+budget_s = 540

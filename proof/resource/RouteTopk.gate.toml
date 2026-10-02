@@ -1,0 +1,18 @@
+# RouteTopk gate of record, E1.W6 migration. Schema: the one `tools/gate/adapter.rs::parse` accepts —
+# `[[artifact]]` tables with exactly `id`, `kind`, `path`, `sha256`, `gate`, `control`, `budget_s`;
+# any other key is refused as unknown and nothing is defaulted. The seven values below are the
+# frozen `proof/resource/RouteTopk_gate.py` row of `docs/contracts/artifacts.toml` verbatim, so this
+# file is that registry row and not a second spelling of it.
+#
+# Root derivation: `tools/gate/main.rs::root_for` resolves each `path` against the manifest's
+# three-levels-up directory. `proof/resource/RouteTopk.gate.toml` -> `proof/resource` -> `proof` -> the
+# repository root, which is the root the `gate` column's command runs from.
+
+[[artifact]]
+id       = "proof/resource/RouteTopk_gate.py"
+kind     = "gate"
+path     = "proof/resource/RouteTopk_gate.py"
+sha256   = "24fac87eb7b8d8d47c8571a9dacda982f3b0c1439533778d273bbc1dc5d9a8f7"
+gate     = "python3 proof/resource/RouteTopk_gate.py --check"
+control  = "python3 proof/resource/RouteTopk_gate.py --controls"
+budget_s = 540
