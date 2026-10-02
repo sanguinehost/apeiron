@@ -3,10 +3,10 @@
 use super::keyrep::{I64WordCodec, Regen};
 use super::{
     build_prepared_shard, capacity_bound_holds, keyrep::KeyRep, publication_trace, read_trace,
-    shard, slots_for, spill_locate, spill_read, tag,
-    ApplyOutcome, Flat, FlatSlot, Home, PreparedResult, RebuildPlan, RebuildReserved, Region,
-    ReplacementMerge, SearchClass, SearchDecision, SearchLocation, SpillSite, StorageError, Stored,
-    Table, TableAddress, WordHome, SHARDS,
+    shard, slots_for, spill_locate, spill_read, tag, ApplyOutcome, Flat, FlatSlot, Home,
+    PreparedResult, RebuildPlan, RebuildReserved, Region, ReplacementMerge, SearchClass,
+    SearchDecision, SearchLocation, SpillSite, StorageError, Stored, Table, TableAddress, WordHome,
+    SHARDS,
 };
 use crate::cell::Sigma;
 use crate::coord::address::{
@@ -202,8 +202,10 @@ fn spill_cycle_finds_a_match_past_same_fingerprint_rejects() {
     // vacancy, so slots 0..=15 must all be occupied before slot 16 can hold the matching key.
     let mut filler: i64 = 100;
     while filler < 116 {
+        let index =
+            usize::try_from(filler - 100).expect("the filler range is 0..16 and fits usize");
         region.publish_live(
-            (filler - 100) as usize,
+            index,
             (
                 Sigma::Parabolic,
                 <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &filler, &address),
@@ -913,7 +915,10 @@ fn prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held() {
     assert_eq!(storage.regions.len(), SHARDS);
     let target = slots_for(1, 16).expect("checked region target");
     assert_eq!(storage.regions[0].slots.len(), target);
-    assert!(storage.regions[0].markers().iter().all(|&tag_at| tag_at == 0));
+    assert!(storage.regions[0]
+        .markers()
+        .iter()
+        .all(|&tag_at| tag_at == 0));
     assert_eq!(storage.regions[0].slots[0].sigma, sigma);
 
     // The receipt records the checked targets and the observed capacities meet them.
@@ -946,7 +951,6 @@ fn prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held() {
         "materialization must clone the held carrier and default"
     );
 }
-
 
 /// `build_prepared_shard` reserves its complete checked region before the first hold, so a
 /// refusal runs no clone. This is the per-shard ordering a parallel worker uses.
@@ -1010,20 +1014,26 @@ fn prepared_shard_reserves_the_checked_flat_capacity_at_a_real_load() {
     let merge = |new: Counted, _old: Counted| new;
     let input = vec![((LocatorSigma::Parabolic, mk(7)), mk(41))];
     let parts = super::partition::Parts::of(&CountHome, &input, 1);
-    let region =
-        build_prepared_shard::<Counted, Counted, CountHome, Stored<Counted>, _, 16>(
-            &CountHome,
-            &merge,
-            &mk(-1),
-            &input,
-            &parts,
-            0,
-            1,
-        )
-        .expect("the checked capacity of one live entry is reservable");
-    assert_eq!(region.slots.len(), 16, "the rule reserves the least power of two at or above max(n, 2*load)");
+    let region = build_prepared_shard::<Counted, Counted, CountHome, Stored<Counted>, _, 16>(
+        &CountHome,
+        &merge,
+        &mk(-1),
+        &input,
+        &parts,
+        0,
+        1,
+    )
+    .expect("the checked capacity of one live entry is reservable");
+    assert_eq!(
+        region.slots.len(),
+        16,
+        "the rule reserves the least power of two at or above max(n, 2*load)"
+    );
     assert_eq!(region.live, 1, "one live entry is published");
-    assert!(clones.get() > 0, "a successful reservation initializes every slot");
+    assert!(
+        clones.get() > 0,
+        "a successful reservation initializes every slot"
+    );
 }
 
 /// The whole-table read path certifies absence on a completed spill cycle, not only on a zero tag.
@@ -1039,7 +1049,10 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
     let mut table = Table::<i64, i64, WordKeyHome, 16>::new(0, WordKeyHome);
     table.insert_with(&ReplacementMerge, 0, 1).unwrap();
     let capacity = table.shards[0].slots.len();
-    assert!(capacity >= 8, "the checked capacity of one live entry is a power of two");
+    assert!(
+        capacity >= 8,
+        "the checked capacity of one live entry is a power of two"
+    );
 
     // Fill shard zero to its exact capacity. Every key below has shard byte zero, so each is a real
     // `WordKeyHome` key for shard zero and each is placed where the production locator selects.
@@ -1057,28 +1070,42 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
             SpillSite::Vacant(slot) => slot,
             other => panic!("a fresh key selects a vacancy, not {other:?}"),
         };
-        let held = <Stored<i64> as KeyRep<i64, WordKeyHome>>::hold(Sigma::Parabolic, &key, &address);
-        table.shards[0].publish_live(
-            slot,
-            (Sigma::Parabolic, held, 1_000 + key),
-            address.place,
-        );
+        let held =
+            <Stored<i64> as KeyRep<i64, WordKeyHome>>::hold(Sigma::Parabolic, &key, &address);
+        table.shards[0].publish_live(slot, (Sigma::Parabolic, held, 1_000 + key), address.place);
         stored.push(key);
     }
-    assert_eq!(table.shards[0].live, capacity, "the region is full, so no vacancy remains");
+    assert_eq!(
+        table.shards[0].live, capacity,
+        "the region is full, so no vacancy remains"
+    );
     assert!(table.shards[0].markers().iter().all(|&marker| marker != 0));
 
     // The absent key shares the full region and is not stored in it.
     let absent = 256 * i64::try_from(capacity).expect("the index fits i64");
     assert!(!stored.contains(&absent));
-    assert_eq!(shard(&Home::address(&WordKeyHome, Sigma::Parabolic, &absent)), 0);
+    assert_eq!(
+        shard(&Home::address(&WordKeyHome, Sigma::Parabolic, &absent)),
+        0
+    );
 
     // A stored key is found before the cycle completes.
     read_trace::clear();
-    assert_eq!(table.get(&256), &(1_000 + 256), "a stored key is read from its slot");
+    assert_eq!(
+        table.get(&256),
+        &(1_000 + 256),
+        "a stored key is read from its slot"
+    );
     let hit_steps = read_trace::sweep_steps();
-    assert!(hit_steps < capacity, "a present read stops inside the cycle");
-    assert_eq!(read_trace::summary_misses(), 0, "a present read certifies nothing");
+    assert!(
+        hit_steps < capacity,
+        "a present read stops inside the cycle"
+    );
+    assert_eq!(
+        read_trace::summary_misses(),
+        0,
+        "a present read certifies nothing"
+    );
 
     // The absent key exhausts the bound: exactly one cycle, and no zero tag anywhere in it.
     read_trace::clear();
@@ -1111,11 +1138,12 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
         1,
         "with a vacancy at the home slot the same absent key stops on the first zero tag"
     );
-    assert_eq!(read_trace::summary_misses(), 1, "the vacancy is the certificate now");
+    assert_eq!(
+        read_trace::summary_misses(),
+        1,
+        "the vacancy is the certificate now"
+    );
 }
-
-
-
 
 /// The flat region carries exactly one live slot per key, its live count agrees with its nonzero
 /// tags, and every live tag's slot holds the inserted key.
@@ -1146,7 +1174,10 @@ fn every_live_spill_slot_is_tagged_and_counted_on_the_real_insertion_path() {
                 );
             }
         }
-        assert_eq!(counted, region.live, "the live count matches the nonzero tags");
+        assert_eq!(
+            counted, region.live,
+            "the live count matches the nonzero tags"
+        );
         assert!(region.live < region.slots.len(), "a region keeps a vacancy");
     }
     assert_eq!(live, SHARDS, "one live spill entry per shard");
@@ -1186,13 +1217,79 @@ impl Home<i64> for ZeroHome {
 
 sigma_word_face!(ZeroHome, i64);
 
+/// `grow_spill` sizes the successor from the region's live count, and the successor keeps a vacancy
+/// above the relocated entries.
+///
+/// `ZeroHome` routes every key to shard zero at placement zero, so one region's occupancy is driven
+/// by successive insertions on the real path. [`SpillSite::Grow`] is raised only by a completed probe
+/// cycle that found every slot occupied, so at each growth the live count equals the capacity: the
+/// successor is exactly `slots_for(live_before, N)`, which for a power-of-two capacity at or above `N`
+/// and a full region is twice the old capacity. The fixture asserts that identity, the retained
+/// vacancy, and that every inserted key is still readable afterwards. A successor sized from any
+/// other count leaves the region full or over-allocated and fails one of the three assertions.
+#[test]
+fn grow_spill_sizes_the_successor_from_the_live_count() {
+    const N: usize = 16;
+    let mut table = Table::<i64, i64, ZeroHome, N>::new(0, ZeroHome);
+    let mut growths: Vec<(usize, usize, usize)> = Vec::new();
+    let mut key = 0i64;
+    // Bounded by the fixture's own key budget. Every key lands in shard zero, so the region grows
+    // once per doubling and this loop is finite and deterministic.
+    while key < 256 {
+        let live_before = table.shards[0].live;
+        let capacity_before = table.shards[0].slots.len();
+        table.insert_with(&ReplacementMerge, key, key + 1).unwrap();
+        let capacity_after = table.shards[0].slots.len();
+        if capacity_after != capacity_before {
+            growths.push((live_before, capacity_before, capacity_after));
+        }
+        key += 1;
+    }
+    assert!(
+        !growths.is_empty(),
+        "the fixture must observe at least one relocation, or it asserts nothing"
+    );
+    for (live_before, capacity_before, capacity_after) in &growths {
+        if *capacity_before > 0 {
+            assert_eq!(
+                live_before, capacity_before,
+                "`Grow` is raised only by a full region, so the live count is the capacity"
+            );
+            assert_eq!(
+                *capacity_after,
+                *capacity_before * 2,
+                "the successor doubles a full region's capacity, which is slots_for(live, N) for a \
+                 power-of-two capacity at or above N"
+            );
+        }
+        assert_eq!(
+            *capacity_after,
+            slots_for((*live_before).max(1), N).expect("a checked successor target"),
+            "the successor is the checked slots_for target of the live count"
+        );
+        // Read at the growth point, not at the end of the fill: the relocation leaves exactly
+        // `live_before` entries in a `capacity_after`-slot region, and the keys inserted after it
+        // legitimately fill that region again.
+        assert!(
+            live_before < capacity_after,
+            "the successor keeps a vacancy above the relocated entries"
+        );
+    }
+    for read in 0..key {
+        assert_eq!(
+            table.get(&read),
+            &(read + 1),
+            "every inserted key is still readable after the relocations"
+        );
+    }
+}
+
 // A test-only allocation counter is not declared here: the lib test binary already installs one
 // `#[global_allocator]` (`src/table/partition.rs`, `partition::tests::counting`), and a second is
 // rejected by the compiler. Read allocation-freedom is therefore checked by the clone/merge
 // counters below plus an unchanged-capacity snapshot; see the task residual for the shared
 // allocator hook.
 
-/// The read-only spill matcher finds a late match after a window vacancy, without any vacancy
 /// The read helper walks the bounded cycle past same-fingerprint rejects to a late match.
 #[test]
 fn read_helper_finds_a_late_match_after_same_fingerprint_rejects() {
@@ -1205,8 +1302,10 @@ fn read_helper_finds_a_late_match_after_same_fingerprint_rejects() {
     region.initialize(Sigma::Parabolic, &held, &0);
     let mut filler: i64 = 100;
     while filler < 116 {
+        let index =
+            usize::try_from(filler - 100).expect("the filler range is 0..16 and fits usize");
         region.publish_live(
-            (filler - 100) as usize,
+            index,
             (
                 Sigma::Parabolic,
                 <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &filler, &address),
@@ -1292,10 +1391,6 @@ fn read_absence_direct_empty_certificate_returns_default() {
     );
     assert_eq!(*table.get_at(sigma, &1), -1);
 }
-
-
-
-
 
 /// A read is effect-free: it clones nothing, merges nothing and reallocates no committed storage on
 /// both carriers and both storage areas. Allocation-freedom is additionally structural: `get_at`
@@ -1405,8 +1500,7 @@ fn read_path_timing_old_decision_versus_specialized() {
     // An absent key: the bounded cycle terminates on a zero tag, the flat port's absence
     // certificate.
     let mut miss = 7i64 + 256;
-    while spill
-        .shards[shard_at]
+    while spill.shards[shard_at]
         .slots
         .iter()
         .any(|slot| slot.tag == tag(place(miss)))

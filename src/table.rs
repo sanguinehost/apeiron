@@ -39,8 +39,6 @@ pub(crate) mod partition;
 mod probe;
 #[path = "table/resources.rs"]
 pub(crate) mod resources;
-#[path = "table/scan.rs"]
-pub(crate) mod scan;
 
 use keyrep::{KeyRep, Stored};
 #[cfg(feature = "read-stats")]
@@ -89,14 +87,11 @@ const TAG_FINGERPRINT_BITS: u32 = 7;
 const TAG_FINGERPRINT_SHIFT: u32 = 64 - TAG_FINGERPRINT_BITS;
 /// The odd spread multiplier applied to the place word before the fingerprint bits are read.
 ///
-/// `crate::coord::PHI`, the same odd constant [`summary_index`](table::summary_index) mixes with and
-/// [`WordHome`](table::WordHome) homes by.  One 64-bit multiply per probe, not per lane.
+/// `crate::coord::PHI`, the same odd constant [`Region::home`](table::state::Region::home) mixes
+/// with and [`WordHome`](table::WordHome) homes by.  One 64-bit multiply per probe, not per lane.
 const TAG_SPREAD: u64 = crate::coord::PHI;
 /// Mask of the fingerprint bits below the live bit.
 const TAG_FINGERPRINT_MASK: u8 = (1 << TAG_FINGERPRINT_BITS) - 1;
-const DESCENT_MASK: u64 = (1 << 49) - 1;
-const WINDOW_MASK: u64 = 0x7f;
-const WINDOWS: usize = 7;
 
 /// Resource and checked-sizing outcomes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -738,10 +733,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             match slots_for(plan.spill_loads[shard_at], N) {
                 Ok(required) => {
                     regions[shard_at] = RegionReservation {
-                        slots: capacity_bound(
-                            required,
-                            storage.regions[shard_at].slots.capacity(),
-                        ),
+                        slots: capacity_bound(required, storage.regions[shard_at].slots.capacity()),
                     };
                     shard_at += 1;
                 }

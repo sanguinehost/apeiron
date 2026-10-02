@@ -265,10 +265,13 @@ mod prepared_placement_tests {
                 &address,
             )
             .expect("a fresh entry fits");
-        assert_eq!(first, (true, 0), "a fresh key lands in the first vacant slot");
         assert_eq!(
-            region.slots[0].value,
-            70,
+            first,
+            (true, 0),
+            "a fresh key lands in the first vacant slot"
+        );
+        assert_eq!(
+            region.slots[0].value, 70,
             "the placed slot holds the merged value"
         );
         assert_eq!(
@@ -295,7 +298,10 @@ mod prepared_placement_tests {
             )
             .expect("a repeat entry fits");
         assert_eq!(second, (false, 0), "a repeat key keeps its slot");
-        assert_eq!(region.slots[0].value, 80, "the merge result replaces the value");
+        assert_eq!(
+            region.slots[0].value, 80,
+            "the merge result replaces the value"
+        );
 
         let projected =
             apply_prepared_shard::<i64, i64, WordHome, Stored<i64>, ReplacementMerge, 16>(
@@ -310,8 +316,7 @@ mod prepared_placement_tests {
             .expect("the projection fits");
         assert!(!projected, "the projection reports the repeat as not fresh");
         assert_eq!(
-            region.slots[0].value,
-            90,
+            region.slots[0].value, 90,
             "the projection applies the same merge"
         );
     }

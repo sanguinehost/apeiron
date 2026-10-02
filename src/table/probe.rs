@@ -311,6 +311,7 @@ mod tests {
     use crate::Sigma;
 
     use super::{spill_locate, spill_locate_held, spill_read, tag, SpillSite};
+    use crate::table::TAG_FINGERPRINT_BITS;
 
     const N: usize = 2;
     const LEN: usize = 4;
@@ -453,7 +454,13 @@ mod tests {
             direct_word: None,
         };
         assert_eq!(
-            spill_read::<i64, WordHome, Stored<i64>, i64>(&region, Sigma::Parabolic, &other, &99, N,),
+            spill_read::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &other,
+                &99,
+                N,
+            ),
             None,
             "a different placement homes elsewhere; its zero tag certifies absence"
         );
@@ -475,52 +482,93 @@ mod tests {
         );
     }
 
-    /// A `place` whose bits `[8, 15)` are the nonzero fingerprint `PRINT`, so every placement
-    /// agreeing on them publishes one tag.
-    fn print_place(print: u64) -> u64 {
-        (print << 8) | 0x34
+    /// The match at the **last** step of the cycle.
+    ///
+    /// `full_fixture` publishes key 11 into slot 3 of a four-slot region homed at slot 0, and
+    /// `spill_read` visits `(home + step) & mask` for `step = 0 .. slots.len()`, so the match sits at
+    /// `step = slots.len() - 1`. A cycle stopped one step early never reaches it and returns the
+    /// caller's default, which is what distinguishes this fixture from the interior matches above:
+    /// those are reachable by any cycle long enough to reach their own slot, so they cannot
+    /// discriminate the bound.
+    #[test]
+    fn spill_read_finds_a_match_at_the_last_step_of_the_cycle() {
+        let region = full_fixture(7, 8, 9);
+        let last = region.slots.len() - 1;
+        assert!(
+            region.slots[last].live(),
+            "the fixture's match occupies the last slot, so the region is full"
+        );
+        assert_eq!(
+            spill_read::<i64, WordHome, Stored<i64>, i64>(
+                &region,
+                Sigma::Parabolic,
+                &address(),
+                &11,
+                N,
+            ),
+            Some(last),
+            "a cycle one step short of the last slot would return the default here"
+        );
     }
 
-    /// The first placement at or above [`FINGERPRINT_BASE`] that carries the base's tag and homes
-    /// elsewhere. The search is a forced collision: the fixture never assumes the two homes differ.
-    fn same_tag_other_home(region: &Region<Stored<i64>, i64>) -> u64 {
-        for bit in 1..64u64 {
-            let place = print_place(18) | (bit << 15);
-            assert_eq!(
-                tag(place),
-                tag(print_place(18)),
-                "a placement above the fingerprint window keeps the base tag"
-            );
-            if region.home(place) != region.home(print_place(18)) {
-                return place;
+    /// The base placement the forced-collision fixture perturbs: a nonzero word, so its published
+    /// tag is nonzero and every `base + i` neighbour is a distinct placement.
+    fn collision_base() -> u64 {
+        0x1234
+    }
+
+    /// Two distinct placements that share a tag and home elsewhere.
+    ///
+    /// The shared tag is derived from [`tag`], not assumed. [`tag`] reads the top
+    /// [`TAG_FINGERPRINT_BITS`] bits of `place * TAG_SPREAD`, so the tag takes
+    /// `2^TAG_FINGERPRINT_BITS` values and any `2 * 2^TAG_FINGERPRINT_BITS` consecutive placements
+    /// contain a colliding pair by the pigeonhole principle; the scan below covers twice that
+    /// width. The folding class is therefore a residue class of the spread product, not an
+    /// arithmetic family of `place`: shifting `place` by a whole fingerprint window changes the
+    /// spread product's top bits, because `TAG_SPREAD` is odd, so `place = j << k` *separates*
+    /// fingerprints rather than folding them. The scan runs over a fixed sequence, so the fixture is
+    /// deterministic, and it reports the pair it found rather than the tag alone.
+    fn same_tag_other_home(region: &Region<Stored<i64>, i64>) -> (u64, u64) {
+        let base = collision_base();
+        let mut seen: Vec<(u8, u64)> = Vec::new();
+        for step in 0..(2u64 << TAG_FINGERPRINT_BITS) {
+            let place = base + step;
+            let fingerprint = tag(place);
+            if let Some((_, other)) = seen.iter().find(|(seen_tag, _)| *seen_tag == fingerprint) {
+                let other = *other;
+                if other != place && region.home(other) != region.home(place) {
+                    return (other, place);
+                }
             }
+            seen.push((fingerprint, place));
         }
-        panic!("some placement below 2^78 keeps the tag and homes elsewhere");
+        panic!(
+            "no colliding pair in 2 * 2^TAG_FINGERPRINT_BITS consecutive placements homes apart"
+        );
     }
 
     /// Publishes `key` at the slot the real locator selects: the first vacancy at or after its home,
     /// which is exactly where a linear insert places it.
-    fn publish_first_fit(
-        region: &mut Region<Stored<i64>, i64>,
-        key: i64,
-        place: u64,
-    ) -> usize {
+    fn publish_first_fit(region: &mut Region<Stored<i64>, i64>, key: i64, place: u64) -> usize {
         let address = TableAddress {
             place,
             direct_word: None,
         };
-        let slot =
-            match spill_locate::<i64, WordHome, Stored<i64>, i64>(
-                region,
-                Sigma::Parabolic,
-                &address,
-                &key,
-                N,
-            ) {
-                SpillSite::Vacant(slot) => slot,
-                other => panic!("a fresh key selects a vacancy, not {other:?}"),
-            };
-        region.publish_live(slot, (Sigma::Parabolic, held(key, &address), 100 + key), place);
+        let slot = match spill_locate::<i64, WordHome, Stored<i64>, i64>(
+            region,
+            Sigma::Parabolic,
+            &address,
+            &key,
+            N,
+        ) {
+            SpillSite::Vacant(slot) => slot,
+            other => panic!("a fresh key selects a vacancy, not {other:?}"),
+        };
+        region.publish_live(
+            slot,
+            (Sigma::Parabolic, held(key, &address), 100 + key),
+            place,
+        );
         slot
     }
 
@@ -528,18 +576,24 @@ mod tests {
     /// the same nonzero tag, so the walk must resolve each key by its full compare and must not
     /// stop on the tag, merge the keys, or report absence for a stored one.
     ///
-    /// The pair is forced, not assumed: the fixture searches for a placement that shares the tag
-    /// and homes elsewhere, then fills the region through the production locator, so every state is
-    /// one a linear insert produces. This covers distinct placements, distinct homes and a shared
-    /// tag, which the place-0 fixtures above cannot reach.
+    /// The pair is derived, not assumed: [`same_tag_other_home`] scans a fixed window for two
+    /// placements whose published tags agree and whose homes differ, which the pigeonhole argument
+    /// in its own contract guarantees within the scanned width, and the fixture then fills the
+    /// region through the production locator, so every state is one a linear insert produces. This
+    /// covers distinct placements, distinct homes and a shared tag, which the single-placement
+    /// fixtures above cannot reach.
     #[test]
     fn spill_read_resolves_a_forced_same_fingerprint_collision() {
         const WIDE: usize = 16;
         let mut region = Region::reserve_empty(WIDE).expect("sixteen slots");
         region.initialize(Sigma::Parabolic, &held(0, &address()), &0);
-        let other = same_tag_other_home(&region);
-        let base = print_place(18);
-        assert_eq!(tag(base), tag(other), "the forced pair shares one nonzero tag");
+        let (base, other) = same_tag_other_home(&region);
+        assert_eq!(
+            tag(base),
+            tag(other),
+            "the forced pair shares one nonzero tag"
+        );
+        assert_ne!(base, other, "the forced pair is two distinct placements");
         assert_ne!(
             region.home(base),
             region.home(other),

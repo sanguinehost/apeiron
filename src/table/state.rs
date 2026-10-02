@@ -331,26 +331,6 @@ fn capacity_bound(required_len: usize, observed_capacity: usize) -> CapacityBoun
         observed_capacity,
     }
 }
-#[inline]
-fn group(place: u64, step: usize, mask: usize) -> usize {
-    let d = (place >> 8) & DESCENT_MASK;
-    if step < WINDOWS {
-        (((d >> (49 - 7 * (step + 1))) & WINDOW_MASK) as usize) & mask
-    } else {
-        ((d as usize) & mask).wrapping_add(step - WINDOWS + 1) & mask
-    }
-}
-
-/// Returns the least significant set-bit index for a nonzero word.
-#[inline]
-fn least_set_lane(bits: u64) -> usize {
-    let mut lane = 0;
-    while lane < u64::BITS as usize && ((bits >> lane) & 1) == 0 {
-        lane += 1;
-    }
-    lane
-}
-
 /// Marks a certified direct word in the density bitmap and increments `count` on its first sight.
 ///
 /// The word is ignored at or above `limit`; only words that could select a resident slot below
