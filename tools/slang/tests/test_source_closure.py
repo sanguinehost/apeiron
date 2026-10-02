@@ -71,16 +71,24 @@ class SourceClosureTest(unittest.TestCase):
     def baseline(self, expected_error=None):
         registry = self.registry()
         stage = registry.stages["fixture"]
-        with patch.object(RUNNER, "REPO", self.repo), patch.object(RUNNER, "CORPUS", self.corpus):
-            with patch.object(RUNNER, "run_lean", return_value=(0, f"EMPTY_AXIOMS_OK {DECLARATION}\n")) as lean:
+        with patch.object(RUNNER, "REPO", self.repo), patch.object(RUNNER, "CORPUS", self.corpus), \
+                patch.object(RUNNER, "WORK_DIR", self.repo / "work"):
+            with patch.object(RUNNER, "run_lean", side_effect=self.fake_lean) as lean:
                 with contextlib.redirect_stdout(io.StringIO()):
                     if expected_error is None:
-                        self.assertEqual(RUNNER.run_baseline(stage, registry), [DECLARATION])
-                        lean.assert_called_once()
+                        self.assertEqual(RUNNER.run_baseline(stage, registry), ([DECLARATION], ()))
+                        # once for the completeness driver, once for the audit module
+                        self.assertEqual(lean.call_count, 2)
                     else:
                         with self.assertRaisesRegex(RUNNER.TokenError, expected_error):
                             RUNNER.run_baseline(stage, registry)
                         lean.assert_not_called()
+
+    def fake_lean(self, registry, target, timeout=None, root=None):
+        """The completeness copy reports an empty declared set; the module audits."""
+        if root is not None:
+            return 0, f"MODULE_MAIN `Slang.Fixture\nMODULE_OWN_COUNT 0\n"
+        return 0, f"EMPTY_AXIOMS_OK {DECLARATION}\n"
 
     def test_unused_forbidden_declarations_reject_then_restore(self):
         self.baseline()
