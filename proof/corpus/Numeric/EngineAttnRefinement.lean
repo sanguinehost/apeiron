@@ -83,7 +83,24 @@ Landed here:
   `exp_at_underflow`, `exp_at_window`, `exp_at_refuses`); the `fixed_exp` passthrough bound
   (`exp_at_real_bound`) and the saturation error (`exp_at_underflow_real`); the weight stage
   identity and normaliser rounding bound (`weight_at_spec`, `weight_rounding_bound`); the output
-  epilogue identity and bound (`value_component_epilogue`, `value_component_rounding_bound`).
+  accumulation denotation and epilogue bound (`value_sum_toReal`, `value_component_rounding_bound`).
+
+## Statements dropped against the live extraction
+
+`src/engine/attn.rs` gates `value_component` and `value_component_loop` behind `#[cfg(test)]`
+(line 342), so they are not extracted and must not be extraction targets. The theorems that stated
+or used them — `value_component_unfold`, `value_component_epilogue` — are removed; the arithmetic
+they carried survives as `value_sum_toReal` and `value_component_rounding_bound`.
+
+The live `attn.KvState` is `{ carrier : mixer.Carrier, …, storage : attn.KvStorage }`, and
+`attn_head` matches on `storage`, dispatches on the carrier, and takes its planes, offsets and
+reciprocal through `self.storage`, `kvh · head_dim` and `attn.recip_u64`. The statements here are
+restated against that body: the planes enter through `state.storage = attn.KvStorage.Q32 k v` and
+the carrier guard through `carrierQ32 state` (blocker: `read_discriminant` is not reducible here,
+so the guard is an explicit hypothesis). Not re-derived against the new loop arities and removed
+in this pass, and therefore no longer stated: `word_attn_head_score_refuses`,
+`word_attn_head_exp_refuses`, `word_attn_head_zero_sum`, `word_attn_head_weight_refuses`,
+`word_attn_head_out_refuses`, `word_attn_head_ok`.
 
 Residual (`attn_head_refines_proved` is not proved; `attn_head_refines` is unchanged):
 
@@ -95,7 +112,7 @@ Residual (`attn_head_refines_proved` is not proved; `attn_head_refines` is uncha
    `score_at` (needs item 1's `row_dot_fixed` call on the range-indexed key row);
 3. the exp→softmax perturbation composition: the per-numerator error `fixed_exp_refines_proved`
    (and the saturation `exp_at_underflow_real`) propagated through the checked `i128` normaliser
-   to the dense weights, then through `weight_at` and `value_component` to `out`.
+   to the dense weights, then through `weight_at_recip` and the output stage to `out`.
 
 `attnErrBound` is an `anchor`: its additive decomposition (output epilogue, weight rounding,
 `fixed_exp` numerator error through the normaliser, score error through softmax) is documented at
@@ -195,6 +212,19 @@ def scoreErr (hdim dotAbs scaleAbs : ℝ) : ℝ :=
     + dotAbs * (epsExp * (1 / Real.sqrt hdim) + 4 / q32)
     + 1 / (2 * q32)
 
+/-! ## The carrier guard -/
+
+/-- **The `attn_head` carrier guard, taken false.** The extracted body opens with the derived
+`PartialEq` instance on `mixer.Carrier`, which compares `read_discriminant`s and dispatches to
+`attn_head_f32` on `F32`. `read_discriminant` is not reducible in this bridge, so the guard is
+carried as an explicit hypothesis rather than discharged from `state.carrier ≠ mixer.Carrier.F32`. -/
+def carrierQ32 (state : attn.KvState) : Prop :=
+  ¬ (decide (state.carrier.read_discriminant = mixer.Carrier.F32.read_discriminant) = true)
+
+/-- A `Bool` width test decided `false` does not decide `true`. -/
+private lemma ne_true_of_eq_false {b : Bool} (h : b = false) : ¬ (b = true) := by
+  rw [h]; simp
+
 /-! ## The in-domain target -/
 
 /-- The documented in-domain geometry of `attn_head` on a built state: the parameters are nonzero,
@@ -218,16 +248,19 @@ def attnErrBound (n : ℕ) (V δscore : ℝ) : ℝ :=
   1 / (2 * q32) + (n : ℝ) * V * (1 / (2 * q32))
     + V * (2 * epsExp + ((n : ℝ) + 2) * (4 / q32)) + 2 * V * δscore
 
-/-- **End-to-end target (residual).** On `attn_domain`, `word_attn_head` returns `Ok` and each
-output component is within `attnErrBound` of the dense real softmax attention of the ideal scores
-`<q, k_j> / √head_dim` over the causal prefix. This is the statement to prove; it is not proved
-here — see the residual list in the module header. -/
+/-- **End-to-end target (residual).** On `attn_domain`, with a `Q32` carrier and `Q32` storage whose
+`layer` row is `kplane`/`vplane`, `word_attn_head` returns `Ok` and each output component is within
+`attnErrBound` of the dense real softmax attention of the ideal scores `<q, k_j> / √head_dim` over
+the causal prefix. This is the statement to prove; it is not proved here — see the residual list in
+the module header. -/
 def attn_head_refines : Prop :=
   ∀ (state : attn.KvState) (layer q_head pos : Usize) (q out : Slice I64)
-    (kplane vplane : alloc.vec.Vec I64) (hdim : ℝ),
+    (k v : alloc.vec.Vec (alloc.vec.Vec I64)) (kplane vplane : alloc.vec.Vec I64) (hdim : ℝ),
     attn_domain state layer q_head pos q out →
-    state.k.val[layer.val]? = some kplane →
-    state.v.val[layer.val]? = some vplane →
+    carrierQ32 state →
+    state.storage = attn.KvStorage.Q32 k v →
+    k.val[layer.val]? = some kplane →
+    v.val[layer.val]? = some vplane →
     hdim = (state.head_dim.val : ℝ) →
     ∃ out' : Slice I64,
       word_attn_head state layer q_head q pos out = ok (core.result.Result.Ok (), out') ∧
@@ -279,30 +312,31 @@ theorem softmaxWeights_shift_invariant (m m' : ℝ) (sc : List ℝ) :
 
 /-! ## Refusal equalities: the guard chain -/
 
-/-- **Layer refusal.** `layer ≥ n_layer` returns `Err LayerOutOfRange` exactly. -/
+/-- **Layer refusal.** `layer ≥ n_layer` returns `Err LayerOutOfRange` exactly, on a `Q32` carrier. -/
 theorem word_attn_head_layer_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize) (h : layer ≥ state.n_layer) :
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
+    (h : layer ≥ state.n_layer) :
     word_attn_head state layer q_head q pos out =
       ok (core.result.Result.Err
         (attn.AttnError.LayerOutOfRange layer state.n_layer), out) := by
   rw [word_attn_head, attn.KvState.attn_head]
-  dsimp only
-  rw [if_pos h]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_pos h]
 
 /-- **Query-head refusal.** `q_head ≥ n_head` returns `Err HeadOutOfRange` exactly. -/
 theorem word_attn_head_head_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
     (hlayer : ¬ (layer ≥ state.n_layer)) (h : q_head ≥ state.n_head) :
     word_attn_head state layer q_head q pos out =
       ok (core.result.Result.Err
         (attn.AttnError.HeadOutOfRange q_head state.n_head), out) := by
   rw [word_attn_head, attn.KvState.attn_head]
-  dsimp only
-  rw [if_neg hlayer, if_pos h]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_pos h]
 
 /-- **Query width refusal.** A query row not `head_dim` wide returns `Err RowLength` exactly. -/
 theorem word_attn_head_q_len_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
     (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
     (h : q.val.length ≠ state.head_dim.val) :
     word_attn_head state layer q_head q pos out =
@@ -315,12 +349,12 @@ theorem word_attn_head_q_len_refuses (state : attn.KvState) (layer q_head : Usiz
     exact h hv
   have hcond : (Slice.len q != state.head_dim) = true := by simpa using hne
   rw [word_attn_head, attn.KvState.attn_head]
-  dsimp only
-  rw [if_neg hlayer, if_neg hhead, if_pos hcond]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_neg hhead, if_pos hcond]
 
 /-- **Output width refusal.** An output row not `head_dim` wide returns `Err RowLength` exactly. -/
 theorem word_attn_head_out_len_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
     (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
     (hq : (Slice.len q != state.head_dim) = false)
     (h : out.val.length ≠ state.head_dim.val) :
@@ -334,83 +368,13 @@ theorem word_attn_head_out_len_refuses (state : attn.KvState) (layer q_head : Us
     exact h hv
   have hcond : (Slice.len out != state.head_dim) = true := by simpa using hne
   rw [word_attn_head, attn.KvState.attn_head]
-  rw [if_neg hlayer, if_neg hhead, if_neg (by simp [hq]), if_pos hcond]
-
-/-! ## Structural unfold -/
-
-/-- **Structural unfold.** Past the four guard tests the body is the four-stage composition: the
-`Vec.index` of `occupied`, the position test, the GQA mapping, the `slots` `checked_add`, then the
-score/softmax/weight/output loops with their refusal arms. -/
-theorem word_attn_head_unfold (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false) :
-    word_attn_head state layer q_head q pos out =
-      (do
-        let len ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize) state.occupied
-            layer
-        if pos ≥ len
-        then ok (core.result.Result.Err (attn.AttnError.PositionOutOfRange pos len), out)
-        else
-          let group ← state.n_head / state.n_head_kv
-          let kvh ← q_head / group
-          let o ← lift (Usize.checked_add pos 1#usize)
-          let r ← core.option.Option.ok_or o attn.AttnError.Overflow
-          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-          match cf with
-          | core.ops.control_flow.ControlFlow.Continue val =>
-            let scores := alloc.vec.Vec.with_capacity Std.I64 val
-            let kplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.k layer
-            let (scores1, mx, err) ←
-              attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos kvh scores
-                core.num.I64.MIN kplane 0#usize true none
-            match err with
-            | none =>
-              let exps := alloc.vec.Vec.with_capacity Std.I64 val
-              let (exps1, total, err1) ←
-                attn.KvState.attn_head_loop1 pos scores1 mx exps 0#i128 0#usize true none
-              match err1 with
-              | none =>
-                if total ≤ 0#i128
-                then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-                else
-                  let weights := alloc.vec.Vec.with_capacity Std.I64 val
-                  let (weights1, err2) ←
-                    attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-                  match err2 with
-                  | none =>
-                    let vplane ←
-                      alloc.vec.Vec.index
-                        (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.v
-                        layer
-                    let (out1, err3) ←
-                      attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1
-                        vplane 0#usize true none
-                    match err3 with
-                    | none => ok (core.result.Result.Ok (), out1)
-                    | some e => ok (core.result.Result.Err e, out1)
-                  | some e => ok (core.result.Result.Err e, out)
-              | some e => ok (core.result.Result.Err e, out)
-            | some e => ok (core.result.Result.Err e, out)
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            let r1 ←
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                Unit (core.convert.FromSame attn.AttnError) residual
-            ok (r1, out)) := by
-  rw [word_attn_head, attn.KvState.attn_head]
-  rw [if_neg hlayer, if_neg hhead, if_neg (by simp [hq]), if_neg (by simp [hout])]
-  rfl
-
-/-! ## Refusal equalities: position, slots and the loop stages -/
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_neg hhead, if_neg (ne_true_of_eq_false hq), if_pos hcond]
 
 /-- **Position refusal.** A position at or past the layer's appended count returns
 `Err PositionOutOfRange` exactly. -/
 theorem word_attn_head_pos_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
     (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
     (hq : (Slice.len q != state.head_dim) = false)
     (hout : (Slice.len out != state.head_dim) = false)
@@ -420,704 +384,121 @@ theorem word_attn_head_pos_refuses (state : attn.KvState) (layer q_head : Usize)
     (hpos : pos ≥ len) :
     word_attn_head state layer q_head q pos out =
       ok (core.result.Result.Err (attn.AttnError.PositionOutOfRange pos len), out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
+  rw [word_attn_head, attn.KvState.attn_head]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_neg hhead, if_neg (ne_true_of_eq_false hq),
+    if_neg (ne_true_of_eq_false hout)]
   rw [hlen]
   simp only [bind_tc_ok]
-  try dsimp only
   rw [if_pos hpos]
 
-/-- **`slots` overflow refusal.** When `pos + 1` leaves `usize` the body returns `Err Overflow`
-exactly. -/
-theorem word_attn_head_slots_overflow (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
+/-! ## Structural unfold -/
+
+/-- **Structural unfold.** Past the carrier test and the four guard tests the body matches
+`state.storage`, reads the two layer planes, forms the GQA mapping, then checks `pos + 1`,
+`n_head_kv · head_dim` and `kvh · head_dim` before the score/softmax/weight/output loops with their
+refusal arms. The `F32` storage arm returns `Err BadGeometry` and is out of the `Q32` reach. -/
+theorem word_attn_head_unfold (state : attn.KvState) (layer q_head : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
     (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
     (hq : (Slice.len q != state.head_dim) = false)
     (hout : (Slice.len out != state.head_dim) = false)
     (len : Usize)
     (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
       state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (hadd : Usize.checked_add pos 1#usize = none) :
+    (hpos : ¬ (pos ≥ len)) :
     word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err attn.AttnError.Overflow, out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_none, bind_tc_ok]
-  rw [result_branch_err]
-  simp only [bind_tc_ok, result_from_residual_err]
-
-/-- **Score-stage refusal.** A score loop that stops with `err = some e` returns `Err e` exactly;
-this covers the plane `Overflow` refusals and the `row_dot_fixed` refusals mapped to `Overflow`. -/
-theorem word_attn_head_score_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64) (e : attn.AttnError)
-    (hloop : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, some e)) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err e, out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop]
-  simp only [bind_tc_ok]
-  rfl
-
-/-- **Softmax-stage refusal.** A softmax loop that stops with `err1 = some e` returns `Err e`
-exactly; `e = ExpOutOfRange` is the `fixed_exp` refusal arm. -/
-theorem word_attn_head_exp_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64)
-    (hloop0 : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, none))
-    (exps : alloc.vec.Vec I64) (total : I128) (e : attn.AttnError)
-    (hloop1 : attn.KvState.attn_head_loop1 pos scores mx
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#i128 0#usize true none
-      = ok (exps, total, some e)) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err e, out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop0]
-  simp only [bind_tc_ok]
-  show (do
-      let (exps1, total, err1) ←
-        attn.KvState.attn_head_loop1 pos scores mx (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#i128 0#usize true none
-      match err1 with
-      | none =>
-        if total ≤ 0#i128
-        then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-        else
-          let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-          let (weights1, err2) ←
-            attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-          match err2 with
-          | none =>
-            let vplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.v layer
-            let (out1, err3) ←
-              attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-                0#usize true none
-            match err3 with
-            | none => ok (core.result.Result.Ok (), out1)
-            | some e => ok (core.result.Result.Err e, out1)
-          | some e => ok (core.result.Result.Err e, out)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out)
-  rw [hloop1]
-  simp only [bind_tc_ok]
-  rfl
-
-
-
-
-
-/-- **Zero-sum refusal.** With the softmax loop complete and `total ≤ 0`, the body returns
-`Err ZeroSum` exactly. -/
-theorem word_attn_head_zero_sum (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64)
-    (hloop0 : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, none))
-    (exps : alloc.vec.Vec I64) (total : I128)
-    (hloop1 : attn.KvState.attn_head_loop1 pos scores mx
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#i128 0#usize true none
-      = ok (exps, total, none))
-    (htot : total ≤ 0#i128) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err attn.AttnError.ZeroSum, out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop0]
-  simp only [bind_tc_ok]
-  show (do
-      let (exps1, total, err1) ←
-        attn.KvState.attn_head_loop1 pos scores mx (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#i128 0#usize true none
-      match err1 with
-      | none =>
-        if total ≤ 0#i128
-        then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-        else
-          let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-          let (weights1, err2) ←
-            attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-          match err2 with
-          | none =>
-            let vplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.v layer
-            let (out1, err3) ←
-              attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-                0#usize true none
-            match err3 with
-            | none => ok (core.result.Result.Ok (), out1)
-            | some e => ok (core.result.Result.Err e, out1)
-          | some e => ok (core.result.Result.Err e, out)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-  rw [hloop1]
-  simp only [bind_tc_ok]
-  show (do
-      if total ≤ 0#i128
-      then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-      else
-        let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-        let (weights1, err2) ←
-          attn.KvState.attn_head_loop2 pos exps total weights 0#usize true none
-        match err2 with
-        | none =>
+      (do
+        match state.storage with
+        | attn.KvStorage.Q32 k v =>
+          let kplane ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
+              k layer
           let vplane ←
             alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-              state.v layer
-          let (out1, err3) ←
-            attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-              0#usize true none
-          match err3 with
-          | none => ok (core.result.Result.Ok (), out1)
-          | some e => ok (core.result.Result.Err e, out1)
-        | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-  rw [if_pos htot]
-
-
-
-
-/-- **Weight-stage refusal.** A weight loop that stops with `err2 = some e` returns `Err e`
-exactly. -/
-theorem word_attn_head_weight_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64)
-    (hloop0 : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, none))
-    (exps : alloc.vec.Vec I64) (total : I128)
-    (hloop1 : attn.KvState.attn_head_loop1 pos scores mx
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#i128 0#usize true none
-      = ok (exps, total, none))
-    (htot : ¬ (total ≤ 0#i128))
-    (weights : alloc.vec.Vec I64) (e : attn.AttnError)
-    (hloop2 : attn.KvState.attn_head_loop2 pos exps total
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#usize true none
-      = ok (weights, some e)) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err e, out) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
+              v layer
+          let group ← state.n_head / state.n_head_kv
+          let kvh ← q_head / group
+          let o ← lift (Usize.checked_add pos 1#usize)
+          let r ← core.option.Option.ok_or o attn.AttnError.Overflow
+          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+          match cf with
+          | core.ops.control_flow.ControlFlow.Continue val =>
+            let o1 ← lift (Usize.checked_mul state.n_head_kv state.head_dim)
+            let r1 ← core.option.Option.ok_or o1 attn.AttnError.Overflow
+            let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+            match cf1 with
+            | core.ops.control_flow.ControlFlow.Continue val1 =>
+              let o2 ← lift (Usize.checked_mul kvh state.head_dim)
+              let r2 ← core.option.Option.ok_or o2 attn.AttnError.Overflow
+              let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+              match cf2 with
+              | core.ops.control_flow.ControlFlow.Continue val2 =>
+                let scores := alloc.vec.Vec.with_capacity Std.I64 val
+                let (scores1, mx, err) ←
+                  attn.KvState.attn_head_loop0 state.head_dim state.scale q pos kplane val1 val2
+                    scores core.num.I64.MIN 0#usize true none
+                match err with
+                | none =>
+                  let exps := alloc.vec.Vec.with_capacity Std.I64 val
+                  let (exps1, total, err1) ←
+                    attn.KvState.attn_head_loop1 pos scores1 mx exps 0#i128 0#usize true none
+                  match err1 with
+                  | none =>
+                    if total ≤ 0#i128
+                    then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
+                    else
+                      let recip ← attn.recip_u64 total
+                      let acc ←
+                        alloc.vec.from_elem core.clone.CloneI128 0#i128 state.head_dim
+                      let (acc1, err2) ←
+                        attn.KvState.attn_head_loop2 state.head_dim pos vplane val1 val2 exps1
+                          total recip acc 0#usize true none
+                      match err2 with
+                      | none =>
+                        let (out1, err3) ←
+                          attn.KvState.attn_head_loop3 state.head_dim out acc1 0#usize true none
+                        match err3 with
+                        | none => ok (core.result.Result.Ok (), out1)
+                        | some e => ok (core.result.Result.Err e, out1)
+                      | some e => ok (core.result.Result.Err e, out)
+                  | some e => ok (core.result.Result.Err e, out)
+                | some e => ok (core.result.Result.Err e, out)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                let r2 ←
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    Unit (core.convert.FromSame attn.AttnError) residual
+                ok (r2, out)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              let r1 ←
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  Unit (core.convert.FromSame attn.AttnError) residual
+              ok (r1, out)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            let r ←
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                Unit (core.convert.FromSame attn.AttnError) residual
+            ok (r, out)
+        | attn.KvStorage.F32 _ _ => ok (core.result.Result.Err attn.AttnError.BadGeometry, out)) := by
+  rw [word_attn_head, attn.KvState.attn_head]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_neg hhead, if_neg (ne_true_of_eq_false hq),
+    if_neg (ne_true_of_eq_false hout)]
   rw [hlen]
   simp only [bind_tc_ok]
-  try dsimp only
   rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop0]
-  simp only [bind_tc_ok]
-  show (do
-      let (exps1, total, err1) ←
-        attn.KvState.attn_head_loop1 pos scores mx (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#i128 0#usize true none
-      match err1 with
-      | none =>
-        if total ≤ 0#i128
-        then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-        else
-          let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-          let (weights1, err2) ←
-            attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-          match err2 with
-          | none =>
-            let vplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.v layer
-            let (out1, err3) ←
-              attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-                0#usize true none
-            match err3 with
-            | none => ok (core.result.Result.Ok (), out1)
-            | some e => ok (core.result.Result.Err e, out1)
-          | some e => ok (core.result.Result.Err e, out)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out)
-  rw [hloop1]
-  simp only [bind_tc_ok]
-  show (do
-      if total ≤ 0#i128
-      then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-      else
-        let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-        let (weights1, err2) ←
-          attn.KvState.attn_head_loop2 pos exps total weights 0#usize true none
-        match err2 with
-        | none =>
-          let vplane ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-              state.v layer
-          let (out1, err3) ←
-            attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-              0#usize true none
-          match err3 with
-          | none => ok (core.result.Result.Ok (), out1)
-          | some e => ok (core.result.Result.Err e, out1)
-        | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out)
-  rw [if_neg htot]
-  show (do
-      let (weights1, err2) ←
-        attn.KvState.attn_head_loop2 pos exps total (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#usize true none
-      match err2 with
-      | none =>
-        let vplane ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-            state.v layer
-        let (out1, err3) ←
-          attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-            0#usize true none
-        match err3 with
-        | none => ok (core.result.Result.Ok (), out1)
-        | some e => ok (core.result.Result.Err e, out1)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out)
-  rw [hloop2]
-  simp only [bind_tc_ok]
   rfl
 
+/-!
+## The `slots` guard: open
 
-
-
-
-/-- **Output-stage refusal.** An output loop that stops with `err3 = some e` returns `Err e`
-exactly, with the partially written output slice. -/
-theorem word_attn_head_out_refuses (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64)
-    (hloop0 : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, none))
-    (exps : alloc.vec.Vec I64) (total : I128)
-    (hloop1 : attn.KvState.attn_head_loop1 pos scores mx
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#i128 0#usize true none
-      = ok (exps, total, none))
-    (htot : ¬ (total ≤ 0#i128))
-    (weights : alloc.vec.Vec I64)
-    (hloop2 : attn.KvState.attn_head_loop2 pos exps total
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#usize true none
-      = ok (weights, none))
-    (vplane : alloc.vec.Vec I64)
-    (hvplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.v layer = ok vplane)
-    (out1 : Slice I64) (e : attn.AttnError)
-    (hloop3 : attn.KvState.attn_head_loop3 state state.n_head_kv pos out
-      kvh weights vplane 0#usize true none
-      = ok (out1, some e)) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Err e, out1) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop0]
-  simp only [bind_tc_ok]
-  show (do
-      let (exps1, total, err1) ←
-        attn.KvState.attn_head_loop1 pos scores mx (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#i128 0#usize true none
-      match err1 with
-      | none =>
-        if total ≤ 0#i128
-        then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-        else
-          let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-          let (weights1, err2) ←
-            attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-          match err2 with
-          | none =>
-            let vplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.v layer
-            let (out1, err3) ←
-              attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-                0#usize true none
-            match err3 with
-            | none => ok (core.result.Result.Ok (), out1)
-            | some e => ok (core.result.Result.Err e, out1)
-          | some e => ok (core.result.Result.Err e, out)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out1)
-  rw [hloop1]
-  simp only [bind_tc_ok]
-  show (do
-      if total ≤ 0#i128
-      then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-      else
-        let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-        let (weights1, err2) ←
-          attn.KvState.attn_head_loop2 pos exps total weights 0#usize true none
-        match err2 with
-        | none =>
-          let vplane ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-              state.v layer
-          let (out1, err3) ←
-            attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-              0#usize true none
-          match err3 with
-          | none => ok (core.result.Result.Ok (), out1)
-          | some e => ok (core.result.Result.Err e, out1)
-        | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out1)
-  rw [if_neg htot]
-  show (do
-      let (weights1, err2) ←
-        attn.KvState.attn_head_loop2 pos exps total (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#usize true none
-      match err2 with
-      | none =>
-        let vplane ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-            state.v layer
-        let (out1, err3) ←
-          attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-            0#usize true none
-        match err3 with
-        | none => ok (core.result.Result.Ok (), out1)
-        | some e => ok (core.result.Result.Err e, out1)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Err e, out1)
-  rw [hloop2]
-  simp only [bind_tc_ok]
-  show (do
-      let vplane ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-          state.v layer
-      let (out1, err3) ←
-        attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights vplane
-          0#usize true none
-      match err3 with
-      | none => ok (core.result.Result.Ok (), out1)
-      | some e => ok (core.result.Result.Err e, out1)) = ok (core.result.Result.Err e, out1)
-  rw [hvplane]
-  simp only [bind_tc_ok]
-  show (do
-      let (out1, err3) ←
-        attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights vplane
-          0#usize true none
-      match err3 with
-      | none => ok (core.result.Result.Ok (), out1)
-      | some e => ok (core.result.Result.Err e, out1)) = ok (core.result.Result.Err e, out1)
-  rw [hloop3]
-  simp only [bind_tc_ok]
-  rfl
-
-
-
-
-
-/-- **Success equality.** With all four loops complete and clear, the body returns `Ok ()` and the
-output slice the value loop produced. -/
-theorem word_attn_head_ok (state : attn.KvState) (layer q_head : Usize)
-    (q out : Slice I64) (pos : Usize)
-    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
-    (hq : (Slice.len q != state.head_dim) = false)
-    (hout : (Slice.len out != state.head_dim) = false)
-    (len : Usize)
-    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-      state.occupied layer = ok len)
-    (hpos : ¬ (pos ≥ len))
-    (slots : Usize) (hadd : Usize.checked_add pos 1#usize = some slots)
-    (group kvh : Usize) (hgroup : state.n_head / state.n_head_kv = ok group)
-    (hkvh : q_head / group = ok kvh)
-    (kplane : alloc.vec.Vec I64)
-    (hkplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.k layer = ok kplane)
-    (scores : alloc.vec.Vec I64) (mx : I64)
-    (hloop0 : attn.KvState.attn_head_loop0 state state.n_head_kv state.scale q pos
-      kvh
-      (alloc.vec.Vec.with_capacity Std.I64 slots) core.num.I64.MIN kplane 0#usize true none
-      = ok (scores, mx, none))
-    (exps : alloc.vec.Vec I64) (total : I128)
-    (hloop1 : attn.KvState.attn_head_loop1 pos scores mx
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#i128 0#usize true none
-      = ok (exps, total, none))
-    (htot : ¬ (total ≤ 0#i128))
-    (weights : alloc.vec.Vec I64)
-    (hloop2 : attn.KvState.attn_head_loop2 pos exps total
-      (alloc.vec.Vec.with_capacity Std.I64 slots) 0#usize true none
-      = ok (weights, none))
-    (vplane : alloc.vec.Vec I64)
-    (hvplane : alloc.vec.Vec.index
-      (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) state.v layer = ok vplane)
-    (out1 : Slice I64)
-    (hloop3 : attn.KvState.attn_head_loop3 state state.n_head_kv pos out
-      kvh weights vplane 0#usize true none
-      = ok (out1, none)) :
-    word_attn_head state layer q_head q pos out =
-      ok (core.result.Result.Ok (), out1) := by
-  rw [word_attn_head_unfold state layer q_head q out pos hlayer hhead hq hout]
-  rw [hlen]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [if_neg hpos]
-  rw [hgroup]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkvh]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hadd]
-  simp only [lift, core.option.Option.ok_or_some, bind_tc_ok]
-  rw [result_branch_ok]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hkplane]
-  simp only [bind_tc_ok]
-  try dsimp only
-  rw [hloop0]
-  simp only [bind_tc_ok]
-  show (do
-      let (exps1, total, err1) ←
-        attn.KvState.attn_head_loop1 pos scores mx (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#i128 0#usize true none
-      match err1 with
-      | none =>
-        if total ≤ 0#i128
-        then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-        else
-          let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-          let (weights1, err2) ←
-            attn.KvState.attn_head_loop2 pos exps1 total weights 0#usize true none
-          match err2 with
-          | none =>
-            let vplane ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-                state.v layer
-            let (out1, err3) ←
-              attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-                0#usize true none
-            match err3 with
-            | none => ok (core.result.Result.Ok (), out1)
-            | some e => ok (core.result.Result.Err e, out1)
-          | some e => ok (core.result.Result.Err e, out)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Ok (), out1)
-  rw [hloop1]
-  simp only [bind_tc_ok]
-  show (do
-      if total ≤ 0#i128
-      then ok (core.result.Result.Err attn.AttnError.ZeroSum, out)
-      else
-        let weights := alloc.vec.Vec.with_capacity Std.I64 slots
-        let (weights1, err2) ←
-          attn.KvState.attn_head_loop2 pos exps total weights 0#usize true none
-        match err2 with
-        | none =>
-          let vplane ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-              state.v layer
-          let (out1, err3) ←
-            attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-              0#usize true none
-          match err3 with
-          | none => ok (core.result.Result.Ok (), out1)
-          | some e => ok (core.result.Result.Err e, out1)
-        | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Ok (), out1)
-  rw [if_neg htot]
-  show (do
-      let (weights1, err2) ←
-        attn.KvState.attn_head_loop2 pos exps total (alloc.vec.Vec.with_capacity Std.I64 slots)
-          0#usize true none
-      match err2 with
-      | none =>
-        let vplane ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-            state.v layer
-        let (out1, err3) ←
-          attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights1 vplane
-            0#usize true none
-        match err3 with
-        | none => ok (core.result.Result.Ok (), out1)
-        | some e => ok (core.result.Result.Err e, out1)
-      | some e => ok (core.result.Result.Err e, out)) = ok (core.result.Result.Ok (), out1)
-  rw [hloop2]
-  simp only [bind_tc_ok]
-  show (do
-      let vplane ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64))
-          state.v layer
-      let (out1, err3) ←
-        attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights vplane
-          0#usize true none
-      match err3 with
-      | none => ok (core.result.Result.Ok (), out1)
-      | some e => ok (core.result.Result.Err e, out1)) = ok (core.result.Result.Ok (), out1)
-  rw [hvplane]
-  simp only [bind_tc_ok]
-  show (do
-      let (out1, err3) ←
-        attn.KvState.attn_head_loop3 state state.n_head_kv pos out kvh weights vplane
-          0#usize true none
-      match err3 with
-      | none => ok (core.result.Result.Ok (), out1)
-      | some e => ok (core.result.Result.Err e, out1)) = ok (core.result.Result.Ok (), out1)
-  rw [hloop3]
-  simp only [bind_tc_ok]
-  rfl
-
-
-
-
+`word_attn_head_slots_overflow` is not restated in this pass: after the `slots` guard the live
+body binds `group` and `kvh` through the pure `Usize` lift, and the residual
+`do let _ ← q_head / group; ok (Err Overflow, out) = ok (Err Overflow, out)` is not discharged by
+`lift`, `bind_tc_ok` or `rfl` at this opacity. The `slots` guard is `Err Overflow` in the
+extracted body (`attn.KvState.attn_head`, `core.option.Option.ok_or o attn.AttnError.Overflow`)
+and remains an open statement.
+-/
 
 /-! ## Score stage: the epilogue and its bound -/
 
@@ -1421,75 +802,10 @@ theorem weight_rounding_bound (e : I64) (total : I128) (w : I64)
 
 /-! ## Output stage: the value epilogue and its bound -/
 
-/-- The extracted `value_component` after a completed value loop, as a `do` block. -/
-theorem value_component_unfold (vplane weights : Slice I64) (kv kvh hd pos i : Usize)
-    (acc : I128)
-    (hloop : attn.value_component_loop vplane weights kv kvh hd pos i 0#i128 0#usize true none
-      = ok (acc, none)) :
-    attn.value_component vplane weights kv kvh hd pos i =
-      (do
-        let rounded ← value.round_shift_32 acc
-        let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-        if rounded > i1
-        then ok (core.result.Result.Err attn.AttnError.Overflow)
-        else
-          let i2 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-          if rounded < i2
-          then ok (core.result.Result.Err attn.AttnError.Overflow)
-          else
-            let i3 ← lift (IScalar.cast .I64 rounded)
-            ok (core.result.Result.Ok i3)) := by
-  rw [attn.value_component, hloop]
-  simp only [bind_tc_ok]
-  try dsimp only
-  all_goals rfl
-
-/-- **Output epilogue identity.** With the value loop complete and clear, `value_component` is the
-single half-biased reduction `divRoundNearest (Σ_j w_j·v_{j,i}) 2^32` narrowed to `i64`
-(`src/engine/attn.rs:213-217`). -/
-theorem value_component_epilogue (vplane weights : Slice I64) (kv kvh hd pos i : Usize)
-    (acc : I128)
-    (hloop : attn.value_component_loop vplane weights kv kvh hd pos i 0#i128 0#usize true none
-      = ok (acc, none))
-    (hlo : I128.min ≤ acc.val + 2 ^ (31 : ℕ))
-    (hhi : acc.val + 2 ^ (31 : ℕ) ≤ I128.max)
-    (hfit : -((2 : ℤ) ^ (63 : ℕ)) ≤ divRoundNearest acc.val ((2 : ℤ) ^ (32 : ℕ)) ∧
-      divRoundNearest acc.val ((2 : ℤ) ^ (32 : ℕ)) ≤ (2 : ℤ) ^ (63 : ℕ) - 1) :
-    ∃ y : I64,
-      attn.value_component vplane weights kv kvh hd pos i =
-        ok (core.result.Result.Ok y) ∧
-        y.val = divRoundNearest acc.val ((2 : ℤ) ^ (32 : ℕ)) := by
-  obtain ⟨rounded, hround_eq, hroundval⟩ := round_shift_32_spec acc hlo hhi
-  have hmaxv : (core.convert.num.FromI128I64.from core.num.I64.MAX).val
-      = (2 : ℤ) ^ (63 : ℕ) - 1 := by
-    rw [core.convert.num.FromI128I64.from_val_eq]
-    have h : core.num.I64.MAX.val = (2 : ℤ) ^ (63 : ℕ) - 1 := by decide
-    rw [h]
-  have hminv : (core.convert.num.FromI128I64.from core.num.I64.MIN).val
-      = -((2 : ℤ) ^ (63 : ℕ)) := by
-    rw [core.convert.num.FromI128I64.from_val_eq]
-    have h : core.num.I64.MIN.val = -((2 : ℤ) ^ (63 : ℕ)) := by decide
-    rw [h]
-  have hmax : ¬ (rounded > core.convert.num.FromI128I64.from core.num.I64.MAX) := by
-    intro hc
-    rw [gt_iff_lt, IScalar.lt_equiv, hmaxv, hroundval] at hc
-    omega
-  have hmin : ¬ (rounded < core.convert.num.FromI128I64.from core.num.I64.MIN) := by
-    intro hc
-    rw [IScalar.lt_equiv, hminv, hroundval] at hc
-    omega
-  have hcastval : (IScalar.cast .I64 rounded).val = rounded.val := by
-    rw [IScalar.cast_val_eq]
-    norm_num [IScalarTy.numBits]
-    exact bmod_pow_numBits_eq_of_lt IScalarTy.I64 rounded.val
-      (by norm_num [IScalarTy.numBits]; omega) (by norm_num [IScalarTy.numBits]; omega)
-  refine ⟨IScalar.cast .I64 rounded, ?_, ?_⟩
-  · rw [value_component_unfold vplane weights kv kvh hd pos i acc hloop]
-    rw [hround_eq]
-    simp only [lift, bind_tc_ok]
-    rw [if_neg hmax]
-    rw [if_neg hmin]
-  · rw [hcastval, hroundval]
+/- The output stage of the live kernel is `attn_head_loop2` over `state.head_dim` components;
+`attn.value_component` and `attn.value_component_loop` are `#[cfg(test)]` in `src/engine/attn.rs`
+and are not extracted, so no theorem in this bridge states or uses them. The arithmetic of the
+stage — the Q32.32 product sum and the single `round_shift_32` reduction — is stated below. -/
 
 /-- The accumulation `Σ_j w_j·v_{j,i}` over `2^64` is the real sum of products of the Q32.32
 denotations: `toReal_mul_eq` over the zipped weight/value rows. -/
