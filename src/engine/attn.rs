@@ -101,6 +101,27 @@ pub enum KvStorage {
     },
 }
 
+/// Allocate the zeroed native binary32 key and value planes for `n_layer` layers of `plane` values.
+///
+/// This is the carrier's binary32 allocation and nothing else: the geometry guards, the
+/// `fixed_rsqrt` window and the checked plane product are decided by [`KvState::with_carrier`]
+/// before it is called, and it cannot refuse. It is a named function so that the extraction
+/// boundary can be the allocation rather than the whole constructor — the constructor's guards and
+/// its Q32.32 allocation stay translated.
+///
+/// # Complexity
+///
+/// `O(n_layer · plane)` time and space in `f32` words: one zeroed `plane`-value plane, `n_layer`
+/// clones of it into the key planes and the move of the blank into the value plane. The count is
+/// two `vec![blank; n_layer]` repetitions over a `plane`-element element, so it closes at
+/// `2 · n_layer · plane` writes.
+fn alloc_f32_storage(plane: usize, n_layer: usize) -> KvStorage {
+    let blank = vec![0.0f32; plane];
+    let k = vec![blank.clone(); n_layer];
+    let v = vec![blank; n_layer];
+    KvStorage::F32 { k, v }
+}
+
 /// The single-token key/value cache of port-map row 5: one flat Q32.32 or binary32 plane per layer.
 ///
 /// Keys and values are stored position-major, so position `p` carries all `n_head_kv` rows
@@ -739,6 +760,9 @@ impl KvState {
     /// # Errors
     ///
     /// Same geometry and range refusals as [`KvState::new`].
+    ///
+    /// Every geometry and range guard is decided before the first allocation; the carrier's
+    /// binary32 allocation is the single operation behind [`alloc_f32_storage`].
     pub(crate) fn with_carrier(
         n_layer: usize,
         n_head: usize,
@@ -786,12 +810,7 @@ impl KvState {
                 let v = vec![blank; n_layer];
                 KvStorage::Q32 { k, v }
             }
-            Carrier::F32 => {
-                let blank = vec![0.0f32; plane];
-                let k = vec![blank.clone(); n_layer];
-                let v = vec![blank; n_layer];
-                KvStorage::F32 { k, v }
-            }
+            Carrier::F32 => alloc_f32_storage(plane, n_layer),
         };
         Ok(KvState {
             carrier,
