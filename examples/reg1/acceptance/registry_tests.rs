@@ -1,10 +1,9 @@
 use super::{
     evaluate, is_spatial_incumbent, pair_concurrency, serial_address_face, spatial_address_face,
     spatial_incumbent_workers, synthetic_campaign, AdapterState, AddressFace, Applicability,
-    Campaign, Concurrency, PairClass, PairOutcome, INCUMBENTS, INFORMATIONAL_COMPARATORS,
-    RATIO_LIMIT, REQUIRED_LOAD_BEARING, SELECTED_IMPL, SELECTED_WORKERS, SPATIAL_INCUMBENTS,
+    Concurrency, PairClass, INCUMBENTS, INFORMATIONAL_COMPARATORS, RATIO_LIMIT,
+    REQUIRED_LOAD_BEARING, SELECTED_WORKERS,
 };
-use crate::performance::spatial::{cell_id, SpatialCell, SpatialWitness, SPATIAL_CELLS};
 
 /// Every required incumbent is registered exactly once, load-bearing, built, and carries an
 /// applicability that is not `UnauthorizedNotApplicable`. An omission or demotion fails here.
@@ -202,115 +201,4 @@ fn omitted_required_pair_is_reported_missing() {
         outcome.missing
     );
     assert!(!outcome.passed());
-}
-
-/// Build a spatial witness and campaign for exactly the required cells: one `SpatialCell` per
-/// `SPATIAL_CELLS` entry (empty outcome lists — the registration contract reads the cells and the
-/// campaign pairs, not the adapter outcomes), and the five spatial incumbents applicable on each.
-fn synthetic_spatial_witness_and_campaign() -> (SpatialWitness, Campaign) {
-    let registered = super::load_registered_spatial_cells().expect("spatial registration parses");
-    let mut witness_cells = Vec::new();
-    let mut cells = Vec::new();
-    let mut pairs = Vec::new();
-    for &(size, face) in SPATIAL_CELLS.iter() {
-        let id = cell_id(size, face);
-        let reg = registered.iter().find(|r| r.id == id).unwrap_or_else(|| {
-            panic!("measured spatial cell {id} is absent from the registration")
-        });
-        assert_eq!(reg.key_face, face.name(), "spatial cell {id} key face");
-        assert_eq!(
-            reg.population,
-            size.to_string(),
-            "spatial cell {id} population"
-        );
-        witness_cells.push(SpatialCell {
-            cell_id: id.clone(),
-            workload: face.workload(),
-            key_face: face.name(),
-            population: size,
-            ops: size,
-            oracle_digest: 0,
-            outcomes: Vec::new(),
-        });
-        cells.push(id.clone());
-        for &incumbent in SPATIAL_INCUMBENTS.iter() {
-            pairs.push(PairOutcome {
-                cell_id: id.clone(),
-                incumbent_id: incumbent,
-                class: PairClass::LoadBearing,
-                adapter: AdapterState::Built,
-                applicability: Applicability::Applicable("synthetic spatial registration pair"),
-                sel_impl: SELECTED_IMPL,
-                sel_workers: SELECTED_WORKERS,
-                sample_basis: "parallel",
-                inc_impl: incumbent,
-                inc_workers: Some(1),
-                address_face: AddressFace::Matched,
-                selected_address: "spread-word;direct_word=mixed",
-                oracle_digest: 0,
-                expected_oracle_digest: 0,
-                selected_samples: Vec::new(),
-                incumbent_samples: Vec::new(),
-                campaign_ratios: Vec::new(),
-            });
-        }
-    }
-    (
-        SpatialWitness {
-            cells: witness_cells,
-            campaigns: 1,
-            warmup: 1,
-            samples: 1,
-        },
-        Campaign { cells, pairs },
-    )
-}
-
-/// The registered `matrix.json` `spatial_cells` must equal the harness's required cells, and the
-/// five spatial incumbents must be applicable on every one. A divergence or a demoted incumbent
-/// fails here.
-#[test]
-fn required_spatial_cells_are_registered_and_applicable() {
-    let registered = super::load_registered_spatial_cells().expect("spatial registration parses");
-    assert_eq!(
-        registered.len(),
-        SPATIAL_CELLS.len(),
-        "registered spatial cell count"
-    );
-    let (witness, campaign) = synthetic_spatial_witness_and_campaign();
-    super::validate_spatial_registration(&witness, &campaign)
-        .expect("every required spatial cell is registered with its five incumbents applicable");
-    for &(size, face) in SPATIAL_CELLS.iter() {
-        let id = cell_id(size, face);
-        for &incumbent in SPATIAL_INCUMBENTS.iter() {
-            let pair = campaign
-                .pairs
-                .iter()
-                .find(|p| p.cell_id == id && p.incumbent_id == incumbent)
-                .unwrap_or_else(|| panic!("spatial cell {id} is missing incumbent {incumbent}"));
-            assert!(
-                matches!(pair.applicability, Applicability::Applicable(_)),
-                "spatial cell {id} incumbent {incumbent} must be applicable"
-            );
-        }
-    }
-}
-
-/// A required spatial cell absent from the run is rejected by name. The `matrix.json` registration
-/// counterpart — a measured cell absent from the registration — is the byte-identical delete
-/// control; this test covers the symmetric direction the unit harness can construct.
-#[test]
-fn registered_spatial_cell_absent_from_run_is_rejected_by_name() {
-    let (witness, campaign) = synthetic_spatial_witness_and_campaign();
-    super::validate_spatial_registration(&witness, &campaign)
-        .expect("the full synthetic spatial registration passes");
-    let removed = witness.cells[0].cell_id.clone();
-    let mut shortened = witness;
-    shortened.cells.retain(|cell| cell.cell_id != removed);
-    let error = super::validate_spatial_registration(&shortened, &campaign)
-        .expect_err("a registered cell absent from the run must reject");
-    assert!(
-        error.contains(&removed),
-        "rejection must name the absent cell {removed}: {error}"
-    );
 }

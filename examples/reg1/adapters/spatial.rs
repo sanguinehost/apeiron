@@ -3,11 +3,19 @@
 //! This module measures the parallel/spatial face that the design notes names as
 //! load-bearing: `hashtrinity::FreqMap::count_par` + `get_each`, `hashbrown` + `rayon`, and the
 //! 16-worker sharded `HashMap` arms with `foldhash` and `fxhash`. It reproduces the registered
-//! `historical_spatial_parallel` workload exactly — the `71942db` `scene(n)` generator, the
+//! `historical_spatial_parallel` workload — the `71942db` `scene(n)` generator, the
 //! `(i21,i21,i21)::packed()` packing and the build+probe timed region — so the incumbents are
 //! measured on the same key population and the same timed region as the registered spatial cells.
-//! Both registered key faces are measured: the injective packed `u64` face and the historical
-//! `(i32,i32,i32)` tuple face, whose `(a·PHI ^ b)·PHI ^ c` fold collides on signed coordinates.
+//!
+//! Two key faces are measured on every registered scene size. The **packed** face is the exact
+//! `(i21,i21,i21)::packed()` word: injective, and the face the selected `apeiron::Table` keys on.
+//! The **tuple** face is `(i32,i32,i32)` keys straight from the scene — the path whose fold
+//! collides (the `historical_spatial_parallel` `hashtrinity_tuple` arm off by 92 at `n=100000` and
+//! 8236 at `n=1000000`). On the tuple face `hashtrinity_count_par`/`get_each` run hashtrinity's
+//! lossy tuple `Coord` and are registered as colliding arms; the exact arms (`hashbrown_rayon`,
+//! the two sharded hashers) and the selected table retain full-key identity on the same tuples.
+//! A registered colliding arm's digest is recorded and carried into the acceptance pair, which then
+//! fails its oracle check; the ratio bound `selected/incumbent <= 1.00` is unchanged.
 //!
 //! The selected implementation is the current executing `apeiron::Table` used as a counter (one
 //! increment per entity, then a probe of the occupied cells). The independent oracle is a
@@ -27,7 +35,7 @@
 )]
 
 use std::collections::HashMap as StdHashMap;
-use std::hash::BuildHasher;
+use std::hash::{BuildHasher, Hash};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -37,58 +45,56 @@ use apeiron::table::Home;
 use crate::matrix::{cpu_model, maximum, median, minimum, ratio, Profile};
 use crate::strata::{fold, nanos_since, StrataHome, StrataKey, StrataWitness, FNV_OFFSET, SHARDS};
 
-/// The two registered key faces of the `71942db` spatial workload.
+/// A scene key before packing: the signed world cell the `71942db` scene emits.
+type TupleKey = (i32, i32, i32);
+
+/// Which representation of the scene key a spatial cell measures.
+///
+/// `Packed` is the exact `(i21,i21,i21)::packed()` word. `Tuple` is the raw `(i32,i32,i32)` key,
+/// the representation whose hashtrinity fold collides.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum KeyFace {
-    /// The injective packed `i21` key: `matrix.json` `spatial-scene-clustered-cells-packed`.
+    /// The packed `u64` word.
     Packed,
-    /// The historical `(i32,i32,i32)` tuple folded to `u64`:
-    /// `matrix.json` `spatial-scene-clustered-cells-tuple`. The fold `(a·PHI ^ b)·PHI ^ c` xors its
-    /// last component in with no mixing after it, so on signed coordinates it collides — the path
-    /// whose fold collides.
-    TupleFold,
+    /// The `(i32,i32,i32)` tuple.
+    Tuple,
 }
 
 impl KeyFace {
-    /// The face's report name.
+    /// The face's report name, and the `key_face` it registers under in `matrix.json`.
     pub(crate) fn name(self) -> &'static str {
         match self {
             KeyFace::Packed => "packed",
-            KeyFace::TupleFold => "tuple",
+            KeyFace::Tuple => "tuple",
         }
     }
 
-    /// The `matrix.json` workload this face measures.
-    pub(crate) fn workload(self) -> &'static str {
+    /// The cell-id suffix that distinguishes the face: the packed face keeps the historical
+    /// `spatial/n{size}` id.
+    fn suffix(self) -> &'static str {
         match self {
-            KeyFace::Packed => "spatial-scene-clustered-cells-packed",
-            KeyFace::TupleFold => "spatial-scene-clustered-cells-tuple",
+            KeyFace::Packed => "",
+            KeyFace::Tuple => "-tuple",
         }
     }
 }
 
-/// The required spatial cells: every registered scene size on both key faces, in report order. The
-/// packed `n100000`/`n1000000` cells keep their historical `spatial/n{size}` ids; the tuple cells
-/// are `spatial/tuple/n{size}`. Every cell here is load-bearing for the five spatial incumbents and
-/// is registered in `matrix.json` `spatial_cells`.
-pub(crate) const SPATIAL_CELLS: [(usize, KeyFace); 8] = [
+/// The registered spatial cells: every scene size on every key face. `matrix.json`'s `spatial_cells`
+/// registry and the `registration_tests` contract require exactly this set; `measure` produces it.
+pub(crate) const SPATIAL_CELLS: [(usize, KeyFace); 12] = [
     (1_000, KeyFace::Packed),
-    (1_000, KeyFace::TupleFold),
+    (5_000, KeyFace::Packed),
     (10_000, KeyFace::Packed),
-    (10_000, KeyFace::TupleFold),
+    (50_000, KeyFace::Packed),
     (100_000, KeyFace::Packed),
-    (100_000, KeyFace::TupleFold),
     (1_000_000, KeyFace::Packed),
-    (1_000_000, KeyFace::TupleFold),
+    (1_000, KeyFace::Tuple),
+    (5_000, KeyFace::Tuple),
+    (10_000, KeyFace::Tuple),
+    (50_000, KeyFace::Tuple),
+    (100_000, KeyFace::Tuple),
+    (1_000_000, KeyFace::Tuple),
 ];
-
-/// The stable cell id for a `(size, face)` pair.
-pub(crate) fn cell_id(size: usize, face: KeyFace) -> String {
-    match face {
-        KeyFace::Packed => format!("spatial/n{size}"),
-        KeyFace::TupleFold => format!("spatial/tuple/n{size}"),
-    }
-}
 
 /// The `71942db` scene seed and cell size.
 const SCENE_SEED: u64 = 0x243F_6A88_85A3_08D3;
@@ -140,7 +146,8 @@ pub(crate) struct SpatialOutcome {
     pub(crate) selected_samples: Vec<u64>,
     /// The per-campaign `selected/incumbent` ratios.
     pub(crate) campaign_ratios: Vec<f64>,
-    /// Whether every sample's digest equalled the spatial oracle digest.
+    /// Whether every sample's digest equalled the spatial oracle digest, or this arm is a
+    /// registered colliding arm on the tuple face.
     pub(crate) digest_ok: bool,
     /// Whether the width-matched selected samples equalled the same oracle digest.
     pub(crate) selected_digest_ok: bool,
@@ -150,14 +157,12 @@ pub(crate) struct SpatialOutcome {
     pub(crate) policy: WorkerPolicy,
 }
 
-/// One spatial cell: the selected implementation and every adapter on one packed scene size.
+/// One spatial cell: the selected implementation and every adapter on one scene size and key face.
 pub(crate) struct SpatialCell {
-    /// The stable cell identifier, e.g. `spatial/n100000` or `spatial/tuple/n100000`.
+    /// The stable cell identifier, e.g. `spatial/n100000` or `spatial/n10000-tuple`.
     pub(crate) cell_id: String,
-    /// The `matrix.json` workload key this cell measures.
-    pub(crate) workload: &'static str,
-    /// The key face's report name (`packed` or `tuple`).
-    pub(crate) key_face: &'static str,
+    /// The key face this cell measures.
+    pub(crate) key_face: KeyFace,
     /// The packed scene size.
     pub(crate) population: usize,
     /// The probe count (the occupied cells).
@@ -170,7 +175,7 @@ pub(crate) struct SpatialCell {
 
 /// The complete spatial enumeration.
 pub(crate) struct SpatialWitness {
-    /// One cell per registered spatial size.
+    /// One cell per registered `(scene size, key face)`.
     pub(crate) cells: Vec<SpatialCell>,
     /// Campaigns, warmup traces and samples per campaign (shared with the strata protocol).
     pub(crate) campaigns: u32,
@@ -178,13 +183,13 @@ pub(crate) struct SpatialWitness {
     pub(crate) samples: u32,
 }
 
-/// The adapter functions in report order: `(id, run)`.
-const ARMS: [(&str, ArmFn); 5] = [
-    ("hashtrinity_count_par", arm_count_par),
-    ("hashtrinity_get_each", arm_get_each),
-    ("hashbrown_rayon", arm_hashbrown_rayon),
-    ("foldhash_par16", arm_foldhash_par16),
-    ("fxhash_par16", arm_fxhash_par16),
+/// The adapter ids in report order.
+const ARMS: [&str; 5] = [
+    "hashtrinity_count_par",
+    "hashtrinity_get_each",
+    "hashbrown_rayon",
+    "foldhash_par16",
+    "fxhash_par16",
 ];
 
 /// One arm's run result.
@@ -193,9 +198,6 @@ struct ArmResult {
     nanos: u64,
     policy: WorkerPolicy,
 }
-
-/// The run signature shared by every adapter.
-type ArmFn = fn(&[u64], &[u64], Corruption) -> ArmResult;
 
 /// The in-memory corruption a control applies. `None` is the real run.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -207,6 +209,26 @@ enum Corruption {
     Routing,
     /// The reported worker width is wrong.
     Width,
+}
+
+/// Whether `id` is a registered colliding arm on `face`.
+///
+/// On the tuple face `hashtrinity_count_par` and `hashtrinity_get_each` run hashtrinity's lossy
+/// tuple `Coord` (`(a*PHI ^ b)*PHI ^ c`), which maps distinct tuples onto one address; the
+/// `71942db` bench records the resulting count off by 92 at `n=100000`. Their digest is recorded,
+/// not asserted; the pair fails its oracle check downstream. Every other arm on every face must
+/// match the oracle, and the selected side always must.
+fn is_registered_collision(face: KeyFace, id: &str) -> bool {
+    face == KeyFace::Tuple && matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each")
+}
+
+/// The per-face, per-arm inputs of one (possibly corrupted) run.
+struct Prepared<'a> {
+    face: KeyFace,
+    packed_keys: &'a [u64],
+    packed_probe: &'a [u64],
+    tuple_keys: &'a [TupleKey],
+    tuple_probe: &'a [TupleKey],
 }
 
 /// A deterministic xorshift scene generator, copied from `71942db:benches/spatial_binning.rs`.
@@ -263,39 +285,6 @@ fn pack(k: (i32, i32, i32)) -> u64 {
         .packed()
 }
 
-/// The historical tuple-fold key: `(a·PHI ^ b)·PHI ^ c` over the sign-extended components.
-///
-/// This is the `71942db` tuple path named `spatial-scene-clustered-cells-tuple`. The xor of the
-/// last component has no mixing after it, so distinct signed cells collapse onto one word; the
-/// packed face is injective on the same scene. Measured on the registered scene at `n1000000`:
-/// 993259 distinct packed cells versus 989181 distinct tuple-fold keys.
-fn tuple_fold(k: (i32, i32, i32)) -> u64 {
-    let a = i64::from(k.0).cast_unsigned();
-    let b = i64::from(k.1).cast_unsigned();
-    let c = i64::from(k.2).cast_unsigned();
-    (a.wrapping_mul(hashtrinity::PHI) ^ b).wrapping_mul(hashtrinity::PHI) ^ c
-}
-
-/// One scene cell's key on the chosen face.
-fn face_key(k: (i32, i32, i32), face: KeyFace) -> u64 {
-    match face {
-        KeyFace::Packed => pack(k),
-        KeyFace::TupleFold => tuple_fold(k),
-    }
-}
-
-/// The scene keys and the occupied-cell probe set on the chosen key face.
-fn spatial_input(n: usize, face: KeyFace) -> (Vec<u64>, Vec<u64>) {
-    let keys = scene(n);
-    let mut occupied = keys.clone();
-    occupied.sort_unstable();
-    occupied.dedup();
-    (
-        keys.iter().map(|&k| face_key(k, face)).collect(),
-        occupied.iter().map(|&k| face_key(k, face)).collect(),
-    )
-}
-
 /// `count_par`'s home bucket, mirroring its private `BBITS`.
 fn ht_home(k: u64) -> usize {
     #[allow(
@@ -321,6 +310,21 @@ fn ht_home_wrong(k: u64) -> usize {
 /// The independent count oracle: count every packed key, then fold the probe counts in query order.
 fn oracle_digest(keys: &[u64], probe: &[u64]) -> u64 {
     let mut counts: StdHashMap<u64, i64> = StdHashMap::with_capacity(keys.len());
+    for &k in keys {
+        *counts.entry(k).or_insert(0) += 1;
+    }
+    let mut hash = FNV_OFFSET;
+    for &k in probe {
+        fold(&mut hash, counts.get(&k).copied().unwrap_or(0));
+    }
+    hash
+}
+
+/// The independent tuple-face oracle: count every `(i32,i32,i32)` key, then fold the probe counts
+/// in query order. Distinct from [`oracle_digest`] only in the key type; it is the exact answer the
+/// colliding hashtrinity tuple fold cannot reproduce.
+fn oracle_digest_tuple(keys: &[TupleKey], probe: &[TupleKey]) -> u64 {
+    let mut counts: StdHashMap<TupleKey, i64> = StdHashMap::with_capacity(keys.len());
     for &k in keys {
         *counts.entry(k).or_insert(0) += 1;
     }
@@ -401,9 +405,9 @@ fn run_selected_at_width(keys: &[u64], probe: &[u64], workers: usize) -> ArmResu
     }
 }
 
-/// The hashtrinity count face: `count_par` partitions and counts, then a grouped `get_each` probes
-/// one map per home bucket. The grouped readback restores the original query order before the
-/// order-sensitive fold.
+/// The packed hashtrinity count face: `count_par` partitions and counts, then a grouped `get_each`
+/// probes one map per home bucket. The grouped readback restores the original query order before
+/// the order-sensitive fold.
 fn run_count_par(keys: &[u64], probe: &[u64], corruption: Corruption) -> ArmResult {
     let pool = hashtrinity::par::Pool::global();
     let width = pool.width();
@@ -456,20 +460,82 @@ fn run_count_par(keys: &[u64], probe: &[u64], corruption: Corruption) -> ArmResu
     }
 }
 
-/// `count_par` is the build/partition component of the same combined arm; the reported policy is
-/// the build's pool.
-fn arm_count_par(keys: &[u64], probe: &[u64], corruption: Corruption) -> ArmResult {
-    run_count_par(keys, probe, corruption)
+/// The tuple hashtrinity count face: identical shape to [`run_count_par`] but routing by
+/// hashtrinity's lossy tuple `Coord`. Distinct tuples that share a `Coord` merge in `count_par`
+/// and probe as one, so the digest differs from the exact oracle wherever the fold collides.
+fn run_count_par_tuple(keys: &[TupleKey], probe: &[TupleKey], corruption: Corruption) -> ArmResult {
+    use hashtrinity::Coord as HtCoord;
+    let pool = hashtrinity::par::Pool::global();
+    let width = pool.width();
+    let start = Instant::now();
+    let maps = hashtrinity::FreqMap::<TupleKey, i64>::count_par(keys);
+    let mut out = vec![0i64; probe.len()];
+    if maps.len() == 1 {
+        let mut i = 0usize;
+        maps[0].get_each(probe, |_, v| {
+            out[i] = v.copied().unwrap_or(0);
+            i += 1;
+        });
+    } else {
+        let route = |k: &TupleKey| {
+            let c = HtCoord::coord(k);
+            if corruption == Corruption::Routing {
+                ht_home_wrong(c)
+            } else {
+                ht_home(c)
+            }
+        };
+        let mut by_bucket: Vec<Vec<usize>> = vec![Vec::new(); maps.len()];
+        for (i, k) in probe.iter().enumerate() {
+            by_bucket[route(k)].push(i);
+        }
+        for (m, idxs) in maps.iter().zip(by_bucket.iter()) {
+            let ks: Vec<TupleKey> = idxs.iter().map(|&i| probe[i]).collect();
+            let mut j = 0usize;
+            m.get_each(&ks, |_, v| {
+                out[idxs[j]] = v.copied().unwrap_or(0);
+                j += 1;
+            });
+        }
+    }
+    let mut hash = FNV_OFFSET;
+    for &v in &out {
+        fold(&mut hash, v);
+    }
+    let serial_fallback = width <= 1 || keys.len() < (1 << 15);
+    ArmResult {
+        digest: hash,
+        nanos: nanos_since(start),
+        policy: WorkerPolicy {
+            workers: if serial_fallback { 1 } else { width },
+            serial_fallback,
+            note: format!(
+                "hashtrinity tuple Coord fold; par::Pool::global().width()={width}; count_par serial \
+                 fallback below 2^15={serial_fallback}"
+            ),
+        },
+    }
 }
 
-/// `get_each` is the probe component of the same combined arm; the reported policy is the
-/// single-core pipelined probe.
+/// `hashtrinity_get_each` is the probe component of the packed combined arm; the reported policy is
+/// the single-core pipelined probe.
 fn arm_get_each(keys: &[u64], probe: &[u64], corruption: Corruption) -> ArmResult {
     let mut result = run_count_par(keys, probe, corruption);
     result.policy = WorkerPolicy {
         workers: 1,
         serial_fallback: false,
         note: "hashtrinity get_each single-core pipelined probe (P=16)".to_string(),
+    };
+    result
+}
+
+/// The tuple-face `get_each`: the probe component of the tuple combined arm.
+fn arm_get_each_tuple(keys: &[TupleKey], probe: &[TupleKey], corruption: Corruption) -> ArmResult {
+    let mut result = run_count_par_tuple(keys, probe, corruption);
+    result.policy = WorkerPolicy {
+        workers: 1,
+        serial_fallback: false,
+        note: "hashtrinity tuple get_each single-core pipelined probe (P=16)".to_string(),
     };
     result
 }
@@ -502,6 +568,44 @@ fn arm_hashbrown_rayon(keys: &[u64], probe: &[u64], _corruption: Corruption) -> 
             serial_fallback: false,
             note: format!(
                 "rayon global pool, current_num_threads()={}",
+                rayon::current_num_threads()
+            ),
+        },
+    }
+}
+
+/// The tuple-face `hashbrown` + `rayon`: the same exact-key reduce on `(i32,i32,i32)` keys.
+fn arm_hashbrown_rayon_tuple(
+    keys: &[TupleKey],
+    probe: &[TupleKey],
+    _corruption: Corruption,
+) -> ArmResult {
+    use rayon::prelude::*;
+    let start = Instant::now();
+    let map = keys
+        .par_iter()
+        .fold(hashbrown::HashMap::<TupleKey, i64>::new, |mut acc, &k| {
+            *acc.entry(k).or_insert(0) += 1;
+            acc
+        })
+        .reduce(hashbrown::HashMap::<TupleKey, i64>::new, |mut a, b| {
+            for (k, v) in b {
+                *a.entry(k).or_insert(0) += v;
+            }
+            a
+        });
+    let mut hash = FNV_OFFSET;
+    for &k in probe {
+        fold(&mut hash, map.get(&k).copied().unwrap_or(0));
+    }
+    ArmResult {
+        digest: hash,
+        nanos: nanos_since(start),
+        policy: WorkerPolicy {
+            workers: rayon::current_num_threads(),
+            serial_fallback: false,
+            note: format!(
+                "rayon global pool exact tuple map, current_num_threads()={}",
                 rayon::current_num_threads()
             ),
         },
@@ -568,31 +672,38 @@ impl<K: Copy + Default + Send + Sync> Runs<K> {
     }
 }
 
+/// The apeiron home shard of a packed key, shared by the packed and tuple sharded arms.
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the sharded arms call the shard function as `Fn(&K) -> usize`, so it takes the key by \
+              reference to match that signature"
+)]
+fn packed_shard(k: &u64) -> usize {
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the residue is below 256, so the result fits usize"
+    )]
+    {
+        (Home::home(&StrataHome, &StrataKey { tag: *k }) % SHARDS as u64) as usize
+    }
+}
+
+/// The apeiron home shard of a tuple key: the exact packed bijection, then the packed shard.
+fn tuple_shard(k: &TupleKey) -> usize {
+    packed_shard(&pack(*k))
+}
+
 /// Any `HashMap` sharded and threaded exactly as the historical arm is: keys partitioned in
 /// parallel by the apeiron home shard, one map per shard, workers owning disjoint shards, probes
 /// grouped the same way. The grouped readback restores the original query order before the fold.
-fn sharded_16<S: BuildHasher + Default + Send + Sync>(keys: &[u64], probe: &[u64]) -> u64 {
-    let shard_of = |k: &u64| -> usize {
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "the residue is below 256, so the result fits usize"
-        )]
-        {
-            (Home::home(&StrataHome, &StrataKey { tag: *k }) % SHARDS as u64) as usize
-        }
-    };
-    let indexed: Vec<(usize, u64)> = probe.iter().copied().enumerate().collect();
-    let shard_of_indexed = |p: &(usize, u64)| -> usize {
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "the residue is below 256, so the result fits usize"
-        )]
-        {
-            (Home::home(&StrataHome, &StrataKey { tag: p.1 }) % SHARDS as u64) as usize
-        }
-    };
-    let kb = Runs::of(keys, &shard_of, PAR16_WORKERS);
-    let pb = Runs::of(&indexed, &shard_of_indexed, PAR16_WORKERS);
+fn sharded_16<K, S>(keys: &[K], probe: &[K], shard: impl Fn(&K) -> usize + Sync) -> u64
+where
+    K: Copy + Default + Send + Sync + Eq + Hash,
+    S: BuildHasher + Default + Send + Sync,
+{
+    let indexed: Vec<(usize, K)> = probe.iter().copied().enumerate().collect();
+    let kb = Runs::of(keys, &shard, PAR16_WORKERS);
+    let pb = Runs::of(&indexed, &|p: &(usize, K)| shard(&p.1), PAR16_WORKERS);
     let chunk = SHARDS.div_ceil(PAR16_WORKERS);
     let partials: Vec<Vec<(usize, i64)>> = std::thread::scope(|scope| {
         let mut handles = Vec::new();
@@ -602,7 +713,7 @@ fn sharded_16<S: BuildHasher + Default + Send + Sync>(keys: &[u64], probe: &[u64
             handles.push(scope.spawn(move || {
                 let mut local: Vec<(usize, i64)> = Vec::new();
                 for s in g..hi {
-                    let mut m: hashbrown::HashMap<u64, i64, S> = hashbrown::HashMap::default();
+                    let mut m: hashbrown::HashMap<K, i64, S> = hashbrown::HashMap::default();
                     for run in kb.runs(s) {
                         for k in run {
                             *m.entry(*k).or_insert(0) += 1;
@@ -632,10 +743,10 @@ fn sharded_16<S: BuildHasher + Default + Send + Sync>(keys: &[u64], probe: &[u64
     hash
 }
 
-/// The 16-worker `foldhash` bulk arm.
+/// The packed 16-worker `foldhash` bulk arm.
 fn arm_foldhash_par16(keys: &[u64], probe: &[u64], _corruption: Corruption) -> ArmResult {
     let start = Instant::now();
-    let digest = sharded_16::<foldhash::fast::RandomState>(keys, probe);
+    let digest = sharded_16::<u64, foldhash::fast::RandomState>(keys, probe, packed_shard);
     ArmResult {
         digest,
         nanos: nanos_since(start),
@@ -647,10 +758,10 @@ fn arm_foldhash_par16(keys: &[u64], probe: &[u64], _corruption: Corruption) -> A
     }
 }
 
-/// The 16-worker `fxhash` bulk arm.
+/// The packed 16-worker `fxhash` bulk arm.
 fn arm_fxhash_par16(keys: &[u64], probe: &[u64], _corruption: Corruption) -> ArmResult {
     let start = Instant::now();
-    let digest = sharded_16::<fxhash::FxBuildHasher>(keys, probe);
+    let digest = sharded_16::<u64, fxhash::FxBuildHasher>(keys, probe, packed_shard);
     ArmResult {
         digest,
         nanos: nanos_since(start),
@@ -662,22 +773,88 @@ fn arm_fxhash_par16(keys: &[u64], probe: &[u64], _corruption: Corruption) -> Arm
     }
 }
 
-/// The input the control runs: the real packed keys, corrupted when the control asks.
-fn corrupted_input(keys: &[u64], probe: &[u64], corruption: Corruption) -> (Vec<u64>, Vec<u64>) {
-    if corruption == Corruption::Input {
-        // Drop one packed entity: the selected and every adapter see a different count.
-        let mut work = keys.to_vec();
-        if !work.is_empty() {
-            work.pop();
+/// The tuple 16-worker `foldhash` bulk arm: exact tuple keys, sharded by the packed bijection.
+fn arm_foldhash_par16_tuple(
+    keys: &[TupleKey],
+    probe: &[TupleKey],
+    _corruption: Corruption,
+) -> ArmResult {
+    let start = Instant::now();
+    let digest = sharded_16::<TupleKey, foldhash::fast::RandomState>(keys, probe, tuple_shard);
+    ArmResult {
+        digest,
+        nanos: nanos_since(start),
+        policy: WorkerPolicy {
+            workers: PAR16_WORKERS,
+            serial_fallback: false,
+            note: format!(
+                "{PAR16_WORKERS} std::thread::scope workers, foldhash sharded over tuple keys"
+            ),
+        },
+    }
+}
+
+/// The tuple 16-worker `fxhash` bulk arm.
+fn arm_fxhash_par16_tuple(
+    keys: &[TupleKey],
+    probe: &[TupleKey],
+    _corruption: Corruption,
+) -> ArmResult {
+    let start = Instant::now();
+    let digest = sharded_16::<TupleKey, fxhash::FxBuildHasher>(keys, probe, tuple_shard);
+    ArmResult {
+        digest,
+        nanos: nanos_since(start),
+        policy: WorkerPolicy {
+            workers: PAR16_WORKERS,
+            serial_fallback: false,
+            note: format!(
+                "{PAR16_WORKERS} std::thread::scope workers, fxhash sharded over tuple keys"
+            ),
+        },
+    }
+}
+
+/// Dispatch one arm on the cell's key face.
+fn run_arm(id: &str, p: &Prepared<'_>, corruption: Corruption) -> ArmResult {
+    match (id, p.face) {
+        ("hashtrinity_count_par", KeyFace::Packed) => {
+            run_count_par(p.packed_keys, p.packed_probe, corruption)
         }
-        (work, probe.to_vec())
-    } else {
-        (keys.to_vec(), probe.to_vec())
+        ("hashtrinity_count_par", KeyFace::Tuple) => {
+            run_count_par_tuple(p.tuple_keys, p.tuple_probe, corruption)
+        }
+        ("hashtrinity_get_each", KeyFace::Packed) => {
+            arm_get_each(p.packed_keys, p.packed_probe, corruption)
+        }
+        ("hashtrinity_get_each", KeyFace::Tuple) => {
+            arm_get_each_tuple(p.tuple_keys, p.tuple_probe, corruption)
+        }
+        ("hashbrown_rayon", KeyFace::Packed) => {
+            arm_hashbrown_rayon(p.packed_keys, p.packed_probe, corruption)
+        }
+        ("hashbrown_rayon", KeyFace::Tuple) => {
+            arm_hashbrown_rayon_tuple(p.tuple_keys, p.tuple_probe, corruption)
+        }
+        ("foldhash_par16", KeyFace::Packed) => {
+            arm_foldhash_par16(p.packed_keys, p.packed_probe, corruption)
+        }
+        ("foldhash_par16", KeyFace::Tuple) => {
+            arm_foldhash_par16_tuple(p.tuple_keys, p.tuple_probe, corruption)
+        }
+        ("fxhash_par16", KeyFace::Packed) => {
+            arm_fxhash_par16(p.packed_keys, p.packed_probe, corruption)
+        }
+        ("fxhash_par16", KeyFace::Tuple) => {
+            arm_fxhash_par16_tuple(p.tuple_keys, p.tuple_probe, corruption)
+        }
+        (other, _) => unreachable!("unregistered spatial arm {other}"),
     }
 }
 
 /// Run one spatial cell: warm up and sample each incumbent with a selected run at that incumbent's
-/// reported width. Every selected and incumbent digest must equal the independent oracle.
+/// reported width. Every selected and incumbent digest must equal the independent oracle, except a
+/// registered colliding tuple arm, whose mismatch is recorded and carried into acceptance.
 #[allow(
     clippy::too_many_lines,
     reason = "one cell's warmup, sampling and per-arm digest verdict are one unit"
@@ -690,9 +867,35 @@ fn run_cell(
     samples: u32,
     corruption: Corruption,
 ) -> SpatialCell {
-    let (keys, probe) = spatial_input(size, face);
-    let oracle = oracle_digest(&keys, &probe);
-    let (work_keys, work_probe) = corrupted_input(&keys, &probe, corruption);
+    let tuples = scene(size);
+    let mut occupied = tuples.clone();
+    occupied.sort_unstable();
+    occupied.dedup();
+    let packed_probe: Vec<u64> = occupied.iter().map(|&k| pack(k)).collect();
+    let oracle = match face {
+        KeyFace::Packed => {
+            let packed_keys: Vec<u64> = tuples.iter().map(|&k| pack(k)).collect();
+            oracle_digest(&packed_keys, &packed_probe)
+        }
+        KeyFace::Tuple => oracle_digest_tuple(&tuples, &occupied),
+    };
+    let mut work_tuples = tuples.clone();
+    if corruption == Corruption::Input && !work_tuples.is_empty() {
+        // Drop one packed entity: the selected and every adapter see a different count.
+        work_tuples.pop();
+    }
+    let work_keys: Vec<u64> = work_tuples.iter().map(|&k| pack(k)).collect();
+    let (tuple_keys, tuple_probe): (&[TupleKey], &[TupleKey]) = match face {
+        KeyFace::Tuple => (&work_tuples, &occupied),
+        KeyFace::Packed => (&[], &[]),
+    };
+    let prepared = Prepared {
+        face,
+        packed_keys: &work_keys,
+        packed_probe: &packed_probe,
+        tuple_keys,
+        tuple_probe,
+    };
 
     let mut arm_samples: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
     let mut selected_samples: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
@@ -704,19 +907,19 @@ fn run_cell(
 
     for _ in 0..campaigns {
         for _ in 0..warmup {
-            for (_, run) in ARMS {
-                let incumbent = run(&work_keys, &work_probe, corruption);
-                let _ = run_selected_at_width(&work_keys, &work_probe, incumbent.policy.workers);
+            for id in ARMS {
+                let incumbent = run_arm(id, &prepared, corruption);
+                let _ = run_selected_at_width(&work_keys, &packed_probe, incumbent.policy.workers);
             }
         }
         let mut arm_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
         let mut selected_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
         for _ in 0..samples {
-            for (i, (_, run)) in ARMS.iter().enumerate() {
-                let result = run(&work_keys, &work_probe, corruption);
+            for (i, id) in ARMS.iter().enumerate() {
+                let result = run_arm(id, &prepared, corruption);
                 arm_digest_ok[i] &= result.digest == oracle;
                 let selected =
-                    run_selected_at_width(&work_keys, &work_probe, result.policy.workers);
+                    run_selected_at_width(&work_keys, &packed_probe, result.policy.workers);
                 selected_digest_ok[i] &= selected.digest == oracle;
                 arm_policy[i] = Some(result.policy);
                 selected_policy[i] = Some(selected.policy);
@@ -735,7 +938,7 @@ fn run_cell(
     }
 
     let mut outcomes: Vec<SpatialOutcome> = Vec::with_capacity(ARMS.len());
-    for (i, (id, _)) in ARMS.iter().enumerate() {
+    for (i, id) in ARMS.iter().enumerate() {
         let mut policy = arm_policy[i].clone().unwrap_or_else(|| WorkerPolicy {
             workers: 0,
             serial_fallback: false,
@@ -761,17 +964,16 @@ fn run_cell(
     }
 
     SpatialCell {
-        cell_id: cell_id(size, face),
-        workload: face.workload(),
-        key_face: face.name(),
-        population: keys.len(),
-        ops: probe.len(),
+        cell_id: format!("spatial/n{size}{}", face.suffix()),
+        key_face: face,
+        population: work_tuples.len(),
+        ops: packed_probe.len(),
         oracle_digest: oracle,
         outcomes,
     }
 }
 
-/// Run the registered spatial workload at the profile's campaign/sample counts.
+/// Run the registered packed and tuple spatial workloads at the profile's campaign/sample counts.
 pub(crate) fn measure(strata: &StrataWitness) -> SpatialWitness {
     let cells = SPATIAL_CELLS
         .iter()
@@ -797,6 +999,10 @@ pub(crate) fn measure(strata: &StrataWitness) -> SpatialWitness {
 /// Validate the spatial witness: the selected implementation and every adapter agree with the
 /// oracle, every sample set is non-empty and non-zero, every ratio interval is finite, and every
 /// reported worker policy matches the arm's actual mechanism.
+///
+/// A registered colliding tuple arm is exempt from the digest equality only; its result is recorded
+/// and carried into the per-pair acceptance decision, where a mismatch fails the pair. Every other
+/// arm on every face, and the selected side always, must match the oracle.
 ///
 /// # Errors
 /// Returns a description of the first missing digest, empty/zero sample, non-finite ratio or wrong
@@ -826,7 +1032,7 @@ pub(crate) fn validate(w: &SpatialWitness) -> Result<(), String> {
             ));
         }
         for outcome in &cell.outcomes {
-            if !outcome.digest_ok {
+            if !outcome.digest_ok && !is_registered_collision(cell.key_face, outcome.id) {
                 return Err(format!(
                     "spatial cell {} adapter {} disagrees with the oracle",
                     cell.cell_id, outcome.id
@@ -925,10 +1131,10 @@ fn interval(values: &[f64]) -> (f64, f64) {
 /// metric and interval are printed with the numbers; the worker policy is the actual mechanism.
 pub(crate) fn print(w: &SpatialWitness) {
     println!(
-        "spatial_protocol workload=\"71942db scene(n) packed u64 and tuple-fold u64, build+probe\" \
-         cells={} campaigns={} warmup={} samples={} metric=elapsed_ns_median cpu=\"{}\" \
-         oracle=std::HashMap count folded in query order",
-        w.cells.len(),
+        "spatial_protocol workload=\"71942db scene(n) packed u64 and (i32,i32,i32) tuple keys, \
+         build+probe\" cells={:?} campaigns={} warmup={} samples={} metric=elapsed_ns_median \
+         cpu=\"{}\" oracle=std::HashMap count folded in query order",
+        SPATIAL_CELLS,
         w.campaigns,
         w.warmup,
         w.samples,
@@ -940,13 +1146,12 @@ pub(crate) fn print(w: &SpatialWitness) {
             let med = median(&outcome.samples);
             let (r_lo, r_hi) = interval(&outcome.campaign_ratios);
             println!(
-                "spatial cell={} workload={} key_face={} population={} ops={} oracle_digest={:016x} incumbent={} selected_median_ns={sel_median} \
+                "spatial cell={} key_face={} population={} ops={} oracle_digest={:016x} incumbent={} selected_median_ns={sel_median} \
                   incumbent_median_ns={med} incumbent_interval_ns=[{},{}] ratio={:.4} \
                   ratio_interval=[{r_lo:.4},{r_hi:.4}] selected_digest_ok={} digest_ok={} sel_workers={} \
                   inc_workers={} sample_basis={} policy=\"{}\"",
                 cell.cell_id,
-                cell.workload,
-                cell.key_face,
+                cell.key_face.name(),
                 cell.population,
                 cell.ops,
                 cell.oracle_digest,
@@ -965,7 +1170,84 @@ pub(crate) fn print(w: &SpatialWitness) {
     }
 }
 
-/// Build the control witness for `name`, applying exactly one corruption.
+/// The registered comparison matrix, embedded so the acceptance gate reads the compiled contract.
+const MATRIX_JSON: &str = include_str!("../matrix.json");
+
+/// One registered spatial comparator cell: the key face the acceptance run must measure.
+struct SpatialCellRegistration {
+    id: String,
+    key_face: String,
+}
+
+/// Load the registered spatial comparator cells from the embedded matrix.
+fn load_registered_spatial_cells() -> Result<Vec<SpatialCellRegistration>, String> {
+    let root = crate::Reader::new(MATRIX_JSON).parse()?;
+    let obj = root.as_obj()?;
+    let crate::Json::Arr(entries) = crate::field(obj, "spatial_cells")? else {
+        return Err("field spatial_cells: expected array".to_string());
+    };
+    let mut cells = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let fields = entry.as_obj()?;
+        cells.push(SpatialCellRegistration {
+            id: crate::str_field(fields, "id")?,
+            key_face: crate::str_field(fields, "key_face")?,
+        });
+    }
+    Ok(cells)
+}
+
+/// Enforce the registered spatial cells against the measured spatial witness. The registry is
+/// closed in both directions: every registered cell must be measured with the registered key face,
+/// and every measured cell must be registered. A cell deleted from either side rejects by name.
+///
+/// # Errors
+/// Returns a description of the first duplicate, absent, mismatched or unregistered cell. A caller
+/// that observes `Ok(())` has a closed spatial registration, not a spatial acceptance.
+pub(crate) fn validate_registry(w: &SpatialWitness) -> Result<usize, String> {
+    let registered = load_registered_spatial_cells()?;
+    if registered.is_empty() {
+        return Err("spatial_cells registry is empty".to_string());
+    }
+    let mut seen: std::collections::HashSet<&str> =
+        std::collections::HashSet::with_capacity(registered.len());
+    for cell in &registered {
+        if !seen.insert(cell.id.as_str()) {
+            return Err(format!("duplicate registered spatial cell {}", cell.id));
+        }
+        let Some(measured) = w.cells.iter().find(|c| c.cell_id == cell.id) else {
+            return Err(format!(
+                "registered spatial cell {} is absent from the run",
+                cell.id
+            ));
+        };
+        if measured.key_face.name() != cell.key_face {
+            return Err(format!(
+                "registered spatial cell {} key_face {} != measured {}",
+                cell.id,
+                cell.key_face,
+                measured.key_face.name()
+            ));
+        }
+    }
+    for cell in &w.cells {
+        if !seen.contains(cell.cell_id.as_str()) {
+            return Err(format!(
+                "run spatial cell {} is absent from the registration",
+                cell.cell_id
+            ));
+        }
+    }
+    println!(
+        "spatial_registry state=closed registered={} measured={} \
+         source=matrix.json.spatial_cells identity=enforced",
+        registered.len(),
+        w.cells.len()
+    );
+    Ok(registered.len())
+}
+
+/// Build the control witness for `name`, applying exactly one corruption to the packed face.
 fn control_witness(name: &str) -> Result<SpatialWitness, String> {
     let corruption = match name {
         "spatial-wrong-packed-input" => Corruption::Input,
@@ -1005,29 +1287,11 @@ pub(crate) fn run_control_child(name: &str, _profile: Profile) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{pack, scene, tuple_fold, StrataHome, StrataKey};
+    use super::{StrataHome, StrataKey};
     use apeiron::coord::address::{FaceHome, H3_40};
     use apeiron::coord::spread;
     use apeiron::table::Home;
     use apeiron::Sigma;
-
-    /// The tuple face is the colliding path: at the registered `n1000000` scale the `71942db`
-    /// scene has strictly fewer distinct tuple-fold keys than distinct packed keys. A regression
-    /// that made the tuple fold injective would report equal distinct counts and fail here. At
-    /// `n1000000`: packed `993259`, tuple fold `989181`.
-    #[test]
-    fn tuple_fold_collides_on_the_registered_scene() {
-        use std::collections::HashSet;
-        let cells = scene(1_000_000);
-        let packed: HashSet<u64> = cells.iter().map(|&k| pack(k)).collect();
-        let tuple: HashSet<u64> = cells.iter().map(|&k| tuple_fold(k)).collect();
-        assert!(
-            tuple.len() < packed.len(),
-            "the tuple fold must collide on the scene: packed={} tuple={}",
-            packed.len(),
-            tuple.len()
-        );
-    }
 
     /// Audit: the spatial adapter routes by the physical `Home` placement, and the semantic face
     /// map is a separate, face-tagged address.
@@ -1053,5 +1317,112 @@ mod tests {
         assert_eq!(semantic.face(), Sigma::Elliptic);
         assert_eq!(semantic.value().elliptic_word(), Some(key.tag));
         assert_ne!(semantic.value().elliptic_word(), Some(physical.place));
+    }
+}
+
+/// The registration contract: the measured `SPATIAL_CELLS` and `matrix.json`'s `spatial_cells`
+/// registry must agree exactly, in both directions, so a cell deleted from either side rejects by
+/// name. This is the matrix-contract half of the acceptance registration.
+#[cfg(test)]
+mod registration_tests {
+    use super::{KeyFace, MATRIX_JSON, SPATIAL_CELLS};
+    use crate::{field, str_field, Json, Reader};
+
+    /// Parse a spatial cell id back into its `(size, face)`.
+    fn parse_cell_id(id: &str) -> Result<(usize, KeyFace), String> {
+        let rest = id
+            .strip_prefix("spatial/n")
+            .ok_or_else(|| format!("bad spatial cell id {id}"))?;
+        let (size, face) = match rest.strip_suffix("-tuple") {
+            Some(size) => (size, KeyFace::Tuple),
+            None => (rest, KeyFace::Packed),
+        };
+        let size = size
+            .parse::<usize>()
+            .map_err(|_| format!("bad scene size in spatial cell id {id}"))?;
+        Ok((size, face))
+    }
+
+    #[test]
+    fn registered_spatial_cells_match_matrix_registry() {
+        let root = Reader::new(MATRIX_JSON)
+            .parse()
+            .expect("matrix.json parses");
+        let obj = root.as_obj().expect("matrix.json is an object");
+        let Json::Arr(entries) = field(obj, "spatial_cells").expect("spatial_cells array") else {
+            panic!("field spatial_cells: expected array");
+        };
+        let mut registered: Vec<(usize, KeyFace)> = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let e = entry.as_obj().expect("spatial_cells entry is an object");
+            let id = str_field(e, "id").expect("spatial_cells id");
+            let face_name = str_field(e, "key_face").expect("spatial_cells key_face");
+            let (size, face) = parse_cell_id(&id).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                face.name(),
+                face_name,
+                "registered spatial cell {id} key_face {face_name} disagrees with its id"
+            );
+            registered.push((size, face));
+        }
+        // Every registered cell is measured.
+        for cell in &registered {
+            assert!(
+                SPATIAL_CELLS.contains(cell),
+                "registered spatial cell n{} {} is absent from SPATIAL_CELLS",
+                cell.0,
+                cell.1.name()
+            );
+        }
+        // Every measured cell is registered.
+        for cell in &SPATIAL_CELLS {
+            assert!(
+                registered.contains(cell),
+                "measured spatial cell n{} {} is absent from matrix.json spatial_cells",
+                cell.0,
+                cell.1.name()
+            );
+        }
+    }
+
+    /// The registered tuple collision is real: at `n=100000` the hashtrinity tuple fold's digest
+    /// differs from the exact tuple oracle the `71942db` matrix records off by 92. An exemption
+    /// that no collision exercises is vacuous and fails here.
+    #[test]
+    fn tuple_fold_collision_is_real_at_100k() {
+        use super::{oracle_digest_tuple, run_count_par_tuple, scene, Corruption};
+        let n = 100_000usize;
+        let keys = scene(n);
+        let mut probe = keys.clone();
+        probe.sort_unstable();
+        probe.dedup();
+        let oracle = oracle_digest_tuple(&keys, &probe);
+        let folded = run_count_par_tuple(&keys, &probe, Corruption::None);
+        assert_ne!(
+            folded.digest, oracle,
+            "the registered colliding tuple fold matched the exact oracle at n={n}; the \
+             registered-collision exemption is vacuous"
+        );
+    }
+
+    /// The registered `(face, arm)` collision set is exactly the two hashtrinity tuple arms; the
+    /// packed face has no exemptions. A regression that widens or drops the exemption fails here.
+    #[test]
+    fn registered_collisions_are_the_hashtrinity_tuple_arms() {
+        use super::{is_registered_collision, KeyFace, ARMS};
+        for id in ARMS {
+            assert!(
+                !is_registered_collision(KeyFace::Packed, id),
+                "packed face must not exempt {id}"
+            );
+        }
+        for id in ARMS {
+            let expected = matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each");
+            assert_eq!(
+                is_registered_collision(KeyFace::Tuple, id),
+                expected,
+                "tuple face collision registration wrong for {id}"
+            );
+        }
     }
 }
