@@ -2,7 +2,7 @@
 id       = "proof/resource/Capacity_gate.py"
 kind     = "gate"
 path     = "proof/resource/Capacity_gate.py"
-sha256   = "2dfb8a8101554ba8a86b100d1f2e07586bf7a4eb45ce68e02fe5f367db722c9f"
+sha256   = "57cfb588dd3c8dc1fab7ef87ac6242ccb22ac02636f578b1d5185de4eca58b70"
 gate     = "python3 proof/resource/Capacity_gate.py --check"
 control  = "python3 proof/resource/Capacity_gate.py --controls"
 budget_s = 540

@@ -2,7 +2,7 @@
 id       = "proof/resource/CoordFinish_gate.py"
 kind     = "gate"
 path     = "proof/resource/CoordFinish_gate.py"
-sha256   = "727d096bb9e4d8a6546716ba34b892638972428ba7c329ba0dc931c6be91142f"
+sha256   = "c7eedd80eb0cd8b4c6aeb96525a701fa276c2a7b2e45c1639006640c65d3a63c"
 gate     = "python3 proof/resource/CoordFinish_gate.py --check"
 control  = "python3 proof/resource/CoordFinish_gate.py --controls"
 budget_s = 540
