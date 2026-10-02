@@ -1359,11 +1359,7 @@ impl Directory {
 
     /// Appends one default residue record for the selected face.
     fn push_residue_default(&mut self) {
-        let mut word = 0;
-        while word < RESIDUE_STRIDE {
-            self.residue_words.push(NO_CHILD);
-            word += 1;
-        }
+        self.residue_words.extend_from_slice(&[NO_CHILD; 4]);
     }
 
     /// Counts one new node in the selected face's logical arena.
