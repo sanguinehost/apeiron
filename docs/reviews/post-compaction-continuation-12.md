@@ -16,7 +16,7 @@ the record. Live mirror: `/home/socol/oc-tmp/fleet-state.md`; escalation verdict
   130 in no transitive closure**. Receipts: `/home/socol/oc-tmp/slang-complete/receipt.md`,
   `/home/socol/oc-tmp/slang-registry/receipt.md`.
 - Remaining lanes: **apeiron** (corpus + gate machinery), **penglai**, **webfold**, **intent**.
-  Routes: Space Bunny default (`openrouter/stealth/space-bunny-alpha`, free until 2026-10-05),
+  Routes: Space Bunny default (`openrouter/stealth/space-bunny-alpha`, free until 2026-10-05; OpenRouter schedules in UTC - treat 00:00 UTC Oct 5 (11:00 AEDT) as the dispatch boundary, after which gemini-flash is the sanctioned lane),
   `deepseek-flash` on mandatory triggers, `gemini-flash` non-default. Sol:
   `/home/socol/oc-tmp/bin/sol.sh`; LmHead verdicts recorded (`lmhead-row-body-visit-answer.md`,
   `lmhead-row-visit-retirement-answer.md`).
