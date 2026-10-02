@@ -1,17 +1,25 @@
 # Base pins for the tool patches in this directory.
 #
 # Each patch was taken against the upstream commit below. `install-patches.sh` sources this file,
-# verifies the located source checkout is at the recorded commit and git tree, verifies the base
-# sha256 of every file the patch modifies, and runs `git apply --check` against the base tree
-# archived from the pinned commit. A wrong commit, wrong tree, wrong base file or a hunk that does
-# not apply exits nonzero.
+# verifies the located source checkout is at the recorded commit and git tree, verifies the sha256
+# of each patch file itself, verifies the base sha256 of every file the patch modifies, and runs
+# `git apply --check` against the base tree archived from the pinned commit. A wrong commit, wrong
+# tree, wrong patch file, wrong base file or a hunk that does not apply exits nonzero.
 #
 # Refresh a pin after a deliberate rebase:
 #   git -C <src> rev-parse HEAD HEAD^{tree}
 #   git -C <src> show HEAD:<path> | sha256sum
+#   sha256sum patches/<file>.patch
 #
 # CHARON_COMMIT / CHARON_TREE identify AeneasVerif/charon.
 # AENEAS_COMMIT / AENEAS_TREE identify AeneasVerif/aeneas (its `charon/` is a separate checkout).
+#
+# *_PATCH_SHA256 pin the patch files themselves, so an edit to a hunk that is not a deliberate
+# rebase is caught rather than silently changing the translator.
+# AENEAS_TRANSLATOR_SHA256 is the `dune build` product of the pinned Aeneas sources with
+# `aeneas-array-repeat.patch` applied: src/_build/default/main.exe, copied verbatim to
+# `$AENEAS_HOME/aeneas`. It is the identity that translates this repository's `src/`; a rebuild
+# that does not reproduce it has not reproduced the translator.
 
 CHARON_COMMIT=b104e24fea7d721b71e6c39fd70f26ff20bc0980
 CHARON_TREE=784a177101bbfd956047ac2ee1b7335d4c057b7b
@@ -21,9 +29,12 @@ c0d78e6c27f82102f466da67224509bd371f20af43376d8d877f18ff355c63d0 charon-ml/src/g
 d43da982bf233a3ed42ff84732e10ceb957a8bffb0b2532975779d378fb5e183 charon/src/ast/bodies/expressions.rs
 09b99643abae66101d5061ff291087ae75343e93575815aa842fcb07d14bd43f charon/src/bin/charon-driver/translate/translate_bodies.rs
 2d8923360eb794e4bf9b855d92b06a69523db60ca81a6c86420e6f8d5078b132 charon/src/transform/simplify_output/builtins_to_function_calls.rs"
+CHARON_PATCH_SHA256="c6099150efe8416a0495205a6bdf23925b9c79f2ecd6ca7a25335d0ae89e21c9 charon-repeat-optional-trait.patch"
 
 AENEAS_COMMIT=505b6ca35217e7be5c96c3e2f8045edfbdf47291
 AENEAS_TREE=af23d5d9d866050c2158700cedab07501443bcdd
 AENEAS_BASE_SHA256="fb2f04f57b99b85cf6963912f0e0ee07ff47711d3b89757e6fcd514bc2ec1a4a src/interp/Interp.ml
 a9006c2f3c7a4ac222a49d5d5c5828a5cccc5af0e6612f3fbce857b4ea5a1d70 src/interp/InterpStatements.ml
 ef66c299ccf1a87ae15af712484f86955b9d957a188f62c263fec752276b3fd7 src/llbc/FunsAnalysis.ml"
+AENEAS_PATCH_SHA256="35bc103b490d7f38609c70e202eed365ab4a67a31634c14aa06186032ea1fcb1 aeneas-array-repeat.patch"
+AENEAS_TRANSLATOR_SHA256=84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1

@@ -2,9 +2,9 @@
 # Reproducibly patch the pinned Charon and Aeneas sources.
 #
 #   proof/install-patches.sh --check --aeneas-src DIR [--charon-src DIR]
-#       Verify each base revision and `git apply --check` both patches against the base tree
-#       archived from the pinned commit. Writes nothing to the source checkout. Exit 0 only when
-#       both patches apply to the recorded base.
+#       Verify each base revision, each patch file's own sha256, and `git apply --check` both patches
+#       against the base tree archived from the pinned commit. Writes nothing to the source checkout.
+#       Exit 0 only when both patches match their pins and apply to the recorded base.
 #
 #   proof/install-patches.sh --aeneas-src DIR [--charon-src DIR]
 #       Apply both patches to the source checkout. Idempotent: a patch already applied is skipped.
@@ -14,7 +14,8 @@
 # `target/aeneas` if it is a git checkout. `target/aeneas` normally holds the installed binaries,
 # not sources, so a source argument is usually required.
 #
-# The base pins and per-file base digests are in `patches/PINS`; the patches are in `patches/`.
+# The base pins, the patch-file digests, the expected translator identity and the per-file base
+# digests are in `patches/PINS`; the patches are in `patches/`.
 
 set -eu
 
@@ -89,6 +90,17 @@ verify_base_digests() {
     done < "$TMP/$label.digests"
 }
 
+verify_patch_digests() {
+    label=$1 dir=$2 list=$3
+    printf '%s\n' "$list" > "$TMP/$label.patchdigests"
+    while read -r sha name; do
+        [ -n "${name:-}" ] || continue
+        [ -f "$dir/$name" ] || die "$label: pinned patch file missing: $dir/$name"
+        got=$(sha256sum "$dir/$name" | cut -d' ' -f1)
+        [ "$got" = "$sha" ] || die "$label: patch file digest mismatch for $name: got $got want $sha"
+    done < "$TMP/$label.patchdigests"
+}
+
 archive_base() {
     label=$1 src=$2
     mkdir -p "$TMP/$label.base"
@@ -116,6 +128,8 @@ apply_patch() {
 
 verify_revision charon "$CHARON_SRC" "$CHARON_COMMIT" "$CHARON_TREE"
 verify_revision aeneas "$AENEAS_SRC" "$AENEAS_COMMIT" "$AENEAS_TREE"
+verify_patch_digests charon "$PATCH_DIR" "$CHARON_PATCH_SHA256"
+verify_patch_digests aeneas "$PATCH_DIR" "$AENEAS_PATCH_SHA256"
 verify_base_digests charon "$CHARON_SRC" "$CHARON_BASE_SHA256"
 verify_base_digests aeneas "$AENEAS_SRC" "$AENEAS_BASE_SHA256"
 

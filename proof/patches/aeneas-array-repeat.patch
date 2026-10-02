@@ -1,8 +1,8 @@
 diff --git a/src/interp/Interp.ml b/src/interp/Interp.ml
-index 6b6f110..8c801d0 100644
+index 6b6f110c..ac34d2d5 100644
 --- a/src/interp/Interp.ml
 +++ b/src/interp/Interp.ml
-@@ -163,6 +163,18 @@ let compute_contexts (crate : crate) : decls_ctx =
+@@ -163,7 +163,52 @@ let compute_contexts (crate : crate) : decls_ctx =
        (fun id _ -> FunDeclId.Set.mem id !fun_decl_ids)
        fun_decls
    in
@@ -19,10 +19,44 @@ index 6b6f110..8c801d0 100644
 +      fun_decls to_extract
 +  in
    let fun_infos = FunsAnalysis.analyze_module crate fun_decls in
++  (* [core::array::repeat] is the target of the native-[Repeat] lowering added to
++     [InterpStatements.ml]. Charon does not place that function in any
++     declaration group, so [FunsAnalysis.analyze_module] never computes its
++     [fun_info], and every call site that lowers a native [Repeat] dies with an
++     internal error when it looks the callee's effect information up. Register
++     it here when it is missing, so a crate that *does* place it in a group is
++     not registered twice (the duplicate-registration assert).
++
++     The registered effects are the model's: the Lean backend models
++     `core::array::repeat` with `-canFail`, `-lift` and no state, so
++     [can_fail] is false and a lowered [Repeat] is a plain call, not a
++     `Result`-wrapped one. *)
++  let fun_infos =
++    FunDeclId.Map.fold
++      (fun id (d : fun_decl) (acc : FunsAnalysis.modules_funs_info) ->
++        match d.item_meta.name with
++        | [ PeIdent ("core", _); PeIdent ("array", _); PeIdent ("repeat", _) ]
++          when not
++                 (FunOrMethodId.Map.mem (FunOrMethodId.Fun id) acc.infos) ->
++            {
++              FunsAnalysis.infos =
++                FunOrMethodId.Map.add (FunOrMethodId.Fun id)
++                  {
++                    FunsAnalysis.can_fail = false;
++                    stateful = false;
++                    can_diverge = false;
++                    is_rec = false;
++                  }
++                  acc.infos;
++            }
++        | _ -> acc)
++      fun_decls fun_infos
++  in
    let fun_ctx = { fun_decls; fun_infos; to_extract } in
  
+   let global_decls_to_extract =
 diff --git a/src/interp/InterpStatements.ml b/src/interp/InterpStatements.ml
-index e35c5bc..c52ede2 100644
+index e35c5bca..c52ede22 100644
 --- a/src/interp/InterpStatements.ml
 +++ b/src/interp/InterpStatements.ml
 @@ -647,6 +647,23 @@ let eval_global_as_fresh_symbolic_value (span : Meta.span)
