@@ -33,6 +33,7 @@ ALLOW = {
     "I64.Insts.CoreConvertFromU8.from",
     "I64.Insts.CoreConvertFromU16.from",
     "I32.Insts.CoreConvertFromU8.from",
+    "I128.Insts.CoreConvertFromU64.from",
 }
 
 AXIOM_LINE = re.compile(r"^axiom\s+(\S+)")

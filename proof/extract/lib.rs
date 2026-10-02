@@ -34,7 +34,7 @@ pub mod fixed_exp;
 /// and `src/engine/rope.rs` imports `crate::numeric::fixed_trig::fixed_sin_cos`, so the three
 /// `numeric::*` aliases name the modules above.
 pub mod numeric {
-    pub use super::{fixed_exp, fixed_rsqrt, fixed_trig};
+    pub use super::{fixed_exp, fixed_ln, fixed_rsqrt, fixed_trig};
 }
 
 /// Mirror of `crate::format` for the extraction unit: the real `src/engine/error.rs` imports
@@ -63,6 +63,8 @@ pub mod dequant;
 pub mod matvec;
 #[path = "../../src/engine/attn.rs"]
 pub mod attn;
+#[path = "../../src/engine/mixer.rs"]
+pub mod mixer;
 #[path = "../../src/engine/lm_head.rs"]
 pub mod lm_head;
 #[path = "../../src/engine/sampler.rs"]
@@ -90,8 +92,8 @@ pub mod pow2;
 /// under the engine mirror.
 pub mod engine {
     pub use super::{
-        attn, error, f32_convert, ffn, hadamard, lm_head, matvec, moe, norm, rope, sampler, silu,
-        value,
+        attn, chart, error, f32_convert, ffn, fused, hadamard, kern, lm_head, loader, matvec, mixer,
+        moe, norm, par, rope, sampler, silu, step, trace, value,
     };
 
     /// The engine refusal type at its real `crate::engine::EngineError` path.
@@ -104,6 +106,17 @@ pub mod engine {
     pub use super::matvec::MatvecError;
     /// The sampler refusal at its real `crate::engine::SamplerError` path.
     pub use super::sampler::SamplerError;
+
+    /// The remaining engine-root re-exports the mirrored `src/engine/{loader,step,chart,kern,
+    /// trace,mixer}.rs` closure reads at `crate::engine::*` (the real `src/engine/mod.rs:219-234`
+    /// re-export block, which this mirror reproduces because the mirrored submodules reach it by
+    /// absolute `crate::engine::` paths rather than `super::`).
+    pub use super::{
+        argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, matvec_fixed, row_dot_fixed,
+        silu_fixed, top_p_fixed, FfnError, ProjWeights,
+    };
+    pub use super::loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
+    pub use super::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
 
     /// Fractional bits of the executing fixed-point representation (Q32.32).
     pub const FIXED_FRAC_BITS: u32 = 32;
@@ -887,12 +900,21 @@ pub fn word_lm_head_fixed(
     engine::lm_head::lm_head_fixed(ggml_type, raw, vocab, n_embd, x)
 }
 
-/// The real `KvState::new` constructor, rooted at the concrete Q32.32 `i64` word.
+/// The real `KvState::with_carrier` constructor at the concrete Q32.32 carrier, rooted at the
+/// concrete Q32.32 `i64` word.
 ///
 /// This calls the real `src/engine/attn.rs` body, which computes the load-time
 /// `fixed_rsqrt(head_dim)` score scale and allocates one zeroed plane per layer; it does not restate
 /// the geometry guard, the scale call or the plane sizing. The wrapper only fixes the geometry
-/// types.
+/// types and the carrier.
+///
+/// **Coverage consequence.** This wrapper replaced a call to `KvState::new`, which is
+/// `Self::with_carrier(.., carrier_from_env())` — an environment read behind a `OnceLock` that the
+/// pinned Aeneas does not model. `KvState::new` and `mixer::carrier_from_env` therefore have zero
+/// extracted coverage: no axiom and no body in the generated corpus covers either, and neither is
+/// checked by `proof/corpus/`. `KvState::new` is not on the production path (production constructs
+/// through `KvState::with_carrier(.., carrier)`), so this states a non-claim rather than an
+/// omission, but it is a non-claim: the environment-driven carrier selection is unverified.
 pub fn word_kv_state_new(
     n_layer: usize,
     n_head: usize,
@@ -900,7 +922,14 @@ pub fn word_kv_state_new(
     head_dim: usize,
     cap: usize,
 ) -> Result<attn::KvState, attn::AttnError> {
-    attn::KvState::new(n_layer, n_head, n_head_kv, head_dim, cap)
+    attn::KvState::with_carrier(
+        n_layer,
+        n_head,
+        n_head_kv,
+        head_dim,
+        cap,
+        mixer::Carrier::Q32,
+    )
 }
 
 /// The real `KvState::append`, rooted at the concrete Q32.32 `i64` word.
@@ -998,3 +1027,40 @@ pub fn word_policy_decide(
 pub mod fused;
 #[path = "../../src/engine/par.rs"]
 pub mod par;
+
+/// Mirrors of the `src/engine/mixer.rs` closure: mixer reads `super::{chart, step, value}`,
+/// `super::{rms_norm_fixed, silu_fixed, AffineGeom, AffineVectors}` and `crate::numeric::fixed_ln`,
+/// and its children `conv_f32`/`f32_carrier` read `crate::engine::step`. Declared last so no earlier
+/// extracted item's source span moves; the crate-root aliases below carry the names mixer's
+/// `super::` imports need, since the crate-root [`mixer`] mirror's parent is the crate root.
+#[path = "../../src/engine/loader.rs"]
+pub mod loader;
+#[path = "../../src/engine/step.rs"]
+pub mod step;
+#[path = "../../src/engine/chart/mod.rs"]
+pub mod chart;
+#[path = "../../src/engine/kern/mod.rs"]
+pub mod kern;
+#[path = "../../src/engine/trace.rs"]
+pub mod trace;
+#[path = "../../src/numeric/fixed_ln.rs"]
+pub mod fixed_ln;
+
+/// Engine-root re-exports the crate-root mirror modules read through `super::` (mirrors of
+/// `src/engine/mod.rs:219-234`). The crate-root [`mixer`]/[`step`]/[`loader`] mirrors' parent is the
+/// crate root, so these names must exist here rather than only under the engine mirror.
+pub use attn::{AttnError, KvState};
+pub use dequant::f16_to_fixed;
+pub use f32_convert::{f32_to_fixed, F32Error};
+pub use ffn::{ffn_fixed, silu_fixed, FfnError, ProjWeights};
+pub use hadamard::{fwht_fixed, HadamardError};
+pub use lm_head::LmHeadError;
+pub use loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
+pub use matvec::{matvec_fixed, row_dot_fixed};
+pub use mixer::AffineState;
+pub use moe::{gate_weights, moe_ffn_fixed, route_topk, ExpertWeights, MoeError};
+pub use norm::{rms_norm_fixed, NormError};
+pub use rope::{rope_rotate_fixed, RopeError, RopeTable};
+pub use sampler::{argmax_fixed, top_p_fixed, SamplerError};
+pub use step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
+pub use value::fixed_vector_checksum;

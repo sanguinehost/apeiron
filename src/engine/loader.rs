@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex};
 use crate::format::gguf::{GVal, Gguf, GgufHeader};
 use crate::format::quant;
 
-use super::f32_convert::dequant_f32_row;
 pub use super::error::EngineError;
+use super::f32_convert::dequant_f32_row;
 use super::kern::lut::Pq2Lut;
 use super::value::round_shift_32;
 

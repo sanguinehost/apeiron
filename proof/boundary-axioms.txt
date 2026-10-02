@@ -1,0 +1,20 @@
+# Boundary axioms of the accepted extraction.
+#
+# `audit-extraction.py` accepts exactly the names listed here and rejects every other `axiom` in
+# the generated `ApeironWord.lean`. `sorry` and `admit` are rejected unconditionally. An entry
+# whose declaration is absent from the generated file is also a failure, so this list cannot
+# accumulate dead permissions.
+#
+# Format: <generated Lean axiom name><TAB><why it is admitted>
+#
+# Each name below is an operation Charon did not translate and the pinned Aeneas Lean model does
+# not define, so Aeneas emits it as an `axiom`. All four are one boundary: the `f32` carrier of
+# the attention path. the reviewer ruled that the carrier's allocation and conversion
+# primitives and `is_finite` are the named boundary, and that every claim about their users is
+# relative to it. The consequence for a reader: a theorem below them is proved for whatever these
+# four assert, not for the hardware `f32` path.
+
+core.f32.F32.is_finite	the finite predicate on the modelled `F32` value type. The model carries `F32` as a value and has no `is_finite`, so the predicate is the boundary for "is this f32 finite". Callers are proved relative to it.
+attn.alloc_f32_storage	the `Carrier::F32` allocation of a zeroed binary32 plane per layer, `src/engine/attn.rs` 118:0-123:1. Admitted as the boundary rather than translated, because it is the only operation the `KvState` constructor performs on an `f32` value. `KvState::with_carrier` is transparent: its five zero-parameter guards, the GQA divisibility guard, the `fixed_rsqrt` window, the two checked plane products, the `Carrier::Q32` allocation and the `Ok` record are all translated, so constructor claims are relative to this allocation alone. `KvState::new` and `mixer::carrier_from_env` are recorded non-claims.
+mixer.f32_carrier.q32_to_f32	the single q32-to-f32 conversion primitive of that carrier, `src/engine/mixer/f32_carrier.rs` 826:0-828:1.
+attn.KvState.attn_head_f32	the f32 attention-head body behind that carrier, `src/engine/attn.rs` 1263:4-1398:5.
