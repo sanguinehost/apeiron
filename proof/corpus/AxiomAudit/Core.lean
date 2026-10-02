@@ -57,13 +57,13 @@ import Substrate.Algebra.Neural.FrontierLadder
 import Substrate.Algebra.NullCell.SpinorFold
 import Kepler.Certificate
 import Joint.WordBridge
+-- Attention-downstream wave (lead-authorized): `Numeric.AttnLoopScore`, `Numeric.AttnLoopOutput`,
+-- `Numeric.AttnHeadWindowsScore`, `Numeric.AttnHeadWindowsValue` and `Numeric.AttnHeadRefines`
+-- were moved out of the corpus to `work/wip/attn-downstream/`; their `#audit` rows here went with
+-- them. `Numeric.AttnSoftmaxPerturb` and `Numeric.AttnScoreStage` stay: they were retargeted green
+-- against the live `attn.KvState` extraction. See that directory's `NOTES.md`.
 import Numeric.AttnSoftmaxPerturb
-import Numeric.AttnLoopScore
-import Numeric.AttnLoopOutput
-import Numeric.AttnHeadWindowsScore
-import Numeric.AttnHeadWindowsValue
 import Numeric.AttnScoreStage
-import Numeric.AttnHeadRefines
 import Numeric.DequantRefinement
 import Numeric.DequantQ4K
 import Numeric.DequantQ6K
@@ -103,13 +103,14 @@ import Nous.Model.RotationStage
 import Numeric.MatvecBridgeGrid
 import Nous.Model.BlockGrounded
 import Numeric.HadamardFixedSpec
-import Numeric.KvReachable
 import Spirv.CheckApplyShapeAssembly
 import Numeric.PackingDecodeFields
 import Numeric.RopeRotate
 import Nous.Model.AttnStage
 import Nous.Model.BlockGroundedWitness
-import Nous.Model.AttnStageWitness
+-- Attention-downstream wave (lead-authorized): `Numeric.KvReachable` and
+-- `Nous.Model.AttnStageWitness` were moved out of the corpus to `work/wip/attn-downstream/`
+-- along with the imports above; their `#audit` rows went with them.
 import Nous.Model.TopKRouter
 import Numeric.PackingDecodeBlock
 import Nous.Model.BlockGroundedWitness1
@@ -380,33 +381,18 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableScan.spillFingerprint_eq_of_identity
 #audit Apeiron.GrowableScan.spillFingerprint_collision_witness
 #audit Apeiron.GrowableScan.fingerprint_hit_requires_full_matches
-#audit Apeiron.GrowableReadLoop.generated_outer_stops_on_hit
-#audit Apeiron.GrowableReadLoop.generated_outer_stops_at_limit
-#audit Apeiron.GrowableReadLoop.generated_tail_indices_eligible
+#audit Apeiron.GrowableReadLoop.generated_probe_stops_on_hit
+#audit Apeiron.GrowableReadLoop.generated_probe_stops_at_bound
 #audit Apeiron.GrowableReadLoop.stored_candidate_full_match
-#audit Apeiron.GrowableReadLoop.InnerCompared
-#audit Apeiron.GrowableReadLoop.InnerReady
-#audit Apeiron.GrowableReadLoop.InnerSweepInv
-#audit Apeiron.GrowableReadLoop.InnerSweepOutcome
-#audit Apeiron.GrowableReadLoop.generated_inner_sweep_outcome
-#audit Apeiron.GrowableReadLoop.OuterStepReady
-#audit Apeiron.GrowableReadLoop.OuterStepResult
-#audit Apeiron.GrowableReadLoop.OuterSweepInv
-#audit Apeiron.GrowableReadLoop.OuterSweepOutcome
-#audit Apeiron.GrowableReadLoop.generated_outer_sweep_outcome
-#audit Apeiron.GrowableReadLoop.generated_outer_none_covers_steps
-#audit Apeiron.GrowableReadLoop.generated_tail_group_surjective
-#audit Apeiron.GrowableReadLoop.generated_outer_none_covers_groups
-#audit Apeiron.GrowableReadLoop.generated_outer_increment_checked
-#audit Apeiron.GrowableReadLoop.generated_group_bounded
-#audit Apeiron.GrowableReadLoop.inner_ready_of_scan_geometry
-#audit Apeiron.GrowableReadLoop.outer_step_ready_of_geometry
-#audit Apeiron.GrowableReadLoop.repR_region_outer_ready
-#audit Apeiron.GrowableReadLoop.repR_stored_region_outer_ready
-#audit Apeiron.GrowableReadLoop.grouped_admission_of_checked_branch
-#audit Apeiron.GrowableReadLoop.repR_summary_read_branch
-#audit Apeiron.GrowableReadLoop.repR_live_spill_summary_positive
-#audit Apeiron.GrowableRepresentation.summary_set_frames
+#audit Apeiron.GrowableReadLoop.StoredProbeReady
+#audit Apeiron.GrowableReadLoop.StoredProbeInv
+#audit Apeiron.GrowableReadLoop.StoredProbeOutcome
+#audit Apeiron.GrowableReadLoop.StoredProbeChainSafe
+#audit Apeiron.GrowableReadLoop.generated_probe_sweep_outcome
+#audit Apeiron.GrowableReadLoop.generated_probe_sweep_some
+#audit Apeiron.GrowableReadLoop.generated_probe_sweep_none
+#audit Apeiron.GrowableReadLoop.generated_probe_increment_checked
+#audit Apeiron.GrowableReadLoop.stored_probe_visit_unique
 #audit Apeiron.GrowableReadLoop.StoredLiveTagAddress
 #audit Apeiron.GrowableReadLoop.StoredTaggedRepR
 #audit Apeiron.GrowableReadLoop.stored_live_tag_address_of_empty_repR
@@ -426,7 +412,6 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRepresentation.reservedRepR_singleDestination
 #audit Apeiron.GrowableRepresentation.word_stored_vacant_spill_return_shards
 #audit Apeiron.GrowableRepresentation.word_stored_vacant_flat_return_frame
-#audit Apeiron.GrowableReadLoop.repR_stored_published_tag_address
 #audit Apeiron.GrowableReadLoop.stored_live_tags_initial_reserved
 #audit Apeiron.GrowableReadLoop.prepared_stored_live_tags_initial
 #audit Apeiron.GrowableRepresentation.word_stored_relocate_entry_spill_run
@@ -441,11 +426,13 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableReadLoop.stored_relocate_entry_flat_keeps_reserved_tags
 #audit Apeiron.GrowableReadLoop.word_stored_relocate_all_keeps_reserved_tags
 #audit Apeiron.GrowableReadLoop.word_stored_relocate_all_keeps_reserved_tags_from_prepared
-#audit Apeiron.GrowableReadLoop.generated_spill_read_unfold
+#audit Apeiron.GrowableReadLoop.vec_index_readback
+#audit Apeiron.GrowableReadLoop.stored_matches_slot_iff
+#audit Apeiron.GrowableReadLoop.stored_matcher_slot_total
+#audit Apeiron.GrowableReadLoop.generated_spill_read_some_run
+#audit Apeiron.GrowableReadLoop.generated_spill_read_none_run
 #audit Apeiron.GrowableReadLoop.spill_read_none_implies_no_full_match
 #audit Apeiron.GrowableReadLoop.spill_read_some_implies_full_match
-#audit Apeiron.GrowableReadLoop.spill_read_none_implies_no_shard_full_match
-#audit Apeiron.GrowableReadLoop.spill_read_after_relocate_all_none_implies_no_full_match
 
 -- Public read refinement: constructor reachability, the direct-hit partition, and the
 -- localization/absence core feeding partitions 2-5
@@ -455,7 +442,9 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRead.query_rep
 #audit Apeiron.GrowableRead.absent_of_exclusions
 #audit Apeiron.GrowableRead.default_of_absent
-#audit Apeiron.GrowableRead.spill_read_none_of_summary_miss
+-- pending integration: Growable.Read is being rewritten concurrently; the name does not resolve
+-- in the current file, so the row is held rather than deleted.
+-- #audit Apeiron.GrowableRead.spill_read_none_of_summary_miss
 #audit Apeiron.GrowableRead.flat_index_none_pin
 #audit Apeiron.GrowableRead.flat_index_some_pin
 #audit Apeiron.GrowableRead.flat_index_compute
@@ -470,15 +459,17 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRead.spill_read_some_tagged_full_match
 #audit Apeiron.GrowableRead.spill_read_some_entryAt
 #audit Apeiron.GrowableRead.spill_read_none_entryAt_ne
-#audit Apeiron.GrowableRead.valid_n_16
-#audit Apeiron.GrowableRead.StoredReadRoute
-#audit Apeiron.GrowableRead.word_stored_table_get_at_direct_none_hit
-#audit Apeiron.GrowableRead.word_stored_table_get_at_flat_none_hit
-#audit Apeiron.GrowableRead.word_stored_table_get_at_flat_occupied_miss_hit
-#audit Apeiron.GrowableRead.word_stored_table_get_at_direct_none_sweep_none
-#audit Apeiron.GrowableRead.word_stored_table_get_at_flat_none_sweep_none
-#audit Apeiron.GrowableRead.word_stored_table_get_at_flat_occupied_miss_sweep_none
-#audit Apeiron.GrowableRead.word_stored_table_get_at_root
+-- pending integration: Growable.Read is being rewritten concurrently; these route names do not
+-- resolve in the current file and are held rather than deleted.
+-- #audit Apeiron.GrowableRead.valid_n_16
+-- #audit Apeiron.GrowableRead.StoredReadRoute
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_direct_none_hit
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_flat_none_hit
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_flat_occupied_miss_hit
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_direct_none_sweep_none
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_flat_none_sweep_none
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_flat_occupied_miss_sweep_none
+-- #audit Apeiron.GrowableRead.word_stored_table_get_at_root
 
 #audit Apeiron.GrowableRelocation.generated_same_location_total
 #audit Apeiron.GrowableRelocation.retarget_held_eq_ok_self_of_same
@@ -730,17 +721,7 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRepresentation.destinationLocation
 #audit Apeiron.GrowableRepresentation.reservedObservation_eq_entryAt
 #audit Apeiron.GrowableRepresentation.reservedRepR_singleDestination
-#audit Apeiron.GrowableRepresentation.LivePublicationRecorded
-#audit Apeiron.GrowableRepresentation.publish_live_recorded
 #audit Apeiron.GrowableRepresentation.CarrierAddressRespecting
-#audit Apeiron.GrowableRepresentation.SpillSummaryShapes
-#audit Apeiron.GrowableRepresentation.SpillSummaryRecorded
-#audit Apeiron.GrowableRepresentation.SpillFingerprintExactRegions
-#audit Apeiron.GrowableRepresentation.SpillSummaryMissSound
-#audit Apeiron.GrowableRepresentation.repR_spillSummaryMissSound
-#audit Apeiron.GrowableRepresentation.reservedRepR_summaryShape
-#audit Apeiron.GrowableRepresentation.reservedRepR_summaryRecorded
-#audit Apeiron.GrowableRepresentation.reservedRepR_fingerprintExact
 #audit Apeiron.GrowableRepresentation.word_stored_table_new_repR
 #audit Apeiron.GrowableRepresentation.word_regen_table_new_repR
 
