@@ -313,7 +313,7 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
                 &self.resident.slots[index].value
             }
             SearchLocation::Spill(shard_at, index) if decision.class == SearchClass::Found => {
-                &self.shards[shard_at].slots[index].2
+                &self.shards[shard_at].slots[index].value
             }
             _ => &self.default,
         }
@@ -387,7 +387,7 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
         }
         let shard_at = shard(&address);
         match spill_read::<K, H, R, V>(&self.shards[shard_at], sigma, &address, key, N) {
-            Some(index) => &self.shards[shard_at].slots[index].2,
+            Some(index) => &self.shards[shard_at].slots[index].value,
             None => &self.default,
         }
     }
@@ -471,9 +471,9 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         while shard_at < self.shards.len() {
             let mut j = 0;
             while j < self.shards[shard_at].slots.len() {
-                let direct = if self.shards[shard_at].tags[j] != 0 {
-                    let sigma = self.shards[shard_at].slots[j].0;
-                    R::address_held(&self.home, sigma, &self.shards[shard_at].slots[j].1)
+                let direct = if self.shards[shard_at].slots[j].tag != 0 {
+                    let sigma = self.shards[shard_at].slots[j].sigma;
+                    R::address_held(&self.home, sigma, &self.shards[shard_at].slots[j].held)
                         .direct_word
                 } else {
                     None
@@ -565,13 +565,9 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         value: V,
         address: &TableAddress,
     ) -> Result<(), StorageError> {
-        let mut load = 0;
-        let mut tag_at = 0;
-        while tag_at < self.shards[s].tags.len() {
-            load += usize::from(self.shards[s].tags[tag_at] != 0);
-            tag_at += 1;
-        }
-        let minimum = slots_for(load.max(1), N)?;
+        // `Grow` means a completed probe cycle found every slot occupied, so the region is full and
+        // the load factor is at the bound; the live count is what sizes the successor.
+        let minimum = slots_for(self.shards[s].live.max(1), N)?;
         let doubled = self.shards[s]
             .slots
             .len()
@@ -584,8 +580,10 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         let mut i = 0;
         let mut relocation_error = None;
         while i < self.shards[s].slots.len() && relocation_error.is_none() {
-            if self.shards[s].tags[i] != 0 {
-                let (p_sigma, p_held, p_value) = self.shards[s].slots[i].clone();
+            if self.shards[s].slots[i].tag != 0 {
+                let source = &self.shards[s].slots[i];
+                let (p_sigma, p_held, p_value) =
+                    (source.sigma, source.held.clone(), source.value.clone());
                 let a = R::address_held(&self.home, p_sigma, &p_held);
                 match spill_locate_held::<K, H, R, V>(&fresh, p_sigma, &a, &p_held, N) {
                     SpillSite::Vacant(x) => {
@@ -666,10 +664,10 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         while shard_at < self.shards.len() && planning_error.is_none() {
             let mut slot_at = 0;
             while slot_at < self.shards[shard_at].slots.len() && planning_error.is_none() {
-                let source_live = self.shards[shard_at].tags[slot_at] != 0;
+                let source_live = self.shards[shard_at].slots[slot_at].tag != 0;
                 if source_live {
                     let entry = &self.shards[shard_at].slots[slot_at];
-                    let entry_address = R::address_held(&self.home, entry.0, &entry.1);
+                    let entry_address = R::address_held(&self.home, entry.sigma, &entry.held);
                     let flat = Self::flat_index_for(lanes, entry_address.direct_word);
                     let selected = Self::keep_unoccupied(flat, &occupied);
                     mark_selected_occupied(&mut occupied, selected);
@@ -714,10 +712,8 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ///
     /// `required_len` is the checked target vector length; `observed_capacity` is the real
     /// `Vec::capacity()` read after reserve-all and before initialization.  The flat target is
-    /// checked `256 * plan.lanes`, the directory target is `SHARDS`, and each region's tag/payload
-    /// target is the checked `slots_for(plan.spill_loads[shard], N)` or zero for zero load.  The
-    /// summary target is the checked `summary_words` of that slot target, or zero for an empty
-    /// region.
+    /// checked `256 * plan.lanes`, the directory target is `SHARDS`, and each region's slot-array
+    /// target is the checked `slots_for(plan.spill_loads[shard], N)` or zero for zero load.
     fn observe_receipt(
         plan: &RebuildPlan,
         storage: &RebuildReserved<R, V>,
@@ -730,15 +726,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         let directory = capacity_bound(SHARDS, storage.regions.capacity());
         let mut regions = [const {
             RegionReservation {
-                tags: CapacityBound {
-                    required_len: 0,
-                    observed_capacity: 0,
-                },
-                payloads: CapacityBound {
-                    required_len: 0,
-                    observed_capacity: 0,
-                },
-                summary: CapacityBound {
+                slots: CapacityBound {
                     required_len: 0,
                     observed_capacity: 0,
                 },
@@ -748,26 +736,15 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         let mut error = None;
         while shard_at < SHARDS && error.is_none() {
             match slots_for(plan.spill_loads[shard_at], N) {
-                Ok(required) => match summary_words(required) {
-                    Ok(summary_required) => {
-                        regions[shard_at] = RegionReservation {
-                            tags: capacity_bound(
-                                required,
-                                storage.regions[shard_at].tags.capacity(),
-                            ),
-                            payloads: capacity_bound(
-                                required,
-                                storage.regions[shard_at].slots.capacity(),
-                            ),
-                            summary: capacity_bound(
-                                summary_required,
-                                storage.regions[shard_at].summary.capacity(),
-                            ),
-                        };
-                        shard_at += 1;
-                    }
-                    Err(inner) => error = Some(inner),
-                },
+                Ok(required) => {
+                    regions[shard_at] = RegionReservation {
+                        slots: capacity_bound(
+                            required,
+                            storage.regions[shard_at].slots.capacity(),
+                        ),
+                    };
+                    shard_at += 1;
+                }
                 Err(inner) => error = Some(inner),
             }
         }
@@ -969,7 +946,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             }
             RebuildSource::Spill(shard, index) => {
                 let source = &self.shards[shard].slots[index];
-                (source.0, source.1.clone(), source.2.clone())
+                (source.sigma, source.held.clone(), source.value.clone())
             }
         };
         let old_location = match source {
@@ -1094,8 +1071,8 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             (SearchClass::Found, SearchLocation::Spill(spill, index)) => {
                 // As on the flat arm: the unused staged path recycles, never drops.
                 self.recycle_unused_staged_path();
-                let old = reserved.regions[spill].slots[index].2.clone();
-                reserved.regions[spill].slots[index].2 = merge.merge(value, old);
+                let old = reserved.regions[spill].slots[index].value.clone();
+                reserved.regions[spill].slots[index].value = merge.merge(value, old);
             }
             (SearchClass::Vacant, SearchLocation::Flat(index)) => {
                 let merged = merge.merge(value, self.default.clone());
@@ -1218,8 +1195,8 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                 ApplyOutcome::Committed
             }
             (SearchClass::Found, SearchLocation::Spill(shard_at, index)) => {
-                let old = self.shards[shard_at].slots[index].2.clone();
-                self.shards[shard_at].slots[index].2 = merge.merge(value, old);
+                let old = self.shards[shard_at].slots[index].value.clone();
+                self.shards[shard_at].slots[index].value = merge.merge(value, old);
                 ApplyOutcome::Committed
             }
             (SearchClass::Vacant, SearchLocation::Flat(index)) => {

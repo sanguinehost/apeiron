@@ -3,7 +3,7 @@
 use super::keyrep::{I64WordCodec, Regen};
 use super::{
     build_prepared_shard, capacity_bound_holds, keyrep::KeyRep, publication_trace, read_trace,
-    shard, slots_for, spill_locate, spill_read, summary_trailing_zeros, summary_words, tag,
+    shard, slots_for, spill_locate, spill_read, tag,
     ApplyOutcome, Flat, FlatSlot, Home, PreparedResult, RebuildPlan, RebuildReserved, Region,
     ReplacementMerge, SearchClass, SearchDecision, SearchLocation, SpillSite, StorageError, Stored,
     Table, TableAddress, WordHome, SHARDS,
@@ -165,7 +165,7 @@ fn density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged() {
     let before_len = table.len();
     let before_lanes = table.resident.lanes;
     let before_resident_len = table.resident.slots.len();
-    let before_tags: Vec<u8> = table.shards[0].tags.clone();
+    let before_tags: Vec<u8> = table.shards[0].markers();
     let before_slots = table.shards[0].slots.len();
     clones.set(0);
 
@@ -183,24 +183,37 @@ fn density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged() {
     assert_eq!(table.len(), before_len);
     assert_eq!(table.resident.lanes, before_lanes);
     assert_eq!(table.resident.slots.len(), before_resident_len);
-    assert_eq!(table.shards[0].tags, before_tags);
+    assert_eq!(table.shards[0].markers(), before_tags);
     assert_eq!(table.shards[0].slots.len(), before_slots);
     assert_eq!(clones.get(), 0, "a density refusal must not clone");
 }
 
-/// A recorded prefix vacancy does not stop the mandatory coverage sweep's match search.
+/// The bounded linear cycle finds a match stored past every same-fingerprint reject.
 #[test]
-fn spill_sweep_finds_a_late_match_after_a_window_vacancy() {
+fn spill_cycle_finds_a_match_past_same_fingerprint_rejects() {
     let address = TableAddress {
         place: 0,
         direct_word: None,
     };
     let held = <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &7, &address);
-    let mut region = Region::reserve_empty(32).expect("two initialized groups");
+    let mut region = Region::reserve_empty(32).expect("one flat region");
     region.initialize(Sigma::Parabolic, &held, &0);
-    region.slots[16] = (Sigma::Parabolic, held, 41);
-    region.tags[16] = tag(address.place);
-    region.summary_set(address.place);
+    // Placement 0 homes every query at slot 0, and linear probing places each insert at the first
+    // vacancy, so slots 0..=15 must all be occupied before slot 16 can hold the matching key.
+    let mut filler: i64 = 100;
+    while filler < 116 {
+        region.publish_live(
+            (filler - 100) as usize,
+            (
+                Sigma::Parabolic,
+                <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &filler, &address),
+                41,
+            ),
+            address.place,
+        );
+        filler += 1;
+    }
+    region.publish_live(16, (Sigma::Parabolic, held, 41), address.place);
 
     assert_eq!(
         spill_locate::<i64, WordHome, Stored<i64>, i64>(
@@ -214,29 +227,28 @@ fn spill_sweep_finds_a_late_match_after_a_window_vacancy() {
     );
 }
 
-/// A spill vacancy selects the least empty lane in the first probe group.
+/// A spill vacancy selects the first free slot at or after the query's home.
 #[test]
-fn spill_decision_selects_the_first_vacant_lane() {
+fn spill_decision_selects_the_first_vacant_slot() {
     let address = TableAddress {
         place: 0,
         direct_word: None,
     };
-    let held = <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &7, &address);
-    let mut region = Region::reserve_empty(32).expect("two initialized groups");
+    let held = <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &8, &address);
+    let mut region = Region::reserve_empty(32).expect("one flat region");
     region.initialize(Sigma::Parabolic, &held, &0);
-    region.tags[0] = tag(address.place);
-    region.slots[0] = (Sigma::Parabolic, held, 41);
-    region.summary_set(address.place);
+    region.publish_live(0, (Sigma::Parabolic, held, 41), address.place);
 
     assert_eq!(
         spill_locate::<i64, WordHome, Stored<i64>, i64>(
             &region,
             Sigma::Parabolic,
             &address,
-            &8,
+            &7,
             16,
         ),
-        SpillSite::Vacant(1)
+        SpillSite::Vacant(1),
+        "slot 0 is occupied by a different key, so the first vacancy is slot 1"
     );
 }
 
@@ -571,7 +583,7 @@ fn spill_found_update_recycles_the_staged_scratch() {
     let mut region =
         Region::<Stored<Repeated>, i64>::reserve_empty(32).expect("two initialized groups");
     region.initialize(sigma, &held, &-1);
-    region.slots[3] = (sigma, held.clone(), 10);
+    region.publish_live(3, (sigma, held.clone(), 10), address.place);
     let mut regions: Vec<Region<Stored<Repeated>, i64>> =
         (0..SHARDS).map(|_| Region::empty()).collect();
     regions[0] = region;
@@ -589,7 +601,7 @@ fn spill_found_update_recycles_the_staged_scratch() {
     );
     assert_eq!(table.len(), 0, "a found update changes no logical length");
     assert_eq!(
-        table.shards[0].slots[3].2, 99,
+        table.shards[0].slots[3].value, 99,
         "the found update merges into its existing slot"
     );
 
@@ -823,7 +835,7 @@ fn final_reservation_refusal_leaves_the_table_unchanged_with_no_clone_or_merge()
     let before_len = table.len();
     let before_resident_lanes = table.resident.lanes;
     let before_resident_len = table.resident.slots.len();
-    let before_tags: Vec<u8> = table.shards[0].tags.clone();
+    let before_tags: Vec<u8> = table.shards[0].markers();
     let before_slots = table.shards[0].slots.len();
     clones.set(0);
     merge_calls.set(0);
@@ -852,7 +864,7 @@ fn final_reservation_refusal_leaves_the_table_unchanged_with_no_clone_or_merge()
     assert_eq!(table.len(), before_len);
     assert_eq!(table.resident.lanes, before_resident_lanes);
     assert_eq!(table.resident.slots.len(), before_resident_len);
-    assert_eq!(table.shards[0].tags, before_tags);
+    assert_eq!(table.shards[0].markers(), before_tags);
     assert_eq!(table.shards[0].slots.len(), before_slots);
     assert_eq!(table.get_at(LocatorSigma::Parabolic, &mk(7)).value, 41);
     assert_eq!(table.get_at(LocatorSigma::Parabolic, &mk(8)).value, 42);
@@ -900,21 +912,15 @@ fn prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held() {
     assert!(storage.resident.slots.iter().all(|slot| !slot.live));
     assert_eq!(storage.regions.len(), SHARDS);
     let target = slots_for(1, 16).expect("checked region target");
-    assert_eq!(storage.regions[0].tags.len(), target);
     assert_eq!(storage.regions[0].slots.len(), target);
-    assert!(storage.regions[0].tags.iter().all(|&tag_at| tag_at == 0));
-    assert_eq!(storage.regions[0].slots[0].0, sigma);
+    assert!(storage.regions[0].markers().iter().all(|&tag_at| tag_at == 0));
+    assert_eq!(storage.regions[0].slots[0].sigma, sigma);
 
     // The receipt records the checked targets and the observed capacities meet them.
     let receipt = &outcome.reservation;
     assert_eq!(receipt.flat.required_len, 256);
     assert_eq!(receipt.directory.required_len, SHARDS);
-    assert_eq!(receipt.regions[0].tags.required_len, target);
-    assert_eq!(receipt.regions[0].payloads.required_len, target);
-    assert_eq!(
-        receipt.regions[0].summary.required_len,
-        summary_words(target).expect("checked summary target")
-    );
+    assert_eq!(receipt.regions[0].slots.required_len, target);
     assert!(capacity_bound_holds(
         receipt.flat.required_len,
         receipt.flat.observed_capacity
@@ -924,21 +930,9 @@ fn prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held() {
         receipt.directory.observed_capacity
     ));
     assert!(capacity_bound_holds(
-        receipt.regions[0].tags.required_len,
-        receipt.regions[0].tags.observed_capacity
+        receipt.regions[0].slots.required_len,
+        receipt.regions[0].slots.observed_capacity
     ));
-    assert!(capacity_bound_holds(
-        receipt.regions[0].payloads.required_len,
-        receipt.regions[0].payloads.observed_capacity
-    ));
-    assert!(capacity_bound_holds(
-        receipt.regions[0].summary.required_len,
-        receipt.regions[0].summary.observed_capacity
-    ));
-    assert_eq!(
-        storage.regions[0].summary.len(),
-        receipt.regions[0].summary.required_len
-    );
 
     // The carried pending carrier is the pending key's held form.
     assert!(<Stored<Counted> as KeyRep<Counted, CountHome>>::matches(
@@ -953,70 +947,15 @@ fn prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held() {
     );
 }
 
-/// A summary-sizing overflow is a transactional refusal: no hold, clone, merge or relocation
-/// runs, and the committed table is unchanged.
-///
-/// The synthetic plan routes a checked slot target whose summary bit count overflows `usize` to
-/// shard 0, so `reserve_rebuild` refuses at the checked summary sizing before any allocation or
-/// hold. This is the deterministic summary-refusal injection: a saturating or unchecked summary
-/// sizing does not return `SizeOverflow` here, so this test is red under that mutation.
-#[test]
-fn summary_sizing_overflow_refuses_before_any_hold_or_clone() {
-    let clones = Rc::new(Cell::new(0usize));
-    let merge_calls = Rc::new(Cell::new(0usize));
-    let mk = |value: i64| Counted {
-        value,
-        clones: Rc::clone(&clones),
-    };
-    let merge = {
-        let calls = Rc::clone(&merge_calls);
-        move |new: Counted, _old: Counted| {
-            calls.set(calls.get() + 1);
-            new
-        }
-    };
-    let mut table = Table::<Counted, Counted, CountHome, 16>::new(mk(-1), CountHome);
-    table.insert_with(&merge, mk(7), mk(41)).unwrap();
-    table.insert_with(&merge, mk(8), mk(42)).unwrap();
-    assert_eq!(table.len(), 2);
-
-    let before_len = table.len();
-    let before_resident_len = table.resident.slots.len();
-    let before_tags: Vec<u8> = table.shards[0].tags.clone();
-    let before_slots = table.shards[0].slots.len();
-    clones.set(0);
-    merge_calls.set(0);
-
-    // `slots_for(2^58, 16) = 2^59`; its summary bit count is `2^59 * 32 = 2^64`, an overflow.
-    let mut spill_loads = vec![0usize; SHARDS];
-    spill_loads[0] = 1usize << 58;
-    let plan = RebuildPlan {
-        lanes: 1,
-        entries: Vec::new(),
-        spill_loads,
-    };
-    let pending = mk(9);
-    let address = Home::address(&CountHome, Sigma::Parabolic, &pending);
-    let refused = table.prepare_from_plan(plan, Sigma::Parabolic, &pending, &address);
-    assert!(matches!(
-        refused,
-        PreparedResult::Refused(StorageError::SizeOverflow)
-    ));
-
-    let outcome =
-        table.apply_prepared_rebuild(refused, &merge, Sigma::Parabolic, pending, mk(99), &address);
-    assert_eq!(outcome, Err(StorageError::SizeOverflow));
-
-    assert_eq!(table.len(), before_len);
-    assert_eq!(table.resident.slots.len(), before_resident_len);
-    assert_eq!(table.shards[0].tags, before_tags);
-    assert_eq!(table.shards[0].slots.len(), before_slots);
-    assert_eq!(clones.get(), 0, "a summary refusal must not clone");
-    assert_eq!(merge_calls.get(), 0, "a summary refusal must not merge");
-}
 
 /// `build_prepared_shard` reserves its complete checked region before the first hold, so a
-/// sizing refusal runs no clone. This is the per-shard ordering a parallel worker uses.
+/// refusal runs no clone. This is the per-shard ordering a parallel worker uses.
+///
+/// The flat region has two refusals, and each is reached with the checked capacity rule of
+/// [`slots_for`] as the only sizing authority: the doubling `checked_mul` refuses a load that
+/// cannot be doubled, and the reservation refuses a checked target that cannot be obtained.
+/// `1 << 63` is the largest load whose doubling overflows `usize`; `1 << 58` is a load the rule
+/// *accepts* (`Ok(1 << 59)`), whose refusal therefore comes from the reservation itself.
 #[test]
 fn prepared_shard_reserves_before_hold_on_sizing_refusal() {
     let clones = Rc::new(Cell::new(0usize));
@@ -1027,104 +966,161 @@ fn prepared_shard_reserves_before_hold_on_sizing_refusal() {
     let merge = |new: Counted, _old: Counted| new;
     let input = vec![((LocatorSigma::Parabolic, mk(7)), mk(41))];
     let parts = super::partition::Parts::of(&CountHome, &input, 1);
-    clones.set(0);
-    let result = build_prepared_shard::<Counted, Counted, CountHome, Stored<Counted>, _, 16>(
-        &CountHome,
-        &merge,
-        &mk(-1),
-        &input,
-        &parts,
-        0,
-        1usize << 58,
-    );
-    assert!(matches!(result, Err(StorageError::SizeOverflow)));
+    let run = |load: usize, clones: &Rc<Cell<usize>>| {
+        clones.set(0);
+        build_prepared_shard::<Counted, Counted, CountHome, Stored<Counted>, _, 16>(
+            &CountHome,
+            &merge,
+            &mk(-1),
+            &input,
+            &parts,
+            0,
+            load,
+        )
+    };
+
+    // The checked capacity rule refuses the undoubleable load.
+    assert_eq!(slots_for(1usize << 63, 16), Err(StorageError::SizeOverflow));
+    assert!(matches!(
+        run(1usize << 63, &clones),
+        Err(StorageError::SizeOverflow)
+    ));
     assert_eq!(clones.get(), 0, "reservation must precede the first hold");
+
+    // The rule accepts this target and the reservation refuses it; the refusal is still before the
+    // first hold, so no clone and no callback runs on either arm.
+    assert_eq!(slots_for(1usize << 58, 16), Ok(1usize << 59));
+    assert!(matches!(
+        run(1usize << 58, &clones),
+        Err(StorageError::AllocationFailed)
+    ));
+    assert_eq!(clones.get(), 0, "a refused reservation runs no clone");
 }
 
-/// The plain shift loop agrees with `usize::trailing_zeros` at zero, odd, even, power-of-two and
-/// maximal values, so replacing the intrinsic preserves the summary bit count.
+/// A real prepared-shard build whose load the capacity rule accepts is not a refusal path, so the
+/// fixture above cannot pass vacuously: the same call at a real load reserves and initializes the
+/// checked region it asked for.
 #[test]
-fn summary_trailing_zeros_matches_the_standard_intrinsic() {
-    let mut samples = vec![0usize, 1, 2, 3, 6, 7, 8, usize::MAX];
-    let mut bit = 0u32;
-    while bit < usize::BITS {
-        samples.push(1usize << bit);
-        bit += 1;
-    }
-    for &value in &samples {
-        assert_eq!(
-            summary_trailing_zeros(value),
-            value.trailing_zeros(),
-            "summary_trailing_zeros({value})"
+fn prepared_shard_reserves_the_checked_flat_capacity_at_a_real_load() {
+    let clones = Rc::new(Cell::new(0usize));
+    let mk = |value: i64| Counted {
+        value,
+        clones: Rc::clone(&clones),
+    };
+    let merge = |new: Counted, _old: Counted| new;
+    let input = vec![((LocatorSigma::Parabolic, mk(7)), mk(41))];
+    let parts = super::partition::Parts::of(&CountHome, &input, 1);
+    let region =
+        build_prepared_shard::<Counted, Counted, CountHome, Stored<Counted>, _, 16>(
+            &CountHome,
+            &merge,
+            &mk(-1),
+            &input,
+            &parts,
+            0,
+            1,
+        )
+        .expect("the checked capacity of one live entry is reservable");
+    assert_eq!(region.slots.len(), 16, "the rule reserves the least power of two at or above max(n, 2*load)");
+    assert_eq!(region.live, 1, "one live entry is published");
+    assert!(clones.get() > 0, "a successful reservation initializes every slot");
+}
+
+/// The whole-table read path certifies absence on a completed spill cycle, not only on a zero tag.
+///
+/// The capacity rule of [`slots_for`] reserves at least twice the load, so a region the insert path
+/// builds itself always keeps a vacancy and the completed-cycle certificate is unreachable through
+/// `insert_with`. The fixture therefore fills one shard's region to its exact capacity through the
+/// production locator and reads through `Table::get`, and attributes which certificate decided each
+/// read: the absent key costs exactly one cycle of `capacity` steps with no zero-tag certificate,
+/// the stored key costs fewer, so the two certificates are not conflated.
+#[test]
+fn table_get_certifies_absence_on_a_completed_spill_cycle() {
+    let mut table = Table::<i64, i64, WordKeyHome, 16>::new(0, WordKeyHome);
+    table.insert_with(&ReplacementMerge, 0, 1).unwrap();
+    let capacity = table.shards[0].slots.len();
+    assert!(capacity >= 8, "the checked capacity of one live entry is a power of two");
+
+    // Fill shard zero to its exact capacity. Every key below has shard byte zero, so each is a real
+    // `WordKeyHome` key for shard zero and each is placed where the production locator selects.
+    let mut stored = vec![0i64];
+    for index in 1..capacity {
+        let key = 256 * i64::try_from(index).expect("the index fits i64");
+        let address = Home::address(&WordKeyHome, Sigma::Parabolic, &key);
+        let slot = match spill_locate::<i64, WordKeyHome, Stored<i64>, i64>(
+            &table.shards[0],
+            Sigma::Parabolic,
+            &address,
+            &key,
+            16,
+        ) {
+            SpillSite::Vacant(slot) => slot,
+            other => panic!("a fresh key selects a vacancy, not {other:?}"),
+        };
+        let held = <Stored<i64> as KeyRep<i64, WordKeyHome>>::hold(Sigma::Parabolic, &key, &address);
+        table.shards[0].publish_live(
+            slot,
+            (Sigma::Parabolic, held, 1_000 + key),
+            address.place,
         );
+        stored.push(key);
     }
+    assert_eq!(table.shards[0].live, capacity, "the region is full, so no vacancy remains");
+    assert!(table.shards[0].markers().iter().all(|&marker| marker != 0));
+
+    // The absent key shares the full region and is not stored in it.
+    let absent = 256 * i64::try_from(capacity).expect("the index fits i64");
+    assert!(!stored.contains(&absent));
+    assert_eq!(shard(&Home::address(&WordKeyHome, Sigma::Parabolic, &absent)), 0);
+
+    // A stored key is found before the cycle completes.
+    read_trace::clear();
+    assert_eq!(table.get(&256), &(1_000 + 256), "a stored key is read from its slot");
+    let hit_steps = read_trace::sweep_steps();
+    assert!(hit_steps < capacity, "a present read stops inside the cycle");
+    assert_eq!(read_trace::summary_misses(), 0, "a present read certifies nothing");
+
+    // The absent key exhausts the bound: exactly one cycle, and no zero tag anywhere in it.
+    read_trace::clear();
+    assert_eq!(
+        table.get(&absent),
+        &table.default,
+        "a completed cycle with no match reads the default"
+    );
+    assert_eq!(
+        read_trace::sweep_steps(),
+        capacity,
+        "the absence certificate is one completed cycle over the whole region"
+    );
+    assert_eq!(
+        read_trace::summary_misses(),
+        0,
+        "a completed cycle is certified by the bound, not by a zero tag"
+    );
+
+    // The control: a vacancy present makes the same absent key cheap, so the cost above is the
+    // cycle and not the key.
+    let absent_address = Home::address(&WordKeyHome, Sigma::Parabolic, &absent);
+    let home = table.shards[0].home(absent_address.place);
+    table.shards[0].slots[home].tag = 0;
+    table.shards[0].live -= 1;
+    read_trace::clear();
+    assert_eq!(table.get(&absent), &table.default);
+    assert_eq!(
+        read_trace::sweep_steps(),
+        1,
+        "with a vacancy at the home slot the same absent key stops on the first zero tag"
+    );
+    assert_eq!(read_trace::summary_misses(), 1, "the vacancy is the certificate now");
 }
 
-/// A zero-length summary is total: no shift is evaluated, `summary_set` is a no-op, and
-/// `summary_maybe` reports "maybe" so filtering is disabled. `summary_index` returns `None` for the
-/// zero length rather than shifting by `64 + 6`.
+
+
+
+/// The flat region carries exactly one live slot per key, its live count agrees with its nonzero
+/// tags, and every live tag's slot holds the inserted key.
 #[test]
-fn zero_length_summary_is_total_and_disables_filtering() {
-    let mut region = Region::<Stored<i64>, i64>::empty();
-    assert_eq!(region.summary.len(), 0);
-    assert_eq!(region.slots.len(), 0);
-    assert_eq!(
-        Region::<Stored<i64>, i64>::summary_index(0xDEAD_BEEF, 0),
-        None,
-        "a zero-length summary has no bit index"
-    );
-
-    region.summary_set(0xDEAD_BEEF);
-    assert!(
-        region.summary.is_empty(),
-        "an empty summary records nothing"
-    );
-
-    assert!(
-        region.summary_maybe(0xDEAD_BEEF),
-        "an empty summary cannot certify absence, so the sweep must run"
-    );
-}
-
-/// A malformed or oversized summary length is total: the shift is guarded, no call panics and the
-/// result is defined. Lengths whose bit count reaches `u64::BITS` yield no index without
-/// allocating; a small non-power-of-two length still yields an in-bounds index.
-#[test]
-fn malformed_summary_lengths_are_total() {
-    // `trailingZeros(len) + 6 >= 64`: no index, so no `u64` shift by `>= 64` and no allocation.
-    assert_eq!(
-        Region::<Stored<i64>, i64>::summary_index(7, 1usize << 58),
-        None
-    );
-    assert_eq!(
-        Region::<Stored<i64>, i64>::summary_index(7, 3usize << 58),
-        None
-    );
-    assert_eq!(
-        Region::<Stored<i64>, i64>::summary_index(7, 1usize << 63),
-        None
-    );
-    // The boundary below the guard is still usable: `trailingZeros(2^57) + 6 = 63`.
-    assert!(
-        Region::<Stored<i64>, i64>::summary_index(7, 1usize << 57).is_some(),
-        "a bit count of 63 is still indexable"
-    );
-
-    // A small non-power-of-two summary stays in bounds: `bits = trailingZeros(5) + 6 = 6` and every
-    // returned index is below `64 * 5`.
-    let mut region = Region::<Stored<i64>, i64>::empty();
-    region.summary = vec![0u64; 5];
-    let index = Region::<Stored<i64>, i64>::summary_index(0x1234, region.summary.len())
-        .expect("a small malformed summary still yields an index");
-    assert!(index < 64 * region.summary.len());
-    region.summary_set(0x1234);
-    let _ = region.summary_maybe(0x1234);
-    assert_eq!(region.summary.len(), 5, "no panic and no resize");
-}
-
-/// Every live spill tag has its placement's summary bit recorded on the real insertion path.
-#[test]
-fn every_live_spill_tag_has_its_summary_bit_recorded() {
+fn every_live_spill_slot_is_tagged_and_counted_on_the_real_insertion_path() {
     let mut table = Table::<i64, i64, WordKeyHome, 16>::new(0, WordKeyHome);
     for key in 0..i64::try_from(SHARDS).expect("SHARDS = 256 fits i64") {
         table.insert_with(&ReplacementMerge, key, key + 1).unwrap();
@@ -1132,46 +1128,40 @@ fn every_live_spill_tag_has_its_summary_bit_recorded() {
     let mut live = 0usize;
     for shard_at in 0..SHARDS {
         let region = &table.shards[shard_at];
-        assert!(
-            !region.summary.is_empty(),
-            "a nonempty region carries a summary"
-        );
-        for index in 0..region.tags.len() {
-            if region.tags[index] != 0 {
+        let mut counted = 0usize;
+        for index in 0..region.slots.len() {
+            if region.slots[index].tag != 0 {
+                counted += 1;
                 live += 1;
-                let (sigma, held, _) = &region.slots[index];
+                let slot = &region.slots[index];
                 let address = <Stored<i64> as KeyRep<i64, WordKeyHome>>::address_held(
                     &table.home,
-                    *sigma,
-                    held,
+                    slot.sigma,
+                    &slot.held,
                 );
-                let bit =
-                    Region::<Stored<i64>, i64>::summary_index(address.place, region.summary.len())
-                        .expect("a live nonempty region has a usable summary word");
-                assert!(
-                    region.summary[bit / 64] & (1u64 << (bit % 64)) != 0,
-                    "live tag in shard {shard_at} has no recorded summary bit"
+                assert_eq!(
+                    slot.tag,
+                    tag(address.place),
+                    "the live marker in shard {shard_at} is the published placement's fingerprint"
                 );
             }
         }
+        assert_eq!(counted, region.live, "the live count matches the nonzero tags");
+        assert!(region.live < region.slots.len(), "a region keeps a vacancy");
     }
     assert_eq!(live, SHARDS, "one live spill entry per shard");
 }
 
-/// A fresh spill write publishes the payload, then the summary bit, then the nonzero tag.
+/// A fresh spill write publishes the payload, then the nonzero tag.
 #[test]
-fn spill_publication_order_is_payload_then_summary_then_tag() {
+fn spill_publication_order_is_payload_then_tag() {
     publication_trace::clear();
     let mut table = Table::<i64, i64, WordKeyHome, 16>::new(0, WordKeyHome);
     table.insert_with(&ReplacementMerge, 7, 41).unwrap();
     assert_eq!(
         publication_trace::events(),
-        vec![
-            publication_trace::PAYLOAD,
-            publication_trace::SUMMARY,
-            publication_trace::TAG
-        ],
-        "a fresh spill write publishes payload, then summary bit, then tag"
+        vec![publication_trace::PAYLOAD, publication_trace::TAG],
+        "a fresh spill write publishes payload, then the nonzero tag"
     );
 }
 
@@ -1203,19 +1193,30 @@ sigma_word_face!(ZeroHome, i64);
 // allocator hook.
 
 /// The read-only spill matcher finds a late match after a window vacancy, without any vacancy
-/// bookkeeping.
+/// The read helper walks the bounded cycle past same-fingerprint rejects to a late match.
 #[test]
-fn read_helper_finds_a_late_match_after_a_window_vacancy() {
+fn read_helper_finds_a_late_match_after_same_fingerprint_rejects() {
     let address = TableAddress {
         place: 0,
         direct_word: None,
     };
     let held = <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &7, &address);
-    let mut region = Region::reserve_empty(32).expect("two initialized groups");
+    let mut region = Region::reserve_empty(32).expect("one flat region");
     region.initialize(Sigma::Parabolic, &held, &0);
-    region.slots[16] = (Sigma::Parabolic, held, 41);
-    region.tags[16] = tag(address.place);
-    region.summary_set(address.place);
+    let mut filler: i64 = 100;
+    while filler < 116 {
+        region.publish_live(
+            (filler - 100) as usize,
+            (
+                Sigma::Parabolic,
+                <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &filler, &address),
+                41,
+            ),
+            address.place,
+        );
+        filler += 1;
+    }
+    region.publish_live(16, (Sigma::Parabolic, held, 41), address.place);
 
     read_trace::clear();
     assert_eq!(
@@ -1224,8 +1225,8 @@ fn read_helper_finds_a_late_match_after_a_window_vacancy() {
     );
     assert_eq!(
         read_trace::sweep_steps(),
-        super::WINDOWS + 1,
-        "group zero is empty and the sweep still reaches the late group"
+        17,
+        "the cycle visits slots 0..=16 and stops at the match"
     );
 }
 
@@ -1292,147 +1293,9 @@ fn read_absence_direct_empty_certificate_returns_default() {
     assert_eq!(*table.get_at(sigma, &1), -1);
 }
 
-/// Absence on the summary-miss certificate: after direct exclusion a negative summary returns the
-/// default and the read runs no coverage sweep.
-#[test]
-fn read_absence_summary_miss_certificate_skips_the_sweep() {
-    let sigma = Sigma::Parabolic;
-    let home = WordKeyHome;
-    let mut table = Table::<i64, i64, _, 16>::new(-1, home);
-    table
-        .insert_with_at(&ReplacementMerge, sigma, 7, 41)
-        .unwrap();
-    let shard_at = shard(&Home::address(&home, sigma, &7));
-    let region = &table.shards[shard_at];
-    assert!(
-        !region.summary.is_empty(),
-        "the live region carries a summary"
-    );
-    let place = |key: i64| Home::address(&home, sigma, &key).place;
-    let mut query = 7i64 + 256;
-    let mut probes = 0usize;
-    while region.summary_maybe(place(query)) && probes < 4096 {
-        query += 256;
-        probes += 1;
-    }
-    assert!(
-        !region.summary_maybe(place(query)),
-        "a same-shard summary-negative query must exist"
-    );
 
-    read_trace::clear();
-    assert_eq!(*table.get_at(sigma, &query), -1);
-    assert_eq!(
-        read_trace::summary_misses(),
-        1,
-        "absence must be the summary-miss certificate"
-    );
-    assert_eq!(
-        read_trace::sweep_steps(),
-        0,
-        "a summary miss must not sweep"
-    );
-    // The live key is still found.
-    assert_eq!(*table.get_at(sigma, &7), 41);
-}
 
-/// Absence on the coverage certificate: a forced summary collision makes the summary positive for
-/// an absent query, so the read must run complete finite match coverage and still return default.
-#[test]
-fn read_absence_coverage_certificate_forces_complete_sweep() {
-    let sigma = Sigma::Parabolic;
-    let home = WordKeyHome;
-    let mut table = Table::<i64, i64, _, 16>::new(-1, home);
-    table
-        .insert_with_at(&ReplacementMerge, sigma, 7, 41)
-        .unwrap();
-    let shard_at = shard(&Home::address(&home, sigma, &7));
-    let query = 7i64 + 256;
-    let query_place = Home::address(&home, sigma, &query).place;
-    let groups = table.shards[shard_at].slots.len() / 16;
-    // Force the summary to report "maybe" for an absent key, exactly a filter false positive.
-    table.shards[shard_at].summary_set(query_place);
-    assert!(
-        table.shards[shard_at].summary_maybe(query_place),
-        "the forced collision makes the summary positive"
-    );
 
-    read_trace::clear();
-    assert_eq!(*table.get_at(sigma, &query), -1);
-    assert_eq!(
-        read_trace::summary_misses(),
-        0,
-        "the summary reported maybe, so no miss"
-    );
-    assert_eq!(
-        read_trace::sweep_steps(),
-        super::WINDOWS + groups,
-        "coverage must visit every group"
-    );
-    // The live key whose summary bit collided is still found: no false negative.
-    assert_eq!(*table.get_at(sigma, &7), 41);
-}
-
-/// A forced summary collision never hides a live key on the real read path.
-#[test]
-fn read_forced_summary_collision_has_no_false_negative() {
-    let sigma = Sigma::Parabolic;
-    let home = WordKeyHome;
-    let mut table = Table::<i64, i64, _, 16>::new(-1, home);
-    table
-        .insert_with_at(&ReplacementMerge, sigma, 7, 41)
-        .unwrap();
-    table
-        .insert_with_at(&ReplacementMerge, sigma, 7 + 256, 42)
-        .unwrap();
-    let shard_at = shard(&Home::address(&home, sigma, &7));
-    let absent = 7i64 + 512;
-    let absent_place = Home::address(&home, sigma, &absent).place;
-    table.shards[shard_at].summary_set(absent_place);
-    assert!(
-        table.shards[shard_at].summary_maybe(absent_place),
-        "the forced collision makes the summary positive"
-    );
-
-    assert_eq!(*table.get_at(sigma, &7), 41, "first live key");
-    assert_eq!(*table.get_at(sigma, &(7 + 256)), 42, "second live key");
-    assert_eq!(*table.get_at(sigma, &absent), -1, "absent same-bit query");
-}
-
-/// A late spill hit after an earlier window vacancy is still found by the specialized read: the
-/// only live slot sits in group one, group zero is empty, and the sweep must pass group zero.
-#[test]
-fn read_finds_a_late_spill_hit_after_a_window_vacancy() {
-    let sigma = Sigma::Parabolic;
-    let mut table = Table::<i64, i64, ZeroHome, 16>::new(-1, ZeroHome);
-    table
-        .insert_with_at(&ReplacementMerge, sigma, 7, 41)
-        .unwrap();
-    let address = Home::address(&ZeroHome, sigma, &7);
-    let held = <Stored<i64> as KeyRep<i64, ZeroHome>>::hold(sigma, &7, &address);
-    let shard_at = shard(&address);
-    {
-        let region = &mut table.shards[shard_at];
-        for tag_at in &mut region.tags {
-            *tag_at = 0;
-        }
-        for word in &mut region.summary {
-            *word = 0;
-        }
-        region.slots[16] = (sigma, held, 41);
-        region.tags[16] = tag(address.place);
-        region.summary_set(address.place);
-    }
-
-    read_trace::clear();
-    assert_eq!(*table.get_at(sigma, &7), 41);
-    assert_eq!(read_trace::summary_misses(), 0);
-    assert_eq!(
-        read_trace::sweep_steps(),
-        super::WINDOWS + 1,
-        "the sweep must pass the seven empty first-window steps and reach the late group"
-    );
-}
 
 /// A read is effect-free: it clones nothing, merges nothing and reallocates no committed storage on
 /// both carriers and both storage areas. Allocation-freedom is additionally structural: `get_at`
@@ -1468,9 +1331,7 @@ fn read_clones_and_merges_nothing_and_leaves_storage_unchanged() {
     let resident_len = resident.resident.slots.len();
     let resident_cap = resident.resident.slots.capacity();
     let resident_lanes = resident.resident.lanes;
-    let spill_tags = spill.shards[0].tags.capacity();
     let spill_slots = spill.shards[0].slots.capacity();
-    let spill_summary = spill.shards[0].summary.capacity();
     let spill_len = spill.shards[0].slots.len();
     let resident_hit = resident.get_at(sigma, &query_hit).value;
     let resident_sigma_miss = resident.get_at(LocatorSigma::Hyperbolic, &query_hit).value;
@@ -1494,9 +1355,7 @@ fn read_clones_and_merges_nothing_and_leaves_storage_unchanged() {
     assert_eq!(resident.resident.slots.len(), resident_len);
     assert_eq!(resident.resident.slots.capacity(), resident_cap);
     assert_eq!(resident.resident.lanes, resident_lanes);
-    assert_eq!(spill.shards[0].tags.capacity(), spill_tags);
     assert_eq!(spill.shards[0].slots.capacity(), spill_slots);
-    assert_eq!(spill.shards[0].summary.capacity(), spill_summary);
     assert_eq!(spill.shards[0].slots.len(), spill_len);
 }
 
@@ -1543,8 +1402,15 @@ fn read_path_timing_old_decision_versus_specialized() {
     spill.insert_with(&ReplacementMerge, 7, 41).unwrap();
     let shard_at = shard(&Home::address(&home, sigma, &7));
     let place = |key: i64| Home::address(&home, sigma, &key).place;
+    // An absent key: the bounded cycle terminates on a zero tag, the flat port's absence
+    // certificate.
     let mut miss = 7i64 + 256;
-    while spill.shards[shard_at].summary_maybe(place(miss)) {
+    while spill
+        .shards[shard_at]
+        .slots
+        .iter()
+        .any(|slot| slot.tag == tag(place(miss)))
+    {
         miss += 256;
     }
     let old = Instant::now();
