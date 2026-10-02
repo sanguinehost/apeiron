@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/F16Split_gate.py"
+kind     = "gate"
+path     = "proof/resource/F16Split_gate.py"
+sha256   = "fad15e1e7dec29875f6163f14e5f34ea03a73bbe77db74bbeba1f3382b6f735a"
+gate     = "python3 proof/resource/F16Split_gate.py --check"
+control  = "python3 proof/resource/F16Split_gate.py --controls"
+budget_s = 540

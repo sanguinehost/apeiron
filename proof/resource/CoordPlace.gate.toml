@@ -1,0 +1,8 @@
+[[artifact]]
+id       = "proof/resource/CoordPlace_gate.py"
+kind     = "gate"
+path     = "proof/resource/CoordPlace_gate.py"
+sha256   = "dc307d09efc4889bc10c0193a9b765837aae60392126ebdce373a95364eeab69"
+gate     = "python3 proof/resource/CoordPlace_gate.py --check"
+control  = "python3 proof/resource/CoordPlace_gate.py --controls"
+budget_s = 540
