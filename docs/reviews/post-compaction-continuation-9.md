@@ -88,9 +88,8 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
   `tools/webfold/fetch_transport_controls.py`; decided redirect strategy is webfold's own per-hop
   loop + byte cap (C0 findings in `/home/socol/oc-tmp/wf-c0/contract.md`). B3 (coordinator routing)
   is implemented and held for commit until C1's build is clean.
-- **ORACLE-T1 mutant rerun** (intent): oracle trio in place (`oracle.rs`, `oracle_cases.rs`,
-  `oracle_ring6_randomised.rs`); the blocked mutation control can run now that `intent-runtime`
-  compiles.
+- **ORACLE-T1 landed** (`455c4df`): the mutant rerun produced an attributable red on the disjointness
+  assertion (`oracle_ring6_randomised.rs:185`), restore green, clippy clean.
 - **INT-W06R-1**: verify post-restart; resume if dead.
 - **SONG-CAVEATS landed** (`858ef133`): the CAVEATS row is removed per the repo's §5, the BOARD E6
   tick lives only in the gitignored `plans/`, and `corpus.slang`'s `ConeFold.lean` cite is corrected
