@@ -6,6 +6,8 @@
 //! `historical_spatial_parallel` workload exactly — the `71942db` `scene(n)` generator, the
 //! `(i21,i21,i21)::packed()` packing and the build+probe timed region — so the incumbents are
 //! measured on the same key population and the same timed region as the registered spatial cells.
+//! Both registered key faces are measured: the injective packed `u64` face and the historical
+//! `(i32,i32,i32)` tuple face, whose `(a·PHI ^ b)·PHI ^ c` fold collides on signed coordinates.
 //!
 //! The selected implementation is the current executing `apeiron::Table` used as a counter (one
 //! increment per entity, then a probe of the occupied cells). The independent oracle is a
@@ -35,9 +37,59 @@ use apeiron::table::Home;
 use crate::matrix::{cpu_model, maximum, median, minimum, ratio, Profile};
 use crate::strata::{fold, nanos_since, StrataHome, StrataKey, StrataWitness, FNV_OFFSET, SHARDS};
 
-/// The registered packed spatial sizes: `matrix.json` `historical_spatial_parallel` `n100000` and
-/// `n1000000`.
-pub(crate) const SPATIAL_SIZES: [usize; 2] = [100_000, 1_000_000];
+/// The two registered key faces of the `71942db` spatial workload.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum KeyFace {
+    /// The injective packed `i21` key: `matrix.json` `spatial-scene-clustered-cells-packed`.
+    Packed,
+    /// The historical `(i32,i32,i32)` tuple folded to `u64`:
+    /// `matrix.json` `spatial-scene-clustered-cells-tuple`. The fold `(a·PHI ^ b)·PHI ^ c` xors its
+    /// last component in with no mixing after it, so on signed coordinates it collides — the path
+    /// whose fold collides.
+    TupleFold,
+}
+
+impl KeyFace {
+    /// The face's report name.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            KeyFace::Packed => "packed",
+            KeyFace::TupleFold => "tuple",
+        }
+    }
+
+    /// The `matrix.json` workload this face measures.
+    pub(crate) fn workload(self) -> &'static str {
+        match self {
+            KeyFace::Packed => "spatial-scene-clustered-cells-packed",
+            KeyFace::TupleFold => "spatial-scene-clustered-cells-tuple",
+        }
+    }
+}
+
+/// The required spatial cells: every registered scene size on both key faces, in report order. The
+/// packed `n100000`/`n1000000` cells keep their historical `spatial/n{size}` ids; the tuple cells
+/// are `spatial/tuple/n{size}`. Every cell here is load-bearing for the five spatial incumbents and
+/// is registered in `matrix.json` `spatial_cells`.
+pub(crate) const SPATIAL_CELLS: [(usize, KeyFace); 8] = [
+    (1_000, KeyFace::Packed),
+    (1_000, KeyFace::TupleFold),
+    (10_000, KeyFace::Packed),
+    (10_000, KeyFace::TupleFold),
+    (100_000, KeyFace::Packed),
+    (100_000, KeyFace::TupleFold),
+    (1_000_000, KeyFace::Packed),
+    (1_000_000, KeyFace::TupleFold),
+];
+
+/// The stable cell id for a `(size, face)` pair.
+pub(crate) fn cell_id(size: usize, face: KeyFace) -> String {
+    match face {
+        KeyFace::Packed => format!("spatial/n{size}"),
+        KeyFace::TupleFold => format!("spatial/tuple/n{size}"),
+    }
+}
+
 /// The `71942db` scene seed and cell size.
 const SCENE_SEED: u64 = 0x243F_6A88_85A3_08D3;
 const CELL: f32 = 0.25;
@@ -100,8 +152,12 @@ pub(crate) struct SpatialOutcome {
 
 /// One spatial cell: the selected implementation and every adapter on one packed scene size.
 pub(crate) struct SpatialCell {
-    /// The stable cell identifier, e.g. `spatial/n100000`.
+    /// The stable cell identifier, e.g. `spatial/n100000` or `spatial/tuple/n100000`.
     pub(crate) cell_id: String,
+    /// The `matrix.json` workload key this cell measures.
+    pub(crate) workload: &'static str,
+    /// The key face's report name (`packed` or `tuple`).
+    pub(crate) key_face: &'static str,
     /// The packed scene size.
     pub(crate) population: usize,
     /// The probe count (the occupied cells).
@@ -207,15 +263,36 @@ fn pack(k: (i32, i32, i32)) -> u64 {
         .packed()
 }
 
-/// The packed scene keys and the packed occupied-cell probe set.
-fn spatial_input(n: usize) -> (Vec<u64>, Vec<u64>) {
+/// The historical tuple-fold key: `(a·PHI ^ b)·PHI ^ c` over the sign-extended components.
+///
+/// This is the `71942db` tuple path named `spatial-scene-clustered-cells-tuple`. The xor of the
+/// last component has no mixing after it, so distinct signed cells collapse onto one word; the
+/// packed face is injective on the same scene. Measured on the registered scene at `n1000000`:
+/// 993259 distinct packed cells versus 989181 distinct tuple-fold keys.
+fn tuple_fold(k: (i32, i32, i32)) -> u64 {
+    let a = i64::from(k.0).cast_unsigned();
+    let b = i64::from(k.1).cast_unsigned();
+    let c = i64::from(k.2).cast_unsigned();
+    (a.wrapping_mul(hashtrinity::PHI) ^ b).wrapping_mul(hashtrinity::PHI) ^ c
+}
+
+/// One scene cell's key on the chosen face.
+fn face_key(k: (i32, i32, i32), face: KeyFace) -> u64 {
+    match face {
+        KeyFace::Packed => pack(k),
+        KeyFace::TupleFold => tuple_fold(k),
+    }
+}
+
+/// The scene keys and the occupied-cell probe set on the chosen key face.
+fn spatial_input(n: usize, face: KeyFace) -> (Vec<u64>, Vec<u64>) {
     let keys = scene(n);
     let mut occupied = keys.clone();
     occupied.sort_unstable();
     occupied.dedup();
     (
-        keys.iter().map(|&k| pack(k)).collect(),
-        occupied.iter().map(|&k| pack(k)).collect(),
+        keys.iter().map(|&k| face_key(k, face)).collect(),
+        occupied.iter().map(|&k| face_key(k, face)).collect(),
     )
 }
 
@@ -607,12 +684,13 @@ fn corrupted_input(keys: &[u64], probe: &[u64], corruption: Corruption) -> (Vec<
 )]
 fn run_cell(
     size: usize,
+    face: KeyFace,
     campaigns: u32,
     warmup: u32,
     samples: u32,
     corruption: Corruption,
 ) -> SpatialCell {
-    let (keys, probe) = spatial_input(size);
+    let (keys, probe) = spatial_input(size, face);
     let oracle = oracle_digest(&keys, &probe);
     let (work_keys, work_probe) = corrupted_input(&keys, &probe, corruption);
 
@@ -683,7 +761,9 @@ fn run_cell(
     }
 
     SpatialCell {
-        cell_id: format!("spatial/n{size}"),
+        cell_id: cell_id(size, face),
+        workload: face.workload(),
+        key_face: face.name(),
         population: keys.len(),
         ops: probe.len(),
         oracle_digest: oracle,
@@ -691,13 +771,14 @@ fn run_cell(
     }
 }
 
-/// Run the registered packed spatial workload at the profile's campaign/sample counts.
+/// Run the registered spatial workload at the profile's campaign/sample counts.
 pub(crate) fn measure(strata: &StrataWitness) -> SpatialWitness {
-    let cells = SPATIAL_SIZES
+    let cells = SPATIAL_CELLS
         .iter()
-        .map(|&size| {
+        .map(|&(size, face)| {
             run_cell(
                 size,
+                face,
                 strata.campaigns,
                 strata.warmup,
                 strata.samples,
@@ -844,10 +925,10 @@ fn interval(values: &[f64]) -> (f64, f64) {
 /// metric and interval are printed with the numbers; the worker policy is the actual mechanism.
 pub(crate) fn print(w: &SpatialWitness) {
     println!(
-        "spatial_protocol workload=\"71942db scene(n) packed u64, build+probe\" sizes={:?} \
-         campaigns={} warmup={} samples={} metric=elapsed_ns_median cpu=\"{}\" \
+        "spatial_protocol workload=\"71942db scene(n) packed u64 and tuple-fold u64, build+probe\" \
+         cells={} campaigns={} warmup={} samples={} metric=elapsed_ns_median cpu=\"{}\" \
          oracle=std::HashMap count folded in query order",
-        SPATIAL_SIZES,
+        w.cells.len(),
         w.campaigns,
         w.warmup,
         w.samples,
@@ -859,11 +940,13 @@ pub(crate) fn print(w: &SpatialWitness) {
             let med = median(&outcome.samples);
             let (r_lo, r_hi) = interval(&outcome.campaign_ratios);
             println!(
-                "spatial cell={} population={} ops={} oracle_digest={:016x} incumbent={} selected_median_ns={sel_median} \
+                "spatial cell={} workload={} key_face={} population={} ops={} oracle_digest={:016x} incumbent={} selected_median_ns={sel_median} \
                   incumbent_median_ns={med} incumbent_interval_ns=[{},{}] ratio={:.4} \
                   ratio_interval=[{r_lo:.4},{r_hi:.4}] selected_digest_ok={} digest_ok={} sel_workers={} \
                   inc_workers={} sample_basis={} policy=\"{}\"",
                 cell.cell_id,
+                cell.workload,
+                cell.key_face,
                 cell.population,
                 cell.ops,
                 cell.oracle_digest,
@@ -891,7 +974,7 @@ fn control_witness(name: &str) -> Result<SpatialWitness, String> {
         _ => return Err(format!("unknown spatial control {name}")),
     };
     Ok(SpatialWitness {
-        cells: vec![run_cell(CONTROL_SIZE, 1, 1, 2, corruption)],
+        cells: vec![run_cell(CONTROL_SIZE, KeyFace::Packed, 1, 1, 2, corruption)],
         campaigns: 1,
         warmup: 1,
         samples: 2,
@@ -922,11 +1005,29 @@ pub(crate) fn run_control_child(name: &str, _profile: Profile) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{StrataHome, StrataKey};
+    use super::{pack, scene, tuple_fold, StrataHome, StrataKey};
     use apeiron::coord::address::{FaceHome, H3_40};
     use apeiron::coord::spread;
     use apeiron::table::Home;
     use apeiron::Sigma;
+
+    /// The tuple face is the colliding path: at the registered `n1000000` scale the `71942db`
+    /// scene has strictly fewer distinct tuple-fold keys than distinct packed keys. A regression
+    /// that made the tuple fold injective would report equal distinct counts and fail here. At
+    /// `n1000000`: packed `993259`, tuple fold `989181`.
+    #[test]
+    fn tuple_fold_collides_on_the_registered_scene() {
+        use std::collections::HashSet;
+        let cells = scene(1_000_000);
+        let packed: HashSet<u64> = cells.iter().map(|&k| pack(k)).collect();
+        let tuple: HashSet<u64> = cells.iter().map(|&k| tuple_fold(k)).collect();
+        assert!(
+            tuple.len() < packed.len(),
+            "the tuple fold must collide on the scene: packed={} tuple={}",
+            packed.len(),
+            tuple.len()
+        );
+    }
 
     /// Audit: the spatial adapter routes by the physical `Home` placement, and the semantic face
     /// map is a separate, face-tagged address.

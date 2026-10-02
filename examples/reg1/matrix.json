@@ -321,6 +321,16 @@
     {"id": "sizing-overflow-not-forceable", "operation": "sizing-overflow", "status": "missing", "population": "0", "ops": "0", "observed": "not forceable: checked_mul(2) cannot overflow a real region length", "reason": "requires a region length above usize::MAX/2; registered missing, not fabricated"},
     {"id": "injected-reservation-failure-not-forceable", "operation": "injected-reservation-failure", "status": "missing", "population": "0", "ops": "0", "observed": "not forceable: try_reserve_exact failure needs an allocator shim", "reason": "no allocator injection point in this harness; registered missing, not fabricated"}
   ],
+  "spatial_cells": [
+    {"id": "spatial/n1000", "workload": "spatial-scene-clustered-cells-packed", "key_face": "packed", "population": "1000"},
+    {"id": "spatial/tuple/n1000", "workload": "spatial-scene-clustered-cells-tuple", "key_face": "tuple", "population": "1000"},
+    {"id": "spatial/n10000", "workload": "spatial-scene-clustered-cells-packed", "key_face": "packed", "population": "10000"},
+    {"id": "spatial/tuple/n10000", "workload": "spatial-scene-clustered-cells-tuple", "key_face": "tuple", "population": "10000"},
+    {"id": "spatial/n100000", "workload": "spatial-scene-clustered-cells-packed", "key_face": "packed", "population": "100000"},
+    {"id": "spatial/tuple/n100000", "workload": "spatial-scene-clustered-cells-tuple", "key_face": "tuple", "population": "100000"},
+    {"id": "spatial/n1000000", "workload": "spatial-scene-clustered-cells-packed", "key_face": "packed", "population": "1000000"},
+    {"id": "spatial/tuple/n1000000", "workload": "spatial-scene-clustered-cells-tuple", "key_face": "tuple", "population": "1000000"}
+  ],
   "cells": [
     {
       "id": "hist-spatial/n100000/apeiron_parallel",
