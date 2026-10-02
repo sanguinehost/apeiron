@@ -169,6 +169,12 @@ name = "simt_gemv"
 path = "examples/simt_gemv.rs"
 required-features = ["gpu"]
 
+# Matched-shape batch-tiled DP4A GEMM measurement (the CUDA MMQ comparator's shapes/tokens).
+[[example]]
+name = "simt_batch"
+path = "examples/simt_batch.rs"
+required-features = ["gpu"]
+
 [workspace]
 members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
