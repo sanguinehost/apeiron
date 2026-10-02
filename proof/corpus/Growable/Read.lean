@@ -10,19 +10,18 @@ partitioned over the generated `table.Table.get_at` case tree:
 
 1. **direct hit** — flat record live, `Sigma` equal, generated matcher `ok true`;
 2. **direct empty** — no usable direct record (direct word absent, record out of extent, or
-   vacant record), answered from the routed spill search or the `DirectCover` default;
+   vacant record), answered from the routed linear-probe spill read or the `DirectCover` default;
 3. **occupied non-match** — flat record live but `Sigma`/matcher mismatch, spill fallback;
-4. **routed summary miss** — routed region `summary_maybe = ok false`, checked
-   `SpillSummaryMissSound` certificate;
-5. **complete positive-summary sweep** — `summary_maybe = ok true` with the landed complete
-   sweep (`generated_outer_sweep_outcome`, `generated_outer_none_covers_groups`,
-   `spill_read_{none_implies_no_full_match,some_implies_full_match}`, live tag/address
-   invariant `StoredLiveTagAddress`).
+4. **routed spill miss** — the routed region's `table.probe.spill_read` returns `ok none`
+   under the live tag/address invariant `StoredLiveTagAddress`;
+5. **linear-probe spill hit** — `spill_read = ok (some slot)` with the landed slot readback
+   (`spill_read_some_implies_full_match`) and the live tag/address invariant
+   `StoredLiveTagAddress`.
 
 No caller-supplied found/absent result, desired location or public-read equality is a premise:
-every premise is a state-side certificate (`RepR`, its summary/recordedness fields, the live
-tag/address invariant) or an equation of a generated intermediate computation (the generated
-branch tests `Flat.index`, live bit, `Sigma` comparison, carrier matcher call, `spill_read` run).
+every premise is a state-side certificate (`RepR`, the live tag/address invariant) or an
+equation of a generated intermediate computation (the generated branch tests `Flat.index`, live
+bit, `Sigma` comparison, carrier matcher call, `spill_read` run).
 Full `RepR` preservation across writes and rebuild is row 4's open part of the read map, so the
 reachability of the represented state is carried as the explicit named premise
 `ConstructorReachableRepR`; it is never assumed. The rebuild traversal carries its own
@@ -31,6 +30,17 @@ certificate (`word_stored_relocate_all_keeps_reserved_tags_from_prepared` under 
 (`AxiomAudit.lean:530-531`); their publish obligation is pinned to the prepared spill facts
 (`sourcePayload`, `address_held`, `reserved.regions[shard]`) and discharged from the consumer's
 `hspill` facts, not quantified over an arbitrary region. This read traversal does not use them.
+
+The linear-probe sweep needs state-side premises beyond the live tag/address invariant, because
+the invariant does not order occupied slots relative to the cycle. Counterexample: with `home = 0`
+and `slots[0].tag = 0#u8` in front of a live full `(Sigma, key)` match at `slots[1]`, the generated
+`table.probe.spill_read` returns `ok none` while `StoredLiveTagAddress` holds. Every miss theorem
+therefore carries `hchain : Apeiron.GrowableReadLoop.StoredProbeChainSafe region address.place sigma
+key` (a live full match lies on its cycle before any zero tag); `hvalid : table.valid_n n = ok true`
+stays explicit on the generic miss lemma `spill_read_none_entryAt_ne` and is discharged by
+`valid_n_16` at the fixed `n = 16#usize` call sites. The hit direction needs no readiness premise:
+the run-anchored `generated_probe_run_some` certificate reads each executed step's admission off the
+run itself.
 -/
 
 namespace Apeiron.GrowableRead
@@ -61,6 +71,12 @@ def ConstructorReachableRepR {R : Type} (state : WordTable R)
     (live : LogicalKey → Prop) (logical : Apeiron.Table.HMap LogicalKey I64) : Prop :=
   Apeiron.GrowableRepresentation.RepR state decode direct live logical
 
+/-- `table.valid_n 16#usize = ok true` discharges by definition. Defined here so the fixed
+`n = 16#usize` read partitions can discharge the generic miss lemma's `hvalid` premise. -/
+theorem valid_n_16 : table.valid_n 16#usize = ok true := by
+  unfold table.valid_n table.MAX_GROUP core.num.Usize.is_power_of_two
+  rfl
+
 /-- Partition 1 (direct hit), Stored carrier: the generated public read returns the flat slot
 value at a full generated matcher hit, and that value is the canonical `Apeiron.Table.get`.
 Premises are the generated direct-route branch tests (`hword`, `hflat`, `hslot`, `hlive`,
@@ -82,7 +98,8 @@ theorem word_stored_table_get_at_direct_hit
     (hsigmaEq : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma = ok true)
     (hraw : Apeiron.GrowableIdentity.storedKeyRep.«matches» sigma flat.held key address = ok true)
     (hmatch : table.matches Apeiron.GrowableIdentity.storedKeyRep
-      (flat.sigma, flat.held, flat.value) sigma key address = ok true) :
+      { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+      sigma key address = ok true) :
     word_stored_table_get_at state sigma key =
       ok (Apeiron.Table.get logical (sigma, key)) := by
   have hfull : Apeiron.GrowableIdentity.logicalStored flat.sigma flat.held = (sigma, key) :=
@@ -136,7 +153,8 @@ theorem word_regen_table_get_at_direct_hit
     (hsigmaEq : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma = ok true)
     (hraw : Apeiron.GrowableIdentity.regenKeyRep.«matches» sigma flat.held key address = ok true)
     (hmatch : table.matches Apeiron.GrowableIdentity.regenKeyRep
-      (flat.sigma, flat.held, flat.value) sigma key address = ok true) :
+      { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+      sigma key address = ok true) :
     word_regen_table_get_at state sigma key =
       ok (Apeiron.Table.get logical (sigma, key)) := by
   have hfull : (flat.sigma, original) = (sigma, key) :=
@@ -250,44 +268,10 @@ theorem default_of_absent {R : Type} {state : WordTable R}
     exact hab location value hentry
   exact hreach.observations.2 query hnotLive
 
-/-- Partition 4 (routed summary miss), generated spill read: a generated
-`summary_maybe = ok false` run answers `ok none` from `table.probe.spill_read` at any divisor
-with `0 < n.val`. Divisor positivity is exactly what makes the generated grouped-sizing
-division run; every branch but the summary-positive sweep already answers `none`,
-and the summary equation kills that leaf before the outer sweep is entered. Carrier-parametric:
-the generated matcher is never called on this path. -/
-theorem spill_read_none_of_summary_miss {K H R V : Type}
-    (keyRep : table.keyrep.KeyRep R K H)
-    (region : table.Region R V) (sigma : cell.Sigma)
-    (address : table.TableAddress) (key : K) (n : Usize)
-    (hnPos : 0 < n.val)
-    (hmiss : table.Region.summary_maybe region address.place = ok false) :
-    table.probe.spill_read keyRep region sigma address key n = ok none := by
-  have hneZero : n.val ≠ 0 := Nat.pos_iff_ne_zero.mp hnPos
-  obtain ⟨q, hqrun, hqval⟩ := WP.spec_imp_exists
-    (Usize.div_spec (alloc.vec.Vec.len region.slots) (y := n)
-      (by simpa using hneZero))
-  have hqval' : q.val = (alloc.vec.Vec.len region.slots).val / n.val := by simpa using hqval
-  have hcap : q.val * n.val ≤ Usize.max := by
-    have hslotsProp := region.slots.property
-    change region.slots.length ≤ Usize.max at hslotsProp
-    have hmulLe : q.val * n.val ≤ region.slots.length := by
-      rw [hqval', alloc.vec.Vec.len_val, Nat.mul_comm]
-      exact Nat.mul_div_le _ _
-    omega
-  obtain ⟨prod, hprodRun, _⟩ := WP.spec_imp_exists
-    (Usize.mul_spec (x := q) (y := n) hcap)
-  have hpow : ∃ b : Bool, core.num.Usize.is_power_of_two q = ok b := ⟨_, rfl⟩
-  obtain ⟨bpow, hpowRun⟩ := hpow
-  have hvalid : ∃ b : Bool, table.valid_n n = ok b := by
-    unfold table.valid_n
-    split_ifs <;> exact ⟨_, rfl⟩
-  obtain ⟨bvalid, hvalidRun⟩ := hvalid
-  unfold table.probe.spill_read
-  simp only [hvalidRun, hqrun, hprodRun, hpowRun, hmiss, bind_tc_ok, ↓reduceIte]
-  split_ifs <;> first
-    | rfl
-    | exact False.elim (by assumption)
+/- The retired summary lanes have no successor: the routed read is the bounded linear probe
+`table.probe.spill_read`, which inspects the single `SpillSlot` vector and answers `ok none`
+only at a zero tag or an exhausted cycle. Its miss soundness is stated in
+`spill_read_none_entryAt_ne` below from the ported `Growable.ReadLoop` sweep facts. -/
 
 /-- The generated flat index rejects any direct word whose flat lane exceeds resident capacity.
 Relates `table.Flat.index self word` to `word.val / 256` and `lanes`. -/
@@ -335,16 +319,127 @@ theorem flat_index_compute {R V : Type} (self : table.Flat R V) (word : U32) :
     (∀ index, table.Flat.index self word = ok (some index) → word.val / 256 < self.lanes.val) :=
   ⟨flat_index_none_pin self word, flat_index_some_pin self word⟩
 
+/-- A generated `spill_read` hit returns an in-bounds slot carrying a nonzero tag and the full
+query key. This is the tag-carrying readback of the ported
+`Growable.ReadLoop.spill_read_some_implies_full_match` over the single `SpillSlot` vector; the run
+itself witnesses each executed step, so no readiness premise is needed. -/
+theorem spill_read_some_tagged_full_match
+    (region : table.Region StoredI64 I64)
+    (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
+    (n slot : Usize)
+    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key n = ok (some slot)) :
+    slot.val < region.slots.length ∧
+    ∃ (entry : table.SpillSlot StoredI64 I64) (tag : U8),
+      region.slots.val[slot.val]? = some entry ∧
+      entry.tag = tag ∧
+      tag ≠ 0#u8 ∧
+      Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) := by
+  obtain ⟨hinBounds, entry, hslot, htagNonzero, hlogical⟩ :=
+    Apeiron.GrowableReadLoop.spill_read_some_implies_full_match region sigma address key n slot
+      hresult
+  exact ⟨hinBounds, entry, entry.tag, hslot, rfl, htagNonzero, hlogical⟩
+
+/-- Deliverable 1: a generated `spill_read` hit returns an in-bounds slot entry which reads back
+through `entryAt` with the exact query and whose payload field is the returned value. -/
+theorem spill_read_some_entryAt
+    (state : WordTable StoredI64)
+    (shard : Usize) (region : table.Region StoredI64 I64)
+    (hregion : state.shards.val[shard.val]? = some region)
+    (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
+    (n slot : Usize)
+    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key n = ok (some slot)) :
+    ∃ entry : table.SpillSlot StoredI64 I64,
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot StoredI64 I64)) region.slots slot = ok entry ∧
+      entry.sigma = sigma ∧
+      entry.held = { key := key } ∧
+      Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
+        (.spill shard slot) = some ((sigma, key), entry.value) := by
+  obtain ⟨_hinBounds, entry, tag, hslot, htag, htagNonzero, hlogical⟩ :=
+    spill_read_some_tagged_full_match region sigma address key n slot hresult
+  have hsigma : entry.sigma = sigma := by
+    have hp : (entry.sigma, entry.held.key) = (sigma, key) := hlogical
+    exact congrArg Prod.fst hp
+  have hkey : entry.held.key = key := by
+    have hp : (entry.sigma, entry.held.key) = (sigma, key) := hlogical
+    exact congrArg Prod.snd hp
+  have hheld : entry.held = { key := key } := by
+    cases h : entry.held with
+    | mk k =>
+        have hk : k = key := by
+          have hk' := congrArg (fun x : StoredI64 => x.key) h
+          rw [hk'] at hkey
+          exact hkey
+        subst hk
+        rfl
+  have hentryTagNz : entry.tag ≠ 0#u8 := by
+    rw [htag]
+    exact htagNonzero
+  have hindex : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot StoredI64 I64)) region.slots slot = ok entry := by
+    simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot]
+  have hentryAt : Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
+      (.spill shard slot) = some ((sigma, key), entry.value) := by
+    simp only [Apeiron.GrowableSearch.entryAt, hregion, hslot]
+    rw [if_neg hentryTagNz]
+    simp [Apeiron.GrowableSearch.decodeStoredOption, hsigma, hkey]
+  exact ⟨entry, hindex, hsigma, hheld, hentryAt⟩
+
+/-- Under the live tag/address invariant, a generated `spill_read` miss implies that no live slot
+in that shard decodes to the query. The pointwise exclusion is sourced from the ported
+`Growable.ReadLoop.spill_read_none_implies_no_full_match`, which needs `hvalid` and `hchain`: with
+`slots[0].tag = 0#u8` before a live full match at `slots[1]` and `home = 0`, the probe returns
+`ok none` while `StoredLiveTagAddress` holds, and `valid_n n = ok false` returns `ok none` without
+scanning. -/
+theorem spill_read_none_entryAt_ne
+    (state : WordTable StoredI64)
+    (hstate : Apeiron.GrowableReadLoop.StoredLiveTagAddress state)
+    (shard : Usize) (region : table.Region StoredI64 I64)
+    (hregion : state.shards.val[shard.val]? = some region)
+    (sigma : cell.Sigma) (key : I64) (address : table.TableAddress)
+    (haddress : Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key = ok address)
+    (n : Usize)
+    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key n = ok none)
+    (hvalid : table.valid_n n = ok true)
+    (hchain : Apeiron.GrowableReadLoop.StoredProbeChainSafe region address.place sigma key) :
+    ∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
+      (.spill shard index) ≠ some ((sigma, key), value) := by
+  intro index value hentry
+  have hnoMatch := Apeiron.GrowableReadLoop.spill_read_none_implies_no_full_match state hstate
+    shard region hregion sigma key address haddress n hresult hvalid hchain
+  unfold Apeiron.GrowableSearch.entryAt at hentry
+  simp only [hregion] at hentry
+  cases hslot : region.slots.val[index.val]? with
+  | none => simp [hslot] at hentry
+  | some entry =>
+      simp only [hslot] at hentry
+      by_cases hzero : entry.tag = 0#u8
+      · simp [hzero] at hentry
+      · simp only [if_neg hzero, Apeiron.GrowableSearch.decodeStoredOption] at hentry
+        have hsome : ((entry.sigma, entry.held.key), entry.value) = ((sigma, key), value) :=
+          Option.some.inj hentry
+        have hpair : (entry.sigma, entry.held.key) = (sigma, key) := congrArg Prod.fst hsome
+        have hfull : Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) :=
+          hpair
+        exact hnoMatch index entry hslot hzero hfull
+
+
 /-- Partition 2 (direct empty, shape A: direct word absent), Stored carrier: the generated public
-read returns `ok state.default` when `address.direct_word = none`, and that value is the canonical
-`Apeiron.Table.get`. The tail spill read is case-split between a summary miss and explicit absent
-routed spill entries. -/
+read returns `ok state.default` when `address.direct_word = none` and the routed linear-probe
+spill read returns `ok none` under the live tag/address invariant, and that value is the
+canonical `Apeiron.Table.get`. Contract change: the explicit `hchain` premise is required; without
+it a zero tag before a live full match on the cycle makes the miss unsound and `RepR` does not
+supply it. -/
 theorem word_stored_table_get_at_direct_none
     (state : WordTable StoredI64)
     (direct : LogicalKey → Option Location) (live : LogicalKey → Prop)
     (logical : Apeiron.Table.HMap LogicalKey I64)
     (hreach : ConstructorReachableRepR state Apeiron.GrowableSearch.decodeStoredOption
       direct live logical)
+    (hstate : Apeiron.GrowableReadLoop.StoredLiveTagAddress state)
     (sigma : cell.Sigma) (key : I64)
     (address : table.TableAddress)
     (haddress : Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key = ok address)
@@ -352,10 +447,9 @@ theorem word_stored_table_get_at_direct_none
     (shardAt : Usize) (hshard : table.shard address = ok shardAt)
     (region : table.Region StoredI64 I64)
     (hregion : state.shards.val[shardAt.val]? = some region)
-    (htail : (region.summary_maybe address.place = ok false) ∨
-      (table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none ∧
-       ∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-         (.spill shardAt index) ≠ some ((sigma, key), value))) :
+    (hchain : Apeiron.GrowableReadLoop.StoredProbeChainSafe region address.place sigma key)
+    (hmiss : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key 16#usize = ok none) :
     word_stored_table_get_at state sigma key =
       ok (Apeiron.Table.get logical (sigma, key)) := by
   have hflat : ∀ index value,
@@ -368,18 +462,8 @@ theorem word_stored_table_get_at_direct_none
       cases hprepared
     · obtain ⟨shard, index', hloc, _⟩ := h
       cases hloc
-  have hspillPair :
-      table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none ∧
-      (∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-        (.spill shardAt index) ≠ some ((sigma, key), value)) := by
-    cases htail with
-    | inl hsummary =>
-        have hspillNone : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none :=
-          spill_read_none_of_summary_miss Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize (by decide) hsummary
-        have hmiss := Apeiron.GrowableRepresentation.repR_spillSummaryMissSound hreach (sigma, key) address shardAt region haddress hshard hregion hsummary
-        exact ⟨hspillNone, hmiss.excludes⟩
-    | inr hpair => exact hpair
-  obtain ⟨hspillNone, hspillExcl⟩ := hspillPair
+  have hspillExcl := spill_read_none_entryAt_ne state hstate shardAt region hregion sigma key
+    address haddress 16#usize hmiss valid_n_16 hchain
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflat hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
@@ -391,12 +475,13 @@ theorem word_stored_table_get_at_direct_none
         (core.slice.index.SliceIndexUsizeSlice (table.Region StoredI64 I64))
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
-    simp only [hvec, bind_tc_ok, hspillNone]
+    simp only [hvec, bind_tc_ok, hmiss]
   rw [hrun, hdefault]
 
 /-- Partition 2 (direct empty, shape B: flat index miss), Stored carrier: the generated public
 read returns `ok state.default` when `address.direct_word = some word` and `Flat.index = ok none`,
-and that value is the canonical `Apeiron.Table.get`. -/
+and that value is the canonical `Apeiron.Table.get`. Contract change: the explicit `hchain` premise
+is required for the probe miss (zero tag before a live full match), as in Partition 2 shape A. -/
 theorem word_stored_table_get_at_flat_none
     (state : WordTable StoredI64)
     (direct : LogicalKey → Option Location) (live : LogicalKey → Prop)
@@ -414,10 +499,10 @@ theorem word_stored_table_get_at_flat_none
     (shardAt : Usize) (hshard : table.shard address = ok shardAt)
     (region : table.Region StoredI64 I64)
     (hregion : state.shards.val[shardAt.val]? = some region)
-    (htail : (region.summary_maybe address.place = ok false) ∨
-      (table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none ∧
-       ∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-         (.spill shardAt index) ≠ some ((sigma, key), value))) :
+    (hstate : Apeiron.GrowableReadLoop.StoredLiveTagAddress state)
+    (hchain : Apeiron.GrowableReadLoop.StoredProbeChainSafe region address.place sigma key)
+    (hmiss : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key 16#usize = ok none) :
     word_stored_table_get_at state sigma key =
       ok (Apeiron.Table.get logical (sigma, key)) := by
   have hflatExcl : ∀ index value,
@@ -439,18 +524,8 @@ theorem word_stored_table_get_at_flat_none
         · obtain ⟨shard, index', hloc, _⟩ := h
           cases hloc
     | inr hexcl => exact hexcl
-  have hspillPair :
-      table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none ∧
-      (∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-        (.spill shardAt index) ≠ some ((sigma, key), value)) := by
-    cases htail with
-    | inl hsummary =>
-        have hspillNone : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none :=
-          spill_read_none_of_summary_miss Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize (by decide) hsummary
-        have hmiss := Apeiron.GrowableRepresentation.repR_spillSummaryMissSound hreach (sigma, key) address shardAt region haddress hshard hregion hsummary
-        exact ⟨hspillNone, hmiss.excludes⟩
-    | inr hpair => exact hpair
-  obtain ⟨hspillNone, hspillExcl⟩ := hspillPair
+  have hspillExcl := spill_read_none_entryAt_ne state hstate shardAt region hregion sigma key
+    address haddress 16#usize hmiss valid_n_16 hchain
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflatExcl hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
@@ -462,7 +537,7 @@ theorem word_stored_table_get_at_flat_none
         (core.slice.index.SliceIndexUsizeSlice (table.Region StoredI64 I64))
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
-    simp only [hvec, bind_tc_ok, hspillNone]
+    simp only [hvec, bind_tc_ok, hmiss]
   rw [hrun, hdefault]
 
 /-- A vacant flat slot holds no entry for any full key. -/
@@ -563,7 +638,8 @@ theorem flat_occupied_ne_exclusion
       (cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma = ok true ∧
        Apeiron.GrowableIdentity.storedKeyRep.«matches» sigma flat.held key address = ok false) ∨
       (table.matches Apeiron.GrowableIdentity.storedKeyRep
-        (flat.sigma, flat.held, flat.value) sigma key address = ok false)) :
+        { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+        sigma key address = ok false)) :
     Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
       (.flat index) ≠ some ((sigma, key), flat.value) := by
   intro hentry
@@ -586,7 +662,8 @@ theorem flat_occupied_ne_exclusion
     have hmatchTrue :=
       (Apeiron.GrowableIdentity.stored_matches_iff flat.sigma sigma flat.held flat.value key address).mpr hfull
     have hmatchUnfold : table.matches Apeiron.GrowableIdentity.storedKeyRep
-        (flat.sigma, flat.held, flat.value) sigma key address =
+        { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+        sigma key address =
         Apeiron.GrowableIdentity.storedKeyRep.«matches» sigma flat.held key address := by
       unfold table.matches
       simp [hsigmaTrue]
@@ -621,7 +698,8 @@ theorem flat_occupied_exclusion_of_prepared
       (cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma = ok true ∧
        Apeiron.GrowableIdentity.storedKeyRep.«matches» sigma flat.held key address = ok false) ∨
       (table.matches Apeiron.GrowableIdentity.storedKeyRep
-        (flat.sigma, flat.held, flat.value) sigma key address = ok false))
+        { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+        sigma key address = ok false))
     (hroute : Apeiron.GrowableGeometry.preparedFlatIndex address state.resident.lanes.val = some index.val) :
     ∀ idx value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
       (.flat idx) ≠ some ((sigma, key), value) := by
@@ -649,8 +727,11 @@ theorem flat_occupied_exclusion_of_prepared
 
 /-- Partition 3 (occupied non-match at the stored root), Stored carrier: when the direct flat slot
 is occupied (`flat.live = true`) but does not match the query (Case (i) `Sigma` mismatch or Case (ii)
-key mismatch), and the routed shard has `summary_maybe = ok false`, the generated public read returns
-`ok state.default`, which is canonically `ok (Apeiron.Table.get logical (sigma, key))`. -/
+key mismatch), and the routed linear-probe spill read returns `ok none` under the live tag/address
+invariant, the generated public read returns `ok state.default`, which is canonically
+`ok (Apeiron.Table.get logical (sigma, key))`. Contract change: the explicit `hchain` premise is
+required for the probe miss; without it a zero tag before a live full match on the cycle refutes the
+conclusion and `RepR` does not supply it. -/
 theorem word_stored_table_get_at_flat_occupied_miss
     (state : WordTable StoredI64)
     (direct : LogicalKey → Option Location) (live : LogicalKey → Prop)
@@ -671,7 +752,10 @@ theorem word_stored_table_get_at_flat_occupied_miss
     (shardAt : Usize) (hshard : table.shard address = ok shardAt)
     (region : table.Region StoredI64 I64)
     (hregion : state.shards.val[shardAt.val]? = some region)
-    (hsummary : region.summary_maybe address.place = ok false)
+    (hstate : Apeiron.GrowableReadLoop.StoredLiveTagAddress state)
+    (hchain : Apeiron.GrowableReadLoop.StoredProbeChainSafe region address.place sigma key)
+    (hmiss : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
+      key 16#usize = ok none)
     (hroute : Apeiron.GrowableGeometry.preparedFlatIndex address state.resident.lanes.val = some index.val ∨
       ∀ idx value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
         (.flat idx) ≠ some ((sigma, key), value)) :
@@ -686,17 +770,16 @@ theorem word_stored_table_get_at_flat_occupied_miss
             (cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma = ok true ∧
              Apeiron.GrowableIdentity.storedKeyRep.«matches» sigma flat.held key address = ok false) ∨
             (table.matches Apeiron.GrowableIdentity.storedKeyRep
-              (flat.sigma, flat.held, flat.value) sigma key address = ok false) := by
+              { tag := 0#u8, sigma := flat.sigma, held := flat.held, value := flat.value }
+              sigma key address = ok false) := by
           rcases hmismatch with h | h
           · exact Or.inl h
           · exact Or.inr (Or.inl h)
         exact flat_occupied_exclusion_of_prepared state direct live logical hreach sigma key address haddress
           index flat hslot hlive hm hr
     | inr hexcl => exact hexcl
-  have hspillNone : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize = ok none :=
-    spill_read_none_of_summary_miss Apeiron.GrowableIdentity.storedKeyRep region sigma address key 16#usize (by decide) hsummary
-  have hmiss := Apeiron.GrowableRepresentation.repR_spillSummaryMissSound hreach (sigma, key) address shardAt region haddress hshard hregion hsummary
-  have hspillExcl := hmiss.excludes
+  have hspillExcl := spill_read_none_entryAt_ne state hstate shardAt region hregion sigma key
+    address haddress 16#usize hmiss valid_n_16 hchain
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflatExcl hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
@@ -714,9 +797,9 @@ theorem word_stored_table_get_at_flat_occupied_miss
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
     rcases hmismatch with hsigma | ⟨hsigma, hkey⟩
-    · simp only [hsigma, bind_tc_ok, hshard, hvec, hspillNone, ↓reduceIte]
+    · simp only [hsigma, bind_tc_ok, hshard, hvec, hmiss, ↓reduceIte]
       rfl
-    · simp only [hsigma, bind_tc_ok, hshard, hvec, hspillNone, ↓reduceIte]
+    · simp only [hsigma, bind_tc_ok, hshard, hvec, hmiss, ↓reduceIte]
       have hkey' : table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches
           I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
           table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma flat.held key address = ok false := hkey
@@ -725,240 +808,10 @@ theorem word_stored_table_get_at_flat_occupied_miss
       rfl
   rw [hrun, hdefault]
 
-private theorem range_index_readback (tags : alloc.vec.Vec U8) (base finish : Usize)
-    (line : Slice U8)
-    (horder : base ≤ finish) (hbound : finish.val ≤ tags.length)
-    (hline : alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice U8)
-      tags { start := base, «end» := finish } = ok line) :
-    line.val = tags.val.slice base.val finish.val ∧
-      line.val.length = finish.val - base.val := by
-  have hspec := alloc.vec.Vec.index_Range_spec tags { start := base, «end» := finish }
-    horder hbound
-  rw [hline, WP.spec_ok] at hspec
-  refine ⟨hspec.1, ?_⟩
-  have hlen := hspec.2
-  change line.val.length = finish.val - base.val at hlen
-  exact hlen
-
-private theorem vec_index_readback {T : Type} (slots : alloc.vec.Vec T) (i : Usize) (entry : T)
-    (hindex : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice T) slots i = ok entry) :
-    slots.val[i.val]? = some entry := by
-  rw [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize] at hindex
-  have hindex' : (match slots.val[i.val]? with
-      | none => (fail .arrayOutOfBounds : Result T)
-      | some x => ok x) = ok entry := hindex
-  cases hget : slots.val[i.val]? with
-  | none => simp [hget] at hindex'
-  | some payload =>
-      simp only [hget] at hindex'
-      exact congrArg Option.some (Result.ok_injective hindex')
-
-/-- A generated `spill_read` hit returns an in-bounds slot with matching full key and its
-nonzero tag read back from the tag slice. This is the tag-carrying variant of
-`spill_read_some_implies_full_match`. -/
-theorem spill_read_some_tagged_full_match
-    (region : table.Region StoredI64 I64)
-    (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
-    (n groups mask limit : Usize) (slot : Usize)
-    (hadmit : Apeiron.GrowableReadLoop.GroupedReadAdmission region address.place n groups mask limit)
-    (htagSlots : region.tags.length = region.slots.length)
-    (hnPos : 0 < n.val)
-    (hgroups2 : 2 ≤ groups.val)
-    (hvalid : table.valid_n n = ok true)
-    (hpowCheck : core.num.Usize.is_power_of_two groups = ok true)
-    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok (some slot)) :
-    slot.val < region.slots.length ∧
-    ∃ (entry : cell.Sigma × StoredI64 × I64) (tag : U8),
-      region.slots.val[slot.val]? = some entry ∧
-      region.tags.val[slot.val]? = some tag ∧
-      tag ≠ 0#u8 ∧
-      Apeiron.GrowableIdentity.logicalStored entry.1 entry.2.1 = (sigma, key) := by
-  obtain ⟨wanted, hwanted, hloop⟩ := Apeiron.GrowableReadLoop.generated_spill_read_unfold region sigma address key n
-    groups mask (some slot) hadmit.groupSlots hnPos hgroups2 hvalid hpowCheck hadmit.maskResult
-    hadmit.summaryPositive hresult
-  have hready : ∀ step : Usize, step < limit →
-      Apeiron.GrowableReadLoop.OuterStepReady Apeiron.GrowableIdentity.storedKeyRep region.tags region.slots
-        sigma address.place address.direct_word key n mask wanted step := by
-    intro step hstep
-    exact Apeiron.GrowableReadLoop.outer_step_ready_of_geometry Apeiron.GrowableIdentity.storedKeyRep region.tags
-      region.slots sigma address.place address.direct_word key n groups mask wanted limit step
-      hadmit.width ⟨htagSlots, hadmit.groupSlots⟩ hadmit.headroom hadmit.power
-      hadmit.maskResult hadmit.boundResult hstep
-      (fun entry => Apeiron.GrowableReadLoop.stored_matcher_total entry sigma key
-        { place := address.place, direct_word := address.direct_word })
-  have hpost := Apeiron.GrowableReadLoop.generated_outer_sweep_outcome Apeiron.GrowableIdentity.storedKeyRep region.tags
-    region.slots sigma address.place address.direct_word key n groups mask wanted limit
-    hadmit.boundResult hready
-  rw [hloop, WP.spec_ok] at hpost
-  rcases hpost with ⟨hsome, _⟩ | ⟨j, cursor, slot', hsome, hcursorVal, hjLimit, houter, _⟩
-  · cases hsome
-  · have hslotEq : slot = slot' := Option.some.inj hsome
-    subst slot'
-    obtain ⟨group, base, finish, line, bits, hgroup, hbase, hfinish, hline, hmatchTag, _hloop0, houtcome⟩ := houter
-    rcases houtcome with ⟨hnone, _⟩ | ⟨j2, slot2, hsome2, hjbit, hcomp⟩
-    · cases hnone
-    · have hslotEq2 : slot = slot2 := Option.some.inj hsome2
-      subst slot2
-      obtain ⟨lane, entry, hlaneVal, hbaseLane, hindexE, hmatchTrue⟩ := hcomp
-      obtain ⟨hinBounds, hlogical⟩ := Apeiron.GrowableReadLoop.stored_candidate_full_match region.slots slot entry sigma key
-        { place := address.place, direct_word := address.direct_word } hindexE hmatchTrue
-      have hslotRead := vec_index_readback region.slots slot entry hindexE
-      have hcursorLt : cursor < limit := (UScalar.lt_equiv cursor limit).mpr (by rw [hcursorVal]; exact hjLimit)
-      obtain ⟨group', hgroup', hgroupLt⟩ :=
-        Apeiron.GrowableReadLoop.generated_group_bounded address.place groups mask limit cursor
-          hadmit.headroom hadmit.power hadmit.maskResult hadmit.boundResult hcursorLt
-      have hgroupEq : group' = group := Result.ok_injective (hgroup'.symm.trans hgroup)
-      subst group'
-      have hbaseMul := UScalar.mul_equiv group n
-      rw [show UScalar.mul group n = group * n from rfl, hbase] at hbaseMul
-      have hbaseVal : base.val = group.val * n.val := hbaseMul.2.1
-      have hfinishAdd := UScalar.add_equiv base n
-      rw [hfinish] at hfinishAdd
-      have hfinishVal : finish.val = base.val + n.val := hfinishAdd.2.1
-      have horder : base ≤ finish := (UScalar.le_equiv base finish).mpr (by rw [hfinishVal]; omega)
-      have hfinishBound : finish.val ≤ region.tags.length := by
-        rw [htagSlots]
-        have hslotsEq := hadmit.groupSlots
-        rw [hslotsEq, hfinishVal, hbaseVal]
-        nlinarith
-      obtain ⟨hlineVal, hlineLength⟩ :=
-        range_index_readback region.tags base finish line horder hfinishBound hline
-      have hlineWidth : line.val.length = n.val := by rw [hlineLength, hfinishVal]; omega
-      obtain ⟨bits', hbits', hexact⟩ := Apeiron.GrowableScan.match_tag_exact line wanted (by
-        rw [hlineWidth]
-        exact hadmit.width)
-      have hbitsEq : bits' = bits := Result.ok_injective (hbits'.symm.trans hmatchTag)
-      subst bits'
-      have hjline : j2 < line.val.length ∧ line.val[j2]? = some wanted := by
-        have htest := hexact j2
-        rw [htest] at hjbit
-        exact decide_eq_true_eq.mp hjbit
-      have hslice : line.val[j2]? = region.tags.val[base.val + j2]? := by
-        rw [hlineVal]
-        exact List.getElem?_slice base.val finish.val j2 region.tags.val
-          ⟨hfinishBound, by omega⟩
-      have hslotAdd := UScalar.add_equiv base lane
-      rw [hbaseLane] at hslotAdd
-      have hslotVal : slot.val = base.val + j2 := by
-        have haddVal : slot.val = base.val + lane.val := hslotAdd.2.1
-        rw [haddVal, hlaneVal]
-      have htagAt : region.tags.val[slot.val]? = some wanted := by
-        rw [hslotVal, ← hslice]
-        exact hjline.2
-      have hwantedNonzero : wanted ≠ 0#u8 := Apeiron.GrowableScan.tag_ne_zero address.place wanted hwanted
-      exact ⟨hinBounds, entry, wanted, hslotRead, htagAt, hwantedNonzero, hlogical⟩
-
-/-- Deliverable 1: on an admitted region, a generated `spill_read` hit returns an entry
-which reads back through `entryAt` with the exact query and payload value. -/
-theorem spill_read_some_entryAt
-    (state : WordTable StoredI64)
-    (shard : Usize) (region : table.Region StoredI64 I64)
-    (hregion : state.shards.val[shard.val]? = some region)
-    (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
-    (n groups mask limit : Usize) (slot : Usize)
-    (hadmit : Apeiron.GrowableReadLoop.GroupedReadAdmission region address.place n groups mask limit)
-    (htagSlots : region.tags.length = region.slots.length)
-    (hnPos : 0 < n.val)
-    (hgroups2 : 2 ≤ groups.val)
-    (hvalid : table.valid_n n = ok true)
-    (hpowCheck : core.num.Usize.is_power_of_two groups = ok true)
-    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok (some slot)) :
-    ∃ value : I64,
-      Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-        (.spill shard slot) = some ((sigma, key), value) ∧
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (cell.Sigma × StoredI64 × I64)) region.slots slot =
-          ok (sigma, { key := key }, value) := by
-  obtain ⟨_hinBounds, entry, tag, hslot, htag, htagNonzero, hlogical⟩ :=
-    spill_read_some_tagged_full_match region sigma address key n groups mask limit slot
-      hadmit htagSlots hnPos hgroups2 hvalid hpowCheck hresult
-  have hsigma : entry.1 = sigma := by
-    have hp : (entry.1, entry.2.1.key) = (sigma, key) := hlogical
-    exact congrArg Prod.fst hp
-  have hkey : entry.2.1.key = key := by
-    have hp : (entry.1, entry.2.1.key) = (sigma, key) := hlogical
-    exact congrArg Prod.snd hp
-  have hheld : entry.2.1 = { key := key } := by
-    cases h : entry.2.1 with
-    | mk k =>
-        have hk : k = key := by
-          have hk' := congrArg (fun x : StoredI64 => x.key) h
-          rw [hk'] at hkey
-          exact hkey
-        subst hk
-        rfl
-  have hentryEq : entry = (sigma, { key := key }, entry.2.2) := by
-    rcases entry with ⟨s, h, v⟩
-    simp only at hsigma hheld
-    subst hsigma
-    subst hheld
-    rfl
-  have hindex : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (cell.Sigma × StoredI64 × I64)) region.slots slot =
-        ok (sigma, { key := key }, entry.2.2) := by
-    rw [hentryEq] at hslot
-    simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot]
-  have hentryAt : Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-      (.spill shard slot) = some ((sigma, key), entry.2.2) := by
-    simp [Apeiron.GrowableSearch.entryAt, hregion, htag, hslot,
-      htagNonzero, Apeiron.GrowableSearch.decodeStoredOption, hsigma, hkey]
-  exact ⟨entry.2.2, hentryAt, hindex⟩
-
-/-- Under the live tag/address invariant, a generated `spill_read` miss implies that no
-live slot in that shard decodes to the query. -/
-theorem spill_read_none_entryAt_ne
-    (state : WordTable StoredI64)
-    (hstate : Apeiron.GrowableReadLoop.StoredLiveTagAddress state)
-    (shard : Usize) (region : table.Region StoredI64 I64)
-    (hregion : state.shards.val[shard.val]? = some region)
-    (sigma : cell.Sigma) (key : I64) (address : table.TableAddress)
-    (haddress : Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key = ok address)
-    (n groups mask limit : Usize)
-    (hadmit : Apeiron.GrowableReadLoop.GroupedReadAdmission region address.place n groups mask limit)
-    (htagSlots : region.tags.length = region.slots.length)
-    (hnPos : 0 < n.val)
-    (hgroups2 : 2 ≤ groups.val)
-    (hvalid : table.valid_n n = ok true)
-    (hpowCheck : core.num.Usize.is_power_of_two groups = ok true)
-    (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok none) :
-    ∀ index value, Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-      (.spill shard index) ≠ some ((sigma, key), value) := by
-  intro index value hentry
-  have hneZero : ∀ tag, region.tags.val[index.val]? = some tag → tag ≠ 0#u8 →
-      ∀ s (h : StoredI64) v, region.slots.val[index.val]? = some (s, h, v) →
-      (s, h.key) ≠ (sigma, key) := by
-    intro tag htag htagNonzero s h v hslot
-    have hmiss := Apeiron.GrowableReadLoop.spill_read_none_implies_no_full_match state hstate
-      shard region hregion sigma key address haddress n groups mask limit hadmit htagSlots
-      hnPos hgroups2 hvalid hpowCheck hresult index tag s h v htag htagNonzero hslot
-    intro hpair
-    have hfull : Apeiron.GrowableIdentity.logicalStored s h = (sigma, key) := hpair
-    exact hmiss hfull
-  unfold Apeiron.GrowableSearch.entryAt at hentry
-  simp only [hregion] at hentry
-  cases htag : region.tags.val[index.val]? with
-  | none => simp [htag] at hentry
-  | some tag =>
-      simp only [htag] at hentry
-      cases hslot : region.slots.val[index.val]? with
-      | none => simp [hslot] at hentry
-      | some entry =>
-          simp only [hslot] at hentry
-          rcases entry with ⟨s, h, v⟩
-          by_cases hzero : tag = 0#u8
-          · simp [hzero] at hentry
-          · simp only [if_neg hzero, Apeiron.GrowableSearch.decodeStoredOption] at hentry
-            have hsome : ((s, h.key), v) = ((sigma, key), value) := Option.some.inj hentry
-            have hpair : (s, h.key) = (sigma, key) := congrArg Prod.fst hsome
-            exact hneZero tag htag hzero s h v hslot hpair
 
 def emptyControlRegion : table.Region (table.keyrep.Stored Std.I64) Std.I64 := {
-  tags := alloc.vec.Vec.new _,
   slots := alloc.vec.Vec.new _,
-  summary := alloc.vec.Vec.new _
+  live := 0#usize
 }
 
 /-- Control fixture for Partition 2 with `resident.lanes = 0#usize` (shape B). -/
@@ -990,10 +843,9 @@ run_cmd do
     ``Apeiron.GrowableIdentity.regen_slot_matches_iff_of_reachable,
     ``Apeiron.GrowableIdentity.regen_hold_decodes,
     ``Apeiron.GrowableRepresentation.RepR]
-  let localNames : Array Lean.Name := #[`ConstructorReachableRepR,
+  let localNames : Array Lean.Name := #[`ConstructorReachableRepR, `valid_n_16,
     `word_stored_table_get_at_direct_hit, `word_regen_table_get_at_direct_hit,
     `query_rep, `absent_of_exclusions, `default_of_absent,
-    `spill_read_none_of_summary_miss,
     `flat_index_none_pin, `flat_index_some_pin, `flat_index_compute,
     `word_stored_table_get_at_direct_none,
     `word_stored_table_get_at_flat_none,
