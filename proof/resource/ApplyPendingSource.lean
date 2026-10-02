@@ -511,7 +511,7 @@ structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   retained_encoding_byte : Self_Retained → Std.Usize → Result Std.U8
 
 /-- [apply_pending_source::table::TableAddress]
-    Source: 'src/table.rs', lines 101:0-106:1
+    Source: 'src/table.rs', lines 109:0-114:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
@@ -524,13 +524,13 @@ def coord.locator.locator_core.identity_address
   ok { place := 0#u64, direct_word := none }
 
 /-- [apply_pending_source::table::WordHome]
-    Source: 'src/table.rs', lines 148:0-148:20
+    Source: 'src/table.rs', lines 156:0-156:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::address::EllipticPacking<i64> for apply_pending_source::table::WordHome}::elliptic_unpack]:
-    Source: 'src/table.rs', lines 182:4-184:5
+    Source: 'src/table.rs', lines 190:4-192:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apply_pending_sourceCoordAddressEllipticPackingI64.elliptic_unpack
@@ -539,7 +539,7 @@ def
     () word
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::address::EllipticPacking<i64> for apply_pending_source::table::WordHome}::elliptic_pack]:
-    Source: 'src/table.rs', lines 179:4-181:5
+    Source: 'src/table.rs', lines 187:4-189:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apply_pending_sourceCoordAddressEllipticPackingI64.elliptic_pack
@@ -548,7 +548,7 @@ def
     () key
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::coord::address::EllipticPacking<i64> for apply_pending_source::table::WordHome}]
-    Source: 'src/table.rs', lines 178:0-185:1 -/
+    Source: 'src/table.rs', lines 186:0-193:1 -/
 @[reducible]
 def table.WordHome.Insts.Apply_pending_sourceCoordAddressEllipticPackingI64 :
   coord.address.EllipticPacking table.WordHome Std.I64 := {
@@ -559,7 +559,7 @@ def table.WordHome.Insts.Apply_pending_sourceCoordAddressEllipticPackingI64 :
 }
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::address::FaceResidueCapability<i64> for apply_pending_source::table::WordHome}::hyperbolic_scalar]:
-    Source: 'src/table.rs', lines 174:4-176:5
+    Source: 'src/table.rs', lines 182:4-184:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -570,7 +570,7 @@ def
     () profile key
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::address::FaceResidueCapability<i64> for apply_pending_source::table::WordHome}::parabolic_dual]:
-    Source: 'src/table.rs', lines 171:4-173:5
+    Source: 'src/table.rs', lines 179:4-181:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -581,7 +581,7 @@ def
     () key
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::coord::address::FaceResidueCapability<i64> for apply_pending_source::table::WordHome}]
-    Source: 'src/table.rs', lines 170:0-177:1 -/
+    Source: 'src/table.rs', lines 178:0-185:1 -/
 @[reducible]
 def
   table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceResidueCapabilityI64
@@ -593,7 +593,7 @@ def
 }
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::coord::address::FaceCoord<i64, apply_pending_source::cell::Sigma> for apply_pending_source::table::WordHome}]
-    Source: 'src/table.rs', lines 186:0-188:1 -/
+    Source: 'src/table.rs', lines 194:0-196:1 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceCoordI64Sigma
   : coord.address.FaceCoord table.WordHome Std.I64 cell.Sigma := {
@@ -607,7 +607,7 @@ impl_def table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceCoordI64Sigma
 }
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::coord::address::FaceHome<i64, apply_pending_source::cell::Sigma> for apply_pending_source::table::WordHome}]
-    Source: 'src/table.rs', lines 189:0-189:34 -/
+    Source: 'src/table.rs', lines 197:0-197:34 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceHomeI64Sigma
   : coord.address.FaceHome table.WordHome Std.I64 cell.Sigma := {
@@ -618,7 +618,7 @@ impl_def table.WordHome.Insts.Apply_pending_sourceCoordAddressFaceHomeI64Sigma
 }
 
 /-- [apply_pending_source::table::{impl apply_pending_source::table::Home<i64, apply_pending_source::cell::Sigma> for apply_pending_source::table::WordHome}::address]:
-    Source: 'src/table.rs', lines 158:4-168:5
+    Source: 'src/table.rs', lines 166:4-176:5
     Visibility: public -/
 def table.WordHome.Insts.Apply_pending_sourceTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -634,7 +634,7 @@ def table.WordHome.Insts.Apply_pending_sourceTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [apply_pending_source::table::{impl apply_pending_source::table::Home<i64, apply_pending_source::cell::Sigma> for apply_pending_source::table::WordHome}::home]:
-    Source: 'src/table.rs', lines 150:4-152:5
+    Source: 'src/table.rs', lines 158:4-160:5
     Visibility: public -/
 def table.WordHome.Insts.Apply_pending_sourceTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -643,7 +643,7 @@ def table.WordHome.Insts.Apply_pending_sourceTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait declaration: [apply_pending_source::table::Home]
-    Source: 'src/table.rs', lines 124:0-131:1
+    Source: 'src/table.rs', lines 132:0-139:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -653,7 +653,7 @@ structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   address : Self → cell.Sigma → K → Result table.TableAddress
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::table::Home<i64, apply_pending_source::cell::Sigma> for apply_pending_source::table::WordHome}]
-    Source: 'src/table.rs', lines 149:0-169:1 -/
+    Source: 'src/table.rs', lines 157:0-177:1 -/
 @[reducible]
 def table.WordHome.Insts.Apply_pending_sourceTableHomeI64Sigma : table.Home
   table.WordHome Std.I64 cell.Sigma := {
@@ -1623,13 +1623,13 @@ def table.keyrep.Stored.Insts.Apply_pending_sourceTableKeyrepKeyRep {K : Type}
 }
 
 /-- [apply_pending_source::table::QueryIdentity]
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 282:0-287:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 278:0-283:1 -/
 structure table.QueryIdentity (K : Type) (H : Type) (R : Type) where
   key : K
   _carrier : core.marker.PhantomData (H × R)
 
 /-- [apply_pending_source::table::query_identity_bytes_equal]: loop body 0:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop_body]
 def table.query_identity_bytes_equal_loop.body
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1647,7 +1647,7 @@ def table.query_identity_bytes_equal_loop.body
   else ok (done true)
 
 /-- [apply_pending_source::table::query_identity_bytes_equal]: loop 0:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 300:4-307:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop]
 def table.query_identity_bytes_equal_loop
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1660,7 +1660,7 @@ def table.query_identity_bytes_equal_loop
     index
 
 /-- [apply_pending_source::table::query_identity_bytes_equal]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 294:0-307:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 290:0-303:1 -/
 def table.query_identity_bytes_equal
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
   H) (left : K) (right : K) :
@@ -1675,7 +1675,7 @@ def table.query_identity_bytes_equal
       0#usize
 
 /-- [apply_pending_source::table::{impl core::cmp::PartialEq<apply_pending_source::table::QueryIdentity<'_0, K, H, R>> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::eq]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 318:4-320:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 314:4-316:5
     Visibility: public -/
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1685,7 +1685,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   table.query_identity_bytes_equal keyrepKeyRepInst self.key other.key
 
 /-- Trait implementation: [apply_pending_source::table::{impl core::cmp::PartialEq<apply_pending_source::table::QueryIdentity<'_0, K, H, R>> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 309:0-321:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 305:0-317:1 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H :
   Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K H) :
@@ -1696,7 +1696,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H :
 }
 
 /-- Trait implementation: [apply_pending_source::table::{impl core::cmp::Eq for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 322:0-322:72 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 318:0-318:72 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
   (keyrepKeyRepInst : table.keyrep.KeyRep R K H) : core.cmp.Eq
@@ -1706,7 +1706,7 @@ def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
 }
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_byte]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 360:4-362:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 356:4-358:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_byte
@@ -1717,7 +1717,7 @@ def
   ok 0#u8
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_len]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 353:4-355:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 349:4-351:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_len
@@ -1728,7 +1728,7 @@ def
   ok 0#usize
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::encoding_byte]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 346:4-348:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 342:4-344:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_byte
@@ -1739,7 +1739,7 @@ def
   keyrepKeyRepInst.query_encoding_byte self.key index
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::encoding_len]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 343:4-345:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 339:4-341:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_len
@@ -1750,7 +1750,7 @@ def
   keyrepKeyRepInst.query_encoding_len self.key
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::matches_retained]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 340:4-342:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 336:4-338:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.matches_retained
@@ -1761,7 +1761,7 @@ def
   ok false
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::retain_reserved]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 335:4-335:40
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 331:4-331:40
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retain_reserved
@@ -1772,7 +1772,7 @@ def
   ok ()
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::reserve_retain]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 332:4-334:5
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 328:4-330:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.reserve_retain
@@ -1783,7 +1783,7 @@ def
   ok (core.result.Result.Ok ())
 
 /-- [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}::retain]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 331:4-331:23
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 327:4-327:23
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retain
@@ -1794,7 +1794,7 @@ def
   ok ()
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::coord::locator::locator_core::ExactIdentity<(), ()> for apply_pending_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 324:0-363:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 320:0-359:1 -/
 @[reducible]
 def
   table.QueryIdentity.Insts.Apply_pending_sourceCoordLocatorLocator_coreExactIdentityTupleTuple
@@ -1831,14 +1831,14 @@ def
 }
 
 /-- [apply_pending_source::table::PayloadLocation]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 510:0-515:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 448:0-453:1 -/
 @[discriminant isize]
 inductive table.PayloadLocation where
 | Resident : Std.Usize → table.PayloadLocation
 | Spill : Std.Usize → Std.Usize → table.PayloadLocation
 
 /-- [apply_pending_source::table::TableLocator]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 523:0-532:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 461:0-470:1 -/
 structure table.TableLocator where
   profile : Option coord.address.H3_40
   directory : Option coord.locator.locator_core.Directory
@@ -1846,7 +1846,7 @@ structure table.TableLocator where
   staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
 
 /-- [apply_pending_source::table::{apply_pending_source::table::TableLocator}::record_link]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 691:4-698:5 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 687:4-694:5 -/
 def table.TableLocator.record_link
   (self : table.TableLocator) (handle : Std.U32) (identity_node : Std.U32)
   (location : table.PayloadLocation) :
@@ -1866,7 +1866,7 @@ def table.TableLocator.record_link
     ok { self with links := v }
 
 /-- [apply_pending_source::table::{apply_pending_source::table::TableLocator}::publish_for_query]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 615:4-669:5 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 611:4-665:5 -/
 def table.TableLocator.publish_for_query
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -1948,7 +1948,7 @@ def table.TableLocator.publish_for_query
           location
 
 /-- [apply_pending_source::table::{apply_pending_source::table::TableLocator}::publish_for_held]:
-    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 672:4-688:5 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/locator.rs', lines 668:4-684:5 -/
 def table.TableLocator.publish_for_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -1965,168 +1965,86 @@ def table.TableLocator.publish_for_held
     table.TableLocator.publish_for_query corecloneCloneInst HomeInst
       keyrepKeyRepInst self home sigma key location
 
-/-- [apply_pending_source::table::summary_trailing_zeros]: loop body 0:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop_body]
-def table.summary_trailing_zeros_loop.body
-  (value : Std.Usize) (zeros : Std.U32) :
-  Result (ControlFlow (Std.Usize × Std.U32) Std.U32)
-  := do
-  if zeros < core.num.Usize.BITS
-  then
-    let i ← lift (value &&& 1#usize)
-    if i = 0#usize
-    then
-      let zeros1 ← zeros + 1#u32
-      let value1 ← value >>> 1#i32
-      ok (cont (value1, zeros1))
-    else ok (done zeros)
-  else ok (done zeros)
-
-/-- [apply_pending_source::table::summary_trailing_zeros]: loop 0:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop]
-def table.summary_trailing_zeros_loop
-  (value : Std.Usize) (zeros : Std.U32) : Result Std.U32 := do
-  loop
-    (fun (value1, zeros1) => table.summary_trailing_zeros_loop.body value1
-      zeros1)
-    (value, zeros)
-
-/-- [apply_pending_source::table::summary_trailing_zeros]:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 22:0-29:1 -/
-@[reducible]
-def table.summary_trailing_zeros (value : Std.Usize) : Result Std.U32 := do
-  table.summary_trailing_zeros_loop value 0#u32
+/-- [apply_pending_source::table::SpillSlot]
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 49:0-58:1 -/
+structure table.SpillSlot (R : Type) (V : Type) where
+  tag : Std.U8
+  sigma : cell.Sigma
+  held : R
+  value : V
 
 /-- [apply_pending_source::table::Region]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 107:0-118:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 93:0-98:1 -/
 structure table.Region (R : Type) (V : Type) where
-  tags : alloc.vec.Vec Std.U8
-  slots : alloc.vec.Vec (cell.Sigma × R × V)
-  summary : alloc.vec.Vec Std.U64
+  slots : alloc.vec.Vec (table.SpillSlot R V)
+  live : Std.Usize
 
-/-- [apply_pending_source::table::{apply_pending_source::table::Region<R, V>}::summary_index]:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 149:4-165:5 -/
-def table.Region.summary_index
-  (R : Type) (V : Type) (place : Std.U64) (len_words : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  if len_words = 0#usize
-  then ok none
-  else
-    let b ← core.num.Usize.is_power_of_two len_words
-    if b
-    then
-      let i ← core.num.Usize.MAX >>> 6#i32
-      if len_words <= i
-      then
-        let i1 ← lift (UScalar.cast .U64 len_words)
-        let i2 ← i1 <<< 6#i32
-        let mask ← i2 - 1#u64
-        let i3 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-        let i4 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i4)
-        let i5 ← lift (mixed1 &&& mask)
-        let i6 ← lift (UScalar.cast .Usize i5)
-        ok (some i6)
-      else
-        let i1 ← table.summary_trailing_zeros len_words
-        let bits ← i1 + 6#u32
-        if bits >= core.num.U64.BITS
-        then ok none
-        else
-          let i2 ← 1#u64 <<< bits
-          let mask ← i2 - 1#u64
-          let i3 ← place >>> 8#i32
-          let mixed ←
-            lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-          let i4 ← mixed >>> 29#i32
-          let mixed1 ← lift (mixed ^^^ i4)
-          let i5 ← lift (mixed1 &&& mask)
-          let i6 ← lift (UScalar.cast .Usize i5)
-          ok (some i6)
-    else
-      let i ← table.summary_trailing_zeros len_words
-      let bits ← i + 6#u32
-      if bits >= core.num.U64.BITS
-      then ok none
-      else
-        let i1 ← 1#u64 <<< bits
-        let mask ← i1 - 1#u64
-        let i2 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i2 11400714819323198485#u64)
-        let i3 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i3)
-        let i4 ← lift (mixed1 &&& mask)
-        let i5 ← lift (UScalar.cast .Usize i4)
-        ok (some i5)
-
-/-- [apply_pending_source::table::{apply_pending_source::table::Region<R, V>}::summary_set]:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 169:4-174:5 -/
-def table.Region.summary_set
-  {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result (table.Region R V)
-  := do
-  let i := alloc.vec.Vec.len self.summary
-  let o ← table.Region.summary_index R V place i
-  match o with
-  | none => ok self
-  | some index =>
-    let i1 ← index % 64#usize
-    let i2 ← 1#u64 <<< i1
-    let i3 ← index / 64#usize
-    let (i4, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.summary i3
-    let i5 ← lift (i4 ||| i2)
-    let v := index_mut_back i5
-    ok { self with summary := v }
+/-- [apply_pending_source::table::TAG_FINGERPRINT_BITS]
+    Source: 'src/table.rs', lines 72:0-72:36 -/
+@[global_simps, irreducible] def table.TAG_FINGERPRINT_BITS : Std.U32 := 7#u32
 
 /-- [apply_pending_source::table::TAG_FINGERPRINT_MASK]
-    Source: 'src/table.rs', lines 83:0-83:38 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_MASK : Std.U8 := 127#u8
+    Source: 'src/table.rs', lines 94:0-94:65 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_MASK : Result Std.U8 := do
+  let i ← 1#u8 <<< table.TAG_FINGERPRINT_BITS
+  i - 1#u8
+
+/-- [apply_pending_source::table::TAG_SPREAD]
+    Source: 'src/table.rs', lines 92:0-92:42 -/
+@[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
 
 /-- [apply_pending_source::table::TAG_FINGERPRINT_SHIFT]
-    Source: 'src/table.rs', lines 81:0-81:37 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_SHIFT : Std.U32 := 8#u32
+    Source: 'src/table.rs', lines 87:0-87:61 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_SHIFT : Result Std.U32 :=
+  64#u32 - table.TAG_FINGERPRINT_BITS
 
 /-- [apply_pending_source::table::TAG_LIVE]
-    Source: 'src/table.rs', lines 72:0-72:26 -/
+    Source: 'src/table.rs', lines 70:0-70:26 -/
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [apply_pending_source::table::tag]:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 337:0-339:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 286:0-289:1 -/
 def table.tag (place : Std.U64) : Result Std.U8 := do
-  let i ← place >>> table.TAG_FINGERPRINT_SHIFT
-  let i1 ← lift (UScalar.cast .U8 i)
-  let i2 ← lift (i1 &&& table.TAG_FINGERPRINT_MASK)
-  ok (table.TAG_LIVE ||| i2)
+  let spread ← lift (core.num.U64.wrapping_mul place table.TAG_SPREAD)
+  let i ← table.TAG_FINGERPRINT_SHIFT
+  let i1 ← spread >>> i
+  let i2 ← lift (UScalar.cast .U8 i1)
+  let i3 ← table.TAG_FINGERPRINT_MASK
+  let i4 ← lift (i2 &&& i3)
+  ok (table.TAG_LIVE ||| i4)
 
 /-- [apply_pending_source::table::{apply_pending_source::table::Region<R, V>}::publish_live]:
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 197:4-207:5 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 137:4-147:5 -/
 def table.Region.publish_live
   {R : Type} {V : Type} (self : table.Region R V) (index : Std.Usize)
   (payload : (cell.Sigma × R × V)) (place : Std.U64) :
   Result (table.Region R V)
   := do
-  let (_, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-      × R × V)) self.slots index
-  let v := index_mut_back payload
-  let self1 ← table.Region.summary_set { self with slots := v } place
+  let (s, t, t1) := payload
+  let (ss, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) self.slots index
+  let v := index_mut_back { ss with sigma := s }
+  let (ss1, index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v index
+  let v1 := index_mut_back1 { ss1 with held := t }
+  let (ss2, index_mut_back2) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v1 index
   let i ← table.tag place
-  let (_, index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
-      self1.tags index
-  let v1 := index_mut_back1 i
-  ok { self1 with tags := v1 }
+  let v2 := index_mut_back2 { ss2 with value := t1 }
+  let (ss3, index_mut_back3) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v2 index
+  let i1 ← self.live + 1#usize
+  let v3 := index_mut_back3 { ss3 with tag := i }
+  ok { slots := v3, live := i1 }
 
 /-- [apply_pending_source::table::SearchClass]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 244:0-251:1
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 193:0-200:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchClass where
@@ -2135,7 +2053,7 @@ inductive table.SearchClass where
 | Exhausted : table.SearchClass
 
 /-- [apply_pending_source::table::SearchLocation]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 255:0-262:1
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 204:0-211:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchLocation where
@@ -2144,14 +2062,14 @@ inductive table.SearchLocation where
 | NoIndex : table.SearchLocation
 
 /-- [apply_pending_source::table::SearchDecision]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 266:0-271:1
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 215:0-220:1
     Visibility: public -/
 structure table.SearchDecision where
   «class» : table.SearchClass
   location : table.SearchLocation
 
 /-- [apply_pending_source::table::FlatSlot]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 419:0-424:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 355:0-360:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -2159,31 +2077,31 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [apply_pending_source::table::Flat]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 426:0-429:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 362:0-365:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
 
 /-- [apply_pending_source::table::RebuildReserved]
-    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 449:0-452:1 -/
+    Source: '/home/socol/Workspace/apeiron/src/table/state.rs', lines 385:0-388:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- Trait declaration: [apply_pending_source::table::Merge]
-    Source: 'src/table.rs', lines 134:0-137:1
+    Source: 'src/table.rs', lines 142:0-145:1
     Visibility: public -/
 structure table.Merge (Self : Type) (V : Type) where
   merge : Self → V → V → Result V
 
 /-- [apply_pending_source::table::WordMerge]
-    Source: 'src/table.rs', lines 191:0-191:21
+    Source: 'src/table.rs', lines 199:0-199:21
     Visibility: public -/
 @[reducible]
 def table.WordMerge := Unit
 
 /-- [apply_pending_source::table::{impl apply_pending_source::table::Merge<i64> for apply_pending_source::table::WordMerge}::merge]:
-    Source: 'src/table.rs', lines 193:4-195:5
+    Source: 'src/table.rs', lines 201:4-203:5
     Visibility: public -/
 def table.WordMerge.Insts.Apply_pending_sourceTableMergeI64.merge
   (self : table.WordMerge) (new : Std.I64) (old : Std.I64) :
@@ -2192,7 +2110,7 @@ def table.WordMerge.Insts.Apply_pending_sourceTableMergeI64.merge
   ok (core.num.I64.wrapping_add new old)
 
 /-- Trait implementation: [apply_pending_source::table::{impl apply_pending_source::table::Merge<i64> for apply_pending_source::table::WordMerge}]
-    Source: 'src/table.rs', lines 192:0-196:1 -/
+    Source: 'src/table.rs', lines 200:0-204:1 -/
 @[reducible]
 def table.WordMerge.Insts.Apply_pending_sourceTableMergeI64 : table.Merge
   table.WordMerge Std.I64 := {
@@ -2200,7 +2118,7 @@ def table.WordMerge.Insts.Apply_pending_sourceTableMergeI64 : table.Merge
 }
 
 /-- [apply_pending_source::table::Table]
-    Source: 'src/table.rs', lines 218:0-230:1
+    Source: 'src/table.rs', lines 226:0-238:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   Std.Usize) where
@@ -2213,7 +2131,7 @@ structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   locator : table.TableLocator
 
 /-- [apply_pending_source::table::{apply_pending_source::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: 'src/table.rs', lines 1036:4-1046:5 -/
+    Source: 'src/table.rs', lines 1018:4-1028:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -2242,7 +2160,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apply_pending_source::table::{apply_pending_source::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: 'src/table.rs', lines 1063:4-1121:5 -/
+    Source: 'src/table.rs', lines 1045:4-1103:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -2284,18 +2202,18 @@ def table.Table.apply_pending_and_commit
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) reserved.regions spill
-      let (_, _, t) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      let old ← corecloneCloneInst1.clone t
-      let t1 ← MergeInst.merge merge value old
+      let ss ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      let old ← corecloneCloneInst1.clone ss.value
+      let t ← MergeInst.merge merge value old
       let (r1, index_mut_back) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) reserved.regions spill
-      let ((s, t2, _), index_mut_back1) ←
+      let (ss1, index_mut_back1) ←
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (cell.Sigma × R × V)) r1.slots index
-      let v := index_mut_back1 (s, t2, t1)
+          (table.SpillSlot R V)) r1.slots index
+      let v := index_mut_back1 { ss1 with value := t }
       let v1 := index_mut_back { r1 with slots := v }
       ok { self1 with resident := reserved.resident, shards := v1 }
     | table.SearchLocation.NoIndex => fail panic

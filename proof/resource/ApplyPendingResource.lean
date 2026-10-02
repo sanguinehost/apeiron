@@ -68,8 +68,8 @@ abbrev Slot := table.FlatSlot Held Std.I64
 /-- A spill region of the stored word carrier. -/
 abbrev Region := table.Region Held Std.I64
 
-/-- The stored word payload triple of a spill slot. -/
-abbrev Triple := cell.Sigma × Held × Std.I64
+/-- A stored word spill slot: the region element that carries its own tag, key and payload. -/
+abbrev SpillSlot := table.SpillSlot Held Std.I64
 
 /-- The `SliceIndex` instance the real body indexes resident slots with. -/
 abbrev SlotIdx := core.slice.index.SliceIndexUsizeSlice Slot
@@ -77,8 +77,8 @@ abbrev SlotIdx := core.slice.index.SliceIndexUsizeSlice Slot
 /-- The `SliceIndex` instance the real body indexes spill regions with. -/
 abbrev RegionIdx := core.slice.index.SliceIndexUsizeSlice Region
 
-/-- The `SliceIndex` instance the real body indexes spill payload triples with. -/
-abbrev TripleIdx := core.slice.index.SliceIndexUsizeSlice Triple
+/-- The `SliceIndex` instance the real body indexes spill slots with. -/
+abbrev SpillSlotIdx := core.slice.index.SliceIndexUsizeSlice SpillSlot
 
 /-- The real extracted body of `Table::apply_pending_and_commit` at the stored word carrier. -/
 def body (state : Store) (reserved : Reserved) (decision : table.SearchDecision)
@@ -213,12 +213,12 @@ theorem found_spill_settle (state : Store) (reserved : Reserved) (spill index : 
       = (do
         let self1 ← table.Table.recycle_unused_staged_path CloneI CloneI HomeInst KeyRepInst state
         let r ← alloc.vec.Vec.index RegionIdx reserved.regions spill
-        let (_, _, t) ← alloc.vec.Vec.index TripleIdx r.slots index
-        let old ← CloneI.clone t
-        let t1 ← MergeInst.merge MergeArg value old
+        let ss ← alloc.vec.Vec.index SpillSlotIdx r.slots index
+        let old ← CloneI.clone ss.value
+        let t ← MergeInst.merge MergeArg value old
         let (r1, index_mut_back) ← alloc.vec.Vec.index_mut RegionIdx reserved.regions spill
-        let ((s, t2, _), index_mut_back1) ← alloc.vec.Vec.index_mut TripleIdx r1.slots index
-        let v := index_mut_back1 (s, t2, t1)
+        let (ss1, index_mut_back1) ← alloc.vec.Vec.index_mut SpillSlotIdx r1.slots index
+        let v := index_mut_back1 { ss1 with value := t }
         let v1 := index_mut_back { r1 with slots := v }
         ok { self1 with resident := reserved.resident, shards := v1 }) := rfl
 
@@ -408,36 +408,37 @@ theorem found_flat_commits (state : Store) (reserved : Reserved) (index : Usize)
     · rw [hrec]
       exact recycle_preserves_len state self1 hself
 
-/-- The Found/spill transition: the merge writes the located spill payload new-first, the relocated
-resident carrier is committed unchanged and the committed length is left alone. -/
+/-- The Found/spill transition: the merge writes the located spill slot's value field new-first, its
+tag, key and `sigma` are carried through unchanged, the relocated resident carrier is committed
+unchanged and the committed length is left alone. -/
 theorem found_spill_commits (state : Store) (reserved : Reserved) (spill index : Usize)
     (sigma : cell.Sigma) (value : Std.I64) (held : Held) (address : table.TableAddress) (t : Store)
     (h : body state reserved ⟨table.SearchClass.Found, table.SearchLocation.Spill spill index⟩
         sigma value held address = ok t) :
-    ∃ (r1 : Region) (locS : cell.Sigma) (locH : Held) (prior old merged : Std.I64)
+    ∃ (r1 : Region) (locTag : Std.U8) (locS : cell.Sigma) (locH : Held) (prior old merged : Std.I64)
       (shards : alloc.vec.Vec Region),
       CloneI.clone prior = ok old ∧
       MergeInst.merge MergeArg value old = ok merged ∧
       shards = alloc.vec.Vec.set reserved.regions spill
-        { r1 with slots := alloc.vec.Vec.set r1.slots index ⟨locS, locH, merged⟩ } ∧
+        { r1 with slots := alloc.vec.Vec.set r1.slots index ⟨locTag, locS, locH, merged⟩ } ∧
       t.resident = reserved.resident ∧
       t.len = state.len := by
   obtain ⟨self1, hself, hr1⟩ :=
     bind_eq_ok ((found_spill_settle state reserved spill index sigma value held address).trans h)
   obtain ⟨r, _, hr2⟩ := bind_eq_ok hr1
-  obtain ⟨⟨locS, locH, prior⟩, _, hr3⟩ := bind_eq_ok hr2
+  obtain ⟨⟨_, _, _, prior⟩, _, hr3⟩ := bind_eq_ok hr2
   obtain ⟨old, hold, hr4⟩ := bind_eq_ok hr3
   obtain ⟨merged, hmerged, hr5⟩ := bind_eq_ok hr4
   obtain ⟨⟨r1, back⟩, hmut, hr6⟩ := bind_eq_ok hr5
-  obtain ⟨⟨⟨pS, pH, _⟩, back1⟩, hmut2, hr7⟩ := bind_eq_ok hr6
+  obtain ⟨⟨loc, back1⟩, hmut2, hr7⟩ := bind_eq_ok hr6
   have hback := index_mut_write reserved.regions spill r1 back hmut
-  have hback1 := index_mut_write r1.slots index ⟨pS, pH, _⟩ back1 hmut2
+  have hback1 := index_mut_write r1.slots index loc back1 hmut2
   have hrec : t = { self1 with
       resident := reserved.resident,
-      shards := back { r1 with slots := back1 (pS, pH, merged) } } :=
+      shards := back { r1 with slots := back1 { loc with value := merged } } } :=
     Result.ok_injective hr7.symm
-  refine ⟨r1, pS, pH, prior, old, merged,
-    back { r1 with slots := back1 (pS, pH, merged) }, hold, hmerged, ?_, ?_, ?_⟩
+  refine ⟨r1, loc.tag, loc.sigma, loc.held, prior, old, merged,
+    back { r1 with slots := back1 { loc with value := merged } }, hold, hmerged, ?_, ?_, ?_⟩
   · rw [hback.1, hback1.1]
   · rw [hrec]
   · rw [hrec]
