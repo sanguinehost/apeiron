@@ -240,6 +240,59 @@ theorem from_le_bytes_denote (a : Array Std.U8 8#usize) :
     (core.num.U64.from_le_bytes a).bv =
       (BitVec.fromLEBytes (byteView a)).cast (by simp [byteView_length, Array.property]) := rfl
 
+/-! ## The absorb lane read
+
+`crypto.absorb_block_loop.body` (3133-3165) reads the eight block bytes at `o = 8 * i` and hands them to
+`core.num.U64.from_le_bytes`. This section pins that read to `foldLane` - the `List.range 8` fold over the
+same eight bytes that the canonical `xorBlock` runs per lane. Both sides read out of bounds as zero, so the
+statement carries no in-bounds hypothesis; the block length belongs to the loop invariant. -/
+
+/-- The eight block bytes the extracted loop reads at offset `o`, read out of bounds as zero: the
+`Fin 8` window the little-endian lane read consumes. -/
+def blockBytes (block : Slice Std.U8) (o : Nat) : List Std.U8 :=
+  List.ofFn fun j : Fin 8 => block.val.getD (o + j.val) (0#u8)
+
+/-- The window the extracted loop reads is eight bytes long. -/
+theorem blockBytes_length (block : Slice Std.U8) (o : Nat) : (blockBytes block o).length = 8 := rfl
+
+/-- The eight block bytes at `o`, read through the byte view, are the entries of the byte window at
+`o`, in the same order. -/
+theorem blockBytes_view (block : Slice Std.U8) (o : Nat) :
+    List.map Std.U8.bv (blockBytes block o) = byteWindow (sliceView block) o := by
+  unfold blockBytes byteWindow sliceView
+  rw [← List.ofFn_comp', List.ofFn_inj]
+  funext j
+  exact (List.getD_map _ _ _).symm
+
+/-- Two `BitVec.fromLEBytes` of one byte list, cast to one width, agree whatever their width proofs:
+`BitVec.cast` reads its proof only through `isLt`, and proofs are irrelevant. -/
+theorem fromLEBytes_cast_eq {a b : List (BitVec 8)} {p : 8 * a.length = 64} {q : 8 * b.length = 64}
+    (h : a = b) :
+    (BitVec.fromLEBytes a).cast p = (BitVec.fromLEBytes b).cast q := by
+  subst h
+  simp only [BitVec.cast]
+
+/-- `from_le_bytes_denote` in list form. Its width proof mentions only the list, so it rewrites a `U64`
+value rather than a term sitting under a `BitVec.cast` whose type depends on the array. -/
+theorem from_le_bytes_denote_list (l : List Std.U8) (h : l.length = 8) :
+    (core.num.U64.from_le_bytes (Array.make 8#usize l h)).bv
+      = (BitVec.fromLEBytes (l.map Std.U8.bv)).cast (by rw [List.length_map, h]) := by
+  rw [from_le_bytes_denote]
+  simp only [byteView]
+  exact fromLEBytes_cast_eq
+    (a := List.map Std.U8.bv ((↑(Array.make 8#usize l h) : List Std.U8)))
+    (b := l.map Std.U8.bv) (by rw [Array.make_val])
+
+/-- The extracted little-endian lane read of one absorb iteration is the `foldLane` the canonical
+`xorBlock` computes for that lane: the eight block bytes at `o`, least significant byte first. -/
+theorem absorbLane_eq_foldLane (block : Slice Std.U8) (o : Nat) :
+    (core.num.U64.from_le_bytes
+      (Array.make 8#usize (blockBytes block o) (blockBytes_length block o))).bv
+      = foldLane (sliceView block) o := by
+  rw [from_le_bytes_denote_list, foldLane_eq_fromLEBytes]
+  exact fromLEBytes_cast_eq (a := List.map Std.U8.bv (blockBytes block o))
+    (b := byteWindow (sliceView block) o) (blockBytes_view block o)
+
 /-! ## Reading a lane through a write
 
 `Array.update` (3182) returns `Array.set`; `Array.set` replaces one element of the underlying list, so
