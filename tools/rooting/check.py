@@ -89,6 +89,7 @@ class Case:
     expect: str
     path: str
     text: str
+    count: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +116,17 @@ def _optional_string_list(value: object, where: str) -> list[str]:
         return []
     _require(isinstance(value, list), f"{where} must be a list")
     return [_string(entry, f"{where}[]") for entry in value]
+
+
+def _optional_count(value: object, where: str) -> int | None:
+    """An exact violation count for a fixture, or None when it asserts none."""
+    if value is None:
+        return None
+    _require(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0,
+        f"{where} must be a nonnegative integer",
+    )
+    return value  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -227,6 +239,7 @@ def load_config(path: Path = CASES_PATH) -> Config:
                 expect=expect,
                 path=_string(raw.get("path"), f"{where}.path"),
                 text=_string(raw.get("text"), f"{where}.text"),
+                count=_optional_count(raw.get("count"), f"{where}.count"),
             )
         )
 
@@ -574,6 +587,23 @@ def _is_complexity_claim(line: str, cfg: Config) -> bool:
     ).search(line) is not None
 
 
+def _heading_body(line: str, markers: str | None) -> str | None:
+    """The comment text after its line marker, with the heading `#` kept.
+
+    `_comment_payload` strips `#` because a `#` at the start of a Rust item is
+    an attribute, but inside `///` and `--` a leading `#` is a Markdown
+    heading, which is what `_is_heading` has to see.
+    """
+    stripped = line.strip()
+    if stripped == "":
+        return None
+    if markers is None:
+        return stripped
+    if not stripped.startswith(markers):
+        return None
+    return stripped[len(markers):].lstrip("/! \t").rstrip()
+
+
 def _is_heading(line: str, markers: str | None) -> bool:
     """A heading that states no claim of its own.
 
@@ -581,14 +611,14 @@ def _is_heading(line: str, markers: str | None) -> bool:
     bold header) and the absence of a claim token in the generic form, so
     re-adding a noun to `complexity_terms` cannot make a heading fire again.
     """
-    payload = _comment_payload(line, markers)
-    if payload is None:
+    body = _heading_body(line, markers)
+    if body is None:
         return False
-    core = payload.lstrip()
+    core = body.lstrip()
     heading = core.startswith("#") or (
         core.startswith("**") and core.rstrip("*").strip() != ""
     )
-    return heading and _GENERIC_CLAIM.search(payload) is None
+    return heading and _GENERIC_CLAIM.search(body) is None
 
 
 def _names_unit(block: str, cfg: Config) -> bool:
@@ -767,6 +797,10 @@ def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
     at the definition rather than an adjective on one line of it. A block that
     adds a counted measure or a derivation satisfies it; a block that restates
     the claim and stops does not.
+
+    One block yields at most one violation, at its first offending line: §8 asks
+    for one comment at the definition, so a claim wrapped over several lines of
+    the same comment is one missing measure, not one per line.
     """
     if path in cfg.governing_documents:
         return []
@@ -777,6 +811,7 @@ def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
         for offset in range(len(payload)):
             owner[start + offset] = position
     out: list[Violation] = []
+    reported: set[int] = set()
     for index, line in enumerate(text.splitlines(), 1):
         if not _is_complexity_claim(line, cfg):
             continue
@@ -794,6 +829,10 @@ def rule_d(path: str, text: str, cfg: Config) -> list[Violation]:
         )
         if _is_trivial_o1(path, text, joined, last_line):
             continue
+        if position is not None:
+            if position in reported:
+                continue
+            reported.add(position)
         out.append(
             Violation(
                 "D",
@@ -950,6 +989,15 @@ def self_test(cfg: Config) -> int:
                     f"{case.name}: rejected by {rules} but expected rule {case.rule}"
                 )
                 print(f"SELF-TEST FAIL {case.name}: rejected by {rules}, expected {case.rule}")
+                continue
+            if case.count is not None and len(violations) != case.count:
+                failures.append(
+                    f"{case.name}: {len(violations)} violation(s), expected {case.count}"
+                )
+                print(
+                    f"SELF-TEST FAIL {case.name}: {len(violations)} violation(s), "
+                    f"expected {case.count}"
+                )
                 continue
             print(f"SELF-TEST RED  {case.name}: {case.rule} :: {violations[0].render()}")
         else:

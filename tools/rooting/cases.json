@@ -563,6 +563,66 @@
         "text": "/// # Complexity\n///\n/// `O(take)` time, `O(1)` extra space. Accumulates in `Q32.32` with `|x| <= 32·127`.\npub fn synthetic_numerals_free(x: &[i8], take: usize) -> i32 {\n    x[0] as i32\n}\n"
       },
       {
+        "name": "bare complexity heading states no claim",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-heading-bare.rs",
+        "text": "/// # Complexity\npub fn synthetic_heading_bare(x: &[u64]) -> u64 {\n    x.iter().sum()\n}\n"
+      },
+      {
+        "name": "heading that carries its own claim is still a claim",
+        "rule": "D",
+        "expect": "reject",
+        "count": 1,
+        "path": "src/synthetic/d-heading-claim.rs",
+        "text": "/// # Complexity: `O(n)` time, `O(1)` space.\npub fn synthetic_heading_claim(x: &[u64]) -> u64 {\n    x.iter().sum()\n}\n"
+      },
+      {
+        "name": "governing document stating a bare complexity claim accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "AGENTS.md",
+        "text": "A rebuild is O(n); the placement word is unchanged.\n"
+      },
+      {
+        "name": "governing document restating the rule accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "docs/kernel-boundary.md",
+        "text": "- **State per-function complexity where it is not O(1).** A function whose temporal cost or spatial\n  footprint is not O(1), or is not immediate from its type, carries a comment at its definition: the\n  temporal and spatial complexity, the measure they are counted in (comparisons, allocations, bytes,\n  words, bytes copied), and the derivation (the recurrence or loop and why it closes).\n"
+      },
+      {
+        "name": "the same bare claim in a source file is not a governing document",
+        "rule": "D",
+        "expect": "reject",
+        "count": 1,
+        "path": "src/synthetic/d-governing-scope-mutant.rs",
+        "text": "/// A rebuild is O(n); the placement word is unchanged.\npub fn synthetic_rebuild(n: usize) -> usize {\n    n\n}\n"
+      },
+      {
+        "name": "section 8's own measure and derivation vocabulary accepted",
+        "rule": "D",
+        "expect": "accept",
+        "path": "src/synthetic/d-section-eight-phrasing.rs",
+        "text": "/// # Complexity\n///\n/// Temporal `O(n)`; spatial `O(1)` word temporaries. Counted in bytes copied: each pass\n/// copies the block it just consumed, so the recurrence n/2 + n/4 + ... closes below 2n\n/// bytes copied.\npub fn synthetic_section_eight(chunks: &[u8]) -> u8 {\n    chunks[0]\n}\n"
+      },
+      {
+        "name": "section 8 phrasing with its measure removed refused",
+        "rule": "D",
+        "expect": "reject",
+        "count": 1,
+        "path": "src/synthetic/d-section-eight-phrasing-mutant.rs",
+        "text": "/// # Complexity\n///\n/// Temporal `O(n)`; spatial `O(1)` word temporaries.\npub fn synthetic_section_eight_mutant(chunks: &[u8]) -> u8 {\n    chunks[0]\n}\n"
+      },
+      {
+        "name": "one wrapped claim reports one violation",
+        "rule": "D",
+        "expect": "reject",
+        "count": 1,
+        "path": "src/synthetic/d-wrapped-claim.rs",
+        "text": "/// `(n / p) * c <= n` and `min(c, n % p) <= n`, so the sum never exceeds `n`. Temporal O(1);\n/// spatial O(1).\nfn synthetic_wrapped(n: usize, c: usize, p: usize) -> usize {\n    c * (n / p) + c.min(n % p)\n}\n"
+      },
+      {
         "name": "ownership exceeds three files",
         "rule": "E",
         "expect": "reject",
