@@ -4,8 +4,11 @@ import Aeneas
 /-
 SCOPE: the actual extracted LM-head body `lm_head.lm_head_fixed`: its two refusal guards, its
 delegation to the real projection `matvec.matvec_fixed`, the row-loop transitions with both guards,
-every row-loop refusal branch as an exact equality, the exact row-visit count of the executing row
-loop under named premises, and reachable joint success and refusal witnesses.
+every row-loop refusal branch as an exact equality, the one row visit *conditional on the row's dot
+computation returning `ok`* (`row_body_visit_of_dot_ok`, whose two other arms enumerate the
+dequantizer's own `vis`/`div` propagation), and the entry-rank measures of both loops. The
+unconditional row-body-success claim and the executed row-visit count are **retired and not
+established** by this file (§6); the conditional theorem proves neither.
 REGISTER: scalar source-refinement resource model; no hardware timing, no cycle counts, no
 canonical-ring correspondence, no claim about the dequantizer bodies, the unextracted read adapter
 (`head_payload_len`, `Engine::lm_head_fixed`) or the stored-file path.
@@ -462,6 +465,24 @@ theorem head_quant_lookup_ok (ggml_type : U32) (raw : Slice U8) (vocab n_embd : 
 def StrideInRange (o row_bytes : Usize) : Prop :=
   o.val * row_bytes.val + row_bytes.val ≤ Usize.max ∧ o.val + 1 ≤ Usize.max
 
+/-- **The output-capacity premise of a visited row.** The row body is *not* infallible for an
+    arbitrary output vector: it appends one `Q32.32` logit per visited row through the real
+    `alloc.vec.Vec.push`, and that model fails with `maximumSizeExceeded` — a `Result.vis
+    (.fail …)`, not an `ok` — exactly at `out.val.length = Usize.max`
+    (`Aeneas/Std/Vec.lean:203`: the push guards `List.length v.val + 1 ≤ U32.max ∨ ≤ Usize.max`).
+    `Vec.property` gives only `out.val.length ≤ Usize.max`, which does not exclude the boundary, so
+    the `ok (ControlFlow.cont …)` conclusion of `row_body_visit_of_dot_ok` below holds only where
+    capacity remains, and it states that premise as `hout` on the pre-state `out` immediately before
+    the body invocation.
+
+    `row_body_capacity` below derives `hout` from the row-loop length invariant
+    `out.val.length ≤ o.val` together with `o.val < n_out.val` and the `Usize` bound on `n_out`;
+    it is not an assumption about the output as a whole. -/
+theorem row_body_capacity (out : Logits) (o n_out : Usize)
+    (hlen : out.val.length ≤ o.val) (ho : o.val < n_out.val) : out.val.length < Usize.max := by
+  have hn : n_out.val ≤ Usize.max := by scalar_tac
+  omega
+
 /-- **The row-loop exit: the row budget is spent.** With `o ≥ n_out` the actual body returns
     `done (out, err)` without reading a row, so no further vocabulary row is visited and the row
     loop's output is final. -/
@@ -485,24 +506,65 @@ theorem row_body_exit_flag (ggml_type : U32) (raw : Slice U8) (n_out n_in : Usiz
   unfold matvec.matvec_fixed_loop.body
   rw [if_pos ((UScalar.lt_equiv o n_out).2 ho), if_neg (by simp)]
 
-/-- **The row-index advance of one visit.** With a row left, the flag clear and the row-stride
-    premise in range, the actual body always continues and advances the row index by exactly one;
-    the rank `rowVisits n_out o` therefore drops by exactly one per visited vocabulary row, and it
-    is positive whenever a row remains. The body can only *finish* at a later visit, through one of
-    the two exits above. This is the transition the work measure counts. The refusal arms a visit can
-    take — `LengthOverflow` on the row stride, `ShortPayload` on the row read, `Dequant` in the
-    dequantizer, `RowLength` on the dequantized width, and the dot's own refusal — are the branches
-    the case split enumerates. -/
-theorem row_body_visit (ggml_type : U32) (raw : Slice U8) (n_out n_in : Usize) (x : Slice I64)
+/-- **One row visit: the body's outcomes, and the rank drop when it continues.** With a row left
+    (`ho`), the row-stride premise in range (`hstride`), output capacity remaining (`hout`, see
+    `row_body_capacity`) and the row's own dot computation returning an `ok` (`hdot`), the actual
+    row-loop body has exactly the outcomes below, each checked as an exact equality:
+
+    * the row index advances by exactly one (`o + 1#usize = ok onext`, `onext.val = o.val + 1`) and
+      the rank `rowVisits n_out o` drops by exactly one, so it is positive whenever a row remains.
+      These two facts hold on *every* outcome, because they are about the row index, not the body:
+      this is the transition the work measure counts, and the body can only *finish* at a later
+      visit, through one of the two exits above.
+    * the body returns `ok (ControlFlow.cont …)` — either the row-stride refusal `LengthOverflow`
+      (first arm: the untouched `out`, `row_buf`, the row index advanced, that refusal in `err'`), or
+      a continuation carrying the appended logit together with the refusals the row's own
+      computation recorded. The refusal arms the case split enumerates here are `ShortPayload` on
+      the row read, `Dequant` in the dequantizer, `RowLength` on the dequantized width, and the
+      dot's own `Err` refusal.
+    * the body propagates the dequantizer's own `vis` or `div` unchanged, and the row loop cannot
+      continue on that visit. These two arms are *enumerated outcomes*, not assumptions: this file
+      makes no assumption about the dequantizer, and it cannot, because the continuation claim is
+      false when the dequantizer takes either of these two outcomes (§6).
+
+    **`hdot` is an assumption, not a fact established here.** It says: for every row the dequantizer
+    writes into a cleared scratch buffer `cb`, for the resulting dequantized row `rb3`, the row dot
+    `matvec.row_dot_fixed` on `rb3` against `x` returns `ok (core.result.Result.Ok w)` for the
+    `I64` logit `w` it produces, and `w` is the value the body then appends. The `vis`, `div` and
+    `Err` outcomes of the row dot are excluded *by hypothesis*, not by a proof. The unconditional
+    claim that the body is an `ok (ControlFlow.cont …)` for every visited row is **retired**; §6
+    names the residual obligation, and this theorem does not discharge it. This file also does not
+    exhibit an instance of `hdot`, so satisfiability of the premise is open with it: the theorem is
+    a conditional transition, not a statement that the premise ever holds.
+
+    `hout` is a domain premise, not a repair of the conclusion: at
+    `out.val.length = Usize.max` the body's own `Vec.push` refuses with `vis
+    (.fail maximumSizeExceeded)` and the body is not an `ok (ControlFlow.cont …)` at all. The
+    production entry `matvec.matvec_fixed` starts its row loop from the empty vector
+    `alloc.vec.Vec.with_capacity Std.I64 n_out` at row offset `0#usize` with the flag `true`, so the
+    invariant `out.val.length ≤ o.val` holds at entry and each visited row appends at most one
+    logit while advancing `o` by one; `row_body_capacity` is the checked form of that derivation.
+    This file does not iterate the row loop, so it establishes the invariant's entry value and the
+    per-visit append, not the invariant at every active iteration. -/
+theorem row_body_visit_of_dot_ok (ggml_type : U32) (raw : Slice U8) (n_out n_in : Usize) (x : Slice I64)
     (row_bytes need : Usize) (out row_buf : Logits) (o : Usize)
     (err : Option matvec.MatvecError)
-    (ho : o.val < n_out.val) (hstride : StrideInRange o row_bytes) :
+    (ho : o.val < n_out.val) (hstride : StrideInRange o row_bytes)
+    (hout : out.val.length < Usize.max)
+    (hdot : ∀ (cb rb3 : Logits) (row : Slice U8) (u : Unit),
+        dequant.dequant_row_fixed ggml_type row n_in cb = ok (core.result.Result.Ok u, rb3) →
+          ∃ w : I64, matvec.row_dot_fixed (alloc.vec.Vec.deref rb3) x = ok (core.result.Result.Ok w)) :
     ∃ onext : Usize, o + 1#usize = ok onext ∧ onext.val = o.val + 1 ∧
       (matvec.matvec_fixed_loop.body ggml_type raw n_out n_in x row_bytes need out row_buf o true err
         = ok (ControlFlow.cont (out, row_buf, onext, false, some matvec.MatvecError.LengthOverflow))
-        ∨ ∃ out' row_buf' ok' err',
-          matvec.matvec_fixed_loop.body ggml_type raw n_out n_in x row_bytes need out row_buf o true err
-            = ok (ControlFlow.cont (out', row_buf', onext, ok', err'))) ∧
+        ∨ (∃ out' row_buf' ok' err',
+            matvec.matvec_fixed_loop.body ggml_type raw n_out n_in x row_bytes need out row_buf o true err
+              = ok (ControlFlow.cont (out', row_buf', onext, ok', err')))
+          ∨ ((∃ i : RustEffect.Input, ∃ k : RustEffect.Output i → Result (ControlFlow RowState RowValue),
+                matvec.matvec_fixed_loop.body ggml_type raw n_out n_in x row_bytes need out row_buf o true err
+                  = Result.vis i k)
+              ∨ matvec.matvec_fixed_loop.body ggml_type raw n_out n_in x row_bytes need out row_buf o true err
+                  = Result.div)) ∧
       rowVisits n_out onext + 1 = rowVisits n_out o ∧
       1 ≤ rowVisits n_out o := by
   obtain ⟨onext, honext, honextv⟩ := usize_add_val o (1#usize) hstride.2
@@ -532,8 +594,8 @@ theorem row_body_visit (ggml_type : U32) (raw : Slice U8) (n_out n_in : Usize) (
     by_cases hnone : core.slice.index.SliceIndexRangeUsizeSlice.get { start, «end» := iend } raw
         = ok none
     · rw [hnone]
-      exact Or.inr ⟨out, row_buf, false,
-        some (matvec.MatvecError.ShortPayload need (Slice.len raw)), by simp⟩
+      exact Or.inr (Or.inl ⟨out, row_buf, false,
+        some (matvec.MatvecError.ShortPayload need (Slice.len raw)), by simp⟩)
     · obtain ⟨row, hrow⟩ := rowRead_some { start, «end» := iend } raw hnone
       rw [hrow]
       obtain ⟨cleared, hclear, hclearv⟩ := vec_clear_empty row_buf
@@ -544,57 +606,50 @@ theorem row_body_visit (ggml_type : U32) (raw : Slice U8) (n_out n_in : Usize) (
           obtain ⟨r, row_buf3⟩ := p
           cases r with
           | Err e =>
-              exact Or.inr ⟨out, row_buf3, false, some (matvec.MatvecError.Dequant e), by simp⟩
+              refine Or.inr (Or.inl ?_)
+              refine ⟨out, row_buf3, false, some (matvec.MatvecError.Dequant e), ?_⟩
+              simp
           | Ok u =>
               by_cases hlenEq : alloc.vec.Vec.len row_buf3 = n_in
               · simp
                 rw [if_pos hlenEq]
-                cases hdot : matvec.row_dot_fixed (alloc.vec.Vec.deref row_buf3) x with
-                | vis e k =>
-                    refine Or.inr ?_
-                    rintro ⟨out', row_buf', ok', err', h⟩
-                    simp only [bind_tc_vis, bind_vis] at h
-                    exact vis_ne_ok e _ _ h
-                | div =>
-                    refine Or.inr ?_
-                    rintro ⟨out', row_buf', ok', err', h⟩
-                    simp only [bind_tc_div, bind_div] at h
-                    exact div_ne_ok _ h
-                | ret v1 =>
-                    cases vr : v1 with
-                    | Err e => exact Or.inr ⟨out, row_buf3, false, some e, rfl⟩
-                    | Ok w =>
-                        cases hpush : alloc.vec.Vec.push out w with
-                        | ret out2 => exact Or.inr ⟨out2, row_buf3, true, err, rfl⟩
-                        | vis e k =>
-                            refine Or.inr ?_
-                            rintro ⟨out', row_buf', ok', err', h⟩
-                            simp only [bind_tc_vis, bind_vis] at h
-                            exact vis_ne_ok e _ _ h
-                        | div =>
-                            refine Or.inr ?_
-                            rintro ⟨out', row_buf', ok', err', h⟩
-                            simp only [bind_tc_div, bind_div] at h
-                            exact div_ne_ok _ h
+                -- The row's dot computation is an `ok` by the premise `hdot`, instantiated at the
+                -- dequantized row the body has just produced: `hdeq'` is the dequantizer equation
+                -- `hdot` is conditional on. No case split on the dot's outcome remains.
+                obtain ⟨w, hdotv⟩ := hdot cleared row_buf3 row u hdeq'
+                rw [hdotv]
+                obtain ⟨out2, hpush, _⟩ := vec_push_val out w (by
+                  have := hout; omega)
+                simp
+                rw [hpush]
+                refine Or.inr (Or.inl ?_)
+                refine ⟨out2, row_buf3, Or.inr ⟨err, ?_⟩⟩
+                simp
               · simp
                 rw [if_neg hlenEq]
-                exact Or.inr ⟨out, row_buf3, false,
-                  some (matvec.MatvecError.RowLength o (alloc.vec.Vec.len row_buf3) n_in), rfl⟩
+                refine Or.inr (Or.inl ?_)
+                refine ⟨out, row_buf3, Or.inl ⟨
+                  some (matvec.MatvecError.RowLength o (alloc.vec.Vec.len row_buf3) n_in), ?_⟩⟩
+                simp
       | vis e k =>
-          refine (pairBind_ne_ok _ hdeq' ?_).elim
-          simp only [bind_tc_vis]
-          rw [bind_vis]
+          -- The dequantizer's own visible effect is propagated by the body: the row loop cannot
+          -- continue on this visit, and the effect reaches the caller unchanged. This is an outcome
+          -- of the body, not a continuation, so the unconditional continuation claim is false here.
+          refine Or.inr (Or.inr (Or.inl ?_))
+          simp only [bind_tc_vis, bind_vis]
+          exact ⟨_, _, rfl⟩
       | div =>
-          refine (pairBind_div_ne_ok _ hdeq' ?_).elim
+          refine Or.inr (Or.inr (Or.inr ?_))
           simp only [bind_tc_div]
 
 /-- **The entry rank of the row loop, in closed form.** `rowVisits vocab 0` is the number of
     vocabulary rows still to visit before the loop takes its first step, and at the zero offset
     that number is `vocab.val`.
 
-    This is the entry rank only. `row_body_visit` proves separately that each continuation drops
-    the rank by exactly one; no theorem here iterates that step, so the number of row visits the
-    executing loop performs is not established by this file. -/
+    This is the entry rank only, and it is *not* a count of executed visits. The executed row-visit
+    count is **retired** (§6): no theorem here iterates the row-loop step, so none of them counts
+    what the loop executes, and the conditional `row_body_visit_of_dot_ok` does not supply that
+    iteration. -/
 theorem row_visits_closed_form (vocab : Usize) :
     rowVisits vocab (0#usize) = vocab.val := by
   simp only [rowVisits]
@@ -605,7 +660,7 @@ theorem row_visits_closed_form (vocab : Usize) :
 /-- **The two entry measures, multiplied.** The entry rank of the row loop times the weight count
     one row dot reduces over is `vocab.val · n_embd.val`. This is a product of the two measures at
     the entry state; it is not a count of executed weight positions, which would need the per-row
-    work established by iteration. -/
+    work established by iteration, and the executed row-visit count it multiplies is retired (§6). -/
 theorem lm_head_weight_positions (vocab n_embd : Usize)
     (w_row : Slice I64) (hw : w_row.val.length = n_embd.val) :
     rowVisits vocab (0#usize) * dotVisits w_row.val.length = vocab.val * n_embd.val := by
@@ -641,17 +696,19 @@ theorem dot_body_visit (w_row x : Slice I64) (acc : I128) (i : Usize)
   | none =>
       simp only [bind_tc_ok]
       rw [hinext]
-      exact ⟨acc, inext, false, rfl, hinextv⟩
+      exact ⟨acc, inext, false, by simp [bind_tc_ok], hinextv⟩
   | some prod =>
       cases hadd : acc.checked_add prod with
       | none =>
           simp only [bind_tc_ok]
           rw [hinext]
-          exact ⟨acc, inext, false, rfl, hinextv⟩
+          rw [hadd]
+          exact ⟨acc, inext, false, by simp [bind_tc_ok], hinextv⟩
       | some total =>
           simp only [bind_tc_ok]
           rw [hinext]
-          exact ⟨total, inext, true, rfl, hinextv⟩
+          rw [hadd]
+          exact ⟨total, inext, true, by simp [bind_tc_ok], hinextv⟩
 
 /-- **The dot-loop exit: the weight row is exhausted.** With `i ≥ len w_row` the actual body
     returns `done (acc, acc_ok)` without multiplying or adding again. -/
@@ -684,6 +741,55 @@ theorem dot_body_exhaustive (w_row x : Slice I64) (acc : I128) (i : Usize) (acc_
       by_cases h1 : i.val < w_row.val.length
       · exact Or.inl ⟨h1, rfl⟩
       · exact Or.inr (Or.inl (by omega))
+
+/-! ## 6 · Retired claims: not established, and not proved by anything above
+
+Two claims of the earlier unconditional form of this file are **retired**. Neither is established
+here, no theorem in this file establishes either, and the conditional `row_body_visit_of_dot_ok` is
+not to be read as establishing either.
+
+1. **Unconditional row-body success** — that every visited vocabulary row makes the row loop's
+   body return `ok (ControlFlow.cont …)`. This claim is not merely unproved: as stated it is
+   **false**, for two separate reasons, and `row_body_visit_of_dot_ok` is what remains after both
+   are removed.
+
+   * The dequantizer's own `vis` and `div` outcomes are propagated by the body, so on those
+     branches the body is not an `ok` at all. The earlier version of this file tried to close those
+     two branches with `pairBind_ne_ok … |>.elim`, which asks for a refutation of the goal itself;
+     that request cannot be met, because the goal is false there rather than contradictory. The
+     two branches were also *never elaborated* — they sit behind the dot branches' tactic errors in
+     the `cases` alternatives, so the elaborator never reached them, and their apparent closure was
+     an artefact of the abort. The current conclusion **enumerates** those two outcomes instead of
+     assuming them away, and makes no assumption about the dequantizer.
+   * The dot's `vis`, `div` and `Err` outcomes are excluded by the premise `hdot`, which this file
+     does not discharge. Excluding them decomposes into
+
+     - termination of `matvec.row_dot_fixed_loop` — a decreasing measure
+       `w_row.val.length - i` driven by the green `dot_body_visit`, `dot_body_exit_end`,
+       `dot_body_exit_flag` and `dot_body_exhaustive`, whose one-step unfolding needs
+       `loop.eq_1` because the extracted `loop` is a `partial_fixpoint`; and
+     - the `acc_ok = true` tail of `matvec.row_dot_fixed`, whose `value.round_shift_32` is three
+       `IScalar` operations (`I128` shift, add, shift-right) whose `ok`-ness the model does not
+       specify. Landing them means new model-facing specifications, which is a separate gated task
+       and not a repair of this file.
+
+     Satisfiability of `hdot` is also open here: no instance of it is exhibited, so the conditional
+     theorem is not a statement that the premise ever holds. The dot's two non-`ok` outcomes are in
+     fact enumerable in the same way the dequantizer's are; whether to assume them (`hdot`, as here)
+     or to enumerate them is a scope decision for the owner, not a proof detail.
+
+2. **The executed row-visit count** — that the executing row loop performs exactly
+   `rowVisits vocab (0#usize) = vocab.val` visits, end to end. No theorem here iterates the
+   row-loop step, so none of them counts executed visits; `row_visits_closed_form` and
+   `lm_head_weight_positions` are statements about the entry rank and about the product of the two
+   entry measures, and they survive the retirement unchanged because they never claimed a count.
+   `row_body_visit_of_dot_ok` does not establish this claim either: it is a one-visit transition
+   under an assumption, not an iteration, and its own doc comment says so.
+
+The conditional replacement, with its two enumerated propagation arms, is what this gate's
+row-level resource claim is, and it is audited as such. Anything downstream that needs either
+retired claim — an unconditional row success, or an end-to-end row visit count — is **not**
+discharged by this file and by this gate's success. -/
 
 end LmHeadResource
 
@@ -734,7 +840,8 @@ elab "#resource_audit " id:ident : command => do
 #resource_audit LmHeadResource.head_quant_lookup_ok
 #resource_audit LmHeadResource.row_body_exit_rows
 #resource_audit LmHeadResource.row_body_exit_flag
-#resource_audit LmHeadResource.row_body_visit
+#resource_audit LmHeadResource.row_body_capacity
+#resource_audit LmHeadResource.row_body_visit_of_dot_ok
 #resource_audit LmHeadResource.row_visits_closed_form
 #resource_audit LmHeadResource.lm_head_weight_positions
 #resource_audit LmHeadResource.dot_body_visit
@@ -742,4 +849,5 @@ elab "#resource_audit " id:ident : command => do
 #resource_audit LmHeadResource.dot_body_exit_flag
 #resource_audit LmHeadResource.dot_body_exhaustive
 
+run_cmd Lean.logInfo "LM_HEAD_RETIRED_CLAIMS row_body_success_unconditional row_visit_count_end_to_end"
 run_cmd Lean.logInfo "LM_HEAD_KERNEL_OK"
