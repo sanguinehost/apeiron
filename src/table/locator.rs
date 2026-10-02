@@ -427,55 +427,63 @@ impl TableLocator {
     /// reserved, no directory path is staged, no node is created and no key is read, so the cost is
     /// independent of the batch size and of the 64 residue levels a link would cost.
     ///
-    /// Every later admitted representative is then a write into this reserved extent
-    /// ([`TableLocator::record_admitted_link`]) and a directory link, so no locator allocation is
-    /// reachable after a committed merge.
+    /// Every later admitted representative is then a scalar count into this reserved extent
+    /// ([`TableLocator::record_admitted_link`]); the reverse links themselves are built once by the
+    /// cold [`Table::assemble_directory`] pass, so no locator allocation is reachable after a
+    /// committed merge.
     ///
     /// Temporal `O(1)`: two checked adds, one handle bound and at most one `try_reserve`. Spatial
     /// `O(count)` registry slots beyond the extent already reserved, counted in
     /// `(u32, PayloadLocation)`.
     fn reserve_batch_paths(&mut self, count: usize) -> Result<(), StorageError> {
+        // The admitted extent is measured against the representatives already admitted, not the
+        // materialized registry length: the registry stays empty until the cold assembly pass.
         let end = self
-            .links
-            .len()
+            .admitted
             .checked_add(count)
             .ok_or(StorageError::SizeOverflow)?;
         // A terminal handle is a `u32`, so the admitted extent is bounded by the same index space.
         if end > u32::MAX as usize {
             return Err(StorageError::SizeOverflow);
         }
-        if count != 0 {
+        if count != 0 && self.links.capacity() < end {
+            let additional = end - self.links.len();
             self.links
-                .try_reserve(count)
+                .try_reserve(additional)
                 .map_err(|_| StorageError::AllocationFailed)?;
         }
         Ok(())
     }
 
-    /// Records one admitted representative's reverse-link slot, unresolved.
+    /// Admits one representative against the reserved link extent.
     ///
-    /// This is the only locator write on the merge path, and it is a write into the extent
-    /// [`TableLocator::reserve_batch_paths`] already committed, never a reservation. An extent with
-    /// no room left means the preflight did not run for this representative, so the merge refuses
-    /// instead of allocating after a merge; that refusal is the invariant's only reachable witness.
-    /// The terminal identity node stays [`UNRESOLVED_IDENTITY_NODE`] until
-    /// [`Table::assemble_directory`] links the path, and the locator-free elliptic face takes no
-    /// link at all, as on the staged publication arm.
+    /// This is the only locator step on the merge path. It is a scalar count into the extent
+    /// [`TableLocator::reserve_batch_paths`] already committed, never a reservation and never a
+    /// registry write: the fresh insert writes only its payload stores, and
+    /// [`Table::assemble_directory`] builds the reverse links from the table's own live payloads on
+    /// a cold pass. An extent with no room left means the preflight did not run for this
+    /// representative, so the merge refuses instead of allocating after a merge; that refusal is the
+    /// invariant's only reachable witness. The locator-free elliptic face admits nothing.
     ///
     /// Temporal `O(1)`; spatial `O(1)`.
+    #[allow(
+        clippy::inline_always,
+        reason = "the hot merge path calls it once per fresh insert; an out-of-line call costs \
+                  more than the whole payload store, so it must inline"
+    )]
+    #[inline(always)]
     fn record_admitted_link(
         &mut self,
         sigma: Sigma,
-        location: PayloadLocation,
+        _location: PayloadLocation,
     ) -> Result<(), StorageError> {
         if matches!(sigma, Sigma::Elliptic) {
             return Ok(());
         }
-        if self.links.len() >= self.links.capacity() {
+        if self.admitted >= self.links.capacity() {
             return Err(StorageError::AllocationFailed);
         }
-        self.links
-            .push((UNRESOLVED_IDENTITY_NODE, location));
+        self.admitted += 1;
         Ok(())
     }
 
@@ -909,18 +917,19 @@ where
 
     /// Links every live payload's directory path, resolving the admitted reverse-link slots.
     ///
-    /// This is the cold assembly seam and the only operation that resolves an
-    /// [`UNRESOLVED_IDENTITY_NODE`]: it materializes each live key through the carrier, reserves and
-    /// links that key's complete path, and records the payload location on the terminal handle. The
-    /// registry is rebuilt in resident-then-spill live order, which is the handle order
-    /// [`Self::check_storage_coverage`] walks. It is not on any read or write path.
+    /// This is the cold assembly seam and the only operation that builds the reverse-link registry:
+    /// it materializes each live key through the carrier, reserves and links that key's complete
+    /// path, and records the payload location on the terminal handle. The registry is rebuilt in
+    /// resident-then-spill live order, which is the handle order [`Self::check_storage_coverage`]
+    /// walks. It is not on any read or write path.
     ///
     /// Temporal `O(live * (64 + |E(k)|))` directory steps plus one pass over the registry, counted
     /// in live payloads, key bytes and edges; spatial `O(live)` for the live-location working set and
     /// one materialized key.
     pub(crate) fn assemble_directory(&mut self) -> Result<(), StorageError> {
-        // The admitted slots carry no resolved identity node, so the assembly rebuilds the registry
-        // from the table's own live payloads. Capacity is retained, so this is not a reservation.
+        // The merge path admits representatives into the reserved extent without writing the
+        // registry, so the assembly rebuilds it from the table's own live payloads. Capacity is
+        // retained, so this is not a reservation.
         self.locator.links.clear();
         let locations = Self::live_locations_of(self);
         let mut at = 0;
@@ -938,6 +947,9 @@ where
             }
             at += 1;
         }
+        // The rebuilt registry is now the admitted extent: a later merge reserves against its
+        // length, not a stale pre-assembly count.
+        self.locator.admitted = self.locator.links.len();
         Ok(())
     }
 
@@ -1129,13 +1141,16 @@ mod locator_tests {
             "the merge path materializes no directory"
         );
         assert_eq!(
-            table.locator.links.len(),
-            1,
-            "the merge path admits one reverse-link slot"
+            table.locator.admitted, 1,
+            "the merge path admits one representative against the reserved extent"
+        );
+        assert!(
+            table.locator.links.is_empty(),
+            "the merge path writes no reverse link; assembly builds the registry"
         );
         assert!(
             !table.check_storage_coverage(),
-            "an admitted but unresolved link issues no certificate"
+            "an admitted but as-yet unassembled representative issues no certificate"
         );
         table.assemble_directory().expect("the live payload assembles");
         assert!(
@@ -1175,7 +1190,14 @@ mod locator_tests {
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .expect("the batch reservation admits the fresh insert");
         assert_eq!(reserved.len(), 1);
-        assert_eq!(reserved.locator.links.len(), 1);
+        assert_eq!(
+            reserved.locator.admitted, 1,
+            "the fresh insert is admitted against the reserved extent"
+        );
+        assert!(
+            reserved.locator.links.is_empty(),
+            "the merge path writes no reverse link; assembly builds the registry"
+        );
         assert!(*reserved.get_at(Sigma::Parabolic, &7) == 41);
 
         // The same entry with no batch reservation: the admitted slot has nowhere to go, so the
@@ -1209,13 +1231,21 @@ mod locator_tests {
                 .unwrap();
             assert_eq!(table.len(), 3, "{label}: exact live length");
             assert_eq!(
-                table.locator.links.len(),
-                3,
-                "{label}: one admitted reverse-link slot per payload"
+                table.locator.admitted, 3,
+                "{label}: one admitted representative per payload"
+            );
+            assert!(
+                table.locator.links.is_empty(),
+                "{label}: the merge path writes no reverse link"
             );
             table
                 .assemble_directory()
                 .unwrap_or_else(|_| panic!("{label}: assembly succeeds"));
+            assert_eq!(
+                table.locator.links.len(),
+                3,
+                "{label}: the assembly builds one reverse link per payload"
+            );
             assert!(
                 table.check_storage_coverage(),
                 "{label}: coverage after the assembly"

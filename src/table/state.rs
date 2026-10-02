@@ -481,7 +481,18 @@ pub(crate) struct TableLocator {
     /// The shared directory engine, or `None` for the allocation-free empty state.
     directory: Option<Directory>,
     /// Reverse links `(identity_node, payload_location)` indexed by terminal handle.
+    ///
+    /// The registry is built by the cold [`Table::assemble_directory`] pass from the table's own
+    /// live payloads; a merge does not push a link. It stays empty until that pass runs, so a fresh
+    /// insert writes only the payload stores.
     links: Vec<(u32, PayloadLocation)>,
+    /// The number of representatives admitted against the reserved link extent.
+    ///
+    /// This is [`Self::links`]'s admitted count while the registry is not materialized: a merge
+    /// increments it into the extent [`TableLocator::reserve_batch_paths`] reserved, and refuses
+    /// when the extent is exhausted. [`Table::assemble_directory`] resets it to the rebuilt
+    /// registry length.
+    admitted: usize,
     /// The staged destination of a pending write, if any.
     staged: Option<(u32, StagedPath)>,
 }
@@ -493,6 +504,7 @@ impl TableLocator {
             profile: None,
             directory: None,
             links: Vec::new(),
+            admitted: 0,
             staged: None,
         }
     }
