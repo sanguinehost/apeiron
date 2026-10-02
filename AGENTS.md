@@ -73,7 +73,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §6 — bounded Lean under the lane | `lane` (box-wide pool, outside this repository) | `lane <cmd>` |
 | §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
-| §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py` |
+| §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
 
 Enforcers that are MISSING and named so that prose cannot stand in for them: a Rust gate driver
 (`tools/gate`) replacing the per-task `*_gate.py` scripts, and a reachability gate for the
