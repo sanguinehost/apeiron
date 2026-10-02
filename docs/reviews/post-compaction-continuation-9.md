@@ -63,6 +63,8 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
 | intent | `af3ad9a` | `docs/SWARM.md` §8: the authenticated OpenCode contract + `supervisor_opencode` gate |
 | intent | `e7d245a` | `fleet.rs` state module + `fleet_state.rs` gate (11 tests; quarantine semantics per Sol) |
 | intent | `52f8938` | drop the useless `format!` calls in the supervisor gate; `intent-cli` clippy clean again |
+| intent | `455c4df` | oracle Ring 6 T1: seeded randomised reference-graded cases + memorizer control (20 tests; mutant red/restore green) |
+| intent | `b47c000` | W25: `RegistryPricer` from the rate registry + the `w25_cli` fixture (`--rates`, unknown model unpriced) |
 
 ## 3 · In flight / resumed after the restarts
 
@@ -74,8 +76,14 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
 - **CORPUS-FIX-SCAN / ATTN / SAMPLER** (`/home/socol/oc-tmp/corpus-fix-*`): Scan = fingerprint
   staleness in `Growable/Scan.lean`; Attn = `k`/`v` → `carrier`/`storage`; Sampler stopped at the
   class-D boundary (see §4). Each gates `lake build <target>` in its own copy.
-- **ENGINE-T1** (`engine-t1`): per-dispatch-site pool-wait attribution, driver
-  `examples/engine_profile.rs`, two-run repeatability control.
+- **ENGINE-T1 returned** (`/home/socol/oc-tmp/engine-t1/receipt.md`): the overlay decomposes into 13
+  pp / 8 tg dispatch sites; the largest tg contributor is the head's `argmax`
+  (`src/engine/kern/bitplane.rs:303`, about 756 µs/call, 36% of the overlay) from 0.4% of calls;
+  per-call cost and call count anti-correlate 246x at the same task count, so the receipt's
+  per-rendezvous reading is unsupported (makespan vs wake latency still unseparated). The 15% did
+  not reproduce at HEAD on a loaded host (pp 23-26%, tg 15-17%); the tok/s medians and the
+  2.19x/1.69x preservation check were excluded - a quiet-host re-run is named in the receipt. No
+  optimization proposed; `contracts.json` untouched.
 - **WEBFOLD-C1**: `src/fetch.rs` + `tests/fetch_transport_review.rs` +
   `tools/webfold/fetch_transport_controls.py`; decided redirect strategy is webfold's own per-hop
   loop + byte cap (C0 findings in `/home/socol/oc-tmp/wf-c0/contract.md`). B3 (coordinator routing)
@@ -117,10 +125,10 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
   literals as signatures (load-bearing reds, stale signatures); the `access_budget` ratchet 1120 is
   10 under the measured 1130 (7 from the untracked `dep_closure.slang`); `docs/ROADMAP.md` line 183
   and lines 543–550 contradict each other; `ST[ST_INBODY] = 0` has no registered control.
-- **Intent integration queue**: the W25 pair (`model_switch.rs`, `model_loop.rs`, `main.rs` +
-  `w25_cli.rs` fixture) is green and uncommitted; the oracle trio awaits its mutant rerun; settle
-  `cargo fmt` for `oracle.rs`/`oracle_cases.rs` at integration and leave `main.rs`/`w25_cli.rs`
-  alone (already reflowed once by a foreign `cargo fmt -p intent-cli`).
+- **Intent integration queue — both landed**: the W25 pair (`b47c000`) and the oracle trio
+  (`455c4df`) are committed with their gates and mutation controls. Residual: samplers for the
+  string-shaped tasks; the hardcoded-seed caveat; the stale `docs/ROADMAP.md` / W25-closure lines
+  that still name `LocalPricer`.
 
 ## 5 · The formal chain (the point of the move)
 
