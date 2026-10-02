@@ -18,7 +18,10 @@
   * `laneBytes` / `foldLane` / `byteOf_eq_laneBytes_get`: the little-endian lane
     packing in both shapes - `byteOf`'s `extractLsb' (8 * j) 8` and the
     `List.range 8` fold of `xorBlock` - plus the extracted `U64::from_le_bytes`
-    read, which the model defines as `BitVec.fromLEBytes` of the byte view;
+    read, which the model defines as `BitVec.fromLEBytes` of the byte view, with
+    `byteWindow` / `foldLane_eq_fromLEBytes` giving that equality for any offset
+    (`List.extract` is start/stop and returns `List α` in v4.31.0, so `extract o 8`
+    truncates for `o > 0` and is not the window statement);
   * `rate_256_denote`, `rate_512_denote`, `domain_denote`, `pad_final_denote`:
     the extracted `SHA3_256_RATE` / `SHA3_512_RATE` / `6#u8` / `128#u8` against
     `rate_sha3_256` / `rate_sha3_512` / `domain_sha3` / `0x80`, with the rate
@@ -30,10 +33,7 @@
   `#guard` pins run the untrusted evaluator; they guard byte order, lane order
   and rate arithmetic against regressions and are not kernel proofs.
 
-  Open obligations, next stages: the `xorBlock` fold against `fromLEBytes` in
-  general (stage 2 needs `foldLane bs o = BitVec.fromLEBytes (bs.extract o 8).toList` for
-  `o + 8 ≤ bs.length` - `extract` returns a `Vector`, so `.toList` is required for the
-  statement to typecheck at width 64 - not only the concrete pin below), the absorb loop against
+  Open obligations, next stages: the absorb loop against
   `absorb_block` with the lane index `x + 5 * y`, the 24-round permutation fold
   (stage 3, alongside `Crypto/Keccak/Certificate.lean`), the padding merge
   (stage 4) and the squeeze bound (stage 5).
@@ -163,6 +163,76 @@ theorem byteOf_eq_laneBytes_getD (s : State) (k : Nat) :
 def foldLane (bs : List (BitVec 8)) (o : Nat) : Lane :=
   (List.range 8).foldl
     (fun acc j => acc ^^^ ((bs.getD (o + j) 0).setWidth 64 <<< (8 * j))) 0
+
+/-- The eight-byte window of `bs` at offset `o`, read out of bounds as zero, as the `Fin 8`
+function the `fromLEBytes` shape consumes. -/
+def byteWindow (bs : List (BitVec 8)) (o : Nat) : List (BitVec 8) :=
+  List.ofFn fun j : Fin 8 => bs.getD (o + j.val) 0
+
+/-- `getElem!` on a byte list is the out-of-bounds-zero `getD`. -/
+theorem byte_getElem_eq_getD (l : List (BitVec 8)) (k : Nat) :
+    l[k]! = List.getD l k 0 := by
+  simp only [List.getElem!_eq_getElem?_getD, List.getD_eq_getElem?_getD]
+  rfl
+
+/-- Pointwise read of a byte window: entry `k` is the byte of `bs` at `o + k`. -/
+theorem byteWindow_getD (bs : List (BitVec 8)) (o k : Nat) (hk : k < 8) :
+    List.getD (byteWindow bs o) k 0 = bs.getD (o + k) 0 := by
+  simp only [byteWindow, List.getD_eq_getElem?_getD, List.getElem?_ofFn]
+  simp [hk]
+
+/-- The `List.range 8` fold over a byte window at offset `o` is the little-endian read
+`BitVec.fromLEBytes` of that window, cast to the canonical 64-bit lane. This is the general
+form of `from_le_bytes_denote`, which pins only the eight-byte array. -/
+theorem foldLane_eq_fromLEBytes (bs : List (BitVec 8)) (o : Nat) :
+    foldLane bs o
+      = (BitVec.fromLEBytes (byteWindow bs o)).cast (by simp [byteWindow]) := by
+  rw [BitVec.eq_iff]
+  intro i hi
+  simp only [BitVec.getElem!_cast, BitVec.fromLEBytes_getElem!]
+  rw [byte_getElem_eq_getD, byteWindow_getD _ _ _ (by omega)]
+  -- A byte contributes no bit at index `8 ≤ k`: it is below `2 ^ 8`.
+  have key : ∀ (x : BitVec 8) (k : Nat), 8 ≤ k → x.toNat.testBit k = false := by
+    intro x k hk
+    exact Nat.testBit_lt_two_pow
+      (lt_of_lt_of_le x.isLt (Nat.pow_le_pow_right Nat.zero_lt_two hk))
+  -- One fold step contributes the bits of byte `j` at indices `8 * j … 8 * j + 7`, so it survives
+  -- only at `j = i / 8`, and there it contributes bit `i % 8`.
+  have step : ∀ (j : Nat), j < 8 →
+      (decide (i ≥ 8 * j) && (decide (i - 8 * j < 64)
+        && (bs.getD (o + j) 0).toNat.testBit (i - 8 * j)))
+        = if j = i / 8 then (bs.getD (o + i / 8) 0).toNat.testBit (i % 8) else false := by
+    intro j hj
+    rw [decide_eq_true (show i - 8 * j < 64 by omega), Bool.true_and]
+    by_cases h : j = i / 8
+    · rw [if_pos h, decide_eq_true (show i ≥ 8 * j by omega), Bool.true_and, h]
+      rw [show i - 8 * (i / 8) = i % 8 by omega]
+    · rw [if_neg h]
+      by_cases h2 : i ≥ 8 * j
+      · rw [decide_eq_true h2, Bool.true_and]
+        exact key (bs.getD (o + j) 0) (i - 8 * j) (by omega)
+      · rw [decide_eq_false h2, Bool.false_and]
+  have hzero : BitVec.toNat (0 : BitVec 64) = 0 := rfl
+  simp only [BitVec.getElem!_eq_testBit_toNat, Byte.testBit, foldLane, List.range_succ,
+    List.foldl, BitVec.toNat_xor, BitVec.toNat_shiftLeft, BitVec.toNat_setWidth,
+    Nat.testBit_shiftLeft, Nat.testBit_xor, List.foldl_append, Nat.mod_eq_of_lt, BitVec.isLt,
+    Nat.lt_of_lt_of_le, Nat.pow_le_pow_right, Nat.testBit_mod_two_pow, List.range_zero,
+    List.foldl_nil, hzero, Nat.zero_testBit, decide_eq_true hi, Bool.true_and,
+    step 0 (by omega), step 1 (by omega), step 2 (by omega), step 3 (by omega),
+    step 4 (by omega), step 5 (by omega), step 6 (by omega), step 7 (by omega)]
+  -- Exactly one `j < 8` satisfies `j = i / 8`, so the eight-fold xor is that one contribution.
+  obtain ⟨q, hq, hq8⟩ : ∃ q : Nat, i / 8 = q ∧ q < 8 := ⟨i / 8, rfl, by omega⟩
+  have hd : ∀ k : Nat, (i / 8 = k) ↔ k = q := by
+    intro k
+    constructor
+    · intro h
+      omega
+    · intro h
+      omega
+  have hcases : q = 0 ∨ q = 1 ∨ q = 2 ∨ q = 3 ∨ q = 4 ∨ q = 5 ∨ q = 6 ∨ q = 7 := by omega
+  rcases hcases with hq0 | hq0 | hq0 | hq0 | hq0 | hq0 | hq0 | hq0 <;>
+    rcases hq0 with rfl <;>
+    simp_all [Bool.false_xor, Bool.xor_false, hd 0, hd 1, hd 2, hd 3, hd 4, hd 5, hd 6, hd 7]
 
 /-- The extracted little-endian 64-bit lane read is `BitVec.fromLEBytes` of the byte view: the
 same value `foldLane` computes, at the definitional level of the model. -/
