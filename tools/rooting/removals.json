@@ -194,6 +194,162 @@
         }
       ],
       "receipt": "spill-group-descent-retirement"
+    },
+    {
+      "id": "reviews-space-bunny-fleet-sol-review-request-migration",
+      "kind": "migration",
+      "note": "Migrated into the evidence tree under E2.W1 T2a: the escalation was an unindexed per-run document under docs/reviews/ with no citing consumer anywhere in the tree (rg --hidden -g '!.git' over every path returned only the file itself), and the index gate holds docs/evidence/ to coverage, so a row naming it elsewhere is accepted by --check and refused by --controls. The replacement is the moved file at its new path plus the ledger row. After T2a-T2c, docs/reviews/ retains only docs/reviews/multi-repo-fleet-brief.md, which T2f moves. Byte-identical move: no content was rewritten.",
+      "removed": [
+        "docs/reviews/space-bunny-fleet-sol-review-request.md"
+      ],
+      "replacement": [
+        "docs/evidence/reviews/space-bunny-fleet-sol-review-request.md",
+        "docs/evidence/ledger.jsonl"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "docs/evidence/ledger.jsonl",
+        "tools/rooting/index_check.py",
+        "tools/rooting/removals.json"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--controls"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        }
+      ],
+      "receipt": "reviews-space-bunny-fleet-sol-review-request"
+    },
+    {
+      "id": "reviews-post-compaction-continuation-12-migration",
+      "kind": "migration",
+      "note": "Migrated into the evidence tree under E2.W1 T2b: the wrapper was an unindexed per-run document under docs/reviews/ with no citing consumer in the tree, and the index gate holds docs/evidence/ to coverage, so a row naming it elsewhere is accepted by --check and refused by --controls. Its own line 4 citation of docs/reviews/multi-repo-fleet-brief.md is unaffected and resolves at its unchanged path; rewriting it belongs to T2f, which moves that source. Byte-identical move: no content was rewritten.",
+      "removed": [
+        "docs/reviews/post-compaction-continuation-12.md"
+      ],
+      "replacement": [
+        "docs/evidence/reviews/post-compaction-continuation-12.md",
+        "docs/evidence/ledger.jsonl"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "docs/evidence/ledger.jsonl",
+        "tools/rooting/index_check.py",
+        "tools/rooting/removals.json"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--controls"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        }
+      ],
+      "receipt": "reviews-post-compaction-continuation-12"
+    },
+    {
+      "id": "intent-lane-apeiron-intent-return-prompt-migration",
+      "kind": "migration",
+      "note": "Migrated into the evidence tree under E2.W1 T2c: the prompt was an unindexed per-run document under docs/ with no citing consumer in the tree, and the index gate holds docs/evidence/ to coverage, so a row naming it elsewhere is accepted by --check and refused by --controls. Its own line 34 citation of docs/apeiron-intent-rsii-handover.md is unaffected and resolves at its unchanged path; rewriting it belongs to T2e, which moves that source. Byte-identical move: no content was rewritten.",
+      "removed": [
+        "docs/apeiron-intent-return-prompt.md"
+      ],
+      "replacement": [
+        "docs/evidence/intent-lane/apeiron-intent-return-prompt.md",
+        "docs/evidence/ledger.jsonl"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "docs/evidence/ledger.jsonl",
+        "tools/rooting/index_check.py",
+        "tools/rooting/removals.json"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--controls"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        }
+      ],
+      "receipt": "intent-lane-apeiron-intent-return-prompt"
     }
   ],
   "self_test": {
