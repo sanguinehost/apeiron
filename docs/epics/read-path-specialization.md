@@ -647,6 +647,60 @@ instrument facts bound that measurement: the `read-stats` feature costs 1.90 ns/
 canonical path, so the timing and attribution builds are separate, and the prototype's steps per
 key depend on its start-index hash choice (1.0104 with a splitmix mix), not on the flat layout.
 
+### Reference layout — read before porting
+
+The predecessor is the reference, and it is read locally, not recalled: hashtrinity `4cc14471`,
+`src/lib.rs`.
+
+| what to take | where | mechanism |
+|---|---|---|
+| The cold-path shape | `get_coord` (line 671) | one coordinate load at `home`; on a collision, on an empty lane, or otherwise `get_coord_cold` (696) |
+| A contiguous linear prefix | `prefix_masks` (320), `LINEAR_G` (304) | one branchless glance over the `home .. home + LINEAR_G` window — a single 64-byte line — instead of a compare-per-slot scalar walk |
+| A radix continuation | `get_coord_walk` (721), `descend` (589) | one coordinate compare per step past the prefix; windows of `coord·PHI` |
+| A terminal sweep | `descend` (589), past the first product's digits | `+1` over one period of the slot space, so a miss always meets an empty slot |
+
+The claim being carried is the **layout**: one load per probe step, no dependent header loads, no
+serial summary bit loop, no stack round trip. That is the descent the flat prototype measured at
+1.34 ns/key against the canonical 8.14.
+
+Two properties of that `get` are **not** carried, and the port must not acquire them.
+
+- **Coordinate identity is trusted across an aliasing remap.** `coord_of` (553) nudges a key's
+  coordinate aside from the two reserved values, and the sibling's own comment says the nudge
+  aliases three distinct coordinates — `EMPTY`, `TOMB` and `TOMB - 1` all fold to `TOMB - 1` — at a
+  2⁻⁶⁴ identity risk it accepts. `get` then treats a coordinate compare as identity: no key
+  dereference, no confirmation, no second structure. Apeiron keeps full `(Sigma,K)` equality as the
+  only identity decision, keeps the tag as a filter that a match must still confirm, and keeps the
+  checked reservation/allocation refusal of the write path. A port that adopts the reference's
+  sentinel trick trades a 2⁻⁶⁴ aliasing for one load and is not authorized.
+- **The terminal sweep is termination, not HashDOS resistance.** `descend`'s own comment records the
+  correction: an earlier version of it read "so flood immunity is preserved", and the sibling's
+  red-team file names the refutation — `descent_can_be_wholly_blocked` builds keys whose homes
+  cover every address a chosen key's descent will try. Its header states the consequence in its own
+  words: non-aliasing is not a probe bound, and the `< 128` worst-case figures elsewhere are
+  measured, not carried by a theorem. Apeiron's bound is therefore stated as a **bound** — one
+  completed cycle visits every slot exactly once, so absence follows from the bound plus the
+  placement invariant — and no port slice may claim flood immunity, worst-case probe length, or
+  anything a `HashDOS` reading would need. This is an `anchor`: the constraint on the port's claims,
+  not a theorem about Apeiron.
+
+### Gate of record
+
+`examples/spill_read_probe.rs` (committed `715592c`) is the committed gate for every slice of this
+port. The prototype harness that produced the 6.06x figure was scratch-only and is gone; a
+one-off script is not a gate.
+
+| item | value |
+|---|---|
+| graded acceptance | the matched ratio `spill median / resident median` from **one interleaved run**, `<= 2.2` (`PARITY_RATIO_MAX`) |
+| graded build | the **un-instrumented** release build only: `cargo run --release --example spill_read_probe` |
+| reference print, not a criterion | the per-arm band `(0.90, 3.00)` ns/key (`PARITY_BAND_NS_PER_KEY`), printed per arm so a reader can place each median; the box inflates both arms together, so an absolute band grades the box's load as much as the code |
+| not graded | `--features read-stats` is counters-only: it prints `mode=instrumented`, its verdict reads `not-graded`, and the ratio is not enforced. The counters are `thread_local` increments on the read path, and the gate's own header measures their cost at about 2.4 ns per spill read (un-instrumented 9.26/9.48, instrumented 11.73/11.97 after a forced rebuild); E6.W2e's separate attribution pass measured 1.90 ns/read on the same canonical path. Either figure is an instrument cost, not a property of the read, so an instrumented run supplies no timing figure in **either** direction |
+| comparator, not target | the resident arm. An acceptance that graded the resident median could never reject a slow spill read, because the resident arm does not change; the measured pre-port ratios are 5.75..6.60 |
+| non-vacuity | every present key must return its own value and a same-shape absent key one band above must return the sentinel default, checked after the timed region. The absent family is displaced by an odd multiple of the spread, so no control word is a present key |
+| source binding | a timed run binds to a source identity. It must not share a target directory with another worktree: force the rebuild (`touch src/lib.rs`) or set a private `CARGO_TARGET_DIR`, then check the cached warnings' line numbers against the tree. A build that linked a sibling worktree's objects reported 2.02 ns/key and "passed" against a live tree that measures 9.26–9.48 |
+| also graded per slice | `sweep_steps`, `tag_matches` and `full_compares` are the per-read stages a slice is attributed against, read from the counters-only run |
+
 ### Spec
 
 - One flat open-addressed region per shard; capacity and the linear probe sequence are specified
@@ -669,13 +723,88 @@ key depend on its start-index hash choice (1.0104 with a splitmix mix), not on t
   them re-link. The regeneration rides behind the unrelated pin-assert blocker; it is a sequencing
   dependency, not a reason to retain the summary.
 
+#### The placement invariant, and who establishes it
+
+The absence certificate is only sound under an invariant about **placement**, so the invariant is a
+named obligation with a named owner per clause, not a property of the probe loop.
+
+| clause | established by | preserved by |
+|---|---|---|
+| `slots.len()` is the capacity and is `0` or a power of two, so the probe mask is `capacity - 1` | the region's constructor and its reservation path, from the actual `Vec` length — a checked witness term, not an assumption | `grow_spill` and the prepared reservation, which allocate a power-of-two successor |
+| `live` is the exact number of occupied slots, updated exactly once per publication | the constructor at zero live slots | publication, relocation and the rebuild commit, each of which re-counts or transports `live` |
+| a slot is occupied exactly when its marker is nonzero, and the marker is written **after** the payload | `publish_live` | relocation, which writes payload then marker at the destination |
+| a linear insert places only at the first vacancy at or after its home | `spill_locate`'s `Vacant` arm | relocation, which re-places through the same walk |
+| no live slot can sit beyond a vacancy | the absence of any removal: a repeat key merges in place | — (a future deletion introduces a tombstone and voids this row) |
+
+`SpillProbeBoundAbsentSound` is the consequence, not the invariant: a completed cycle visits every
+slot, so a matching key cannot be in the region unseen. It is stated **conditional on the rows
+above**, and it states termination and absence, not flood resistance (see the reference layout
+above).
+
+#### Retirement rule
+
+`SpillSummaryMissSound` is retired only when all three hold, in this order:
+
+1. its replacement is green — `SpillProbeBoundAbsentSound` and the constructor/insert/relocate
+   headlines that establish its premises;
+2. its checked callers are inventoried and each is either re-derived against the replacement or
+   removed with its own statement: `proof/corpus/Growable/Representation.lean` (definition and the
+   producer at its use site), `proof/corpus/Growable/Classifier.lean`
+   (`summaryMissSound_of_repR`), `proof/corpus/Growable/Search.lean` (the non-found sum of
+   `SearchDecisionCorrect`), `proof/corpus/Growable/ReadLoop.lean` (the read-loop absence conjunct)
+   and `proof/corpus/AxiomAudit/Core.lean` (its `#audit` entry);
+3. `AxiomAudit`'s headline set lists the replacement and no longer lists the retired theorem, and
+   the audit still passes under `{propext, Classical.choice, Quot.sound}`.
+
+A retirement that removes the definition while a caller still names it is a build failure and not a
+retirement. A replacement weaker than the retired statement does not discharge this row.
+
 ### Plan
 
-| task | change | gate |
-|---|---|---|
-| invariant spec | capacity, probe bound, tombstone policy and publication order stated at the declarations and in tests | the spec text resolves to the declarations it names |
-| region port | `src/table/probe.rs`, `src/table/state.rs`, `src/table/scan.rs`, `src/table.rs`, `src/table/prepared.rs`: flat region, drop the tags bitmap, the summary and the group descent | `cargo test --workspace --all-features --locked` and the harness at parity |
-| publication fixtures | rewrite the publication-order tests and the geometry fixtures to the marker protocol | the named tests |
-| proof replacement | add `SpillProbeBoundAbsentSound`; retire `SpillSummaryMissSound`'s representation theorem, bridge and audit entries | `cd proof/corpus && lake build` |
-| extraction re-link | regenerate and re-link the spill refinements | `proof/regen.sh --check` (behind the pin assert) |
-| integrated benchmark | the production publication and concurrency rules, not the scratch prototype | the harness counters and `micro_spill` |
+The port's file set is the eight `src` files the scratch port at `/home/socol/oc-tmp/e6w1` changes,
+sliced in compile order. It is one representation change to one type — `Region` loses `tags` and
+`summary` and its payload tuple becomes `SpillSlot` — so **no intermediate state compiles**: the
+three source tasks are serialized in the order below, share one gate, and the wave barrier carries
+the compile. Each task still owns at most three files, one arc, one gate and one control.
+`src/table/scan.rs` is **not** in the set: the tag bitmap and the group descent are retired from the
+probe path, and all five production callers they had — three `scan::match_tag` and two
+`scan::match_empty` — are inside `src/table/probe.rs`. After the port those two helpers are reached
+only by their own unit tests in `src/table/scan.rs`, so retiring them is a separate ≤3-file task
+under the retirement rule, not part of the port.
+
+| task | files | change | gate | control |
+|---|---|---|---|---|
+| `APEIRON-E6-W2-T1` region representation and bounded probe | `src/table/state.rs`, `src/table/probe.rs` | `SpillSlot` carries marker, `Sigma`, held carrier and payload in one array; `bound()`, `home()`, `markers()`, `live()`; `spill_locate`, `spill_locate_held` and `spill_read` walk one bounded linear cycle over the capacity; summary, tag array and group descent retired; the read counters renamed to the absence/step vocabulary | `cargo test --locked --lib --test table` | in a throwaway copy stop the read cycle one step early; the finite late-hit fixture fails on a wrong default, restore green |
+| `APEIRON-E6-W2-T2` production callers | `src/table.rs`, `src/table/prepared.rs`, `src/table/resources.rs` | `get_at`, `apply_get`, relocation and rebuild read the named slot fields; `grow_spill` sizes the successor from the region `live` count on a `Grow` signal; `observe_receipt` records one `slots` bound; `RegionReservation` drops `tags`/`payloads`/`summary` | `cargo test --locked --lib --test table` | in a throwaway copy size the successor from `slots.len()` instead of `live`; the growth fixture fails, restore green |
+| `APEIRON-E6-W2-T3` remaining consumers and fixtures | `src/table/locator.rs`, `src/table/parallel.rs`, `src/table/tests.rs` | `locations`, `payload_at` and the region load count read `slot.live()`; publication-order and geometry fixtures move to the marker protocol; the finite probe fixtures cover fingerprint collisions, `Grow` and a late hit | `cargo test --locked --lib --test table`; graded by `cargo run --release --example spill_read_probe` | in a throwaway copy write the nonzero marker before the payload; the publication-order test fails, restore green |
+| `APEIRON-E6-W3-T1` probe-bound replacement | `proof/corpus/Growable/Scan.lean`, `proof/corpus/Growable/Representation.lean`, `proof/corpus/AxiomAudit/Core.lean` | the constructor establishes the placement invariant, insert and relocate preserve it, `SpillProbeBoundAbsentSound` derives absence from a completed cycle, and the summary fields leave `RepR`/`ReservedRepR` | bounded `cd proof/corpus && lake build Growable.Scan Growable.Representation AxiomAudit` | in a throwaway copy drop the constructor's power-of-two obligation from the placement headline; it fails, restore green |
+| `APEIRON-E6-W3-T2a` retire the definition and the bridge | `proof/corpus/Growable/Representation.lean`, `proof/corpus/Growable/Classifier.lean`, `proof/corpus/Growable/Search.lean` | remove `SpillSummaryMissSound`, `summaryMissSound_of_repR` and the non-found sum's use of it, after T1 is green | bounded `cd proof/corpus && lake build Growable.Representation Growable.Classifier Growable.Search` | in a throwaway copy keep the retirement and weaken the read absence certificate to a per-slot statement; the search headline fails, restore green |
+| `APEIRON-E6-W3-T2b` retire the read-loop use and the audit entry | `proof/corpus/Growable/ReadLoop.lean`, `proof/corpus/Growable/Read.lean`, `proof/corpus/AxiomAudit/Core.lean` | the read loop derives absence from the completed cycle; `AxiomAudit` lists the replacement and drops the retired `#audit` | bounded `cd proof/corpus && lake build Growable.ReadLoop Growable.Read AxiomAudit` | in a throwaway copy delete the completed-cycle premise from the read-loop absence conjunct; the headline fails semantically, restore green |
+| `APEIRON-E6-W3-T3` extraction re-link | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | `spill_read`, `spill_locate`, `spill_locate_held` and `Region::publish_live` change shape, so regenerate on the pinned tools and re-link the refinements that name them; behind the pin-assert blocker | `proof/regen.sh --check` (behind the pin assert) | in a throwaway copy mutate the generated bounded-probe step; freshness fails, restore green. Freshness is not the semantic control |
+| `APEIRON-E6-W4-T1` gate of record — **landed** `715592c` | `examples/spill_read_probe.rs` | the numeric target lives in a committed harness rather than a one-off measurement | `cargo run --release --example spill_read_probe`; the acceptance logic itself under `cargo test --locked --example spill_read_probe` | the unit check `the_acceptance_rejects_a_slow_spill_read` rejects the measured pre-port ratios 5.75 and 6.56 and accepts 2.2 |
+| `APEIRON-E6-W4-T2` the comparator cells G1 already names | `examples/table_cost_probe.rs`, the G1 cells | the port is measured against the pinned predecessor, not only against its own resident arm | `cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls` | the command's wrong-workload/oracle, omitted-incumbent, selected-implementation, interval-crossing and single-failing-cell controls must all report red |
+| `APEIRON-E6-W5-T1` 48-hour acceptance | no edit; read the registered sources and the W2–W3 artifacts | see below | the strict command, then `proof/regen.sh --check` and bounded `cd proof/corpus && lake build` | a surviving control rejects the campaign; any interval maximum above `1.0` stays red |
+
+### 48-hour acceptance
+
+All five rows, on one integrated identity. A row that is not green keeps the acceptance open; none of
+them is waived by a narrower result.
+
+1. **Production spill reads meet the existing `<= 1.0` interval criterion against the pinned
+   predecessor, on the registered affected workloads.** The threshold is unchanged
+   (`docs/direction.md`), the incumbent is unchanged, and the affected resident/spill present-hit
+   and absent-miss cells are recorded whether they pass or fail. A scoped read improvement does not
+   convert unrelated red cells into passes.
+2. **Correctness and the semantic mutation/restoration controls pass.** Each source task's control
+   is red for its semantic reason and green after restore, on the integrated source, and the
+   publication-order, growth and late-hit fixtures are green on it.
+3. **Extraction and refinement bind the same integrated identity.** `proof/regen.sh --check` is
+   fresh against the same `src` digests, and the bounded `proof/corpus` build audits the
+   replacement headline under the closed cone on that same generated file. A digest from a
+   different revision is not the same identity.
+4. **Every remaining G1 failure is reported.** The strict command's complete pair table, its
+   headline and its exit status go into the receipt. `full_acceptance=false`, or any
+   `*_unmatched` above zero, keeps G1 open and is reported as such.
+5. **The gate of record's own ratio is recorded separately** from the REG-1 pairs, labelled
+   `measured`, with its source identity and the un-instrumented build named — and it is a
+   diagnostic for the port, not a substitute for row 1.
