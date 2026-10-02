@@ -2,15 +2,13 @@
 Softmax perturbation and the attention stage composition (`APEIRON-ALGEBRA-G3-ATTN-W1-T1`).
 
 `Numeric.EngineAttnRefinement` states the end-to-end target `attn_head_refines` of the extracted
-`word_attn_head` (`src/engine/attn.rs:432-572`). This module refutes that target as stated, proves
+`word_attn_head` (`src/engine/attn.rs:432-572`). This module proves
 the real composition of the score, softmax, weight and output stages against the dense softmax
-reference `denseAttnReal`, and states the corrected target.
+reference `denseAttnReal`, and states the corrected target. The refutation of `attn_head_refines`
+as stated was removed against the live extraction; see "Statements dropped and restated" below.
 
 ## What is proved here
 
-* `not_attn_head_refines`: `attn_head_refines` is false. `attn_domain` admits `pos` at or past
-  `occupied[layer]`, where the extracted body returns `Err PositionOutOfRange`
-  (`word_attn_head_pos_refuses`); the counterexample is a one-layer state with no appended position.
 * `reweight_mean_perturb`: for reference weights `e ≥ 0` with `Σ e > 0` and any reweighting `e'`
   with `Σ e' > 0`, values in `[lo, hi]` move the weighted mean by at most
   `(hi - lo) · Σ|e' - e| / Σ e'`. Proof: centre at `μ = Σ e v / Σ e`, so `Σ e (v - μ) = 0`.
@@ -37,18 +35,47 @@ reads the extracted loops.
 reachable-state invariant (`pos < occupied[layer]`, `scale` the `fixed_rsqrt` result of
 `head_dim·2^32`, plane lengths, per-key `row_dot_domain`, the score and value windows) and the
 closed bound `attnErrBoundV2`. `attn_domain_v2_witness` checks the joint domain on a one-layer,
-one-position state. The target is proved as `attn_head_refines_v2_proved`
-(`Numeric/AttnHeadRefines.lean`) from the loop specifications (`Numeric/AttnLoopScore.lean`,
-`Numeric/AttnLoopOutput.lean`), the window derivations (`Numeric/AttnHeadWindowsScore.lean`,
-`Numeric/AttnHeadWindowsValue.lean`) and the score-stage bound (`Numeric/AttnScoreStage.lean`);
-no conjunct was added to `attn_domain_v2`.
+one-position state. `attn_head_refines_v2` is **not proved in the corpus**: its proof module
+`Numeric/AttnHeadRefines.lean` is in `work/wip/attn-downstream/` (it closes through the test-only
+`attn.value_component`), together with the loop specifications (`Numeric/AttnLoopScore.lean`,
+`Numeric/AttnLoopOutput.lean`) and the window derivations (`Numeric/AttnHeadWindowsScore.lean`,
+`Numeric/AttnHeadWindowsValue.lean`). The score-stage bound `Numeric.AttnScoreStage.attn_score_stage`
+is in the corpus and green.
+
+## Statements dropped and restated against the live extraction
+
+The live `attn.KvState` is `{ carrier : mixer.Carrier, …, storage : attn.KvStorage }`; `k` and `v`
+are no longer fields. Restated in this file:
+
+* `attn_domain_v2` takes the plane tables `k v` as parameters and states
+  `state.storage = attn.KvStorage.Q32 k v` before `k.val[layer.val]? = some kplane` and
+  `v.val[layer.val]? = some vplane`, the form `Numeric.EngineAttnRefinement`'s `attn_domain`-based
+  `attn_head_refines` already uses. The window conjuncts are unchanged.
+* `attn_head_refines_v2` takes `k v` and assumes `carrierQ32 state` and
+  `state.storage = attn.KvStorage.Q32 k v`, matching `attn_head_refines`.
+* `attnOneState` is built with `carrier := mixer.Carrier.Q32` and `storage := attn.KvStorage.Q32 …`,
+  the construction form `Numeric.EngineSamplerRefinement` already uses.
+
+Removed, with the arithmetic they carried kept:
+
+* `attnEmptyState`, `attnEmptyState_domain` and `not_attn_head_refines` (the refutation of
+  `attn_head_refines`). `not_attn_head_refines` was proved from `word_attn_head_pos_refuses` on a
+  concrete state, and that lemma takes `carrierQ32 state` as a hypothesis. `carrierQ32` is
+  `¬ (decide (state.carrier.read_discriminant = mixer.Carrier.F32.read_discriminant) = true)` and
+  `Std.Discriminant.read_discriminant` is an opaque instance projection
+  (`target/aeneas-model/lean/Aeneas/Data/Discriminant.lean:14`), so no concrete state discharges it
+  — the blocker `Numeric.EngineAttnRefinement`'s header already records. No statement here depends
+  on the removed declarations. The refutation of `attn_head_refines` remains open at `anchor`; its
+  argument (`attn_domain` admits `pos ≥ occupied[layer]`, where the body returns
+  `Err PositionOutOfRange` by `src/engine/attn.rs:465-467`) is recorded at the definition.
 
 ## Trust boundary
 
-Pure real/integer mathematics over the Q32.32 denotation in `Numeric.Scale`, plus the refutation,
-which reaches the extracted `word_attn_head` of `proof/ApeironWord.lean` through
-`word_attn_head_pos_refuses`. It does not cover rustc/LLVM codegen of `src/engine/attn.rs`, the
-kernel ABI, GPU/SPIR-V, or the `unsafe` container.
+Pure real/integer mathematics over the Q32.32 denotation in `Numeric.Scale`, plus the joint
+witness `attn_domain_v2_witness`, which reaches the extracted `KvState` structure of
+`proof/ApeironWord.lean` (not the `attn_head` body: no theorem here unfolds it after the removed
+refutation). It does not cover rustc/LLVM codegen of `src/engine/attn.rs`, the kernel ABI,
+GPU/SPIR-V, or the `unsafe` container.
 -/
 import Numeric.EngineAttnRefinement
 import Mathlib.Algebra.BigOperators.Field
@@ -67,42 +94,6 @@ theorem attn_one_le_usize_max : 1 ≤ Usize.max := by
   have h : (Usize.max : Nat) = 2 ^ System.Platform.numBits - 1 := by
     simp [Usize.max, Usize.numBits]
   rcases System.Platform.numBits_eq with h' | h' <;> simp [h, h']
-
-/-- A state on `attn_domain` whose single layer holds zero appended positions. -/
-def attnEmptyState : attn.KvState :=
-  { n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
-    cap := 1#usize, scale := 0#i64,
-    occupied := alloc.vec.Vec.from [0#usize] (by simpa using attn_one_le_usize_max),
-    k := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max),
-    v := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max) }
-
-/-- The one-wide zero row. -/
-def attnZeroRow : Slice I64 := Slice.from [0#i64] (by simpa using attn_one_le_usize_max)
-
-/-- `attnEmptyState` at layer 0, head 0, position 0 is on `attn_domain`. -/
-theorem attnEmptyState_domain :
-    attn_domain attnEmptyState 0#usize 0#usize 0#usize attnZeroRow attnZeroRow := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
-    simp [attnEmptyState, attnZeroRow, Slice.from_val]
-
-/-- **Refutation.** `attn_head_refines` as stated is false: `attn_domain` admits
-`pos ≥ occupied[layer]`, where the extracted body returns `Err PositionOutOfRange`. -/
-theorem not_attn_head_refines : ¬ attn_head_refines := by
-  intro h
-  obtain ⟨out', hok, -, -⟩ := h attnEmptyState 0#usize 0#usize 0#usize attnZeroRow attnZeroRow
-    (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-    (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)) 1
-    attnEmptyState_domain (by simp [attnEmptyState]) (by simp [attnEmptyState])
-    (by simp [attnEmptyState])
-  have href := word_attn_head_pos_refuses attnEmptyState 0#usize 0#usize attnZeroRow attnZeroRow
-    0#usize (by simp [attnEmptyState]) (by simp [attnEmptyState])
-    (by simp [attnEmptyState, attnZeroRow, Slice.len]; rfl)
-    (by simp [attnEmptyState, attnZeroRow, Slice.len]; rfl) 0#usize
-    (by simp [attnEmptyState]; rfl) (by simp)
-  rw [href] at hok
-  simp at hok
 
 /-! ## The reweighted-mean perturbation -/
 
@@ -665,7 +656,8 @@ structural conjuncts hold on every reachable state (`attn_domain_v2_structural`,
 * `attn_domain`;
 * occupancy: `pos < occupied[layer]` (`src/engine/attn.rs:465-467`);
 * scale: `state.scale` is the `fixed_rsqrt` result of `head_dim·2^32` (`KvState::new`);
-* planes: `k[layer] = kplane`, `v[layer] = vplane`, each `n_head_kv·cap·head_dim` long;
+* planes: `storage = attn.KvStorage.Q32 k v` with `k[layer] = kplane`, `v[layer] = vplane`, each
+  `n_head_kv·cap·head_dim` long;
 * per-key `row_dot_domain` of every causal key row against `q`;
 * score window `|score_j| ≤ 2^62` (so `score_j - mx` is a checked `i64` subtraction);
 * value window `|v_{j,i}| ≤ 2^62` and `pos + 1 ≤ 2^30` (so `|W_j·v_{j,i}| ≤ 2^95`, the `i128`
@@ -674,12 +666,13 @@ structural conjuncts hold on every reachable state (`attn_domain_v2_structural`,
 The windows suffice: `Numeric/AttnHeadWindowsScore.lean` and `Numeric/AttnHeadWindowsValue.lean`
 derive every loop window from them. -/
 def attn_domain_v2 (state : attn.KvState) (layer q_head pos : Usize) (q out : Slice I64)
-    (kplane vplane : alloc.vec.Vec I64) : Prop :=
+    (k v : alloc.vec.Vec (alloc.vec.Vec I64)) (kplane vplane : alloc.vec.Vec I64) : Prop :=
   attn_domain state layer q_head pos q out ∧
   (∃ len : Usize, state.occupied.val[layer.val]? = some len ∧ pos.val < len.val) ∧
   (∃ r : I64, r.val = (state.head_dim.val : ℤ) * (2 : ℤ) ^ (32 : ℕ) ∧
     word_fixed_rsqrt r = ok (core.result.Result.Ok state.scale)) ∧
-  state.k.val[layer.val]? = some kplane ∧ state.v.val[layer.val]? = some vplane ∧
+  state.storage = attn.KvStorage.Q32 k v ∧
+  k.val[layer.val]? = some kplane ∧ v.val[layer.val]? = some vplane ∧
   kplane.val.length = state.n_head_kv.val * state.cap.val * state.head_dim.val ∧
   vplane.val.length = state.n_head_kv.val * state.cap.val * state.head_dim.val ∧
   (∀ s, s ≤ pos.val → ∀ krow : Slice I64,
@@ -695,16 +688,20 @@ def attn_domain_v2 (state : attn.KvState) (layer q_head pos : Usize) (q out : Sl
       ≤ (2 : ℤ) ^ (62 : ℕ)) ∧
   pos.val + 1 ≤ 2 ^ 30
 
-/-- **Corrected end-to-end target** (proved as `attn_head_refines_v2_proved`,
-`Numeric/AttnHeadRefines.lean`). On `attn_domain_v2`, `word_attn_head`
+/-- **Corrected end-to-end target.** On `attn_domain_v2`, with the `Q32` carrier guard
+`carrierQ32 state` and `Q32` storage, `word_attn_head`
 returns `Ok` and each output component is within `attnErrBoundV2` of the dense real softmax
 attention of the ideal scores, at score error `scoreErrV2`. The bound is the conclusion of
 `attn_stage_compose_closed`, whose hypotheses the four `attn_head_loop0..3` specifications supply
-and whose `δ` the score-stage bound `attn_score_stage` supplies. -/
+and whose `δ` the score-stage bound `attn_score_stage` supplies. The carrier guard and the storage
+equation are the two hypotheses `Numeric.EngineAttnRefinement`'s `attn_head_refines` also carries
+(`read_discriminant` is opaque, so neither is dischargeable from a concrete state). -/
 def attn_head_refines_v2 : Prop :=
   ∀ (state : attn.KvState) (layer q_head pos : Usize) (q out : Slice I64)
-    (kplane vplane : alloc.vec.Vec I64),
-    attn_domain_v2 state layer q_head pos q out kplane vplane →
+    (k v : alloc.vec.Vec (alloc.vec.Vec I64)) (kplane vplane : alloc.vec.Vec I64),
+    attn_domain_v2 state layer q_head pos q out k v kplane vplane →
+    carrierQ32 state →
+    state.storage = attn.KvStorage.Q32 k v →
     ∃ out' : Slice I64,
       word_attn_head state layer q_head q pos out = ok (core.result.Result.Ok (), out') ∧
       out'.val.length = out.val.length ∧
@@ -730,34 +727,44 @@ theorem attn_unit_radicand_window : rsqrt_window (4294967296#i64) := by
 def attnUnitScale : I64 :=
   Classical.choose (fixed_rsqrt_refines_proved (4294967296#i64) attn_unit_radicand_window)
 
+/-- The one-wide zero row. -/
+def attnZeroRow : Slice I64 := Slice.from [0#i64] (by simpa using attn_one_le_usize_max)
+
+/-- The one-layer, one-head, one-position plane tables: one appended zero key row and one zero
+value row. -/
+def attnOnePlane : alloc.vec.Vec I64 :=
+  alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)
+
+def attnOnePlanes : alloc.vec.Vec (alloc.vec.Vec I64) :=
+  alloc.vec.Vec.from [attnOnePlane] (by simpa using attn_one_le_usize_max)
+
+/-- `attnOnePlanes` at layer 0 is the zero plane. -/
+theorem attnOnePlanes_index : attnOnePlanes.val[0]? = some attnOnePlane := rfl
+
 /-- A one-layer, one-head, one-position state with one appended zero key/value and the
 `fixed_rsqrt` scale. -/
 def attnOneState : attn.KvState :=
-  { n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
-    cap := 1#usize, scale := attnUnitScale,
+  { carrier := mixer.Carrier.Q32, n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize,
+    head_dim := 1#usize, cap := 1#usize, scale := attnUnitScale,
     occupied := alloc.vec.Vec.from [1#usize] (by simpa using attn_one_le_usize_max),
-    k := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max),
-    v := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max) }
+    storage := attn.KvStorage.Q32 attnOnePlanes attnOnePlanes }
 
 /-- **Joint witness.** `attnOneState` at layer 0, head 0, position 0 satisfies every conjunct
 of `attn_domain_v2` at once. -/
 theorem attn_domain_v2_witness :
     attn_domain_v2 attnOneState 0#usize 0#usize 0#usize attnZeroRow attnZeroRow
-      (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-      (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)) := by
+      attnOnePlanes attnOnePlanes attnOnePlane attnOnePlane := by
   have hspec := Classical.choose_spec
     (fixed_rsqrt_refines_proved (4294967296#i64) attn_unit_radicand_window)
   refine ⟨?_, ⟨1#usize, by simp [attnOneState], by simp⟩, ⟨4294967296#i64, by simp [attnOneState],
-    hspec.1⟩, by simp [attnOneState], by simp [attnOneState], by simp [attnOneState],
-    by simp [attnOneState], ?_, ?_, ?_, by simp⟩
+    hspec.1⟩, by simp [attnOneState], attnOnePlanes_index, attnOnePlanes_index,
+    by simp [attnOneState, attnOnePlane], by simp [attnOneState, attnOnePlane], ?_, ?_, ?_, by simp⟩
   · refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
       simp [attnOneState, attnZeroRow, Slice.from_val]
   · intro s hs krow hk
     simp at hs
     subst hs
-    simp [attnOneState, planeRow] at hk
+    simp [attnOneState, attnOnePlanes, planeRow] at hk
     refine ⟨?_, ?_, ?_, ?_⟩
     · simp [hk, attnZeroRow, Slice.from_val]
     · intro k hk1 hk2
@@ -775,7 +782,7 @@ theorem attn_domain_v2_witness :
   · intro s hs i hi
     simp [attnOneState] at hs hi
     subst hs; subst hi
-    simp [planeRow, attnOneState]
+    simp [planeRow, attnOneState, attnOnePlane]
 
 end
 
