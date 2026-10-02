@@ -936,6 +936,9 @@ mod locator_tests {
     use crate::coord::locator::reservation_failure;
     use crate::table::keyrep::{I64WordCodec, Regen};
 
+    // Only the injection-gated tests below construct the profile; without that feature the helper
+    // is unreferenced.
+    #[cfg(feature = "injection")]
     fn profile() -> H3_40 {
         H3_40::new().expect("the frozen H3_40 constants validate")
     }

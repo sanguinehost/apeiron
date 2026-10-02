@@ -320,8 +320,7 @@ pub fn gate_weights(logits: &[i64], sel: &[u32], renorm: bool) -> Result<Vec<i64
     }
 
     let mx;
-    let total;
-    if renorm {
+    let total = if renorm {
         // The maximum and total are over the selected logits only; the common softmax
         // denominator cancels, so `k` exponentials suffice.
         let mut m = i64::MIN;
@@ -334,7 +333,7 @@ pub fn gate_weights(logits: &[i64], sel: &[u32], renorm: bool) -> Result<Vec<i64
             j += 1;
         }
         mx = m;
-        total = sum_shifted_selected(logits, sel, mx)?;
+        sum_shifted_selected(logits, sel, mx)?
     } else {
         // The maximum and total are over all logits: the full softmax, read at the selection.
         let mut m = i64::MIN;
@@ -346,8 +345,8 @@ pub fn gate_weights(logits: &[i64], sel: &[u32], renorm: bool) -> Result<Vec<i64
             i += 1;
         }
         mx = m;
-        total = sum_shifted(logits, mx)?;
-    }
+        sum_shifted(logits, mx)?
+    };
     if total <= 0 {
         return Err(MoeError::ZeroSum);
     }
