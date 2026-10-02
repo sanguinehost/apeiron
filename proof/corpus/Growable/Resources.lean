@@ -71,13 +71,13 @@ def DestinationInBounds {R : Type} (storage : table.RebuildReserved R I64) :
   | .flat index => index.val < storage.resident.slots.length
   | .spill shard index => ∃ region,
       storage.regions.val[shard.val]? = some region ∧
-      index.val < region.tags.length ∧ index.val < region.slots.length
+      index.val < region.slots.length
 
-/-- Flat live bits and spill tags show that materialized relocation storage is initially vacant. -/
+/-- Flat live bits and spill-slot tags show that materialized relocation storage is initially vacant. -/
 def MaterializedVacant {R : Type} (storage : table.RebuildReserved R I64) : Prop :=
   (∀ slot ∈ storage.resident.slots.val, slot.live = false) ∧
   (∀ region ∈ storage.regions.val,
-    region.tags.length = region.slots.length ∧ ∀ tag ∈ region.tags.val, tag = 0#u8)
+    ∀ slot ∈ region.slots.val, slot.tag = 0#u8)
 
 /-- Receipt targets and materialized lengths agree with the complete generated target geometry. -/
 structure ReceiptMatchesStorage {R : Type} (plan : table.RebuildPlan)
@@ -94,8 +94,7 @@ structure ReceiptMatchesStorage {R : Type} (plan : table.RebuildPlan)
       (regionReceipt : table.resources.RegionReservation),
     storage.regions.val[shard]? = some region →
     receipt.regions.val[shard]? = some regionReceipt →
-    regionReceipt.tags.required_len.val = region.tags.length ∧
-    regionReceipt.payloads.required_len.val = region.slots.length
+    regionReceipt.slots.required_len.val = region.slots.length
 
 /-- The materialized flat vector has the checked target extent `256 × plan.lanes`. -/
 theorem receiptMatches_flatExtent {R : Type} {plan : table.RebuildPlan}
@@ -112,15 +111,14 @@ theorem receiptMatches_spillDirectory {R : Type} {plan : table.RebuildPlan}
       receipt.regions.val.length = Apeiron.GrowableGeometry.shardCount :=
   ⟨h.spillDirectory, h.receiptDirectory⟩
 
-/-- Every receipt entry carries the tag/payload lengths of its target spill region. -/
+/-- Every receipt entry carries the checked capacity bound of its target spill region. -/
 theorem receiptMatches_regionLengths {R : Type} {plan : table.RebuildPlan}
     {storage : table.RebuildReserved R I64} {receipt : table.resources.ReservationReceipt}
     (h : ReceiptMatchesStorage plan storage receipt) (shard : Nat)
     (region : table.Region R I64) (regionReceipt : table.resources.RegionReservation)
     (hregion : storage.regions.val[shard]? = some region)
     (hreceipt : receipt.regions.val[shard]? = some regionReceipt) :
-    regionReceipt.tags.required_len.val = region.tags.length ∧
-      regionReceipt.payloads.required_len.val = region.slots.length :=
+    regionReceipt.slots.required_len.val = region.slots.length :=
   h.regionLengths shard region regionReceipt hregion hreceipt
 
 /-- One observed capacity satisfies the production scalar comparison. -/
@@ -132,7 +130,7 @@ def EveryScalarCapacityCheck_R (receipt : table.resources.ReservationReceipt) : 
   CapacityBound_R receipt.flat ∧
   CapacityBound_R receipt.directory ∧
   ∀ region ∈ receipt.regions.val,
-    CapacityBound_R region.tags ∧ CapacityBound_R region.payloads
+    CapacityBound_R region.slots
 
 /--
 Concrete prepared-resource evidence for one generated success envelope.  In particular, this is not
@@ -219,21 +217,25 @@ structure EntryObservationCertificate {R : Type} (state : WordTable R)
     | none, .spill shard _ => entry.spill = shard ∧ table.shard address = ok shard
     | _, _ => False
 
-/-- Apply one symbolic plan write to the generated flat/spill storage. -/
+/-- Apply one symbolic plan write to the generated flat/spill storage.  A spill write runs the
+generated `table.Region.publish_live` publication of the observed slot. -/
 def applyPlannedWrite {R : Type} {state : WordTable R} {decode : cell.Sigma → R → Option I64}
     {cloneHeld : R → R} {addressHeld : cell.Sigma → R → Result table.TableAddress}
     {plan : table.RebuildPlan} {entryAt : Usize} {destination : Destination}
     (current : table.RebuildReserved R I64)
     (entry : EntryObservationCertificate state decode cloneHeld addressHeld plan entryAt destination) :
-    table.RebuildReserved R I64 :=
+    Result (table.RebuildReserved R I64) := do
   match destination with
-  | .flat index => Apeiron.GrowableRelocation.writeFlat current index
-      { live := true, sigma := entry.sigma, held := entry.writtenHeld, value := entry.writtenValue }
+  | .flat index => ok (Apeiron.GrowableRelocation.writeFlat current index
+      { live := true, sigma := entry.sigma, held := entry.writtenHeld, value := entry.writtenValue })
   | .spill shard index =>
       match current.regions.val[shard.val]? with
-      | some region => Apeiron.GrowableRelocation.writeSpill current shard index region entry.tag
-          (entry.sigma, entry.writtenHeld, entry.writtenValue)
-      | none => current
+      | some region =>
+          let published ← table.Region.publish_live region index
+              (entry.sigma, entry.writtenHeld, entry.writtenValue)
+              entry.address.place
+          ok (Apeiron.GrowableRelocation.writeSpill current shard published)
+      | none => ok current
 
 /-- The pending operation's unique symbolic found-or-vacant classification. -/
 inductive PendingSymbolicDecision where
@@ -347,8 +349,8 @@ structure RebuildPlanClauses (R : Type) where
   prefixStorage : Nat → table.RebuildReserved R I64
   prefixInitial : prefixStorage 0 = storage
   prefixStep : ∀ (entryAt : Usize) (bound : entryAt.val < plan.entries.length),
-    prefixStorage (entryAt.val + 1) =
-      applyPlannedWrite (prefixStorage entryAt.val) (entryObservation entryAt bound)
+    applyPlannedWrite (prefixStorage entryAt.val) (entryObservation entryAt bound) =
+      ok (prefixStorage (entryAt.val + 1))
   prefixVacancy : ∀ (entryAt : Usize) (bound : entryAt.val < plan.entries.length),
     match assignment entryAt with
     | .flat _ => True
@@ -446,8 +448,7 @@ def EveryObservedCapacitySufficient (receipt : table.resources.ReservationReceip
   receipt.flat.required_len.val ≤ receipt.flat.observed_capacity.val ∧
   receipt.directory.required_len.val ≤ receipt.directory.observed_capacity.val ∧
   ∀ region ∈ receipt.regions.val,
-    region.tags.required_len.val ≤ region.tags.observed_capacity.val ∧
-    region.payloads.required_len.val ≤ region.payloads.observed_capacity.val
+    region.slots.required_len.val ≤ region.slots.observed_capacity.val
 
 /-- The concrete destination assigned to any plan entry. -/
 theorem rebuildPlan_destination {R : Type} (certificate : RebuildPlanClauses R)
@@ -771,9 +772,7 @@ theorem everyScalarCapacityCheck_of_sufficient
   · exact (word_capacity_bound_holds_iff _ _).2 hflat
   · exact (word_capacity_bound_holds_iff _ _).2 hdirectory
   · intro region hregion
-    rcases hregions region hregion with ⟨htags, hpayloads⟩
-    exact ⟨(word_capacity_bound_holds_iff _ _).2 htags,
-      (word_capacity_bound_holds_iff _ _).2 hpayloads⟩
+    exact (word_capacity_bound_holds_iff _ _).2 (hregions region hregion)
 
 /-- Stored publication moves the exact receipt and pending carrier into the published envelope. -/
 theorem word_stored_publish_prepared_carries
