@@ -12,6 +12,14 @@ use crate::coord::locator::locator_core::FoundOrStaged;
 /// This is the engine's design bound; the checker rejects a directory that exceeds it.
 const MAX_IDENTITY_LABELS: usize = 256;
 
+/// The identity node of a reverse link the batch preflight admitted but no directory path resolved.
+///
+/// The merge path records that a representative was admitted into the reserved registry extent; the
+/// terminal identity node is known only when the path is linked, which the cold
+/// [`Table::assemble_directory`] seam does. The sentinel is not a node index, so the coverage
+/// checker rejects it.
+const UNRESOLVED_IDENTITY_NODE: u32 = u32::MAX;
+
 impl<K, V, H, const N: usize, R> Table<K, V, H, N, R>
 where
     K: ExactIdentity,
@@ -23,9 +31,13 @@ where
     /// Returns `true` exactly when the attached directory covers every live table payload: each
     /// live payload's complete residue and exact-identity path ends at that payload's own terminal,
     /// each terminal points back to the live payload that owns it, path edges and terminals are
-    /// unique, and no intermediate staging is outstanding. A `false` result is not an absence
-    /// certificate; it means the coverage invariant is not established, so no absence may be issued
-    /// and no read may consume the directory.
+    /// unique, no intermediate staging is outstanding, and no reverse link is still unresolved.
+    /// A `false` result is not an absence certificate; it means the coverage invariant is not
+    /// established, so no absence may be issued and no read may consume the directory.
+    ///
+    /// A table whose links were admitted by [`Table::insert_with_at`] rather than linked by
+    /// [`Table::assemble_directory`] has unresolved reverse links and no directory, and so issues no
+    /// certificate. A table returned by [`Table::build`] has been assembled and does.
     ///
     /// Temporal `O(slots + live * (64 + |E|) + edges)`: one pass over the table's storage, one
     /// directory walk per live payload and one pass over the identity nodes, counted in slots, key
@@ -69,6 +81,11 @@ where
         linked.sort_unstable();
         linked.dedup();
         if linked.len() != live.len() {
+            return false;
+        }
+        // A reverse link the merge path admitted is covered only once the cold assembly has linked
+        // its path, so the unresolved sentinel issues no certificate.
+        if self.locator.links.iter().any(|(node, _)| *node == UNRESOLVED_IDENTITY_NODE) {
             return false;
         }
         // Forward: every link names a live payload whose complete path reaches its own terminal.
@@ -126,6 +143,23 @@ where
     ///
     /// Temporal `O(slots)`; spatial `O(live)`.
     fn live_locations(&self) -> Vec<PayloadLocation> {
+        Self::live_locations_of(self)
+    }
+
+    /// Resolves a location to its stored face and held carrier, or `None` when it is not live.
+    fn payload_at(&self, location: PayloadLocation) -> Option<(Sigma, &R)> {
+        Self::payload_of(self, location)
+    }
+}
+
+/// The storage-only observers, under no `K`, `V` or `R` bound.
+///
+/// Neither walks a key or a carrier, so every table shape and every certificate path shares them.
+impl<K, V, H, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
+    /// The live payload locations in resident-then-spill storage order.
+    ///
+    /// Temporal `O(slots)`; spatial `O(live)`.
+    fn live_locations_of(&self) -> Vec<PayloadLocation> {
         let mut locations = Vec::new();
         for (index, slot) in self.resident.slots.iter().enumerate() {
             if slot.live {
@@ -143,7 +177,7 @@ where
     }
 
     /// Resolves a location to its stored face and held carrier, or `None` when it is not live.
-    fn payload_at(&self, location: PayloadLocation) -> Option<(Sigma, &R)> {
+    fn payload_of(&self, location: PayloadLocation) -> Option<(Sigma, &R)> {
         match location {
             PayloadLocation::Resident(index) => {
                 let slot = match self.resident.slots.get(index) {
@@ -386,6 +420,65 @@ impl TableLocator {
         Ok(profile)
     }
 
+    /// The aggregate reserve for a batch's worst-case fresh inserts.
+    ///
+    /// Checked sizing, then one capacity-only reservation: the reverse-link registry takes capacity
+    /// for `count` further admitted representatives before the batch's first merge. Nothing else is
+    /// reserved, no directory path is staged, no node is created and no key is read, so the cost is
+    /// independent of the batch size and of the 64 residue levels a link would cost.
+    ///
+    /// Every later admitted representative is then a write into this reserved extent
+    /// ([`TableLocator::record_admitted_link`]) and a directory link, so no locator allocation is
+    /// reachable after a committed merge.
+    ///
+    /// Temporal `O(1)`: two checked adds, one handle bound and at most one `try_reserve`. Spatial
+    /// `O(count)` registry slots beyond the extent already reserved, counted in
+    /// `(u32, PayloadLocation)`.
+    fn reserve_batch_paths(&mut self, count: usize) -> Result<(), StorageError> {
+        let end = self
+            .links
+            .len()
+            .checked_add(count)
+            .ok_or(StorageError::SizeOverflow)?;
+        // A terminal handle is a `u32`, so the admitted extent is bounded by the same index space.
+        if end > u32::MAX as usize {
+            return Err(StorageError::SizeOverflow);
+        }
+        if count != 0 {
+            self.links
+                .try_reserve(count)
+                .map_err(|_| StorageError::AllocationFailed)?;
+        }
+        Ok(())
+    }
+
+    /// Records one admitted representative's reverse-link slot, unresolved.
+    ///
+    /// This is the only locator write on the merge path, and it is a write into the extent
+    /// [`TableLocator::reserve_batch_paths`] already committed, never a reservation. An extent with
+    /// no room left means the preflight did not run for this representative, so the merge refuses
+    /// instead of allocating after a merge; that refusal is the invariant's only reachable witness.
+    /// The terminal identity node stays [`UNRESOLVED_IDENTITY_NODE`] until
+    /// [`Table::assemble_directory`] links the path, and the locator-free elliptic face takes no
+    /// link at all, as on the staged publication arm.
+    ///
+    /// Temporal `O(1)`; spatial `O(1)`.
+    fn record_admitted_link(
+        &mut self,
+        sigma: Sigma,
+        location: PayloadLocation,
+    ) -> Result<(), StorageError> {
+        if matches!(sigma, Sigma::Elliptic) {
+            return Ok(());
+        }
+        if self.links.len() >= self.links.capacity() {
+            return Err(StorageError::AllocationFailed);
+        }
+        self.links
+            .push((UNRESOLVED_IDENTITY_NODE, location));
+        Ok(())
+    }
+
     /// Reserves and stages the pending key's complete directory path, privately.
     ///
     /// The only admitted order is `checked sizing -> reserve the reverse-link registry -> reserve
@@ -396,9 +489,8 @@ impl TableLocator {
     /// and counts unchanged, publishes nothing and leaves no staging behind.
     ///
     /// The path is reserved on the committed directory, before any payload effect, and is published
-    /// by the write or commit path through [`TableLocator::publish_for_query`] or
-    /// [`TableLocator::publish_for_held`]. While it is staged, `check_storage_coverage` issues no
-    /// certificate.
+    /// by the cold assembly path through [`TableLocator::publish_for_query`]. While it is staged,
+    /// `check_storage_coverage` issues no certificate.
     fn reserve_path<K, H, R>(
         &mut self,
         home: &H,
@@ -664,25 +756,6 @@ impl TableLocator {
         self.record_link(handle, identity_node, location);
     }
 
-    /// Publishes the staged path for a live held carrier, materializing its key on this cold path.
-    fn publish_for_held<K, H, R>(
-        &mut self,
-        home: &H,
-        sigma: Sigma,
-        held: &R,
-        location: PayloadLocation,
-    ) where
-        K: Clone,
-        H: Home<K>,
-        R: KeyRep<K, H>,
-    {
-        if self.staged.is_none() {
-            return;
-        }
-        let key = R::key_owned(sigma, held);
-        self.publish_for_query::<K, H, R>(home, sigma, &key, location);
-    }
-
     /// Records one reverse link, appending the handle's slot or overwriting a retarget.
     fn record_link(&mut self, handle: u32, identity_node: u32, location: PayloadLocation) {
         let at = handle as usize;
@@ -805,15 +878,67 @@ where
 {
     /// Reserves and stages the pending key's directory path before any payload effect.
     ///
-    /// This is the locator half of the joint table/directory transaction. The write and rebuild
-    /// paths call it before their first hold, clone, merge or relocation, so no locator failure can
-    /// occur after a table merge. A refusal leaves the committed table and directory unchanged.
+    /// This is the locator half of the joint table/directory transaction, and it is the rebuild
+    /// path's staging seam. The rebuild paths call it before their first hold, clone, merge or
+    /// relocation, so no locator failure can occur after a table merge. The serial insert path does
+    /// not call it: [`Table::insert_with_at`] takes its aggregate reservation from
+    /// [`Table::reserve_locator_batch`] and links nothing per entry, and the cold
+    /// [`Table::assemble_directory`] seam is the only other caller. A refusal leaves the committed
+    /// table and directory unchanged.
     fn reserve_locator_path(
         &mut self,
         sigma: Sigma,
         key: &K,
     ) -> Result<LocatorReservationReceipt, StorageError> {
         self.locator.reserve_path::<K, H, R>(&self.home, sigma, key)
+    }
+
+    /// Commits the aggregate reservation for a batch's worst-case fresh inserts.
+    ///
+    /// Every batch entry point calls this once, before its first merge: `insert_with_at` for the
+    /// single-key batch, `build`/`build_at`/`build_at_sequential` for `kvs.len()` entries. The
+    /// reservation covers the whole batch, so no merge and no directory link inside it can fail for
+    /// lack of locator allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the checked sizing or allocation error before any merge runs.
+    pub(crate) fn reserve_locator_batch(&mut self, count: usize) -> Result<(), StorageError> {
+        self.locator.reserve_batch_paths(count)
+    }
+
+    /// Links every live payload's directory path, resolving the admitted reverse-link slots.
+    ///
+    /// This is the cold assembly seam and the only operation that resolves an
+    /// [`UNRESOLVED_IDENTITY_NODE`]: it materializes each live key through the carrier, reserves and
+    /// links that key's complete path, and records the payload location on the terminal handle. The
+    /// registry is rebuilt in resident-then-spill live order, which is the handle order
+    /// [`Self::check_storage_coverage`] walks. It is not on any read or write path.
+    ///
+    /// Temporal `O(live * (64 + |E(k)|))` directory steps plus one pass over the registry, counted
+    /// in live payloads, key bytes and edges; spatial `O(live)` for the live-location working set and
+    /// one materialized key.
+    pub(crate) fn assemble_directory(&mut self) -> Result<(), StorageError> {
+        // The admitted slots carry no resolved identity node, so the assembly rebuilds the registry
+        // from the table's own live payloads. Capacity is retained, so this is not a reservation.
+        self.locator.links.clear();
+        let locations = Self::live_locations_of(self);
+        let mut at = 0;
+        while at < locations.len() {
+            let location = locations[at];
+            let Some((sigma, held)) = Self::payload_of(self, location) else {
+                return Err(StorageError::AllocationFailed);
+            };
+            // The elliptic face has no locator: it takes no link and its payload stays uncovered.
+            if !matches!(sigma, Sigma::Elliptic) {
+                let key = R::key_owned(sigma, held);
+                self.reserve_locator_path(sigma, &key)?;
+                self.locator
+                    .publish_for_query::<K, H, R>(&self.home, sigma, &key, location);
+            }
+            at += 1;
+        }
+        Ok(())
     }
 
     /// Reserves and links the directory path of every distinct non-elliptic input key before any
@@ -936,6 +1061,7 @@ mod locator_tests {
     use crate::coord::locator::reservation_failure;
     use crate::table::keyrep::{I64WordCodec, Regen};
 
+    #[cfg(feature = "injection")]
     fn profile() -> H3_40 {
         H3_40::new().expect("the frozen H3_40 constants validate")
     }
@@ -995,8 +1121,26 @@ mod locator_tests {
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
         assert!(
+            table.locator.staged.is_none(),
+            "the merge path stages nothing"
+        );
+        assert!(
+            table.locator.directory.is_none(),
+            "the merge path materializes no directory"
+        );
+        assert_eq!(
+            table.locator.links.len(),
+            1,
+            "the merge path admits one reverse-link slot"
+        );
+        assert!(
+            !table.check_storage_coverage(),
+            "an admitted but unresolved link issues no certificate"
+        );
+        table.assemble_directory().expect("the live payload assembles");
+        assert!(
             table.locator.directory.is_some(),
-            "the first insert materializes the directory"
+            "the assembly materializes the directory"
         );
         assert!(
             table.locator.staged.is_none(),
@@ -1014,6 +1158,38 @@ mod locator_tests {
             "elliptic has no locator"
         );
         assert!(elliptic.locator.links.is_empty());
+    }
+
+    /// The invariant test for the aggregate reservation.
+    ///
+    /// The batch entry point commits the reverse-link extent before the first merge, so a fresh
+    /// insert is a write into reserved storage and no locator allocation follows a commit. The same
+    /// fresh insert with no reservation is refused before its payload effect, which is what makes the
+    /// reservation load-bearing rather than decorative: dropping
+    /// [`Table::reserve_locator_batch`]'s call from [`Table::insert_with_at`] turns the first arm
+    /// into `Err(AllocationFailed)`.
+    #[test]
+    fn batch_reservation_admits_a_fresh_insert_and_its_absence_refuses_one() {
+        let mut reserved = Table::<i64, i64, WordHome, 16>::new(0, WordHome);
+        reserved
+            .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
+            .expect("the batch reservation admits the fresh insert");
+        assert_eq!(reserved.len(), 1);
+        assert_eq!(reserved.locator.links.len(), 1);
+        assert!(*reserved.get_at(Sigma::Parabolic, &7) == 41);
+
+        // The same entry with no batch reservation: the admitted slot has nowhere to go, so the
+        // merge refuses and no payload, count or link is committed.
+        let mut unreserved = Table::<i64, i64, WordHome, 16>::new(0, WordHome);
+        assert_eq!(
+            unreserved
+                .insert_with_reserved(&ReplacementMerge, Sigma::Parabolic, 7, 41)
+                .expect_err("an unreserved fresh insert is refused"),
+            StorageError::AllocationFailed
+        );
+        assert_eq!(unreserved.len(), 0, "the refusal commits no payload");
+        assert!(unreserved.locator.links.is_empty());
+        assert!(unreserved.locator.directory.is_none());
     }
 
     /// Every fresh insert maintains `C` on both carriers and both filtered faces, including a
@@ -1035,11 +1211,14 @@ mod locator_tests {
             assert_eq!(
                 table.locator.links.len(),
                 3,
-                "{label}: one reverse link per payload"
+                "{label}: one admitted reverse-link slot per payload"
             );
+            table
+                .assemble_directory()
+                .unwrap_or_else(|_| panic!("{label}: assembly succeeds"));
             assert!(
                 table.check_storage_coverage(),
-                "{label}: coverage after fresh inserts"
+                "{label}: coverage after the assembly"
             );
             assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41);
             assert_eq!(*table.get_at(Sigma::Parabolic, &8), -1);
@@ -1057,10 +1236,12 @@ mod locator_tests {
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
+        table.assemble_directory().expect("the first insert assembles");
         let links = table.locator.links.clone();
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 99)
             .unwrap();
+        table.assemble_directory().expect("the update assembles");
         assert_eq!(table.len(), 1, "an update does not change the live length");
         assert_eq!(
             table.locator.links, links,
@@ -1082,6 +1263,9 @@ mod locator_tests {
             table
                 .insert_with_at(&merge, LocatorSigma::Parabolic, key, key + 1)
                 .unwrap();
+            table
+                .assemble_directory()
+                .unwrap_or_else(|_| panic!("assembly after insert {n}"));
             assert!(table.check_storage_coverage(), "coverage after insert {n}");
             key += 256;
             n += 1;
@@ -1120,6 +1304,9 @@ mod locator_tests {
                 .insert_with_at(&merge, Sigma::Parabolic, key, key + 1)
                 .unwrap();
         }
+        table
+            .assemble_directory()
+            .unwrap_or_else(|_| panic!("{label}: assembly before the relocation"));
         assert!(
             table.check_storage_coverage(),
             "{label}: coverage before the relocation"
@@ -1148,6 +1335,9 @@ mod locator_tests {
         );
         assert_eq!(*table.get_at(Sigma::Parabolic, &0), 2);
         assert_eq!(*table.get_at(Sigma::Parabolic, &257), 9);
+        table
+            .assemble_directory()
+            .unwrap_or_else(|_| panic!("{label}: assembly after the relocation"));
         assert!(
             table.check_storage_coverage(),
             "{label}: coverage after the spill-to-flat relocation"
@@ -1168,6 +1358,7 @@ mod locator_tests {
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
+        table.assemble_directory().expect("the insert assembles");
         assert!(table.check_storage_coverage());
         table.locator.directory = None;
         assert!(
@@ -1189,6 +1380,7 @@ mod locator_tests {
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
+        table.assemble_directory().expect("the insert assembles");
         assert!(table.check_storage_coverage());
         table
             .reserve_locator_path(Sigma::Parabolic, &8)
@@ -1247,26 +1439,26 @@ mod locator_tests {
         assert!(table.locator.staged.is_none());
     }
 
-    /// A forced late identity-edge refusal inside the joint rebuild transaction refuses the whole
-    /// prepare, so the apply runs no hold, clone, merge or relocation and the table storage is
-    /// unchanged. The locator reservation runs before the holds, so no locator failure occurs after
-    /// a table merge.
+    /// A forced late identity-edge refusal does not reach the rebuild transaction, because the
+    /// rebuild path reserves no locator path: the batch entry point committed the aggregate
+    /// reservation before the first merge and the prepare makes no locator allocation at all. So an
+    /// armed directory refusal is inert here, the rebuild commits, and the fresh key's reverse-link
+    /// slot is admitted into the reserved extent.
     #[cfg(feature = "injection")]
     #[test]
-    fn locator_refusal_precedes_the_table_merge() {
+    fn a_locator_refusal_is_unreachable_after_a_committed_merge() {
         let mut table = Table::<i64, i64, WordHome, 16>::new(0, WordHome);
         table
             .insert_with_at(&ReplacementMerge, Sigma::Parabolic, 7, 41)
             .unwrap();
         table.locator.profile = Some(profile());
-        table.locator.directory = Some(Directory::new());
 
         let before_len = table.len();
         let before_lanes = table.resident.lanes;
         let before_tags: Vec<u8> = table.shards[0].markers();
         let before_slots = table.shards[0].slots.len();
 
-        // A checked rebuild plan that would grow the resident area and commit if it were applied.
+        // A checked rebuild plan that grows the resident area and commits.
         let mut spill_loads = vec![0usize; SHARDS];
         spill_loads[0] = 1;
         let plan = RebuildPlan {
@@ -1281,10 +1473,11 @@ mod locator_tests {
         let prepared = table.prepare_from_plan(plan, Sigma::Parabolic, &key, &address);
         reservation_failure::disarm();
 
-        assert!(matches!(
-            prepared,
-            PreparedResult::Refused(StorageError::AllocationFailed)
-        ));
+        // The armed directory refusal was never consulted: the prepare reserves no locator path.
+        assert!(
+            matches!(prepared, PreparedResult::Prepared { .. }),
+            "the rebuild path makes no locator allocation, so a locator refusal cannot reach it"
+        );
         let outcome = table.apply_prepared_rebuild(
             prepared,
             &ReplacementMerge,
@@ -1293,14 +1486,21 @@ mod locator_tests {
             99,
             &address,
         );
-        assert_eq!(outcome, Err(StorageError::AllocationFailed));
+        assert_eq!(outcome, Ok(()));
 
-        // No table merge ran: length, resident extent, tags and payloads are unchanged.
-        assert_eq!(table.len(), before_len);
-        assert_eq!(table.resident.lanes, before_lanes);
-        assert_eq!(table.shards[0].markers(), before_tags);
-        assert_eq!(table.shards[0].slots.len(), before_slots);
-        assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41);
-        assert!(table.locator.staged.is_none(), "a refusal stages nothing");
+        // The merge committed, and its only locator effect is the admitted slot, written into the
+        // extent the batch reserved before it.
+        assert_eq!(table.len(), before_len + 1);
+        assert!(table.resident.lanes > before_lanes, "the extent grew");
+        assert!(table.shards[0].markers() == before_tags);
+        assert!(table.shards[0].slots.len() == before_slots);
+        assert!(table.locator.staged.is_none(), "the rebuild stages nothing");
+        assert_eq!(
+            table.locator.links.len(),
+            2,
+            "the present payload plus the committed fresh one"
+        );
+        table.assemble_directory().expect("the rebuilt table assembles");
+        assert!(table.check_storage_coverage());
     }
 }

@@ -45,6 +45,33 @@ sh -c 'cargo test --workspace --all-features --locked && proof/regen.sh --check 
 5. Algebraic merge claims instantiate `Apeiron.Trichotomy.AnyRing`; generic replacement semantics
    are identified as table semantics rather than attributed to the trichotomy.
 6. No proof about the safe reference is reported as proof of the optimized map.
+7. **Aggregate reserve before the first merge.** Before the first merge for a batch commits, checked
+   sizing and all fallible locator reservations for the batch's worst-case fresh inserts are
+   complete; no later merge or directory link may fail for lack of locator allocation.
+
+   The reserve point is the batch entry point, which determines the batch's worst-case fresh-insert
+   count before it merges anything: `insert_with_at` for a one-key batch, `build`, `build_at` and
+   `build_at_sequential` for `kvs.len()` entries. `TableLocator::reserve_batch_paths` is the whole
+   reservation — checked sizing, one `u32` handle bound, and one capacity-only `try_reserve` of the
+   reverse-link registry. It stages no path, creates no
+   directory node and reads no key, so its cost does not scale with the 64 residue levels a link
+   costs.
+
+   The per-entry merge (`Table::insert_with_reserved`, and `apply_insert`, `grow_spill` and
+   `apply_pending_and_commit` beneath it) therefore performs no locator reservation and no directory
+   walk or link. Its only locator effect is `TableLocator::record_admitted_link`, a write into the
+   already-reserved registry extent, and that write is fail-closed: with no room in the reserved
+   extent the merge returns `StorageError::AllocationFailed` before its payload effect rather than
+   allocating after a commit. That refusal is the invariant's reachable witness, so removing the
+   reserve is observable rather than unobservable — the negative control is
+   `batch_reservation_admits_a_fresh_insert_and_its_absence_refuses_one` in `src/table/locator.rs`.
+
+   Directory content is not maintained on the merge path. A reverse link admitted by the merge path
+   carries `UNRESOLVED_IDENTITY_NODE`, and `check_storage_coverage` issues no certificate over an
+   unresolved link. `Table::assemble_directory` — a cold pass over the live payloads, off every read
+   and write path — links each payload's complete path, resolves its identity node and records its
+   location; `build` and `build_at` run it before returning, so a table they return is covered, and
+   a serially inserted one becomes covered when that pass runs.
 
 ### Verification hypotheses
 
