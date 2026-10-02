@@ -1070,6 +1070,10 @@ pub use value::fixed_vector_checksum;
 #[path = "../../src/crypto.rs"]
 pub mod crypto;
 
+/// FIPS 180-4 SHA-256. `src/sha256.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/sha256.rs"]
+pub mod sha256;
+
 /// `crypto::keccak_f1600`, the Keccak-f[1600] permutation, at the fixed 25-lane state.
 ///
 /// This calls the real `src/crypto.rs` body; the wrapper fixes nothing beyond naming the state
@@ -1088,6 +1092,14 @@ pub fn word_sha3_256(msg: &[u8]) -> [u8; 32] {
 /// `crypto::sha3_512`, rooted at the concrete `&[u8]` message and `[u8; 64]` digest.
 pub fn word_sha3_512(msg: &[u8]) -> [u8; 64] {
     crypto::sha3_512(msg)
+}
+
+/// `sha256::sha256`, the real FIPS 180-4 SHA-256 body at the concrete `&[u8]`/`[u8; 32]` types.
+///
+/// This calls the real `src/sha256.rs` body; the wrapper fixes the slice and array types and does
+/// not restate the padding, the message schedule or the compression rounds.
+pub fn word_sha256(msg: &[u8]) -> [u8; 32] {
+    sha256::sha256(msg)
 }
 
 /// `crypto::shake128`, rooted at the concrete `&[u8]` message and `&mut [u8]` out-parameter.

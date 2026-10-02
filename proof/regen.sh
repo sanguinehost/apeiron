@@ -236,6 +236,7 @@ run_extract() {
         --start-from crate::word_keccakf \
         --start-from crate::word_sha3_256 \
         --start-from crate::word_sha3_512 \
+        --start-from crate::word_sha256 \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

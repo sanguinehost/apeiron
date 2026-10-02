@@ -15205,6 +15205,390 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
   from_i64 := I64.Insts.Apeiron_wordScalarRing.from_i64
 }
 
+/-- [apeiron_word::sha256::K]
+    Source: '../../src/sha256.rs', lines 11:0-20:2 -/
+@[global_simps, irreducible]
+def sha256.K : Array Std.U32 64#usize :=
+  Array.make 64#usize [
+    1116352408#u32, 1899447441#u32, 3049323471#u32, 3921009573#u32,
+    961987163#u32, 1508970993#u32, 2453635748#u32, 2870763221#u32,
+    3624381080#u32, 310598401#u32, 607225278#u32, 1426881987#u32,
+    1925078388#u32, 2162078206#u32, 2614888103#u32, 3248222580#u32,
+    3835390401#u32, 4022224774#u32, 264347078#u32, 604807628#u32,
+    770255983#u32, 1249150122#u32, 1555081692#u32, 1996064986#u32,
+    2554220882#u32, 2821834349#u32, 2952996808#u32, 3210313671#u32,
+    3336571891#u32, 3584528711#u32, 113926993#u32, 338241895#u32,
+    666307205#u32, 773529912#u32, 1294757372#u32, 1396182291#u32,
+    1695183700#u32, 1986661051#u32, 2177026350#u32, 2456956037#u32,
+    2730485921#u32, 2820302411#u32, 3259730800#u32, 3345764771#u32,
+    3516065817#u32, 3600352804#u32, 4094571909#u32, 275423344#u32,
+    430227734#u32, 506948616#u32, 659060556#u32, 883997877#u32, 958139571#u32,
+    1322822218#u32, 1537002063#u32, 1747873779#u32, 1955562222#u32,
+    2024104815#u32, 2227730452#u32, 2361852424#u32, 2428436474#u32,
+    2756734187#u32, 3204031479#u32, 3329325298#u32
+    ]
+
+/-- [apeiron_word::sha256::H0]
+    Source: '../../src/sha256.rs', lines 24:0-26:2 -/
+@[global_simps, irreducible]
+def sha256.H0 : Array Std.U32 8#usize :=
+  Array.make 8#usize [
+    1779033703#u32, 3144134277#u32, 1013904242#u32, 2773480762#u32,
+    1359893119#u32, 2600822924#u32, 528734635#u32, 1541459225#u32
+    ]
+
+/-- [apeiron_word::sha256::compress]: loop body 0:
+    Source: '../../src/sha256.rs', lines 37:4-41:5 -/
+@[rust_loop_body]
+def sha256.compress_loop0.body
+  (block : Array Std.U8 64#usize) (w : Array Std.U32 64#usize) (i : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U32 64#usize) × Std.Usize) (Array Std.U32
+    64#usize))
+  := do
+  if i < 16#usize
+  then
+    let o ← 4#usize * i
+    let i1 ← Array.index_usize block o
+    let i2 ← o + 1#usize
+    let i3 ← Array.index_usize block i2
+    let i4 ← o + 2#usize
+    let i5 ← Array.index_usize block i4
+    let i6 ← o + 3#usize
+    let i7 ← Array.index_usize block i6
+    let i8 ←
+      lift (core.num.U32.from_be_bytes (Array.make 4#usize [ i1, i3, i5, i7 ]))
+    let a ← Array.update w i i8
+    let i9 ← i + 1#usize
+    ok (cont (a, i9))
+  else ok (done w)
+
+/-- [apeiron_word::sha256::compress]: loop 0:
+    Source: '../../src/sha256.rs', lines 37:4-41:5 -/
+@[rust_loop]
+def sha256.compress_loop0
+  (block : Array Std.U8 64#usize) (w : Array Std.U32 64#usize) (i : Std.Usize)
+  :
+  Result (Array Std.U32 64#usize)
+  := do
+  loop
+    (fun (w1, i1) => sha256.compress_loop0.body block w1 i1)
+    (w, i)
+
+/-- [apeiron_word::sha256::compress]: loop body 1:
+    Source: '../../src/sha256.rs', lines 43:4-51:5 -/
+@[rust_loop_body]
+def sha256.compress_loop1.body
+  (w : Array Std.U32 64#usize) (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U32 64#usize) × Std.Usize) (Array Std.U32
+    64#usize))
+  := do
+  if i < 64#usize
+  then
+    let i1 ← i - 15#usize
+    let i2 ← Array.index_usize w i1
+    let i3 ← lift (core.num.U32.rotate_right i2 7#u32)
+    let i4 ← Array.index_usize w i1
+    let i5 ← lift (core.num.U32.rotate_right i4 18#u32)
+    let i6 ← lift (i3 ^^^ i5)
+    let i7 ← Array.index_usize w i1
+    let i8 ← i7 >>> 3#i32
+    let s0 ← lift (i6 ^^^ i8)
+    let i9 ← i - 2#usize
+    let i10 ← Array.index_usize w i9
+    let i11 ← lift (core.num.U32.rotate_right i10 17#u32)
+    let i12 ← Array.index_usize w i9
+    let i13 ← lift (core.num.U32.rotate_right i12 19#u32)
+    let i14 ← lift (i11 ^^^ i13)
+    let i15 ← Array.index_usize w i9
+    let i16 ← i15 >>> 10#i32
+    let s1 ← lift (i14 ^^^ i16)
+    let i17 ← i - 16#usize
+    let i18 ← Array.index_usize w i17
+    let i19 ← lift (core.num.U32.wrapping_add i18 s0)
+    let i20 ← i - 7#usize
+    let i21 ← Array.index_usize w i20
+    let i22 ← lift (core.num.U32.wrapping_add i19 i21)
+    let i23 ← lift (core.num.U32.wrapping_add i22 s1)
+    let a ← Array.update w i i23
+    let i24 ← i + 1#usize
+    ok (cont (a, i24))
+  else ok (done w)
+
+/-- [apeiron_word::sha256::compress]: loop 1:
+    Source: '../../src/sha256.rs', lines 43:4-51:5 -/
+@[rust_loop]
+def sha256.compress_loop1
+  (w : Array Std.U32 64#usize) (i : Std.Usize) :
+  Result (Array Std.U32 64#usize)
+  := do
+  loop
+    (fun (w1, i1) => sha256.compress_loop1.body w1 i1)
+    (w, i)
+
+/-- [apeiron_word::sha256::compress]: loop body 2:
+    Source: '../../src/sha256.rs', lines 63:4-84:5 -/
+@[rust_loop_body]
+def sha256.compress_loop2.body
+  (w : Array Std.U32 64#usize) (a : Std.U32) (b : Std.U32) (c : Std.U32)
+  (d : Std.U32) (e : Std.U32) (f : Std.U32) (g : Std.U32) (h : Std.U32)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.Usize) (Std.U32 × Std.U32 × Std.U32
+    × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32))
+  := do
+  if i < 64#usize
+  then
+    let i1 ← lift (core.num.U32.rotate_right e 6#u32)
+    let i2 ← lift (core.num.U32.rotate_right e 11#u32)
+    let i3 ← lift (i1 ^^^ i2)
+    let i4 ← lift (core.num.U32.rotate_right e 25#u32)
+    let s1 ← lift (i3 ^^^ i4)
+    let i5 ← lift (e &&& f)
+    let i6 ← lift (~~~ e)
+    let i7 ← lift (i6 &&& g)
+    let ch ← lift (i5 ^^^ i7)
+    let i8 ← lift (core.num.U32.wrapping_add h s1)
+    let i9 ← lift (core.num.U32.wrapping_add i8 ch)
+    let i10 ← Array.index_usize sha256.K i
+    let i11 ← lift (core.num.U32.wrapping_add i9 i10)
+    let i12 ← Array.index_usize w i
+    let t1 ← lift (core.num.U32.wrapping_add i11 i12)
+    let i13 ← lift (core.num.U32.rotate_right a 2#u32)
+    let i14 ← lift (core.num.U32.rotate_right a 13#u32)
+    let i15 ← lift (i13 ^^^ i14)
+    let i16 ← lift (core.num.U32.rotate_right a 22#u32)
+    let s0 ← lift (i15 ^^^ i16)
+    let i17 ← lift (a &&& b)
+    let i18 ← lift (a &&& c)
+    let i19 ← lift (i17 ^^^ i18)
+    let i20 ← lift (b &&& c)
+    let maj ← lift (i19 ^^^ i20)
+    let t2 ← lift (core.num.U32.wrapping_add s0 maj)
+    let e1 ← lift (core.num.U32.wrapping_add d t1)
+    let a1 ← lift (core.num.U32.wrapping_add t1 t2)
+    let i21 ← i + 1#usize
+    ok (cont (a1, a, b, c, e1, e, f, g, i21))
+  else ok (done (a, b, c, d, e, f, g, h))
+
+/-- [apeiron_word::sha256::compress]: loop 2:
+    Source: '../../src/sha256.rs', lines 63:4-84:5 -/
+@[rust_loop]
+def sha256.compress_loop2
+  (w : Array Std.U32 64#usize) (a : Std.U32) (b : Std.U32) (c : Std.U32)
+  (d : Std.U32) (e : Std.U32) (f : Std.U32) (g : Std.U32) (h : Std.U32)
+  (i : Std.Usize) :
+  Result (Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32)
+  := do
+  loop
+    (fun (a1, b1, c1, d1, e1, f1, g1, h1, i1) => sha256.compress_loop2.body w
+      a1 b1 c1 d1 e1 f1 g1 h1 i1)
+    (a, b, c, d, e, f, g, h, i)
+
+/-- [apeiron_word::sha256::compress]:
+    Source: '../../src/sha256.rs', lines 33:0-94:1 -/
+def sha256.compress
+  (state : Array Std.U32 8#usize) (block : Array Std.U8 64#usize) :
+  Result (Array Std.U32 8#usize)
+  := do
+  let w := Array.repeat 64#usize 0#u32
+  let w1 ← sha256.compress_loop0 block w 0#usize
+  let w2 ← sha256.compress_loop1 w1 16#usize
+  let a ← Array.index_usize state 0#usize
+  let b ← Array.index_usize state 1#usize
+  let c ← Array.index_usize state 2#usize
+  let d ← Array.index_usize state 3#usize
+  let e ← Array.index_usize state 4#usize
+  let f ← Array.index_usize state 5#usize
+  let g ← Array.index_usize state 6#usize
+  let h ← Array.index_usize state 7#usize
+  let (a1, b1, c1, d1, e1, f1, g1, h1) ←
+    sha256.compress_loop2 w2 a b c d e f g h 0#usize
+  let i ← Array.index_usize state 0#usize
+  let i1 ← lift (core.num.U32.wrapping_add i a1)
+  let state1 ← Array.update state 0#usize i1
+  let i2 ← Array.index_usize state1 1#usize
+  let i3 ← lift (core.num.U32.wrapping_add i2 b1)
+  let state2 ← Array.update state1 1#usize i3
+  let i4 ← Array.index_usize state2 2#usize
+  let i5 ← lift (core.num.U32.wrapping_add i4 c1)
+  let state3 ← Array.update state2 2#usize i5
+  let i6 ← Array.index_usize state3 3#usize
+  let i7 ← lift (core.num.U32.wrapping_add i6 d1)
+  let state4 ← Array.update state3 3#usize i7
+  let i8 ← Array.index_usize state4 4#usize
+  let i9 ← lift (core.num.U32.wrapping_add i8 e1)
+  let state5 ← Array.update state4 4#usize i9
+  let i10 ← Array.index_usize state5 5#usize
+  let i11 ← lift (core.num.U32.wrapping_add i10 f1)
+  let state6 ← Array.update state5 5#usize i11
+  let i12 ← Array.index_usize state6 6#usize
+  let i13 ← lift (core.num.U32.wrapping_add i12 g1)
+  let state7 ← Array.update state6 6#usize i13
+  let i14 ← Array.index_usize state7 7#usize
+  let i15 ← lift (core.num.U32.wrapping_add i14 h1)
+  Array.update state7 7#usize i15
+
+/-- [apeiron_word::sha256::sha256]: loop body 0:
+    Source: '../../src/sha256.rs', lines 109:4-115:5
+    Visibility: public -/
+@[rust_loop_body]
+def sha256.sha256_loop0.body
+  (msg : Slice Std.U8) (full : Std.Usize) (state : Array Std.U32 8#usize)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U32 8#usize) × Std.Usize) (Array Std.U32
+    8#usize))
+  := do
+  if i < full
+  then
+    let block := Array.repeat 64#usize 0#u8
+    let o ← i * 64#usize
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut block)
+    let i1 ← o + 64#usize
+    let s1 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.U8) msg { start := o, «end» := i1 }
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let block1 := to_slice_mut_back s2
+    let state1 ← sha256.compress state block1
+    let i2 ← i + 1#usize
+    ok (cont (state1, i2))
+  else ok (done state)
+
+/-- [apeiron_word::sha256::sha256]: loop 0:
+    Source: '../../src/sha256.rs', lines 109:4-115:5
+    Visibility: public -/
+@[rust_loop]
+def sha256.sha256_loop0
+  (msg : Slice Std.U8) (state : Array Std.U32 8#usize) (full : Std.Usize)
+  (i : Std.Usize) :
+  Result (Array Std.U32 8#usize)
+  := do
+  loop
+    (fun (state1, i1) => sha256.sha256_loop0.body msg full state1 i1)
+    (state, i)
+
+/-- [apeiron_word::sha256::sha256]: loop body 1:
+    Source: '../../src/sha256.rs', lines 129:4-134:5
+    Visibility: public -/
+@[rust_loop_body]
+def sha256.sha256_loop1.body
+  (tail : Array Std.U8 128#usize) (tail_len : Std.Usize)
+  (state : Array Std.U32 8#usize) (i : Std.Usize) :
+  Result (ControlFlow ((Array Std.U32 8#usize) × Std.Usize) (Array Std.U32
+    8#usize))
+  := do
+  if i < tail_len
+  then
+    let block := Array.repeat 64#usize 0#u8
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut block)
+    let i1 ← i + 64#usize
+    let s1 ←
+      core.array.Array.index (core.ops.index.IndexSlice
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) tail
+        { start := i, «end» := i1 }
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let block1 := to_slice_mut_back s2
+    let state1 ← sha256.compress state block1
+    ok (cont (state1, i1))
+  else ok (done state)
+
+/-- [apeiron_word::sha256::sha256]: loop 1:
+    Source: '../../src/sha256.rs', lines 129:4-134:5
+    Visibility: public -/
+@[rust_loop]
+def sha256.sha256_loop1
+  (state : Array Std.U32 8#usize) (tail : Array Std.U8 128#usize)
+  (tail_len : Std.Usize) (i : Std.Usize) :
+  Result (Array Std.U32 8#usize)
+  := do
+  loop
+    (fun (state1, i1) => sha256.sha256_loop1.body tail tail_len state1 i1)
+    (state, i)
+
+/-- [apeiron_word::sha256::sha256]: loop body 2:
+    Source: '../../src/sha256.rs', lines 138:4-141:5
+    Visibility: public -/
+@[rust_loop_body]
+def sha256.sha256_loop2.body
+  (state : Array Std.U32 8#usize) (out : Array Std.U8 32#usize) (i : Std.Usize)
+  :
+  Result (ControlFlow ((Array Std.U8 32#usize) × Std.Usize) (Array Std.U8
+    32#usize))
+  := do
+  if i < 8#usize
+  then
+    let i1 ← 4#usize * i
+    let i2 ← i1 + 4#usize
+    let (s, index_mut_back) ←
+      core.array.Array.index_mut (core.ops.index.IndexMutSlice
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) out
+        { start := i1, «end» := i2 }
+    let i3 ← Array.index_usize state i
+    let a ← lift (core.num.U32.to_be_bytes i3)
+    let s1 ← lift (Array.to_slice a)
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let i4 ← i + 1#usize
+    let out1 := index_mut_back s2
+    ok (cont (out1, i4))
+  else ok (done out)
+
+/-- [apeiron_word::sha256::sha256]: loop 2:
+    Source: '../../src/sha256.rs', lines 138:4-141:5
+    Visibility: public -/
+@[rust_loop]
+def sha256.sha256_loop2
+  (state : Array Std.U32 8#usize) (out : Array Std.U8 32#usize) (i : Std.Usize)
+  :
+  Result (Array Std.U8 32#usize)
+  := do
+  loop
+    (fun (out1, i1) => sha256.sha256_loop2.body state out1 i1)
+    (out, i)
+
+/-- [apeiron_word::sha256::sha256]:
+    Source: '../../src/sha256.rs', lines 103:0-143:1
+    Visibility: public -/
+def sha256.sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
+  let i := Slice.len msg
+  let full ← i / 64#usize
+  let state ← sha256.sha256_loop0 msg sha256.H0 full 0#usize
+  let i1 ← full * 64#usize
+  let rest ←
+    core.slice.index.Slice.index
+      (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) msg
+      { start := i1 }
+  let tail := Array.repeat 128#usize 0#u8
+  let i2 := Slice.len rest
+  let (s, index_mut_back) ←
+    core.array.Array.index_mut (core.ops.index.IndexMutSlice
+      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8)) tail
+      { «end» := i2 }
+  let s1 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s rest
+  let i3 := Slice.len rest
+  let tail1 := index_mut_back s1
+  let tail2 ← Array.update tail1 i3 128#u8
+  let i4 := Slice.len rest
+  let tail_len ← if i4 < 56#usize
+                   then ok 64#usize
+                   else ok 128#usize
+  let i5 := Slice.len msg
+  let i6 ← lift (UScalar.cast .U64 i5)
+  let bit_len ← lift (core.num.U64.wrapping_mul i6 8#u64)
+  let i7 ← tail_len - 8#usize
+  let (s2, index_mut_back1) ←
+    core.array.Array.index_mut (core.ops.index.IndexMutSlice
+      (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)) tail2
+      { start := i7, «end» := tail_len }
+  let a ← lift (core.num.U64.to_be_bytes bit_len)
+  let s3 ← lift (Array.to_slice a)
+  let s4 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s2 s3
+  let tail3 := index_mut_back1 s4
+  let state1 ← sha256.sha256_loop1 state tail3 tail_len 0#usize
+  let out := Array.repeat 32#usize 0#u8
+  sha256.sha256_loop2 state1 out 0#usize
+
 /-- [apeiron_word::spirv::check::HEADER_WORDS]
     Source: '../../src/spirv/check.rs', lines 34:0-34:30 -/
 @[global_simps, irreducible]
@@ -24488,22 +24872,28 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_keccakf]:
-    Source: 'lib.rs', lines 1077:0-1079:1
+    Source: 'lib.rs', lines 1081:0-1083:1
     Visibility: public -/
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
 
 /-- [apeiron_word::word_sha3_256]:
-    Source: 'lib.rs', lines 1084:0-1086:1
+    Source: 'lib.rs', lines 1088:0-1090:1
     Visibility: public -/
 def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   crypto.sha3_256 msg
 
 /-- [apeiron_word::word_sha3_512]:
-    Source: 'lib.rs', lines 1089:0-1091:1
+    Source: 'lib.rs', lines 1093:0-1095:1
     Visibility: public -/
 def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
   crypto.sha3_512 msg
+
+/-- [apeiron_word::word_sha256]:
+    Source: 'lib.rs', lines 1101:0-1103:1
+    Visibility: public -/
+def word_sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
+  sha256.sha256 msg
 
 end apeiron_word
