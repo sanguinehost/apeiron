@@ -107,12 +107,31 @@ fn hold() -> ExitCode {
 /// The repository root above `manifest_path`: `docs/contracts/artifacts.toml` resolves its rows
 /// against the directory three levels up, so the root is derived from the manifest rather than
 /// guessed from the working directory.
-fn root_for(manifest_path: &Path) -> PathBuf {
-    manifest_path
+///
+/// `base` is the directory a relative manifest path is resolved against, and the result is always
+/// absolute. Three `parent()` steps on the *relative* `docs/contracts/artifacts.toml` overshoot the
+/// front of the path and return `""`: `docs check` survives that only because `root.join(path)` then
+/// yields a cwd-relative path, so it silently depends on the process cwd, while `gate run` hands
+/// the root to `Command::current_dir` and `""` fails to spawn. A root that is only sometimes a
+/// directory is the defect; this returns one that always is, and a manifest too shallow to have
+/// three parents falls back to `base` rather than to an empty path.
+fn root_for(manifest_path: &Path, base: &Path) -> PathBuf {
+    let resolved = if manifest_path.is_absolute() {
+        manifest_path.to_path_buf()
+    } else {
+        base.join(manifest_path)
+    };
+    resolved
         .parent()
         .and_then(Path::parent)
         .and_then(Path::parent)
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        .map_or_else(|| base.to_path_buf(), Path::to_path_buf)
+}
+
+/// The process's own directory, the base a relative manifest path resolves against. A caller that
+/// cannot read it has no root to spawn in.
+fn current_dir() -> Result<PathBuf, String> {
+    std::env::current_dir().map_err(|error| error.to_string())
 }
 
 /// The core's view of a parsed registry. `refs` is empty because the registry schema declares no
@@ -242,7 +261,14 @@ fn docs_check(manifest_path: &Path) -> ExitCode {
         }
     };
 
-    let root = root_for(manifest_path);
+    let base = match current_dir() {
+        Ok(base) => base,
+        Err(error) => {
+            eprintln!("gate docs check: cannot read the current directory: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let root = root_for(manifest_path, &base);
     let report = check(&root, &rows);
     println!(
         "gate docs check: {} rows loaded; {} duplicate-id; {} digest-mismatch; {} unreadable",
@@ -472,7 +498,29 @@ fn run_row(row_id: &str, manifest_path: &Path) -> Outcome {
         }
     };
 
-    let root = root_for(manifest_path);
+    let base = match current_dir() {
+        Ok(base) => base,
+        Err(error) => {
+            return Outcome::refused(
+                EXIT_ENVIRONMENT,
+                Verdict {
+                    fields: vec![
+                        Verdict::quoted("id", row_id),
+                        Verdict::quoted("manifest", &manifest_path.display().to_string()),
+                        Verdict::quoted("verdict", "refused"),
+                        Verdict::quoted("stage", "resolve-root"),
+                        Verdict::quoted("reason", &error),
+                        Verdict::number("exit", EXIT_ENVIRONMENT),
+                    ],
+                }
+                .render(),
+                vec![format!(
+                    "gate run: cannot read the current directory to resolve the manifest root: {error}"
+                )],
+            );
+        }
+    };
+    let root = root_for(manifest_path, &base);
     let manifest = to_manifest(&rows);
 
     // The core owns the identity verdict. A row that is not registered is still submitted, with an
@@ -1284,5 +1332,61 @@ mod controls {
             Some("B_SOURCE_RESOURCE_OK")
         );
         assert_eq!(green_marker(record, "proof/resource/C_gate.py"), None);
+    }
+
+    /// The child's working directory is the manifest's root, and the child says so itself. The row's
+    /// command is recorded relative to the repository root (`docs/contracts/artifacts.toml`, the
+    /// `gate` column: "the exact command that checks this artefact, run from the repository root"), so
+    /// a runner that spawns anywhere else runs a command that names nothing. The command is `pwd`
+    /// plus a non-zero exit, so the refusal quotes the directory the child actually ran in.
+    #[test]
+    fn child_runs_in_the_manifest_root() {
+        let _serial = serialise_scratch();
+        let (_scratch, root) = runnable("run-cwd", "pwd; exit 3", 60);
+        let outcome = run_row("proof/resource/Row_gate.py", &manifest_of(&root));
+        assert_eq!(outcome.code, ExitCode::from(1), "{}", outcome.verdict);
+        assert!(
+            outcome
+                .verdict
+                .contains(&format!("cwd=\"{}\"", root.display())),
+            "the block does not name the root it spawned in:\n{}",
+            outcome.verdict
+        );
+        assert!(
+            outcome
+                .report
+                .join("\n")
+                .contains(&root.display().to_string()),
+            "the child's own `pwd` is not the manifest root: {:?}",
+            outcome.report
+        );
+    }
+
+    /// The root of a *relative* manifest path resolves against the process directory and stays
+    /// absolute. Three `parent()` steps on the relative `docs/contracts/artifacts.toml` overshoot the
+    /// front of the path and return `""`, which `Command::current_dir` cannot spawn in — the defect
+    /// this control pins. The absolute case and the too-shallow case are in the same table because
+    /// they are the same function.
+    #[test]
+    fn manifest_root_is_always_absolute() {
+        let base = Path::new("/repo");
+        let cases = [
+            (
+                Path::new("docs/contracts/artifacts.toml"),
+                Path::new("/repo"),
+            ),
+            (
+                Path::new("/elsewhere/docs/contracts/artifacts.toml"),
+                Path::new("/elsewhere"),
+            ),
+            // Too shallow to have three parents: `base`, never the empty path.
+            (Path::new("artifacts.toml"), Path::new("/repo")),
+        ];
+        for (manifest, expected) in cases {
+            let root = root_for(manifest, base);
+            assert_eq!(root, expected, "manifest {manifest:?}");
+            assert!(root.is_absolute(), "manifest {manifest:?} -> {root:?}");
+            assert!(!root.as_os_str().is_empty());
+        }
     }
 }
