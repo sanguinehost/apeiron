@@ -58,9 +58,11 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
 | webfold | `ef0d2295` | CI fixes: audit action, `--override-filename`, `deny.toml` duplicate key, free-disk step |
 | webfold | `424e222d` | origin tip: merge of T9/T10 + CI fix, **pushed** to `feat/tiered-algebraic-extraction` |
 | song | `59ab3ea3` | `src/std` suite + io test (root cause: `io.slang` redefined `print`); `docs/ROADMAP.md` A5.8 corrected |
+| song | `858ef133` | CAVEATS step-4 row removed, `ConeFold.lean` cite corrected to `Apeiron/Decider/Model.lean` (`plans/` is gitignored; its BOARD tick is local-only) |
 | intent | `fc66a71` | W20/W27 closure records discharge the emitter residual |
 | intent | `af3ad9a` | `docs/SWARM.md` §8: the authenticated OpenCode contract + `supervisor_opencode` gate |
 | intent | `e7d245a` | `fleet.rs` state module + `fleet_state.rs` gate (11 tests; quarantine semantics per Sol) |
+| intent | `52f8938` | drop the useless `format!` calls in the supervisor gate; `intent-cli` clippy clean again |
 
 ## 3 · In flight / resumed after the restarts
 
@@ -82,10 +84,10 @@ were resumed with `sessionID` — when a return is missing, check its scratch be
   `oracle_ring6_randomised.rs`); the blocked mutation control can run now that `intent-runtime`
   compiles.
 - **INT-W06R-1**: verify post-restart; resume if dead.
-- **SONG-CAVEATS done** (uncommitted): CAVEATS row removed per the repo's §5, BOARD E6 ticked with
-  the gate evidence, `corpus.slang`'s `ConeFold.lean` cite corrected to `Apeiron/Decider/Model.lean`;
-  residual: `src/prover/ring/prover0.slang:34` cites a gen1 `Ring.lean` path, and the cite check
-  built for this task lives only in scratch.
+- **SONG-CAVEATS landed** (`858ef133`): the CAVEATS row is removed per the repo's §5, the BOARD E6
+  tick lives only in the gitignored `plans/`, and `corpus.slang`'s `ConeFold.lean` cite is corrected
+  to `Apeiron/Decider/Model.lean`; residual: `src/prover/ring/prover0.slang:34` cites a gen1
+  `Ring.lean` path, and the cite check built for this task lives only in scratch.
 - **CI watchers**: webfold runs on `424e222d` (`ci` 36945322595, `supply-chain` 36945322526); PR #21
   not yet checked for the same CI fixes.
 
