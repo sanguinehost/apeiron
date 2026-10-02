@@ -874,14 +874,17 @@ Operator direction: every agreed action from the working conversation is recorde
 execution plan of record, not in a new file. Each removal names its replacement, its consumers and
 its reachability check (failure register, consolidation row). No bare `rm`.
 
-- **Documentation purge.** Census: 169 markdown files under `docs/`, 48,481 lines — 40 epics, 52
-  evidence, 11 contracts, 4 reviews, 4 archive, 10 top-level. 79 are not cited by filename anywhere
-  outside `docs/` (upper bound: the test catches filename citations only). Keep the governing six
-  (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `plan.md`, `roadmap.md`, `README.md`,
-  `proof/README.md`) plus `docs/README.md` as the index; delete the remainder after a per-file
-  reachability check. A closed epic is deleted once its commits supersede it. **A new document must
-  absorb or replace an existing one; no net new files.** Deletions land with their reachability
-  receipt.
+- **Documentation purge.** Census re-measured against this tree: 142 markdown files under `docs/`
+  (138 at HEAD, 4 untracked), 52 not cited by path-qualified citation outside `docs/` (51 by
+  basename; the test catches filename citations only, and two basenames are ordinary English words).
+  Keep the governing documents (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `plan.md`,
+  `roadmap.md`, `README.md`, `proof/README.md`) plus `docs/README.md` as the index; delete the
+  remainder after a per-file reachability check. A closed epic is deleted once its commits supersede
+  it. **A new document must absorb or replace an existing one; no net new files.** Deletions land
+  with their reachability receipt. Batch 1 (`docs/*.md` top level, 10 files): nothing is deletable
+  as it stands; the prerequisites are absorption of `extraction-requirements.md` into
+  `proof/README.md`, of four named items of `apeiron-intent-escalation.md` into this plan, and a
+  commit/fold/loss-receipt decision for the untracked `apeiron-intent-*.md` pair.
 - **Python gate purge.** `proof/resource` holds 34 `*_gate.py` on disk (30 committed) in 6,513 lines
   (5,622 committed); each re-implements one harness (`flock` lane, `systemd-run` caps, private lake
   package, charon/aeneas extraction, drift check, `lake build`, cone audit, real-source mutation,
