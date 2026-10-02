@@ -857,7 +857,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 pair.cell_id,
                 pair.incumbent_id,
                 pair.sel_workers,
-                pair.inc_workers.map_or(0, |w| w)
+                pair.inc_workers.unwrap_or(0)
             ));
             pair_status.push(PairStatus::Fail);
             continue;
