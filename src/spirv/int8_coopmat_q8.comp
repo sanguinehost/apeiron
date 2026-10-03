@@ -1,0 +1,210 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_KHR_memory_scope_semantics : require
+
+// Int8 cooperative-matrix Q8 tile: one workgroup (8x8 = 64 invocations, two subgroups) covers a
+// 16-row x 32-token output tile. The per-block 32-lane signed dot of q8_tile.comp (eight scalar
+// dotPacked4x8EXT) is replaced by two signed-int8 M16N16K32 cooperative-matrix multiplies; the
+// checked two-limb i128 epilogue is preserved verbatim. The ABI, launch geometry, output layout and
+// refusal encoding are identical to q8_tile.comp, so this unit is a drop-in for it.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer Weights { uint w[]; };
+layout(set = 0, binding = 1, std430) readonly buffer Dm { uint dm[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Activations { uint x[]; };
+layout(set = 0, binding = 3, std430) readonly buffer Exponents { uint e[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer Output { uvec2 out64[]; };
+layout(set = 0, binding = 5, std430) writeonly buffer Flags { uint refusal[]; };
+
+layout(push_constant) uniform Params { uint M; uint tokens; uint blocks; } p;
+
+const uint NONFINITE = 0xffffffffu;
+const uint ZERO_SCALE = 0xffffffffu;
+const uint REFUSE_NONFINITE = 1u;
+const uint REFUSE_I128 = 2u;
+const uint REFUSE_I64 = 4u;
+
+// Per-workgroup MMA staging and per-cell epilogue state (two 16x16 tiles: tokens 0..15, 16..31).
+shared int8_t  sA[16 * 32];
+shared int8_t  sB0[32 * 16];
+shared int8_t  sB1[32 * 16];
+shared int32_t sC0[16 * 16];
+shared int32_t sC1[16 * 16];
+shared uvec4   sAcc0[16 * 16];
+shared uvec4   sAcc1[16 * 16];
+shared uint    sFlags0[16 * 16];
+shared uint    sFlags1[16 * 16];
+
+// Add a two's-complement signed i128 value. Return false exactly on signed overflow.
+bool addChecked(inout uvec4 acc, uvec4 term) {
+    uint64_t oldLo = uint64_t(acc.x) | (uint64_t(acc.y) << 32);
+    uint64_t termLo = uint64_t(term.x) | (uint64_t(term.y) << 32);
+    uint64_t low = oldLo + termLo;
+    uint carry = uint(low < oldLo);
+    uint64_t oldHi = uint64_t(acc.z) | (uint64_t(acc.w) << 32);
+    uint64_t termHi = uint64_t(term.z) | (uint64_t(term.w) << 32);
+    uint64_t high = oldHi + termHi + uint64_t(carry);
+    bool oldNeg = (acc.w & 0x80000000u) != 0u;
+    bool termNeg = (term.w & 0x80000000u) != 0u;
+    bool resultNeg = (uint(high >> 32) & 0x80000000u) != 0u;
+    acc = uvec4(uint(low), uint(low >> 32), uint(high), uint(high >> 32));
+    return oldNeg != termNeg || oldNeg == resultNeg;
+}
+
+// Form signed (m*dot) * 2^shift as a two's-complement i128 without a signed shift.
+uvec4 shiftedTerm(int64_t coefficient, uint shift) {
+    bool neg = coefficient < int64_t(0);
+    uint64_t mag = uint64_t(neg ? -coefficient : coefficient);
+    uint64_t lo = uint64_t(0);
+    uint64_t hi = uint64_t(0);
+    if (shift == 0u) {
+        lo = mag;
+    } else if (shift < 64u) {
+        lo = mag << shift;
+        hi = mag >> (64u - shift);
+    } else {
+        hi = mag << (shift - 64u);
+    }
+    if (neg) {
+        lo = ~lo + uint64_t(1);
+        hi = ~hi + uint64_t(uint(lo == uint64_t(0)));
+    }
+    return uvec4(uint(lo), uint(lo >> 32), uint(hi), uint(hi >> 32));
+}
+
+// Signed 8-bit little-endian byte `lane` of packed word.
+int sbyteOf(uint word, uint lane) {
+    int code = int((word >> (8u * lane)) & 0xffu);
+    return code < 128 ? code : code - 256;
+}
+
+void main() {
+    uint rowbase = gl_WorkGroupID.x * 16u;
+    uint tokenbase = gl_WorkGroupID.y * 32u;
+    uint lid = gl_LocalInvocationIndex;
+
+    for (uint c = lid; c < 256u; c += 64u) {
+        sAcc0[c] = uvec4(0u);
+        sAcc1[c] = uvec4(0u);
+        sFlags0[c] = 0u;
+        sFlags1[c] = 0u;
+    }
+    barrier();
+
+    for (uint b = 0u; b < p.blocks; ++b) {
+        // Unpack the [16][32] signed weight tile for this block.
+        for (uint idx = lid; idx < 512u; idx += 64u) {
+            uint r = idx / 32u;
+            uint k = idx % 32u;
+            uint row = rowbase + r;
+            int code = 0;
+            if (row < p.M) {
+                code = sbyteOf(w[(b * 8u + k / 4u) * p.M + row], k % 4u);
+            }
+            sA[idx] = int8_t(code);
+        }
+        // Unpack the two [32][16] signed activation tiles for this block.
+        for (uint idx = lid; idx < 512u; idx += 64u) {
+            uint k = idx / 16u;
+            uint n = idx % 16u;
+            uint t0 = tokenbase + n;
+            uint t1 = tokenbase + 16u + n;
+            sB0[idx] = int8_t(t0 < p.tokens ? sbyteOf(x[(t0 * p.blocks + b) * 8u + k / 4u], k % 4u) : 0);
+            sB1[idx] = int8_t(t1 < p.tokens ? sbyteOf(x[(t1 * p.blocks + b) * 8u + k / 4u], k % 4u) : 0);
+        }
+        barrier();
+
+        coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am;
+        coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm0;
+        coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm1;
+        coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> cm;
+        coopMatLoad(am, sA, 0, 32, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(bm0, sB0, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(bm1, sB1, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+        cm = coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0);
+        cm = coopMatMulAdd(am, bm0, cm);
+        coopMatStore(cm, sC0, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+        cm = coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0);
+        cm = coopMatMulAdd(am, bm1, cm);
+        coopMatStore(cm, sC1, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+
+        // Scalar checked epilogue over the harvested i32 tile, per cell, in block order.
+        for (uint c = lid; c < 256u; c += 64u) {
+            uint r = c / 16u;
+            uint row = rowbase + r;
+            uint t0 = tokenbase + (c % 16u);
+            uint t1 = tokenbase + 16u + (c % 16u);
+
+            if (row < p.M) {
+                int mantissa = int(dm[(b * p.M + row) * 2u]);
+                uint weightExp = dm[(b * p.M + row) * 2u + 1u];
+                if (t0 < p.tokens) {
+                    uint actExp = e[t0 * p.blocks + b];
+                    if (weightExp == NONFINITE) {
+                        sFlags0[c] |= REFUSE_NONFINITE;
+                    } else if (actExp != ZERO_SCALE) {
+                        uint shift = weightExp + actExp;
+                        int64_t coefficient = int64_t(mantissa) * int64_t(sC0[c]);
+                        if (!addChecked(sAcc0[c], shiftedTerm(coefficient, shift)))
+                            sFlags0[c] |= REFUSE_I128;
+                    }
+                }
+                if (t1 < p.tokens) {
+                    uint actExp = e[t1 * p.blocks + b];
+                    if (weightExp == NONFINITE) {
+                        sFlags1[c] |= REFUSE_NONFINITE;
+                    } else if (actExp != ZERO_SCALE) {
+                        uint shift = weightExp + actExp;
+                        int64_t coefficient = int64_t(mantissa) * int64_t(sC1[c]);
+                        if (!addChecked(sAcc1[c], shiftedTerm(coefficient, shift)))
+                            sFlags1[c] |= REFUSE_I128;
+                    }
+                }
+            }
+        }
+        barrier();
+    }
+
+    // Unchanged Q32.32 round/narrow/store/refusal from q8_tile.comp:137-149.
+    for (uint c = lid; c < 256u; c += 64u) {
+        uint r = c / 16u;
+        uint row = rowbase + r;
+        uint t0 = tokenbase + (c % 16u);
+        uint t1 = tokenbase + 16u + (c % 16u);
+        if (row < p.M && t0 < p.tokens) {
+            if (sFlags0[c] == 0u) {
+                uvec4 rounded = sAcc0[c];
+                uint64_t oldLow = uint64_t(rounded.x) | (uint64_t(rounded.y) << 32);
+                uint64_t low = oldLow + (uint64_t(1) << 31);
+                uint carry = uint(low < oldLow);
+                uint64_t high = (uint64_t(rounded.z) | (uint64_t(rounded.w) << 32)) + uint64_t(carry);
+                rounded = uvec4(uint(low), uint(low >> 32), uint(high), uint(high >> 32));
+                bool resultNeg = (rounded.z & 0x80000000u) != 0u;
+                bool fitsI64 = rounded.w == (resultNeg ? 0xffffffffu : 0u);
+                if (!fitsI64) sFlags0[c] |= REFUSE_I64;
+                else out64[t0 * p.M + row] = uvec2(rounded.y, rounded.z);
+            }
+            refusal[t0 * p.M + row] = sFlags0[c] == 0u ? 0u : 1u;
+        }
+        if (row < p.M && t1 < p.tokens) {
+            if (sFlags1[c] == 0u) {
+                uvec4 rounded = sAcc1[c];
+                uint64_t oldLow = uint64_t(rounded.x) | (uint64_t(rounded.y) << 32);
+                uint64_t low = oldLow + (uint64_t(1) << 31);
+                uint carry = uint(low < oldLow);
+                uint64_t high = (uint64_t(rounded.z) | (uint64_t(rounded.w) << 32)) + uint64_t(carry);
+                rounded = uvec4(uint(low), uint(low >> 32), uint(high), uint(high >> 32));
+                bool resultNeg = (rounded.z & 0x80000000u) != 0u;
+                bool fitsI64 = rounded.w == (resultNeg ? 0xffffffffu : 0u);
+                if (!fitsI64) sFlags1[c] |= REFUSE_I64;
+                else out64[t1 * p.M + row] = uvec2(rounded.y, rounded.z);
+            }
+            refusal[t1 * p.M + row] = sFlags1[c] == 0u ? 0u : 1u;
+        }
+    }
+}

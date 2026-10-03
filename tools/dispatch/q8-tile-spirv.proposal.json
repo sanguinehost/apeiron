@@ -1,7 +1,7 @@
 {
   "task": "APEIRON-GPU-ADMISSION",
   "contract": "q8-tile-spirv",
-  "registry_sha256": "65df59acb3c00dcd9c5d60f35e41788869205ff1693bf6aebaeed060c7a90cd2",
+  "registry_sha256": "d42a07dd5a9772de5e5c2f98ddfca012c1d65635e57fb4324f595409ad2b125d",
   "identity": {
     "src/spirv/q8_tile.comp": "0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e",
     "tools/gpu/q8_driver.c": "6668974f92dbc06bc96c9529f09530c132e6521bd517455e9863e66fb6548b6f",

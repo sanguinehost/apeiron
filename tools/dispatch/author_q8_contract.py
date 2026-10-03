@@ -42,9 +42,9 @@ def sha(rel: str) -> str:
     return hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
 
 
-def main() -> int:
+def build_contract() -> dict:
     identity = {rel: sha(rel) for rel in [*SHADER_FILES, *CLOSURE, PROOF_FILE]}
-    contract = {
+    return {
         "grade": "source-connected-cost-model",
         "source_kind": "shader-spirv",
         "namespace": "Q8TileSpirv",
@@ -81,6 +81,11 @@ def main() -> int:
         "owned_files": ["src/spirv/q8_tile.comp"],
         "worker": ["python3", "tools/gpu/q8_shapes.py", "--reps", "5"],
     }
+
+
+def main() -> int:
+    contract = build_contract()
+    identity = contract["identity"]
     registry = {
         "schema": 2,
         "contracts": {"q8-tile-spirv": contract},

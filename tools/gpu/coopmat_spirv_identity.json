@@ -1,0 +1,12 @@
+{
+  "shader": "src/spirv/int8_coopmat_q8.comp",
+  "shader_sha256": "381115b81f5d08fe3c7e283a7adf861274a09170eb53d6014b3f28466889bf79",
+  "entry_point": "main",
+  "shader_abi": "descriptor set 0: binding 0 Weights, 1 Dm, 2 Activations, 3 Exponents (readonly std430 uint[]); binding 4 Output (writeonly uvec2[]), 5 Flags (writeonly uint[]); push_constant Params{M,tokens,blocks}; local_size 8x8x1; signed int8 M16N16K32 subgroup-scope cooperative-matrix dot + checked two-limb i128 epilogue; result = i64 Q32.32 value or refusal flag",
+  "dispatch_driver": "tools/gpu/q8_driver.c",
+  "dispatch_driver_sha256": "6668974f92dbc06bc96c9529f09530c132e6521bd517455e9863e66fb6548b6f",
+  "toolchain": "glslc",
+  "toolchain_version": "2026.3",
+  "target_env": "vulkan1.3",
+  "spirv_sha256": "5cb253e6f27a4f90615e22cb949d9b1c0b35ffb5dc6354bb28c177664857f736"
+}
