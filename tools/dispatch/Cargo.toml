@@ -1,0 +1,18 @@
+[package]
+name = "dispatch_core"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[lib]
+path = "core.rs"
+name = "dispatch_core"
+
+[dependencies]
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+
+[[bin]]
+name = "dispatch_admit"
+path = "main.rs"

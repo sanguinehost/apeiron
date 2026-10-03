@@ -1,0 +1,12 @@
+{
+  "shader": "src/spirv/q8_tile.comp",
+  "shader_sha256": "0f971a8aa762676b5b12b32399ef749af7f8e3a7e7722e8ab157693f9f24c60e",
+  "entry_point": "main",
+  "shader_abi": "descriptor set 0: binding 0 Weights, 1 Dm, 2 Activations, 3 Exponents (readonly std430 uint[]); binding 4 Output (writeonly uvec2[]), 5 Flags (writeonly uint[]); push_constant Params{M,tokens,blocks}; local_size 8x8x1; result = i64 Q32.32 value or refusal flag",
+  "dispatch_driver": "tools/gpu/q8_driver.c",
+  "dispatch_driver_sha256": "6668974f92dbc06bc96c9529f09530c132e6521bd517455e9863e66fb6548b6f",
+  "toolchain": "glslc",
+  "toolchain_version": "2026.3",
+  "target_env": "vulkan1.3",
+  "spirv_sha256": "5edba7dc8961a8db55ff6e6d51cf33129cb3e388cad9c7e08a1fe633e1a8ba57"
+}

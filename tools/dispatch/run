@@ -1,0 +1,15 @@
+#!/bin/sh
+# Build and prove current source before admission; one deadline covers every child.
+set -eu
+DISPATCH_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+export APEIRON_DISPATCH_DEADLINE_EPOCH=$(($(date +%s) + 535))
+exec timeout --kill-after=5 540 flock -w 530 /tmp/opencode/apeiron-dispatch-build.lock bash -eu -c '
+  dispatch_root=$1
+  shift
+  dispatch_target=/home/socol/oc-tmp/rust-admission-entry-target
+  cargo build \
+    --manifest-path "$dispatch_root/tools/dispatch/Cargo.toml" \
+    --bin dispatch_admit --locked --offline --target-dir "$dispatch_target"
+  "$dispatch_root/proof/dispatch/regen.sh" --check
+  exec "$dispatch_target/debug/dispatch_admit" "$@"
+' dispatch-run "$DISPATCH_ROOT" "$@"
