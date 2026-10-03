@@ -152,6 +152,41 @@ pub type WordTable = WordStoredTable;
 /// The elliptic word table retains the real regenerated identity word.
 pub type WordRegenTable =
     table::Table<i64, i64, table::WordHome, 16, table::keyrep::Regen<table::keyrep::I64WordCodec>>;
+/// The cell-valued word instance the whole-table reduce is rooted at: incumbent
+/// `fold hashtrinity/src/lib.rs:891` (`Table::encircle`) reduced over `Cell<i64>` values.
+pub type WordCellTable =
+    table::Table<i64, cell::Cell<i64>, table::WordHome, 16, table::keyrep::Stored<i64>>;
+
+/// `Table::reduce_all` at the concrete `AffineFoldStep` witness.
+///
+/// Calls the real `src/table/reduce.rs` body over the table's own live resident and spill slots; it
+/// does not restate the loop and does not restate the algebra. `sigma` is the dial argument the
+/// witness carries, matching the corpus's `ringAffineFold sigma`.
+pub fn word_table_reduce_all(
+    state: &WordCellTable,
+    sigma: cell::Sigma,
+) -> table::AffineStep<i64> {
+    state.reduce_all(&table::AffineFoldStep { sigma })
+}
+
+/// `AffineStep::compose`, the corpus `AnyRing.ringAffineCompose sigma outer inner` at the word
+/// scalar. Rooted so the generated fold law links the real body, not a restatement.
+pub fn word_affine_step_compose(
+    outer: table::AffineStep<i64>,
+    sigma: cell::Sigma,
+    inner: table::AffineStep<i64>,
+) -> table::AffineStep<i64> {
+    outer.compose(sigma, inner)
+}
+
+/// `AffineStep::apply`, the corpus `AnyRing.ringAffineApply sigma step z` at the word scalar.
+pub fn word_affine_step_apply(
+    step: table::AffineStep<i64>,
+    sigma: cell::Sigma,
+    z: cell::Cell<i64>,
+) -> cell::Cell<i64> {
+    step.apply(sigma, z)
+}
 
 /// `Cell::<i64>::mul`, rooted so Charon does not have to translate the whole crate.
 pub fn word_mul(a: cell::Cell<i64>, sigma: cell::Sigma, b: cell::Cell<i64>) -> cell::Cell<i64> {

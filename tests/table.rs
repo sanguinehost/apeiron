@@ -3,8 +3,11 @@ use apeiron::coord::address::{
 };
 use apeiron::coord::{spread, Packed};
 use apeiron::table::keyrep::{I64WordCodec, KeyRep, Regen, Stored};
-use apeiron::table::{Home, SearchClass, SearchLocation, TableAddress, WordHome};
-use apeiron::{merge, table::ReplacementMerge, Sigma, Table};
+use apeiron::table::{
+    AffineFoldStep, AffineMixStep, AffineStep, Home, Reduce, SearchClass, SearchLocation,
+    TableAddress, WordHome,
+};
+use apeiron::{merge, table::ReplacementMerge, Cell, Sigma, Table};
 
 /// The all-face semantic capability for a word key: `Faces = Sigma`, with the exact `Packed` word.
 ///
@@ -1417,4 +1420,275 @@ where
 fn prepared_rebuild_uses_materialized_payloads_and_relocates_without_merge() {
     relocation_rebuild_moves_entries::<Stored<i64>>("stored");
     relocation_rebuild_moves_entries::<Regen<I64WordCodec>>("regen");
+}
+
+// ---------------------------------------------------------------------------
+// APEIRON-HT-ENCIRCLE-W1: the whole-table reduce, ported from incumbent
+// `fold hashtrinity/src/lib.rs:891` (`Table::encircle`).
+// ---------------------------------------------------------------------------
+
+/// Builds a `Cell<i64>`-valued table over `IdentityI64Home`, writing key `i` on `sigma`.
+fn cell_table(
+    cell_keys: &[(i64, Sigma)],
+    width: usize,
+) -> Table<i64, Cell<i64>, IdentityI64Home, 16> {
+    let merge = |new: Cell<i64>, _old: Cell<i64>| new;
+    let mut table =
+        Table::<i64, Cell<i64>, IdentityI64Home, 16>::new(Cell::zero(), IdentityI64Home);
+    let mut index = 0_i64;
+    while usize::try_from(index).expect("the index fits a usize") < cell_keys.len() {
+        let (key, sigma) = cell_keys[usize::try_from(index).expect("the index fits a usize")];
+        table
+            .insert_with_at(&merge, sigma, key, Cell::<i64>::of(index + 1, -index - 2))
+            .expect("the insertion reserves and commits");
+        index += 1;
+    }
+    assert_eq!(table.len(), cell_keys.len(), "{width} keys are live");
+    table
+}
+
+#[test]
+fn encircle_reduce_all_of_an_empty_table_is_the_identity() {
+    let table = Table::<i64, Cell<i64>, IdentityI64Home, 16>::new(Cell::zero(), IdentityI64Home);
+    let witness = AffineFoldStep {
+        sigma: Sigma::Parabolic,
+    };
+    assert_eq!(table.reduce_all(&witness), AffineStep::id());
+    assert!(table.values_in_order().is_empty());
+}
+
+#[test]
+fn encircle_reduce_all_is_the_corpus_fold_over_storage_order() {
+    let keys: Vec<(i64, Sigma)> = (0..40_i64)
+        .map(|i| (i * 7 % 40, Sigma::Parabolic))
+        .collect();
+    let table = cell_table(&keys, 16);
+    let witness = AffineFoldStep {
+        sigma: Sigma::Parabolic,
+    };
+    let steps: Vec<AffineStep<i64>> = table
+        .values_in_order()
+        .iter()
+        .map(|value| witness.residual(value))
+        .collect();
+    assert_eq!(steps.len(), table.len(), "one step per live slot");
+    assert_eq!(
+        table.reduce_all(&witness),
+        witness.fold(&steps),
+        "the table reduce is the corpus left fold over the live slots in storage order"
+    );
+}
+
+#[test]
+fn encircle_chunked_merge_reproduces_the_sequential_reduce() {
+    let keys: Vec<(i64, Sigma)> = (0..5000_i64)
+        .map(|i| (i * 7 % 5000, Sigma::Parabolic))
+        .collect();
+    let table = cell_table(&keys, 16);
+    let witness = AffineFoldStep {
+        sigma: Sigma::Parabolic,
+    };
+    let values = table.values_in_order();
+    assert!(
+        values.len() > 4096,
+        "the table grew past its resident extent: {} live slots",
+        values.len()
+    );
+    // The incumbent's parallel branch: one partial per task, folded over a contiguous chunk of the
+    // live stream, then merged in task order.
+    let tasks = 4_usize;
+    let chunk = values.len().div_ceil(tasks);
+    let mut partials: Vec<AffineStep<i64>> = Vec::new();
+    let mut start = 0;
+    while start < values.len() {
+        let end = (start + chunk).min(values.len());
+        let steps: Vec<AffineStep<i64>> = values[start..end]
+            .iter()
+            .map(|value| witness.residual(value))
+            .collect();
+        partials.push(witness.fold(&steps));
+        start = end;
+    }
+    let merged = partials.into_iter().fold(AffineStep::id(), |acc, part| {
+        part.compose(Sigma::Parabolic, acc)
+    });
+    assert_eq!(
+        merged,
+        table.reduce_all(&witness),
+        "composing the chunk partials recovers the sequential reduce"
+    );
+}
+
+#[test]
+fn encircle_reduce_all_runs_at_every_face_without_a_sign_hypothesis() {
+    let keys: Vec<(i64, Sigma)> = (0..24_i64)
+        .map(|i| {
+            let sigma = match i % 3 {
+                0 => Sigma::Elliptic,
+                1 => Sigma::Parabolic,
+                _ => Sigma::Hyperbolic,
+            };
+            (i, sigma)
+        })
+        .collect();
+    let table = cell_table(&keys, 16);
+    let values = table.values_in_order();
+    for sigma in [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic] {
+        let witness = AffineFoldStep { sigma };
+        let steps: Vec<AffineStep<i64>> =
+            values.iter().map(|value| witness.residual(value)).collect();
+        assert_eq!(
+            table.reduce_all(&witness),
+            witness.fold(&steps),
+            "the fold law holds at sigma = {}",
+            sigma.value()
+        );
+    }
+}
+
+#[test]
+fn encircle_compose_is_the_corpus_compose_on_a_witnessed_pair() {
+    // `ringAffineCompose` term for term: the composed injection carries the inner injection
+    // forward by the outer coefficient.
+    let outer = AffineStep {
+        coefficient: Cell::<i64>::of(3, 1),
+        injection: Cell::<i64>::of(2, -5),
+    };
+    let inner = AffineStep {
+        coefficient: Cell::<i64>::of(-7, 4),
+        injection: Cell::<i64>::of(11, 6),
+    };
+    for sigma in [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic] {
+        let composed = outer.compose(sigma, inner);
+        assert_eq!(
+            composed.coefficient,
+            outer.coefficient.mul(sigma, inner.coefficient),
+            "sigma = {}: coefficient is outer * inner",
+            sigma.value()
+        );
+        assert_eq!(
+            composed.injection,
+            outer
+                .coefficient
+                .mul(sigma, inner.injection)
+                .add(outer.injection),
+            "sigma = {}: injection carries inner forward",
+            sigma.value()
+        );
+        assert_eq!(
+            composed.apply(sigma, Cell::<i64>::of(9, -3)),
+            outer.apply(sigma, inner.apply(sigma, Cell::<i64>::of(9, -3))),
+            "sigma = {}: apply(outer, apply(inner, z)) == apply(compose, z)",
+            sigma.value()
+        );
+    }
+}
+
+#[test]
+fn encircle_identity_step_is_neutral_under_compose() {
+    let step = AffineStep {
+        coefficient: Cell::<i64>::of(5, -2),
+        injection: Cell::<i64>::of(-3, 8),
+    };
+    for sigma in [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic] {
+        assert_eq!(step.compose(sigma, AffineStep::id()), step);
+        assert_eq!(AffineStep::id().compose(sigma, step), step);
+        assert_eq!(
+            AffineStep::id().apply(sigma, Cell::<i64>::of(4, 6)),
+            Cell::<i64>::of(4, 6)
+        );
+    }
+}
+
+#[test]
+fn encircle_reduce_all_at_the_mixing_witness_is_the_corpus_fold_over_storage_order() {
+    let keys: Vec<(i64, Sigma)> = (0..40_i64)
+        .map(|i| (i * 7 % 40, Sigma::Parabolic))
+        .collect();
+    let table = cell_table(&keys, 16);
+    let witness = AffineMixStep {
+        sigma: Sigma::Parabolic,
+    };
+    let steps: Vec<AffineStep<i64>> = table
+        .values_in_order()
+        .iter()
+        .map(|value| witness.residual(value))
+        .collect();
+    assert_eq!(steps.len(), table.len());
+    assert_eq!(
+        table.reduce_all(&witness),
+        witness.fold(&steps),
+        "the table reduce is the corpus left fold at the non-commutative witness"
+    );
+}
+
+#[test]
+fn encircle_chunked_merge_at_the_mixing_witness_reproduces_the_sequential_reduce() {
+    let keys: Vec<(i64, Sigma)> = (0..5000_i64)
+        .map(|i| (i * 7 % 5000, Sigma::Parabolic))
+        .collect();
+    let table = cell_table(&keys, 16);
+    let witness = AffineMixStep {
+        sigma: Sigma::Parabolic,
+    };
+    let values = table.values_in_order();
+    assert!(
+        values.len() > 4096,
+        "the table grew past its resident extent: {} live slots",
+        values.len()
+    );
+    let tasks = 4_usize;
+    let chunk = values.len().div_ceil(tasks);
+    let mut partials: Vec<AffineStep<i64>> = Vec::new();
+    let mut start = 0;
+    while start < values.len() {
+        let end = (start + chunk).min(values.len());
+        let steps: Vec<AffineStep<i64>> = values[start..end]
+            .iter()
+            .map(|value| witness.residual(value))
+            .collect();
+        partials.push(witness.fold(&steps));
+        start = end;
+    }
+    let merged = partials.into_iter().fold(AffineStep::id(), |acc, part| {
+        part.compose(Sigma::Parabolic, acc)
+    });
+    assert_eq!(
+        merged,
+        table.reduce_all(&witness),
+        "composing the chunk partials recovers the sequential reduce at the non-commutative witness"
+    );
+}
+
+#[test]
+fn encircle_two_witnesses_disagree_so_neither_test_is_vacuous() {
+    // The control for the two witnesses above: if `AffineFoldStep` and `AffineMixStep` produced the
+    // same accumulator, swapping the `combine` arguments would be invisible to every test here.
+    let keys: Vec<(i64, Sigma)> = (0..12_i64)
+        .map(|i| (i * 7 % 12, Sigma::Parabolic))
+        .collect();
+    let table = cell_table(&keys, 16);
+    let translate = AffineFoldStep {
+        sigma: Sigma::Parabolic,
+    };
+    let mixing = AffineMixStep {
+        sigma: Sigma::Parabolic,
+    };
+    let values = table.values_in_order();
+    let translate_steps: Vec<AffineStep<i64>> = values
+        .iter()
+        .map(|value| translate.residual(value))
+        .collect();
+    let mixing_steps: Vec<AffineStep<i64>> =
+        values.iter().map(|value| mixing.residual(value)).collect();
+    assert_ne!(
+        translate.fold(&translate_steps),
+        mixing.fold(&mixing_steps),
+        "the two witnesses are distinguishable, so a reversed combine is observable"
+    );
+    assert_ne!(
+        mixing_steps[0].compose(Sigma::Parabolic, mixing_steps[1]),
+        mixing_steps[1].compose(Sigma::Parabolic, mixing_steps[0]),
+        "compose is not commutative at the mixing witness, so argument order is observable"
+    );
 }

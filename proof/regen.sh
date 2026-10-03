@@ -111,6 +111,7 @@ $REPO_DIR/src/table/keyrep.rs
 $REPO_DIR/src/table/partition.rs
 $REPO_DIR/src/table/resources.rs
 $REPO_DIR/src/table/parallel.rs
+$REPO_DIR/src/table/reduce.rs
 $REPO_DIR/src/numeric/fixed_exp.rs
 $REPO_DIR/src/numeric/fixed_rsqrt.rs
 $REPO_DIR/src/numeric/fixed_trig.rs
@@ -205,6 +206,9 @@ run_extract() {
         --start-from crate::word_coord_unspread \
         --start-from crate::word_coord_id \
         --start-from crate::word_coord_place \
+        --start-from crate::word_table_reduce_all \
+        --start-from crate::word_affine_step_compose \
+        --start-from crate::word_affine_step_apply \
         --start-from crate::word_stored_relocate_entry \
         --start-from crate::word_regen_relocate_entry \
         --start-from crate::word_stored_relocate_all \

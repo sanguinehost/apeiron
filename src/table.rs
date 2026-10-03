@@ -18,13 +18,14 @@
 //! certified coordinate is admitted by the resident extent, that flat cell is live, even if a
 //! colliding key's unique representative is in spill. Removal is deliberately out of scope.
 
-use crate::cell::Sigma;
+use crate::cell::{Cell, Sigma};
 use crate::coord::address::{
     EllipticPacking, FaceCoord, FaceDomain, FaceHome, FaceResidueCapability, ParabolicDual,
     Residue, WordFaceHome, H3_40,
 };
 use crate::coord::locator::locator_core::{Directory, ResidueIndex, StagedPath, Walk};
 use crate::coord::locator::{ExactIdentity, Refusal};
+use crate::scalar::Ring;
 use core::marker::PhantomData;
 
 // These explicit paths preserve normal crate resolution and also make this file's children resolve
@@ -221,6 +222,11 @@ include!("table/locator.rs");
 
 // Textual inclusion preserves the extracted table namespace and free-function identities.
 include!("table/prepared.rs");
+
+// The whole-table reduce, ported from incumbent `fold hashtrinity/src/lib.rs:891` (`Table::encircle`)
+// and its affine-step algebra. Included the same way: the body reads the table's private storage,
+// and the extracted `table::` names are what the refinement links.
+include!("table/reduce.rs");
 
 /// A total-default table whose compile-time `R` policy selects carried or regenerated keys.
 pub struct Table<K, V, H, const N: usize = 16, R = Stored<K>>
