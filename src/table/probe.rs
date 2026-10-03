@@ -5,7 +5,7 @@
 //! open-addressed array: the probe is bounded linear probing over one cycle, the zero tag
 //! terminates it, and a completed cycle with no vacancy is the growth signal.
 
-use super::{matches, tag, valid_n, KeyRep, Region, Sigma, SpillSite, TableAddress};
+use super::{matches, valid_n, KeyRep, Region, Sigma, SpillSite, TableAddress, COORD_EMPTY};
 
 /// Walks one bounded linear-probe cycle and classifies the query.
 ///
@@ -35,12 +35,12 @@ pub(super) fn spill_locate<K, H, R: KeyRep<K, H>, V>(
     }
     let bound = r.bound();
     let home = r.home(address.place);
-    let wanted = tag(address.place);
+    let wanted = Region::<R, V>::coord_of(address.place);
     let mut step = 0;
     while step < bound {
         let slot = (home + step) & (bound - 1);
-        let found = r.slots[slot].tag;
-        if found == 0 {
+        let found = r.coords[slot];
+        if found == COORD_EMPTY {
             return SpillSite::Vacant(slot);
         }
         if found == wanted {
@@ -71,12 +71,12 @@ pub(super) fn spill_locate_held<K, H, R: KeyRep<K, H>, V>(
     }
     let bound = r.bound();
     let home = r.home(address.place);
-    let wanted = tag(address.place);
+    let wanted = Region::<R, V>::coord_of(address.place);
     let mut step = 0;
     while step < bound {
         let slot = (home + step) & (bound - 1);
-        let found = r.slots[slot].tag;
-        if found == 0 {
+        let found = r.coords[slot];
+        if found == COORD_EMPTY {
             return SpillSite::Vacant(slot);
         }
         if found == wanted
@@ -232,17 +232,23 @@ pub mod read_stats {
 /// Reads one routed spill region without any insertion bookkeeping.
 ///
 /// Returns the slot index of the unique full `(Sigma,K)` match, or `None` for absence. **Absence is
-/// certified by the bounded probe**: either a zero tag terminates the cycle, which is sound because
-/// no entry is ever removed from a region, or the cycle visits all `capacity` slots without a
-/// match, in which case every slot was visited and the bound `SpillProbeBoundAbsentSound` states
-/// applies. This function never searches for a vacancy and never computes a first fit.
+/// certified by the incumbent's coordinate sentinel**: one load of the coordinate word at the home
+/// slot, and `coord == COORD_EMPTY` ends the read there. That is sound for the same reason a zero tag
+/// was: nothing is ever removed from a region and a linear insert only places at the first vacancy
+/// at or after its home, so no live slot sits past a vacancy. When the home slot is occupied by a
+/// different coordinate, the remainder of the cycle runs in [`spill_read_tail`], which keeps the
+/// completed-cycle certificate for a region with no vacancy at all.
 ///
-/// Temporal `O(capacity)` slot visits counted in tag compares plus the full-key compares of the
-/// lanes whose fingerprint matches; spatial `O(1)`.
+/// This function never searches for a vacancy and never computes a first fit.
+///
+/// Temporal `O(1)` on the absent path (one coordinate load and one compare) and `O(capacity)` slot
+/// visits on the collision tail, counted in coordinate compares plus the full-key compares of the
+/// lanes whose coordinate matches; spatial `O(1)`.
 #[allow(
     clippy::len_zero,
     reason = "len avoids the unmodeled Vec::is_empty extraction"
 )]
+#[inline]
 pub(super) fn spill_read<K, H, R: KeyRep<K, H>, V>(
     r: &Region<R, V>,
     sigma: Sigma,
@@ -254,46 +260,85 @@ pub(super) fn spill_read<K, H, R: KeyRep<K, H>, V>(
     if r.slots.len() != 0 && valid_n(n) {
         #[cfg(feature = "read-stats")]
         read_stats::record_summary(true);
-        let bound = r.bound();
-        let mask = bound - 1;
         let home = r.home(address.place);
-        let wanted = tag(address.place);
-        let mut step = 0;
-        while step < bound && hit.is_none() {
+        let wanted = Region::<R, V>::coord_of(address.place);
+        // The whole resident read: one coordinate load at the home slot. `COORD_EMPTY` is the
+        // vacancy, so an absent key is decided here and never enters the cycle.
+        #[cfg(test)]
+        read_trace::record_sweep_step();
+        #[cfg(feature = "read-stats")]
+        read_stats::record_step();
+        let found = r.coords[home];
+        if found == COORD_EMPTY {
             #[cfg(test)]
-            read_trace::record_sweep_step();
+            read_trace::record_absence_certificate();
             #[cfg(feature = "read-stats")]
-            read_stats::record_step();
-            let slot = (home + step) & mask;
-            let found = r.slots[slot].tag;
-            if found == 0 {
-                // Absence certificate: nothing is ever removed, so a live key cannot sit past a
-                // vacancy.
-                #[cfg(test)]
-                read_trace::record_absence_certificate();
-                #[cfg(feature = "read-stats")]
-                read_stats::record_absence(true);
-                step = bound;
-            } else {
-                if found == wanted {
-                    #[cfg(feature = "read-stats")]
-                    read_stats::record_tag_matches(1);
-                    #[cfg(feature = "read-stats")]
-                    read_stats::record_full_compare();
-                    if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
-                        hit = Some(slot);
-                    }
-                }
-                step += 1;
+            read_stats::record_absence(true);
+            return None;
+        }
+        if found == wanted {
+            #[cfg(feature = "read-stats")]
+            read_stats::record_tag_matches(1);
+            #[cfg(feature = "read-stats")]
+            read_stats::record_full_compare();
+            if matches::<K, H, R, V>(&r.slots[home], sigma, key, address) {
+                hit = Some(home);
             }
         }
         if hit.is_none() {
-            // Absence certificate: the cycle visited every slot and found no match.
-            #[cfg(feature = "read-stats")]
-            read_stats::record_absence(false);
+            return spill_read_tail::<K, H, R, V>(r, sigma, address, key, home);
         }
     }
     hit
+}
+
+/// The collision tail of [`spill_read`], from the slot after the home to the end of one cycle.
+///
+/// `#[cold]` and out of line, so the resident read is the straight-line one load and one compare. A
+/// vacant coordinate ends the cycle; a cycle that visits every slot without a match is the
+/// completed-cycle absence certificate, which is the only certificate available in a region with no
+/// vacancy.
+#[cold]
+#[inline(never)]
+fn spill_read_tail<K, H, R: KeyRep<K, H>, V>(
+    r: &Region<R, V>,
+    sigma: Sigma,
+    address: &TableAddress,
+    key: &K,
+    home: usize,
+) -> Option<usize> {
+    let bound = r.bound();
+    let mask = bound - 1;
+    let wanted = Region::<R, V>::coord_of(address.place);
+    let mut step = 1;
+    while step < bound {
+        #[cfg(test)]
+        read_trace::record_sweep_step();
+        #[cfg(feature = "read-stats")]
+        read_stats::record_step();
+        let slot = (home + step) & mask;
+        let found = r.coords[slot];
+        if found == COORD_EMPTY {
+            #[cfg(test)]
+            read_trace::record_absence_certificate();
+            #[cfg(feature = "read-stats")]
+            read_stats::record_absence(true);
+            return None;
+        }
+        if found == wanted {
+            #[cfg(feature = "read-stats")]
+            read_stats::record_tag_matches(1);
+            #[cfg(feature = "read-stats")]
+            read_stats::record_full_compare();
+            if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
+                return Some(slot);
+            }
+        }
+        step += 1;
+    }
+    #[cfg(feature = "read-stats")]
+    read_stats::record_absence(false);
+    None
 }
 
 /// Finite regression fixtures for the real `spill_read`, `spill_locate` and `spill_locate_held`
@@ -310,7 +355,8 @@ mod tests {
     use crate::table::{Region, TableAddress, WordHome};
     use crate::Sigma;
 
-    use super::{spill_locate, spill_locate_held, spill_read, tag, SpillSite};
+    use super::{spill_locate, spill_locate_held, spill_read, SpillSite};
+    use crate::table::tag;
     use crate::table::TAG_FINGERPRINT_BITS;
 
     const N: usize = 2;

@@ -419,33 +419,6 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
         self.get_at(<H::Faces as FaceDomain<K, H>>::DEFAULT, key)
     }
 }
-/// The distinct direct words below `capacity` slots: the population count of the bitmap prefix that
-/// bound admits. Reads [`Self::density_bitmap`]'s marking, so it is the count the scan at this
-/// rung's own extent returned. Temporal O(capacity) counted in bitmap bits, from two
-/// `capacity / 64`-word and 64-iteration loops per word; spatial O(1).
-///
-/// The count is written as index loops over `and` and a zero test because `Iterator::map`,
-/// `u64::count_ones`, `TryFrom` and `Result::unwrap_or` have no field in the pinned Aeneas Lean
-/// model (`Aeneas/Std/Core/Iter.lean` declares `next`, `step_by`, `enumerate`, `take`), so the
-/// extractor rejects the `map` adapter and the fail-closed audit rejects the two externals the
-/// other three leave behind.
-fn density_below(bitmap: &[u64], capacity: usize) -> usize {
-    let words = (capacity / 64).min(bitmap.len());
-    let mut total = 0usize;
-    let mut at = 0usize;
-    while at < words {
-        let mut rest = bitmap[at];
-        while rest != 0 {
-            if (rest & 1) != 0 {
-                total += 1;
-            }
-            rest /= 2;
-        }
-        at += 1;
-    }
-    total
-}
-
 /// Maps a vacancy decision's site to the reverse-link location its admitted slot names.
 ///
 /// The `Vacant` class carries only the two storage sites, so the conversion is total on that class
@@ -470,161 +443,37 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         self.len == 0
     }
 
-    /// Counts distinct certified direct words below `lanes_max * 256` across the resident and spill
-    /// areas, plus the pending `extra` word, as the marking bitmap and its total.
-    ///
-    /// The dedup is a direct-word bitmap rather than a linear search over a growing list: the
-    /// candidate lanes only ever reach the byte-budget ceiling, so `limit` is at most a few
-    /// thousand words and a bitmap of that many bits is exact and O(live). The former list-plus-
-    /// scan made one `selected_lanes` call O(live^2), which the growth-insert trace paid on every
-    /// extent decision. Temporal O(live) counted in live slots; spatial O(lanes) bits.
-    ///
-    /// The bitmap is part of the reserve-all path, so its sizing and reservation are checked: a
-    /// `lanes * 256` overflow is [`StorageError::SizeOverflow`] and a refused reservation is
-    /// [`StorageError::AllocationFailed`]. A refusal leaves `self` unchanged and runs no hold,
-    /// clone, merge or relocation.
-    ///
-    /// One scan serves every lane width the [`Self::selected_lanes`] ladder needs: a word below
-    /// `SHARDS * lane` is a set bit inside that width's prefix and a word at or above it is
-    /// outside it, so the prefix popcount is the count a scan at that width returned. The
-    /// checked sizing, the reservation and both refusal arms are the same at any extent.
-    fn density_bitmap(
-        &self,
-        lanes_max: usize,
-        extra: Option<u32>,
-    ) -> Result<(Vec<u64>, usize), StorageError> {
-        let limit = (lanes_max as u64)
-            .checked_mul(SHARDS as u64)
-            .ok_or(StorageError::SizeOverflow)?;
-        if limit > usize::MAX as u64 {
-            return Err(StorageError::SizeOverflow);
-        }
-        let bits = limit as usize;
-        let mut words = bits / 64;
-        if bits % 64 != 0 {
-            words += 1;
-        }
-        if words == 0 {
-            words = 1;
-        }
-        let mut seen: Vec<u64> = Vec::new();
-        try_reserve_exact(&mut seen, words)?;
-        seen.resize(words, 0);
-        let mut count = 0usize;
-        let mut i = 0;
-        while i < self.resident.slots.len() {
-            let direct = if self.resident.slots[i].live {
-                let sigma = self.resident.slots[i].sigma;
-                R::address_held(&self.home, sigma, &self.resident.slots[i].held).direct_word
-            } else {
-                None
-            };
-            if let Some(word) = direct {
-                if mark_direct_word_bit(&mut seen, word, limit) {
-                    count += 1;
-                }
-            }
-            i += 1;
-        }
-        let mut shard_at = 0;
-        while shard_at < self.shards.len() {
-            let mut j = 0;
-            while j < self.shards[shard_at].slots.len() {
-                let direct = if self.shards[shard_at].slots[j].tag != 0 {
-                    let sigma = self.shards[shard_at].slots[j].sigma;
-                    R::address_held(&self.home, sigma, &self.shards[shard_at].slots[j].held)
-                        .direct_word
-                } else {
-                    None
-                };
-                if let Some(word) = direct {
-                    if mark_direct_word_bit(&mut seen, word, limit) {
-                        count += 1;
-                    }
-                }
-                j += 1;
-            }
-            shard_at += 1;
-        }
-        if let Some(word) = extra {
-            if mark_direct_word_bit(&mut seen, word, limit) {
-                count += 1;
-            }
-        }
-        Ok((seen, count))
-    }
     fn selected_lanes(
         &self,
         required_lane: usize,
-        extra: u32,
+        _extra: u32,
     ) -> Result<Option<usize>, StorageError> {
-        // A coordinate beyond the byte-budget ceiling cannot become resident.  Reject it before
-        // counting the table-wide density, so distant coordinates do not make insertion scale with
-        // their value or with the current spill population.
-        let mut error = None;
-        let mut budget_lanes = 1usize;
-        let mut budget_reached = false;
-        while budget_lanes <= (1usize << MAX_LANE_BITS) && !budget_reached && error.is_none() {
-            match Flat::<R, V>::byte_len_for(budget_lanes) {
-                Some(bytes) if bytes > DEFAULT_BUDGET_BYTES => budget_reached = true,
-                Some(_) => match budget_lanes.checked_mul(2) {
-                    Some(next) => budget_lanes = next,
-                    None => error = Some(StorageError::SizeOverflow),
-                },
-                None => error = Some(StorageError::SizeOverflow),
-            }
-        }
-        let mut result = None;
-        if required_lane < budget_lanes / 2 && error.is_none() {
-            // The ladder below walks the widths `1, 2, 4, ..., budget_lanes / 2`: the budget loop
-            // above stopped at the first width whose flat exceeds `DEFAULT_BUDGET_BYTES`, that
-            // width is `budget_lanes`, and `Flat::byte_len_for` is monotone in the width, so no
-            // rung reaches beyond `budget_lanes / 2`. One scan at that extent therefore marks every
-            // direct word any rung could count, and each rung reads its own count as a prefix
-            // popcount instead of rescanning the whole table. The counts are the counts the per-rung
-            // scans returned, so `best`, `result` and both refusal arms are unchanged.
-            let bitmap = match self.density_bitmap(budget_lanes / 2, Some(extra)) {
-                Ok((bitmap, _)) => bitmap,
-                Err(inner) => {
-                    error = Some(inner);
-                    Vec::new()
-                }
+        // The incumbent's one sizing law, `fold hashtrinity/src/lib.rs:498-502` (`bits_for`): the
+        // next power of two that holds the population, and nothing else. There is no table-wide
+        // density census on the insert path — the census this replaces walked every slot of every
+        // shard, twice, once per fresh insert whose direct lane exceeded the current width
+        // (`selecte::d_lanes` at `ab7df32`), which is what the `occ1-…-admitted-fresh-insert`
+        // family at ^5.06 measured.
+        //
+        // `required_lane` must be admitted by the new width, and the new width must fit the byte
+        // budget. Both are checked here, in constant time.
+        let need = required_lane
+            .checked_add(1)
+            .ok_or(StorageError::SizeOverflow)?;
+        // `next_power_of_two` is written as its own doubling loop because it has no field in the
+        // pinned Aeneas Lean model and the fail-closed audit rejects the external; see
+        // `density_below`'s note on the same rule. The loop runs only on the widening path.
+        let mut target = 1usize;
+        while target < need {
+            target = match target.checked_mul(2) {
+                Some(next) => next,
+                None => return Err(StorageError::SizeOverflow),
             };
-            let mut lane = 1usize;
-            let mut best = None;
-            let mut budget_exceeded = false;
-            while lane <= (1usize << MAX_LANE_BITS) && !budget_exceeded && error.is_none() {
-                match Flat::<R, V>::byte_len_for(lane) {
-                    Some(bytes) if bytes > DEFAULT_BUDGET_BYTES => budget_exceeded = true,
-                    Some(_) => match lane.checked_mul(SHARDS) {
-                        Some(capacity) => {
-                            let density = density_below(&bitmap, capacity);
-                            let doubled = match density.checked_mul(2) {
-                                Some(value) => value,
-                                None => usize::MAX,
-                            };
-                            if capacity <= SHARDS.max(doubled) {
-                                best = Some(lane);
-                            }
-                            match lane.checked_mul(2) {
-                                Some(next) => lane = next,
-                                None => error = Some(StorageError::SizeOverflow),
-                            }
-                        }
-                        None => error = Some(StorageError::SizeOverflow),
-                    },
-                    None => error = Some(StorageError::SizeOverflow),
-                }
-            }
-            if let Some(lanes) = best {
-                if required_lane < lanes {
-                    result = Some(lanes);
-                }
-            }
         }
-        match error {
-            Some(error) => Err(error),
-            None => Ok(result),
+        match Flat::<R, V>::byte_len_for(target) {
+            Some(bytes) if bytes <= DEFAULT_BUDGET_BYTES => Ok(Some(target)),
+            Some(_) => Ok(None),
+            None => Err(StorageError::SizeOverflow),
         }
     }
     #[allow(
