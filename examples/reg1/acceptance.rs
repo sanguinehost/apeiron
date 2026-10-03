@@ -1992,17 +1992,34 @@ fn evaluate_regression(
         row.incumbent_tolerance =
             tolerance(row.incumbent_spread, REGRESSION_INCUMBENT_CROSS_RUN_FLOOR);
         // A receipt recorded against other revisions is reported, never compared: the medians on
-        // both sides then describe different source than the ones the comparison is about.
-        if receipt.revision != matrix::REGISTERED_CURRENT_REVISION
-            || receipt.baseline_revision != matrix::REGISTERED_BASELINE_REVISION
-        {
+        // both sides then describe different source than the ones the comparison is about. A
+        // receipt whose revision does not *contain* the artifact it registers is the same defect
+        // reached a second way, and the string test alone cannot see it: the pin and the row are
+        // written together, so they agree by construction even when neither names a revision that
+        // has the harness. Containment is settled against the object store.
+        let mut revision_faults: Vec<String> = Vec::new();
+        if receipt.revision != matrix::REGISTERED_CURRENT_REVISION {
+            revision_faults.push(format!(
+                "candidate revision {} != pin {}",
+                receipt.revision,
+                matrix::REGISTERED_CURRENT_REVISION
+            ));
+        }
+        if receipt.baseline_revision != matrix::REGISTERED_BASELINE_REVISION {
+            revision_faults.push(format!(
+                "baseline revision {} != pin {}",
+                receipt.baseline_revision,
+                matrix::REGISTERED_BASELINE_REVISION
+            ));
+        }
+        if let Err(e) = matrix::revision_contains_registered_artifact(&receipt.revision) {
+            revision_faults.push(e);
+        }
+        if !revision_faults.is_empty() {
             row.verdict = RegressionVerdict::RevisionMismatch;
             row.reason = format!(
-                "registered candidate revision {} / baseline revision {} != pins {} / {}",
-                receipt.revision,
-                receipt.baseline_revision,
-                matrix::REGISTERED_CURRENT_REVISION,
-                matrix::REGISTERED_BASELINE_REVISION
+                "registered medians do not describe this source: {}",
+                revision_faults.join("; ")
             );
             revision_mismatch += 1;
             failing.push(format!("({}) {}", receipt.id, row.reason));
