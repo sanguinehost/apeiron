@@ -910,9 +910,10 @@ where
     /// Commits the aggregate reservation for a batch's worst-case fresh inserts.
     ///
     /// Every batch entry point calls this once, before its first merge: `insert_with_at` for the
-    /// single-key batch, `build`/`build_at`/`build_at_sequential` for `kvs.len()` entries. The
-    /// reservation covers the whole batch, so no merge and no directory link inside it can fail for
-    /// lack of locator allocation.
+    /// single-key batch, `build`/`build_at`/`build_at_sequential` for `kvs.len()` entries, and the
+    /// parallel `build_at_parallel_phased` before its first worker. The reservation covers the whole
+    /// batch, so no merge and no admitted reverse link inside it can fail for lack of locator
+    /// allocation; the directory content is linked cold by [`Self::assemble_directory`].
     ///
     /// # Errors
     ///
@@ -1017,6 +1018,60 @@ where
             i += 1;
         }
         Ok(())
+    }
+
+    /// Records one admitted reverse-link slot per non-elliptic input entry, with no directory walk.
+    ///
+    /// This is the parallel build's registration seam and the analog of the serial
+    /// [`Self::reserve_locator_batch`] registration: the caller has already committed the aggregate
+    /// extent for `kvs.len()` entries, so each call here is a write into that extent
+    /// ([`TableLocator::record_admitted_link`]) rather than a reservation. The recorded identity
+    /// node is [`UNRESOLVED_IDENTITY_NODE`]; the cold [`Self::assemble_directory`] rebuilds the
+    /// registry from the live payloads after the fill workers join, so no 64-level path is walked
+    /// before a worker starts. `handles` is the caller's pre-reserved per-input table and must have
+    /// `kvs`'s length: entry `i` receives the admitted handle for `kvs[i]`'s key and `None` for the
+    /// locator-free elliptic face. A length mismatch or an extent exhausted below the batch count is
+    /// a checked refusal.
+    ///
+    /// Temporal `O(|kvs|)` whole-pair link writes; spatial `O(1)` beyond the extent the caller
+    /// reserved.
+    pub(crate) fn admit_parallel_handles(
+        &mut self,
+        kvs: &[((H::Faces, K), V)],
+        handles: &mut [Option<u32>],
+    ) -> Result<(), StorageError> {
+        if handles.len() != kvs.len() {
+            return Err(StorageError::SizeOverflow);
+        }
+        // Single-exit loop for the extraction unit: the first refusal is remembered and reported
+        // after the scan, so no `?`, `return` or `break` sits inside the loop.
+        let mut refusal = None;
+        let mut i = 0;
+        while i < kvs.len() {
+            if refusal.is_none() {
+                let sigma = kvs[i].0 .0.sigma();
+                // The elliptic face has no locator: it reserves none and its entry stays `None`.
+                if !matches!(sigma, Sigma::Elliptic) {
+                    match self
+                        .locator
+                        .record_admitted_link(sigma, PayloadLocation::Spill(0, 0))
+                    {
+                        Ok(()) => {
+                            handles[i] = Some(self.locator.links.len() as u32);
+                            self.locator
+                                .links
+                                .push((UNRESOLVED_IDENTITY_NODE, PayloadLocation::Spill(0, 0)));
+                        }
+                        Err(error) => refusal = Some(error),
+                    }
+                }
+            }
+            i += 1;
+        }
+        match refusal {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
