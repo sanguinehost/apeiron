@@ -257,6 +257,10 @@ Item 10 applies whenever a performance claim or epic budget is required; documen
 9. **Rust gates.** `cargo test`, `cargo clippy` and `cargo fmt` as in §6 pass.
 10. **Measurement for performance claims.** A number is a measurement only when a named command ran
     and its output was read. Name the machine, the metric and the interval; before and after.
+    **Average across runs.** Report the mean over at least three runs with the observed spread; a
+    single run is a sample, not a result. A pass-count or ratio that moved within the spread
+    already measured on unchanged code is not a change and is not reported as one. The
+    repeated-run protocol belongs to the harness, not to the reader's patience.
 11. **Trust-boundary statement.** State what the claim does not cover: rustc/LLVM codegen, the
      kernel ABI, GPU/SPIR-V, the `unsafe` container, or any layer the evidence does not reach.
 
@@ -395,7 +399,7 @@ dispatch-ready task by default. It is free and the fastest free route measured: 
 TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The free window ends
 2026-10-05**; until then dispatch Space Bunny on every bounded task and lead-verify each result. It
 is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
-proof-search ceiling. `deepseek-flash` (`opencode-go/deepseek-v4-flash`) is the paid escalation lane,
+proof-search ceiling. `deepseek-flash` (`openrouter/~deepseek/deepseek-flash-latest`) is the paid escalation lane,
 taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
 Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) remains an
 available lane but is not the default, and its balance is not spent on ordinary work. Escalation is
@@ -418,7 +422,7 @@ this key. Attach excerpts, never whole trees; `sol.sh` refuses a prompt over 400
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
 | Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
-| DeepSeek Flash (`deepseek-flash`, `opencode-go/deepseek-v4-flash`) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
+| DeepSeek Flash (`deepseek-flash`, `openrouter/~deepseek/deepseek-flash-latest`) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
 | Gemini Flash (`gemini-flash`) | non-default lane, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
