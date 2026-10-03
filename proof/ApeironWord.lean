@@ -11278,6 +11278,19 @@ def silu.silu_fixed
       | core.result.Result.Err _ =>
         ok (core.result.Result.Err silu.SiluError.ExpOutOfRange)
 
+/-- [apeiron_word::trace::macs]:
+    Source: '../../src/engine/trace.rs', lines 222:0-224:1
+    Visibility: public -/
+def trace.macs
+  (n_out : Std.Usize) (n_in : Std.Usize) (cols : Std.Usize) :
+  Result Std.U64
+  := do
+  let i ← lift (UScalar.cast .U64 n_out)
+  let i1 ← lift (UScalar.cast .U64 n_in)
+  let i2 ← i * i1
+  let i3 ← lift (UScalar.cast .U64 cols)
+  i2 * i3
+
 /-- [apeiron_word::exchange::Exchange]
     Source: '../../src/exchange.rs', lines 39:0-46:1
     Visibility: public -/
@@ -24673,5 +24686,14 @@ def word_policy_decide
   Result policy.decide.Verdict
   := do
   policy.decide.decide rules atoms facts known action want
+
+/-- [apeiron_word::word_trace_macs]:
+    Source: 'lib.rs', lines 1073:0-1075:1
+    Visibility: public -/
+def word_trace_macs
+  (n_out : Std.Usize) (n_in : Std.Usize) (cols : Std.Usize) :
+  Result Std.U64
+  := do
+  trace.macs n_out n_in cols
 
 end apeiron_word

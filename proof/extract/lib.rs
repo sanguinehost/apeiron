@@ -1064,3 +1064,12 @@ pub use rope::{rope_rotate_fixed, RopeError, RopeTable};
 pub use sampler::{argmax_fixed, top_p_fixed, SamplerError};
 pub use step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
 pub use value::fixed_vector_checksum;
+
+/// The real multiply-add count of an `n_out × n_in` projection over `cols` columns.
+///
+/// This calls the real `src/engine/trace.rs` `macs` body (`src/engine/trace.rs:222`); it does not
+/// restate the three-factor product. The wrapper only fixes the argument and result types.
+#[must_use]
+pub fn word_trace_macs(n_out: usize, n_in: usize, cols: usize) -> u64 {
+    trace::macs(n_out, n_in, cols)
+}
