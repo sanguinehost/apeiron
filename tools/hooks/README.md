@@ -7,7 +7,7 @@ here replaces a wave barrier, and no hook substitutes for running the gate.
 ```sh
 tools/hooks/install.sh            # point git at .githooks (commits nothing)
 tools/hooks/install.sh --check    # report what is configured
-python3 tools/hooks/lane.py self-test   # the declaration controls, 9 cases
+python3 tools/hooks/lane.py self-test   # the declaration controls, 19 cases
 ```
 
 ## Tiers
@@ -37,12 +37,13 @@ hook returns. So:
 
 | hook | what it may see | what it enforces |
 |---|---|---|
-| `pre-commit` | the staged change only | a declaration carried by the staged change is resolved against the board; absence is *not* a finding here |
+| `pre-commit` | the staged change only | a declaration carried by the staged change is resolved against the board and, for a no-row marker, against the staged path set; absence is *not* a finding here, but a staged code path prints the obligation `commit-msg` will enforce |
 | `commit-msg` | the message file, as `$1` | the declaration must be present, in the message or the staged change, and the row it names must exist |
 
 Requiring the field in `pre-commit` would refuse every commit that declares its
 row in the message; reading `COMMIT_EDITMSG` there would read the wrong message.
-The split is the only shape git allows.
+The split is the only shape git allows. Both halves read the same staged paths,
+so the code bound is enforced at whichever tier first sees the declaration.
 
 ## Why the reconcile is not a commit gate
 
@@ -63,7 +64,8 @@ the staged change:
 
 ```
 board: <row-id>
-board: none -- internal lane
+board: none -- housekeeping
+board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>
 ```
 
 The field is parsed by `tools/board/board.py` itself (`board_declaration`,
@@ -77,10 +79,79 @@ The live board currently holds an old canceled row and a current row for several
 plan rows, so a bare prefix matches two rows and is refused as
 `board-row-ambiguous`.
 
+### The declaration is load-bearing: it is matched against the staged change
+
+The no-row lane is bounded by what the commit actually stages. `housekeeping`
+is legal exactly when the staged set is **disjoint** from the code set:
+
+| set | members |
+|---|---|
+| code (`CODE_PREFIXES`) | `src/` `tests/` `examples/` `proof/` `derive/` `fold-abi/` `fuzz/` `benches/` |
+| code (`CODE_FILES`) | `Cargo.toml` `Cargo.lock` |
+| documentation/tooling, stated for the diagnostic (`DOC_PREFIXES`/`DOC_FILES`) | `docs/` `tools/` `.githooks/` `.github/`; `AGENTS.md` `README.md` `LICENSE` `VOICE.md` |
+
+The rule is the **disjointness**, not the second row: a path outside both sets
+(`artifacts/`, a fuzz corpus payload) is housekeeping-eligible, and the refusal
+prints that residual population by name so a commit cannot pass by being
+unclassified. `git diff --cached --name-only --diff-filter=ACDMRT` supplies the
+set; deletions are included because moving `src/x.rs` to `docs/y.md` is either
+one rename or a delete plus an add, and dropping `D` would drop the code half.
+
+The dispatched set was `src/ tests/ examples/ proof/`. `derive/`, `fold-abi/`
+and `fuzz/` also track Rust here (`git ls-files`, 2026-10-04) and a manifest
+edit changes what compiles, so all of them are in and `benches/` is carried for
+a future Cargo target. The refusal is the conservative direction: more commits
+must name a row, none fewer.
+
+Two independent layers, so neither is a single point of failure:
+
+1. the marker is retired — `board-no-row-retired`, whatever is staged;
+2. the marker is bounded — `board-no-row-lane-on-code-change`, once the staged
+   set is known.
+
+Both are decided **before any board read**, so the no-row decision cannot be
+granted or withheld by a credential or an outage.
+
+### A spike may touch code
+
+`board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>` is accepted on a
+code-touching commit. AGENTS.md §3 makes a spike a task kind with its own id
+form, a time limit and a question, that ends in evidence or a blocker rather
+than epic closure — so it needs no board row, and forbidding code would leave a
+spike unable to answer its question. The id must match the §3 form exactly
+(`board-spike-id-malformed` otherwise), and `housekeeping` is **never**
+accepted on a code commit.
+
+### The move is the lead's, not the hook's
+
+On success the hook prints the row id and its status, so the lead has the move
+target:
+
+```
+lane-declaration: OK row m2-hooks-board-7aBc… [board field in the row description] status=in_progress milestone=M2: hooks and gates project=apeiron
+lane-declaration: OK move target: board row m2-hooks-board-7aBc… is currently in_progress; a hook cannot call MCP and REST exposes no move-task route, so a hook-side move is out of scope and moving it is the lead's action
+```
+
+A hook-side move is **out of scope**: a git hook cannot call MCP, and
+`tools/board/board.py` records that REST exposes no move-task route. The hook
+resolves and reports; the move stays a human action on the board.
+
+### `none -- internal lane` is retired
+
+The phrase named no marker, bounded nothing, and was accepted on 12 consecutive
+commits of which 8 touched code (`measured`: `git log -14` at `e6f2c90`, the port
+at `282e079` touching `proof/ src/ tests/`). It is refused **by name** on every
+commit, as is a bare `board: none`, `n/a`, `no row`, `not applicable`, and
+`housekeeping` carrying a trailing reason (`housekeeping` must be the whole
+remainder of the field).
+
 | rule | meaning |
 |---|---|
 | `board-declaration-missing` | no `board:` field in the message or the staged change (`commit-msg`) |
 | `board-declaration-conflict` | the message and the staged change name different rows |
+| `board-no-row-retired` | a no-row field that is not one of the two markers, including the retired phrase `internal lane` and a bare `none` |
+| `board-no-row-lane-on-code-change` | `housekeeping` declared while a code path is staged |
+| `board-spike-id-malformed` | a spike marker whose id is not `APEIRON-<EPIC>-SPIKE-<slug>` |
 | `board-row-not-found` | no row matches the token by id, name slug, plan id or its own board field |
 | `board-row-ambiguous` | the token matches more than one row |
 | `board-row-not-in-milestone-bearing-project` | the row exists but carries no milestone, or its milestone carries no project |
@@ -95,8 +166,9 @@ plan rows, so a bare prefix matches two rows and is refused as
 2. the live board over REST when `OPERATELY_API_KEY` is in the environment
    (`tools/board/README.md`; the key is never read from a file).
 3. nothing — and a commit naming a row is then refused by `board-unavailable`,
-   with the fix printed. A commit declaring `none -- internal lane` needs no
-   board and passes without one.
+   with the fix printed. `housekeeping` and a well-formed spike need no board:
+   neither names a row to move, and both are decided from the staged paths
+   alone.
 
 Write a snapshot with:
 
@@ -133,11 +205,16 @@ commit or push and says so (`AGENTS.md` §10). No variable disables a gate.
 - The reconcile is reported, not enforced, in `report` mode. Drift it prints is
   open until the barrier runs it. In `report` mode a reconcile that cannot read
   the board is reported as `ERROR`, not as clean.
-- `proof/` and `proof/corpus/` changes are not gated here at all.
+- `proof/` and `proof/corpus/` changes carry no *build* gate here — no
+  `regen.sh`, no `lake build`. The board declaration does apply to them: they
+  are in the code set.
 - A hook cannot see an untracked file, so a violation that is never staged is
   never caught — the barrier still runs on the tree.
 - Over REST there is no move-task route, so a row outside a milestone is
-  reported, not repaired.
+  reported, not repaired, and **no hook moves a row**: a hook cannot call MCP.
+- `housekeeping` is accepted on a path outside both sets (`artifacts/`, a fuzz
+  corpus). The refusal prints that residual population, but nothing here
+  classifies an arbitrary path as documentation.
 
 ## Files
 

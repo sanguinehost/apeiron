@@ -5,7 +5,8 @@ A dispatch names its row. Every commit carries the declaration, either in the
 message or in the staged change:
 
     board: <row-id>
-    board: none -- internal lane
+    board: none -- housekeeping
+    board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>
 
 The field is parsed by ``tools/board/board.py`` itself -- ``board_declaration``,
 ``declared_row`` and ``slug`` -- so the hook enforces the driver's rule rather
@@ -13,6 +14,19 @@ than a second spelling of it. A named row must exist on the board and sit in a
 milestone of a project: a row outside a milestone cannot be selected, ordered or
 driven, which is the ``unattributed-task`` failure class the driver already
 reports.
+
+The declaration is load-bearing: it is matched against the *staged change*, so a
+no-row declaration only works where there is no code to attribute. A staged path
+under ``CODE_PREFIXES``/``CODE_FILES`` (below) requires ``board: <row-id>``
+naming a row that resolves, or a well-formed spike id; ``none -- housekeeping``
+covers a change confined to documentation and tooling, and the old phrase
+``none -- internal lane`` is retired outright -- refused by name on every
+commit, because it named no marker, bounded nothing, and was accepted on 12
+consecutive commits of which 8 touched code (``measured``, ``git log -14`` at
+``e6f2c90``).
+
+A hook cannot call MCP and no REST move-task route exists, so the hook resolves
+and *reports* the row; moving it stays the lead's action at the board.
 
 Two tiers, because git will not give a ``pre-commit`` hook the message: at that
 point ``COMMIT_EDITMSG`` still holds the *previous* commit's message and the new
@@ -32,8 +46,10 @@ Board source, in precedence order:
    ``lane.py capture``). Read the same way ``board.py --source`` reads it.
 2. the live board over REST, when ``OPERATELY_API_KEY`` is in the environment.
 3. nothing: a commit that names a row cannot be checked, so it is refused by
-   ``board-unavailable`` and the fix is printed. A commit that declares
-   ``none -- internal lane`` needs no board and passes without one.
+   ``board-unavailable`` and the fix is printed. ``housekeeping`` and a
+   well-formed spike need no board: neither names a row to move, and the
+   no-row decision is taken from the staged paths alone, before any board read,
+   so a board outage can neither grant nor withhold it.
 
 Modes: ``staged`` (the pre-commit half), ``message PATH`` (the commit-msg half),
 ``capture`` (write a snapshot), ``rows`` (diagnostic), ``self-test`` (the
@@ -45,6 +61,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -71,12 +88,52 @@ RULE_NO_MILESTONE = "board-row-not-in-milestone-bearing-project"
 RULE_UNAVAILABLE = "board-unavailable"
 RULE_GIT = "staged-state-unreadable"
 RULE_DRIVER_MISSING = "board-driver-missing"
+RULE_NO_ROW_RETIRED = "board-no-row-retired"
+RULE_SPIKE_ID = "board-spike-id-malformed"
+RULE_NO_ROW_ON_CODE = "board-no-row-lane-on-code-change"
+
+# A staged path under one of these is code: it compiles, extracts, or is a crate
+# manifest, so the change is attributable work and needs a board row. The
+# dispatched set was ``src/ tests/ examples/ proof/``; this repository also
+# tracks Rust under ``derive/``, ``fold-abi/`` and ``fuzz/`` (``git ls-files``,
+# 2026-10-04), and a manifest edit changes what compiles, so all of them are in
+# and the refusal is the conservative direction. ``benches/`` is empty in the
+# index and is carried for a future Cargo target.
+CODE_PREFIXES = (
+    "src/",
+    "tests/",
+    "examples/",
+    "proof/",
+    "derive/",
+    "fold-abi/",
+    "fuzz/",
+    "benches/",
+)
+CODE_FILES = ("Cargo.toml", "Cargo.lock")
+
+# The documentation/tooling lane, stated for the diagnostic. It is the
+# complement that matters: ``housekeeping`` is legal exactly when the staged set
+# is disjoint from CODE_PREFIXES/CODE_FILES, so the rule below does not depend on
+# enumerating this set. Anything outside both (README.md, artifacts/, fuzz
+# corpora payloads) is also housekeeping-eligible; the residual population is
+# named in the refusal text so a commit cannot pass by being unclassified.
+DOC_PREFIXES = ("docs/", "tools/", ".githooks/", ".github/")
+DOC_FILES = ("AGENTS.md", "README.md", "LICENSE", "VOICE.md")
+
+# The only two no-row declarations. ``board_declaration`` hands back the whole
+# remainder of the field, so the marker is matched here against its exact form:
+# a trailing reason (``none -- housekeeping (only docs)``) is not the marker.
+HOUSEKEEPING = re.compile(r"none\s+--\s*housekeeping\Z", re.I)
+SPIKE_DECLARATION = re.compile(r"none\s+--\s*spike\s+(\S+)\Z", re.I)
+# AGENTS.md §3: ``APEIRON-<EPIC>-SPIKE-<slug>``, a time limit and a question.
+SPIKE_ID = re.compile(r"APEIRON-[A-Z0-9]+(?:-[A-Z0-9]+)*-SPIKE-[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 DECLARATION_HINT = (
     "the commit must carry a labelled field on its own line, in the message or "
     "in the staged change:\n"
     "    board: <row-id>\n"
-    "    board: none -- internal lane"
+    "    board: none -- housekeeping            (documentation/tooling only)\n"
+    "    board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>"
 )
 
 
@@ -122,6 +179,29 @@ def staged_added_lines(root: Path | None = None) -> list[str]:
         for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     ]
+
+
+def staged_paths(root: Path | None = None) -> list[str]:
+    """Repository-relative paths in the staged change.
+
+    ``--diff-filter=ACDMRT`` keeps every status, deletions included: moving
+    ``src/x.rs`` to ``docs/y.md`` is either one rename (destination only) or a
+    delete plus an add, and dropping ``D`` would drop the code half of a move and
+    let it declare ``housekeeping``. ``--name-only`` prints the destination path
+    alone for a rename; it never emits a brace form.
+    """
+    out = git("diff", "--cached", "--name-only", "--diff-filter=ACDMRT", root=root)
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def is_code_path(path: str) -> bool:
+    """True when a staged path is code (see CODE_PREFIXES/CODE_FILES)."""
+    return path.startswith(CODE_PREFIXES) or path in CODE_FILES
+
+
+def code_paths(paths: Iterable[str]) -> list[str]:
+    """The staged paths that are code, sorted; empty means the commit is docs."""
+    return sorted(path for path in paths if is_code_path(path))
 
 
 def find_declaration(
@@ -258,6 +338,12 @@ def check_row(doc: dict[str, Any], token: str) -> tuple[list[Finding], list[str]
         f"row {row['id']} [{rule}] status={row['status_value'] or '-'} "
         f"milestone={title or '-'} project={project or '-'}"
     )
+    notes.append(
+        f"move target: board row {row['id']} is currently "
+        f"{row['status_value'] or 'unset'}; a hook cannot call MCP and REST exposes no "
+        "move-task route, so a hook-side move is out of scope and moving it is the lead's "
+        "action"
+    )
     if not row["milestone_id"] or not title or not project:
         missing = []
         if not row["milestone_id"]:
@@ -291,12 +377,122 @@ def check_declaration(
 ) -> tuple[list[Finding], list[str]]:
     """Findings for one ``(source, kind, value)`` declaration against a board."""
     _, kind, value = declaration
-    token = board.declared_row(value)
     if kind == "internal":
-        return [], [f"internal lane declared in {source_label}: no board row to move"]
+        raise AssertionError("a no-row declaration is checked against the staged paths, not the board")
+    token = board.declared_row(value)
     if not token:
         return [_finding(RULE_MISSING, f"the declaration in {source_label} names no row")], []
     return check_row(doc, token)
+
+
+def classify_no_row(value: str, source_label: str) -> tuple[str, str, list[Finding]]:
+    """``(marker, detail, findings)`` for a field the driver read as a no-row declaration.
+
+    ``board.board_declaration`` recognises the whole no-row vocabulary (``none``,
+    ``n/a``, ``no row``, ``not applicable``, ``internal``) and returns kind
+    ``internal`` for each. Only two exact markers survive, and a marker must be
+    the whole remainder of the field: ``none -- housekeeping (really code)`` is
+    not ``housekeeping``.
+
+    - ``housekeeping`` -- ``board: none -- housekeeping``
+    - ``spike`` -- ``board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>``; a spike
+      is accepted on a code-touching commit because AGENTS.md §3 makes it a task
+      kind with its own id form, a time limit and a question, ending in evidence
+      or a blocker rather than epic closure, so it needs no board row.
+
+    Everything else in that vocabulary, including the retired phrase ``internal
+    lane`` and a bare ``none``, is a finding. This runs before any board read, so
+    the decision does not depend on a credential or a reachable board.
+    """
+    if HOUSEKEEPING.match(value):
+        return "housekeeping", "", []
+    spike = SPIKE_DECLARATION.match(value)
+    if spike:
+        spike_id = spike.group(1)
+        if SPIKE_ID.match(spike_id):
+            return "spike", spike_id, []
+        return (
+            "",
+            "",
+            [
+                _finding(
+                    RULE_SPIKE_ID,
+                    f"the spike declaration in {source_label} names {spike_id!r}, which is "
+                    "not the APEIRON-<EPIC>-SPIKE-<slug> form AGENTS.md §3 fixes for a "
+                    "spike; a marker that cannot be read as a task id is not a marker",
+                    spike=spike_id,
+                )
+            ],
+        )
+    if re.search(r"\binternal\b", value, re.I):
+        retired = "the phrase `internal lane`"
+    elif board.declared_row(value).lower() == "none":
+        retired = "a bare `none`"
+    else:
+        retired = f"the no-row marker {board.declared_row(value)!r}"
+    return (
+        "",
+        "",
+        [
+            _finding(
+                RULE_NO_ROW_RETIRED,
+                f"the declaration in {source_label} is `board: {value}`, and {retired} is "
+                "retired: it is not a valid no-row declaration anywhere. The only two are "
+                "`board: none -- housekeeping` (a change confined to documentation and "
+                "tooling) and `board: none -- spike APEIRON-<EPIC>-SPIKE-<slug>`; every "
+                "other commit names a board row with `board: <row-id>`",
+            )
+        ],
+    )
+
+
+def check_no_row(
+    declaration: tuple[str, str, str], paths: list[str], started: float
+) -> int:
+    """The no-row lane, checked against the staged paths alone.
+
+    Refuses a housekeeping declaration that carries a code path, and reports the
+    residual population by name so a commit cannot pass by sitting outside both
+    sets. Never reads the board.
+    """
+    _, _, value = declaration
+    source = declaration[0]
+    marker, detail, findings = classify_no_row(value, source)
+    for finding in findings:
+        print(f"lane-declaration: {finding}", file=sys.stderr)
+    if findings:
+        return 1
+    code = code_paths(paths)
+    if marker == "housekeeping" and code:
+        shown = ", ".join(code[:6]) + (f" (+{len(code) - 6} more)" if len(code) > 6 else "")
+        outside = sorted(set(paths) - set(code))
+        residual = (
+            f"; {len(outside)} staged path(s) sit outside the code set ({', '.join(outside[:4])})"
+            if outside
+            else ""
+        )
+        print(
+            f"lane-declaration: {RULE_NO_ROW_ON_CODE}: the staged change carries code and "
+            f"the declaration in {source} is {value!r}, which names no row: {shown}{residual}. "
+            f"Code is {', '.join(CODE_PREFIXES)} and {', '.join(CODE_FILES)}; a change to it "
+            "is attributable work and must name a board row that resolves, or a well-formed "
+            "spike id. Housekeeping covers documentation and tooling only",
+            file=sys.stderr,
+        )
+        return 1
+    if marker == "housekeeping":
+        print(
+            f"lane-declaration: OK housekeeping declared in {source}: {len(paths)} staged "
+            f"path(s), none under the code set"
+        )
+    else:
+        print(
+            f"lane-declaration: OK spike {detail} declared in {source}: {len(paths)} staged "
+            f"path(s), {len(code)} of them code"
+        )
+    print(f"lane-declaration: OK declaration {value!r}; no board row to move, no board read required")
+    print(f"lane-declaration: {time.time() - started:.2f}s")
+    return 0
 
 
 def check_commit(
@@ -320,6 +516,11 @@ def check_commit(
         )
         return 1
     started = time.time()
+    try:
+        paths = staged_paths()
+    except RuntimeError as exc:
+        print(f"lane-declaration: {RULE_GIT}: {exc}", file=sys.stderr)
+        return 1
     declarations, findings = find_declaration(texts)
     if findings:
         for finding in findings:
@@ -338,16 +539,18 @@ def check_commit(
             "lane-declaration: no board declaration in the staged change; the commit "
             "message is checked by .githooks/commit-msg, which is handed the message"
         )
+        code = code_paths(paths)
+        if code:
+            print(
+                f"lane-declaration: {len(code)} staged path(s) are code ({', '.join(code[:4])}"
+                f"{'+' if len(code) > 4 else ''}); that commit must carry `board: <row-id>` "
+                "naming a row that resolves, or `board: none -- spike <id>`"
+            )
         return 0
 
     source, kind, value = declarations[0]
     if kind == "internal":
-        # An internal lane has no row to resolve, so it needs no board: a commit
-        # that says so must not depend on a reachable board or a credential.
-        print(f"lane-declaration: OK internal lane declared in {source}: no board row to move")
-        print(f"lane-declaration: OK declaration {value!r}; no board read required")
-        print(f"lane-declaration: {time.time() - started:.2f}s")
-        return 0
+        return check_no_row(declarations[0], paths, started)
 
     doc, origin = load_for_check(args)
     if doc is None:
@@ -356,7 +559,7 @@ def check_commit(
             f"{board.declared_row(value)!r} against; set OPERATELY_API_KEY, or "
             "APEIRON_HOOKS_BOARD_SOURCE=<schema-1 document> "
             "(`python3 tools/hooks/lane.py capture --out PATH`), or declare "
-            "`board: none -- internal lane`",
+            "`board: none -- housekeeping` for a documentation/tooling change",
             file=sys.stderr,
         )
         return 1
@@ -546,21 +749,41 @@ def control_document() -> dict[str, Any]:
 
 
 def control_case(
-    texts: list[tuple[str, str]], expect: str | None, require: bool = True
+    texts: list[tuple[str, str]], paths: list[str], expect: str, require: bool = True
 ) -> tuple[bool, str]:
-    """Run one seeded case against the control document; return (passes, verdict)."""
-    doc = control_document()
+    """Run one seeded case; return (passes, verdict).
+
+    No git and no network: the staged path set is an argument, so each case says
+    which commit shape it exercises. A no-row declaration is decided by the
+    driver parse plus :func:`classify_no_row` plus the staged paths, exactly as
+    :func:`check_no_row` decides it; a row declaration is resolved against the
+    control document.
+    """
     declarations, findings = find_declaration(texts)
+    observed = "ok"
     if findings:
         observed = findings[0]["rule"]
     elif not declarations:
         observed = RULE_MISSING if require else "ok"
+    elif declarations[0][1] == "internal":
+        marker, _, more = classify_no_row(declarations[0][2], declarations[0][0])
+        if more:
+            observed = more[0]["rule"]
+        elif marker == "housekeeping" and code_paths(paths):
+            observed = RULE_NO_ROW_ON_CODE
     else:
-        more, _ = check_declaration(doc, declarations[0], declarations[0][0])
-        observed = more[0]["rule"] if more else "ok"
-    if observed == (expect or "ok"):
+        found, _ = check_row(control_document(), board.declared_row(declarations[0][2]))
+        observed = found[0]["rule"] if found else "ok"
+    if observed == expect:
         return True, f"CONTROL {'GREEN' if observed == 'ok' else 'RED'} [{observed}]"
-    return False, f"CONTROL FAIL: expected {expect or 'ok'}, got {observed}"
+    return False, f"CONTROL FAIL: expected {expect}, got {observed}"
+
+
+# The three commit shapes the rule distinguishes.
+CODE_STAGED = ["src/table.rs"]
+DOCS_STAGED = ["docs/plan.md", "tools/hooks/README.md", ".githooks/commit-msg"]
+MIXED_STAGED = ["src/table.rs", "docs/plan.md"]
+MANIFEST_STAGED = ["Cargo.toml"]
 
 
 def run_controls() -> int:
@@ -571,69 +794,155 @@ def run_controls() -> int:
             file=sys.stderr,
         )
         return 2
+    def msg(text: str) -> list[tuple[str, str]]:
+        return [("the commit message", text)]
+
     cases = [
+        # -- the retired vocabulary, refused by name on every commit ---------
         (
-            "baseline: a declared row that exists in a milestone-bearing project",
-            [("the commit message", "hooks: install\n\nboard: APEIRON-HOOKS-W1\n")],
+            "retired: `none -- internal lane` on a code commit",
+            msg("board: none -- internal lane\n"),
+            CODE_STAGED,
+            RULE_NO_ROW_RETIRED,
+            True,
+        ),
+        (
+            "retired: `none -- internal lane` on a docs-only commit",
+            msg("board: none -- internal lane\n"),
+            DOCS_STAGED,
+            RULE_NO_ROW_RETIRED,
+            True,
+        ),
+        (
+            "retired: a bare `board: none` names no marker",
+            msg("board: none\n"),
+            DOCS_STAGED,
+            RULE_NO_ROW_RETIRED,
+            True,
+        ),
+        (
+            "retired: `board: n/a` is not one of the two markers",
+            msg("board: n/a\n"),
+            DOCS_STAGED,
+            RULE_NO_ROW_RETIRED,
+            True,
+        ),
+        (
+            "retired: `housekeeping` plus a trailing reason is not the marker",
+            msg("board: none -- housekeeping (really code)\n"),
+            DOCS_STAGED,
+            RULE_NO_ROW_RETIRED,
+            True,
+        ),
+        # -- housekeeping is bounded by the staged paths ---------------------
+        (
+            "refused: housekeeping on a code-touching commit",
+            msg("board: none -- housekeeping\n"),
+            CODE_STAGED,
+            RULE_NO_ROW_ON_CODE,
+            True,
+        ),
+        (
+            "refused: housekeeping on a code+docs staged set",
+            msg("board: none -- housekeeping\n"),
+            MIXED_STAGED,
+            RULE_NO_ROW_ON_CODE,
+            True,
+        ),
+        (
+            "refused: a crate manifest is code, so housekeeping does not cover it",
+            msg("board: none -- housekeeping\n"),
+            MANIFEST_STAGED,
+            RULE_NO_ROW_ON_CODE,
+            True,
+        ),
+        (
+            "accepted: housekeeping on a docs/tooling-only commit",
+            msg("board: none -- housekeeping\n"),
+            DOCS_STAGED,
+            "ok",
+            True,
+        ),
+        # -- spike: the one marker a code commit may use without a row ------
+        (
+            "accepted: a well-formed spike id on a code-touching commit",
+            msg("board: none -- spike APEIRON-HOOKS-SPIKE-probe\n"),
+            CODE_STAGED,
             "ok",
             True,
         ),
         (
-            "seeded: the message with no declaration at all",
-            [("the commit message", "hooks: install\n")],
-            RULE_MISSING,
+            "refused: a spike marker whose id is not APEIRON-<EPIC>-SPIKE-<slug>",
+            msg("board: none -- spike hooks-spike\n"),
+            CODE_STAGED,
+            RULE_SPIKE_ID,
+            True,
+        ),
+        # -- the row path ----------------------------------------------------
+        (
+            "accepted: a code commit naming a row that resolves",
+            msg("hooks: install\n\nboard: APEIRON-HOOKS-W1\n"),
+            CODE_STAGED,
+            "ok",
             True,
         ),
         (
-            "seeded: a named row that is not on the board",
-            [("the commit message", "hooks: install\n\nboard: APEIRON-HOOKS-W9\n")],
+            "refused: a code commit naming a row that is not on the board",
+            msg("hooks: install\n\nboard: APEIRON-HOOKS-W9\n"),
+            CODE_STAGED,
             RULE_NOT_FOUND,
             True,
         ),
         (
-            "seeded: a named row outside a milestone-bearing project",
-            [("the commit message", "board: stranded-row-123456\n")],
+            "seeded: the message with no declaration at all",
+            msg("hooks: install\n"),
+            CODE_STAGED,
+            RULE_MISSING,
+            True,
+        ),
+        (
+            "refused: a named row outside a milestone-bearing project",
+            msg("board: stranded-row-123456\n"),
+            DOCS_STAGED,
             RULE_NO_MILESTONE,
             True,
         ),
         (
-            "seeded: an internal lane needs no board row",
-            [("the commit message", "board: none -- internal lane\n")],
-            "ok",
-            True,
-        ),
-        (
-            "seeded: a token matching two rows is not traceable",
-            [("the commit message", "board: twin-lane-row\n")],
+            "refused: a token matching two rows is not traceable",
+            msg("board: twin-lane-row\n"),
+            DOCS_STAGED,
             RULE_AMBIGUOUS,
             True,
         ),
         (
-            "seeded: two sources naming different rows",
+            "refused: two sources naming different rows",
             [
                 ("the commit message", "board: APEIRON-HOOKS-W1\n"),
                 ("the staged change", "board: m1-hooks-abcdef\n"),
             ],
+            CODE_STAGED,
             RULE_CONFLICT,
             True,
         ),
         (
-            "seeded: a declaration in the staged change only is not missing",
+            "accepted: pre-commit does not demand a field it cannot see",
             [("the staged change", "hooks: install\n")],
+            CODE_STAGED,
             "ok",
             False,
         ),
         (
-            "restore: the baseline still passes after the seeded cases",
-            [("the commit message", "board: APEIRON-HOOKS-W1\n")],
+            "restore: the accepted row case still passes after every seeded case",
+            msg("board: APEIRON-HOOKS-W1\n"),
+            CODE_STAGED,
             "ok",
             True,
         ),
     ]
     failures = 0
-    print("lane-declaration controls (each seeded defect red by name):")
-    for name, texts, expect, require in cases:
-        ok, verdict = control_case(texts, expect, require)
+    print(f"lane-declaration controls ({len(cases)} cases, each seeded defect red by name):")
+    for name, texts, paths, expect, require in cases:
+        ok, verdict = control_case(texts, paths, expect, require)
         failures += 0 if ok else 1
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
         print(f"        {verdict}")
