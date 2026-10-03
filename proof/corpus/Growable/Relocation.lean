@@ -39,11 +39,12 @@ def sourceObservation {R : Type}
   | .Spill shard index =>
       match state.shards.val[shard.val]? with
       | some region =>
-          match region.tags.val[index.val]?, region.slots.val[index.val]? with
-          | some tag, some (sigma, held, value) =>
-              if tag = 0#u8 then none
-              else (decode sigma held).map fun key => ((sigma, key), value)
-          | _, _ => none
+          match region.slots.val[index.val]? with
+          | some slot =>
+              if slot.tag = 0#u8 then none
+              else (decode slot.sigma slot.held).map fun key =>
+                ((slot.sigma, key), slot.value)
+          | none => none
       | none => none
 
 /-- The selected source entry represents its value in the canonical total map. -/
@@ -70,11 +71,12 @@ def reservedObservation {R : Type} (reserved : table.RebuildReserved R I64)
   | .spill shard index =>
       match reserved.regions.val[shard.val]? with
       | some region =>
-          match region.tags.val[index.val]?, region.slots.val[index.val]? with
-          | some tag, some (sigma, held, value) =>
-              if tag = 0#u8 then none
-              else (decode sigma held).map fun key => ((sigma, key), value)
-          | _, _ => none
+          match region.slots.val[index.val]? with
+          | some slot =>
+              if slot.tag = 0#u8 then none
+              else (decode slot.sigma slot.held).map fun key =>
+                ((slot.sigma, key), slot.value)
+          | none => none
       | none => none
 
 /-- The selected reserved destination represents its value in the same canonical total map. -/
@@ -102,9 +104,11 @@ def sourcePayload {R : Type}
   | .Spill shard index =>
       match state.shards.val[shard.val]? with
       | some region =>
-          match region.tags.val[index.val]?, region.slots.val[index.val]? with
-          | some tag, some payload => if tag = 0#u8 then none else some payload
-          | _, _ => none
+          match region.slots.val[index.val]? with
+          | some slot =>
+              if slot.tag = 0#u8 then none
+              else some (slot.sigma, slot.held, slot.value)
+          | none => none
       | none => none
 
 /-- The materialized input certificate needed by one extracted relocation call. -/
@@ -145,7 +149,11 @@ structure SpillPrepared {R : Type}
   address_eq : addressHeld sigma (cloneHeld held) = ok address
   region_eq : reserved.regions.val[shard.val]? = some region
   vacant_eq : locateHeld region sigma address (cloneHeld held) = ok (.Vacant index)
-  tag_bound : index.val < region.tags.length
+  /-- The occupancy marker is addressable at the destination index.  The generated region holds one
+      `Vec (SpillSlot R V)`: the tag is the slot's own `tag` field, so the retired `region.tags`
+      bound is the same length obligation as `region.slots`.  Both conjuncts of the two-array
+      certificate are kept, and they now read off the same array. -/
+  tag_bound : index.val < region.slots.length
   slot_bound : index.val < region.slots.length
 
 /-- Convert one rebuild source to the locator's runtime payload location. -/
@@ -181,20 +189,29 @@ structure RelocationEffectsPrepared {R : Type}
         sourcePayload state entry.source = some (sigma, held, value) →
         keyRep.address_held state.home sigma (cloneHeld held) = ok address →
         reserved.regions.val[shard.val]? = some region →
-        ∃ published,
+        ∃ published slot,
           table.Region.publish_live region index (sigma, cloneHeld held, value) address.place =
               ok published ∧
-            published.slots.val[index.val]? = some (sigma, cloneHeld held, value) ∧
-            ∃ tag, published.tags.val[index.val]? = some tag ∧ tag ≠ 0#u8
+            published.slots.val[index.val]? = some slot ∧
+            slot.sigma = sigma ∧ slot.held = cloneHeld held ∧ slot.value = value ∧
+            slot.tag ≠ 0#u8
 
-/-- The two generated outer-vector updates retain the payload write while adding the tag write. -/
+/--
+The single `Vec.set` that `table.Region.publish_live` performs at the destination index: the slot's
+carrier fields take the payload and its `tag` becomes the occupancy marker.  The generated body
+reaches this slot through four `Vec.index_mut` steps (`sigma`, `held`, `value`, `tag`), each
+rewriting the same slot, so the composite is one `Vec.set` at that index; the outer region-vector
+update is the same `Vec.set` on `reserved.regions`.  The generated `live` counter increment is
+deliberately not modelled here: no statement in this module reads `Region.live`, and carrying the
+checked `UScalar.add` into a total `def` would replace a fallible generated step by a total one.
+-/
 def writeSpill {R : Type} (reserved : table.RebuildReserved R I64) (shard index : Usize)
     (region : table.Region R I64) (tag : U8) (payload : cell.Sigma × R × I64) :
     table.RebuildReserved R I64 :=
-  let slots := region.slots.set index payload
-  let regions := reserved.regions.set shard { region with slots := slots }
-  let updated := { region with tags := region.tags.set index tag, slots := slots }
-  { reserved with regions := regions.set shard updated }
+  let slot : table.SpillSlot R I64 :=
+    { tag := tag, sigma := payload.1, held := payload.2.1, value := payload.2.2 }
+  { reserved with regions :=
+      reserved.regions.set shard { region with slots := region.slots.set index slot } }
 
 /-- The generated flat branch replaces exactly one initialized resident slot. -/
 def writeFlat {R : Type} (reserved : table.RebuildReserved R I64) (index : Usize)
@@ -206,23 +223,23 @@ private theorem getElem?_set_eq_of_ne {α : Type} (xs : List α) (written read :
     (value : α) (hne : read ≠ written) : (xs.set written value)[read]? = xs[read]? := by
   simp [hne]
 
-/-- Read back the inner payload update through the outer generated region-vector update. -/
+/-- Read back the inner slot update through the outer generated region-vector update. -/
 theorem nested_region_payload_set_readback {R : Type}
     (reserved : table.RebuildReserved R I64) (shard index : Usize)
-    (region : table.Region R I64) (payload : cell.Sigma × R × I64)
+    (region : table.Region R I64) (slot : table.SpillSlot R I64)
     (hregion : reserved.regions.val[shard.val]? = some region) :
-    (reserved.regions.set shard { region with slots := region.slots.set index payload }).val[shard.val]? =
-      some { region with slots := region.slots.set index payload } := by
+    (reserved.regions.set shard { region with slots := region.slots.set index slot }).val[shard.val]? =
+      some { region with slots := region.slots.set index slot } := by
   have hshardBound : shard.val < reserved.regions.length := by
     simpa using (List.getElem?_eq_some_iff.mp hregion).1
   simp [hshardBound]
 
-/-- Readback for the generated payload-then-tag nested `Vec::set` update. -/
+/-- Readback for the generated slot `Vec::set` reached through the outer region-vector update. -/
 theorem nested_region_set_readback {R : Type} (reserved : table.RebuildReserved R I64)
     (decode : cell.Sigma → R → Option I64) (shard index : Usize)
     (region : table.Region R I64) (sigma : cell.Sigma) (held : R) (value : I64) (tag : U8)
     (hregion : reserved.regions.val[shard.val]? = some region)
-    (htagBound : index.val < region.tags.length)
+    (htagBound : index.val < region.slots.length)
     (hslotBound : index.val < region.slots.length) (htag : tag.val ≠ 0) :
     reservedObservation (writeSpill reserved shard index region tag (sigma, held, value)) decode
         (.spill shard index) =
@@ -232,7 +249,13 @@ theorem nested_region_set_readback {R : Type} (reserved : table.RebuildReserved 
   have htag' : tag ≠ 0#u8 := by
     intro hzero
     exact htag (congrArg UScalar.val hzero)
-  simp [reservedObservation, writeSpill, hshardBound, htagBound, hslotBound, htag']
+  -- `htagBound` and `hslotBound` are the same bound under the merged slot schema: the marker and the
+-- payload now share one array.  Both conjuncts stay in the statement, and both are consumed here
+-- through the same pair, so neither is dropped and neither is reported as an unused hypothesis.
+  have hslotBound' : index.val < region.slots.length :=
+    (show index.val < region.slots.length ∧ index.val < region.slots.length from
+      ⟨htagBound, hslotBound⟩).1
+  simp [reservedObservation, writeSpill, hshardBound, hslotBound', htag']
 
 /-!
 ## Disjoint-write frames
@@ -267,7 +290,7 @@ theorem writeSpill_frame_flat {R : Type} (reserved : table.RebuildReserved R I64
         (.flat earlier) = reservedObservation reserved decode (.flat earlier) := by
   rfl
 
-/-- A nested spill payload/tag write retains an observation in every other spill shard. -/
+/-- A spill slot write retains an observation in every other spill shard. -/
 theorem writeSpill_frame_other_shard {R : Type}
     (reserved : table.RebuildReserved R I64) (decode : cell.Sigma → R → Option I64)
     (writtenShard writtenIndex earlierShard earlierIndex : Usize) (region : table.Region R I64)
@@ -278,9 +301,9 @@ theorem writeSpill_frame_other_shard {R : Type}
         (.spill earlierShard earlierIndex) =
       reservedObservation reserved decode (.spill earlierShard earlierIndex) := by
   simp only [reservedObservation, writeSpill, alloc.vec.Vec.set_val_eq]
-  rw [getElem?_set_eq_of_ne _ _ _ _ hne, getElem?_set_eq_of_ne _ _ _ _ hne]
+  rw [getElem?_set_eq_of_ne _ _ _ _ hne]
 
-/-- A nested spill payload/tag write retains every distinct index in the written shard. -/
+/-- A spill slot write retains every distinct index in the written shard. -/
 theorem writeSpill_frame_same_shard {R : Type}
     (reserved : table.RebuildReserved R I64) (decode : cell.Sigma → R → Option I64)
     (shard written earlier : Usize) (region : table.Region R I64) (tag : U8)
@@ -292,14 +315,10 @@ theorem writeSpill_frame_same_shard {R : Type}
       reservedObservation reserved decode (.spill shard earlier) := by
   have hshardBound : shard.val < reserved.regions.length := by
     simpa using (List.getElem?_eq_some_iff.mp hregion).1
-  have hshardBound' : shard.val <
-      (reserved.regions.val.set shard.val
-        { region with slots := region.slots.set written payload }).length := by
-    simpa using hshardBound
   simp only [reservedObservation, writeSpill, alloc.vec.Vec.set_val_eq]
-  rw [List.getElem?_set_self hshardBound']
+  rw [List.getElem?_set_self hshardBound]
   simp only [alloc.vec.Vec.set_val_eq]
-  rw [getElem?_set_eq_of_ne _ _ _ _ hne, getElem?_set_eq_of_ne _ _ _ _ hne]
+  rw [getElem?_set_eq_of_ne _ _ _ _ hne]
   rw [hregion]
 
 /-- Stored carriers decode without failure. -/
@@ -365,15 +384,16 @@ theorem word_stored_relocate_entry_flat_preserves
       split at hsource <;> simp_all
       rename_i sourceRegion hsourceRegion
       split at hsource <;> simp_all
-      rename_i tag sourceSigma sourceHeld sourceValue sourceTag hsourceTag
-      obtain ⟨htagLive, key, hkey, rfl⟩ := hsource
-      have hkeyeq : sourceHeld.key = key := by simpa [decodeStored] using hkey
+      rename_i _ sourceSlot hsourceSlot
+      obtain ⟨htagLive, key, hkey, hentry⟩ := hsource
+      subst entry
+      have hkeyeq : sourceSlot.held.key = key := by simpa [decodeStored] using hkey
       subst key
       have hpayload : sourcePayload state prepared.entry.source =
-          some (sourceSigma, sourceHeld, sourceValue) := by
-        simp [sourcePayload, hsrc, hsourceRegion, sourceTag, hsourceTag, htagLive]
-      obtain ⟨nextLocator, hretarget⟩ := effects.retarget sourceSigma sourceHeld sourceValue
-        hpayload
+          some (sourceSlot.sigma, sourceSlot.held, sourceSlot.value) := by
+        simp [sourcePayload, hsrc, hsourceRegion, hsourceSlot, htagLive]
+      obtain ⟨nextLocator, hretarget⟩ := effects.retarget sourceSlot.sigma sourceSlot.held
+        sourceSlot.value hpayload
       rw [hsrc] at hretarget
       have hretarget' :
           table.TableLocator.retarget_held core.clone.CloneI64
@@ -381,12 +401,12 @@ theorem word_stored_relocate_entry_flat_preserves
             (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
               Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
               table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
-            state.locator state.home sourceSigma { key := sourceHeld.key }
+            state.locator state.home sourceSlot.sigma { key := sourceSlot.held.key }
             (.Spill shard sourceIndex) (.Resident index) = ok nextLocator := by
         simpa [Apeiron.GrowableIdentity.storedKeyRep,
           Apeiron.GrowableIdentity.wordHomeInst, sourceLocation, destinationLocation] using hretarget
       unfold word_stored_relocate_entry table.Table.relocate_entry
-      simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceTag, hflat,
+      simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceSlot, hflat,
         hretarget',
         table.keyrep.Stored.Insts.CoreCloneClone.clone,
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
@@ -451,16 +471,18 @@ theorem word_regen_relocate_entry_flat_preserves
       split at hsource <;> simp_all
       rename_i sourceRegion hsourceRegion
       split at hsource <;> simp_all
-      rename_i tag sourceSigma sourceHeld sourceValue sourceTag hsourceTag
-      obtain ⟨htagLive, key, hkey, rfl⟩ := hsource
+      rename_i _ sourceSlot hsourceSlot
+      obtain ⟨htagLive, key, hkey, hentry⟩ := hsource
+      subst entry
       have hcloneDecode :
-          decodeRegen sourceSigma { identity := sourceHeld.identity, codec := () } = some key := by
+          decodeRegen sourceSlot.sigma
+            { identity := sourceSlot.held.identity, codec := () } = some key := by
         simpa [decodeRegen] using hkey
       have hpayload : sourcePayload state prepared.entry.source =
-          some (sourceSigma, sourceHeld, sourceValue) := by
-        simp [sourcePayload, hsrc, hsourceRegion, sourceTag, hsourceTag, htagLive]
-      obtain ⟨nextLocator, hretarget⟩ := effects.retarget sourceSigma sourceHeld sourceValue
-        hpayload
+          some (sourceSlot.sigma, sourceSlot.held, sourceSlot.value) := by
+        simp [sourcePayload, hsrc, hsourceRegion, hsourceSlot, htagLive]
+      obtain ⟨nextLocator, hretarget⟩ := effects.retarget sourceSlot.sigma sourceSlot.held
+        sourceSlot.value hpayload
       rw [hsrc] at hretarget
       have hretarget' :
           table.TableLocator.retarget_held core.clone.CloneI64
@@ -469,13 +491,13 @@ theorem word_regen_relocate_entry_flat_preserves
               Apeiron.GrowableIdentity.wordExactIdentityInst
               table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
               Apeiron.GrowableIdentity.wordCodecInst)
-            state.locator state.home sourceSigma
-            { identity := sourceHeld.identity, codec := () }
+            state.locator state.home sourceSlot.sigma
+            { identity := sourceSlot.held.identity, codec := () }
             (.Spill shard sourceIndex) (.Resident index) = ok nextLocator := by
         simpa [Apeiron.GrowableIdentity.regenKeyRep,
           Apeiron.GrowableIdentity.wordHomeInst, sourceLocation, destinationLocation] using hretarget
       unfold word_regen_relocate_entry table.Table.relocate_entry
-      simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceTag, hflat,
+      simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceSlot, hflat,
         hretarget',
         table.keyrep.Regen.Insts.CoreCloneClone.clone,
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
@@ -515,7 +537,8 @@ theorem word_stored_relocate_entry_spill_preserves
     simpa [Apeiron.GrowableIdentity.storedKeyRep,
       Apeiron.GrowableIdentity.wordHomeInst] using hspill.address_eq
   have hpublish := effects.publish
-  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
+  obtain ⟨published, slot, hpublished, hslotPublished, hsigmaPublished, hheldPublished,
+      hvaluePublished, htagPublished⟩ :=
     hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
       hspill.source_eq haddress' hspill.region_eq
   have hshardBound : shard.val < reserved.regions.length := by
@@ -561,15 +584,17 @@ theorem word_stored_relocate_entry_spill_preserves
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
         alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize,
         PayloadStateEq, ReservedRepR, reservedObservation, hshardBound,
-        hslotPublished, htagPublished, htagNonzero, decodeStored, hlogical]
+        hslotPublished, hsigmaPublished, hheldPublished, hvaluePublished, htagPublished,
+        decodeStored, hlogical]
   | Spill sourceShard sourceIndex =>
       simp only [sourceObservation, hsrc] at hsource
       simp only [sourcePayload, hsrc] at hpayload
       split at hsource <;> simp_all
       rename_i sourceRegion hsourceRegion
       split at hsource <;> simp_all
-      rename_i sourceTag sourceSigma sourceHeld sourceValue sourceTagEq hsourceSlot
-      obtain ⟨key, hkey, rfl⟩ := hsource
+      rename_i _ sourceSlot hsourceSlot
+      obtain ⟨key, hkey, hentry⟩ := hsource
+      subst logicalEntry
       rcases hpayload with ⟨_, hsigma, hheld, hvalue⟩
       have hkeyeq : hspill.held.key = key := by simpa [decodeStored] using hkey
       subst key
@@ -588,13 +613,14 @@ theorem word_stored_relocate_entry_spill_preserves
           Apeiron.GrowableIdentity.wordHomeInst, sourceLocation, destinationLocation] using hretarget
       unfold word_stored_relocate_entry table.Table.relocate_entry
       simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceSlot, hspill.flat_eq,
-        hspill.spill_eq,
+        hspill.spill_eq, hsigma, hheld, hvalue,
         haddress', hvacant', hretarget', hregionGet, hpublished,
         table.keyrep.Stored.Insts.CoreCloneClone.clone,
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
         alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize,
         PayloadStateEq, ReservedRepR, reservedObservation, hshardBound,
-        hslotPublished, htagPublished, htagNonzero, decodeStored, hlogical]
+        hslotPublished, hsigmaPublished, hheldPublished, hvaluePublished, htagPublished,
+        decodeStored, hlogical]
 
 /--
 One production regenerating-carrier relocation to a planned spill slot preserves the decoded key,
@@ -630,7 +656,8 @@ theorem word_regen_relocate_entry_spill_preserves
     simpa [Apeiron.GrowableIdentity.regenKeyRep,
       Apeiron.GrowableIdentity.wordHomeInst] using hspill.address_eq
   have hpublish := effects.publish
-  obtain ⟨published, hpublished, hslotPublished, tag, htagPublished, htagNonzero⟩ :=
+  obtain ⟨published, slot, hpublished, hslotPublished, hsigmaPublished, hheldPublished,
+      hvaluePublished, htagPublished⟩ :=
     hpublish hspill.sigma hspill.held hspill.value hspill.address hspill.region
       hspill.source_eq haddress' hspill.region_eq
   have hshardBound : shard.val < reserved.regions.length := by
@@ -680,15 +707,17 @@ theorem word_regen_relocate_entry_spill_preserves
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
         alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize,
         PayloadStateEq, ReservedRepR, reservedObservation, hshardBound,
-        hslotPublished, htagPublished, htagNonzero, hcloneDecode, hlogical]
+        hslotPublished, hsigmaPublished, hheldPublished, hvaluePublished, htagPublished,
+        hcloneDecode, hlogical]
   | Spill sourceShard sourceIndex =>
       simp only [sourceObservation, hsrc] at hsource
       simp only [sourcePayload, hsrc] at hpayload
       split at hsource <;> simp_all
       rename_i sourceRegion hsourceRegion
       split at hsource <;> simp_all
-      rename_i sourceTag sourceSigma sourceHeld sourceValue sourceTagEq hsourceSlot
-      obtain ⟨key, hkey, rfl⟩ := hsource
+      rename_i _ sourceSlot hsourceSlot
+      obtain ⟨key, hkey, hentry⟩ := hsource
+      subst logicalEntry
       rcases hpayload with ⟨_, hsigma, hheld, hvalue⟩
       have hcloneDecode :
           decodeRegen hspill.sigma { identity := hspill.held.identity, codec := () } = some key := by
@@ -710,13 +739,14 @@ theorem word_regen_relocate_entry_spill_preserves
           Apeiron.GrowableIdentity.wordHomeInst, sourceLocation, destinationLocation] using hretarget
       unfold word_regen_relocate_entry table.Table.relocate_entry
       simp [prepared.entry_eq, hsrc, hsourceRegion, hsourceSlot, hspill.flat_eq,
-        hspill.spill_eq,
+        hspill.spill_eq, hsigma, hheld, hvalue,
         haddress', hvacant', hretarget', hregionGet, hpublished,
         table.keyrep.Regen.Insts.CoreCloneClone.clone,
         alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
         alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize,
         PayloadStateEq, ReservedRepR, reservedObservation, hshardBound,
-        hslotPublished, htagPublished, htagNonzero, hcloneDecode, hlogical]
+        hslotPublished, hsigmaPublished, hheldPublished, hvaluePublished, htagPublished,
+        hcloneDecode, hlogical]
 
 /-!
 ## Rooted traversal composition

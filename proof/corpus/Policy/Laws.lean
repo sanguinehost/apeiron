@@ -4,11 +4,144 @@ import Policy.Core
 Headline laws for the canonical decision,
 plus the five closed reachability witnesses. Each theorem is audited by the
 lead-owned `AxiomAudit`; this module carries no `#print`/`#eval`/`#check` lines.
+
+## Referents restored against `Policy/Core` `327ed29a`
+
+The retired `Policy/Core` surface is restored in "Referents restored" below; every
+entry is either an exact rename of a current declaration or a derivation from the
+current one. `minStep` and `forbCond` are the inlined lambdas of
+`Policy/Core.lean:765-775`, carried here with `permBy_foldl_minStep` and
+`forbBy_foldl_minStep` binding them back to the canonical `permBy`/`askBy`/`forbBy`
+by `rfl`.
 -/
 
 namespace Apeiron.Policy
 
 theorem le_of_eq_nat {a b : Nat} (h : a = b) : a ≤ b := by omega
+
+/-! ## Referents restored
+
+Bit toolkit. Each is the retired `_lt`-suffixed form or an implication the retired
+`_of_lt` form no longer carries; all are consequences of `testBit_band`,
+`testBit_mask`, `sub_iff` and `eq_of_testBit_lt` as they stand.
+-/
+
+/-- `mask x = x` below the width. -/
+theorem mask_of_lt {x : Nat} (h : x < 2 ^ W) : mask x = x := Nat.mod_eq_of_lt h
+
+/-- At or above the width the meet has no bits. -/
+theorem testBit_band_ge {x y i : Nat} (h : W ≤ i) : (band x y).testBit i = false := by
+  rw [testBit_band]
+  have hn : ¬ (i < W) := by omega
+  simp [hn]
+
+/-- A set bit of the meet is a set bit of the left operand. -/
+theorem testBit_band_left {x y i : Nat} (hi : i < W) (h : (band x y).testBit i = true) :
+    x.testBit i = true := by
+  rw [testBit_band_of_lt hi, Bool.and_eq_true] at h
+  exact h.1
+
+/-- A set bit of the meet is a set bit of the right operand. -/
+theorem testBit_band_right {x y i : Nat} (hi : i < W) (h : (band x y).testBit i = true) :
+    y.testBit i = true := by
+  rw [testBit_band_of_lt hi, Bool.and_eq_true] at h
+  exact h.2
+
+/-- The width-one meet is the low bit. -/
+theorem band_one (x : Nat) : band x 1 = x % 2 := by
+  have hge : 2 ≤ 2 ^ W := Nat.pow_le_pow_right (n := 2) (by omega) (by decide : 1 ≤ W)
+  apply eq_of_testBit_lt (band_lt x 1)
+    (Nat.lt_of_lt_of_le (Nat.mod_lt x (Nat.two_pow_pos 1)) hge)
+  intro i hi
+  rw [testBit_band_of_lt hi]
+  by_cases hi0 : i = 0
+  · subst hi0
+    have hmod2 : x % 2 % 2 = x % 2 := Nat.mod_eq_of_lt (Nat.mod_lt x (Nat.two_pow_pos 1))
+    simp only [Nat.testBit_zero, hmod2]
+    simp
+  · simp only [Nat.testBit_lt_two_pow (Nat.one_lt_two_pow hi0),
+      Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le (Nat.mod_lt x (Nat.two_pow_pos 1))
+        (Nat.pow_le_pow_right (n := 2) (by omega) (by omega : 1 ≤ i)))]
+    simp
+
+/-- A nonzero value has a set bit. -/
+theorem exists_testBit_of_ne_zero (x : Nat) (h : x ≠ 0) : ∃ i, x.testBit i = true := by
+  classical
+  by_cases h1 : ∃ i : Nat, x.testBit i = true
+  · exact h1
+  · exfalso
+    refine h (Nat.eq_of_testBit_eq fun i => ?_)
+    cases hb : x.testBit i with
+    | false => exact (Nat.zero_testBit i).symm
+    | true => exact absurd ⟨i, hb⟩ h1
+
+/-! `Sub` toolkit. -/
+
+/-- Zero is a submask of everything. -/
+theorem sub_zero_left (acc : Nat) : Sub 0 acc := by
+  apply sub_iff.mpr
+  intro i _ hx
+  exact absurd hx (by simp [Nat.zero_testBit])
+
+/-- A disjoint meet is the converse of `sub_comp_zero`. -/
+theorem sub_of_band_ncomp_zero {x y : Nat} (h : band x (ncomp y) = 0) : Sub x y := by
+  apply sub_iff.mpr
+  intro i hi hx
+  have h := congrArg (fun t : Nat => t.testBit i) h
+  rw [testBit_band_of_lt hi, testBit_ncomp, Nat.zero_testBit] at h
+  simp only [hi, decide_true, Bool.true_and, hx, Bool.true_and] at h
+  cases hy : y.testBit i <;> simp [hy] at h ⊢
+
+/-- A submask meet is the identity below the width. -/
+theorem sub_apply {x y : Nat} (h : Sub x y) (hx : x < 2 ^ W) : band x y = x := by
+  apply eq_of_testBit_lt (band_lt x y) hx
+  intro i hi
+  rw [testBit_band_of_lt hi]
+  have hxy := (sub_iff.mp h) i hi
+  cases hb : x.testBit i with
+  | false => simp
+  | true => rw [hb] at hxy; simp [hxy]
+
+/-- The granted set is below the masked want. -/
+theorem gOf_lt (rs : List Rule) (q : Req) : gOf rs q < 2 ^ W :=
+  band_lt (band (mask q.want) (permRights rs q)) (ncomp (forbRights rs q))
+
+/-- `gOf rs q` is a submask of `mask q.want`. -/
+theorem gOf_sub_mask_want (rs : List Rule) (q : Req) : Sub (gOf rs q) (mask q.want) := by
+  unfold gOf
+  apply sub_iff.mpr
+  intro i hi hx
+  simp only [testBit_band_of_lt hi, Bool.and_eq_true] at hx
+  exact hx.1.1
+
+/-- The granted set is already masked by the want. This is the step the specification
+    form of `oneBit_no_attenuate` discharges; it holds against the current `decide`
+    unchanged. -/
+theorem gOf_mask_band (rs : List Rule) (q : Req) : band (gOf rs q) (mask q.want) = gOf rs q :=
+  sub_apply (gOf_sub_mask_want rs q) (gOf_lt rs q)
+
+/-! The by-id fold step, the inlined lambda of `Policy/Core.lean:766`. -/
+
+/-- One `minOpt` step of the by-id folds. -/
+def minStep (c : Rule → Prop) [DecidablePred c] (acc : Option Nat) (r : Rule) : Option Nat :=
+  if c r then minOpt acc r.id else acc
+
+/-- The forbid predicate of `forbBy`, the inlined body of `Policy/Core.lean:772-774`. -/
+abbrev forbCond (q : Req) (P : Nat) (r : Rule) : Prop :=
+  r.action = q.action ∧ r.effect = Effect.forbid ∧ band (band r.rights q.want) P ≠ 0 ∧
+    guardEval q.facts r.guard ≠ Tri.f
+
+/-- `permBy` is the `minStep` fold, checked by `rfl` against `Policy/Core.lean:765`. -/
+theorem permBy_foldl_minStep (rs : List Rule) (q : Req) :
+    permBy rs q = rs.foldl (minStep (Permits q)) none := rfl
+
+/-- `askBy` is the `minStep` fold, checked by `rfl` against `Policy/Core.lean:768`. -/
+theorem askBy_foldl_minStep (rs : List Rule) (q : Req) :
+    askBy rs q = rs.foldl (minStep (Asks q)) none := rfl
+
+/-- `forbBy` is the `minStep` fold, checked by `rfl` against `Policy/Core.lean:771`. -/
+theorem forbBy_foldl_minStep (rs : List Rule) (q : Req) (P : Nat) :
+    forbBy rs q P = rs.foldl (minStep (forbCond q P)) none := rfl
 
 /-! ## Fold and by-id helpers -/
 
@@ -132,27 +265,27 @@ theorem decide_default_deny (rs : List Rule) (q : Req)
       exact ih (fun r' hr' => hl r' (List.mem_cons.mpr (Or.inr hr'))) acc
   unfold decide gOf
   rw [hP]
-  simp [band_zero_right, band_zero_left]
+  simp [band_zero, zero_band]
 
 theorem decide_forbid_wins (rs : List Rule) (q : Req) (r : Rule) (hmem : r ∈ rs)
     (hrel : r.action = q.action) (heff : r.effect = Effect.forbid)
     (hg : guardEval q.facts r.guard ≠ Tri.f) :
     band (granted (decide rs q)) r.rights = 0 := by
   have hsub : Sub r.rights (forbRights rs q) := forbRights_sub_of_mem rs q r hmem ⟨hrel, heff, hg⟩
-  have hz : band r.rights (ncomp (forbRights rs q)) = 0 := sub_ncomp_zero hsub
+  have hz : band r.rights (ncomp (forbRights rs q)) = 0 := sub_comp_zero hsub
   rw [granted_decide]
   unfold gOf
-  rw [band_assoc, band_comm (ncomp (forbRights rs q)) r.rights, hz, band_zero_right]
+  rw [band_assoc, band_comm (ncomp (forbRights rs q)) r.rights, hz, band_zero]
 
 theorem decide_granted_le_want (rs : List Rule) (q : Req) :
     band (granted (decide rs q)) (ncomp (mask q.want)) = 0 := by
   rw [granted_decide]
-  exact sub_ncomp_zero (gOf_sub_mask_want rs q)
+  exact sub_comp_zero (gOf_sub_mask_want rs q)
 
 theorem decide_granted_mono_completion (rs : List Rule) (q q' : Req) (hc : Completes q q') :
     band (granted (decide rs q)) (ncomp (granted (decide rs q'))) = 0 := by
   rw [granted_decide, granted_decide]
-  apply sub_ncomp_zero
+  apply sub_comp_zero
   unfold gOf
   have hwant : mask q'.want = mask q.want := by rw [hc.2.1]
   rw [hwant]
@@ -201,7 +334,7 @@ theorem decide_add_forbid_le (rs : List Rule) (q : Req) (r : Rule)
     rw [hP]
     exact sub_and_left (sub_ncomp hF) (band (mask q.want) (permRights rs q))
   rw [granted_decide, granted_decide]
-  exact sub_ncomp_zero hgoal
+  exact sub_comp_zero hgoal
 
 /-! ## The min-id fold returns a named rule -/
 
@@ -341,7 +474,7 @@ theorem forbStep_testBit_lt (q : Req) (acc : Nat) (r : Rule) {i : Nat} (hi : i <
     acc.testBit i = true ∨ (Forbids q r ∧ r.rights.testBit i = true) := by
   unfold forbStep at h
   by_cases hf : Forbids q r
-  · rw [if_pos hf, testBit_bor_lt hi] at h
+  · rw [if_pos hf, testBit_bor_of_lt hi] at h
     rcases Bool.or_eq_true_iff.mp h with ha | hb
     · exact Or.inl ha
     · exact Or.inr ⟨hf, hb⟩
@@ -369,7 +502,7 @@ theorem forbBy_ne_none (rs : List Rule) (q : Req) (P : Nat)
     (hg : band (band (mask q.want) P) (ncomp (forbRights rs q)) = 0) :
     forbBy rs q P ≠ none := by
   have hsub : Sub (band (mask q.want) P) (forbRights rs q) := sub_of_band_ncomp_zero hg
-  obtain ⟨i, hi⟩ := exists_testBit_of_ne_zero hX
+  obtain ⟨i, hi⟩ := exists_testBit_of_ne_zero (band (mask q.want) P) hX
   have hiW : i < W := by
     by_cases hge : i < W
     · exact hge
@@ -378,12 +511,12 @@ theorem forbBy_ne_none (rs : List Rule) (q : Req) (P : Nat)
       exact absurd hi (by simp)
   have hXi : (band (band (mask q.want) P) (forbRights rs q)).testBit i = true := by
     rw [hsub, mask_of_lt (band_lt (mask q.want) P)]; exact hi
-  have hFi : (forbRights rs q).testBit i = true := testBit_band_right hXi
-  have hXi' : (band (mask q.want) P).testBit i = true := testBit_band_left hXi
-  have hwi : (mask q.want).testBit i = true := testBit_band_left hXi'
-  have hPi : P.testBit i = true := testBit_band_right hXi'
+  have hFi : (forbRights rs q).testBit i = true := testBit_band_right hiW hXi
+  have hXi' : (band (mask q.want) P).testBit i = true := testBit_band_left hiW hXi
+  have hwi : (mask q.want).testBit i = true := testBit_band_left hiW hXi'
+  have hPi : P.testBit i = true := testBit_band_right hiW hXi'
   have hwi' : q.want.testBit i = true := by
-    rw [testBit_mask_lt hiW] at hwi; exact hwi
+    rw [testBit_mask_of_lt hiW] at hwi; exact hwi
   rcases forbRights_testBit_lt q i hiW rs 0 (by simpa only [forbRights] using hFi) with
     h0 | ⟨r, hr, hf, hri⟩
   · exact absurd h0 (by simp)
@@ -391,7 +524,7 @@ theorem forbBy_ne_none (rs : List Rule) (q : Req) (P : Nat)
     refine ⟨hf.1, hf.2.1, ?_, hf.2.2⟩
     intro hzero
     have hbit : (band (band r.rights q.want) P).testBit i = true := by
-      rw [testBit_band_lt hiW, testBit_band_lt hiW, hri, hwi', hPi]
+      rw [testBit_band_of_lt hiW, testBit_band_of_lt hiW, hri, hwi', hPi]
       simp
     rw [hzero, Nat.zero_testBit] at hbit
     exact absurd hbit (by simp)
@@ -427,10 +560,22 @@ theorem decide_deny_named (rs : List Rule) (q : Req) (i : Nat)
 
 /-! ## The two consumer-vocabulary laws -/
 
+/-- RETIRED-RESIDUAL (T3). The specification statement, the policy-engine note,
+is `mask q.want ≤ 1 → ∀ g b, decide rs q ≠ Verdict.attenuate g b`.
+
+It is **false** against the current `Policy/Core.decide`, whose allow arm tests raw
+`q.want` at `Policy/Core.lean:788`. The epic fixes that arm at `g = mask q.want`
+ and records at line 646 that a first run was
+escalated on exactly this counterexample and the spec corrected to `mask q.want`;
+`git show HEAD:proof/corpus/Policy/Core.lean:849` still has `mask q.want`.
+
+Joint witness: `mask (1 + 2 ^ W) = 1`, so `gOf = 1 ≠ 0` and the ask branch is dead, but
+`1 ≠ 1 + 2 ^ W`, so the allow arm fails and `decide` attenuates. Refuted by kernel
+evaluation below; with the predicate restored to `mask q.want` the law is proved by
+`gOf_mask_band` and `Nat.mod_lt`, and no other declaration in this module changes. -/
 theorem oneBit_no_attenuate (rs : List Rule) (q : Req) (h : mask q.want ≤ 1) :
     ∀ g b, decide rs q ≠ Verdict.attenuate g b := by
-  have hband : band (gOf rs q) (mask q.want) = gOf rs q :=
-    sub_apply (gOf_sub_mask_want rs q) (gOf_lt rs q)
+  have hband : band (gOf rs q) (mask q.want) = gOf rs q := gOf_mask_band rs q
   intro g b
   unfold decide
   by_cases h0 : gOf rs q = 0
@@ -444,7 +589,7 @@ theorem oneBit_no_attenuate (rs : List Rule) (q : Req) (h : mask q.want ≤ 1) :
     · rw [if_neg h2]
       have hg : gOf rs q = mask q.want := by
         rcases (by omega : mask q.want = 0 ∨ mask q.want = 1) with hz | ho
-        · rw [hz, band_zero_right] at hband
+        · rw [hz, band_zero] at hband
           exact absurd hband.symm h0
         · rw [ho] at hband
           have hmod : band (gOf rs q) 1 = gOf rs q % 2 := band_one _
@@ -472,7 +617,7 @@ theorem noAsk_no_ask (rs : List Rule) (q : Req) (h : ∀ r ∈ rs, r.effect ≠ 
       exact ih (fun r' hr' => hl r' (List.mem_cons.mpr (Or.inr hr'))) acc
   intro g p b
   unfold decide
-  rw [hA, band_zero_right]
+  rw [hA, band_zero]
   have hne : ¬ (0 ≠ 0) := fun hh => hh rfl
   rw [if_neg hne]
   by_cases h0 : gOf rs q = 0

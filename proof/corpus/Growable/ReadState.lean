@@ -12,6 +12,21 @@ with the canonical whole-table `RepR`. The commit bridges preserve it across the
 apply/publication bodies. `ReservedStoredLiveTagAddress` carries the analog on the rebuilt view of
 reserved storage, with the per-step relocation results and the traversal induction.
 `Growable.ReadLoop` imports this module, so every existing importer sees the same names transitively.
+
+## Schema migration
+
+The flat spill port merged the parallel `Region.tags` array into the single `Region.slots` array of
+`table.SpillSlot` records, and removed the occupancy summary entirely. Every change below is forced by
+that merge; none removes a conjunct.
+
+* `StoredLiveTagAddress` reads the slot once and takes its own `tag` as the occupancy authority,
+  instead of reading `region.tags` and `region.slots` at the same index. Premise count (3), binder
+  list and the four-fact conclusion (`∃ address`, address equation, shard equation, tag equation) are
+  unchanged.
+* `generated_publish_live_frames` becomes the single-lane frame `publish_live_frame`: the second
+  conjunct it loses is the `tags` array, which no longer exists.
+* `stored_live_tag_address_publish_spill_of_frame`'s frame premise loses the same `tags` half for the
+  same reason.
 -/
 
 namespace Apeiron.GrowableReadLoop
@@ -24,7 +39,10 @@ set_option linter.apeiron.citation false
 
 /-- Every occupancy-authoritative live spill tag identifies the generated
 fingerprint and shard of its *stored* full key. Payloads behind zero tags are
-excluded. This is an additional state invariant, not a field of `RepR`. -/
+excluded. This is an additional state invariant, not a field of `RepR`.
+
+The occupancy authority is the read-back slot's own `tag`: the merged array carries the marker
+beside the payload, so one read supplies both. -/
 def StoredLiveTagAddress
     (state : Apeiron.GrowableRepresentation.WordTable
       Apeiron.GrowableIdentity.StoredI64) : Prop :=
@@ -33,8 +51,8 @@ def StoredLiveTagAddress
       (tag : U8) (sigma : cell.Sigma)
       (held : Apeiron.GrowableIdentity.StoredI64) (value : I64),
     state.shards.val[shard.val]? = some region →
-    region.tags.val[index.val]? = some tag → tag ≠ 0#u8 →
-    region.slots.val[index.val]? = some (sigma, held, value) →
+    region.slots.val[index.val]? =
+      some { tag := tag, sigma := sigma, held := held, value := value } → tag ≠ 0#u8 →
     ∃ address : table.TableAddress,
       Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma held.key =
         ok address ∧ table.shard address = ok shard ∧
@@ -63,11 +81,11 @@ theorem stored_live_tag_address_of_empty_repR
       Apeiron.GrowableSearch.decodeStoredOption (fun _ => none)
       (fun _ => False) (fun _ => default)) :
     StoredLiveTagAddress state := by
-  intro shard index region tag sigma held value hregion htag htagNonzero hslot
+  intro shard index region tag sigma held value hregion hslot htagNonzero
   have hentry : Apeiron.GrowableSearch.entryAt state
       Apeiron.GrowableSearch.decodeStoredOption (.spill shard index) =
         some ((sigma, held.key), value) := by
-    simp [Apeiron.GrowableSearch.entryAt, hregion, htag, hslot,
+    simp [Apeiron.GrowableSearch.entryAt, hregion, hslot,
       htagNonzero, Apeiron.GrowableSearch.decodeStoredOption]
   have hempty : False :=
     (hrep.liveSet (sigma, held.key)).mpr ⟨.spill shard index, value, hentry⟩
@@ -83,19 +101,25 @@ theorem word_stored_table_new_tagged_repR (default : I64) :
   intro state hrep
   exact ⟨hrep, stored_live_tag_address_of_empty_repR state default hrep⟩
 
-/-- A materialized target with only zero spill tags has no live destination;
-this is the actual pre-traversal property named by the resource certificate. -/
+/-- A materialized target with only zero spill markers has no live destination;
+this is the actual pre-traversal property named by the resource certificate. The marker is the
+read-back slot's own `tag`, which is the statement `MaterializedVacant` makes after the merge. -/
 theorem stored_live_tags_initial_reserved
     (state : Apeiron.GrowableRepresentation.WordTable Apeiron.GrowableIdentity.StoredI64)
     (reserved : table.RebuildReserved Apeiron.GrowableIdentity.StoredI64 I64)
     (hvacant : Apeiron.GrowableResources.MaterializedVacant reserved) :
     StoredLiveTagAddress (Apeiron.GrowableRefinement.rebuiltView state reserved) := by
-  intro shard index region tag sigma held value hregion htag hnonzero _hslot
+  intro shard index region tag sigma held value hregion hslot hnonzero
   have hstored : reserved.regions.val[shard.val]? = some region := by
     simpa [Apeiron.GrowableRefinement.rebuiltView] using hregion
   have hmem : region ∈ reserved.regions.val := List.mem_of_getElem? hstored
-  have htagMem : tag ∈ region.tags.val := List.mem_of_getElem? htag
-  exact False.elim (hnonzero ((hvacant.2 region hmem).2 tag htagMem))
+  have hslotMem :
+      ({ tag := tag, sigma := sigma, held := held, value := value } : table.SpillSlot
+        Apeiron.GrowableIdentity.StoredI64 I64) ∈ region.slots.val :=
+    List.mem_of_getElem? hslot
+  exact False.elim (hnonzero (hvacant.2 region hmem
+    ({ tag := tag, sigma := sigma, held := held, value := value } :
+      table.SpillSlot Apeiron.GrowableIdentity.StoredI64 I64) hslotMem))
 
 /-- The input-side prepared certificate initializes the same invariant on
 its own exact state and reserved storage; it does not prove adapter realization. -/
@@ -116,30 +140,34 @@ theorem stored_live_tag_address_of_home_shards_eq
     (hhome : after.home = before.home)
     (hshards : after.shards = before.shards) :
     StoredLiveTagAddress after := by
-  intro shard index region tag sigma held value hregion htag hnonzero hslot
+  intro shard index region tag sigma held value hregion hslot hnonzero
   have hregionBefore : before.shards.val[shard.val]? = some region := by
     simpa only [hshards] using hregion
   obtain ⟨address, haddress, hroute, htagAddress⟩ :=
-    hbefore shard index region tag sigma held value hregionBefore htag hnonzero hslot
+    hbefore shard index region tag sigma held value hregionBefore hslot hnonzero
   exact ⟨address, by simpa only [hhome] using haddress, hroute, htagAddress⟩
 
-/-- A found-spill value-only update retains every tag and every held key. This
+/-- A found-spill value-only update retains every marker and every held key. This
 is the exact `replaceSpillValue` post-state used by the generated found-spill
-apply theorem; it does not establish found classification or `RepR` preservation. -/
+apply theorem; it does not establish found classification or `RepR` preservation.
+
+The replaced element is a `table.SpillSlot`: the marker is carried through unchanged, which the
+old three-field literal could not state. -/
 theorem stored_live_tag_address_replace_spill_value
     (state : Apeiron.GrowableRepresentation.WordTable Apeiron.GrowableIdentity.StoredI64)
     (hstate : StoredLiveTagAddress state)
     (shard index : Usize)
     (region : table.Region Apeiron.GrowableIdentity.StoredI64 I64)
-    (sigma : cell.Sigma) (held : Apeiron.GrowableIdentity.StoredI64)
+    (tag : U8) (sigma : cell.Sigma) (held : Apeiron.GrowableIdentity.StoredI64)
     (old newValue : I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? = some (sigma, held, old)) :
+    (hslot : region.slots.val[index.val]? =
+      some { tag := tag, sigma := sigma, held := held, value := old }) :
     StoredLiveTagAddress
       (Apeiron.GrowableSearch.replaceSpillValue state shard region index
-        (sigma, held, newValue)) := by
-  intro readShard readIndex readRegion tag readSigma readHeld readValue
-    hreadRegion htag htagNonzero hreadSlot
+        { tag := tag, sigma := sigma, held := held, value := newValue }) := by
+  intro readShard readIndex readRegion readTag readSigma readHeld readValue
+    hreadRegion hreadSlot hreadTagNonzero
   have hshardBound : shard.val < state.shards.length :=
     (List.getElem?_eq_some_iff.mp hregion).1
   have hslotBound : index.val < region.slots.length :=
@@ -147,8 +175,9 @@ theorem stored_live_tag_address_replace_spill_value
   by_cases hsameShard : readShard.val = shard.val
   · have hshardEq : readShard = shard := UScalar.eq_of_val_eq hsameShard
     subst readShard
-    have hnewRegion : readRegion =
-        { region with slots := region.slots.set index (sigma, held, newValue) } := by
+    let newSlot : table.SpillSlot Apeiron.GrowableIdentity.StoredI64 I64 :=
+      { tag := tag, sigma := sigma, held := held, value := newValue }
+    have hnewRegion : readRegion = { region with slots := region.slots.set index newSlot } := by
       simpa only [Apeiron.GrowableSearch.replaceSpillValue,
         alloc.vec.Vec.set_val_eq, List.getElem?_set_self hshardBound,
         Option.some.injEq] using hreadRegion.symm
@@ -156,38 +185,44 @@ theorem stored_live_tag_address_replace_spill_value
     by_cases hsameIndex : readIndex.val = index.val
     · have hindexEq : readIndex = index := UScalar.eq_of_val_eq hsameIndex
       subst readIndex
-      have hpayload : (readSigma, readHeld, readValue) =
-          (sigma, held, newValue) := by
+      have hpayload :
+          ({ tag := readTag, sigma := readSigma, held := readHeld, value := readValue } :
+            table.SpillSlot Apeiron.GrowableIdentity.StoredI64 I64) =
+            { tag := tag, sigma := sigma, held := held, value := newValue } := by
         simpa only [alloc.vec.Vec.set_val_eq,
           List.getElem?_set_self hslotBound, Option.some.injEq] using hreadSlot.symm
-      rcases Prod.mk.inj hpayload with ⟨hsigma, htail⟩
-      rcases Prod.mk.inj htail with ⟨hheld, _⟩
+      have htag : readTag = tag := by
+        exact congrArg table.SpillSlot.tag hpayload
+      have hsigma : readSigma = sigma := by
+        exact congrArg table.SpillSlot.sigma hpayload
+      have hheld : readHeld = held := by
+        exact congrArg table.SpillSlot.held hpayload
+      subst readTag
       subst readSigma
       subst readHeld
-      exact hstate shard index region tag sigma held old hregion htag
-        htagNonzero hslot
+      exact hstate shard index region tag sigma held old hregion hslot
+        hreadTagNonzero
     · have hslotOld : region.slots.val[readIndex.val]? =
-          some (readSigma, readHeld, readValue) := by
+          some { tag := readTag, sigma := readSigma, held := readHeld, value := readValue } := by
         simpa [alloc.vec.Vec.set_val_eq, hsameIndex] using hreadSlot
-      exact hstate shard readIndex region tag readSigma readHeld readValue
-        hregion htag htagNonzero hslotOld
+      exact hstate shard readIndex region readTag readSigma readHeld readValue
+        hregion hslotOld hreadTagNonzero
   · have hregionOld : state.shards.val[readShard.val]? = some readRegion := by
       simpa [Apeiron.GrowableSearch.replaceSpillValue,
         alloc.vec.Vec.set_val_eq, hsameShard] using hreadRegion
-    exact hstate readShard readIndex readRegion tag readSigma readHeld readValue
-      hregionOld htag htagNonzero hreadSlot
+    exact hstate readShard readIndex readRegion readTag readSigma readHeld readValue
+      hregionOld hreadSlot hreadTagNonzero
 
-/-- The actual generated payload-summary-tag publication leaves every other
-lane unchanged. Summary writes do not modify tags or payloads. -/
+/-- The actual generated publication leaves every other lane unchanged. The frame is one merged
+slot array, so the retired parallel `tags` half has no counterpart. -/
 theorem generated_publish_live_frames {R V : Type}
     (before after : table.Region R V) (index read : Usize)
     (payload : cell.Sigma × R × V) (place : U64)
     (hpub : table.Region.publish_live before index payload place = ok after)
     (hne : read.val ≠ index.val) :
-    after.tags.val[read.val]? = before.tags.val[read.val]? ∧
-      after.slots.val[read.val]? = before.slots.val[read.val]? :=
-  Apeiron.GrowableRepresentation.publish_live_frames before after index read
-    payload place hpub hne
+    after.slots.val[read.val]? = before.slots.val[read.val]? :=
+  Apeiron.GrowableRepresentation.publish_live_frame before after index read
+    payload.1 payload.2.1 payload.2.2 place hpub hne
 
 /-- The generated found-spill apply refines the value-only replacement above;
 its *returned table* retains the global tag/address invariant. -/
@@ -197,21 +232,24 @@ theorem word_stored_apply_insert_found_spill_keeps_tags
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress)
     (shard index : Usize)
     (region : table.Region Apeiron.GrowableIdentity.StoredI64 I64)
-    (slotSigma : cell.Sigma) (held : Apeiron.GrowableIdentity.StoredI64)
+    (slotTag : U8) (slotSigma : cell.Sigma)
+    (held : Apeiron.GrowableIdentity.StoredI64)
     (old : I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? = some (slotSigma, held, old)) :
+    (hslot : region.slots.val[index.val]? =
+      some { tag := slotTag, sigma := slotSigma, held := held, value := old }) :
     ∃ next : Apeiron.GrowableRepresentation.WordTable Apeiron.GrowableIdentity.StoredI64,
       word_stored_apply_insert state
         { «class» := .Found, location := .Spill shard index }
         sigma key value address = ok (next, none) ∧
       StoredLiveTagAddress next := by
   refine ⟨Apeiron.GrowableSearch.replaceSpillValue state shard region index
-      (slotSigma, held, core.num.I64.wrapping_add value old), ?_, ?_⟩
+      { tag := slotTag, sigma := slotSigma, held := held,
+        value := core.num.I64.wrapping_add value old }, ?_, ?_⟩
   · exact Apeiron.GrowableSearch.word_stored_apply_insert_found_spill state
-      sigma key value address shard index region slotSigma held old hregion hslot
+      sigma key value address shard index region slotTag slotSigma held old hregion hslot
   · exact stored_live_tag_address_replace_spill_value state hstate shard index region
-      slotSigma held old (core.num.I64.wrapping_add value old) hregion hslot
+      slotTag slotSigma held old (core.num.I64.wrapping_add value old) hregion hslot
 
 /-- The generated found-flat return changes no home or spill field. -/
 theorem word_stored_apply_insert_found_flat_keeps_tags
@@ -253,7 +291,9 @@ theorem word_stored_apply_insert_vacant_flat_keeps_tags
 /-- A fresh generated publication preserves the whole-state invariant when
 the source operation frames every other tag and payload lane. The frame is
 explicit: the landed publication lemmas prove the selected lane, not this
-untouched-lane property or the public commit's shard update. -/
+untouched-lane property or the public commit's shard update.
+
+The frame premise is one merged slot lane rather than the retired `tags`/`slots` pair. -/
 theorem stored_live_tag_address_publish_spill_of_frame
     (state : Apeiron.GrowableRepresentation.WordTable Apeiron.GrowableIdentity.StoredI64)
     (hstate : StoredLiveTagAddress state)
@@ -268,11 +308,10 @@ theorem stored_live_tag_address_publish_spill_of_frame
     (hpublish : table.Region.publish_live region index (sigma, held, value)
       address.place = ok published)
     (hframe : ∀ other : Usize, other.val ≠ index.val →
-      published.tags.val[other.val]? = region.tags.val[other.val]? ∧
       published.slots.val[other.val]? = region.slots.val[other.val]?) :
     StoredLiveTagAddress { state with shards := state.shards.set shard published } := by
   intro readShard readIndex readRegion tag readSigma readHeld readValue
-    hreadRegion htag htagNonzero hreadSlot
+    hreadRegion hreadSlot hreadTagNonzero
   have hshardBound : shard.val < state.shards.length :=
     (List.getElem?_eq_some_iff.mp hregion).1
   by_cases hsameShard : readShard.val = shard.val
@@ -285,27 +324,32 @@ theorem stored_live_tag_address_publish_spill_of_frame
     by_cases hsameIndex : readIndex.val = index.val
     · have hindexEq : readIndex = index := UScalar.eq_of_val_eq hsameIndex
       subst readIndex
-      obtain ⟨publishedTag, htagGenerated, _, htagAt⟩ :=
-        Apeiron.GrowableScan.publish_live_tag_readback
-          region published index (sigma, held, value) address.place hpublish
-      have htagEq : publishedTag = tag := Option.some.inj (htagAt.symm.trans htag)
-      have hpayload := (Apeiron.GrowableRepresentation.publish_live_recorded
-        region published index (sigma, held, value) address.place hpublish).payloadAt
-      have hpayloadEq : (sigma, held, value) = (readSigma, readHeld, readValue) :=
-        Option.some.inj (hpayload.symm.trans hreadSlot)
-      rcases Prod.mk.inj hpayloadEq with ⟨hsigma, htail⟩
-      rcases Prod.mk.inj htail with ⟨hheld, _⟩
+      obtain ⟨slot, hslotAt, _hsigmaAt, _hheldAt, _hvalueAt, htagGenerated⟩ :=
+        Apeiron.GrowableRepresentation.publish_live_slot_readback
+          region published index sigma held value address.place hpublish
+      obtain ⟨publishedTag, htagEq, htagGen, _htagNonzero⟩ := htagGenerated
+      have hslotEq : slot =
+          ({ tag := tag, sigma := readSigma, held := readHeld, value := readValue } :
+            table.SpillSlot Apeiron.GrowableIdentity.StoredI64 I64) :=
+        Option.some.inj (hslotAt.symm.trans hreadSlot)
+      have htagRead : publishedTag = tag := by
+        have h1 := congrArg table.SpillSlot.tag hslotEq
+        rw [htagEq] at h1
+        exact h1
+      have hsigma : readSigma = sigma := by
+        exact (_hsigmaAt.symm.trans (congrArg table.SpillSlot.sigma hslotEq)).symm
+      have hheld : readHeld = held := by
+        exact (_hheldAt.symm.trans (congrArg table.SpillSlot.held hslotEq)).symm
       subst readSigma
       subst readHeld
-      exact ⟨address, haddress, hshard, by simpa only [htagEq] using htagGenerated⟩
-    · obtain ⟨htagOld, hslotOld⟩ := hframe readIndex hsameIndex
+      exact ⟨address, haddress, hshard, by simpa only [htagRead] using htagGen⟩
+    · have hslotOld := hframe readIndex hsameIndex
       exact hstate shard readIndex region tag readSigma readHeld readValue
-        hregion (htagOld.symm.trans htag) htagNonzero
-        (hslotOld.symm.trans hreadSlot)
+        hregion (hslotOld.symm.trans hreadSlot) hreadTagNonzero
   · have hregionOld : state.shards.val[readShard.val]? = some readRegion := by
       simpa [alloc.vec.Vec.set_val_eq, hsameShard] using hreadRegion
     exact hstate readShard readIndex readRegion tag readSigma readHeld readValue
-      hregionOld htag htagNonzero hreadSlot
+      hregionOld hreadSlot hreadTagNonzero
 
 /-- Discharge the frame premise of the fresh-spill state update from the
 generated publication itself. The address/shard equalities remain explicit

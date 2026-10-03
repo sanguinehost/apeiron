@@ -1,14 +1,14 @@
-/- Canonical definition of the bounded authorization decision core
-, plus the bit, guard and fold
-toolkit the laws need. Lean core only, no external libraries; every declaration here
-is constructive.
+/-
+Canonical definition of the bounded authorization decision core
+, plus the small bit, guard
+and fold toolkit the laws need. Lean core only, no external libraries; every
+declaration here is constructive.
 
-Bitwise operations are fuel-bounded (64 steps), not core `Nat.land`/`Nat.lor`: core
-`Nat.land` depends on `propext` under Lean 4.31.0, which would put `Atom.eval`,
-`guardEval`, `mask`, `decide`, `granted` and `Completes` outside the empty axiom cone.
-The construction follows `Slang.Word.bitwise` (proof/corpus/Slang/Word.lean:37), with
-the per-bit Boolean test written `decide (left % 2 = 1)` (`Nat.beq` on `Nat` is the
-same test). Bit characterisations of `band`/`bor` may use the closed cone. -/
+The 64-bit meet/join are the fuel-bounded `bitwise` of `Slang.Word.bitwise`
+(proof/corpus/Slang/Word.lean:37-50), not core `Nat.land`/`Nat.lor`: the latter
+depend on `propext` under Lean 4.31.0, which would put the definitions outside
+the empty axiom cone.
+-/
 namespace Apeiron.Policy
 
 /-! ## Terms -/
@@ -55,184 +55,222 @@ inductive Verdict where
   | deny (c : Cause)
   deriving DecidableEq
 
-/-! ## Width and the fuel-bounded 64-step bitwise operations -/
+/-! ## Width -/
 
 def W : Nat := 64
 
 def mask (x : Nat) : Nat := x % 2 ^ W
 
-/-- Fuel-bounded bitwise fold: `bitwise operation fuel left right` is the low `fuel`
-bits of the pointwise `operation` of `left` and `right`. Temporal O(fuel) recursive
-steps, each O(1) division/mod and one `operation` call; spatial O(fuel) stack (the
-recursive result is used twice). The callers pass `fuel = W = 64`, so each is O(1)
-with a 64-step constant. Follows `Slang.Word.bitwise`. -/
+def ncomp (x : Nat) : Nat := (2 ^ W - 1) - mask x
+
+/-! ## Fuel-bounded bitwise operations -/
+
+-- Temporal O(fuel): one recursive step per fuel decrement, each doing O(1) division/mod and one
+-- `operation` call, so fuel bounds the steps. Spatial O(fuel) stack: the recursive result is bound
+-- to `higher` before the conditional, so the recursion is not tail-recursive. Operations counted:
+-- fuel decrements / bit extractions (`left % 2`, `left / 2`), one `operation` call per bit. The
+-- callers `band`/`bor` pass `W = 64`, so each is O(1) with a 64-step constant.
 def bitwise (operation : Bool → Bool → Bool) : Nat → Nat → Nat → Nat
   | 0, _, _ => 0
   | fuel + 1, left, right =>
       let higher := bitwise operation fuel (left / 2) (right / 2)
-      let low := operation (decide (left % 2 = 1)) (decide (right % 2 = 1))
+      let low := operation (left % 2 == 1) (right % 2 == 1)
       if low then higher + higher + 1 else higher + higher
 
-/-- 64-step bitwise and (the lattice meet on rights). -/
+/-- 64-bit meet (`⋀`). -/
 def band (x y : Nat) : Nat := bitwise Bool.and W x y
 
-/-- 64-step bitwise or (the lattice join on rights). -/
+/-- 64-bit join (`⋁`). -/
 def bor (x y : Nat) : Nat := bitwise Bool.or W x y
 
-/-- 64-step complement `(2^W - 1) - mask x`. -/
-def ncomp (x : Nat) : Nat := (2 ^ W - 1) - mask x
+/-! ## Guard evaluation -/
 
-theorem bitwise_lt (operation : Bool → Bool → Bool) :
-    ∀ (fuel left right : Nat), bitwise operation fuel left right < 2 ^ fuel
-  | 0, l, r => by simp [bitwise]
-  | fuel + 1, l, r => by
-      rw [bitwise]
-      have ih : bitwise operation fuel (l / 2) (r / 2) < 2 ^ fuel :=
-        bitwise_lt operation fuel (l / 2) (r / 2)
-      split <;> simp only [Nat.pow_succ] <;> omega
+def Atom.eval (f : Nat → Option Nat) (a : Atom) : Tri :=
+  if a.slot < W then
+    match f a.slot with
+    | none => Tri.u
+    | some fact =>
+      match a.op with
+      | Op.eq  => if fact = a.value then Tri.t else Tri.f
+      | Op.le  => if fact ≤ a.value then Tri.t else Tri.f
+      | Op.ge  => if a.value ≤ fact then Tri.t else Tri.f
+      | Op.all => if band fact a.value = a.value then Tri.t else Tri.f
+      | Op.any => if band fact a.value = 0 then Tri.f else Tri.t
+  else Tri.u
 
-theorem bitwise_div_two (operation : Bool → Bool → Bool) (fuel left right : Nat) :
-    bitwise operation (fuel + 1) left right / 2 = bitwise operation fuel (left / 2) (right / 2) := by
-  rw [bitwise]
+def guardGo (f : Nat → Option Nat) : List Atom → Tri → Tri
+  | [], acc => acc
+  | a :: rest, acc =>
+    match Atom.eval f a with
+    | Tri.f => Tri.f
+    | Tri.u => guardGo f rest Tri.u
+    | Tri.t => guardGo f rest acc
+
+def guardEval (f : Nat → Option Nat) : Option (List Atom) → Tri
+  | none => Tri.u
+  | some as => guardGo f as Tri.t
+
+/-! ## Bit toolkit -/
+
+theorem bitwise_succ (operation : Bool → Bool → Bool) (n left right : Nat) :
+    bitwise operation (n + 1) left right =
+      (if operation (left % 2 == 1) (right % 2 == 1)
+       then bitwise operation n (left / 2) (right / 2) + bitwise operation n (left / 2) (right / 2) + 1
+       else bitwise operation n (left / 2) (right / 2) + bitwise operation n (left / 2) (right / 2)) := rfl
+
+theorem bitwise_div_two (operation : Bool → Bool → Bool) (n left right : Nat) :
+    bitwise operation (n + 1) left right / 2 = bitwise operation n (left / 2) (right / 2) := by
+  rw [bitwise_succ]
   split <;> omega
 
-theorem bitwise_mod_two (operation : Bool → Bool → Bool) (fuel left right : Nat) :
-    bitwise operation (fuel + 1) left right % 2 =
-      (if operation (decide (left % 2 = 1)) (decide (right % 2 = 1)) then 1 else 0) := by
-  rw [bitwise]
+theorem bitwise_mod_two (operation : Bool → Bool → Bool) (n left right : Nat) :
+    bitwise operation (n + 1) left right % 2 =
+      (if operation (left % 2 == 1) (right % 2 == 1) then 1 else 0) := by
+  rw [bitwise_succ]
   split <;> omega
 
-theorem bitwise_testBit (operation : Bool → Bool → Bool) (i : Nat) :
-    ∀ (fuel left right : Nat), i < fuel →
-      (bitwise operation fuel left right).testBit i =
-        operation (left.testBit i) (right.testBit i)
-  | 0, l, r, h => by omega
-  | fuel + 1, l, r, h => by
-      by_cases h0 : i = 0
-      · subst h0
-        rw [Nat.testBit_zero, bitwise_mod_two, Nat.testBit_zero, Nat.testBit_zero]
-        cases operation (decide (l % 2 = 1)) (decide (r % 2 = 1)) <;> rfl
-      · obtain ⟨j, rfl⟩ : ∃ j, i = j + 1 := ⟨i - 1, by omega⟩
-        rw [Nat.testBit_succ, bitwise_div_two, bitwise_testBit operation j fuel (l/2) (r/2) (by omega),
-          ← Nat.testBit_succ, ← Nat.testBit_succ]
+theorem bitwise_lt (operation : Bool → Bool → Bool) (n left right : Nat) :
+    bitwise operation n left right < 2 ^ n := by
+  induction n generalizing left right with
+  | zero => simp [bitwise]
+  | succ n ih =>
+      rw [bitwise_succ]
+      have h := ih (left / 2) (right / 2)
+      have h2 : 2 ^ (n + 1) = 2 ^ n + 2 ^ n := by
+        rw [Nat.pow_succ, Nat.mul_comm, Nat.two_mul]
+      split <;> omega
 
-theorem testBit_bitwise (operation : Bool → Bool → Bool) (fuel left right i : Nat) :
-    (bitwise operation fuel left right).testBit i =
-      (decide (i < fuel) && operation (left.testBit i) (right.testBit i)) := by
-  by_cases h : i < fuel
-  · rw [bitwise_testBit operation i fuel left right h]; simp [h]
-  · have hfi : fuel ≤ i := by omega
-    have hpow : 2 ^ fuel ≤ 2 ^ i := Nat.pow_le_pow_right (by omega) hfi
-    have hlt : bitwise operation fuel left right < 2 ^ i :=
-      Nat.lt_of_lt_of_le (bitwise_lt operation fuel left right) hpow
-    rw [Nat.testBit_lt_two_pow hlt]; simp [h]
-
-theorem testBit_mask (x i : Nat) : (mask x).testBit i = (decide (i < W) && x.testBit i) := by
-  unfold mask; rw [Nat.testBit_mod_two_pow]
-theorem testBit_mask_lt {x i : Nat} (h : i < W) : (mask x).testBit i = x.testBit i := by
-  rw [testBit_mask, decide_eq_true h, Bool.true_and]
-theorem testBit_mask_ge {x i : Nat} (h : W ≤ i) : (mask x).testBit i = false := by
-  rw [testBit_mask, decide_eq_false (Nat.not_lt.mpr h), Bool.false_and]
-
-theorem testBit_band (x y i : Nat) :
-    (band x y).testBit i = (decide (i < W) && (x.testBit i && y.testBit i)) :=
-  testBit_bitwise Bool.and W x y i
-theorem testBit_bor (x y i : Nat) :
-    (bor x y).testBit i = (decide (i < W) && (x.testBit i || y.testBit i)) :=
-  testBit_bitwise Bool.or W x y i
-theorem testBit_band_lt {x y i : Nat} (h : i < W) :
-    (band x y).testBit i = (x.testBit i && y.testBit i) := by
-  rw [testBit_band, decide_eq_true h, Bool.true_and]
-theorem testBit_band_ge {x y i : Nat} (h : W ≤ i) : (band x y).testBit i = false := by
-  rw [testBit_band, decide_eq_false (Nat.not_lt.mpr h), Bool.false_and]
-theorem testBit_bor_lt {x y i : Nat} (h : i < W) :
-    (bor x y).testBit i = (x.testBit i || y.testBit i) := by
-  rw [testBit_bor, decide_eq_true h, Bool.true_and]
-theorem testBit_bor_ge {x y i : Nat} (h : W ≤ i) : (bor x y).testBit i = false := by
-  rw [testBit_bor, decide_eq_false (Nat.not_lt.mpr h), Bool.false_and]
+theorem bitwise_testBit (operation : Bool → Bool → Bool) (n left right i : Nat) :
+    (bitwise operation n left right).testBit i =
+      (decide (i < n) && operation (left.testBit i) (right.testBit i)) := by
+  induction n generalizing left right i with
+  | zero =>
+      rw [show bitwise operation 0 left right = 0 from rfl, Nat.zero_testBit]
+      simp
+  | succ n ih =>
+      cases i with
+      | zero =>
+          rw [Nat.testBit_zero, bitwise_mod_two]
+          have h0 : decide ((if operation (left % 2 == 1) (right % 2 == 1) then 1 else 0) = 1)
+              = operation (left % 2 == 1) (right % 2 == 1) := by
+            by_cases hl : operation (left % 2 == 1) (right % 2 == 1) <;> simp [hl]
+          rw [h0, Nat.testBit_zero, Nat.testBit_zero]
+          rfl
+      | succ j =>
+          rw [Nat.testBit_succ, bitwise_div_two, ih (left / 2) (right / 2) j,
+              ← Nat.testBit_succ left j, ← Nat.testBit_succ right j]
+          have hp : j + 1 < n + 1 ↔ j < n := by omega
+          simp only [hp]
 
 theorem band_lt (x y : Nat) : band x y < 2 ^ W := bitwise_lt Bool.and W x y
+
 theorem bor_lt (x y : Nat) : bor x y < 2 ^ W := bitwise_lt Bool.or W x y
 
-theorem mask_of_lt {x : Nat} (h : x < 2 ^ W) : mask x = x := Nat.mod_eq_of_lt h
+theorem testBit_band (x y i : Nat) :
+    (band x y).testBit i = (decide (i < W) && (x.testBit i && y.testBit i)) := by
+  unfold band
+  rw [bitwise_testBit]
+
+theorem testBit_bor (x y i : Nat) :
+    (bor x y).testBit i = (decide (i < W) && (x.testBit i || y.testBit i)) := by
+  unfold bor
+  rw [bitwise_testBit]
+
+theorem testBit_mask (x i : Nat) : (mask x).testBit i = (decide (i < W) && x.testBit i) :=
+  Nat.testBit_mod_two_pow x W i
+
+theorem mask_lt (x : Nat) : mask x < 2 ^ W := Nat.mod_lt x (Nat.two_pow_pos W)
+
+theorem mask_mask (x : Nat) : mask (mask x) = mask x := Nat.mod_eq_of_lt (mask_lt x)
+
+theorem mask_band (x y : Nat) : mask (band x y) = band x y := Nat.mod_eq_of_lt (band_lt x y)
+
+theorem mask_bor (x y : Nat) : mask (bor x y) = bor x y := Nat.mod_eq_of_lt (bor_lt x y)
+
+theorem testBit_band_of_lt {x y i : Nat} (hi : i < W) :
+    (band x y).testBit i = (x.testBit i && y.testBit i) := by
+  rw [testBit_band]; simp [hi]
+
+theorem testBit_bor_of_lt {x y i : Nat} (hi : i < W) :
+    (bor x y).testBit i = (x.testBit i || y.testBit i) := by
+  rw [testBit_bor]; simp [hi]
+
+theorem testBit_mask_of_lt {x i : Nat} (hi : i < W) : (mask x).testBit i = x.testBit i := by
+  rw [testBit_mask]; simp [hi]
+
+theorem eq_of_testBit_lt {x y : Nat} (hx : x < 2 ^ W) (hy : y < 2 ^ W)
+    (h : ∀ i, i < W → x.testBit i = y.testBit i) : x = y := by
+  apply Nat.eq_of_testBit_eq
+  intro i
+  by_cases hi : i < W
+  · exact h i hi
+  · have hWi : W ≤ i := Nat.le_of_not_lt hi
+    have hxi : x < 2 ^ i := Nat.lt_of_lt_of_le hx (Nat.pow_le_pow_right (by omega) hWi)
+    have hyi : y < 2 ^ i := Nat.lt_of_lt_of_le hy (Nat.pow_le_pow_right (by omega) hWi)
+    rw [Nat.testBit_lt_two_pow hxi, Nat.testBit_lt_two_pow hyi]
 
 theorem band_comm (x y : Nat) : band x y = band y x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, testBit_band_lt h, Bool.and_comm]
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), testBit_band_ge (Nat.le_of_not_lt h)]
-
-theorem bor_comm (x y : Nat) : bor x y = bor y x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_bor_lt h, testBit_bor_lt h, Bool.or_comm]
-  · rw [testBit_bor_ge (Nat.le_of_not_lt h), testBit_bor_ge (Nat.le_of_not_lt h)]
+  apply eq_of_testBit_lt (band_lt x y) (band_lt y x)
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_band_of_lt hi]
+  exact Bool.and_comm _ _
 
 theorem band_assoc (x y z : Nat) : band (band x y) z = band x (band y z) := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, testBit_band_lt h, testBit_band_lt h, testBit_band_lt h,
-      Bool.and_assoc]
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), testBit_band_ge (Nat.le_of_not_lt h)]
+  apply eq_of_testBit_lt (band_lt (band x y) z) (band_lt x (band y z))
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_band_of_lt hi, testBit_band_of_lt hi, testBit_band_of_lt hi]
+  exact Bool.and_assoc _ _ _
+
+theorem band_assoc_comm (a b c : Nat) : band (band a b) c = band (band a c) b := by
+  apply eq_of_testBit_lt (band_lt (band a b) c) (band_lt (band a c) b)
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_band_of_lt hi, testBit_band_of_lt hi, testBit_band_of_lt hi]
+  cases a.testBit i <;> cases b.testBit i <;> cases c.testBit i <;> simp
+
+theorem band_idem (x : Nat) : band x x = mask x := by
+  apply eq_of_testBit_lt (band_lt x x) (mask_lt x)
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_mask_of_lt hi]
+  cases x.testBit i <;> simp
+
+theorem band_mask_left (x y : Nat) : band (mask x) y = band x y := by
+  apply eq_of_testBit_lt (band_lt (mask x) y) (band_lt x y)
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_mask_of_lt hi, testBit_band_of_lt hi]
+
+theorem band_zero (x : Nat) : band x 0 = 0 := by
+  apply Nat.eq_of_testBit_eq; intro i
+  rw [testBit_band, Nat.zero_testBit]
+  simp
+
+theorem zero_band (x : Nat) : band 0 x = 0 := by
+  apply Nat.eq_of_testBit_eq; intro i
+  rw [testBit_band, Nat.zero_testBit]
+  simp
+
+theorem bor_comm (x y : Nat) : bor x y = bor y x := by
+  apply eq_of_testBit_lt (bor_lt x y) (bor_lt y x)
+  intro i hi
+  rw [testBit_bor_of_lt hi, testBit_bor_of_lt hi]
+  exact Bool.or_comm _ _
 
 theorem bor_assoc (x y z : Nat) : bor (bor x y) z = bor x (bor y z) := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_bor_lt h, testBit_bor_lt h, testBit_bor_lt h, testBit_bor_lt h,
-      Bool.or_assoc]
-  · rw [testBit_bor_ge (Nat.le_of_not_lt h), testBit_bor_ge (Nat.le_of_not_lt h)]
+  apply eq_of_testBit_lt (bor_lt (bor x y) z) (bor_lt x (bor y z))
+  intro i hi
+  rw [testBit_bor_of_lt hi, testBit_bor_of_lt hi, testBit_bor_of_lt hi, testBit_bor_of_lt hi]
+  exact Bool.or_assoc _ _ _
 
-theorem band_self (x : Nat) : band x x = mask x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, testBit_mask_lt h, Bool.and_self]
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), testBit_mask_ge (Nat.le_of_not_lt h)]
+/-- The join is width-masked, so the zero operand leaves the mask of the other one:
+`bor x 0 = mask x`. The retired statement `bor x 0 = 0` is false, with the joint witness
+`x = 3` (`bor 3 0 = 3 ≠ 0`), and had no consumer in this package. -/
+theorem bor_zero_eq_mask (x : Nat) : bor x 0 = mask x := by
+  apply eq_of_testBit_lt (bor_lt x 0) (mask_lt x)
+  intro i hi
+  rw [testBit_bor_of_lt hi, testBit_mask_of_lt hi, Nat.zero_testBit]
+  simp [Bool.or_false]
 
-theorem bor_self (x : Nat) : bor x x = mask x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_bor_lt h, testBit_mask_lt h, Bool.or_self]
-  · rw [testBit_bor_ge (Nat.le_of_not_lt h), testBit_mask_ge (Nat.le_of_not_lt h)]
-
-theorem band_zero_left (x : Nat) : band 0 x = 0 := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, Nat.zero_testBit, Bool.false_and]
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), Nat.zero_testBit]
-
-theorem band_zero_right (x : Nat) : band x 0 = 0 := by rw [band_comm, band_zero_left]
-
-theorem bor_zero_left (x : Nat) : bor 0 x = mask x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_bor_lt h, Nat.zero_testBit, Bool.false_or, testBit_mask_lt h]
-  · rw [testBit_bor_ge (Nat.le_of_not_lt h), testBit_mask_ge (Nat.le_of_not_lt h)]
-
-theorem bor_zero_right (x : Nat) : bor x 0 = mask x := by rw [bor_comm, bor_zero_left]
-
-theorem band_bor_absorb (x y : Nat) : band x (bor x y) = mask x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, testBit_bor_lt h, testBit_mask_lt h]
-    cases x.testBit i <;> cases y.testBit i <;> rfl
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), testBit_mask_ge (Nat.le_of_not_lt h)]
-
-theorem bor_band_absorb (x y : Nat) : bor x (band x y) = mask x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_bor_lt h, testBit_band_lt h, testBit_mask_lt h]
-    cases x.testBit i <;> cases y.testBit i <;> rfl
-  · rw [testBit_bor_ge (Nat.le_of_not_lt h), testBit_mask_ge (Nat.le_of_not_lt h)]
+theorem bor_swap (z a b : Nat) : bor (bor z a) b = bor (bor z b) a := by
+  rw [bor_assoc, bor_assoc, bor_comm a b]
 
 theorem comp_mod_two (W m : Nat) (hW : 1 ≤ W) (hm : m < 2 ^ W) :
     (2 ^ W - 1 - m) % 2 = 1 - m % 2 := by
@@ -272,242 +310,160 @@ theorem testBit_compl (W m i : Nat) (hm : m < 2 ^ W) (hi : i < W) :
       have hj : j < W' := by omega
       exact ih W' (m / 2) hm2 hj
 
-theorem ncomp_lt (x : Nat) : ncomp x < 2 ^ W := by
-  unfold ncomp
-  exact Nat.lt_of_le_of_lt (Nat.sub_le (2 ^ W - 1) (mask x))
-    (Nat.sub_one_lt (Nat.ne_of_gt (Nat.two_pow_pos W)))
-
 theorem testBit_ncomp (x i : Nat) :
     (ncomp x).testBit i = (decide (i < W) && !(x.testBit i)) := by
-  unfold ncomp
+  unfold ncomp mask
   by_cases hi : i < W
-  · rw [testBit_compl W (mask x) i (Nat.mod_lt x (Nat.two_pow_pos W)) hi, testBit_mask_lt hi,
-      decide_eq_true hi, Bool.true_and]
-  · have hlt : 2 ^ W - 1 - mask x < 2 ^ i := by
-      have h := ncomp_lt x
-      unfold ncomp at h
-      exact Nat.lt_of_lt_of_le h (Nat.pow_le_pow_right (by omega) (Nat.le_of_not_lt hi))
-    rw [Nat.testBit_lt_two_pow hlt, decide_eq_false hi, Bool.false_and]
+  · rw [testBit_compl W (x % 2 ^ W) i (Nat.mod_lt x (Nat.two_pow_pos W)) hi]
+    simp [hi]
+  · have hlt : (2 ^ W - 1 - x % 2 ^ W) < 2 ^ W := by
+      have h1 : x % 2 ^ W < 2 ^ W := Nat.mod_lt x (Nat.two_pow_pos W)
+      omega
+    have h := Nat.testBit_mod_two_pow (2 ^ W - 1 - x % 2 ^ W) W i
+    rw [Nat.mod_eq_of_lt hlt] at h
+    simp [hi] at h
+    rw [h]
+    simp [hi]
 
-theorem testBit_ncomp_lt {x i : Nat} (h : i < W) : (ncomp x).testBit i = !(x.testBit i) := by
-  rw [testBit_ncomp, decide_eq_true h, Bool.true_and]
-theorem testBit_ncomp_ge {x i : Nat} (h : W ≤ i) : (ncomp x).testBit i = false := by
-  rw [testBit_ncomp, decide_eq_false (Nat.not_lt.mpr h), Bool.false_and]
-
-theorem band_ncomp (x : Nat) : band x (ncomp x) = 0 := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases h : i < W
-  · rw [testBit_band_lt h, testBit_ncomp_lt h, Nat.zero_testBit, Bool.and_not_self]
-  · rw [testBit_band_ge (Nat.le_of_not_lt h), Nat.zero_testBit]
-
-theorem testBit_band_left {x y i : Nat} (h : (band x y).testBit i = true) :
-    x.testBit i = true := by
-  rw [testBit_band] at h
-  exact (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp h).2).1
-
-theorem testBit_band_right {x y i : Nat} (h : (band x y).testBit i = true) :
-    y.testBit i = true := by
-  rw [testBit_band] at h
-  exact (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp h).2).2
-
-theorem exists_testBit_of_ne_zero {x : Nat} (h : x ≠ 0) : ∃ i, x.testBit i = true := by
-  by_cases hc : ∃ i, x.testBit i = true
-  · exact hc
-  · exfalso
-    have hall : ∀ i, x.testBit i = false := by
-      intro i
-      cases hi : x.testBit i with
-      | false => rfl
-      | true => exact absurd ⟨i, hi⟩ hc
-    exact h (Nat.eq_of_testBit_eq (fun i => by rw [hall i, Nat.zero_testBit]))
-
-theorem band_right_mask (x y : Nat) : band x (mask y) = band x y := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · rw [testBit_band_lt hi, testBit_band_lt hi, testBit_mask_lt hi]
-  · rw [testBit_band_ge (Nat.le_of_not_lt hi), testBit_band_ge (Nat.le_of_not_lt hi)]
-
-theorem one_testBit (i : Nat) : (1 : Nat).testBit i = decide (i = 0) := by
-  rw [show (1 : Nat) = 2 ^ 0 from rfl, Nat.testBit_two_pow]
-  by_cases h : i = 0 <;> simp [h, eq_comm]
-
-theorem band_one (x : Nat) : band x 1 = x % 2 := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · rw [testBit_band_lt hi, one_testBit,
-      show (x % 2).testBit i = (x % 2 ^ 1).testBit i from rfl, Nat.testBit_mod_two_pow]
-    by_cases h0 : i = 0
-    · rw [decide_eq_true h0, decide_eq_true (by omega : i < 1), Bool.and_true, Bool.true_and]
-    · rw [decide_eq_false h0, decide_eq_false (by omega : ¬ i < 1), Bool.and_false,
-        Bool.false_and]
-  · have hW : 1 ≤ W := by unfold W; omega
-    have h1lt : ¬ i < 1 := by omega
-    rw [testBit_band_ge (Nat.le_of_not_lt hi),
-      show (x % 2).testBit i = (x % 2 ^ 1).testBit i from rfl, Nat.testBit_mod_two_pow,
-      decide_eq_false h1lt, Bool.false_and]
-
-/-! ## Submask order `Sub x y` := every set bit of `x` is set in `y` -/
+/-! ## Submask order `Sub x y` := `band x y = mask x` -/
 
 def Sub (x y : Nat) : Prop := band x y = mask x
 
-theorem bool_and_sub2 {a b c : Bool} (h1 : a = true → b = true) (h2 : b = true → c = true) :
-    (a && c) = a := by
-  cases a with
-  | false => simp
-  | true =>
-    have hb : b = true := h1 rfl
-    have hc : c = true := h2 hb
-    simp [hc]
-theorem bool_or_sub {a b c : Bool} (h : a = true → b = true) :
-    ((a || c) && (b || c)) = (a || c) := by
-  cases a with
-  | false => cases c <;> simp
-  | true => rw [h rfl]; simp
-theorem bool_and_and_sub {a b c : Bool} (h : b = true → c = true) :
-    ((a && b) && (a && c)) = (a && b) := by
-  cases a with
-  | false => simp
-  | true =>
-    cases b with
+-- The bound variables are implicit so that the `Iff` projection `.mp`/`.mpr` resolves; with
+-- explicit binders `sub_iff.mpr` is not a constant.
+theorem sub_iff {x y : Nat} :
+    Sub x y ↔ ∀ i, i < W → x.testBit i = true → y.testBit i = true := by
+  constructor
+  · intro h i hi hx
+    have hm : (mask x).testBit i = true := by rw [testBit_mask_of_lt hi]; exact hx
+    have hb : (band x y).testBit i = true := by rw [h]; exact hm
+    rw [testBit_band_of_lt hi] at hb
+    rw [Bool.and_eq_true] at hb
+    exact hb.2
+  · intro h
+    apply eq_of_testBit_lt (band_lt x y) (mask_lt x)
+    intro i hi
+    rw [testBit_band_of_lt hi, testBit_mask_of_lt hi]
+    cases hx : x.testBit i with
     | false => simp
-    | true => rw [h rfl]; simp
-theorem bool_and_not_sub {a b : Bool} (h : a = true → b = true) : (a && !b) = false := by
-  cases a with
-  | false => simp
-  | true => rw [h rfl]; simp
-theorem bool_not_not_sub {a b : Bool} (h : a = true → b = true) : (!b && !a) = !b := by
-  cases a with
-  | false => simp
-  | true => rw [h rfl]; simp
-theorem bool_and_and_mul_sub {a b c d : Bool} (h1 : a = true → b = true)
-    (h2 : c = true → d = true) : ((a && c) && (b && d)) = (a && c) := by
-  cases a with
-  | false => simp
-  | true =>
-    have hb : b = true := h1 rfl
-    rw [hb]
-    cases c with
-    | false => simp
-    | true => rw [h2 rfl]; simp
+    | true => simp [h i hi hx]
 
-theorem sub_refl (x : Nat) : Sub x x := band_self x
+theorem sub_refl (x : Nat) : Sub x x := by
+  apply sub_iff.mpr
+  intro i _ hx
+  exact hx
 
-theorem sub_testBit {x y : Nat} (h : Sub x y) {i : Nat} (hi : i < W)
-    (hx : x.testBit i = true) : y.testBit i = true := by
-  have hh := congrArg (fun t => t.testBit i) h
-  simp only [testBit_band_lt hi, testBit_mask_lt hi, hx, Bool.true_and] at hh
-  exact hh
+theorem sub_testBit {x y : Nat} (h : Sub x y) {i : Nat} (hi : i < W) :
+    x.testBit i = true → y.testBit i = true := (sub_iff.mp h) i hi
 
-theorem sub_trans {x y z : Nat} (h1 : Sub x y) (h2 : Sub y z) : Sub x z := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_band_lt hi, testBit_mask_lt hi]
-    rw [bool_and_sub2 (fun ha => sub_testBit h1 hi ha) (fun hb => sub_testBit h2 hi hb)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+theorem sub_trans {x y z : Nat} (h1 : Sub x y) (h2 : Sub y z) : Sub x z :=
+  sub_iff.mpr (fun _ hi hx => sub_testBit h2 hi (sub_testBit h1 hi hx))
 
-theorem sub_or_right (x y : Nat) : Sub x (bor x y) := band_bor_absorb x y
+theorem sub_or_right (x y : Nat) : Sub x (bor x y) := by
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_bor_of_lt hi]
+  simp [hx]
+
+theorem sub_or_left (x y : Nat) : Sub y (bor x y) := by
+  apply sub_iff.mpr
+  intro i hi hy
+  rw [testBit_bor_of_lt hi]
+  simp [hy]
 
 theorem sub_or {x y z : Nat} (h : Sub x y) : Sub (bor x z) (bor y z) := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_mask_lt hi, testBit_band_lt hi, testBit_bor_lt hi]
-    rw [bool_or_sub (fun ha => sub_testBit h hi ha)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_bor_of_lt hi] at hx
+  rw [testBit_bor_of_lt hi]
+  rw [Bool.or_eq_true] at hx ⊢
+  rcases hx with hx | hx
+  · exact Or.inl (sub_testBit h hi hx)
+  · exact Or.inr hx
 
 theorem sub_and_right (x y : Nat) : Sub (band x y) x := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_mask_lt hi, testBit_band_lt hi]
-    cases x.testBit i <;> cases y.testBit i <;> simp
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_band_of_lt hi] at hx
+  rw [Bool.and_eq_true] at hx
+  exact hx.1
 
 theorem sub_and_left {y z : Nat} (h : Sub y z) (x : Nat) : Sub (band x y) (band x z) := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_mask_lt hi, testBit_band_lt hi]
-    rw [bool_and_and_sub (fun hb => sub_testBit h hi hb)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_band_of_lt hi] at hx
+  rw [Bool.and_eq_true] at hx
+  rw [testBit_band_of_lt hi, Bool.and_eq_true]
+  exact ⟨hx.1, sub_testBit h hi hx.2⟩
 
 theorem sub_and_mul {a b c d : Nat} (h1 : Sub a b) (h2 : Sub c d) :
     Sub (band a c) (band b d) := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_mask_lt hi, testBit_band_lt hi]
-    rw [bool_and_and_mul_sub (fun ha => sub_testBit h1 hi ha) (fun hc => sub_testBit h2 hi hc)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_band_of_lt hi] at hx
+  rw [Bool.and_eq_true] at hx
+  rw [testBit_band_of_lt hi, Bool.and_eq_true]
+  exact ⟨sub_testBit h1 hi hx.1, sub_testBit h2 hi hx.2⟩
 
 theorem sub_ncomp {y z : Nat} (h : Sub y z) : Sub (ncomp z) (ncomp y) := by
+  apply sub_iff.mpr
+  intro i hi hx
+  rw [testBit_ncomp] at hx ⊢
+  simp only [hi, decide_true, Bool.true_and] at hx ⊢
+  have hz : z.testBit i = false := by
+    cases hzi : z.testBit i with
+    | false => rfl
+    | true =>
+        rw [hzi] at hx
+        exact absurd hx (by simp)
+  have hy : y.testBit i = false := by
+    cases hyi : y.testBit i with
+    | false => rfl
+    | true =>
+        have hz' := sub_testBit h hi hyi
+        rw [hz'] at hz
+        exact absurd hz (by simp)
+  rw [hy]
+  rfl
+
+theorem sub_comp_zero {x y : Nat} (h : Sub x y) : band x (ncomp y) = 0 := by
   apply Nat.eq_of_testBit_eq
   intro i
+  rw [Nat.zero_testBit]
   by_cases hi : i < W
-  · simp only [testBit_mask_lt hi, testBit_band_lt hi, testBit_ncomp_lt hi]
-    rw [bool_not_not_sub (fun hy => sub_testBit h hi hy)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
+  · rw [testBit_band_of_lt hi, testBit_ncomp]
+    simp only [hi, decide_true, Bool.true_and]
+    cases hx : x.testBit i with
+    | false => simp
+    | true => simp [sub_testBit h hi hx]
+  · rw [testBit_band]
+    simp [hi]
 
-theorem sub_ncomp_zero {x y : Nat} (h : Sub x y) : band x (ncomp y) = 0 := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · simp only [testBit_band_lt hi, testBit_ncomp_lt hi, Nat.zero_testBit]
-    rw [bool_and_not_sub (fun hx => sub_testBit h hi hx)]
-  · simp only [testBit_band_ge (Nat.le_of_not_lt hi), Nat.zero_testBit]
+theorem band_ncomp_self (x : Nat) : band x (ncomp x) = 0 := sub_comp_zero (sub_refl x)
 
-theorem sub_zero_left (x : Nat) : Sub 0 x := by
-  unfold Sub; rw [band_comm, band_zero_right]; rfl
+theorem band_bor (a x y : Nat) : band a (bor x y) = bor (band a x) (band a y) := by
+  apply eq_of_testBit_lt (band_lt a (bor x y)) (bor_lt (band a x) (band a y))
+  intro i hi
+  rw [testBit_band_of_lt hi, testBit_bor_of_lt hi, testBit_bor_of_lt hi,
+      testBit_band_of_lt hi, testBit_band_of_lt hi]
+  cases a.testBit i <;> cases x.testBit i <;> cases y.testBit i <;> simp
 
-theorem sub_of_band_ncomp_zero {x y : Nat} (h : band x (ncomp y) = 0) : Sub x y := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  by_cases hi : i < W
-  · rw [testBit_band_lt hi, testBit_mask_lt hi]
-    have hh := congrArg (fun t => t.testBit i) h
-    rw [testBit_band_lt hi, testBit_ncomp_lt hi, Nat.zero_testBit] at hh
-    by_cases hx : x.testBit i
-    · have hy : y.testBit i = true := by
-        cases hb : y.testBit i
-        · rw [hx, hb] at hh; simp at hh
-        · rfl
-      simp [hx, hy]
-    · simp [hx]
-  · rw [testBit_band_ge (Nat.le_of_not_lt hi), testBit_mask_ge (Nat.le_of_not_lt hi)]
-
-theorem sub_apply {x y : Nat} (h : Sub x y) (hx : x < 2 ^ W) : band x y = x := by
-  rw [h, mask_of_lt hx]
-
-/-! ## Guard evaluation -/
-
-def Atom.eval (f : Nat → Option Nat) (a : Atom) : Tri :=
-  if a.slot < W then
-    match f a.slot with
-    | none => Tri.u
-    | some fact =>
-      match a.op with
-      | Op.eq  => if fact = a.value then Tri.t else Tri.f
-      | Op.le  => if fact ≤ a.value then Tri.t else Tri.f
-      | Op.ge  => if a.value ≤ fact then Tri.t else Tri.f
-      | Op.all => if band fact a.value = a.value then Tri.t else Tri.f
-      | Op.any => if band fact a.value = 0 then Tri.f else Tri.t
-  else Tri.u
-
-def guardGo (f : Nat → Option Nat) : List Atom → Tri → Tri
-  | [], acc => acc
-  | a :: rest, acc =>
-    match Atom.eval f a with
-    | Tri.f => Tri.f
-    | Tri.u => guardGo f rest Tri.u
-    | Tri.t => guardGo f rest acc
-
-def guardEval (f : Nat → Option Nat) : Option (List Atom) → Tri
-  | none => Tri.u
-  | some as => guardGo f as Tri.t
+theorem band_eq_self_of_band_ncomp_eq_zero {a y : Nat} (ha : a < 2 ^ W)
+    (h : band a (ncomp y) = 0) : band a y = a := by
+  apply eq_of_testBit_lt (band_lt a y) ha
+  intro i hi
+  rw [testBit_band_of_lt hi]
+  have hb := congrArg (fun t => t.testBit i) h
+  rw [testBit_band_of_lt hi, Nat.zero_testBit, testBit_ncomp] at hb
+  simp only [hi, decide_true, Bool.true_and] at hb
+  cases ha_i : a.testBit i with
+  | false => simp
+  | true =>
+      rw [ha_i] at hb
+      simp only [Bool.true_and] at hb
+      cases hy_i : y.testBit i with
+      | false => rw [hy_i] at hb; simp at hb
+      | true => simp
 
 /-! ## Guard characterisation and monotonicity over `Completes` -/
 
@@ -712,7 +668,7 @@ theorem permRights_sub_of_mem (rs : List Rule) (q : Req) (r : Rule) (hmem : r �
     · subst heq
       have hstep : permStep q acc r = bor acc r.rights := by rw [permStep, if_pos hp]
       rw [hstep]
-      exact sub_trans (by rw [bor_comm]; exact sub_or_right r.rights acc)
+      exact sub_trans (sub_or_left acc r.rights)
         (foldl_sub_of_step (permStep q) (permStep_sub q) rest (bor acc r.rights))
     · exact ih hmem' hp (permStep q acc r')
 
@@ -730,7 +686,7 @@ theorem forbRights_sub_of_mem (rs : List Rule) (q : Req) (r : Rule) (hmem : r �
     · subst heq
       have hstep : forbStep q acc r = bor acc r.rights := by rw [forbStep, if_pos hf]
       rw [hstep]
-      exact sub_trans (by rw [bor_comm]; exact sub_or_right r.rights acc)
+      exact sub_trans (sub_or_left acc r.rights)
         (foldl_sub_of_step (forbStep q) (forbStep_sub q) rest (bor acc r.rights))
     · exact ih hmem' hf (forbStep q acc r')
 
@@ -806,38 +762,21 @@ def minOpt (best : Option Nat) (id : Nat) : Option Nat :=
   | none => some id
   | some b => some (min b id)
 
-def minStep (c : Rule → Prop) [DecidablePred c] (acc : Option Nat) (r : Rule) : Option Nat :=
-  if c r then minOpt acc r.id else acc
-
 def permBy (rs : List Rule) (q : Req) : Option Nat :=
-  rs.foldl (minStep (Permits q)) none
+  rs.foldl (fun acc r => if Permits q r then minOpt acc r.id else acc) none
 
 def askBy (rs : List Rule) (q : Req) : Option Nat :=
-  rs.foldl (minStep (Asks q)) none
-
-abbrev forbCond (q : Req) (P : Nat) (r : Rule) : Prop :=
-  r.action = q.action ∧ r.effect = Effect.forbid ∧ band (band r.rights q.want) P ≠ 0 ∧
-    guardEval q.facts r.guard ≠ Tri.f
+  rs.foldl (fun acc r => if Asks q r then minOpt acc r.id else acc) none
 
 def forbBy (rs : List Rule) (q : Req) (P : Nat) : Option Nat :=
-  rs.foldl (minStep (forbCond q P)) none
+  rs.foldl (fun acc r =>
+    if r.action = q.action ∧ r.effect = Effect.forbid ∧ band (band r.rights q.want) P ≠ 0 ∧
+        guardEval q.facts r.guard ≠ Tri.f
+    then minOpt acc r.id else acc) none
 
 def gOf (rs : List Rule) (q : Req) : Nat :=
   band (band (mask q.want) (permRights rs q)) (ncomp (forbRights rs q))
 
-theorem gOf_lt (rs : List Rule) (q : Req) : gOf rs q < 2 ^ W := band_lt _ _
-
-theorem gOf_sub_mask_want (rs : List Rule) (q : Req) : Sub (gOf rs q) (mask q.want) := by
-  unfold gOf
-  exact sub_trans (sub_and_right (band (mask q.want) (permRights rs q)) (ncomp (forbRights rs q)))
-    (sub_and_right (mask q.want) (permRights rs q))
-
-/-- The decision. Time O(R·(1+A)) atom evaluations and O(1) words of space, R = `rs.length`,
-A = the longest guard: six folds over `rs` (three rights accumulators, three by-id minima), each
-rule costing at most one `guardEval` of O(A) atoms; each atom and each `band`/`bor` is at most
-W = 64 fuel steps. Total; no panic path.
-The allow arm compares `gOf rs q` with `mask q.want` (not the raw `q.want`), so `want` bits above
-the 64-bit width cannot turn an allow into an attenuate. -/
 def decide (rs : List Rule) (q : Req) : Verdict :=
   if gOf rs q = 0 then
     if band (mask q.want) (permRights rs q) = 0 then

@@ -4,24 +4,25 @@ Loop specifications for the attention score and softmax-numerator stages
 
 `Numeric.EngineAttnRefinement` states the exact stage specifications (`attnScoreInt`, `scoreList`,
 `planeRow`, `row_dot_domain`) and the structural unfold of `word_attn_head`
-(`src/engine/attn.rs:432-572`); its residual list names the four `attn_head_loop0..3` loop
+(`src/engine/attn.rs:1019-1213`); its residual list names the four `attn_head_loop0..3` loop
 specifications as unproved. `Numeric.AttnSoftmaxPerturb` proves the real stage composition
 (`attn_stage_compose_closed`) against hypotheses shaped exactly as `attnNumeratorCase` and
 `∃ j, y j = mx`; this module supplies those hypotheses from the extracted `attn_head_loop0` (score
-loop, `src/engine/attn.rs:483-497`) and `attn_head_loop1` (numerator loop, `src/engine/attn.rs:
-509-526`), plus the single-key `score_at` evaluation (`src/engine/attn.rs:101-123`) they call.
+loop, `src/engine/attn.rs:1085-1120`) and `attn_head_loop1` (numerator loop, `src/engine/attn.rs:
+1127-1150`), the latter two inlined into their loop bodies.
 
 ## Landed here
 
 * `row_dot_fixed_exact`: the bit-exact value of `matvec.row_dot_fixed`
   (`Numeric.EngineDotRefinement`) on `row_dot_domain` — `divRoundNearest (dotPrefix …) 2^32`, not
   merely the `1/(2·2^32)`-bounded reading `row_dot_refines_proved` exposes. Derived, not restated,
-  from the same reused `row_dot_fixed_loop_eq`/`round_shift_32_spec`; `score_at`'s own epilogue
-  composes two such reductions exactly, so `attnScoreInt` needs the bit-exact value.
-* `score_at_spec`: on a plane-row window (`row_dot_domain` of the row `krow` located at
-  `((s·kv+kvh)·hd, +hd)`, plus the `attnScoreInt` result inside `[-2^63, 2^63-1]`), `attn.score_at`
-  returns `Ok y` with `y.val` exactly `attnScoreInt (dot of krow and q) scale.val` — the `s`-th
-  entry of `scoreList`.
+  from the same reused `row_dot_fixed_loop_eq`/`round_shift_32_spec`; the score loop body's own
+  epilogue composes two such reductions exactly, so `attnScoreInt` needs the bit-exact value.
+* `score_at_spec`: on a plane-row window (`row_dot_domain` of the row `krow` read at
+  `first + s·stride = (s·kv+kvh)·hd`, the plane-range guard, and the `attnScoreInt` result inside
+  `[-2^63, 2^63-1]`), `attn.KvState.attn_head_loop0.body` returns the continuation carrying `y`
+  with `y.val` exactly `attnScoreInt (dot of krow and q) scale.val` — the `s`-th entry of
+  `scoreList`.
 * `attn_head_loop0_spec`: the score loop's equational invariant (`scores` pointwise equal to
   `scoreList`'s prefix, `mx` the pure running maximum seeded at `I64.MIN`) and, at loop exit,
   `scores` the whole `scoreList`, `mx` its maximum, and `∃ j, scores[j] = mx` — the `hmax` hypothesis
@@ -36,10 +37,10 @@ loop, `src/engine/attn.rs:483-497`) and `attn_head_loop1` (numerator loop, `src/
 `attn_domain_v2` (`Numeric.AttnSoftmaxPerturb`) states `row_dot_domain krow q` only for a `krow`
 *already known* to equal `planeRow …`; it does not itself supply:
 
-1. the four checked `usize` steps of `score_at`'s address arithmetic succeeding, or the range index
-   into the plane succeeding with that `krow` (`attnHeadLoop0Domain`'s per-position existential) —
-   the "range-index identity tying `planeRow` to the plane contents" `EngineAttnRefinement`'s header
-   names as open;
+1. the hoisted `usize` address arithmetic `first + s'·stride` succeeding inside the plane
+   (`base ≤ kplane.len() − hd`), or the range index into the plane succeeding with that `krow`
+   (`attnHeadLoop0Domain`'s per-position existential) — the "range-index identity tying `planeRow`
+   to the plane contents" `EngineAttnRefinement`'s header names as open;
 2. the `i64` checked-subtraction `score - mx` succeeding with a nonpositive result at each key
    (`attnHeadLoop1Domain`) — implied by the `attn_domain_v2` score window `|score_j| ≤ 2^62`
    together with `mx` itself being one such score, but not stated as a checked-arithmetic fact;
@@ -53,10 +54,9 @@ rather than re-derived from `attn_domain_v2`'s magnitude windows.
 
 ## Trust boundary
 
-Reaches the extracted `attn.score_at`, `attn.KvState.attn_head_loop0`,
-`attn.KvState.attn_head_loop1` and `matvec.row_dot_fixed` of `proof/ApeironWord.lean`, and the
-Q32.32 denotation in `Numeric.Scale`. Does not cover rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V,
-or the `unsafe` container.
+Reaches the extracted `attn.KvState.attn_head_loop0`, `attn.KvState.attn_head_loop1` and
+`matvec.row_dot_fixed` of `proof/ApeironWord.lean`, and the Q32.32 denotation in `Numeric.Scale`.
+Does not cover rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V, or the `unsafe` container.
 -/
 import Numeric.AttnSoftmaxPerturb
 
@@ -76,7 +76,7 @@ private theorem getD_eq_get {l : List I64} {n : ℕ} (h : n < l.length) :
 
 /-! ## A pure running maximum over `ℤ`, seeded at a fixed value -/
 
-/-- The pure running maximum `attn_head_loop0` computes (`src/engine/attn.rs:483-497`): a left
+/-- The pure running maximum `attn_head_loop0` computes (`src/engine/attn.rs:1104-1107`): a left
 fold of `max` seeded at `I64.MIN`'s denotation. -/
 def intListMax (seed : ℤ) (l : List ℤ) : ℤ := l.foldl max seed
 
@@ -208,28 +208,47 @@ theorem row_dot_fixed_exact (w_row x : Slice I64) (hdom : row_dot_domain w_row x
     rw [if_neg hmin]
   · rw [hcastval, hroundval, hSval]
 
-/-! ## `score_at`: exact evaluation on the plane-row window -/
+/-! ## The score loop body: exact evaluation on the plane-row window -/
 
-/-- **Exact single-key score.** On the plane-row window — the checked `usize` address arithmetic
-`((s·kv+kvh)·hd, +hd)` succeeding, the range index into `kplane` succeeding with `krow`, and
-`row_dot_domain krow q` — plus the `attnScoreInt` result landing inside `[-2^63, 2^63-1]` (the
-`i64` narrowing window), `attn.score_at` (`src/engine/attn.rs:101-123`) returns `Ok y` with `y.val`
-exactly `attnScoreInt` of the real dot of `krow` and `q` against `scale` — the `s`-th entry of
-`scoreList` once `krow.val = planeRow …`. -/
-theorem score_at_spec (kplane q : Slice I64) (scale : I64) (kv hd kvh s : Usize)
-    (base val1 val2 val3 : Usize)
-    (hbase : Usize.checked_mul s kv = some base)
-    (hval1 : Usize.checked_add base kvh = some val1)
-    (hval2 : Usize.checked_mul val1 hd = some val2)
-    (hval3 : Usize.checked_add val2 hd = some val3)
+set_option linter.unusedSimpArgs false in
+/-- **Exact single-key score.** On the plane-row window — the hoisted address arithmetic
+`first + s'·stride` succeeding inside the plane (`base ≤ kplane.len() − hd`, the one guard the body
+keeps per key, `src/engine/attn.rs:1091-1092`), the range index into `kplane` succeeding with
+`krow`, `row_dot_domain krow q`, the `push` capacity, and the `attnScoreInt` result inside
+`[-2^63, 2^63-1]` (the `i64` narrowing window) — the extracted score-loop body
+`attn.KvState.attn_head_loop0.body` (`src/engine/attn.rs:1090-1120`) returns
+`cont (scores ++ [y], mx', s + 1, true, none)`, where `mx'` is `y` or the incoming `mx`, with
+`y.val` exactly `attnScoreInt` of the real dot of `krow` and `q` against `scale` — the `s`-th entry
+of `scoreList` once `krow.val = planeRow …`. The pre-hoist extraction reached the same value
+through the separate `attn.score_at` helper (`src/engine/attn.rs:1071-1088` in the re-derived
+source, `101-123` before); the loop body now inlines it, so the window is stated against the body.
+-/
+theorem score_at_spec (hd : Usize) (scale : I64) (stride first pos : Usize)
+    (kplane : alloc.vec.Vec I64) (q : Slice I64) (scores : alloc.vec.Vec I64) (mx : I64)
+    (s : Usize) (hlen : scores.val.length < Usize.max)
+    (hsincr : s.val + 1 ≤ Usize.max) (hs : s.val ≤ pos.val)
+    (i1 base val3 : Usize)
+    (hsmul : s * stride = ok i1)
+    (haddfirst : first + i1 = ok base)
+    (hnotgt : ¬ (base > core.num.Usize.saturating_sub (alloc.vec.Vec.len kplane) hd))
+    (haddhd : base + hd = ok val3)
     (krow : Slice I64)
-    (hindex : core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I64)
-      kplane { start := val2, «end» := val3 } = ok krow)
+    (hindex : alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) kplane
+      { start := base, «end» := val3 } = ok krow)
     (hdom : row_dot_domain krow q)
     (houtlo : -(2 : ℤ) ^ (63 : ℕ) ≤ attnScoreInt (dotPrefix krow q krow.val.length) scale.val)
-    (houthi : attnScoreInt (dotPrefix krow q krow.val.length) scale.val ≤ (2 : ℤ) ^ (63 : ℕ) - 1) :
-    ∃ y : I64, attn.score_at kplane q scale kv kvh hd s = ok (core.result.Result.Ok y) ∧
-      y.val = attnScoreInt (dotPrefix krow q krow.val.length) scale.val := by
+    (houthi : attnScoreInt (dotPrefix krow q krow.val.length) scale.val
+        ≤ (2 : ℤ) ^ (63 : ℕ) - 1) :
+    ∃ (y : I64) (scores2 : alloc.vec.Vec I64) (s2 : Usize),
+      scores2.val = scores.val ++ [y] ∧
+      s2.val = s.val + 1 ∧
+      y.val = attnScoreInt (dotPrefix krow q krow.val.length) scale.val ∧
+      (y > mx →
+        attn.KvState.attn_head_loop0.body hd scale q pos kplane stride first scores mx s true none
+          = ok (ControlFlow.cont (scores2, y, s2, true, none))) ∧
+      (¬ y > mx →
+        attn.KvState.attn_head_loop0.body hd scale q pos kplane stride first scores mx s true none
+          = ok (ControlFlow.cont (scores2, mx, s2, true, none))) := by
   obtain ⟨raw, hraw_eq, hraw_val⟩ := row_dot_fixed_exact krow q hdom
   have hi : (core.convert.num.FromI128I64.from raw).val = raw.val :=
     core.convert.num.FromI128I64.from_val_eq raw
@@ -265,11 +284,13 @@ theorem score_at_spec (kplane q : Slice I64) (scale : I64) (kv hd kvh s : Usize)
   have hroundval' : rounded.val = attnScoreInt (dotPrefix krow q krow.val.length) scale.val := by
     rw [hroundval, hnumv', hraw_val]
     rfl
-  have hmaxv : (core.convert.num.FromI128I64.from core.num.I64.MAX).val = (2 : ℤ) ^ (63 : ℕ) - 1 := by
+  have hmaxv : (core.convert.num.FromI128I64.from core.num.I64.MAX).val
+      = (2 : ℤ) ^ (63 : ℕ) - 1 := by
     rw [core.convert.num.FromI128I64.from_val_eq]
     have h : core.num.I64.MAX.val = (2 : ℤ) ^ (63 : ℕ) - 1 := by decide
     rw [h]
-  have hminv : (core.convert.num.FromI128I64.from core.num.I64.MIN).val = -((2 : ℤ) ^ (63 : ℕ)) := by
+  have hminv : (core.convert.num.FromI128I64.from core.num.I64.MIN).val
+      = -((2 : ℤ) ^ (63 : ℕ)) := by
     rw [core.convert.num.FromI128I64.from_val_eq]
     have h : core.num.I64.MIN.val = -((2 : ℤ) ^ (63 : ℕ)) := by decide
     rw [h]
@@ -283,11 +304,97 @@ theorem score_at_spec (kplane q : Slice I64) (scale : I64) (kv hd kvh s : Usize)
     exact bmod_pow_numBits_eq_of_lt IScalarTy.I64 rounded.val
       (by norm_num [IScalarTy.numBits]; rw [hroundval']; omega)
       (by norm_num [IScalarTy.numBits]; rw [hroundval']; omega)
-  refine ⟨IScalar.cast .I64 rounded, ?_, ?_⟩
-  · simp only [attn.score_at, hbase, hval1, hval2, hval3, hindex, hraw_eq, hnum_eq, hround_eq,
-      lift, core.option.Option.ok_or_some, bind_tc_ok, result_branch_ok,
-      core.result.Result.map_err_ok, if_neg hmax, if_neg hmin]
-  · rw [hcastval]; exact hroundval'
+  obtain ⟨scores2, hpush, hpushv⟩ :=
+    WP.spec_imp_exists (alloc.vec.Vec.push_spec scores (IScalar.cast .I64 rounded) hlen)
+  have hsle : s ≤ pos := (UScalar.le_equiv s pos).2 hs
+  have h1 : (1#usize).val = 1 := by norm_num
+  have hlemax : s.val + (1#usize).val ≤ Usize.max := by rw [h1]; exact hsincr
+  obtain ⟨s2, hadd1, hs2⟩ := WP.spec_imp_exists (Usize.add_spec (x := s) (y := 1#usize) hlemax)
+  have hs2' : s2.val = s.val + 1 := by rw [hs2, h1]
+  refine ⟨(IScalar.cast .I64 rounded : I64), scores2, s2, hpushv, hs2',
+    hcastval.trans hroundval', ⟨?_, ?_⟩⟩
+  · intro hgt
+    rw [attn.KvState.attn_head_loop0.body, if_pos hsle]
+    try dsimp only
+    rw [hsmul]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [haddfirst]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hnotgt]
+    rw [haddhd]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hindex]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hraw_eq]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hnum_eq]
+    try dsimp only
+    rw [hround_eq]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hmax]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hmin]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_pos hgt]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hpush]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hadd1]
+    try simp only [lift, bind_tc_ok]
+    try simp only [lift, bind_tc_ok]
+    dsimp
+    rfl
+  · intro hgt
+    rw [attn.KvState.attn_head_loop0.body, if_pos hsle]
+    try dsimp only
+    rw [hsmul]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [haddfirst]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hnotgt]
+    rw [haddhd]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hindex]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hraw_eq]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hnum_eq]
+    try dsimp only
+    rw [hround_eq]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hmax]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hmin]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [if_neg hgt]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hpush]
+    try simp only [lift, bind_tc_ok]
+    try dsimp only
+    rw [hadd1]
+    try simp only [lift, bind_tc_ok]
+    try simp only [lift, bind_tc_ok]
+    dsimp
+    rfl
 
 /-! ## Loop 0: scores and the running maximum -/
 
@@ -308,21 +415,25 @@ theorem scoreList_getD_eq (plane : List I64) (q : Slice I64) (kv hd kvh : ℕ) (
   simp only [List.getElem_map, List.getElem_range]
   rw [dotPrefix_full krow q hlen, hkrow]
 
-/-- The per-position window `attn.KvState.attn_head_loop0` needs at row `s'`: the checked `usize`
-address arithmetic and range index of `score_at` succeed with a `krow` equal to `planeRow`, that
-row is on `row_dot_domain` against `q`, and the resulting `attnScoreInt` fits `i64`. Not implied by
-`attn_domain_v2` as a checked-arithmetic fact (finding 1 above); supplied explicitly here. -/
-def attnHeadLoop0Domain (self : attn.KvState) (kplane : alloc.vec.Vec I64) (q : Slice I64)
-    (scale : I64) (kv kvh pos : Usize) : Prop :=
+/-- The per-position window `attn.KvState.attn_head_loop0` needs at row `s'`: the hoisted address
+arithmetic `first + s'·stride` succeeds inside the plane, the range index into `kplane` succeeds
+with a `krow` equal to `planeRow`, that row is on `row_dot_domain` against `q`, and the resulting
+`attnScoreInt` fits `i64`. Not implied by `attn_domain_v2` as a checked-arithmetic fact (finding 1
+above); supplied explicitly here. `stride = kv·hd` and `first = kvh·hd` are the hoisted
+`src/engine/attn.rs:1079-1080` factors, so `first + s'·stride = (s'·kv + kvh)·hd` and the window
+is the same `planeRow` the pre-hoist per-key chain read. -/
+def attnHeadLoop0Domain (hd : Usize) (scale : I64) (kv kvh stride first pos : Usize)
+    (kplane : alloc.vec.Vec I64) (q : Slice I64) : Prop :=
+  stride.val = kv.val * hd.val ∧ first.val = kvh.val * hd.val ∧
   ∀ s' : Usize, s'.val ≤ pos.val →
-    ∃ (base val1 val2 val3 : Usize) (krow : Slice I64),
-      Usize.checked_mul s' kv = some base ∧
-      Usize.checked_add base kvh = some val1 ∧
-      Usize.checked_mul val1 self.head_dim = some val2 ∧
-      Usize.checked_add val2 self.head_dim = some val3 ∧
-      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I64)
-        (alloc.vec.Vec.deref kplane) { start := val2, «end» := val3 } = ok krow ∧
-      krow.val = planeRow kplane.val kv.val self.head_dim.val kvh.val s'.val ∧
+    ∃ (i1 base val3 : Usize) (krow : Slice I64),
+      s' * stride = ok i1 ∧
+      first + i1 = ok base ∧
+      ¬ (base > core.num.Usize.saturating_sub (alloc.vec.Vec.len kplane) hd) ∧
+      base + hd = ok val3 ∧
+      alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) kplane
+        { start := base, «end» := val3 } = ok krow ∧
+      krow.val = planeRow kplane.val kv.val hd.val kvh.val s'.val ∧
       row_dot_domain krow q ∧
       -(2 : ℤ) ^ (62 : ℕ) ≤ attnScoreInt (dotPrefix krow q krow.val.length) scale.val ∧
       attnScoreInt (dotPrefix krow q krow.val.length) scale.val ≤ (2 : ℤ) ^ (62 : ℕ)
@@ -330,60 +441,58 @@ def attnHeadLoop0Domain (self : attn.KvState) (kplane : alloc.vec.Vec I64) (q : 
 /-- The score-loop invariant after `s` completed rows: the failure flag is clear, `scores` holds
 exactly `s` entries pointwise equal to `scoreList`'s corresponding entries, and `mx` is the pure
 running maximum of the executed scores seeded at `I64.MIN`. -/
-def attnHeadLoop0Inv (self : attn.KvState) (kplane : alloc.vec.Vec I64) (q : Slice I64)
-    (scale : I64) (kv kvh pos : Usize)
+def attnHeadLoop0Inv (hd : Usize) (scale : I64) (kv kvh pos : Usize)
+    (kplane : alloc.vec.Vec I64) (q : Slice I64)
     (scores : alloc.vec.Vec I64) (mx : I64) (s : Usize) (ok1 : Bool)
     (err : Option attn.AttnError) : Prop :=
   ok1 = true ∧ err = none ∧ s.val ≤ pos.val + 1 ∧ scores.val.length = s.val ∧
   (∀ (j : ℕ) (_hj : j < scores.val.length),
     (scores.val.getD j 0#i64).val =
-      (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD j 0) ∧
+      (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD j 0) ∧
   mx.val = intListMax core.num.I64.MIN.val (scores.val.map (fun x => x.val))
 
 /-- One score-loop body step: on the domain and the invariant, with `s.val ≤ pos.val` (the loop's
-own guard `s ≤ pos` still true), the body reads `score_at` at row `s`, updates the running maximum,
-pushes the score, and continues at `s + 1` with the invariant restored. -/
-theorem attn_head_loop0_body_step (self : attn.KvState) (kplane : alloc.vec.Vec I64)
-    (q : Slice I64) (scale : I64) (kv kvh pos : Usize)
+own guard `s ≤ pos` still true), the body reads the plane row at `first + s·stride`, evaluates the
+score epilogue, updates the running maximum, pushes the score, and continues at `s + 1` with the
+invariant restored. -/
+theorem attn_head_loop0_body_step (hd : Usize) (scale : I64) (kv kvh stride first pos : Usize)
+    (kplane : alloc.vec.Vec I64) (q : Slice I64)
     (hslots : pos.val + 1 ≤ Usize.max)
     (scores : alloc.vec.Vec I64) (mx : I64) (s : Usize)
-    (hdom : attnHeadLoop0Domain self kplane q scale kv kvh pos)
+    (hdom : attnHeadLoop0Domain hd scale kv kvh stride first pos kplane q)
     (hs : s.val ≤ pos.val)
-    (hinv : attnHeadLoop0Inv self kplane q scale kv kvh pos scores mx s true none) :
+    (hinv : attnHeadLoop0Inv hd scale kv kvh pos kplane q scores mx s true none) :
     WP.spec
-      (attn.KvState.attn_head_loop0.body self kv scale q pos kvh kplane scores mx s true none)
+      (attn.KvState.attn_head_loop0.body hd scale q pos kplane stride first scores mx s true none)
       (fun cf => ∃ scores2 mx2 s2,
         cf = ControlFlow.cont (scores2, mx2, s2, true, none) ∧
-        attnHeadLoop0Inv self kplane q scale kv kvh pos scores2 mx2 s2 true none ∧
+        attnHeadLoop0Inv hd scale kv kvh pos kplane q scores2 mx2 s2 true none ∧
         s2.val = s.val + 1) := by
   obtain ⟨_hok, _herr, _hle, hlen, hpt, hmxval⟩ := hinv
-  obtain ⟨base, val1, val2, val3, krow, hbase, hval1, hval2, hval3, hindex, hkrow, hdotdom,
-    houtlo, houthi⟩ := hdom s hs
+  obtain ⟨hstride, hfirst, hper⟩ := hdom
+  obtain ⟨i1, base, val3, krow, hsmul, haddfirst, hnotgt, haddhd, hindex, hkrow, hdotdom,
+    houtlo, houthi⟩ := hper s hs
   have hkl : krow.val.length = q.val.length := hdotdom.1
   have houtlo' : -(2 : ℤ) ^ (63 : ℕ) ≤ attnScoreInt (dotPrefix krow q krow.val.length) scale.val := by
-    have : (2 : ℤ) ^ (62 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) := by norm_num
+    have hpow : (2 : ℤ) ^ (62 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) := by norm_num
     linarith
-  have houthi' : attnScoreInt (dotPrefix krow q krow.val.length) scale.val ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by
-    have : (2 : ℤ) ^ (62 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by norm_num
+  have houthi' : attnScoreInt (dotPrefix krow q krow.val.length) scale.val
+      ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by
+    have hpow : (2 : ℤ) ^ (62 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by norm_num
     linarith
-  obtain ⟨y, hy_eq, hy_val⟩ := score_at_spec (alloc.vec.Vec.deref kplane) q scale kv self.head_dim
-    kvh s base val1 val2 val3 hbase hval1 hval2 hval3 krow hindex hdotdom houtlo' houthi'
-  have hyS : y.val =
-      (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD s.val 0 := by
-    rw [hy_val]
-    exact (scoreList_getD_eq kplane.val q kv.val self.head_dim.val kvh.val scale.val pos.val s.val hs
-      krow hkrow hkl).symm
-  have hsle : s ≤ pos := (UScalar.le_equiv s pos).2 hs
-  have h1 : (1#usize).val = 1 := by norm_num
-  have hlemax : s.val + (1#usize).val ≤ Usize.max := by rw [h1]; omega
-  obtain ⟨s2, hadd1, hs2⟩ := WP.spec_imp_exists (Usize.add_spec (x := s) (y := 1#usize) hlemax)
-  have hs2' : s2.val = s.val + 1 := by rw [hs2, h1]
   have hpushmax : scores.val.length < Usize.max := by rw [hlen]; omega
-  obtain ⟨scores2, hpush, hpushv⟩ := WP.spec_imp_exists (alloc.vec.Vec.push_spec scores y hpushmax)
+  obtain ⟨y, scores2, s2, hpushv, hs2', hy_val, hbody⟩ :=
+    score_at_spec hd scale stride first pos kplane q scores mx s hpushmax (by omega) hs
+      i1 base val3 hsmul haddfirst hnotgt haddhd krow hindex hdotdom houtlo' houthi'
+  have hyS : y.val =
+      (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD s.val 0 := by
+    rw [hy_val]
+    exact (scoreList_getD_eq kplane.val q kv.val hd.val kvh.val scale.val pos.val s.val hs
+      krow hkrow hkl).symm
   have hlen2 : scores2.val.length = s2.val := by rw [hpushv, hs2']; simp [hlen]
   have hpt2 : ∀ (j : ℕ) (_hj : j < scores2.val.length),
       (scores2.val.getD j 0#i64).val =
-        (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD j 0 := by
+        (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD j 0 := by
     intro j hj
     rw [hpushv] at hj ⊢
     by_cases hjlt : j < scores.val.length
@@ -400,68 +509,41 @@ theorem attn_head_loop0_body_step (self : attn.KvState) (kplane : alloc.vec.Vec 
   rw [WP.spec_equiv_exists]
   by_cases hgt : y > mx
   · have hgtv : mx.val < y.val := (IScalar.lt_equiv mx y).1 hgt
-    refine ⟨ControlFlow.cont (scores2, y, s2, true, none), ?_, scores2, y, s2, rfl,
+    refine ⟨ControlFlow.cont (scores2, y, s2, true, none), hbody.1 hgt,
+      scores2, y, s2, rfl,
       ⟨rfl, rfl, by omega, hlen2, hpt2, ?_⟩, hs2'⟩
-    · rw [attn.KvState.attn_head_loop0.body, if_pos hsle]
-      try dsimp only
-      rw [hy_eq]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [if_pos hgt]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [hpush]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [hadd1]
-      simp only [bind_tc_ok]
-      rfl
-    · rw [hmap2, intListMax_append_singleton, ← hmxval]
-      exact (max_eq_right hgtv.le).symm
+    rw [hmap2, intListMax_append_singleton, ← hmxval]
+    exact (max_eq_right hgtv.le).symm
   · have hgev : y.val ≤ mx.val := by
       by_contra hc
       exact hgt ((IScalar.lt_equiv mx y).2 (by omega))
-    refine ⟨ControlFlow.cont (scores2, mx, s2, true, none), ?_, scores2, mx, s2, rfl,
+    refine ⟨ControlFlow.cont (scores2, mx, s2, true, none), hbody.2 hgt,
+      scores2, mx, s2, rfl,
       ⟨rfl, rfl, by omega, hlen2, hpt2, ?_⟩, hs2'⟩
-    · rw [attn.KvState.attn_head_loop0.body, if_pos hsle]
-      try dsimp only
-      rw [hy_eq]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [if_neg hgt]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [hpush]
-      simp only [bind_tc_ok]
-      try dsimp only
-      rw [hadd1]
-      simp only [bind_tc_ok]
-      rfl
-    · rw [hmap2, intListMax_append_singleton, ← hmxval]
-      exact (max_eq_left hgev).symm
+    rw [hmap2, intListMax_append_singleton, ← hmxval]
+    exact (max_eq_left hgev).symm
 
 /-- **Score-loop specification.** On `attnHeadLoop0Domain`, the extracted `attn_head_loop0`
 starting from an empty `scores` and `mx = I64.MIN` runs to completion (`err = none`) with `scores`
 the whole `scoreList` of the causal prefix, `mx` its exact maximum, and that maximum attained by
 some entry of `scores` — the `hmax` hypothesis `attn_stage_compose`/`attn_stage_compose_closed`
-(`Numeric.AttnSoftmaxPerturb`) need. -/
-theorem attn_head_loop0_spec (self : attn.KvState) (kplane : alloc.vec.Vec I64) (q : Slice I64)
-    (scale : I64) (kv kvh pos : Usize)
+need. -/
+theorem attn_head_loop0_spec (hd : Usize) (scale : I64) (kv kvh stride first pos : Usize)
+    (kplane : alloc.vec.Vec I64) (q : Slice I64)
     (hslots : pos.val + 1 ≤ Usize.max)
-    (hdom : attnHeadLoop0Domain self kplane q scale kv kvh pos)
+    (hdom : attnHeadLoop0Domain hd scale kv kvh stride first pos kplane q)
     (scores0 : alloc.vec.Vec I64) (hscores0 : scores0.val = []) :
-    WP.spec (attn.KvState.attn_head_loop0 self kv scale q pos kvh scores0
-        core.num.I64.MIN kplane 0#usize true none)
+    WP.spec (attn.KvState.attn_head_loop0 hd scale q pos kplane stride first scores0
+        core.num.I64.MIN 0#usize true none)
       (fun b => ∃ scores mx, b = (scores, mx, none) ∧
         scores.val.length = pos.val + 1 ∧
         (∀ (j : ℕ) (_hj : j < scores.val.length),
           (scores.val.getD j 0#i64).val =
-            (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD j
-              0) ∧
+            (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD j 0) ∧
         mx.val = intListMax core.num.I64.MIN.val (scores.val.map (fun x => x.val)) ∧
         ∃ (j : ℕ) (_hj : j < scores.val.length), scores.val.getD j 0#i64 = mx) := by
   have h0z : (0#usize : Usize).val = 0 := by norm_num
-  have hinv0 : attnHeadLoop0Inv self kplane q scale kv kvh pos scores0 core.num.I64.MIN
+  have hinv0 : attnHeadLoop0Inv hd scale kv kvh pos kplane q scores0 core.num.I64.MIN
       0#usize true none := by
     refine ⟨rfl, rfl, by omega, ?_, ?_, ?_⟩
     · rw [hscores0, h0z]; rfl
@@ -470,30 +552,28 @@ theorem attn_head_loop0_spec (self : attn.KvState) (kplane : alloc.vec.Vec I64) 
   have hspec : WP.spec
       (loop (fun (st : (alloc.vec.Vec Std.I64) × Std.I64 × Std.Usize × Bool ×
             (Option attn.AttnError)) =>
-          attn.KvState.attn_head_loop0.body self kv scale q pos kvh kplane st.1 st.2.1 st.2.2.1
-            st.2.2.2.1 st.2.2.2.2)
+          attn.KvState.attn_head_loop0.body hd scale q pos kplane stride first st.1 st.2.1
+            st.2.2.1 st.2.2.2.1 st.2.2.2.2)
         (scores0, core.num.I64.MIN, (0#usize : Std.Usize), true, (none : Option attn.AttnError)))
       (fun b : (alloc.vec.Vec Std.I64) × Std.I64 × (Option attn.AttnError) =>
         ∃ scores mx, b = (scores, mx, none) ∧
           scores.val.length = pos.val + 1 ∧
           (∀ (j : ℕ) (_hj : j < scores.val.length),
             (scores.val.getD j 0#i64).val =
-              (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD j
-                0) ∧
+              (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD j 0) ∧
           mx.val = intListMax core.num.I64.MIN.val (scores.val.map (fun x => x.val))) := by
     apply loop.spec_decr_nat
       (measure := fun st :
           (alloc.vec.Vec Std.I64) × Std.I64 × Std.Usize × Bool × (Option attn.AttnError) =>
         pos.val + 1 - st.2.2.1.val)
-      (inv := fun st => attnHeadLoop0Inv self kplane q scale kv kvh pos st.1 st.2.1 st.2.2.1
-        st.2.2.2.1 st.2.2.2.2)
+      (inv := fun st => attnHeadLoop0Inv hd scale kv kvh pos kplane q
+        st.1 st.2.1 st.2.2.1 st.2.2.2.1 st.2.2.2.2)
       (post := fun b : (alloc.vec.Vec Std.I64) × Std.I64 × (Option attn.AttnError) =>
         ∃ scores mx, b = (scores, mx, none) ∧
           scores.val.length = pos.val + 1 ∧
           (∀ (j : ℕ) (_hj : j < scores.val.length),
             (scores.val.getD j 0#i64).val =
-              (scoreList kplane.val q.val kv.val self.head_dim.val kvh.val scale.val pos.val).getD j
-                0) ∧
+              (scoreList kplane.val q.val kv.val hd.val kvh.val scale.val pos.val).getD j 0) ∧
           mx.val = intListMax core.num.I64.MIN.val (scores.val.map (fun x => x.val)))
     · intro st hst
       rcases st with ⟨scores, mx, s, ok1, err⟩
@@ -502,8 +582,9 @@ theorem attn_head_loop0_spec (self : attn.KvState) (kplane : alloc.vec.Vec I64) 
       subst hok herr
       by_cases hlt : s.val ≤ pos.val
       · obtain ⟨cf, hcf, hpost⟩ := WP.spec_imp_exists
-          (attn_head_loop0_body_step self kplane q scale kv kvh pos hslots scores mx s
-            hdom hlt ⟨rfl, rfl, hle, hlen, hpt, hmxval⟩)
+          (attn_head_loop0_body_step hd scale kv kvh stride first pos kplane q hslots scores mx s
+            hdom hlt
+            ⟨rfl, rfl, hle, hlen, hpt, hmxval⟩)
         obtain ⟨scores2, mx2, s2, hcfg, hinv2, hs2⟩ := hpost
         rw [hcfg] at hcf
         simp only [hcf]
@@ -513,8 +594,8 @@ theorem attn_head_loop0_spec (self : attn.KvState) (kplane : alloc.vec.Vec I64) 
       · have hnot : ¬ (s ≤ pos) := by
           intro hc
           exact hlt ((UScalar.le_equiv s pos).1 hc)
-        have hbody : attn.KvState.attn_head_loop0.body self kv scale q pos kvh kplane scores mx s
-            true none = ok (ControlFlow.done (scores, mx, none)) := by
+        have hbody : attn.KvState.attn_head_loop0.body hd scale q pos kplane stride first scores
+            mx s true none = ok (ControlFlow.done (scores, mx, none)) := by
           rw [attn.KvState.attn_head_loop0.body, if_neg hnot]
         simp only [hbody]
         exact ⟨scores, mx, rfl, by omega, hpt, hmxval⟩
@@ -529,15 +610,15 @@ theorem attn_head_loop0_spec (self : attn.KvState) (kplane : alloc.vec.Vec I64) 
     exact List.mem_map.2 ⟨_, List.getElem_mem h0, rfl⟩
   have hx0 : core.num.I64.MIN.val < (scores.val.getD 0 0#i64).val := by
     rw [hpt 0 h0]
-    obtain ⟨_b0, _v10, _v20, _v30, krow0, _hb0, _hv10, _hv20, _hv30, _hi0, hkrow0, hdotdom0,
-      houtlo0, _houthi0⟩ := hdom 0#usize (by rw [h0z]; omega)
+    obtain ⟨_i10, _b0, _v30, krow0, _hsm0, _haf0, _hng0, _hah0, _hi0, hkrow0, hdotdom0,
+      houtlo0, _houthi0⟩ := hdom.2.2 0#usize (by rw [h0z]; omega)
     rw [h0z] at hkrow0
     have hkl0 : krow0.val.length = q.val.length := hdotdom0.1
-    rw [scoreList_getD_eq kplane.val q kv.val self.head_dim.val kvh.val scale.val pos.val 0
+    rw [scoreList_getD_eq kplane.val q kv.val hd.val kvh.val scale.val pos.val 0
       (Nat.zero_le _) krow0 hkrow0 hkl0]
     have hMIN : core.num.I64.MIN.val = -((2 : ℤ) ^ (63 : ℕ)) := by decide
     rw [hMIN]
-    have : (2 : ℤ) ^ (62 : ℕ) < (2 : ℤ) ^ (63 : ℕ) := by norm_num
+    have hpow : (2 : ℤ) ^ (62 : ℕ) < (2 : ℤ) ^ (63 : ℕ) := by norm_num
     linarith
   rcases intListMax_mem_or_eq_seed core.num.I64.MIN.val (scores.val.map (fun x => x.val))
     with h | h
