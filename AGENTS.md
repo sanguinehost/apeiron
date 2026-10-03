@@ -177,6 +177,14 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
 - Rank by expected contribution, then by difficulty. The hardest high-contribution task is
   dispatched before the easiest, however many lanes it needs.
 
+- **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
+  revision `4cc14471` (`src/lib.rs` sha256 `5bc1c9f48ef0bb17…`) and its monomorphized disassembly,
+  already emitted, at `/home/socol/oc-tmp/ht-llvm/`: `full.asm` sha256 `b68a950e375e5516…`, `ap.asm`
+  `2841d4faa631e537…`, `disasm.txt` `61bc3365ac8c71d5…`, with the instruction-level work order in
+  `ht-llvm/receipt.md` and the attribution in `ht-probe/receipt.md`. A lane **reads those**; it
+  re-builds `../fold` or re-emits IR only to cover a body not already disassembled, and then records
+  the new body, digest and path. Re-emitting the same body is not evidence.
+
 Owner direction.
 
 ## 4 · Definition of done
