@@ -74,7 +74,8 @@ Landed here:
   target (`attn_domain`, `attnErrBound`, `attn_head_refines`);
 * the structural unfold past the guard chain (`word_attn_head_unfold`) and the refusal equalities:
   `LayerOutOfRange`, `HeadOutOfRange`, both `RowLength` arms, `PositionOutOfRange`, the `slots`
-  `Overflow`, and the loop-carried refusals as equalities on the loop result
+  `Overflow` (`word_attn_head_slots_overflow`, proved), and the loop-carried refusals as
+  equalities on the loop result
   (`ExpOutOfRange`/`Overflow` through `attn_head_loop1`, `ZeroSum` on `total ≤ 0`, the weight and
   output stage refusals);
 * the score/normaliser lemmas: the score-stage `i128` product never overflows
@@ -489,16 +490,53 @@ theorem word_attn_head_unfold (state : attn.KvState) (layer q_head : Usize)
   rw [if_neg hpos]
   rfl
 
-/-!
-## The `slots` guard: open
+/-! ## The `slots` guard -/
 
-`word_attn_head_slots_overflow` is not restated in this pass: after the `slots` guard the live
-body binds `group` and `kvh` through the pure `Usize` lift, and the residual
-`do let _ ← q_head / group; ok (Err Overflow, out) = ok (Err Overflow, out)` is not discharged by
-`lift`, `bind_tc_ok` or `rfl` at this opacity. The `slots` guard is `Err Overflow` in the
-extracted body (`attn.KvState.attn_head`, `core.option.Option.ok_or o attn.AttnError.Overflow`)
-and remains an open statement.
--/
+/-- **`slots` refusal.** Past the guard chain, on `Q32` storage whose two plane reads and two GQA
+divisions are admitted, `pos + 1` overflowing the `usize` width returns `Err Overflow` exactly,
+before the score/softmax/weight/output stages (`src/engine/attn.rs`, the `slots` guard
+`core.option.Option.ok_or o attn.AttnError.Overflow` in the extracted `attn.KvState.attn_head`).
+The `group = n_head / n_head_kv` and `kvh = q_head / group` binds are `Result`-valued
+`UScalar.div` binds, not pure lifts, so a zero divisor refuses with `divisionByZero`, which is not
+an `AttnError`; they are carried as the two `ok` equations `hgroup`/`hkvh` instead of being derived
+from the geometry. -/
+theorem word_attn_head_slots_overflow (state : attn.KvState) (layer q_head : Usize)
+    (q out : Slice I64) (pos : Usize) (hcar : carrierQ32 state)
+    (hlayer : ¬ (layer ≥ state.n_layer)) (hhead : ¬ (q_head ≥ state.n_head))
+    (hq : (Slice.len q != state.head_dim) = false)
+    (hout : (Slice.len out != state.head_dim) = false)
+    (len : Usize)
+    (hlen : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+      state.occupied layer = ok len)
+    (hpos : ¬ (pos ≥ len))
+    (k v : alloc.vec.Vec (alloc.vec.Vec I64))
+    (hstor : state.storage = attn.KvStorage.Q32 k v)
+    (kplane vplane : alloc.vec.Vec I64)
+    (hkplane : alloc.vec.Vec.index
+        (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) k layer = ok kplane)
+    (hvplane : alloc.vec.Vec.index
+        (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec Std.I64)) v layer = ok vplane)
+    (grp kvh1 : Usize)
+    (hgroup : state.n_head / state.n_head_kv = ok grp)
+    (hkvh : q_head / grp = ok kvh1)
+    (hslots : Usize.checked_add pos 1#usize = none) :
+    word_attn_head state layer q_head q pos out =
+      ok (core.result.Result.Err attn.AttnError.Overflow, out) := by
+  rw [word_attn_head, attn.KvState.attn_head]
+  simp only [mixer.Carrier.Insts.CoreCmpPartialEqCarrier.eq, bind_tc_ok]
+  rw [if_neg hcar, if_neg hlayer, if_neg hhead, if_neg (ne_true_of_eq_false hq),
+    if_neg (ne_true_of_eq_false hout)]
+  rw [hlen]
+  simp only [bind_tc_ok]
+  rw [if_neg hpos]
+  simp only [hstor]
+  simp only [lift, bind_tc_ok, hkplane, hvplane, hgroup, hkvh]
+  rw [hslots]
+  simp only [bind_tc_ok, core.option.Option.ok_or_none]
+  rw [result_branch_err]
+  simp only [bind_tc_ok]
+  rw [result_from_residual_err]
+  simp only [bind_tc_ok]
 
 /-! ## Score stage: the epilogue and its bound -/
 
