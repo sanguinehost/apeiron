@@ -1102,6 +1102,80 @@ pub fn word_sha256(msg: &[u8]) -> [u8; 32] {
     sha256::sha256(msg)
 }
 
+/// `sha256::sha256d`, the double SHA-256 composition, at the concrete `&[u8]`/`[u8; 32]` types.
+///
+/// This calls the real `src/sha256.rs` `sha256d` body, which applies the real [`sha256::sha256`]
+/// twice; the wrapper fixes the slice and array types and does not restate the composition.
+pub fn word_sha256d(msg: &[u8]) -> [u8; 32] {
+    sha256::sha256d(msg)
+}
+
+/// RFC 8439. `src/chacha.rs` imports only `core`, so no mirror above is needed. Declared last so
+/// no earlier extracted item's source span moves.
+#[path = "../../src/chacha.rs"]
+pub mod chacha;
+
+/// `chacha::chacha20poly1305_encrypt`, the RFC 8439 section 2.8.1 AEAD seal, at the concrete
+/// `&[u8; 32]` key, `&[u8; 12]` nonce and `&[u8]` aad/plaintext types.
+///
+/// This calls the real `src/chacha.rs` body; the wrapper fixes the slice and array types and does
+/// not restate the one-time-key derivation, the keystream xor, the MAC-input padding or the tag
+/// append. The body is total (infallible, returning `Vec<u8>`), so this root has no `Result`.
+pub fn word_chacha20poly1305_encrypt(
+    key: &[u8; chacha::KEY_LEN],
+    nonce: &[u8; chacha::NONCE_LEN],
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Vec<u8> {
+    chacha::chacha20poly1305_encrypt(key, nonce, aad, plaintext)
+}
+
+/// `chacha::chacha20poly1305_decrypt`, the RFC 8439 section 2.8.2 AEAD open, at the same concrete
+/// key/nonce types.
+///
+/// This calls the real `src/chacha.rs` body; the wrapper fixes the types and does not restate the
+/// short-ciphertext refusal, the constant-time tag comparison or the keystream xor. It is the only
+/// partial entry point: it yields `Ok(Vec<u8>)` or `Err(chacha::Error)`.
+pub fn word_chacha20poly1305_decrypt(
+    key: &[u8; chacha::KEY_LEN],
+    nonce: &[u8; chacha::NONCE_LEN],
+    aad: &[u8],
+    ciphertext_and_tag: &[u8],
+) -> Result<Vec<u8>, chacha::Error> {
+    chacha::chacha20poly1305_decrypt(key, nonce, aad, ciphertext_and_tag)
+}
+
+/// FIPS 197. `src/aes.rs` imports only `core`, so no mirror above is needed. Declared after
+/// `chacha` so no earlier extracted item's source span moves.
+#[path = "../../src/aes.rs"]
+pub mod aes;
+
+/// `aes::aes128_encrypt_block`, the FIPS 197 section 6.1 cipher, at the concrete `&[u8; 16]` key
+/// and block types.
+///
+/// This calls the real `src/aes.rs` body; the wrapper fixes nothing beyond naming the array types,
+/// which are already concrete. It does not restate the key expansion, SubBytes, ShiftRows,
+/// MixColumns or AddRoundKey steps.
+pub fn word_aes128_encrypt_block(
+    key: &[u8; aes::KEY_LEN],
+    block: &[u8; aes::BLOCK_LEN],
+) -> [u8; aes::BLOCK_LEN] {
+    aes::aes128_encrypt_block(key, block)
+}
+
+/// `aes::aes128_decrypt_block`, the FIPS 197 section 6.2 equivalent inverse cipher, at the same
+/// concrete key and block types.
+///
+/// This calls the real `src/aes.rs` body and does not restate InvShiftRows, InvSubBytes,
+/// InvMixColumns or the round-key order. The body is total (infallible, returning `[u8; 16]`), so
+/// this root has no `Result`.
+pub fn word_aes128_decrypt_block(
+    key: &[u8; aes::KEY_LEN],
+    block: &[u8; aes::BLOCK_LEN],
+) -> [u8; aes::BLOCK_LEN] {
+    aes::aes128_decrypt_block(key, block)
+}
+
 /// `crypto::shake128`, rooted at the concrete `&[u8]` message and `&mut [u8]` out-parameter.
 ///
 /// Not an extraction root: its output length is unbounded at the call site, so the root would be

@@ -138,6 +138,9 @@ $REPO_DIR/src/engine/kern/mod.rs
 $REPO_DIR/src/engine/trace.rs
 $REPO_DIR/src/numeric/fixed_ln.rs
 $REPO_DIR/src/crypto.rs
+$REPO_DIR/src/sha256.rs
+$REPO_DIR/src/chacha.rs
+$REPO_DIR/src/aes.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -237,6 +240,11 @@ run_extract() {
         --start-from crate::word_sha3_256 \
         --start-from crate::word_sha3_512 \
         --start-from crate::word_sha256 \
+        --start-from crate::word_sha256d \
+        --start-from crate::word_chacha20poly1305_encrypt \
+        --start-from crate::word_chacha20poly1305_decrypt \
+        --start-from crate::word_aes128_encrypt_block \
+        --start-from crate::word_aes128_decrypt_block \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

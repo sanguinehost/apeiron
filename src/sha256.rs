@@ -141,3 +141,16 @@ pub fn sha256(msg: &[u8]) -> [u8; 32] {
     }
     out
 }
+
+/// Compute the double SHA-256 of `msg`: `sha256(sha256(msg))`, the Bitcoin block and
+/// transaction-commitment construction.
+///
+/// Temporal cost is two applications of [`sha256`], so `O(msg.len() / 64)` compressions, `O(msg.len())`
+/// time in bytes: the first call pads to `floor(msg.len() / 64) + 1` or `+ 2` blocks, the second pads
+/// the fixed 32-byte digest to exactly one block. Spatial cost is two rounds of the 8-word state, the
+/// 64-word schedule and the 128-byte tail buffer, all on the stack, independent of `msg.len()`; the
+/// first digest is 32 bytes and is a value, not an allocation. Total and infallible on every input.
+#[must_use]
+pub fn sha256d(msg: &[u8]) -> [u8; 32] {
+    sha256(&sha256(msg))
+}
