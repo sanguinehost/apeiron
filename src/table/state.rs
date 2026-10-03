@@ -419,7 +419,7 @@ fn slots_for(load: usize, n: usize) -> Result<usize, StorageError> {
 fn capacity_bound(required_len: usize, observed_capacity: usize) -> CapacityBound {
     assert!(
         capacity_bound_holds(required_len, observed_capacity),
-        "reserved capacity {observed_capacity} is below the checked target {required_len}"
+        "reserved capacity is below the checked target"
     );
     CapacityBound {
         required_len,
