@@ -570,6 +570,12 @@ pub(crate) struct AcceptanceOutcome {
     pub(crate) address_face_unmatched: usize,
     /// The per-pair status, in `campaign.pairs` order.
     pub(crate) pair_status: Vec<PairStatus>,
+    /// Per pair and in `campaign.pairs` order: whether the pair reached the ratio decision, i.e.
+    /// whether it was measured, structurally valid and comparable, so that
+    /// `campaign_ratios` is a real interval for it. The repetition report reads this to decide
+    /// which pairs a per-campaign pass tally may count; a pair that failed for a structural reason
+    /// has no timing to spread and is excluded from every sweep identically.
+    pub(crate) ratio_decided: Vec<bool>,
     pub(crate) failing: Vec<String>,
     pub(crate) missing: Vec<String>,
     pub(crate) unauthorized: Vec<String>,
@@ -887,11 +893,18 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
     let mut concurrency_unmatched = 0usize;
     let mut address_face_unmatched = 0usize;
     let mut pair_status: Vec<PairStatus> = Vec::with_capacity(campaign.pairs.len());
+    let mut ratio_decided: Vec<bool> = Vec::with_capacity(campaign.pairs.len());
+    // One recorder for both per-pair vectors, so a new rejection path cannot fill `pair_status`
+    // and leave the repetition report's decided flags one entry short.
+    let mut record = |status: PairStatus, decided: bool| {
+        pair_status.push(status);
+        ratio_decided.push(decided);
+    };
 
     for pair in &campaign.pairs {
         let Some(&index) = tally_index.get(pair.incumbent_id) else {
             failing.push(format!("unknown incumbent {}", pair.incumbent_id));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         };
         if !cell_set.contains(pair.cell_id.as_str()) {
@@ -900,7 +913,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) is not a registered cell",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if !seen.insert((pair.cell_id.as_str(), pair.incumbent_id)) {
@@ -909,7 +922,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "duplicate pair ({}, {})",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if pair.class == PairClass::Informational {
@@ -925,13 +938,13 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                         pair.oracle_digest,
                         pair.expected_oracle_digest
                     ));
-                    pair_status.push(PairStatus::Fail);
+                    record(PairStatus::Fail, false);
                     continue;
                 }
             }
             tallies[index].informational += 1;
             informational += 1;
-            pair_status.push(PairStatus::Informational);
+            record(PairStatus::Informational, false);
             continue;
         }
         tallies[index].applicable += 1;
@@ -943,13 +956,13 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                     "({}, {}): {reason}",
                     pair.cell_id, pair.incumbent_id
                 ));
-                pair_status.push(PairStatus::Unauthorized);
+                record(PairStatus::Unauthorized, false);
                 continue;
             }
             Applicability::AuthorizedNotApplicable(_) => {
                 tallies[index].not_applicable += 1;
                 not_applicable += 1;
-                pair_status.push(PairStatus::NotApplicable);
+                record(PairStatus::NotApplicable, false);
                 continue;
             }
             Applicability::Applicable(_) => {}
@@ -961,7 +974,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}): {reason}",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Missing);
+            record(PairStatus::Missing, false);
             continue;
         }
         if pair.oracle_digest != pair.expected_oracle_digest {
@@ -970,7 +983,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) wrong oracle {:016x} != {:016x}",
                 pair.cell_id, pair.incumbent_id, pair.oracle_digest, pair.expected_oracle_digest
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if pair.selected_samples.is_empty()
@@ -982,7 +995,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) invalid/empty samples",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if pair.selected_samples.contains(&0) || pair.incumbent_samples.contains(&0) {
@@ -991,7 +1004,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) zero-nanosecond sample",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if pair.campaign_ratios.iter().any(|r| !r.is_finite()) {
@@ -1000,7 +1013,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) non-finite ratio interval",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         // The pair is measured and valid. A phase/concurrency mismatch is checked first: two sides
@@ -1018,7 +1031,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 pair.sel_workers,
                 pair.inc_workers.map_or(0, |w| w)
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         if pair.address_face == AddressFace::Unmatched {
@@ -1028,7 +1041,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) address_face=unmatched selected_address={}",
                 pair.cell_id, pair.incumbent_id, pair.selected_address
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, false);
             continue;
         }
         let r_max = pair
@@ -1043,12 +1056,12 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
                 "({}, {}) rmax={r_max:.4} > {RATIO_LIMIT:.2}",
                 pair.cell_id, pair.incumbent_id
             ));
-            pair_status.push(PairStatus::Fail);
+            record(PairStatus::Fail, true);
             continue;
         }
         tallies[index].passed += 1;
         passed += 1;
-        pair_status.push(PairStatus::Pass);
+        record(PairStatus::Pass, true);
     }
 
     for cell in &campaign.cells {
@@ -1077,6 +1090,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
         concurrency_unmatched,
         address_face_unmatched,
         pair_status,
+        ratio_decided,
         failing,
         missing,
         unauthorized,
@@ -2494,6 +2508,344 @@ fn run_regression_control() -> i32 {
     2
 }
 
+/// The registered cross-run spread of the acceptance pass tally, in pairs: the widest movement of
+/// `acceptance_summary ... pass=` between independent full-profile invocations of one unchanged
+/// source on this machine (673, 635, 617 — a spread of 56).
+///
+/// This is the floor a reader must use when comparing two *separate* invocations. The in-run
+/// campaign spread [`Repetitions::spread`] is measured over the registered campaigns of a single
+/// invocation and is narrower, because those campaigns are adjacent; reporting only the narrower
+/// figure would license a reader to call a 40-pair movement between two runs a change, which is
+/// the movement this constant already measured. The reported bound is the wider of the two.
+const ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD: usize = 56;
+
+/// One decided pair's per-campaign pass flags and its ratio statistics over the campaign axis.
+///
+/// The registered full profile already runs `strata::FULL_CAMPAIGNS` campaigns of each cell's timed
+/// region, and each campaign is one complete interleaved pass over the selected arm and every
+/// incumbent arm (`strata::run_cell`: warmup both arms, then `STRATA_SAMPLES` samples alternating
+/// arm order; `spatial::run_cell` the same per campaign). Each pass is therefore already a full
+/// sweep of the timed region for that pair, so the repetition axis the harness reports is the one
+/// it already pays for. No campaign is added and none is removed.
+struct PairRepetitions {
+    cell_id: String,
+    incumbent_id: &'static str,
+    /// One flag per campaign: whether that campaign's own `selected/incumbent` ratio met the
+    /// registered limit.
+    pass_per_campaign: Vec<bool>,
+    ratio_mean: f64,
+    ratio_min: f64,
+    ratio_max: f64,
+    /// `ratio_max / ratio_min`, the same multiplicative form the regression check measures, so one
+    /// reader reads both with one definition.
+    ratio_spread: f64,
+    ratio_spread_abs: f64,
+    /// Whether the pooled campaign-interval-max rule passed this pair. Reported beside the flags
+    /// because the pooled verdict is the gate and can differ from every individual flag.
+    pooled_pass: bool,
+}
+
+/// The per-incumbent aggregate over the campaign axis.
+struct IncumbentRepetitions {
+    id: &'static str,
+    decided_pairs: usize,
+    ratio_mean: f64,
+    ratio_min: f64,
+    ratio_max: f64,
+    ratio_spread: f64,
+    pass_per_campaign: Vec<usize>,
+}
+
+/// The whole repetition report: one invocation's mean and spread for the pass tally and for every
+/// decided pair's ratio, so no reader has to invoke the harness three times to learn whether a
+/// movement is inside the spread already measured on unchanged code.
+struct Repetitions {
+    /// The number of campaigns the profile ran, i.e. the repetition count. One for the smoke
+    /// profile, which registers a single campaign; reported, never assumed to be three.
+    campaigns: usize,
+    /// Pairs that reached the ratio decision, the population every mean below is taken over.
+    decided_pairs: usize,
+    /// The gated pooled verdict, unchanged and unsmoothed.
+    pooled_pass: usize,
+    /// The pass tally of each campaign: the number of decided pairs whose own ratio met the limit.
+    pass_per_campaign: Vec<usize>,
+    pairs: Vec<PairRepetitions>,
+    incumbents: Vec<IncumbentRepetitions>,
+}
+
+impl Repetitions {
+    /// The pass tally's arithmetic mean over the campaigns.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a pair count and a campaign count are both far below 2^53"
+    )]
+    fn pass_mean(&self) -> f64 {
+        if self.pass_per_campaign.is_empty() {
+            return f64::NAN;
+        }
+        let sum: usize = self.pass_per_campaign.iter().sum();
+        sum as f64 / self.pass_per_campaign.len() as f64
+    }
+
+    fn pass_min(&self) -> usize {
+        self.pass_per_campaign.iter().copied().min().unwrap_or(0)
+    }
+
+    fn pass_max(&self) -> usize {
+        self.pass_per_campaign.iter().copied().max().unwrap_or(0)
+    }
+
+    /// The in-run pass-tally spread, `max - min` over the campaigns.
+    fn spread(&self) -> usize {
+        self.pass_max().saturating_sub(self.pass_min())
+    }
+
+    /// The population standard deviation of the pass tally over the campaigns. Named
+    /// `sd` because it divides by the number of campaigns, not by one fewer.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a pass tally is a pair count far below 2^53"
+    )]
+    fn pass_sd(&self) -> f64 {
+        if self.pass_per_campaign.is_empty() {
+            return f64::NAN;
+        }
+        let mean = self.pass_mean();
+        let variance = self
+            .pass_per_campaign
+            .iter()
+            .map(|&p| {
+                let d = p as f64 - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / self.pass_per_campaign.len() as f64;
+        variance.sqrt()
+    }
+
+    /// The bound a reader must respect: the wider of the spread this invocation measured over its
+    /// own campaigns and the registered cross-invocation spread.
+    fn spread_bound(&self) -> usize {
+        self.spread().max(ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD)
+    }
+}
+
+/// Collect the per-campaign statistics over every pair that reached the ratio decision.
+///
+/// # Errors
+/// Returns a description when `outcome.ratio_decided` is not one entry per pair, when a decided
+/// pair's ratio interval is empty or non-finite, or when the pairs disagree about the campaign
+/// count. Every one of those means the repetition axis is not what the profile says it is, and a
+/// mean over it would be a fabricated number, so the run fails closed instead.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_precision_loss,
+    reason = "one function states the whole repetition aggregation; a pair count, a campaign count \
+              and a nanosecond-derived ratio are all far below 2^53, the bound matrix::ratio states \
+              for the same conversion"
+)]
+fn collect_repetitions(
+    campaign: &Campaign,
+    outcome: &AcceptanceOutcome,
+) -> Result<Repetitions, String> {
+    if outcome.ratio_decided.len() != campaign.pairs.len() {
+        return Err(format!(
+            "{} decided flags for {} pairs",
+            outcome.ratio_decided.len(),
+            campaign.pairs.len()
+        ));
+    }
+    let campaigns = campaign
+        .pairs
+        .iter()
+        .zip(&outcome.ratio_decided)
+        .filter(|(_, &decided)| decided)
+        .map(|(pair, _)| pair.campaign_ratios.len())
+        .max()
+        .unwrap_or(0);
+    let mut pass_per_campaign = vec![0usize; campaigns];
+    let mut pairs = Vec::new();
+    let mut by_incumbent: HashMap<&'static str, IncumbentRepetitions> = HashMap::new();
+    let mut decided_pairs = 0usize;
+    let mut pooled_pass = 0usize;
+
+    for (index, pair) in campaign.pairs.iter().enumerate() {
+        if !outcome.ratio_decided[index] {
+            continue;
+        }
+        if pair.campaign_ratios.is_empty() || pair.campaign_ratios.len() != campaigns {
+            return Err(format!(
+                "({}, {}) carries {} campaign ratios, expected {campaigns}",
+                pair.cell_id,
+                pair.incumbent_id,
+                pair.campaign_ratios.len()
+            ));
+        }
+        if pair.campaign_ratios.iter().any(|r| !r.is_finite()) {
+            return Err(format!(
+                "({}, {}) non-finite campaign ratio",
+                pair.cell_id, pair.incumbent_id
+            ));
+        }
+        let ratio_min = pair
+            .campaign_ratios
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        let ratio_max = pair
+            .campaign_ratios
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum: f64 = pair.campaign_ratios.iter().sum();
+        let pass_flags: Vec<bool> = pair
+            .campaign_ratios
+            .iter()
+            .map(|&r| r <= RATIO_LIMIT)
+            .collect();
+        for (k, passed) in pass_flags.iter().enumerate() {
+            if *passed {
+                pass_per_campaign[k] += 1;
+            }
+        }
+        decided_pairs += 1;
+        let pooled = outcome.pair_status[index] == PairStatus::Pass;
+        if pooled {
+            pooled_pass += 1;
+        }
+        let entry = by_incumbent
+            .entry(pair.incumbent_id)
+            .or_insert_with(|| IncumbentRepetitions {
+                id: pair.incumbent_id,
+                decided_pairs: 0,
+                ratio_mean: 0.0,
+                ratio_min: f64::INFINITY,
+                ratio_max: f64::NEG_INFINITY,
+                ratio_spread: 0.0,
+                pass_per_campaign: vec![0; campaigns],
+            });
+        entry.decided_pairs += 1;
+        entry.ratio_mean += sum / campaigns as f64;
+        entry.ratio_min = entry.ratio_min.min(ratio_min);
+        entry.ratio_max = entry.ratio_max.max(ratio_max);
+        for (k, passed) in pass_flags.iter().enumerate() {
+            if *passed {
+                entry.pass_per_campaign[k] += 1;
+            }
+        }
+        pairs.push(PairRepetitions {
+            cell_id: pair.cell_id.clone(),
+            incumbent_id: pair.incumbent_id,
+            pass_per_campaign: pass_flags,
+            ratio_mean: sum / campaigns as f64,
+            ratio_min,
+            ratio_max,
+            ratio_spread: if ratio_min > 0.0 {
+                ratio_max / ratio_min
+            } else {
+                f64::NAN
+            },
+            ratio_spread_abs: ratio_max - ratio_min,
+            pooled_pass: pooled,
+        });
+    }
+    for entry in by_incumbent.values_mut() {
+        entry.ratio_mean /= entry.decided_pairs as f64;
+        entry.ratio_spread = if entry.ratio_min > 0.0 {
+            entry.ratio_max / entry.ratio_min
+        } else {
+            f64::NAN
+        };
+    }
+    let mut incumbents: Vec<IncumbentRepetitions> = by_incumbent.into_values().collect();
+    // The registration order, so the block reads against `acceptance_ratio incumbent=` above it.
+    incumbents.sort_by_key(|e| {
+        INCUMBENTS
+            .iter()
+            .position(|i| i.id == e.id)
+            .unwrap_or(usize::MAX)
+    });
+    Ok(Repetitions {
+        campaigns,
+        decided_pairs,
+        pooled_pass,
+        pass_per_campaign,
+        pairs,
+        incumbents,
+    })
+}
+
+/// Print the averaged block: the pass tally's mean and spread, then each incumbent's and each
+/// decided pair's ratio mean and spread, over the campaigns this invocation already ran.
+fn print_repetitions(profile: Profile, r: &Repetitions) {
+    let rule = "pass_at_campaign_k is campaign k's own selected/incumbent <= 1.00; the gate \
+                remains the pooled campaign interval max over all campaigns, so the mean reports \
+                and never decides";
+    println!(
+        "acceptance_repeats profile={} axis=campaign campaigns={} decided_pairs={} pooled_pass={} \
+         pass_mean={:.2} pass_min={} pass_max={} pass_spread={} pass_sd={:.2} \
+         cross_run_floor={} spread_bound={} spread_bound_source={} rule=\"{rule}\"",
+        profile.name(),
+        r.campaigns,
+        r.decided_pairs,
+        r.pooled_pass,
+        r.pass_mean(),
+        r.pass_min(),
+        r.pass_max(),
+        r.spread(),
+        r.pass_sd(),
+        ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD,
+        r.spread_bound(),
+        if r.spread() > ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD {
+            "max(measured_in_run,registered_cross_run)"
+        } else {
+            "registered_cross_run"
+        },
+    );
+    for (k, passed) in r.pass_per_campaign.iter().enumerate() {
+        println!(
+            "acceptance_repeats_campaign profile={} campaign={} decided_pairs={} pass={passed}",
+            profile.name(),
+            k + 1,
+            r.decided_pairs
+        );
+    }
+    for inc in &r.incumbents {
+        println!(
+            "acceptance_repeats_incumbent incumbent={} decided_pairs={} ratio_mean={:.4} \
+             ratio_min={:.4} ratio_max={:.4} ratio_spread={:.4} pass_at_campaign={:?}",
+            inc.id,
+            inc.decided_pairs,
+            inc.ratio_mean,
+            inc.ratio_min,
+            inc.ratio_max,
+            inc.ratio_spread,
+            inc.pass_per_campaign
+        );
+    }
+    for pair in &r.pairs {
+        let flags: String = pair
+            .pass_per_campaign
+            .iter()
+            .map(|passed| if *passed { 'P' } else { 'F' })
+            .collect();
+        println!(
+            "acceptance_cell_ratio cell={} incumbent={} campaigns={} ratio_mean={:.4} \
+             ratio_min={:.4} ratio_max={:.4} ratio_spread={:.4} ratio_spread_abs={:.4} \
+             pass_at_campaign={flags} pooled={}",
+            pair.cell_id,
+            pair.incumbent_id,
+            r.campaigns,
+            pair.ratio_mean,
+            pair.ratio_min,
+            pair.ratio_max,
+            pair.ratio_spread,
+            pair.ratio_spread_abs,
+            if pair.pooled_pass { "pass" } else { "fail" },
+        );
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one function states the acceptance campaign's full phase sequence"
@@ -2589,6 +2941,17 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         print_pair_table(&campaign, &outcome);
     }
     print_headline(&outcome);
+    // The mean and spread block. The gated verdict above is untouched: the pooled campaign interval
+    // max decides, and this reports what the registered campaigns of this one invocation measured.
+    let repetitions = match collect_repetitions(&campaign, &outcome) {
+        Ok(repetitions) => repetitions,
+        Err(e) => {
+            eprintln!("acceptance repetition aggregation failed: {e}");
+            return 1;
+        }
+    };
+    performance::phase_mark("accept.repetitions", t_total, &mut t_last);
+    print_repetitions(profile, &repetitions);
     // `gate_full_acceptance` is the pair acceptance AND the registered-baseline regression. The
     // HEADLINE line above keeps reporting the pair acceptance alone, so the registered pair tallies
     // it states are unchanged by the regression check; the regression is a separate conjunct here.
@@ -2642,3 +3005,207 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
 /// acceptance report cannot silently drop a required comparison.
 #[cfg(test)]
 mod registry_tests;
+
+#[cfg(test)]
+mod repetition_tests {
+    use super::{
+        collect_repetitions, synthetic_campaign, Repetitions, ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD,
+        RATIO_LIMIT,
+    };
+    use crate::matrix::median;
+
+    /// A synthetic campaign whose pairs carry `ratios` per campaign, with every other pair left at
+    /// the synthetic default. Returns the campaign, the repetition report, and the synthetic
+    /// campaign's own decided-pair count.
+    fn report_for(cell: &str, incumbent: &str, ratios: &[f64]) -> Repetitions {
+        let mut campaign = synthetic_campaign();
+        let Some(pair) = campaign
+            .pairs
+            .iter_mut()
+            .find(|p| p.cell_id == cell && p.incumbent_id == incumbent)
+        else {
+            panic!("synthetic campaign has no ({cell}, {incumbent}) pair");
+        };
+        pair.campaign_ratios = ratios.to_vec();
+        let outcome = super::evaluate(&campaign, false);
+        collect_repetitions(&campaign, &outcome).expect("the synthetic campaign is well formed")
+    }
+
+    /// The mean is over the campaigns the profile ran, and the spread is the range over the same
+    /// campaigns: three campaigns whose pass flags are all, none, and one true give `pass_per_campaign`
+    /// `[n+1, n, n+1]` about this pair and a mean strictly between the extremes.
+    #[test]
+    fn pass_mean_and_spread_cover_every_campaign() {
+        let r = report_for("synthetic-cell-a", "hashtrinity_table", &[0.5, 0.5, 0.5]);
+        assert_eq!(r.campaigns, 3);
+        assert_eq!(r.pass_per_campaign.len(), 3);
+        // Every decided pair of the synthetic campaign sits at 0.5, so all three campaigns tally
+        // the same and the spread is exactly zero.
+        assert_eq!(r.spread(), 0);
+        assert_eq!(r.pass_mean(), r.pass_min() as f64);
+        assert_eq!(r.pass_mean(), r.pass_max() as f64);
+        assert!((r.pass_sd()).abs() < f64::EPSILON);
+    }
+
+    /// A single-pass outlier is the case the mean exists for. Seeding one campaign of one pair
+    /// past the limit moves that campaign's tally by exactly one and leaves the other two
+    /// unchanged, and the reported spread names the movement.
+    #[test]
+    fn a_seeded_outlier_moves_its_campaign_only_and_widens_the_spread() {
+        let baseline = report_for("synthetic-cell-a", "hashtrinity_table", &[0.5, 0.5, 0.5]);
+        // The third campaign of this one pair is seeded above the limit.
+        let seeded = report_for(
+            "synthetic-cell-a",
+            "hashtrinity_table",
+            &[0.5, 0.5, RATIO_LIMIT + 0.5],
+        );
+        assert_eq!(seeded.campaigns, 3);
+        assert_eq!(
+            seeded.pass_per_campaign.len(),
+            baseline.pass_per_campaign.len()
+        );
+        // Exactly one campaign lost exactly one pair, and it is the seeded one.
+        for (k, (before, after)) in baseline
+            .pass_per_campaign
+            .iter()
+            .zip(&seeded.pass_per_campaign)
+            .enumerate()
+        {
+            let delta = *before as i64 - *after as i64;
+            assert_eq!(delta, i64::from(k == 2), "campaign {k} moved by {delta}");
+        }
+        // The mean is bounded: one pair out of the population cannot drag it below the untouched
+        // campaigns' tally, and the spread is exactly the one pair.
+        assert!(seeded.spread() >= baseline.spread());
+        assert_eq!(seeded.spread(), 1);
+        assert!(seeded.pass_mean() < seeded.pass_max() as f64);
+        assert!(seeded.pass_mean() >= seeded.pass_min() as f64 - f64::EPSILON);
+        // The seeded pair names itself: its own spread is the outlier and its mean is bounded by
+        // the limit it crossed.
+        let pair = seeded
+            .pairs
+            .iter()
+            .find(|p| p.cell_id == "synthetic-cell-a" && p.incumbent_id == "hashtrinity_table")
+            .expect("the seeded pair is in the report");
+        assert_eq!(pair.pass_per_campaign, vec![true, true, false]);
+        assert_eq!(pair.ratio_min, 0.5);
+        assert_eq!(pair.ratio_max, RATIO_LIMIT + 0.5);
+        assert_eq!(pair.ratio_spread, (RATIO_LIMIT + 0.5) / 0.5);
+        assert!(pair.ratio_mean > 0.5 && pair.ratio_mean < RATIO_LIMIT + 0.5);
+        assert!(
+            !pair.pooled_pass,
+            "the pooled gate still fails the seeded pair"
+        );
+    }
+
+    /// The per-cell ratio mean is the mean of that pair's own campaign ratios and the spread its own
+    /// `max/min`, so a reader needs no second definition to compare two cells.
+    #[test]
+    fn per_cell_ratio_mean_and_spread_come_from_that_pairs_campaigns() {
+        let ratios = [0.4, 0.5, 0.6];
+        let r = report_for("synthetic-cell-a", "hashtrinity_table", &ratios);
+        let pair = r
+            .pairs
+            .iter()
+            .find(|p| p.cell_id == "synthetic-cell-a" && p.incumbent_id == "hashtrinity_table")
+            .expect("the pair is in the report");
+        let want_mean = ratios.iter().sum::<f64>() / 3.0;
+        assert!((pair.ratio_mean - want_mean).abs() < 1e-12);
+        assert_eq!(pair.ratio_min, 0.4);
+        assert_eq!(pair.ratio_max, 0.6);
+        assert!((pair.ratio_spread - 1.5).abs() < 1e-12);
+        assert!((pair.ratio_spread_abs - 0.2).abs() < 1e-12);
+        // The untouched pairs of the same incumbent are still reported, at their own 0.5.
+        let others: Vec<f64> = r
+            .pairs
+            .iter()
+            .filter(|p| p.cell_id == "synthetic-cell-a" && p.incumbent_id != "hashtrinity_table")
+            .map(|p| p.ratio_mean)
+            .collect();
+        assert!(others.iter().all(|m| (*m - 0.5).abs() < 1e-12));
+    }
+
+    /// The incumbent aggregate is the mean over its own decided pairs' means, so one noisy pair
+    /// cannot dominate it.
+    #[test]
+    fn incumbent_mean_is_the_mean_over_its_pairs() {
+        let r = report_for("synthetic-cell-a", "hashtrinity_table", &[1.5, 1.5, 1.5]);
+        let inc = r
+            .incumbents
+            .iter()
+            .find(|i| i.id == "hashtrinity_table")
+            .expect("the incumbent is in the report");
+        // One pair at 1.5 among the incumbent's other pairs at 0.5.
+        let want = (1.5 + 0.5 * (inc.decided_pairs as f64 - 1.0)) / inc.decided_pairs as f64;
+        assert!(inc.decided_pairs >= 2);
+        assert!(
+            (inc.ratio_mean - want).abs() < 1e-12,
+            "{} vs {want}",
+            inc.ratio_mean
+        );
+        assert_eq!(inc.ratio_min, 0.5);
+        assert_eq!(inc.ratio_max, 1.5);
+        assert!((inc.ratio_spread - 3.0).abs() < 1e-12);
+        // And the failing pair contributes no pass to any campaign.
+        assert_eq!(inc.pass_per_campaign, vec![inc.decided_pairs - 1; 3]);
+    }
+
+    /// The reported bound is never narrower than the registered cross-invocation spread, which is
+    /// what keeps a reader from calling a cross-run movement a change.
+    #[test]
+    fn spread_bound_is_never_narrower_than_the_registered_cross_run_spread() {
+        let r = report_for("synthetic-cell-a", "hashtrinity_table", &[0.5, 0.5, 0.5]);
+        assert_eq!(r.spread(), 0);
+        assert_eq!(r.spread_bound(), ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD);
+        assert!(r.spread_bound() >= r.spread());
+        assert!(r.spread_bound() >= ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD);
+    }
+
+    /// The aggregation fails closed on a decided-flag vector that is not one entry per pair, rather
+    /// than silently aggregating a prefix.
+    #[test]
+    fn a_short_decided_vector_is_rejected() {
+        let campaign = synthetic_campaign();
+        let mut outcome = super::evaluate(&campaign, false);
+        outcome.ratio_decided.pop();
+        let e = collect_repetitions(&campaign, &outcome)
+            .err()
+            .expect("a short decided vector must not aggregate");
+        assert!(e.contains("decided flags"), "{e}");
+    }
+
+    /// A decided pair whose campaign count disagrees with the rest is rejected: a mean over a
+    /// ragged axis would compare campaigns that no pair ran together.
+    #[test]
+    fn a_ragged_campaign_count_is_rejected() {
+        let mut campaign = synthetic_campaign();
+        campaign.pairs[0].campaign_ratios = vec![0.5, 0.5];
+        let outcome = super::evaluate(&campaign, false);
+        let e = collect_repetitions(&campaign, &outcome)
+            .err()
+            .expect("a ragged campaign count must not aggregate");
+        assert!(e.contains("campaign ratios"), "{e}");
+    }
+
+    /// The per-cell statistics agree with the medians the pair table already prints: the reported
+    /// ratio interval is the same interval the pair table's `ratio_interval` column shows.
+    #[test]
+    fn per_cell_interval_matches_the_pair_table_column() {
+        let ratios = [0.30, 0.42, 0.55];
+        let r = report_for("synthetic-cell-a", "hashtrinity_table", &ratios);
+        let pair = r
+            .pairs
+            .iter()
+            .find(|p| p.cell_id == "synthetic-cell-a" && p.incumbent_id == "hashtrinity_table")
+            .expect("the pair is in the report");
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        assert_eq!(pair.ratio_min, sorted[0]);
+        assert_eq!(pair.ratio_max, sorted[sorted.len() - 1]);
+        // And the median of a constant-ratio synthetic pair is 100 ns on both sides, so the
+        // pair-table ratio is 1.0 while the campaign ratios above are the seeded values: the two
+        // are different statistics and the block names the campaign one.
+        let synthetic = median(&[100, 101, 102]);
+        assert_eq!(synthetic, 101);
+    }
+}

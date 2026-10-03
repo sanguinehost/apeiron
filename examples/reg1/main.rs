@@ -20,6 +20,17 @@
 //!   adapter is missing, or any `not-applicable` is unauthorized. Without `--accept` the same run is
 //!   diagnostic and reports the axis `boundary`. `--accept --profile smoke` applies the same rule on
 //!   the reduced schedule but cannot close G1.
+//!
+//!   Every `--accept` run also prints the averaged block, by default and with no flag: the pass
+//!   tally's mean, minimum, maximum, spread and standard deviation over the profile's campaigns, the
+//!   same for each incumbent's ratios, and each decided `(cell, incumbent)` pair's ratio mean,
+//!   interval and spread (`acceptance_repeats`, `acceptance_repeats_campaign`,
+//!   `acceptance_repeats_incumbent`, `acceptance_cell_ratio`). The gate is unchanged: it remains the
+//!   pooled campaign interval max, and the block's `rule=` field says so. The repetition axis is the
+//!   campaign axis the profile already runs, so the block costs no additional campaign and no
+//!   additional wall-clock time. The reported `spread_bound` is never narrower than the registered
+//!   cross-invocation pass-count spread, so a reader does not need a second invocation to know that
+//!   a movement is inside the noise already measured on unchanged source.
 //! - `--check coverage`: the v2 census. It parses and validates the operation/evidence registry in
 //!   `coverage.json`, reports real-source extraction, bridge refinement and executed Rust tests at
 //!   their separate scopes, prints exclusions and freshness, and requires rejecting controls.
