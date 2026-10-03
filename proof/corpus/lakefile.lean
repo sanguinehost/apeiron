@@ -136,3 +136,8 @@ lean_lib Policy where
 -- Crypto/.
 lean_lib Crypto where
   globs := #[.submodules `Crypto]
+
+-- SHA-256/SHA-256d rooting onto the trichotomy.
+-- Module discovery under Icarus/.
+lean_lib Icarus where
+  globs := #[.submodules `Icarus]
