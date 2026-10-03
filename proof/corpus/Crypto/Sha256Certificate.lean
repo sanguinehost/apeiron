@@ -538,6 +538,365 @@ theorem wGet_zero (j : Nat) (hj : j < 64) :
   rw [hrep]
   rfl
 
+/-! ### Four-summand reordering in `BitVec n`
+
+The two schedule-extension obligations below are one obligation: the extracted body sums the
+row's four words in the order `W16 + σ₀ + W7 + σ₁` while FIPS 180-4 §6.2.2 step 1 reads
+`σ₀ + W7 + σ₁ + W16`, so the two spellings of the same word differ by a permutation of four
+`BitVec n` summands.
+
+The permutation is proved from core's `BitVec.add_assoc` and `BitVec.add_comm`
+(`Init.Data.BitVec.Lemmas`), which hold by `eq_of_toNat_eq` over `Nat.add_assoc`/`Nat.add_comm`
+and are hence true at every width. Two spellings of the permutation are needed and they are
+different permutations, so one statement cannot serve both goals; `bv_add4_rot` closes the
+extracted order against the FIPS order and `bv_add4_swap13`, derived from it by two summand
+swaps, closes the `schedRow` order against the FIPS order.
+
+The alternatives are not usable here, and the reason is recorded so it is not retried. `ac_rfl`
+does not close either goal: the pinned toolchain's `ac_rfl` does not consume the `Std.Associative`
+/ `Std.Commutative` instances that `BitVec` registers for `+`. `bv_decide` is not usable at the
+*call sites*: the summands there are schematic `wGet` reads, not closed bit-vectors (it would be
+usable for a helper stated over four abstract summands, which is why the helpers are stated
+abstractly and instantiated). A `BitVec.eq_of_toInt_eq` route leaves `bmod 2 ^ n` residues that
+`omega` cannot discharge, and `simp only` over `add_assoc`/`add_comm` alone normalizes only the
+associativity: there is no `BitVec.add_left_comm` in this toolchain, so the summand order is left
+untouched (`d + (c + (a + b)) = d + (a + (b + c))` remains). No bound on any intermediate sum is
+needed: both helpers reassociate and commute four `BitVec` summands directly. -/
+
+/-- **Rotation of four `BitVec n` summands**, from `BitVec.add_assoc` and `BitVec.add_comm`. -/
+theorem bv_add4_rot {n : Nat} (a b c d : BitVec n) : a + b + c + d = b + c + d + a := by
+  calc a + b + c + d = (a + b) + (c + d) := BitVec.add_assoc (a + b) c d
+    _ = a + (b + (c + d)) := BitVec.add_assoc a b (c + d)
+    _ = a + ((b + c) + d) := by rw [BitVec.add_assoc b c d]
+    _ = ((b + c) + a) + d := by
+      rw [← BitVec.add_assoc a (b + c) d, BitVec.add_comm a (b + c)]
+    _ = ((b + c) + d) + a := by
+      rw [BitVec.add_assoc (b + c) a d, BitVec.add_comm a d, ← BitVec.add_assoc (b + c) d a]
+    _ = b + c + d + a := rfl
+
+/-- **Swap of the first and third of four `BitVec n` summands**, from `bv_add4_rot` followed by
+    a swap of the first two and a swap of the last two summands. -/
+theorem bv_add4_swap13 {n : Nat} (a b c d : BitVec n) : a + b + c + d = c + b + a + d :=
+  (bv_add4_rot a b c d).trans (by
+    calc b + c + d + a = c + b + d + a := by rw [BitVec.add_comm b c]
+      _ = (c + b) + (d + a) := by rw [BitVec.add_assoc (c + b) d a]
+      _ = (c + b) + (a + d) := by rw [BitVec.add_comm d a]
+      _ = c + b + a + d := by rw [← BitVec.add_assoc (c + b) a d])
+
+/-! ## One schedule-extension visit
+
+`sha256.compress_loop1.body` (`src/sha256.rs:43-51`) reads rows `i-15` three times for
+`σ₀`, rows `i-2` three times for `σ₁`, rows `i-16` and `i-7` once each, and writes row `i`
+with their sum. Every read is below the row being written, and every read index is in
+range because `16 ≤ i.val < 64` and the array holds `w.val.length = 64` entries.
+
+`sigma0_step`/`sigma1_step` are the extracted `σ₀`/`σ₁` sequences at the extracted rotate
+and shift amounts, read at the shift result `z`; the shift result is what the body binds,
+so the shift amount appears once, as a hypothesis.
+
+The successor index is not identified with the sum `i + 1#usize` as a value: `Usize.add` is
+a partial operation whose bound premise is discharged separately, so the body theorem names
+the successor index and states its `.val` relation. -/
+
+/-- The extracted `σ₀(x) = ROTR^7 x ⊕ ROTR^18 x ⊕ (x >>> 3)` at the extracted rotate
+    sequence, read at the shift result `z`. -/
+theorem sigma0_step (x z : Std.U32) (h : x >>> 3#i32 = ok z) :
+    ((core.num.U32.rotate_right x 7#u32).bv ^^^
+      (core.num.U32.rotate_right x 18#u32).bv ^^^ z.bv) =
+      Apeiron.Crypto.Sha2.sigma0 x.bv := by
+  obtain ⟨z', hz', hz'ok⟩ :=
+    WP.spec_imp_exists (UScalar.ShiftRight_IScalar_spec x 3#i32 (by decide) (by decide))
+  have hzz : z.bv = z'.bv :=
+    congrArg (fun t : Std.U32 => t.bv) (Result.ok_injective (h.symm.trans hz'))
+  have h3 : (3#i32 : Std.I32).toNat = 3 := by decide
+  have h7 : (7#u32 : Std.U32).val = 7 := rfl
+  have h18 : (18#u32 : Std.U32).val = 18 := rfl
+  simp only [Apeiron.Crypto.Sha2.sigma0]
+  rw [rotr_step _ (by rw [h7]; omega) (by rw [h7]; omega),
+    rotr_step _ (by rw [h18]; omega) (by rw [h18]; omega)]
+  simp only [hzz, hz'ok.2, h3, h7, h18, Apeiron.Crypto.Sha2.shrx]
+
+/-- The extracted `σ₁(x) = ROTR^17 x ⊕ ROTR^19 x ⊕ (x >>> 10)` at the extracted rotate
+    sequence, read at the shift result `z`. -/
+theorem sigma1_step (x z : Std.U32) (h : x >>> 10#i32 = ok z) :
+    ((core.num.U32.rotate_right x 17#u32).bv ^^^
+      (core.num.U32.rotate_right x 19#u32).bv ^^^ z.bv) =
+      Apeiron.Crypto.Sha2.sigma1 x.bv := by
+  obtain ⟨z', hz', hz'ok⟩ :=
+    WP.spec_imp_exists (UScalar.ShiftRight_IScalar_spec x 10#i32 (by decide) (by decide))
+  have hzz : z.bv = z'.bv :=
+    congrArg (fun t : Std.U32 => t.bv) (Result.ok_injective (h.symm.trans hz'))
+  have h10 : (10#i32 : Std.I32).toNat = 10 := by decide
+  have h17 : (17#u32 : Std.U32).val = 17 := rfl
+  have h19 : (19#u32 : Std.U32).val = 19 := rfl
+  simp only [Apeiron.Crypto.Sha2.sigma1]
+  rw [rotr_step _ (by rw [h17]; omega) (by rw [h17]; omega),
+    rotr_step _ (by rw [h19]; omega) (by rw [h19]; omega)]
+  simp only [hzz, hz'ok.2, h10, h17, h19, Apeiron.Crypto.Sha2.shrx]
+
+/-- **One schedule-extension visit.** With `16 ≤ i.val < 64` and `w.val.length = 64`,
+    `sha256.compress_loop1.body w i` is `ok (cont (w.set i v, i'))` where `v` is exactly
+    the FIPS 180-4 §6.2.2 step-1 word
+    `σ₀(W[i-15]) + W[i-7] + σ₁(W[i-2]) + W[i-16]` read through `wGet`, and
+    `i'.val = i.val + 1`. The body never fails: each subtraction is guarded by
+    `16 ≤ i.val`, each read index is `< 64`, and the write index is `< 64`. -/
+theorem schedBody_step (w : Array Std.U32 64#usize) (i : Std.Usize)
+    (hlo : 16 ≤ i.val) (hlt : i.val < 64) :
+    ∃ v : Std.U32, ∃ i' : Std.Usize,
+      sha256.compress_loop1.body w i = ok (ControlFlow.cont (w.set i v, i')) ∧
+      i'.val = i.val + 1 ∧
+      v.bv = Apeiron.Crypto.Sha2.sigma0 (wGet w (i.val - 15)) + wGet w (i.val - 7)
+        + Apeiron.Crypto.Sha2.sigma1 (wGet w (i.val - 2)) + wGet w (i.val - 16) := by
+  have hl : w.val.length = 64 := by simpa using w.property
+  have h1v : (1#usize : Std.Usize).val = 1 := rfl
+  have h2v : (2#usize : Std.Usize).val = 2 := rfl
+  have h7v : (7#usize : Std.Usize).val = 7 := rfl
+  have h15v : (15#usize : Std.Usize).val = 15 := rfl
+  have h16v : (16#usize : Std.Usize).val = 16 := rfl
+  -- The four subtraction indices, read out of the checked `usize` subtractions. The
+  -- bounds below are stated against the index the body passes (`i1.val`, `i9.val`, …),
+  -- because `Array.index_usize_spec` needs the bound on that index.
+  obtain ⟨i1, hi1, hi1v⟩ :=
+    WP.spec_imp_exists (Usize.sub_spec (x := i) (y := 15#usize) (by rw [h15v]; omega))
+  have h1 : i1.val = i.val - 15 := by rw [hi1v.1, h15v]
+  obtain ⟨i9, hi9, hi9v⟩ :=
+    WP.spec_imp_exists (Usize.sub_spec (x := i) (y := 2#usize) (by rw [h2v]; omega))
+  have h9 : i9.val = i.val - 2 := by rw [hi9v.1, h2v]
+  obtain ⟨i17, hi17, hi17v⟩ :=
+    WP.spec_imp_exists (Usize.sub_spec (x := i) (y := 16#usize) (by rw [h16v]; omega))
+  have h17 : i17.val = i.val - 16 := by rw [hi17v.1, h16v]
+  obtain ⟨i20, hi20, hi20v⟩ :=
+    WP.spec_imp_exists (Usize.sub_spec (x := i) (y := 7#usize) (by rw [h7v]; omega))
+  have h20 : i20.val = i.val - 7 := by rw [hi20v.1, h7v]
+  have hb15 : i1.val < w.val.length := by rw [h1, hl]; omega
+  have hb2 : i9.val < w.val.length := by rw [h9, hl]; omega
+  have hb16 : i17.val < w.val.length := by rw [h17, hl]; omega
+  have hb7 : i20.val < w.val.length := by rw [h20, hl]; omega
+  have hbn15 : i.val - 15 < w.val.length := by rw [hl]; omega
+  have hbn2 : i.val - 2 < w.val.length := by rw [hl]; omega
+  have hbn16 : i.val - 16 < w.val.length := by rw [hl]; omega
+  have hbn7 : i.val - 7 < w.val.length := by rw [hl]; omega
+  -- The four rows, named at the index the body reads and matched to the `wGet` row
+  -- through `getD`, whose rewrite in the read index is type correct.
+  let r15 : Std.U32 := w.val[i.val - 15]'hbn15
+  let r2 : Std.U32 := w.val[i.val - 2]'hbn2
+  let r16 : Std.U32 := w.val[i.val - 16]'hbn16
+  let r7 : Std.U32 := w.val[i.val - 7]'hbn7
+  have hd15 : w.val.getD i1.val (0#u32) = w.val.getD (i.val - 15) (0#u32) := by rw [h1]
+  have hd2 : w.val.getD i9.val (0#u32) = w.val.getD (i.val - 2) (0#u32) := by rw [h9]
+  have hd16 : w.val.getD i17.val (0#u32) = w.val.getD (i.val - 16) (0#u32) := by rw [h17]
+  have hd7 : w.val.getD i20.val (0#u32) = w.val.getD (i.val - 7) (0#u32) := by rw [h20]
+  have heq15 : w.val[i1.val]'hb15 = w.val[i.val - 15]'hbn15 := by
+    calc w.val[i1.val]'hb15 = w.val.getD i1.val (0#u32) := getElem_getD _ _ _ _
+      _ = w.val.getD (i.val - 15) (0#u32) := hd15
+      _ = w.val[i.val - 15]'hbn15 := (getElem_getD _ _ _ _).symm
+  have heq2 : w.val[i9.val]'hb2 = w.val[i.val - 2]'hbn2 := by
+    calc w.val[i9.val]'hb2 = w.val.getD i9.val (0#u32) := getElem_getD _ _ _ _
+      _ = w.val.getD (i.val - 2) (0#u32) := hd2
+      _ = w.val[i.val - 2]'hbn2 := (getElem_getD _ _ _ _).symm
+  have heq16 : w.val[i17.val]'hb16 = w.val[i.val - 16]'hbn16 := by
+    calc w.val[i17.val]'hb16 = w.val.getD i17.val (0#u32) := getElem_getD _ _ _ _
+      _ = w.val.getD (i.val - 16) (0#u32) := hd16
+      _ = w.val[i.val - 16]'hbn16 := (getElem_getD _ _ _ _).symm
+  have heq7 : w.val[i20.val]'hb7 = w.val[i.val - 7]'hbn7 := by
+    calc w.val[i20.val]'hb7 = w.val.getD i20.val (0#u32) := getElem_getD _ _ _ _
+      _ = w.val.getD (i.val - 7) (0#u32) := hd7
+      _ = w.val[i.val - 7]'hbn7 := (getElem_getD _ _ _ _).symm
+  -- The eight reads, three each at rows `i-15` and `i-2` and one each at `i-16`, `i-7`.
+  have hix2 : Array.index_usize w i1 = ok r15 := by
+    rw [array_index_usize_eq w i1 hb15]
+    show ok (w.val[i1.val]'hb15) = ok (w.val[i.val - 15]'hbn15)
+    exact congrArg (fun t : Std.U32 => ok t) heq15
+  have hix4 : Array.index_usize w i1 = ok r15 := hix2
+  have hix7 : Array.index_usize w i1 = ok r15 := hix2
+  have hix10 : Array.index_usize w i9 = ok r2 := by
+    rw [array_index_usize_eq w i9 hb2]
+    show ok (w.val[i9.val]'hb2) = ok (w.val[i.val - 2]'hbn2)
+    exact congrArg (fun t : Std.U32 => ok t) heq2
+  have hix12 : Array.index_usize w i9 = ok r2 := hix10
+  have hix15 : Array.index_usize w i9 = ok r2 := hix10
+  have hix18 : Array.index_usize w i17 = ok r16 := by
+    rw [array_index_usize_eq w i17 hb16]
+    show ok (w.val[i17.val]'hb16) = ok (w.val[i.val - 16]'hbn16)
+    exact congrArg (fun t : Std.U32 => ok t) heq16
+  have hix21 : Array.index_usize w i20 = ok r7 := by
+    rw [array_index_usize_eq w i20 hb7]
+    show ok (w.val[i20.val]'hb7) = ok (w.val[i.val - 7]'hbn7)
+    exact congrArg (fun t : Std.U32 => ok t) heq7
+  -- The two logical shifts, the index increment and the written word.
+  obtain ⟨i8, hi8, _⟩ :=
+    WP.spec_imp_exists (UScalar.ShiftRight_IScalar_spec r15 3#i32 (by decide) (by decide))
+  obtain ⟨i16, hi16, _⟩ :=
+    WP.spec_imp_exists (UScalar.ShiftRight_IScalar_spec r2 10#i32 (by decide) (by decide))
+  have hbound : i.val + (1#usize : Std.Usize).val ≤ Usize.max := by
+    rw [h1v]; simp [Usize.max, Usize.numBits];
+        cases System.Platform.numBits_eq <;> simp_all <;> omega
+  obtain ⟨i24, hi24, hi24v⟩ :=
+    WP.spec_imp_exists (Usize.add_spec (x := i) (y := 1#usize) hbound)
+  let v : Std.U32 :=
+    core.num.U32.wrapping_add (core.num.U32.wrapping_add
+      (core.num.U32.wrapping_add r16
+        (core.num.U32.rotate_right r15 7#u32 ^^^ core.num.U32.rotate_right r15 18#u32 ^^^ i8))
+      r7)
+      (core.num.U32.rotate_right r2 17#u32 ^^^ core.num.U32.rotate_right r2 19#u32 ^^^ i16)
+  have hltlen : i.val < w.length := by
+    simpa only [Array.length, hl] using hlt
+  have hupd : Array.update w i
+      (core.num.U32.wrapping_add (core.num.U32.wrapping_add
+        (core.num.U32.wrapping_add r16
+          (core.num.U32.rotate_right r15 7#u32 ^^^ core.num.U32.rotate_right r15 18#u32 ^^^ i8))
+        r7)
+        (core.num.U32.rotate_right r2 17#u32 ^^^ core.num.U32.rotate_right r2 19#u32 ^^^ i16)) =
+      ok (w.set i v) := by
+    obtain ⟨nv, hnv, hnv'⟩ := WP.spec_imp_exists (Array.update_spec w i v hltlen)
+    rw [hnv'] at hnv
+    exact hnv
+  have hr15 : r15.bv = wGet w (i.val - 15) := by
+    show (w.val[i.val - 15]'hbn15).bv = _
+    simp only [wGet, getElem_getD _ _ hbn15 (0#u32)]
+  have hr2 : r2.bv = wGet w (i.val - 2) := by
+    show (w.val[i.val - 2]'hbn2).bv = _
+    simp only [wGet, getElem_getD _ _ hbn2 (0#u32)]
+  have hr16 : r16.bv = wGet w (i.val - 16) := by
+    show (w.val[i.val - 16]'hbn16).bv = _
+    simp only [wGet, getElem_getD _ _ hbn16 (0#u32)]
+  have hr7 : r7.bv = wGet w (i.val - 7) := by
+    show (w.val[i.val - 7]'hbn7).bv = _
+    simp only [wGet, getElem_getD _ _ hbn7 (0#u32)]
+  refine ⟨v, i24, ?_, ?_, ?_⟩
+  · -- The replay: every read, shift and write is its specification, in one pass.
+    unfold sha256.compress_loop1.body
+    rw [if_pos (by rw [UScalar.lt_equiv]; exact hlt)]
+    simp only [hi1, hi9, hi17, hi20, hix2, hix4, hix7, hix10, hix12, hix15, hix18, hix21,
+      hi8, hi16, hupd, hi24, lift, bind_tc_ok]
+  · rw [hi24v]
+    rfl
+  · have hbvv : v.bv =
+        r16.bv +
+            ((core.num.U32.rotate_right r15 7#u32).bv ^^^
+              (core.num.U32.rotate_right r15 18#u32).bv ^^^ i8.bv) +
+          r7.bv +
+            ((core.num.U32.rotate_right r2 17#u32).bv ^^^
+              (core.num.U32.rotate_right r2 19#u32).bv ^^^ i16.bv) := rfl
+    rw [hbvv, hr16, hr7, sigma0_step r15 i8 hi8, hr15, sigma1_step r2 i16 hi16, hr2]
+    -- The extracted order `W16 + σ₀ + W7 + σ₁` against the FIPS order
+    -- `σ₀ + W7 + σ₁ + W16`, by `bv_add4_rot`.
+    exact bv_add4_rot _ _ _ _
+
+/-- Reading the extracted schedule through `wView` through `getD` is reading the row. -/
+theorem wView_getD (w : Array Std.U32 64#usize) (j : Nat) (hj : j < 64) :
+    (wView w).getD j 0 = wGet w j :=
+  ofFn_getD _ j hj
+
+/-- The loop invariant for `sha256.compress_loop1`, at the invariant measure
+    `64 - i.val`: the rows written so far are exactly the canonical rows below `i`. -/
+def schedInv (b : Block) (p : Array Std.U32 64#usize × Std.Usize) : Prop :=
+  16 ≤ p.2.val ∧ p.2.val ≤ 64 ∧ wView p.1 = rowVec b (p.2.val - 16)
+
+/-- **One extension step preserves the schedule invariant.** Writing row `i` with the
+    FIPS 180-4 §6.2.2 step-1 word makes the written schedule read as `rowVec b` at the
+    next row index, because every row the step reads lies strictly below `i`. -/
+theorem schedStep_inv (b : Block) (w : Array Std.U32 64#usize) (i : Std.Usize) (v : Std.U32)
+    (hlo : 16 ≤ i.val) (hlt : i.val < 64)
+    (hinv : wView w = rowVec b (i.val - 16))
+    (hv : v.bv = Apeiron.Crypto.Sha2.sigma0 (wGet w (i.val - 15)) + wGet w (i.val - 7)
+        + Apeiron.Crypto.Sha2.sigma1 (wGet w (i.val - 2)) + wGet w (i.val - 16)) :
+    wView (w.set i v) = rowVec b (i.val - 16 + 1) := by
+  refine vec_getD_eq _ _ 0 fun j hj => ?_
+  have hgj : wGet w j = (rowVec b (i.val - 16)).getD j 0 := by
+    rw [← wView_getD w j hj, hinv]
+  rw [wView_getD _ j hj, wGet_set w i v hlt j,
+    rowVec_getD b (i.val - 16 + 1) j hj, hgj, rowVec_getD b (i.val - 16) j hj]
+  by_cases hji : i.val = j
+  · subst hji
+    have hsub : i.val - 16 + 16 = i.val := Nat.sub_add_cancel hlo
+    have hcond : i.val < 16 + (i.val - 16 + 1) := by
+      have h1 : 16 + (i.val - 16) = i.val := by rw [Nat.add_comm, hsub]
+      have h2 : 16 + (i.val - 16 + 1) = i.val + 1 := by
+        rw [← Nat.add_assoc, h1]
+      rw [h2]
+      omega
+    rw [if_pos rfl, if_pos hcond]
+    have hA : wGet w (i.val - 15) = schedRow b (i.val - 15) := by
+      have hX : (i.val - 15 : Nat) < 64 := by omega
+      rw [← wView_getD w _ hX, hinv, rowVec_getD b (i.val - 16) _ hX, if_pos (by omega)]
+    have hB : wGet w (i.val - 7) = schedRow b (i.val - 7) := by
+      have hX : (i.val - 7 : Nat) < 64 := by omega
+      rw [← wView_getD w _ hX, hinv, rowVec_getD b (i.val - 16) _ hX, if_pos (by omega)]
+    have hC : wGet w (i.val - 2) = schedRow b (i.val - 2) := by
+      have hX : (i.val - 2 : Nat) < 64 := by omega
+      rw [← wView_getD w _ hX, hinv, rowVec_getD b (i.val - 16) _ hX, if_pos (by omega)]
+    have hD : wGet w (i.val - 16) = schedRow b (i.val - 16) := by
+      have hX : (i.val - 16 : Nat) < 64 := by omega
+      rw [← wView_getD w _ hX, hinv, rowVec_getD b (i.val - 16) _ hX, if_pos (by omega)]
+    simp only [hv, hA, hB, hC, hD]
+    -- `schedRow_step` spells the row `σ₁ + W7 + σ₀ + W16`; the goal carries the FIPS order
+    -- `σ₀ + W7 + σ₁ + W16`, which is the same four summands by `bv_add4_swap13`.
+    exact (bv_add4_swap13 _ _ _ _).trans (schedRow_step b i.val hlo).symm
+  · simp only [if_neg hji]
+    by_cases hjlt : j < 16 + (i.val - 16)
+    · rw [if_pos hjlt, if_pos (by omega)]
+    · rw [if_neg hjlt, if_neg (by omega)]
+
+/-! ## The extracted schedule loop
+
+`sha256.compress_loop1` is `loop (sha256.compress_loop1.body) w 16#usize`, run by
+`loop.spec_decr_nat` on the measure `64 - i.val`: forty-eight extension visits from the
+sixteen block words to the full sixty-four row schedule, `Sha2.schedule`. -/
+
+/-- **`sha256.compress_loop1` extends a schedule holding the canonical block words in
+    its first sixteen rows into `Sha2.schedule`.** The invariant is `schedInv` at the
+    measure `64 - i.val`, discharged by `schedStep_inv`; the terminal visit is the
+    `64`-th row, where `schedInv` already reads as the full forty-eight-step fold. -/
+theorem sched_loop1 (w : Array Std.U32 64#usize) (b : Block) (w' : Array Std.U32 64#usize)
+    (hinv : wView w = rowVec b 0)
+    (h : sha256.compress_loop1 w 16#usize = ok w') :
+    wView w' = Apeiron.Crypto.Sha2.schedule b := by
+  have h16 : (16#usize : Std.Usize).val = 16 := rfl
+  have h0 : 16 - 16 = 0 := by omega
+  have hloop :
+      loop (fun p : Array Std.U32 64#usize × Std.Usize => sha256.compress_loop1.body p.1 p.2)
+        (w, 16#usize) ⦃ fun y => wView y = Apeiron.Crypto.Sha2.schedule b ⦄ := by
+    apply loop.spec_decr_nat
+      (measure := fun p : Array Std.U32 64#usize × Std.Usize => 64 - p.2.val)
+      (inv := schedInv b)
+      (post := fun y => wView y = Apeiron.Crypto.Sha2.schedule b)
+    · intro p hp
+      obtain ⟨hlo, hle, hw⟩ := hp
+      by_cases hlt : p.2.val < 64
+      · obtain ⟨v, i24, hb, hi24v, hv⟩ := schedBody_step p.1 p.2 hlo hlt
+        rw [WP.spec_equiv_exists]
+        refine ⟨_, hb, ?_⟩
+        refine ⟨⟨?_, ?_, ?_⟩, ?_⟩
+        · rw [hi24v]; omega
+        · rw [hi24v]; omega
+        · show wView (p.1.set p.2 v) = rowVec b (i24.val - 16)
+          exact (schedStep_inv b p.1 p.2 v hlo hlt hw hv).trans (by rw [hi24v]; congr 1; omega)
+        · rw [hi24v]; omega
+      · rw [WP.spec_equiv_exists]
+        refine ⟨ControlFlow.done p.1, ?_, ?_⟩
+        · unfold sha256.compress_loop1.body
+          rw [if_neg (by rw [UScalar.lt_equiv]; exact hlt)]
+        · refine vec_getD_eq _ _ 0 fun j hj => ?_
+          rw [hw, rowVec_getD b (p.2.val - 16) j hj, schedule_getD b j hj]
+          have hk : p.2.val - 16 = 48 := by omega
+          rw [hk, if_pos (by omega)]
+    · refine ⟨?_, ?_, ?_⟩
+      · rw [h16]
+      · rw [h16]
+        omega
+      · rw [h16, h0]
+        exact hinv
+  have hloop' :
+      loop (fun p : Array Std.U32 64#usize × Std.Usize => sha256.compress_loop1.body p.1 p.2)
+        (w, 16#usize) = ok w' := by
+    simpa only [sha256.compress_loop1] using h
+  obtain ⟨y, hy, hPy⟩ := WP.spec_imp_exists hloop
+  rw [hloop'] at hy
+  have hw'y : w' = y := Result.ok_injective hy
+  rw [← hw'y] at hPy
+  exact hPy
+
 /-! ## Headline -/
 
 /-- The refinement target: on every input, `word_sha256` returns a digest array
