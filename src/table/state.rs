@@ -350,23 +350,29 @@ fn capacity_bound(required_len: usize, observed_capacity: usize) -> CapacityBoun
 }
 /// Marks a certified direct word in the density bitmap and increments `count` on its first sight.
 ///
-/// The word is ignored at or above `limit`; only words that could select a resident slot below
-/// `limit` participate in the density count. Temporal O(1); spatial O(1).
+/// The marking half of the density bitmap: sets the bit for `word` below `limit` and reports
+/// whether it was newly set.
+///
+/// A caller reads its counts as prefix popcounts of one bitmap, so marking is separable from
+/// counting and no running tally is kept. The `word < limit` guard is load-bearing: only words
+/// that could select a resident slot below `limit` participate in a density count. Temporal O(1);
+/// spatial O(1).
 #[allow(
     clippy::cast_possible_truncation,
     reason = "the `word < limit` guard bounds the index by a lane count that fits usize"
 )]
-fn mark_direct_word(seen: &mut [u64], count: &mut usize, word: u32, limit: u64) {
+fn mark_direct_word_bit(seen: &mut [u64], word: u32, limit: u64) -> bool {
     if u64::from(word) >= limit {
-        return;
+        return false;
     }
     let bit = word as usize;
     let slot = &mut seen[bit / 64];
     let mask = 1u64 << (bit % 64);
     if *slot & mask == 0 {
         *slot |= mask;
-        *count += 1;
+        return true;
     }
+    false
 }
 /// A total-default table with flat certified resident cells and grouped spill regions.
 struct FlatSlot<R, V> {

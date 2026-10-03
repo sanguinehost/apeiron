@@ -419,6 +419,33 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
         self.get_at(<H::Faces as FaceDomain<K, H>>::DEFAULT, key)
     }
 }
+/// The distinct direct words below `capacity` slots: the population count of the bitmap prefix that
+/// bound admits. Reads [`Self::density_bitmap`]'s marking, so it is the count the scan at this
+/// rung's own extent returned. Temporal O(capacity) counted in bitmap bits, from two
+/// `capacity / 64`-word and 64-iteration loops per word; spatial O(1).
+///
+/// The count is written as index loops over `and` and a zero test because `Iterator::map`,
+/// `u64::count_ones`, `TryFrom` and `Result::unwrap_or` have no field in the pinned Aeneas Lean
+/// model (`Aeneas/Std/Core/Iter.lean` declares `next`, `step_by`, `enumerate`, `take`), so the
+/// extractor rejects the `map` adapter and the fail-closed audit rejects the two externals the
+/// other three leave behind.
+fn density_below(bitmap: &[u64], capacity: usize) -> usize {
+    let words = (capacity / 64).min(bitmap.len());
+    let mut total = 0usize;
+    let mut at = 0usize;
+    while at < words {
+        let mut rest = bitmap[at];
+        while rest != 0 {
+            if (rest & 1) != 0 {
+                total += 1;
+            }
+            rest /= 2;
+        }
+        at += 1;
+    }
+    total
+}
+
 /// Maps a vacancy decision's site to the reverse-link location its admitted slot names.
 ///
 /// The `Vacant` class carries only the two storage sites, so the conversion is total on that class
@@ -443,8 +470,8 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         self.len == 0
     }
 
-    /// Counts distinct certified direct words below `lanes * 256` across the resident and spill
-    /// areas, plus the pending `extra` word.
+    /// Counts distinct certified direct words below `lanes_max * 256` across the resident and spill
+    /// areas, plus the pending `extra` word, as the marking bitmap and its total.
     ///
     /// The dedup is a direct-word bitmap rather than a linear search over a growing list: the
     /// candidate lanes only ever reach the byte-budget ceiling, so `limit` is at most a few
@@ -456,8 +483,17 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     /// `lanes * 256` overflow is [`StorageError::SizeOverflow`] and a refused reservation is
     /// [`StorageError::AllocationFailed`]. A refusal leaves `self` unchanged and runs no hold,
     /// clone, merge or relocation.
-    fn density_at(&self, lanes: usize, extra: Option<u32>) -> Result<usize, StorageError> {
-        let limit = (lanes as u64)
+    ///
+    /// One scan serves every lane width the [`Self::selected_lanes`] ladder needs: a word below
+    /// `SHARDS * lane` is a set bit inside that width's prefix and a word at or above it is
+    /// outside it, so the prefix popcount is the count a scan at that width returned. The
+    /// checked sizing, the reservation and both refusal arms are the same at any extent.
+    fn density_bitmap(
+        &self,
+        lanes_max: usize,
+        extra: Option<u32>,
+    ) -> Result<(Vec<u64>, usize), StorageError> {
+        let limit = (lanes_max as u64)
             .checked_mul(SHARDS as u64)
             .ok_or(StorageError::SizeOverflow)?;
         if limit > usize::MAX as u64 {
@@ -484,7 +520,9 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                 None
             };
             if let Some(word) = direct {
-                mark_direct_word(&mut seen, &mut count, word, limit);
+                if mark_direct_word_bit(&mut seen, word, limit) {
+                    count += 1;
+                }
             }
             i += 1;
         }
@@ -500,16 +538,20 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                     None
                 };
                 if let Some(word) = direct {
-                    mark_direct_word(&mut seen, &mut count, word, limit);
+                    if mark_direct_word_bit(&mut seen, word, limit) {
+                        count += 1;
+                    }
                 }
                 j += 1;
             }
             shard_at += 1;
         }
         if let Some(word) = extra {
-            mark_direct_word(&mut seen, &mut count, word, limit);
+            if mark_direct_word_bit(&mut seen, word, limit) {
+                count += 1;
+            }
         }
-        Ok(count)
+        Ok((seen, count))
     }
     fn selected_lanes(
         &self,
@@ -534,6 +576,20 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         }
         let mut result = None;
         if required_lane < budget_lanes / 2 && error.is_none() {
+            // The ladder below walks the widths `1, 2, 4, ..., budget_lanes / 2`: the budget loop
+            // above stopped at the first width whose flat exceeds `DEFAULT_BUDGET_BYTES`, that
+            // width is `budget_lanes`, and `Flat::byte_len_for` is monotone in the width, so no
+            // rung reaches beyond `budget_lanes / 2`. One scan at that extent therefore marks every
+            // direct word any rung could count, and each rung reads its own count as a prefix
+            // popcount instead of rescanning the whole table. The counts are the counts the per-rung
+            // scans returned, so `best`, `result` and both refusal arms are unchanged.
+            let bitmap = match self.density_bitmap(budget_lanes / 2, Some(extra)) {
+                Ok((bitmap, _)) => bitmap,
+                Err(inner) => {
+                    error = Some(inner);
+                    Vec::new()
+                }
+            };
             let mut lane = 1usize;
             let mut best = None;
             let mut budget_exceeded = false;
@@ -541,22 +597,20 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                 match Flat::<R, V>::byte_len_for(lane) {
                     Some(bytes) if bytes > DEFAULT_BUDGET_BYTES => budget_exceeded = true,
                     Some(_) => match lane.checked_mul(SHARDS) {
-                        Some(capacity) => match self.density_at(lane, Some(extra)) {
-                            Ok(density) => {
-                                let doubled = match density.checked_mul(2) {
-                                    Some(value) => value,
-                                    None => usize::MAX,
-                                };
-                                if capacity <= SHARDS.max(doubled) {
-                                    best = Some(lane);
-                                }
-                                match lane.checked_mul(2) {
-                                    Some(next) => lane = next,
-                                    None => error = Some(StorageError::SizeOverflow),
-                                }
+                        Some(capacity) => {
+                            let density = density_below(&bitmap, capacity);
+                            let doubled = match density.checked_mul(2) {
+                                Some(value) => value,
+                                None => usize::MAX,
+                            };
+                            if capacity <= SHARDS.max(doubled) {
+                                best = Some(lane);
                             }
-                            Err(inner) => error = Some(inner),
-                        },
+                            match lane.checked_mul(2) {
+                                Some(next) => lane = next,
+                                None => error = Some(StorageError::SizeOverflow),
+                            }
+                        }
                         None => error = Some(StorageError::SizeOverflow),
                     },
                     None => error = Some(StorageError::SizeOverflow),
