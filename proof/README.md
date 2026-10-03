@@ -615,24 +615,60 @@ Charon's `Repeat` carries an `Option<TraitRef>` so a `const` element operand nee
 and Aeneas lowers native `Repeat` to `Array.repeat`. Patched binary SHA-256:
 `charon` `747e165bc62bb963f8d741e8c193c721a4b94555bcb1f9f86c79090fd7a59d0e`, `charon-driver`
 `207b223af35cf9a05227b329819b73532e94f655ccdefd64e77b755a15fdf297`, `aeneas`
-`33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a`. These hashes identify the
-patched binaries the evidence was taken with; a binary hash alone does not establish durable
-reproducibility of a patched tool build. The `ApeironWord.lean` digest recorded above was produced
-by a rebuild from the same pinned Aeneas commit with `patches/aeneas-array-repeat.patch` plus a
-`fun_info` registration for `core::array::repeat` guarded on absence, `sha256
-84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1`; `33d0ce1a…` is absent from the
-box that produced it and was not reproduced, so the recorded digest table above and the recorded
-binary differ and neither reproduces the other from `proof/patches/` alone.
+`84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1`. The `ApeironWord.lean` digest
+recorded above was produced with that triple, and `proof/patches/` alone reproduces the `aeneas` build
+that produced it (route below). `33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a`,
+the digest earlier recorded here for the patched `aeneas`, is absent from this box and was not
+reproduced.
 
-A rebuild from the same pinned bases with the corrected patch (the redundant `FunsAnalysis` pass
-removed) produces an Aeneas binary `sha256
-2a0d782768722366be2abbc4dbbaa19ec527264718fda264717b38acbb03e48c`: clone the pinned commits, `install-patches.sh`,
-`make build-bin` (38 s). It clears the prepass assert — the older binary still trips it — and the
-pipeline then stops on the 20 binary32 functions the translator cannot evaluate (no float case in
-`InterpExpressions.ml`), which is the open boundary decision, not a tool defect. It also stops
-earlier: with `patches/aeneas-array-repeat.patch` applied, translating the signature of
-`core::array::repeat` raises `symbolic/SymbolicToPureTypes.ml:724`, because Charon places that
-function in no declaration group and `FunsAnalysis` therefore computes no `fun_info` for it.
+#### Rebuilding the patched translator
+
+The `aeneas` binary is OCaml and is not in the archive, which ships only the release build. The
+working translator is the pinned sources plus `proof/patches/`:
+
+```sh
+# 1. the pinned sources, at the two commits PINS records
+git clone https://github.com/AeneasVerif/aeneas   && git -C aeneas checkout 505b6ca35217e7be5c96c3e2f8045edfbdf47291
+git -C aeneas submodule update --init --recursive   # Charon b104e24fea7d721b71e6c39fd70f26ff20bc0980
+
+# 2. the patch set, verified against those bases
+proof/install-patches.sh --check --aeneas-src "$PWD/aeneas"
+proof/install-patches.sh --aeneas-src "$PWD/aeneas"
+
+# 3. the OCaml build
+cd aeneas/src && dune build && sha256sum _build/default/main.exe
+
+# 4. an AENEAS_HOME carrying that binary beside charon, charon-driver, rust-toolchain and the
+#    archive's backends/lean (the unpatched one; step 2 of the route below patches the model copy)
+```
+
+Step 3 yields `84f9c1d2…` **only** at the source path `~/aeneas-build/aeneas`. OCaml
+embeds the compilation directory in the debug info, so a build at any other path yields a different
+executable digest: a build at `~/e6-regen3-pristine` gives
+`af4c584340965af8b9b346640e832454b0aa730e1049f3a9250e6d324903bd70`, same 65 784 552 bytes, of which
+2 228 545 differ — but after `strip` the two differ in 20 bytes, all inside `.note.gnu.build-id`, and
+every other section including `.text` is byte-identical. The reproducible identity of the translator
+is therefore the patched source, pinned as the patch digest in `PINS`; the executable digest is a
+reference observation valid at its own path. `PINS` carries both.
+
+The `FunsAnalysis` registration is load-bearing, and a build without it does not translate. Reverting
+that one component from the pinned tree and running `dune build` gives a binary that dies on this
+crate's `.llbc` (`a1bfe6e1…`) before any body, at
+
+```text
+[Error] Internal error: please file an issue
+Source: '/rustc/library/core/src/array/mod.rs', lines 54:0-54:57
+Compiler source: symbolic/SymbolicToPureTypes.ml, line 724
+Called from Aeneas__SymbolicToPureTypes.compute_raw_fun_effect_info in file "symbolic/SymbolicToPureTypes.ml", lines 724-725, characters 8-52
+Called from Aeneas__SymbolicToPureTypes.translate_inst_fun_sig_to_decomposed_fun_type in file "symbolic/SymbolicToPureTypes.ml", line 782, characters 4-58
+```
+
+because `FunsAnalysis.analyze_module` derives `fun_infos` from the crate's declaration groups and
+Charon places `core::array::repeat` in none of them, so `lookup_pure_fn_ptr_info` returns `None`.
+Restoring the component and rebuilding returns `af4c5843…` byte-identically. The earlier digest
+`2a0d7827…` is the same two-component source built at a different path; `make build-bin` on that
+source also stops later on the 20 binary32 functions the translator cannot evaluate (no float case in
+`InterpExpressions.ml`), which is the open boundary decision, not a tool defect.
 
 ### Patched tool sources
 
@@ -646,27 +682,53 @@ third is a Lean-library change to the backend that the patched binaries never co
 | `patches/aeneas-lean-model.patch` | installed `backends/lean` from the pinned archive above (no git base) | `model-patches.sh` | no |
 
 `patches/PINS` records, for each of the two upstream bases, the commit, the git tree and the sha256
-of every base file the patch modifies — 9 base files, 6 under Charon and 3 under Aeneas. The two
-tool-build patch files are the exact `git diff` of the source working trees the patched binaries were
-built from; patch sha256
+of every base file the patch modifies — 9 base files, 6 under Charon and 3 under Aeneas — plus the
+sha256 of each patch file and the expected `aeneas` digest. The two tool-build patch files are the
+exact `git diff` of the source working trees the patched binaries were built from; patch sha256
 `c6099150efe8416a0495205a6bdf23925b9c79f2ecd6ca7a25335d0ae89e21c9` (Charon) and
-`c1010bc658715990ab4e296a163326e3a22f856d41fe13c6b799e1ba5217bc90` (Aeneas). The Aeneas patch
-carries only the `Interp.ml` and `InterpStatements.ml` lowering; its earlier third hunk — a
-`FunsAnalysis.analyze_module` pass that re-analysed `core::array::repeat` — was removed because the
-function is already in the crate's declaration groups, so that pass registered the same `Fun` id
-twice and tripped the tool's duplicate-registration assert. The model patch is not
-listed in `PINS` and `install-patches.sh` does not apply it: its base is the unpacked archive, not a
-git checkout, so the archive digest above is what pins it. It touches 8 files under `Aeneas/Std`
-(`Vec.lean`, `String.lean`, `Core/{Cmp,CoreOption,CoreResult}.lean`,
-`Scalar/{Casts,Ops}.lean`, `Scalar/WrappingOps/Shl.lean`); sha256
-`64054e6b2d7f71f1a1c6a40d10e61f8e6b69163c23bc52f1bc5ef9f756540575`.
+`35bc103b490d7f38609c70e202eed365ab4a67a31634c14aa06186032ea1fcb1` (Aeneas). The Aeneas patch
+carries three components, all in `Interp.ml` and `InterpStatements.ml`:
 
-`install-patches.sh` locates a source checkout, verifies its `HEAD` commit, git tree and base file
-digests against `PINS`, then checks or applies both patches. The Charon source defaults to
-`$AENEAS_SRC/charon`. Aeneas source resolution is `--aeneas-src`, then `APEIRON_AENEAS_SRC`, then
-`AENEAS_SRC`, then `AENEAS_HOME` and `target/aeneas` if those are git checkouts. `target/aeneas/` is
-the installed binary tree, not a source checkout, so a source argument is required unless the
-sources are checked out elsewhere.
+| component | file | effect |
+| --- | --- | --- |
+| `to_extract` fold | `Interp.ml`, +12 | `core::array::repeat` is translated whether or not Charon groups it |
+| `fun_info` registration | `Interp.ml`, +33 | registers that function's effects, **guarded on absence**, so a crate that does group it is not registered twice |
+| native `Repeat` lowering | `InterpStatements.ml`, +68 | a `const` element operand with no `Copy` clause lowers to `Array.repeat` |
+
+The middle component is the one earlier removed here on the stated ground that "the function is already
+in the crate's declaration groups, so that pass registered the same `Fun` id twice". That ground is
+false for this crate: with the component absent the translator dies at
+`symbolic/SymbolicToPureTypes.ml:724`, which is the failure the guard cannot cause and the
+unconditional registration would also have caused. The guard is `when not (FunOrMethodId.Map.mem
+(FunOrMethodId.Fun id) acc.infos)`, so the duplicate-registration assert is unreachable. The three
+components are adjacent insertions in one `let` chain, so `git apply` carries them as one hunk per
+file; the split is here, not in the diff.
+
+The model patch is not listed in `PINS` and `install-patches.sh` does not apply it: its base is the
+unpacked archive, not a git checkout, so the archive digest above is what pins it. It touches 8 files
+under `Aeneas/Std` (`Vec.lean`, `String.lean`, `Core/{Cmp,CoreOption,CoreResult}.lean`,
+`Scalar/{Casts,Ops}.lean`, `Scalar/WrappingOps/Shl.lean`); sha256
+`9ad11fb71e05aae223719c142d7e70f4a8aa5c8afa4d91ccfd8554c8e2f854cf`.
+
+`Scalar/Casts.lean` also carries the two names the pinned release declares nowhere and the extraction
+reaches. `F32` is what the pinned emitter prints for Rust `f32` (`float_name` in
+`src/extract/ExtractBase.ml`), declared there as the opaque value `core.f32.F32` with the bare
+`abbrev F32`; the model gives it no operation, so `core::f32::f32::is_finite`,
+`mixer.f32_carrier.q32_to_f32`, `attn.alloc_f32_storage` and `attn.KvState.attn_head_f32` stay
+`axiom`s of the extracted fragment and are admitted by
+[`boundary-axioms.txt`](boundary-axioms.txt). Nothing numeric is read off that type: a claim needing
+the meaning of a `f32` is proved in the corpus against that meaning.
+`I128.Insts.CoreConvertFromU64.from` is the `u64 as i128` cast the attention fragment reaches, a
+zero-extending widening that cannot lose a value. Both are in this one patch because
+`model-patches.sh` rebuilds `target/aeneas-model/lean` from it; an addition left only in that
+untracked directory is lost on the next run.
+
+`install-patches.sh` locates a source checkout, verifies its `HEAD` commit, git tree, the sha256 of
+each patch file and the base file digests against `PINS`, then checks or applies both patches. The
+Charon source defaults to `$AENEAS_SRC/charon`. Aeneas source resolution is `--aeneas-src`, then
+`APEIRON_AENEAS_SRC`, then `AENEAS_SRC`, then `AENEAS_HOME` and `target/aeneas` if those are git
+checkouts. `target/aeneas/` is the installed binary tree, not a source checkout, so a source argument
+is required unless the sources are checked out elsewhere.
 
 ```sh
 proof/install-patches.sh --check --aeneas-src /path/to/aeneas-src
@@ -675,10 +737,12 @@ proof/install-patches.sh --aeneas-src /path/to/aeneas-src
 
 `--check` archives the pinned `HEAD` tree with `git archive` into a temporary directory and runs
 `git apply --check` there, so it neither reads nor writes the source working tree and is independent
-of local edits. It exits nonzero on a base commit, tree or file-digest mismatch, and on a hunk that
-does not apply. Install mode applies the patches to the checkout and skips a patch already applied;
-the two modes were exercised against a fresh checkout of both pinned revisions, and the applied
-working-tree diff is byte-identical to the patch files.
+of local edits. It exits nonzero on a base commit, tree, patch-file or file-digest mismatch, and on a
+hunk that does not apply. Install mode applies the patches to the checkout and skips a patch already
+applied; the two modes were exercised against a fresh checkout of both pinned revisions, and the
+applied working-tree diff is byte-identical to the patch files. Install mode's idempotence test is
+per patch *file*, so a checkout with one file of a two-file patch reverted is refused rather than
+repaired.
 
 ### Route from a clean checkout to a built `proof/`
 
@@ -689,7 +753,7 @@ order is fixed:
 
 | step | command | what performs it |
 | --- | --- | --- |
-| 1. install the pinned tools | unpack the archive above into `target/aeneas/`, or point `AENEAS_HOME` at an installation | manual unpack; `regen.sh:18` defaults `AENEAS_HOME` to `target/aeneas` and, when it is set elsewhere, `regen.sh:19-24` symlinks `target/aeneas` to it |
+| 1. install the pinned tools | unpack the archive above into `target/aeneas/`, then **replace `target/aeneas/aeneas` with the patched build** by the route in "Rebuilding the patched translator", or point `AENEAS_HOME` at an installation carrying it | manual unpack plus `install-patches.sh` and `dune build`; the archive's own `aeneas` cannot read the patched Charon's LLBC. `regen.sh:18` defaults `AENEAS_HOME` to `target/aeneas` and, when it is set elsewhere, `regen.sh:19-24` symlinks `target/aeneas` to it |
 | 2. materialise the patched Lean model | `proof/model-patches.sh` | copies `${AENEAS_HOME:-$REPO_DIR/target/aeneas}/backends/lean` to `target/aeneas-model/lean` and applies `patches/aeneas-lean-model.patch` with `patch -p1 --forward` |
 | 3. extract, audit and build `proof/` | `proof/regen.sh`, or `proof/regen.sh --check` | extraction reads `LEAN_BACKEND="$AENEAS_HOME/backends/lean"` (`regen.sh:29`), the unpatched installed backend; its `lake build` (`regen.sh:270`) resolves the `aeneas` path dependency from step 2 |
 | 4. build the bridge | `cd proof/corpus && lake build` | `proof/corpus/lakefile.lean` |
