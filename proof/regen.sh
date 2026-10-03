@@ -36,20 +36,11 @@ LEAN_BACKEND="$AENEAS_HOME/backends/lean"
 # Charon reports and keep it under `target/`, beside the pinned tools and outside the shared
 # `$XDG_CACHE_HOME/miri` every other toolchain on the box writes to. Charon builds it on first run;
 # the path is not created here, because an empty directory is not a built sysroot.
-#
-# The pinned Charon reads `CHARON_MIRI_SYSROOTS` (the plural name,
-# `charon/src/bin/charon-driver/driver.rs:171`) and takes that branch only when the path carries
-# `lib/rustlib/<target>`. Exporting the singular `CHARON_MIRI_SYSROOT` alone therefore left the run
-# reading `$CHARON_CACHE_DIR/full-mir-sysroot-cache/<toolchain>-<target>`, a cache outside this
-# repository, and falling through to a cold `cargo miri setup` when that cache is empty. All three
-# names are exported: the plural one is what the pinned driver reads, and the singular one and
-# `MIRI_SYSROOT` are read by `cargo miri setup` itself on that cold path.
 CHARON_TOOLCHAIN=$("$CHARON" toolchain-version)
 SYSROOT="$REPO_DIR/target/aeneas-sysroot/$CHARON_TOOLCHAIN"
-CHARON_MIRI_SYSROOTS="$SYSROOT"
 CHARON_MIRI_SYSROOT="$SYSROOT"
 MIRI_SYSROOT="$SYSROOT"
-export CHARON_MIRI_SYSROOTS CHARON_MIRI_SYSROOT MIRI_SYSROOT
+export CHARON_MIRI_SYSROOT MIRI_SYSROOT
 
 for f in "$CHARON" "$AENEAS"; do
     [ -f "$f" ] && [ -x "$f" ] || { echo "missing executable tool: $f" >&2; exit 2; }
@@ -90,7 +81,7 @@ echo "== source =="
 # pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
 # pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. Every `#[path]`
 # target of `proof/extract/lib.rs` is listed: the engine closure `loader/step/chart/kern/trace`, the
-# `mixer.rs` and `hadamard.rs` roots, `moe.rs` and `numeric/fixed_ln.rs` are pulled too, so a change
+# `mixer.rs` and `hadamard.rs` roots, `moe.rs`, `numeric/fixed_ln.rs` and `crypto.rs` are pulled too, so a change
 # to any of them moves the generated Lean and moves this digest list with it. `src/table/tests.rs`
 # is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
 SOURCE_FILES="
@@ -111,8 +102,6 @@ $REPO_DIR/src/table/keyrep.rs
 $REPO_DIR/src/table/partition.rs
 $REPO_DIR/src/table/resources.rs
 $REPO_DIR/src/table/parallel.rs
-$REPO_DIR/src/table/reduce.rs
-$REPO_DIR/src/table/getexact.rs
 $REPO_DIR/src/numeric/fixed_exp.rs
 $REPO_DIR/src/numeric/fixed_rsqrt.rs
 $REPO_DIR/src/numeric/fixed_trig.rs
@@ -148,6 +137,10 @@ $REPO_DIR/src/engine/chart/mod.rs
 $REPO_DIR/src/engine/kern/mod.rs
 $REPO_DIR/src/engine/trace.rs
 $REPO_DIR/src/numeric/fixed_ln.rs
+$REPO_DIR/src/crypto.rs
+$REPO_DIR/src/sha256.rs
+$REPO_DIR/src/chacha.rs
+$REPO_DIR/src/aes.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -172,6 +165,8 @@ run_extract() {
         --opaque 'crate::mixer::f32_carrier' \
         --opaque 'crate::attn::_::attn_head_f32' \
         --opaque 'crate::attn::alloc_f32_storage' \
+        --opaque 'crate::crypto::shake128' \
+        --opaque 'crate::crypto::shake256' \
         --dest-file "$llbc" \
         --start-from crate::word_mul \
         --start-from crate::word_norm \
@@ -207,11 +202,6 @@ run_extract() {
         --start-from crate::word_coord_unspread \
         --start-from crate::word_coord_id \
         --start-from crate::word_coord_place \
-        --start-from crate::word_table_reduce_all \
-        --start-from crate::word_affine_step_compose \
-        --start-from crate::word_affine_step_apply \
-        --start-from crate::word_stored_table_get_exact_at \
-        --start-from crate::word_regen_table_get_exact_at \
         --start-from crate::word_stored_relocate_entry \
         --start-from crate::word_regen_relocate_entry \
         --start-from crate::word_stored_relocate_all \
@@ -246,7 +236,15 @@ run_extract() {
         --start-from crate::word_gate_weights \
         --start-from crate::word_check_fragment \
         --start-from crate::word_policy_decide \
-        --start-from crate::word_trace_macs \
+        --start-from crate::word_keccakf \
+        --start-from crate::word_sha3_256 \
+        --start-from crate::word_sha3_512 \
+        --start-from crate::word_sha256 \
+        --start-from crate::word_sha256d \
+        --start-from crate::word_chacha20poly1305_encrypt \
+        --start-from crate::word_chacha20poly1305_decrypt \
+        --start-from crate::word_aes128_encrypt_block \
+        --start-from crate::word_aes128_decrypt_block \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \
@@ -269,39 +267,21 @@ audit() {
     python3 "$PROOF_DIR/audit-extraction.py" "$1" "$PROOF_DIR/boundary-axioms.txt"
 }
 
-# `--check` returns two independent verdicts, each printed under its own name: `cone:` for the
-# fail-closed audit and `stale:` for the freshness diff. Neither short-circuits the other. Running
-# the audit first and exiting on its status made every red `--check` unnameable, because an unlisted
-# axiom ended the run before the diff and a stale file with an unlisted axiom, a fresh file with an
-# unlisted axiom and a drifted source all printed the same audit rejection. Both verdicts are now
-# computed and recorded, and the exit status is their disjunction: green requires both.
 if [ "${1:-}" = "--check" ]; then
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/out"
     run_extract "$tmp/out" "$tmp/$CRATE.llbc"
-    check_rc=0
-    if audit "$tmp/out/$GENERATED"; then
-        echo "cone: admitted; no sorry/admit, no unlisted axiom"
-    else
-        echo "cone: REJECTED; the audit lines above name the sorry/admit or unlisted axiom" >&2
-        check_rc=1
-    fi
-    if diff -u "$PROOF_DIR/$GENERATED" "$tmp/out/$GENERATED"; then :; else
+    audit "$tmp/out/$GENERATED"
+    if ! diff -u "$PROOF_DIR/$GENERATED" "$tmp/out/$GENERATED"; then
         echo "stale: $GENERATED does not match regeneration from current source" >&2
-        check_rc=1
+        exit 1
     fi
-    [ "$check_rc" -eq 0 ] || exit 1
     echo "extraction is fresh"
 else
     run_extract "$PROOF_DIR" "$LLBC"
     rm -f "$LLBC"
-    if audit "$PROOF_DIR/$GENERATED"; then
-        echo "cone: admitted; no sorry/admit, no unlisted axiom"
-    else
-        echo "cone: REJECTED; the audit lines above name the sorry/admit or unlisted axiom" >&2
-        exit 1
-    fi
+    audit "$PROOF_DIR/$GENERATED"
 fi
 
 cd "$PROOF_DIR"

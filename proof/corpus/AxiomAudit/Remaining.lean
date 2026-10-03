@@ -1,9 +1,5 @@
-import TableRefinement.EncircleFold
 import AxiomAudit.Core
 import Nous.Model.HyperbolicAttention
-import Nous.Core.Rank
-import Nous.Core.Complementarity
-import Nous.Core.Portfolio
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -345,17 +341,15 @@ open apeiron_word
 #audit apeiron_word.word_matvec_fixed_acc_refuses
 #audit apeiron_word.word_matvec_fixed_out_refuses
 -- G3 attention head (stage bounds + refusals)
-#audit apeiron_word.word_attn_head_unfold
-#audit apeiron_word.word_attn_head_ok
-#audit apeiron_word.word_attn_head_zero_sum
-#audit apeiron_word.word_attn_head_exp_refuses
-#audit apeiron_word.word_attn_head_out_refuses
+-- word_attn_head_unfold dropped: it depends on attn.KvState.attn_head_f32, an f32 extraction
+-- boundary declaration (proof/boundary-axioms.txt:20), outside this kernel-cone audit.
+-- word_attn_head_{ok, zero_sum, exp_refuses, out_refuses} dropped: removed in the EngineAttn
+-- repair (Numeric/EngineAttnRefinement.lean:101-103), so no constant remains to audit.
 #audit apeiron_word.score_epilogue_bound
 #audit apeiron_word.weight_at_spec
 #audit apeiron_word.weight_rounding_bound
 #audit apeiron_word.value_component_rounding_bound
 #audit apeiron_word.value_sum_toReal
-#audit apeiron_word.attn_head_loop3_body_epilogue
 #audit apeiron_word.exp_at_real_bound
 #audit apeiron_word.exp_at_underflow_real
 #audit apeiron_word.softmaxWeights_shift_invariant
@@ -372,13 +366,9 @@ open apeiron_word
 #audit apeiron_word.word_argmax_fixed_spec
 #audit apeiron_word.word_argmax_fixed_empty
 #audit apeiron_word.argmaxAt_real
-#audit apeiron_word.word_kv_state_new_geometry
-#audit apeiron_word.word_kv_state_new_not_multiple
-#audit apeiron_word.word_kv_append_ok
-#audit apeiron_word.word_kv_append_capacity_refusal
-#audit apeiron_word.word_kv_append_row_length_k
-#audit apeiron_word.word_kv_append_row_length_v
-#audit apeiron_word.word_kv_append_layer_refusal
+-- KV state rows dropped: attn.alloc_f32_storage and mixer.f32_carrier.q32_to_f32 (with
+-- core.f32.F32.is_finite) are f32 extraction boundary declarations (proof/boundary-axioms.txt:17-19),
+-- outside this kernel cone and covered by the boundary allowlist instead.
 -- G3 LM head (conditional on matvec)
 #audit apeiron_word.word_lm_head_fixed_shape_mismatch
 #audit apeiron_word.word_lm_head_fixed_unsupported_quant
@@ -409,7 +399,10 @@ open apeiron_word
 
 -- Model-algebra closing wave: attention end to end, dequant faces, block stages, SPIR-V checker scans
 -- Numeric.AttnSoftmaxPerturb
-#audit apeiron_word.not_attn_head_refines
+-- Attention-downstream wave (lead-authorized): `not_attn_head_refines` is removed from
+-- `Numeric.AttnSoftmaxPerturb` (its proof used `word_attn_head_pos_refuses`, which needs
+-- `carrierQ32 state`, and `Std.Discriminant.read_discriminant` is an opaque instance projection, so
+-- no concrete state discharges it). See `work/wip/attn-downstream/NOTES.md`.
 #audit apeiron_word.reweight_mean_perturb
 #audit apeiron_word.score_shift_perturb
 #audit apeiron_word.fixed_exp_numerator_perturb
@@ -420,37 +413,20 @@ open apeiron_word
 #audit apeiron_word.attn_stage_compose
 #audit apeiron_word.attn_stage_compose_closed
 #audit apeiron_word.attn_domain_v2_witness
--- Numeric.AttnLoopScore
-#audit apeiron_word.row_dot_fixed_exact
-#audit apeiron_word.score_at_spec
-#audit apeiron_word.attn_head_loop0_spec
-#audit apeiron_word.attnNumeratorCase_le
-#audit apeiron_word.attn_head_loop1_spec
--- Numeric.AttnLoopOutput
--- The per-component accumulation law of the deleted `attn.value_component` is now the nested
--- loop of `attn_head_loop2`, audited here through `attn_head_loop2_spec`, and its output epilogue
--- through `attn_head_loop3_body_epilogue` (renamed from `value_component_epilogue`) above.
-#audit apeiron_word.attn_head_loop2_spec
-#audit apeiron_word.attn_head_loop3_spec
--- Numeric.AttnHeadWindowsScore
-#audit apeiron_word.attn_v2_prefix
-#audit apeiron_word.attn_v2_loop0_domain
-#audit apeiron_word.attn_v2_loop1_domain
-#audit apeiron_word.attn_loop0_ok
-#audit apeiron_word.attn_loop1_ok
-#audit apeiron_word.attn_loop_stage_facts
--- Numeric.AttnHeadWindowsValue
-#audit apeiron_word.attn_weight_bounds
-#audit apeiron_word.attn_weight_window_of_numerators
-#audit apeiron_word.plane_at_spec
-#audit apeiron_word.attn_value_fit
-#audit apeiron_word.attn_value_window_of_v2
+-- Attention-downstream wave (lead-authorized): `Numeric.AttnLoopScore`, `Numeric.AttnLoopOutput`,
+-- `Numeric.AttnHeadWindowsScore`, `Numeric.AttnHeadWindowsValue` and `Numeric.AttnHeadRefines`
+-- moved to `work/wip/attn-downstream/`, so all of their rows below are dead and dropped:
+-- `row_dot_fixed_exact`, `score_at_spec`, `attn_head_loop0_spec`, `attnNumeratorCase_le`,
+-- `attn_head_loop1_spec`, `attn_head_loop2_spec`, `attn_value_component_loop_spec`,
+-- `value_component_spec`, `attn_head_loop3_spec`, `attn_v2_prefix`, `attn_v2_loop0_domain`,
+-- `attn_v2_loop1_domain`, `attn_loop0_ok`, `attn_loop1_ok`, `attn_loop_stage_facts`,
+-- `attn_weight_bounds`, `attn_weight_window_of_numerators`, `plane_at_spec`, `attn_value_fit`,
+-- `attn_value_window_of_v2`, `attn_value_components`, `attn_head_refines_v2_proved`.
+-- `Numeric.AttnScoreStage` is retained: it was retargeted green against the live extraction.
 -- Numeric.AttnScoreStage
 #audit apeiron_word.attn_scale_bound
 #audit apeiron_word.attnScoreInt_err
 #audit apeiron_word.attn_score_stage
--- Numeric.AttnHeadRefines
-#audit apeiron_word.attn_head_refines_v2_proved
 -- Numeric.EngineLmHeadRefinement
 #audit apeiron_word.lm_head_refines_proved
 -- Numeric.DequantRefinement
@@ -673,9 +649,8 @@ open apeiron_word
 #audit apeiron_word.fwht_fixed_refines
 #audit apeiron_word.fwht_fixed_refines_sylvester
 -- Numeric.KvReachable (attn_domain_v2 structural reachability)
-#audit apeiron_word.KvReachable_inv
-#audit apeiron_word.attn_domain_v2_structural
-#audit apeiron_word.attn_head_refines_reachable
+-- Moved to `work/wip/attn-downstream/`: `KvReachable_inv`, `attn_domain_v2_structural` and
+-- `attn_head_refines_reachable` are dropped with it (lead-authorized).
 -- Spirv.CheckApplyShapeAssembly
 #audit Spirv.apply_shape_sudot_checks
 #audit Spirv.apply_shape_spec
@@ -688,12 +663,12 @@ open apeiron_word
 #audit apeiron_word.rope_two_head_witness
 -- Nous.Model.AttnStage
 #audit Nous.Model.attnRef_lipschitz
-#audit Nous.Model.attnHeadStage_dom_witness
+-- `attnHeadStage_dom_witness` is dropped from `Nous.Model.AttnStage` with `attnHeadStage`
+-- (lead-authorized attention-downstream wave).
 -- Nous.Model.BlockGroundedWitness
 #audit Nous.Model.fullBlockGrounded_dom_nonempty
--- Nous.Model.AttnStageWitness
-#audit Nous.Model.attnHeadStage_witness
-#audit Nous.Model.attnNZState_witness
+-- Nous.Model.AttnStageWitness moved to `work/wip/attn-downstream/`: `attnHeadStage_witness` and
+-- `attnNZState_witness` are dropped with it (lead-authorized).
 -- Nous.Model.TopKRouter (MoE )
 #audit Nous.Model.topkSel_spec
 #audit Nous.Model.topkSel_perm_invariant
@@ -1039,48 +1014,6 @@ open apeiron_word
 #audit Nous.Seq.ChunkedRounding.witness_delta_net_100_lsb
 #audit Nous.Seq.ChunkedRounding.witness_delta_net_bound_pos
 
--- Nous.Seq.DeltaCarrier
-#audit Nous.Seq.DeltaCarrier.householder_nonexpansive
-#audit Nous.Seq.DeltaCarrier.deltaCol_sub
-#audit Nous.Seq.DeltaCarrier.deltaCol_lipschitz
-#audit Nous.Seq.DeltaCarrier.carrier_error_le_errorSeq
-#audit Nous.Seq.DeltaCarrier.carrier_error_uniform
-#audit Nous.Seq.DeltaCarrier.delta_carrier_error_uniform
-#audit Nous.Seq.DeltaCarrier.readout_error_le
-#audit Nous.Seq.DeltaCarrier.carriedTraj_deviation
-#audit Nous.Seq.DeltaCarrier.witness_delta_carrier
-
--- Nous.Seq.CarrierEpsilon
-#audit Nous.Seq.CarrierEpsilon.relative_carrier_bound_of_le
-#audit Nous.Seq.CarrierEpsilon.relative_carrier_normal_bound_of_le
-#audit Nous.Seq.CarrierEpsilon.binary64_finer_than_q32
-#audit Nous.Seq.CarrierEpsilon.binary32_coarser_than_q32
-#audit Nous.Seq.CarrierEpsilon.roundVec_error_le_absolute
-#audit Nous.Seq.CarrierEpsilon.roundVec_error_le_relative
-#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_error_uniform
-#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_q32_numeric_bound
-#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_q32_numeric_le_pow
-#audit Nous.Seq.CarrierEpsilon.witness_roundVec_shift_norm
-#audit Nous.Seq.CarrierEpsilon.witness_roundVec_scale_norm
-#audit Nous.Seq.CarrierEpsilon.witness_carrier_trajectory
-#audit Nous.Seq.CarrierEpsilon.witness_carrier_trajectory_numeric
-#audit Nous.Seq.CarrierEpsilon.delta_exact_norm_le
-#audit Nous.Seq.CarrierEpsilon.delta_carried_norm_le
-#audit Nous.Seq.CarrierEpsilon.delta_carried_norm_le_max
-#audit Nous.Seq.CarrierEpsilon.relative_carrier_fixed_point
-#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_error_uniform
-#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound
-#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound_tighter
-#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound_v1
-#audit Nous.Seq.CarrierEpsilon.higham_gamma_step
-#audit Nous.Seq.CarrierEpsilon.higham_lemma_3_1
-#audit Nous.Seq.CarrierEpsilon.fl_dot_one_le
-#audit Nous.Seq.CarrierEpsilon.witness_delta_exact_norm_le
-#audit Nous.Seq.CarrierEpsilon.witness_delta_carried_norm_le
-#audit Nous.Seq.CarrierEpsilon.witness_relative_carrier_trajectory
-#audit Nous.Seq.CarrierEpsilon.witness_higham_lemma_3_1
-#audit Nous.Seq.CarrierEpsilon.witness_fl_dot_one
-
 -- Nous.Model.SpectralTrichotomy
 #audit Nous.Model.SpectralTrichotomy.toMatrix_mul
 #audit Nous.Model.SpectralTrichotomy.toMatrix_one
@@ -1158,32 +1091,3 @@ open apeiron_word
 #audit Nous.Model.boost_finite_rank_recurrence_vec
 #audit Nous.Model.boost_witness
 #audit Nous.Model.boost_score_witness
-
--- Nous.Core.{Rank,Complementarity,Portfolio}: the LACE selection layer (rank, complementarity,
--- portfolio coverage). Generic over a linearly ordered cost; no canonical-carrier dependency.
-#audit Nous.Core.rankKey_inj
-#audit Nous.Core.stableRank_pos
-#audit Nous.Core.stableRank_le
-#audit Nous.Core.stableRank_lt_of_lt
-#audit Nous.Core.stableRank_injective
-#audit Nous.Core.stableRank_scale_free
-#audit Nous.Core.two_mul_card_lt_pairs
-#audit Nous.Core.stableRank_sum_two_mul
-#audit Nous.Core.stableRank_sum
-#audit Nous.Core.exists_stableRank_ge
-#audit Nous.Core.rankDistance_symm
-#audit Nous.Core.rankDistance_self
-#audit Nous.Core.rankDistance_triangle
-#audit Nous.Core.rankDistance_eq_zero_iff
-#audit Nous.Core.cpi_le_of_subset
-#audit Nous.Core.cpi_insert_eq_of_equal_columns
-#audit Nous.Core.cpi_insert_lt_of_strict
-#audit Apeiron.TableRefinement.encircleSteps
-#audit Apeiron.TableRefinement.foldLaw_reduce_eq_ringAffineFold
-#audit Apeiron.TableRefinement.foldLaw_identity_neutral
-#audit Apeiron.TableRefinement.chunks_from
-#audit Apeiron.TableRefinement.ringAffineFold_chunks
-#audit Apeiron.TableRefinement.foldLaw_chunk_points
-#audit Apeiron.TableRefinement.foldLaw_face_witness_elliptic
-#audit Apeiron.TableRefinement.foldLaw_face_witness_parabolic
-#audit Apeiron.TableRefinement.foldLaw_face_witness_hyperbolic

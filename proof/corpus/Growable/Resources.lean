@@ -65,8 +65,7 @@ structure CoreCallTrace where
 def NoCoreEffects (trace : CoreCallTrace) : Prop :=
   trace.allocationCalls = 0 ∧ trace.initializationCalls = 0 ∧ trace.mergeCalls = 0
 
-/-- The generated destination index is inside the materialized flat or spill vectors.  A spill
-    region carries one slot array, so the destination bound is the single slot bound. -/
+/-- The generated destination index is inside the materialized flat or spill vectors. -/
 def DestinationInBounds {R : Type} (storage : table.RebuildReserved R I64) :
     Destination → Prop
   | .flat index => index.val < storage.resident.slots.length
@@ -74,11 +73,11 @@ def DestinationInBounds {R : Type} (storage : table.RebuildReserved R I64) :
       storage.regions.val[shard.val]? = some region ∧
       index.val < region.slots.length
 
-/-- Flat live bits and the slots' own `tag` markers show that materialized relocation storage is
-    initially vacant.  The retired separate tag array is replaced by the marker each slot carries. -/
+/-- Flat live bits and spill-slot tags show that materialized relocation storage is initially vacant. -/
 def MaterializedVacant {R : Type} (storage : table.RebuildReserved R I64) : Prop :=
   (∀ slot ∈ storage.resident.slots.val, slot.live = false) ∧
-  (∀ region ∈ storage.regions.val, ∀ slot ∈ region.slots.val, slot.tag = 0#u8)
+  (∀ region ∈ storage.regions.val,
+    ∀ slot ∈ region.slots.val, slot.tag = 0#u8)
 
 /-- Receipt targets and materialized lengths agree with the complete generated target geometry. -/
 structure ReceiptMatchesStorage {R : Type} (plan : table.RebuildPlan)
@@ -112,7 +111,7 @@ theorem receiptMatches_spillDirectory {R : Type} {plan : table.RebuildPlan}
       receipt.regions.val.length = Apeiron.GrowableGeometry.shardCount :=
   ⟨h.spillDirectory, h.receiptDirectory⟩
 
-/-- Every receipt entry carries the slot-array length of its target spill region. -/
+/-- Every receipt entry carries the checked capacity bound of its target spill region. -/
 theorem receiptMatches_regionLengths {R : Type} {plan : table.RebuildPlan}
     {storage : table.RebuildReserved R I64} {receipt : table.resources.ReservationReceipt}
     (h : ReceiptMatchesStorage plan storage receipt) (shard : Nat)
@@ -218,21 +217,25 @@ structure EntryObservationCertificate {R : Type} (state : WordTable R)
     | none, .spill shard _ => entry.spill = shard ∧ table.shard address = ok shard
     | _, _ => False
 
-/-- Apply one symbolic plan write to the generated flat/spill storage. -/
+/-- Apply one symbolic plan write to the generated flat/spill storage.  A spill write runs the
+generated `table.Region.publish_live` publication of the observed slot. -/
 def applyPlannedWrite {R : Type} {state : WordTable R} {decode : cell.Sigma → R → Option I64}
     {cloneHeld : R → R} {addressHeld : cell.Sigma → R → Result table.TableAddress}
     {plan : table.RebuildPlan} {entryAt : Usize} {destination : Destination}
     (current : table.RebuildReserved R I64)
     (entry : EntryObservationCertificate state decode cloneHeld addressHeld plan entryAt destination) :
-    table.RebuildReserved R I64 :=
+    Result (table.RebuildReserved R I64) := do
   match destination with
-  | .flat index => Apeiron.GrowableRelocation.writeFlat current index
-      { live := true, sigma := entry.sigma, held := entry.writtenHeld, value := entry.writtenValue }
+  | .flat index => ok (Apeiron.GrowableRelocation.writeFlat current index
+      { live := true, sigma := entry.sigma, held := entry.writtenHeld, value := entry.writtenValue })
   | .spill shard index =>
       match current.regions.val[shard.val]? with
-      | some region => Apeiron.GrowableRelocation.writeSpill current shard index region entry.tag
-          (entry.sigma, entry.writtenHeld, entry.writtenValue)
-      | none => current
+      | some region =>
+          let published ← table.Region.publish_live region index
+              (entry.sigma, entry.writtenHeld, entry.writtenValue)
+              entry.address.place
+          ok (Apeiron.GrowableRelocation.writeSpill current shard published)
+      | none => ok current
 
 /-- The pending operation's unique symbolic found-or-vacant classification. -/
 inductive PendingSymbolicDecision where
@@ -346,8 +349,8 @@ structure RebuildPlanClauses (R : Type) where
   prefixStorage : Nat → table.RebuildReserved R I64
   prefixInitial : prefixStorage 0 = storage
   prefixStep : ∀ (entryAt : Usize) (bound : entryAt.val < plan.entries.length),
-    prefixStorage (entryAt.val + 1) =
-      applyPlannedWrite (prefixStorage entryAt.val) (entryObservation entryAt bound)
+    applyPlannedWrite (prefixStorage entryAt.val) (entryObservation entryAt bound) =
+      ok (prefixStorage (entryAt.val + 1))
   prefixVacancy : ∀ (entryAt : Usize) (bound : entryAt.val < plan.entries.length),
     match assignment entryAt with
     | .flat _ => True

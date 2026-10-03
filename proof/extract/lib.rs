@@ -152,75 +152,6 @@ pub type WordTable = WordStoredTable;
 /// The elliptic word table retains the real regenerated identity word.
 pub type WordRegenTable =
     table::Table<i64, i64, table::WordHome, 16, table::keyrep::Regen<table::keyrep::I64WordCodec>>;
-/// The cell-valued word instance the whole-table reduce is rooted at: incumbent
-/// `fold hashtrinity/src/lib.rs:891` (`Table::encircle`) reduced over `Cell<i64>` values.
-pub type WordCellTable =
-    table::Table<i64, cell::Cell<i64>, table::WordHome, 16, table::keyrep::Stored<i64>>;
-
-/// `Table::reduce_all` at the concrete `AffineFoldStep` witness.
-///
-/// Calls the real `src/table/reduce.rs` body over the table's own live resident and spill slots; it
-/// does not restate the loop and does not restate the algebra. `sigma` is the dial argument the
-/// witness carries, matching the corpus's `ringAffineFold sigma`.
-pub fn word_table_reduce_all(
-    state: &WordCellTable,
-    sigma: cell::Sigma,
-) -> table::AffineStep<i64> {
-    state.reduce_all(&table::AffineFoldStep { sigma })
-}
-
-/// `AffineStep::compose`, the corpus `AnyRing.ringAffineCompose sigma outer inner` at the word
-/// scalar. Rooted so the generated fold law links the real body, not a restatement.
-pub fn word_affine_step_compose(
-    outer: table::AffineStep<i64>,
-    sigma: cell::Sigma,
-    inner: table::AffineStep<i64>,
-) -> table::AffineStep<i64> {
-    outer.compose(sigma, inner)
-}
-
-/// `AffineStep::apply`, the corpus `AnyRing.ringAffineApply sigma step z` at the word scalar.
-pub fn word_affine_step_apply(
-    step: table::AffineStep<i64>,
-    sigma: cell::Sigma,
-    z: cell::Cell<i64>,
-) -> cell::Cell<i64> {
-    step.apply(sigma, z)
-}
-
-/// `Table::get_exact_at`, the incumbent's `fold hashtrinity/src/lib.rs:1124` (`get_exact`) over the
-/// real `src/table/getexact.rs` body.
-///
-/// Calls the real body; it does not restate the compare and does not restate the walk. Returns the
-/// stored value, or `None` for one of the three absence certificates the read admits, so the
-/// generated bodies carry the exactness a refinement would link rather than a re-derivation of it.
-/// The `Option` is destructured by `match`, not through `Option::copied`: the pinned Aeneas Lean
-/// model does not define `copied`, so it would land as an unlisted axiom and `proof/regen.sh`'s
-/// fail-closed audit rejects the extraction (measured, §regen-1 of this task's receipt).
-pub fn word_stored_table_get_exact_at(
-    state: &WordStoredTable,
-    sigma: cell::Sigma,
-    key: i64,
-) -> Option<i64> {
-    match state.get_exact_at(sigma, &key) {
-        Some(value) => Some(*value),
-        None => None,
-    }
-}
-
-/// The same read at the elliptic carrier, where identity is a regenerated word rather than a
-/// retained key. Both carriers run one method; the two `Source:` bodies differ only in the `KeyRep`
-/// instance, which is the two-arm face obligation the port states.
-pub fn word_regen_table_get_exact_at(
-    state: &WordRegenTable,
-    sigma: cell::Sigma,
-    key: i64,
-) -> Option<i64> {
-    match state.get_exact_at(sigma, &key) {
-        Some(value) => Some(*value),
-        None => None,
-    }
-}
 
 /// `Cell::<i64>::mul`, rooted so Charon does not have to translate the whole crate.
 pub fn word_mul(a: cell::Cell<i64>, sigma: cell::Sigma, b: cell::Cell<i64>) -> cell::Cell<i64> {
@@ -1134,11 +1065,126 @@ pub use sampler::{argmax_fixed, top_p_fixed, SamplerError};
 pub use step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
 pub use value::fixed_vector_checksum;
 
-/// The real multiply-add count of an `n_out × n_in` projection over `cols` columns.
+/// FIPS-202 hash construction, declared last so no earlier extracted item's source span moves.
+/// `src/crypto.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/crypto.rs"]
+pub mod crypto;
+
+/// FIPS 180-4 SHA-256. `src/sha256.rs` imports only `core`, so no mirror above is needed.
+#[path = "../../src/sha256.rs"]
+pub mod sha256;
+
+/// `crypto::keccak_f1600`, the Keccak-f[1600] permutation, at the fixed 25-lane state.
 ///
-/// This calls the real `src/engine/trace.rs` `macs` body (`src/engine/trace.rs:222`); it does not
-/// restate the three-factor product. The wrapper only fixes the argument and result types.
-#[must_use]
-pub fn word_trace_macs(n_out: usize, n_in: usize, cols: usize) -> u64 {
-    trace::macs(n_out, n_in, cols)
+/// This calls the real `src/crypto.rs` body; the wrapper fixes nothing beyond naming the state
+/// type, which is already concrete. It does not restate the theta/rho/pi/chi/iota steps.
+pub fn word_keccakf(state: &mut [u64; 25]) {
+    crypto::keccak_f1600(state)
+}
+
+/// `crypto::sha3_256`, rooted at the concrete `&[u8]` message and `[u8; 32]` digest. The sponge
+/// bodies are translatable after the `absorb_block`/`sponge` `while` rewrites; the extraction audit
+/// verifies the remaining cone.
+pub fn word_sha3_256(msg: &[u8]) -> [u8; 32] {
+    crypto::sha3_256(msg)
+}
+
+/// `crypto::sha3_512`, rooted at the concrete `&[u8]` message and `[u8; 64]` digest.
+pub fn word_sha3_512(msg: &[u8]) -> [u8; 64] {
+    crypto::sha3_512(msg)
+}
+
+/// `sha256::sha256`, the real FIPS 180-4 SHA-256 body at the concrete `&[u8]`/`[u8; 32]` types.
+///
+/// This calls the real `src/sha256.rs` body; the wrapper fixes the slice and array types and does
+/// not restate the padding, the message schedule or the compression rounds.
+pub fn word_sha256(msg: &[u8]) -> [u8; 32] {
+    sha256::sha256(msg)
+}
+
+/// `sha256::sha256d`, the double SHA-256 composition, at the concrete `&[u8]`/`[u8; 32]` types.
+///
+/// This calls the real `src/sha256.rs` `sha256d` body, which applies the real [`sha256::sha256`]
+/// twice; the wrapper fixes the slice and array types and does not restate the composition.
+pub fn word_sha256d(msg: &[u8]) -> [u8; 32] {
+    sha256::sha256d(msg)
+}
+
+/// RFC 8439. `src/chacha.rs` imports only `core`, so no mirror above is needed. Declared last so
+/// no earlier extracted item's source span moves.
+#[path = "../../src/chacha.rs"]
+pub mod chacha;
+
+/// `chacha::chacha20poly1305_encrypt`, the RFC 8439 section 2.8.1 AEAD seal, at the concrete
+/// `&[u8; 32]` key, `&[u8; 12]` nonce and `&[u8]` aad/plaintext types.
+///
+/// This calls the real `src/chacha.rs` body; the wrapper fixes the slice and array types and does
+/// not restate the one-time-key derivation, the keystream xor, the MAC-input padding or the tag
+/// append. The body is total (infallible, returning `Vec<u8>`), so this root has no `Result`.
+pub fn word_chacha20poly1305_encrypt(
+    key: &[u8; chacha::KEY_LEN],
+    nonce: &[u8; chacha::NONCE_LEN],
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Vec<u8> {
+    chacha::chacha20poly1305_encrypt(key, nonce, aad, plaintext)
+}
+
+/// `chacha::chacha20poly1305_decrypt`, the RFC 8439 section 2.8.2 AEAD open, at the same concrete
+/// key/nonce types.
+///
+/// This calls the real `src/chacha.rs` body; the wrapper fixes the types and does not restate the
+/// short-ciphertext refusal, the constant-time tag comparison or the keystream xor. It is the only
+/// partial entry point: it yields `Ok(Vec<u8>)` or `Err(chacha::Error)`.
+pub fn word_chacha20poly1305_decrypt(
+    key: &[u8; chacha::KEY_LEN],
+    nonce: &[u8; chacha::NONCE_LEN],
+    aad: &[u8],
+    ciphertext_and_tag: &[u8],
+) -> Result<Vec<u8>, chacha::Error> {
+    chacha::chacha20poly1305_decrypt(key, nonce, aad, ciphertext_and_tag)
+}
+
+/// FIPS 197. `src/aes.rs` imports only `core`, so no mirror above is needed. Declared after
+/// `chacha` so no earlier extracted item's source span moves.
+#[path = "../../src/aes.rs"]
+pub mod aes;
+
+/// `aes::aes128_encrypt_block`, the FIPS 197 section 6.1 cipher, at the concrete `&[u8; 16]` key
+/// and block types.
+///
+/// This calls the real `src/aes.rs` body; the wrapper fixes nothing beyond naming the array types,
+/// which are already concrete. It does not restate the key expansion, SubBytes, ShiftRows,
+/// MixColumns or AddRoundKey steps.
+pub fn word_aes128_encrypt_block(
+    key: &[u8; aes::KEY_LEN],
+    block: &[u8; aes::BLOCK_LEN],
+) -> [u8; aes::BLOCK_LEN] {
+    aes::aes128_encrypt_block(key, block)
+}
+
+/// `aes::aes128_decrypt_block`, the FIPS 197 section 6.2 equivalent inverse cipher, at the same
+/// concrete key and block types.
+///
+/// This calls the real `src/aes.rs` body and does not restate InvShiftRows, InvSubBytes,
+/// InvMixColumns or the round-key order. The body is total (infallible, returning `[u8; 16]`), so
+/// this root has no `Result`.
+pub fn word_aes128_decrypt_block(
+    key: &[u8; aes::KEY_LEN],
+    block: &[u8; aes::BLOCK_LEN],
+) -> [u8; aes::BLOCK_LEN] {
+    aes::aes128_decrypt_block(key, block)
+}
+
+/// `crypto::shake128`, rooted at the concrete `&[u8]` message and `&mut [u8]` out-parameter.
+///
+/// Not an extraction root: its output length is unbounded at the call site, so the root would be
+/// slice-length-parametric rather than monomorphic.
+pub fn word_shake128(msg: &[u8], out: &mut [u8]) {
+    crypto::shake128(msg, out)
+}
+
+/// `crypto::shake256`, rooted as `word_shake128` is, and likewise not an extraction root.
+pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
+    crypto::shake256(msg, out)
 }

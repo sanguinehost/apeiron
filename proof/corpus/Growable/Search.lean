@@ -72,22 +72,20 @@ def entryAt {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usize)
       match state.shards.val[shard.val]? with
       | some region =>
           match region.slots.val[index.val]? with
-          | some slot =>
-              if slot.tag = 0#u8 then none else
-                match decode slot.sigma slot.held with
-                | some key => some ((slot.sigma, key), slot.value)
-                | none => none
+          | some slot => if slot.tag = 0#u8 then none else
+              match decode slot.sigma slot.held with
+              | some key => some ((slot.sigma, key), slot.value)
+              | none => none
           | none => none
       | none => none
 
-/-- A location is vacant exactly through its occupancy authority. The spilled marker is the
-destination slot's own `tag`, so vacancy is one readback rather than a read of a parallel array. -/
+/-- A location is vacant exactly through its occupancy authority. -/
 def VacantAt {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usize) :
     Location → Prop
   | .flat index => ∃ slot, state.resident.slots.val[index.val]? = some slot ∧ slot.live = false
   | .spill shard index => ∃ region slot,
       state.shards.val[shard.val]? = some region ∧ region.slots.val[index.val]? = some slot ∧
-        slot.tag = 0#u8 ∧ index.val < region.slots.length
+        slot.tag = 0#u8
 
 /-- No live physical representative has the queried full logical key. -/
 def Absent {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usize)
@@ -112,24 +110,39 @@ def DirectCover {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usiz
     Absent state decode query
 
 /--
-The non-`Found` absence certificate.  Every non-`Found` decision licenses logical absence
-through exactly one of two routes:
+A sound routed shard miss. The generated route selects the shard and no live representative in that
+shard decodes to the query. The retired summary lanes are gone: the executing spill representation
+is a linear tag probe (`table.probe.spill_read`), so a miss is the pointwise exclusion recorded in
+`excludes`, not a negative summary lane. `Search` cannot import `GrowableRepresentation` (cycle), so
+this is the local mirror of `GrowableRepresentation.SpillSummaryMissSound`; a producer instantiates
+it from `RepR`'s shard inventory and the generated address route. It is state evidence, not the
+desired `Absent` result: the routing and flat-exclusion consequences are separate structure fields
+on `SearchDecisionCorrect`.
+-/
+structure SummaryMissSound {R : Type}
+    (state : table.Table I64 I64 table.WordHome R 16#usize)
+    (decode : cell.Sigma → R → Option I64) (query : LogicalKey) where
+  address : table.TableAddress
+  shard : Usize
+  generatedAddress :
+    Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 = ok address
+  shardEq : table.shard address = ok shard
+  region : table.Region R I64
+  regionAt : state.shards.val[shard.val]? = some region
+  excludes : ∀ index value, entryAt state decode (.spill shard index) ≠ some (query, value)
+
+/--
+The three-way non-`Found` absence certificate. Every non-`Found` decision licenses logical absence
+through exactly one route:
 * `directEmpty` — the decision's location is direct-admitted, so `DirectCover` at its first-fit
   vacancy yields `Absent`;
+* `directExcludedSummaryMiss` — the query is not direct-admitted and a sound routed summary miss
+  excludes every representative; `SearchDecisionCorrect.flatMatchAdmitted` and
+  `SearchDecisionCorrect.spillMatchRouted` carry the generated route that turns the two exclusions
+  into absence;
 * `coverage` — every live representative lies in `checked` and none of the checked locations decodes
   to the query's canonical value.
 No constructor carries a supplied `Found` or `Absent` result.
-
-The retired third route was `directExcludedSummaryMiss`: a negative read of the generated occupancy
-summary at the query's routed place, with the summary's shape and recordedness carried through
-`RepR`.  `table.scan.*`, `table.summary_trailing_zeros`, `table.Region.{summary_index,summary_set,
-summary_maybe}` and the `tags` array no longer exist in the extraction (`src/table/scan.rs` was
-retired), so that certificate has no generated counterpart left to refine.  The replacement is the
-`coverage` route together with `SearchDecisionCorrect.spillMatchRouted`: a completed bounded probe
-cycle over the routed shard is finite, its visited sites enumerate into `checked`, and
-`Apeiron.GrowableScan.spill_probe_bound_absent_sound` is the derived per-region absence fact.  The
-producer of `checked` and `CompleteCoverage` for a routed miss lives in `Growable.Read`/
-`Growable.ReadLoop`, which carry that absence derivation; it is not asserted here.
 -/
 inductive AbsenceCertificate {R : Type}
     (state : table.Table I64 I64 table.WordHome R 16#usize)
@@ -140,13 +153,16 @@ inductive AbsenceCertificate {R : Type}
       (hlocation : decisionLocation decision = some location)
       (hdirect : direct query = some location) :
       AbsenceCertificate state decode logical query decision direct checked
+  | directExcludedSummaryMiss (hexcluded : direct query = none)
+      (hmiss : SummaryMissSound state decode query) :
+      AbsenceCertificate state decode logical query decision direct checked
   | coverage (hcovered : ∀ location, location ∈ checked →
       entryAt state decode location ≠ some (query, Apeiron.Table.get logical query)) :
       AbsenceCertificate state decode logical query decision direct checked
 
 /--
 The unextracted decision's complete premise. Presence is exact and unique; vacancy is first-fit;
-exhaustion is exact; direct absence uses `DirectCover`; every other absence uses the two-way
+exhaustion is exact; direct absence uses `DirectCover`; every other absence uses the three-way
 `AbsenceCertificate`; and a recorded vacancy never truncates the mandatory match sweep.
 -/
 structure SearchDecisionCorrect {R : Type}
@@ -175,12 +191,12 @@ structure SearchDecisionCorrect {R : Type}
   absenceCertificate : decision.class ≠ .Found →
     AbsenceCertificate state decode logical query decision direct checked
   /-- Every live flat representative's key is direct-admitted: the forward direction of the generated
-      `WordHome.address`/`preparedFlatIndex` route. -/
+      `WordHome.address`/`preparedFlatIndex` route. It turns `direct query = none` into flat absence. -/
   flatMatchAdmitted : ∀ index value,
     entryAt state decode (.flat index) = some (query, value) →
       ∃ location, direct query = some location
   /-- Every live spill representative routes to its own shard through the generated address. It
-      aligns every spill location with the shard the generated route selected for the query. -/
+      connects a routed `SummaryMissSound` exclusion to every spill location. -/
   spillMatchRouted : ∀ shard index value,
     entryAt state decode (.spill shard index) = some (query, value) →
       ∃ address, Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 =
@@ -295,13 +311,28 @@ private theorem absent_of_not_found {R : Type}
   | Exhausted => exact (h.exhaustedExact.mp hclass).1
   | Vacant =>
       rcases h.absenceCertificate hnfound with
-        ⟨location, hlocation, hdirect⟩ | hcovered
+        ⟨location, hlocation, hdirect⟩ | ⟨hexcluded, hmiss⟩ | hcovered
       · obtain ⟨vacantLocation, hvacantLocation, hfirst⟩ := h.vacantExact.mp hclass
         have heq : location = vacantLocation := by
           rw [hlocation] at hvacantLocation
           exact Option.some.inj hvacantLocation
         subst vacantLocation
         exact h.directCover query location hdirect hfirst.1
+      · intro location value hentry
+        cases location with
+        | flat index =>
+            obtain ⟨location, hdirect⟩ := h.flatMatchAdmitted index value hentry
+            rw [hexcluded] at hdirect
+            cases hdirect
+        | spill shard index =>
+            obtain ⟨address, haddress, hshard⟩ := h.spillMatchRouted shard index value hentry
+            rw [hmiss.generatedAddress] at haddress
+            have haddrEq : address = hmiss.address := (Result.ok_injective haddress).symm
+            rw [haddrEq] at hshard
+            rw [hmiss.shardEq] at hshard
+            have hshardEq : shard = hmiss.shard := (Result.ok_injective hshard).symm
+            rw [hshardEq] at hentry
+            exact hmiss.excludes index value hentry
       · intro location value hentry
         have hin := h.complete location (query, value) hentry
         apply hcovered location hin
@@ -513,16 +544,14 @@ theorem word_stored_apply_insert_found_flat_self
   simpa [Apeiron.Table.get, hvalue] using word_stored_apply_get_after_found_flat state index slot
     { slot with value := core.num.I64.wrapping_add value slot.value } hslot
 
-/-- A vacant flat apply commits a new-first default merge and makes the real slot readable. The
-`_hpublish` premise is the input-side locator obligation: `step` discharges the generated apply
-without naming it, so it is kept as a contract and left unreferenced. -/
+/-- A vacant flat apply commits a new-first default merge and makes the real slot readable. -/
 theorem word_stored_apply_insert_vacant_flat
     (state : table.Table I64 I64 table.WordHome (table.keyrep.Stored I64) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (index : Usize)
     (slot : table.FlatSlot (table.keyrep.Stored I64) I64)
     (hslot : state.resident.slots.val[index.val]? = some slot) (_hlive : slot.live = false)
     (nextLocator : table.TableLocator)
-    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
@@ -581,7 +610,7 @@ theorem word_regen_apply_insert_vacant_flat
     (slot : table.FlatSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hslot : state.resident.slots.val[index.val]? = some slot) (_hlive : slot.live = false)
     (nextLocator : table.TableLocator)
-    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.regenKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
@@ -677,12 +706,7 @@ theorem word_regen_apply_insert_found_flat_self
     table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq,
     table.SearchClass.read_discriminant, Apeiron.Table.get, hvalue]
 
-/-- Replace one selected spill slot without changing unrelated table fields. The destination slot
-carries the occupancy marker, so the replacement writes the whole `table.SpillSlot` and preserves the
-region's `live` counter, which the retired per-lane publication did not touch. It preserves `coords`
-and `bits` too, because the generated found-spill commit it refines is
-`table.apply_prepared_shard_placed`'s `Found` branch
-(`{ region with slots := v }`, `proof/ApeironWord.lean:20792`): that update names `slots` alone. -/
+/-- Replace one selected spill slot without changing unrelated table fields. -/
 def replaceSpillValue {R : Type} (state : table.Table I64 I64 table.WordHome R 16#usize)
     (shard : Usize) (region : table.Region R I64) (index : Usize)
     (slot : table.SpillSlot R I64) : table.Table I64 I64 table.WordHome R 16#usize :=
@@ -690,56 +714,49 @@ def replaceSpillValue {R : Type} (state : table.Table I64 I64 table.WordHome R 1
     home := state.home
     resident := state.resident
     shards := state.shards.set shard
-      { slots := region.slots.set index slot, coords := region.coords, bits := region.bits,
-        live := region.live }
+      { slots := region.slots.set index slot, live := region.live }
     len := state.len
     key := state.key
     locator := state.locator }
 
-/-- A prepared spill publication succeeds and exposes the written payload at its selected index. The
-readback is one `table.SpillSlot` whose carrier fields are the published triple; its `tag` is the
-generated marker and is not part of the payload. -/
+/-- A prepared spill publication succeeds and exposes the written payload fields at its selected
+index. The generated live tag is written independently of the payload fields. -/
 def PublishReadable {R : Type} (region : table.Region R I64) (index : Usize)
     (payload : cell.Sigma × R × I64) (place : U64) : Prop :=
   ∃ nextRegion slot, table.Region.publish_live region index payload place = ok nextRegion ∧
     nextRegion.slots.val[index.val]? = some slot ∧
     slot.sigma = payload.1 ∧ slot.held = payload.2.1 ∧ slot.value = payload.2.2
 
-/-- A stored found-spill apply commits the new-first merge to the selected real payload. -/
+/-- A stored found-spill apply commits the new-first merge to the selected real slot. -/
 theorem word_stored_apply_insert_found_spill
     (state : table.Table I64 I64 table.WordHome (table.keyrep.Stored I64) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Stored I64) I64)
-    (slotTag : U8) (slotSigma : cell.Sigma) (held : table.keyrep.Stored I64) (old : I64)
+    (slot : table.SpillSlot (table.keyrep.Stored I64) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? =
-      some { tag := slotTag, sigma := slotSigma, held := held, value := old }) :
+    (hslot : region.slots.val[index.val]? = some slot) :
     word_stored_apply_insert state { «class» := .Found, location := .Spill shard index }
         sigma key value address =
       ok (replaceSpillValue state shard region index
-        { tag := slotTag, sigma := slotSigma, held := held,
-          value := core.num.I64.wrapping_add value old }, none) := by
+        { slot with value := core.num.I64.wrapping_add value slot.value }, none) := by
   simp [word_stored_apply_insert, table.Table.apply_insert, replaceSpillValue,
     alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
     alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize, hregion, hslot,
     table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge]
 
-/-- A regenerating found-spill apply commits the new-first merge to the selected real payload. -/
+/-- A regenerating found-spill apply commits the new-first merge to the selected real slot. -/
 theorem word_regen_apply_insert_found_spill
     (state : table.Table I64 I64 table.WordHome
       (table.keyrep.Regen table.keyrep.I64WordCodec) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
-    (slotTag : U8) (slotSigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
-    (old : I64)
+    (slot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? =
-      some { tag := slotTag, sigma := slotSigma, held := held, value := old }) :
+    (hslot : region.slots.val[index.val]? = some slot) :
     word_regen_apply_insert state { «class» := .Found, location := .Spill shard index }
         sigma key value address =
       ok (replaceSpillValue state shard region index
-        { tag := slotTag, sigma := slotSigma, held := held,
-          value := core.num.I64.wrapping_add value old }, none) := by
+        { slot with value := core.num.I64.wrapping_add value slot.value }, none) := by
   simp [word_regen_apply_insert, table.Table.apply_insert, replaceSpillValue,
     alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
     alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize, hregion, hslot,
@@ -751,11 +768,11 @@ theorem word_stored_apply_insert_found_spill_self
     (state : table.Table I64 I64 table.WordHome (table.keyrep.Stored I64) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Stored I64) I64)
-    (slotTag : U8) (held : table.keyrep.Stored I64) (old : I64)
+    (slot : table.SpillSlot (table.keyrep.Stored I64) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? =
-      some { tag := slotTag, sigma := sigma, held := held, value := old })
-    (_hold : held.key = key) (hvalue : old = Apeiron.Table.get logical (sigma, key)) :
+    (hslot : region.slots.val[index.val]? = some slot)
+    (_hold : (slot.sigma, slot.held.key) = (sigma, key))
+    (hvalue : slot.value = Apeiron.Table.get logical (sigma, key)) :
     word_stored_apply_insert state { «class» := .Found, location := .Spill shard index }
         sigma key value address ⦃ result =>
       result.2 = none ∧
@@ -763,8 +780,8 @@ theorem word_stored_apply_insert_found_spill_self
         ok (Apeiron.Table.get
           (Apeiron.Table.insertWith core.num.I64.wrapping_add (sigma, key) value logical)
           (sigma, key)) ⦄ := by
-  rw [word_stored_apply_insert_found_spill state sigma key value address shard index region slotTag
-    sigma held old hregion hslot]
+  rw [word_stored_apply_insert_found_spill state sigma key value address shard index region slot
+    hregion hslot]
   simp only [WP.spec_ok, true_and]
   rw [Apeiron.Table.get_insertWith_self]
   have hshard : shard.val < state.shards.length := by
@@ -783,12 +800,11 @@ theorem word_regen_apply_insert_found_spill_self
       (table.keyrep.Regen table.keyrep.I64WordCodec) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
-    (slotTag : U8) (held : table.keyrep.Regen table.keyrep.I64WordCodec) (old : I64)
+    (slot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (hslot : region.slots.val[index.val]? =
-      some { tag := slotTag, sigma := sigma, held := held, value := old })
-    (_hold : decodeRegenOption sigma held = some key)
-    (hvalue : old = Apeiron.Table.get logical (sigma, key)) :
+    (hslot : region.slots.val[index.val]? = some slot)
+    (_hold : decodeRegenOption slot.sigma slot.held = some key)
+    (hvalue : slot.value = Apeiron.Table.get logical (sigma, key)) :
     word_regen_apply_insert state { «class» := .Found, location := .Spill shard index }
         sigma key value address ⦃ result =>
       result.2 = none ∧
@@ -796,8 +812,8 @@ theorem word_regen_apply_insert_found_spill_self
         ok (Apeiron.Table.get
           (Apeiron.Table.insertWith core.num.I64.wrapping_add (sigma, key) value logical)
           (sigma, key)) ⦄ := by
-  rw [word_regen_apply_insert_found_spill state sigma key value address shard index region slotTag
-    sigma held old hregion hslot]
+  rw [word_regen_apply_insert_found_spill state sigma key value address shard index region slot
+    hregion hslot]
   simp only [WP.spec_ok, true_and]
   rw [Apeiron.Table.get_insertWith_self]
   have hshard : shard.val < state.shards.length := by
@@ -809,20 +825,17 @@ theorem word_regen_apply_insert_found_spill_self
     table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq,
     table.SearchClass.read_discriminant, Apeiron.Table.get, hvalue]
 
-/-- A stored vacant-spill apply commits the default merge and makes the real payload readable. Under
-the merged slot schema the vacancy marker is the destination slot's own `tag`, so `_htag` states the
-zero marker of the very slot `_hslot` reads back; both are input-side obligations that `step`
-discharges without naming them. -/
+/-- A stored vacant-spill apply commits the default merge and makes the real slot readable. -/
 theorem word_stored_apply_insert_vacant_spill
     (state : table.Table I64 I64 table.WordHome (table.keyrep.Stored I64) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Stored I64) I64)
-    (oldSlot : table.SpillSlot (table.keyrep.Stored I64) I64)
+    (slot : table.SpillSlot (table.keyrep.Stored I64) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (_htag : oldSlot.tag = 0#u8)
-    (hslot : region.slots.val[index.val]? = some oldSlot)
+    (_htag : slot.tag = 0#u8)
+    (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
-    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublishPayload : PublishReadable region index
@@ -842,7 +855,7 @@ theorem word_stored_apply_insert_vacant_spill
     table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge,
     alloc.vec.Vec.index_mut_slice_index, alloc.vec.Vec.index_mut_usize,
     alloc.vec.Vec.index_usize]
-  obtain ⟨nextRegion, nextSlot, hnextRegion, hnextSlot, hnextSigma, hnextHeld, hnextValue⟩ :=
+  obtain ⟨nextRegion, nextSlot, hnextRegion, hnextSlot, hsigma, hheld, hvalue⟩ :=
     hpublishPayload
   rw [hnextRegion]
   step
@@ -851,18 +864,18 @@ theorem word_stored_apply_insert_vacant_spill
     table.SearchClass.read_discriminant, alloc.vec.Vec.index_slice_index,
     alloc.vec.Vec.index_usize]
 
-/-- A regenerating vacant-spill apply commits the default merge and makes the payload readable. -/
+/-- A regenerating vacant-spill apply commits the default merge and makes the slot readable. -/
 theorem word_regen_apply_insert_vacant_spill
     (state : table.Table I64 I64 table.WordHome
       (table.keyrep.Regen table.keyrep.I64WordCodec) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
-    (oldSlot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
+    (slot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (_htag : oldSlot.tag = 0#u8)
-    (hslot : region.slots.val[index.val]? = some oldSlot)
+    (_htag : slot.tag = 0#u8)
+    (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
-    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.regenKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublishPayload : ∀ identity,
@@ -886,7 +899,7 @@ theorem word_regen_apply_insert_vacant_spill
     table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge,
     alloc.vec.Vec.index_mut_slice_index, alloc.vec.Vec.index_mut_usize,
     alloc.vec.Vec.index_usize]
-  obtain ⟨nextRegion, nextSlot, hnextRegion, hnextSlot, hnextSigma, hnextHeld, hnextValue⟩ :=
+  obtain ⟨nextRegion, nextSlot, hnextRegion, hnextSlot, hsigma, hheld, hvalue⟩ :=
     hpublishPayload identity
   rw [hnextRegion]
   step
@@ -901,10 +914,10 @@ theorem word_stored_apply_insert_vacant_spill_self
     (state : table.Table I64 I64 table.WordHome (table.keyrep.Stored I64) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Stored I64) I64)
-    (oldSlot : table.SpillSlot (table.keyrep.Stored I64) I64)
+    (slot : table.SpillSlot (table.keyrep.Stored I64) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (htag : oldSlot.tag = 0#u8)
-    (hslot : region.slots.val[index.val]? = some oldSlot)
+    (htag : slot.tag = 0#u8)
+    (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
     (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
@@ -921,7 +934,7 @@ theorem word_stored_apply_insert_vacant_spill_self
           (Apeiron.Table.insertWith core.num.I64.wrapping_add (sigma, key) value logical)
           (sigma, key)) ⦄ := by
   apply WP.spec_mono (word_stored_apply_insert_vacant_spill state sigma key value address shard index
-    region oldSlot hregion htag hslot nextLocator hpublish hpublishPayload hlen)
+    region slot hregion htag hslot nextLocator hpublish hpublishPayload hlen)
   intro result hresult
   rw [Apeiron.Table.get_insertWith_self]
   have hd : logical (sigma, key) = state.default := by
@@ -936,10 +949,10 @@ theorem word_regen_apply_insert_vacant_spill_self
       (table.keyrep.Regen table.keyrep.I64WordCodec) 16#usize)
     (sigma : cell.Sigma) (key value : I64) (address : table.TableAddress) (shard index : Usize)
     (region : table.Region (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
-    (oldSlot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
+    (slot : table.SpillSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hregion : state.shards.val[shard.val]? = some region)
-    (htag : oldSlot.tag = 0#u8)
-    (hslot : region.slots.val[index.val]? = some oldSlot)
+    (htag : slot.tag = 0#u8)
+    (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
     (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.regenKeyRep
@@ -958,7 +971,7 @@ theorem word_regen_apply_insert_vacant_spill_self
           (Apeiron.Table.insertWith core.num.I64.wrapping_add (sigma, key) value logical)
           (sigma, key)) ⦄ := by
   apply WP.spec_mono (word_regen_apply_insert_vacant_spill state sigma key value address shard index
-    region oldSlot hregion htag hslot nextLocator hpublish hpublishPayload hlen)
+    region slot hregion htag hslot nextLocator hpublish hpublishPayload hlen)
   intro result hresult
   rw [Apeiron.Table.get_insertWith_self]
   have hd : logical (sigma, key) = state.default := by
