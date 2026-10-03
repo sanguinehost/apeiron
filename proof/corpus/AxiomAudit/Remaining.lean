@@ -341,11 +341,10 @@ open apeiron_word
 #audit apeiron_word.word_matvec_fixed_acc_refuses
 #audit apeiron_word.word_matvec_fixed_out_refuses
 -- G3 attention head (stage bounds + refusals)
-#audit apeiron_word.word_attn_head_unfold
-#audit apeiron_word.word_attn_head_ok
-#audit apeiron_word.word_attn_head_zero_sum
-#audit apeiron_word.word_attn_head_exp_refuses
-#audit apeiron_word.word_attn_head_out_refuses
+-- word_attn_head_unfold dropped: it depends on attn.KvState.attn_head_f32, an f32 extraction
+-- boundary declaration (proof/boundary-axioms.txt:20), outside this kernel-cone audit.
+-- word_attn_head_{ok, zero_sum, exp_refuses, out_refuses} dropped: removed in the EngineAttn
+-- repair (Numeric/EngineAttnRefinement.lean:101-103), so no constant remains to audit.
 #audit apeiron_word.score_epilogue_bound
 #audit apeiron_word.weight_at_spec
 #audit apeiron_word.weight_rounding_bound
@@ -367,13 +366,9 @@ open apeiron_word
 #audit apeiron_word.word_argmax_fixed_spec
 #audit apeiron_word.word_argmax_fixed_empty
 #audit apeiron_word.argmaxAt_real
-#audit apeiron_word.word_kv_state_new_geometry
-#audit apeiron_word.word_kv_state_new_not_multiple
-#audit apeiron_word.word_kv_append_ok
-#audit apeiron_word.word_kv_append_capacity_refusal
-#audit apeiron_word.word_kv_append_row_length_k
-#audit apeiron_word.word_kv_append_row_length_v
-#audit apeiron_word.word_kv_append_layer_refusal
+-- KV state rows dropped: attn.alloc_f32_storage and mixer.f32_carrier.q32_to_f32 (with
+-- core.f32.F32.is_finite) are f32 extraction boundary declarations (proof/boundary-axioms.txt:17-19),
+-- outside this kernel cone and covered by the boundary allowlist instead.
 -- G3 LM head (conditional on matvec)
 #audit apeiron_word.word_lm_head_fixed_shape_mismatch
 #audit apeiron_word.word_lm_head_fixed_unsupported_quant
@@ -404,7 +399,10 @@ open apeiron_word
 
 -- Model-algebra closing wave: attention end to end, dequant faces, block stages, SPIR-V checker scans
 -- Numeric.AttnSoftmaxPerturb
-#audit apeiron_word.not_attn_head_refines
+-- Attention-downstream wave (lead-authorized): `not_attn_head_refines` is removed from
+-- `Numeric.AttnSoftmaxPerturb` (its proof used `word_attn_head_pos_refuses`, which needs
+-- `carrierQ32 state`, and `Std.Discriminant.read_discriminant` is an opaque instance projection, so
+-- no concrete state discharges it). See `work/wip/attn-downstream/NOTES.md`.
 #audit apeiron_word.reweight_mean_perturb
 #audit apeiron_word.score_shift_perturb
 #audit apeiron_word.fixed_exp_numerator_perturb
@@ -415,37 +413,20 @@ open apeiron_word
 #audit apeiron_word.attn_stage_compose
 #audit apeiron_word.attn_stage_compose_closed
 #audit apeiron_word.attn_domain_v2_witness
--- Numeric.AttnLoopScore
-#audit apeiron_word.row_dot_fixed_exact
-#audit apeiron_word.score_at_spec
-#audit apeiron_word.attn_head_loop0_spec
-#audit apeiron_word.attnNumeratorCase_le
-#audit apeiron_word.attn_head_loop1_spec
--- Numeric.AttnLoopOutput
-#audit apeiron_word.attn_head_loop2_spec
-#audit apeiron_word.attn_value_component_loop_spec
-#audit apeiron_word.value_component_spec
-#audit apeiron_word.attn_head_loop3_spec
--- Numeric.AttnHeadWindowsScore
-#audit apeiron_word.attn_v2_prefix
-#audit apeiron_word.attn_v2_loop0_domain
-#audit apeiron_word.attn_v2_loop1_domain
-#audit apeiron_word.attn_loop0_ok
-#audit apeiron_word.attn_loop1_ok
-#audit apeiron_word.attn_loop_stage_facts
--- Numeric.AttnHeadWindowsValue
-#audit apeiron_word.attn_weight_bounds
-#audit apeiron_word.attn_weight_window_of_numerators
-#audit apeiron_word.plane_at_spec
-#audit apeiron_word.attn_value_fit
-#audit apeiron_word.attn_value_window_of_v2
-#audit apeiron_word.attn_value_components
+-- Attention-downstream wave (lead-authorized): `Numeric.AttnLoopScore`, `Numeric.AttnLoopOutput`,
+-- `Numeric.AttnHeadWindowsScore`, `Numeric.AttnHeadWindowsValue` and `Numeric.AttnHeadRefines`
+-- moved to `work/wip/attn-downstream/`, so all of their rows below are dead and dropped:
+-- `row_dot_fixed_exact`, `score_at_spec`, `attn_head_loop0_spec`, `attnNumeratorCase_le`,
+-- `attn_head_loop1_spec`, `attn_head_loop2_spec`, `attn_value_component_loop_spec`,
+-- `value_component_spec`, `attn_head_loop3_spec`, `attn_v2_prefix`, `attn_v2_loop0_domain`,
+-- `attn_v2_loop1_domain`, `attn_loop0_ok`, `attn_loop1_ok`, `attn_loop_stage_facts`,
+-- `attn_weight_bounds`, `attn_weight_window_of_numerators`, `plane_at_spec`, `attn_value_fit`,
+-- `attn_value_window_of_v2`, `attn_value_components`, `attn_head_refines_v2_proved`.
+-- `Numeric.AttnScoreStage` is retained: it was retargeted green against the live extraction.
 -- Numeric.AttnScoreStage
 #audit apeiron_word.attn_scale_bound
 #audit apeiron_word.attnScoreInt_err
 #audit apeiron_word.attn_score_stage
--- Numeric.AttnHeadRefines
-#audit apeiron_word.attn_head_refines_v2_proved
 -- Numeric.EngineLmHeadRefinement
 #audit apeiron_word.lm_head_refines_proved
 -- Numeric.DequantRefinement
@@ -668,9 +649,8 @@ open apeiron_word
 #audit apeiron_word.fwht_fixed_refines
 #audit apeiron_word.fwht_fixed_refines_sylvester
 -- Numeric.KvReachable (attn_domain_v2 structural reachability)
-#audit apeiron_word.KvReachable_inv
-#audit apeiron_word.attn_domain_v2_structural
-#audit apeiron_word.attn_head_refines_reachable
+-- Moved to `work/wip/attn-downstream/`: `KvReachable_inv`, `attn_domain_v2_structural` and
+-- `attn_head_refines_reachable` are dropped with it (lead-authorized).
 -- Spirv.CheckApplyShapeAssembly
 #audit Spirv.apply_shape_sudot_checks
 #audit Spirv.apply_shape_spec
@@ -683,12 +663,12 @@ open apeiron_word
 #audit apeiron_word.rope_two_head_witness
 -- Nous.Model.AttnStage
 #audit Nous.Model.attnRef_lipschitz
-#audit Nous.Model.attnHeadStage_dom_witness
+-- `attnHeadStage_dom_witness` is dropped from `Nous.Model.AttnStage` with `attnHeadStage`
+-- (lead-authorized attention-downstream wave).
 -- Nous.Model.BlockGroundedWitness
 #audit Nous.Model.fullBlockGrounded_dom_nonempty
--- Nous.Model.AttnStageWitness
-#audit Nous.Model.attnHeadStage_witness
-#audit Nous.Model.attnNZState_witness
+-- Nous.Model.AttnStageWitness moved to `work/wip/attn-downstream/`: `attnHeadStage_witness` and
+-- `attnNZState_witness` are dropped with it (lead-authorized).
 -- Nous.Model.TopKRouter (MoE )
 #audit Nous.Model.topkSel_spec
 #audit Nous.Model.topkSel_perm_invariant
