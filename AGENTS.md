@@ -407,17 +407,15 @@ selected by the artifact at risk, not by a subjective difficulty estimate. A man
 Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
 control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
-architecture question that would otherwise wait on the owner goes to **Sol** on the standing
-OpenRouter route (`/home/socol/oc-tmp/bin/sol.sh <prompt-file> [pro|<model>]`): the lead records the
+architecture question that would otherwise wait on the owner goes to **Sol** on the owner's ChatGPT
+Pro subscription signed into OpenCode, model `openai/gpt-6.1-sol`
+(`/home/socol/oc-tmp/bin/sol.sh <prompt-file> [model]`): the lead records the
 answer under `/home/socol/oc-tmp/escalation/`, acts on it and reports the verdict. The lead does not
 idle waiting for the owner.
 
-**Escalation cost discipline.** The default model is `openai/gpt-6-luna-pro`
-($0.10/Mtok in, $0.50/Mtok out, 1.05M ctx). `openai/gpt-6.1-sol-pro` ($2/Mtok in, $10/Mtok out) is
-reserved for hard adjudication and costs twenty times as much per token: pass `pro` explicitly and trim
-the prompt first. The key's balance at 2026-10-01 was $7.31 remaining of $77.45, with $2.79 spent on
-this key. Attach excerpts, never whole trees; `sol.sh` refuses a prompt over 400 KB unless
-`SOL_ALLOW_BIG=1`. Astra and Terra remain historical records.
+**Escalation cost discipline.** Sol runs on the owner's ChatGPT Pro subscription (OpenCode model
+`openai/gpt-6.1-sol`), not a metered API key. Attach excerpts, never whole trees. Astra and Terra
+remain historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
