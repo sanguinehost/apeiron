@@ -20481,7 +20481,7 @@ def table.Region.bound
   ok (alloc.vec.Vec.len self.slots)
 
 /-- [apeiron_word::table::probe::spill_read_tail]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 316:4-344:1 -/
+    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
 @[rust_loop_body]
 def table.probe.spill_read_tail_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20518,7 +20518,7 @@ def table.probe.spill_read_tail_loop.body
   else ok (done none)
 
 /-- [apeiron_word::table::probe::spill_read_tail]: loop 0:
-    Source: '../../src/table/probe.rs', lines 316:4-344:1 -/
+    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
 @[rust_loop]
 def table.probe.spill_read_tail_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20534,7 +20534,7 @@ def table.probe.spill_read_tail_loop
     step
 
 /-- [apeiron_word::table::probe::spill_read_tail]:
-    Source: '../../src/table/probe.rs', lines 305:0-344:1 -/
+    Source: '../../src/table/probe.rs', lines 303:0-342:1 -/
 def table.probe.spill_read_tail
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -20548,7 +20548,7 @@ def table.probe.spill_read_tail
     address.direct_word key home bound mask wanted 1#usize
 
 /-- [apeiron_word::table::probe::spill_read]:
-    Source: '../../src/table/probe.rs', lines 254:0-295:1 -/
+    Source: '../../src/table/probe.rs', lines 252:0-293:1 -/
 def table.probe.spill_read
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -20689,7 +20689,7 @@ def table.Region.publish_live
   ok { self with slots := v3, coords := v4, live := i2 }
 
 /-- [apeiron_word::table::probe::spill_locate]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 42:4-58:1 -/
+    Source: '../../src/table/probe.rs', lines 40:4-56:1 -/
 @[rust_loop_body]
 def table.probe.spill_locate_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20726,7 +20726,7 @@ def table.probe.spill_locate_loop.body
   else ok (done table.SpillSite.Grow)
 
 /-- [apeiron_word::table::probe::spill_locate]: loop 0:
-    Source: '../../src/table/probe.rs', lines 42:4-58:1 -/
+    Source: '../../src/table/probe.rs', lines 40:4-56:1 -/
 @[rust_loop]
 def table.probe.spill_locate_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20741,7 +20741,7 @@ def table.probe.spill_locate_loop
     step
 
 /-- [apeiron_word::table::probe::spill_locate]:
-    Source: '../../src/table/probe.rs', lines 28:0-58:1 -/
+    Source: '../../src/table/probe.rs', lines 26:0-56:1 -/
 def table.probe.spill_locate
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
@@ -20822,7 +20822,7 @@ def table.apply_prepared_shard
   | core.result.Result.Err error => ok (core.result.Result.Err error, region1)
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 78:4-93:1 -/
+    Source: '../../src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop_body]
 def table.probe.spill_locate_held_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20862,7 +20862,7 @@ def table.probe.spill_locate_held_loop.body
   else ok (done table.SpillSite.Grow)
 
 /-- [apeiron_word::table::probe::spill_locate_held]: loop 0:
-    Source: '../../src/table/probe.rs', lines 78:4-93:1 -/
+    Source: '../../src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop]
 def table.probe.spill_locate_held_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
@@ -20877,7 +20877,7 @@ def table.probe.spill_locate_held_loop
     step
 
 /-- [apeiron_word::table::probe::spill_locate_held]:
-    Source: '../../src/table/probe.rs', lines 64:0-93:1 -/
+    Source: '../../src/table/probe.rs', lines 62:0-91:1 -/
 def table.probe.spill_locate_held
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
