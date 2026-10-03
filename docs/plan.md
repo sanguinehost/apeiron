@@ -882,11 +882,21 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   Keep the governing documents (`AGENTS.md`, `direction.md`, `kernel-boundary.md`, `plan.md`,
   `roadmap.md`, `README.md`, `proof/README.md`) plus `docs/README.md` as the index; a closed epic is
   deleted once its commits supersede it. **A new document must absorb or replace an existing one;
-  no net new files.** Batches 1-2 found nothing deletable as they stand: the prerequisites are
+  no net new files.** Batches 1-2 found nothing deletable as they stand: the prerequisites were
   absorption of `extraction-requirements.md` into `proof/README.md`, of four named items of
   `apeiron-intent-escalation.md` into this plan, a commit/fold/loss-receipt decision for the
   untracked `apeiron-intent-*.md` pair, and carrying a `docs/reviews` file's index row with it if
-  one is ever deleted.
+  one is ever deleted. **Discharged** (APEIRON-DOCS-PURGE-W1, receipts in
+  `tools/rooting/removals.json`): `extraction-requirements.md` absorbed into `proof/README.md`
+  ("Extraction requirements on the source"); the four escalation items and the four handover
+  obligations absorbed into the decision-A row above; the `apeiron-intent-*.md` pair retired (both
+  absorbed, nothing committed); `docs/reviews/post-compaction-continuation-13.md` retired, superseded
+  by `continuation-14.md`, which carries the supersession line. Still open: no epic is deletable —
+  the only epic recorded complete (`epics/carrier-refinement.md`) is **retained by `direction.md` and
+  this plan's historical-evidence pointers**, so retiring it needs an owner decision on those two
+  governing sentences first; the draft, proposed and in-progress epics are not closable; and the
+  `docs/call-census/data/` machine output is untracked-pending because its only regeneration input is
+  absent (see the receipt).
 - **Python gate purge.** `proof/resource` holds 34 `*_gate.py` on disk (30 committed) in 6,513 lines
   (5,622 committed); each re-implements one harness (`flock` lane, `systemd-run` caps, private lake
   package, charon/aeneas extraction, drift check, `lake build`, cone audit, real-source mutation,
@@ -912,6 +922,29 @@ its reachability check (failure register, consolidation row). No bare `rm`.
   `e_±` / null-cone / σ→0 reading stays a proposed mapping until carrier, hypotheses and connecting
   theorems exist. Sequence: oracle Ring 6 (W2b) → evaluator and isolation repairs → Apeiron linkage
   and canonical refinement → calibration and candidate screens → one accepted improvement cycle.
+  Four obligations carried here from the retired `docs/apeiron-intent-escalation.md` and the retired
+  `docs/apeiron-intent-rsii-handover.md` (both absorbed; nothing below is new work, and each item was
+  confirmed absent from this plan by `rg -c` before absorption):
+  1. **Forgery closed, selection open.** The relay split plus the pure `admit_frame` Ring-0 core moved
+     `fullforge` **15/15 → 0/15** (reference 15/15, `oracle_integrity` 38/38); `MAX-PAYLOAD-FORGE` is
+     still 15/15 because a candidate that knows the public case table (`oracle_cases.rs`) answers the
+     outstanding invocation. This is the failure-register row *Measurement instrument defects*: `S` has
+     no control separating implementing the task from memorising it. The numbers are receipts in the
+     `intent` repository and carry that repository's grade; this plan states no grade for them and
+     re-runs no gate.
+  2. **Intent-local harness defects (4), each a retained sequence, not a fix.** The path jail refuses
+     its own work dir (`edit path="/work/solution.py"` → "escapes the session work dir"); `/tmp` is a
+     fresh tmpfs per command, so model scratch vanishes; no wall clock on a tool call (one `shell` ran
+     271 s); compaction drops tool outputs. This is the harness-failure coverage the panel must expose.
+  3. **Preserve list.** The campaign dataset, the forgery controls, the frozen proofs and the current
+     harness are preserved for comparison. The dataset
+     `intent/artifacts/space-bunny-evolution/sb-2026-10-01/` is **untracked in `intent`**: commit it
+     there before any clean-up that would drop it. Nothing in this repository is its owner.
+  4. **Cap-50 incumbent incomplete.** The cap-32 baseline is S ≈ 0.9867 over 10 evolve-split tasks (0
+     missing, 3/10 `ceiling`); the cap-50 incumbent is **8/10, halted on owner instruction, no aggregate
+     S**, so it cannot be the calibration incumbent until it is re-run to an aggregate. Calibration
+     (W5) records `delta_1` per class and is what makes `selection_ready` true; without it W5–W7 do not
+     open.
 - **Outstanding returns (5).** RowDotAdmission, LmHead, RegenRelocateEntry (never returned);
   extraction-root repair and `regen_relocate_all` (returned empty — a no-artifact return does not
   close the task). All five agents are live; their files are owned; no second writer.

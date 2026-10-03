@@ -302,7 +302,7 @@
     {
       "id": "intent-lane-apeiron-intent-return-prompt-migration",
       "kind": "migration",
-      "note": "Migrated into the evidence tree under E2.W1 T2c: the prompt was an unindexed per-run document under docs/ with no citing consumer in the tree, and the index gate holds docs/evidence/ to coverage, so a row naming it elsewhere is accepted by --check and refused by --controls. Its own line 34 citation of docs/apeiron-intent-rsii-handover.md is unaffected and resolves at its unchanged path; rewriting it belongs to T2e, which moves that source. Byte-identical move: no content was rewritten.",
+      "note": "Migrated into the evidence tree under E2.W1 T2c: the prompt was an unindexed per-run document under docs/ with no citing consumer in the tree, and the index gate holds docs/evidence/ to coverage, so a row naming it elsewhere is accepted by --check and refused by --controls. Its own line 34 citation of docs/apeiron-intent-rsii-handover.md is unaffected and resolves at its unchanged path; rewriting it belongs to T2e, which moves that source. Byte-identical move: no content was rewritten. SUPERSEDED IN PART by APEIRON-DOCS-PURGE-W1: the handover that line 34 named was absorbed into docs/plan.md and retired (see apeiron-intent-rsii-handover-absorb-retire), so line 34 now names the absorbing row and this ledger row's digest was refreshed.",
       "removed": [
         "docs/apeiron-intent-return-prompt.md"
       ],
@@ -350,6 +350,169 @@
         }
       ],
       "receipt": "intent-lane-apeiron-intent-return-prompt"
+    },
+    {
+      "id": "docs-extraction-requirements-absorption",
+      "kind": "migration",
+      "note": "APEIRON-DOCS-PURGE-W1, prerequisite 1 of docs/plan.md's documentation purge queue. The source-shape and modeled-externals requirements were a separate analysis document under docs/; they are now proof/README.md 'Extraction requirements on the source', beside the pipeline, the digests, the cone and the controls they constrain. One pre-existing citation was corrected on the way in: the doc pointed at docs/evidence/anative-extraction-preset-probe.md, which docs/moved.tsv:3 records as rolled up into docs/evidence/anative.md, so the absorption names the surviving section. Index row carried: docs/README.md governing table now names the absorbed section; docs/archive/handoff-openai.md reading order now names it too.",
+      "removed": [
+        "docs/extraction-requirements.md"
+      ],
+      "replacement": [
+        "proof/README.md",
+        "docs/README.md"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "proof/README.md",
+        "docs/README.md",
+        "docs/archive/handoff-openai.md",
+        "docs/plan.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/read_gate.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
+    },
+    {
+      "id": "apeiron-intent-escalation-absorption",
+      "kind": "migration",
+      "note": "APEIRON-DOCS-PURGE-W1, prerequisite 2 of the purge queue: the architecture escalation and its owner resolution are absorbed into the 'Apeiron-Intent, decision A (repair)' row of docs/plan.md, as items 1 and 4 of the four-item list appended there. The rest of the escalation (decision A, the Ring 6 route, the rooting boundary, the sequence) was already carried by that row and by E5.W2-W8, measured by rg for fullforge, MAX-PAYLOAD, 15/15, cap 50, 8/10, failure catalogue, path jail, sb-2026-10-01 and space-bunny-evolution: the counts that mattered were 0 before absorption. Nothing is committed; docs/plan.md is the sole surviving owner of these obligations.",
+      "removed": [
+        "docs/apeiron-intent-escalation.md"
+      ],
+      "replacement": [
+        "docs/plan.md"
+      ],
+      "retained_obligation": "",
+      "consumers": [
+        "docs/plan.md",
+        "docs/evidence/intent-lane/apeiron-intent-return-prompt.md",
+        "docs/epics/apeiron-intent-loop.md"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
+    },
+    {
+      "id": "apeiron-intent-rsii-handover-absorb-retire",
+      "kind": "retirement",
+      "note": "APEIRON-DOCS-PURGE-W1, prerequisite 3 of the purge queue: the untracked Apeiron-Intent RSII handover was absorbed, not committed and not migrated. plan.md's purge queue demanded a commit/fold/loss-receipt decision; commit is refused because the policy admits no net new files, and migration is refused because plan.md:584 already records the same per-run documents as belonging in the indexed evidence tree while the file itself is a 347-line cross-repository state record whose Apeiron-side obligations are the E5 waves. Its four unabsorbed obligations are now plan.md decision-A items 1-4; its one in-tree citation (docs/evidence/intent-lane/apeiron-intent-return-prompt.md line 34) was rewritten to name the absorbing row and its ledger row re-digested. The file was untracked, so this is the one removal here with no git history behind it: the loss receipt is the plan.md row plus the intent-side records it cites.",
+      "removed": [
+        "docs/apeiron-intent-rsii-handover.md"
+      ],
+      "replacement": [],
+      "retained_obligation": "The campaign dataset intent/artifacts/space-bunny-evolution/sb-2026-10-01/ stays untracked in the intent repository and is not owned here; plan.md decision-A item 3 carries the preserve list and the commit-before-cleanup warning. The intent-side handover records the deleted document cites (reports/hand-back.md, reports/failure-catalogue.md, reports/oracle-security-posture.md) are in intent, not here, and this removal closes none of their obligations.",
+      "consumers": [
+        "docs/plan.md",
+        "docs/evidence/intent-lane/apeiron-intent-return-prompt.md",
+        "docs/evidence/ledger.jsonl",
+        "tools/rooting/removals.json"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
+    },
+    {
+      "id": "reviews-post-compaction-continuation-13-retirement",
+      "kind": "retirement",
+      "note": "APEIRON-DOCS-PURGE-W1: the supersession series. docs/reviews/post-compaction-continuation-14.md line 3 states it supersedes continuation-13; 13 in turn superseded continuation-12 and named it as the archived receipt kept under docs/evidence/reviews/. 13 was unindexed (no docs/evidence/ledger.jsonl row), so no index row was carried, and its only referencer in the tree was 14's supersession sentence, which now records that 13 is retired and that 12 is the retained archived receipt. 12 itself stays: it is a ledger-indexed evidence receipt with a pinned sha256, and deleting an indexed receipt is the 'consolidation lost files' failure, not a purge.",
+      "removed": [
+        "docs/reviews/post-compaction-continuation-13.md"
+      ],
+      "replacement": [],
+      "retained_obligation": "The two documents this series carried that are not in any successor: the 2026-10-02 BTRFS ENOSPC measurement and its copy/disk rules, and the lane-count target. Both remain live only in 14's own state and in the failure register; nothing is gated on them, so no obligation transfers, and continuation-12 stays indexed at docs/evidence/reviews/post-compaction-continuation-12.md as the archived receipt.",
+      "consumers": [
+        "docs/reviews/post-compaction-continuation-14.md",
+        "docs/evidence/reviews/post-compaction-continuation-12.md",
+        "docs/evidence/ledger.jsonl"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/retire_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/rooting/index_check.py",
+            "--check"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "python3",
+            "tools/check-claims.py"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {

@@ -373,6 +373,89 @@ Slang chain remains separate under its empty-cone gate. Astra's verdict and this
 cd proof/corpus && lake build
 ```
 
+### Extraction requirements on the source
+
+Absorbed from the former `docs/extraction-requirements.md` (that path is retired; the receipts it
+cited are `docs/evidence/anative.md`, `docs/evidence/vec-capacity-model-spike.md`,
+`docs/evidence/vec-capacity-model.patch`, `docs/epics/storage-refinement.md` and the storage
+extraction history `f6db050`, `57a83ba`, `f7d77e4`, `48333f0`, `d7cf517`, `e848256`, `9a80543`).
+This subsection makes no `proved`, `tested` or `measured` claim of its own.
+
+The pipeline and its single acceptance test: Rust real source (`#[path]` from `proof/extract/lib.rs`)
+→ Charon (LLBC) → Aeneas (Lean) → `regen.sh` audit → bridge (`proof/corpus`, `#audit`, closed cone).
+The extraction stage has exactly one acceptance test, and it is the audit that rejects any generated
+`axiom`/`sorry`/`admit`. So:
+
+> **Every function in the reached call closure must be either modeled or lowered away.** A reached
+> external with no model becomes a generated `axiom` and the audit is red. There is no "declare and
+> justify an axiom" path in the Rust/Aeneas cone; the Slang cone is stricter still (empty axioms).
+
+**Class A — lowering / shape (Charon → Aeneas).** The reached bodies must be in a form the lowering
+passes handle. Recorded boundaries, with the recorded failure:
+
+| Requirement | Failure if violated | Recorded site |
+|---|---|---|
+| Keep `--ops-to-function-calls`, `--index-to-function-calls`, `--no-gen-tuple-structs` | `Could not find core::array::repeat`; `unexpected type: TSlice`/`TArray` on every index/repeat | `docs/evidence/anative.md`, "Extraction probe — `--preset aeneas`" (the retired `anative-extraction-preset-probe.md` was rolled up into that file) |
+| Native array repeat `[const { e }; N]` | `Unknown trait found: … Option<(K,V)>: Copy … Ambiguity` | `proof/patches/`, `d7cf517` |
+| No `?` on `Option`/`Result` on the reached path | desugars through `Try::branch`, unmodeled | `proof/README.md:171` (scalar carrier step), `:853` |
+| No `?` inside a loop body | `Early returns inside of loops` | probe round 1 |
+| No in-loop guarded `match` join | `Could not match the contexts` | probe round 1 |
+| Avoid inline shared-ref `match &x` | macro-origin `Not implemented yet` | probe round 1 |
+| No iterator closures / desugared `for` | unsupported iterator lowering | `48333f0` |
+| Drop unmodeled supertraits | `Aeneas.Std.core.fmt.Formatter` axiom via `Debug` | this file, "Axiom cone" |
+
+Pure combinators and integer helpers (`Option.{is_none_or,and_then,filter,copied}`,
+`Result.{ok,and_then}`, `Usize.{saturating_mul,div_ceil,checked_next_power_of_two}`, `TryFrom`) are
+removable by **exact source substitution**, done in round 1 (12 of 23 axioms).
+
+**Class B — modeled externals.** What remains after round 1 (11 names) is not shape-removable:
+
+| Class | Names | Status |
+|---|---|---|
+| allocator/growth | `Vec.{capacity,try_reserve,try_reserve_exact,truncate,clear}`, `TryReserveError`, `mem.{size_of,drop}` | the pinned Aeneas `Vec` was `structure Vec (α) where slice : Slice α` — no capacity field, so reservation outcome and capacity were **not expressible** without changing the representation |
+| adapter combinators | `Result.is_err`, `Option.{as_ref,Try.branch}` | modelable over the existing representation |
+
+**The three legitimate responses.** (1) **Patch the tool** — the precedent is the two repeat patches
+in `proof/patches/`; appropriate when the external is generic and belongs in the backend model. (2)
+**Reshape the source exactly** — the precedent is round 1; appropriate only for pure operations with
+an exact equivalent, with reasoned lint allows. (3) **Model the external** — a
+`FunsExternal`/`TypesExternal` model file is the intended Aeneas hook (`-split-files` emits those
+templates; filling a hole replaces its `axiom`), or a Std extension; appropriate for effectful
+operations over the existing representation. **Removing the root is not a fourth option:** it does
+not discharge the obligation, it deletes the extracted artifact and the refinement theorem. A
+removed root is recorded as an **explicit transfer** to a named, testable premise, never presented as
+a resolution.
+
+**Cost determination for the three responses, and the decision taken.** (a) capacity-carrying `Vec`
+model — runtime cost **zero by construction** (the executing `src/` is untouched; only the Lean model
+changes) and **landed**: the model patch plus `strip-modeled-axioms.py` give 0 axioms over all 43
+roots and `regen.sh --check` green, so the write/growth path stays in the cone with a refinement
+theorem; the capacity-carrying patch surface is counted (one `Aeneas/Std/Vec.lean`), and the
+unavoidable cost is that a model patch invalidates the backend build that `proof/lakefile.lean`
+`require`s, paid once per model revision. Feasibility was established by the spike receipt
+(`docs/evidence/vec-capacity-model-spike.md`, `docs/evidence/vec-capacity-model.patch`), not assumed. Its residual
+trust boundary: the model carries capacity and the reservation outcome, so "the real allocator
+conforms" is one named premise (`ResourceAdapterSimulates`), while `size_of` stays a layout
+assumption. (b) parameterize/hoist allocation — runtime uncertain, the nearest experiment
+(`one-allocation`, `f78ce71`) measured **not a net win** (58 win / 13 tie / 37 loss against the
+baseline's 58 / 18 / 30). (c) bounded-fiber, no allocation — provable by construction at the
+recorded `256·N` ceiling and reduced admission, i.e. the growable design was selected *for*
+performance, so this is a design reversal.
+
+Historical precedent that bounded the expectation: the fixed-shard `SafeTable<K,V,N>` was extracted
+**including its write path** and fully refined (inline `[const { None }; N]` arrays, `ShardFull`
+refusal, `PhysicalInv`, `CallbackLawsG`, `insert_with` preservation — "Historical fixed-shard table
+refinement" above); its difficulty was the array repeat, resolved by patching both upstream tools.
+One residual was not resolved: the **generic** `SafeTable::<K,V,N>::new` could not resolve
+`Option<(K,V)>: Copy`, the root was reverted, and the bridge witnesses construct the generated state
+directly (`d7cf517`). That is a recorded obligation transfer, not a proof.
+
+**Process gate this implies.** A design change that adds an external call to the reached closure must
+name, in the plan before implementation, which of (a)/(b)/(c) resolves it. A task that discovers an
+unmodeled external mid-implementation is a planning failure: stop, extend this subsection and
+escalate — do not reshape the corpus's claims to fit the extractor. Whether (b) is achievable on the
+pinned toolchain was itself unestablished and is a spike with a named command, not an assumption.
+
 ### Corpus / toolchain compatibility
 
 The corpus is at Git `3d66ea3aa2fe1de5997b6b757247454a2f771358`; the corpus and the bridge both pin

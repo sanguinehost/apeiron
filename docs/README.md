@@ -11,7 +11,8 @@ This is the index of record for `docs/`. Source and gates win over any document 
 | [`plan.md`](plan.md) | execution order, gates, stop points, epic exits |
 | [`roadmap.md`](roadmap.md) | staged programme sequence and the prior-art index |
 | [`state-ledger.tsv`](state-ledger.tsv) | task ledger |
-| [`extraction-requirements.md`](extraction-requirements.md), [`hash-comparison.md`](hash-comparison.md) | reference notes |
+| [`hash-comparison.md`](hash-comparison.md) | reference note |
+| [`../proof/README.md`](../proof/README.md), "Extraction requirements on the source" | what Aeneas needs from the source (absorbed from the retired `docs/extraction-requirements.md`) |
 
 ## Epics (`epics/`) — one file per epic
 

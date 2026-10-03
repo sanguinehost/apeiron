@@ -116,7 +116,8 @@ it to the next wave barrier. Read this whole document before acting.
   `3d66ea3aa2fe1de5997b6b757247454a2f771358`. `proof/corpus` depends on it.
 - Read, in order, before acting: `AGENTS.md` → `docs/direction.md` → `docs/kernel-boundary.md` →
   `docs/plan.md` → `docs/roadmap.md` →
-  `docs/evidence/kani-table-harness-audit.md` → `docs/extraction-requirements.md` →
+  `docs/evidence/kani-table-harness-audit.md` → `proof/README.md` ("Extraction requirements on the
+  source", which absorbed the retired `docs/extraction-requirements.md`) →
   `proof/README.md`. Source and gates beat documents; fix documents that disagree.
 
 Recorded host: `i9-14900KF`, 32 threads, 62 GiB RAM. Check free space and cache availability before dispatch; use the documented bounds even with warm caches.

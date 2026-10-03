@@ -31,7 +31,9 @@ rooted in that algebra.
   — **untracked; commit it before any clean-up.** Manifest, ledgers, raw trials,
   proposals, failure catalogue, probe verification, `hand-back.md`.
 - Prior loop epic: `apeiron/docs/epics/apeiron-intent-loop.md`.
-- Previous lane's handover: `apeiron/docs/apeiron-intent-rsii-handover.md`.
+- Previous lane's handover: absorbed into `apeiron/docs/plan.md` (decision-A row, "Apeiron–Intent,
+  decision A (repair)"); the retired `apeiron/docs/apeiron-intent-rsii-handover.md` is recoverable from
+  the `intent` campaign records it cites.
 - Worktrees: `/home/socol/Workspace/intent-sb-oracle` (`sb/oracle-relay`, merged,
   disposable); scratch `/tmp/opencode/{vtree,final}`.
 
