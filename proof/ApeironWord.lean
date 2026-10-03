@@ -296,6 +296,35 @@ def cell.Cell.Insts.CoreCmpPartialEqCell.eq
   then corecmpPartialEqInst.eq self.b other.b
   else ok false
 
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::one]:
+    Source: '../../src/cell.rs', lines 104:4-109:5
+    Visibility: public -/
+def cell.Cell.one
+  {R : Type} (scalarRingInst : scalar.Ring R) : Result (cell.Cell R) := do
+  let t ← scalarRingInst.ONE
+  let t1 ← scalarRingInst.ZERO
+  ok { a := t, b := t1 }
+
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::zero]:
+    Source: '../../src/cell.rs', lines 113:4-118:5
+    Visibility: public -/
+def cell.Cell.zero
+  {R : Type} (scalarRingInst : scalar.Ring R) : Result (cell.Cell R) := do
+  let t ← scalarRingInst.ZERO
+  ok { a := t, b := t }
+
+/-- [apeiron_word::cell::{apeiron_word::cell::Cell<R>}::add]:
+    Source: '../../src/cell.rs', lines 144:4-149:5
+    Visibility: public -/
+def cell.Cell.add
+  {R : Type} (scalarRingInst : scalar.Ring R) (self : cell.Cell R)
+  (other : cell.Cell R) :
+  Result (cell.Cell R)
+  := do
+  let t ← scalarRingInst.add self.a other.a
+  let t1 ← scalarRingInst.add self.b other.b
+  ok { a := t, b := t1 }
+
 /-- [apeiron_word::coord::address::H3_40]
     Source: '../../src/coord/address.rs', lines 25:0-27:1
     Visibility: public -/
@@ -881,7 +910,7 @@ structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   retained_encoding_byte : Self_Retained → Std.Usize → Result Std.U8
 
 /-- [apeiron_word::table::TableAddress]
-    Source: '../../src/table.rs', lines 109:0-114:1
+    Source: '../../src/table.rs', lines 110:0-115:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
@@ -894,13 +923,13 @@ def coord.locator.locator_core.identity_address
   ok { place := 0#u64, direct_word := none }
 
 /-- [apeiron_word::table::WordHome]
-    Source: '../../src/table.rs', lines 156:0-156:20
+    Source: '../../src/table.rs', lines 157:0-157:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_unpack]:
-    Source: '../../src/table.rs', lines 190:4-192:5
+    Source: '../../src/table.rs', lines 191:4-193:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_unpack
@@ -909,7 +938,7 @@ def
     () word
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}::elliptic_pack]:
-    Source: '../../src/table.rs', lines 187:4-189:5
+    Source: '../../src/table.rs', lines 188:4-190:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64.elliptic_pack
@@ -918,7 +947,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::EllipticPacking<i64> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 186:0-193:1 -/
+    Source: '../../src/table.rs', lines 187:0-194:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
   coord.address.EllipticPacking table.WordHome Std.I64 := {
@@ -929,7 +958,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressEllipticPackingI64 :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::hyperbolic_scalar]:
-    Source: '../../src/table.rs', lines 182:4-184:5
+    Source: '../../src/table.rs', lines 183:4-185:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -940,7 +969,7 @@ def
     () profile key
 
 /-- [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}::parabolic_dual]:
-    Source: '../../src/table.rs', lines 179:4-181:5
+    Source: '../../src/table.rs', lines 180:4-182:5
     Visibility: public -/
 def
   table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -951,7 +980,7 @@ def
     () key
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceResidueCapability<i64> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 178:0-185:1 -/
+    Source: '../../src/table.rs', lines 179:0-186:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
   coord.address.FaceResidueCapability table.WordHome Std.I64 := {
@@ -962,7 +991,7 @@ def table.WordHome.Insts.Apeiron_wordCoordAddressFaceResidueCapabilityI64 :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceCoord<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 194:0-196:1 -/
+    Source: '../../src/table.rs', lines 195:0-197:1 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
   coord.address.FaceCoord table.WordHome Std.I64 cell.Sigma := {
@@ -976,7 +1005,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceCoordI64Sigma :
 }
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::coord::address::FaceHome<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 197:0-197:34 -/
+    Source: '../../src/table.rs', lines 198:0-198:34 -/
 @[reducible]
 impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
   coord.address.FaceHome table.WordHome Std.I64 cell.Sigma := {
@@ -987,7 +1016,7 @@ impl_def table.WordHome.Insts.Apeiron_wordCoordAddressFaceHomeI64Sigma :
 }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::address]:
-    Source: '../../src/table.rs', lines 166:4-176:5
+    Source: '../../src/table.rs', lines 167:4-177:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -1003,7 +1032,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}::home]:
-    Source: '../../src/table.rs', lines 158:4-160:5
+    Source: '../../src/table.rs', lines 159:4-161:5
     Visibility: public -/
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -1012,7 +1041,7 @@ def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait declaration: [apeiron_word::table::Home]
-    Source: '../../src/table.rs', lines 132:0-139:1
+    Source: '../../src/table.rs', lines 133:0-140:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -1022,7 +1051,7 @@ structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   address : Self → cell.Sigma → K → Result table.TableAddress
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Home<i64, apeiron_word::cell::Sigma> for apeiron_word::table::WordHome}]
-    Source: '../../src/table.rs', lines 157:0-177:1 -/
+    Source: '../../src/table.rs', lines 158:0-178:1 -/
 @[reducible]
 def table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma : table.Home
   table.WordHome Std.I64 cell.Sigma := {
@@ -17962,7 +17991,7 @@ def table.payload_of
         else ok none
 
 /-- [apeiron_word::table::StorageError]
-    Source: '../../src/table.rs', lines 98:0-105:1
+    Source: '../../src/table.rs', lines 99:0-106:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.StorageError where
@@ -18968,7 +18997,7 @@ def table.TableLocator.retarget_held
       else ok self
 
 /-- [apeiron_word::table::Table]
-    Source: '../../src/table.rs', lines 226:0-238:1
+    Source: '../../src/table.rs', lines 232:0-244:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   Std.Usize) where
@@ -19161,7 +19190,7 @@ structure table.partition.Parts where
   ends : Array Std.Usize 257#usize
 
 /-- [apeiron_word::table::SHARD_MASK]
-    Source: '../../src/table.rs', lines 60:0-60:48 -/
+    Source: '../../src/table.rs', lines 61:0-61:48 -/
 @[global_simps, irreducible]
 def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
 
@@ -19989,7 +20018,7 @@ def table.partition.Schedule.is_complete
   table.partition.Schedule.is_complete_loop1 seen1 complete 0#usize
 
 /-- [apeiron_word::table::SHARDS]
-    Source: '../../src/table.rs', lines 58:0-58:40 -/
+    Source: '../../src/table.rs', lines 59:0-59:40 -/
 @[global_simps, irreducible]
 def table.SHARDS : Result Std.Usize := table.partition.SHARDS
 
@@ -20423,7 +20452,7 @@ def table.matches
   else ok false
 
 /-- [apeiron_word::table::MAX_GROUP]
-    Source: '../../src/table.rs', lines 68:0-68:28 -/
+    Source: '../../src/table.rs', lines 69:0-69:28 -/
 @[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
 
 /-- [apeiron_word::table::valid_n]:
@@ -20437,11 +20466,11 @@ def table.valid_n (n : Std.Usize) : Result Bool := do
   else ok false
 
 /-- [apeiron_word::table::TAG_SPREAD]
-    Source: '../../src/table.rs', lines 92:0-92:42 -/
+    Source: '../../src/table.rs', lines 93:0-93:42 -/
 @[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
 
 /-- [apeiron_word::table::SHARD_BITS]
-    Source: '../../src/table.rs', lines 59:0-59:46 -/
+    Source: '../../src/table.rs', lines 60:0-60:46 -/
 @[global_simps, irreducible]
 def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
 
@@ -20610,7 +20639,7 @@ def table.get_prepared_shard
     ok (some ss.value)
 
 /-- Trait declaration: [apeiron_word::table::Merge]
-    Source: '../../src/table.rs', lines 142:0-145:1
+    Source: '../../src/table.rs', lines 143:0-146:1
     Visibility: public -/
 structure table.Merge (Self : Type) (V : Type) where
   merge : Self → V → V → Result V
@@ -20624,24 +20653,24 @@ inductive table.SpillSite where
 | Grow : table.SpillSite
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_BITS]
-    Source: '../../src/table.rs', lines 72:0-72:36 -/
+    Source: '../../src/table.rs', lines 73:0-73:36 -/
 @[global_simps, irreducible] def table.TAG_FINGERPRINT_BITS : Std.U32 := 7#u32
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_MASK]
-    Source: '../../src/table.rs', lines 94:0-94:65 -/
+    Source: '../../src/table.rs', lines 95:0-95:65 -/
 @[global_simps, irreducible]
 def table.TAG_FINGERPRINT_MASK : Result Std.U8 := do
   let i ← 1#u8 <<< table.TAG_FINGERPRINT_BITS
   i - 1#u8
 
 /-- [apeiron_word::table::TAG_FINGERPRINT_SHIFT]
-    Source: '../../src/table.rs', lines 87:0-87:61 -/
+    Source: '../../src/table.rs', lines 88:0-88:61 -/
 @[global_simps, irreducible]
 def table.TAG_FINGERPRINT_SHIFT : Result Std.U32 :=
   64#u32 - table.TAG_FINGERPRINT_BITS
 
 /-- [apeiron_word::table::TAG_LIVE]
-    Source: '../../src/table.rs', lines 70:0-70:26 -/
+    Source: '../../src/table.rs', lines 71:0-71:26 -/
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [apeiron_word::table::tag]:
@@ -20896,6 +20925,240 @@ def table.probe.spill_locate_held
       table.probe.spill_locate_held_loop keyrepKeyRepInst r sigma carrier i
         home wanted 0#usize
   else ok table.SpillSite.Grow
+
+/-- Trait declaration: [apeiron_word::table::Reduce]
+    Source: '../../src/table/reduce.rs', lines 41:0-53:1
+    Visibility: public -/
+structure table.Reduce (Self : Type) (V : Type) (Self_Acc : Type) where
+  identity : Self → Result Self_Acc
+  residual : Self → V → Result Self_Acc
+  combine : Self → Self_Acc → Self_Acc → Result Self_Acc
+
+/-- [apeiron_word::table::AffineStep]
+    Source: '../../src/table/reduce.rs', lines 71:0-76:1
+    Visibility: public -/
+structure table.AffineStep (R : Type) where
+  coefficient : cell.Cell R
+  injection : cell.Cell R
+
+/-- [apeiron_word::table::{apeiron_word::table::AffineStep<R>}::id]:
+    Source: '../../src/table/reduce.rs', lines 84:4-89:5
+    Visibility: public -/
+def table.AffineStep.id
+  {R : Type} (scalarRingInst : scalar.Ring R) :
+  Result (table.AffineStep R)
+  := do
+  let c ← cell.Cell.one scalarRingInst
+  let c1 ← cell.Cell.zero scalarRingInst
+  ok { coefficient := c, injection := c1 }
+
+/-- [apeiron_word::table::{apeiron_word::table::AffineStep<R>}::apply]:
+    Source: '../../src/table/reduce.rs', lines 97:4-99:5
+    Visibility: public -/
+def table.AffineStep.apply
+  {R : Type} (scalarRingInst : scalar.Ring R) (self : table.AffineStep R)
+  (sigma : cell.Sigma) (z : cell.Cell R) :
+  Result (cell.Cell R)
+  := do
+  let c ← cell.Cell.mul scalarRingInst self.coefficient sigma z
+  cell.Cell.add scalarRingInst c self.injection
+
+/-- [apeiron_word::table::{apeiron_word::table::AffineStep<R>}::compose]:
+    Source: '../../src/table/reduce.rs', lines 109:4-114:5
+    Visibility: public -/
+def table.AffineStep.compose
+  {R : Type} (scalarRingInst : scalar.Ring R) (self : table.AffineStep R)
+  (sigma : cell.Sigma) (inner : table.AffineStep R) :
+  Result (table.AffineStep R)
+  := do
+  let c ←
+    cell.Cell.mul scalarRingInst self.coefficient sigma inner.coefficient
+  let c1 ←
+    cell.Cell.mul scalarRingInst self.coefficient sigma inner.injection
+  let c2 ← cell.Cell.add scalarRingInst c1 self.injection
+  ok { coefficient := c, injection := c2 }
+
+/-- [apeiron_word::table::AffineFoldStep]
+    Source: '../../src/table/reduce.rs', lines 125:0-128:1
+    Visibility: public -/
+structure table.AffineFoldStep where
+  sigma : cell.Sigma
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Reduce<apeiron_word::cell::Cell<i64>, apeiron_word::table::AffineStep<i64>> for apeiron_word::table::AffineFoldStep}::combine]:
+    Source: '../../src/table/reduce.rs', lines 161:4-163:5
+    Visibility: public -/
+def
+  table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.combine
+  (self : table.AffineFoldStep) (acc : table.AffineStep Std.I64)
+  (next : table.AffineStep Std.I64) :
+  Result (table.AffineStep Std.I64)
+  := do
+  table.AffineStep.compose I64.Insts.Apeiron_wordScalarRing next self.sigma acc
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Reduce<apeiron_word::cell::Cell<i64>, apeiron_word::table::AffineStep<i64>> for apeiron_word::table::AffineFoldStep}::residual]:
+    Source: '../../src/table/reduce.rs', lines 153:4-158:5
+    Visibility: public -/
+def
+  table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.residual
+  (self : table.AffineFoldStep) (value : cell.Cell Std.I64) :
+  Result (table.AffineStep Std.I64)
+  := do
+  let c ← cell.Cell.one I64.Insts.Apeiron_wordScalarRing
+  ok { coefficient := c, injection := value }
+
+/-- [apeiron_word::table::{impl apeiron_word::table::Reduce<apeiron_word::cell::Cell<i64>, apeiron_word::table::AffineStep<i64>> for apeiron_word::table::AffineFoldStep}::identity]:
+    Source: '../../src/table/reduce.rs', lines 148:4-150:5
+    Visibility: public -/
+def
+  table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.identity
+  (self : table.AffineFoldStep) : Result (table.AffineStep Std.I64) := do
+  table.AffineStep.id I64.Insts.Apeiron_wordScalarRing
+
+/-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Reduce<apeiron_word::cell::Cell<i64>, apeiron_word::table::AffineStep<i64>> for apeiron_word::table::AffineFoldStep}]
+    Source: '../../src/table/reduce.rs', lines 144:0-164:1 -/
+@[reducible]
+def table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64 :
+  table.Reduce table.AffineFoldStep (cell.Cell Std.I64) (table.AffineStep
+  Std.I64) := {
+  identity :=
+    table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.identity
+  residual :=
+    table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.residual
+  combine :=
+    table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64.combine
+}
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop body 0:
+    Source: '../../src/table/reduce.rs', lines 248:8-252:9
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.reduce_all_loop0.body
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc) (reduce : T)
+  (iter : core.slice.iter.Iter (table.FlatSlot R V)) (acc : Clause2_Acc) :
+  Result (ControlFlow ((core.slice.iter.Iter (table.FlatSlot R V)) ×
+    Clause2_Acc) Clause2_Acc)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some slot =>
+    if slot.live
+    then
+      let t ← ReduceInst.residual reduce slot.value
+      let acc1 ← ReduceInst.combine reduce acc t
+      ok (cont (iter1, acc1))
+    else ok (cont (iter1, acc))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop 0:
+    Source: '../../src/table/reduce.rs', lines 248:8-252:9
+    Visibility: public -/
+@[rust_loop]
+def table.Table.reduce_all_loop0
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc)
+  (iter : core.slice.iter.Iter (table.FlatSlot R V)) (reduce : T)
+  (acc : Clause2_Acc) :
+  Result Clause2_Acc
+  := do
+  loop
+    (fun (iter1, acc1) => table.Table.reduce_all_loop0.body ReduceInst reduce
+      iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop body 2:
+    Source: '../../src/table/reduce.rs', lines 254:12-258:13
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.reduce_all_loop1_loop0.body
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc) (reduce : T)
+  (iter : core.slice.iter.Iter (table.SpillSlot R V)) (acc : Clause2_Acc) :
+  Result (ControlFlow ((core.slice.iter.Iter (table.SpillSlot R V)) ×
+    Clause2_Acc) Clause2_Acc)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some slot =>
+    let b ← table.SpillSlot.live slot
+    if b
+    then
+      let t ← ReduceInst.residual reduce slot.value
+      let acc1 ← ReduceInst.combine reduce acc t
+      ok (cont (iter1, acc1))
+    else ok (cont (iter1, acc))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop 2:
+    Source: '../../src/table/reduce.rs', lines 254:12-258:13
+    Visibility: public -/
+@[rust_loop]
+def table.Table.reduce_all_loop1_loop0
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc)
+  (iter : core.slice.iter.Iter (table.SpillSlot R V)) (reduce : T)
+  (acc : Clause2_Acc) :
+  Result Clause2_Acc
+  := do
+  loop
+    (fun (iter1, acc1) => table.Table.reduce_all_loop1_loop0.body ReduceInst
+      reduce iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop body 1:
+    Source: '../../src/table/reduce.rs', lines 253:8-259:9
+    Visibility: public -/
+@[rust_loop_body]
+def table.Table.reduce_all_loop1.body
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc) (reduce : T)
+  (iter : core.slice.iter.Iter (table.Region R V)) (acc : Clause2_Acc) :
+  Result (ControlFlow ((core.slice.iter.Iter (table.Region R V)) ×
+    Clause2_Acc) Clause2_Acc)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some region =>
+    let s := alloc.vec.Vec.deref region.slots
+    let iter2 ← core.slice.Slice.iter s
+    let acc1 ← table.Table.reduce_all_loop1_loop0 ReduceInst iter2 reduce acc
+    ok (cont (iter1, acc1))
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]: loop 1:
+    Source: '../../src/table/reduce.rs', lines 253:8-259:9
+    Visibility: public -/
+@[rust_loop]
+def table.Table.reduce_all_loop1
+  {V : Type} {R : Type} {T : Type} {Clause2_Acc : Type} (ReduceInst :
+  table.Reduce T V Clause2_Acc)
+  (iter : core.slice.iter.Iter (table.Region R V)) (reduce : T)
+  (acc : Clause2_Acc) :
+  Result Clause2_Acc
+  := do
+  loop
+    (fun (iter1, acc1) => table.Table.reduce_all_loop1.body ReduceInst reduce
+      iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reduce_all]:
+    Source: '../../src/table/reduce.rs', lines 246:4-261:5
+    Visibility: public -/
+def table.Table.reduce_all
+  {K : Type} {V : Type} {H : Type} {R : Type} {T : Type}
+  {Clause0_Clause0_Clause0_Faces : Type} {Clause2_Acc : Type} {N : Std.Usize}
+  (HomeInst : table.Home H K Clause0_Clause0_Clause0_Faces) (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (ReduceInst : table.Reduce T V Clause2_Acc)
+  (self : table.Table K V H R N) (reduce : T) :
+  Result Clause2_Acc
+  := do
+  let acc ← ReduceInst.identity reduce
+  let s := alloc.vec.Vec.deref self.resident.slots
+  let iter ← core.slice.Slice.iter s
+  let acc1 ← table.Table.reduce_all_loop0 ReduceInst iter reduce acc
+  let s1 := alloc.vec.Vec.deref self.shards
+  let iter1 ← core.slice.Slice.iter s1
+  table.Table.reduce_all_loop1 ReduceInst iter1 reduce acc1
 
 /-- [apeiron_word::table::resources::RegionReservation]
     Source: '../../src/table/resources.rs', lines 21:0-24:1 -/
@@ -21219,30 +21482,30 @@ def table.TableLocator.new : Result table.TableLocator := do
     }
 
 /-- [apeiron_word::table::DEFAULT_BUDGET_BYTES]
-    Source: '../../src/table.rs', lines 55:0-55:50 -/
+    Source: '../../src/table.rs', lines 56:0-56:50 -/
 @[global_simps, irreducible]
 def table.DEFAULT_BUDGET_BYTES : Result Std.Usize := do
   let i ← table.SHARDS
   i * 1024#usize
 
 /-- [apeiron_word::table::BUILD_PARTITION_CROSSOVER]
-    Source: '../../src/table.rs', lines 66:0-66:46 -/
+    Source: '../../src/table.rs', lines 67:0-67:46 -/
 @[global_simps, irreducible]
 def table.BUILD_PARTITION_CROSSOVER : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::PARTITION_CHUNK]
-    Source: '../../src/table.rs', lines 67:0-67:36 -/
+    Source: '../../src/table.rs', lines 68:0-68:36 -/
 @[global_simps, irreducible]
 def table.PARTITION_CHUNK : Std.Usize := 4096#usize
 
 /-- [apeiron_word::table::WordMerge]
-    Source: '../../src/table.rs', lines 199:0-199:21
+    Source: '../../src/table.rs', lines 200:0-200:21
     Visibility: public -/
 @[reducible]
 def table.WordMerge := Unit
 
 /-- [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}::merge]:
-    Source: '../../src/table.rs', lines 201:4-203:5
+    Source: '../../src/table.rs', lines 202:4-204:5
     Visibility: public -/
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   (self : table.WordMerge) (new : Std.I64) (old : Std.I64) :
@@ -21251,7 +21514,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64.merge
   ok (core.num.I64.wrapping_add new old)
 
 /-- Trait implementation: [apeiron_word::table::{impl apeiron_word::table::Merge<i64> for apeiron_word::table::WordMerge}]
-    Source: '../../src/table.rs', lines 200:0-204:1 -/
+    Source: '../../src/table.rs', lines 201:0-205:1 -/
 @[reducible]
 def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
   table.WordMerge Std.I64 := {
@@ -21259,7 +21522,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop body 0:
-    Source: '../../src/table.rs', lines 245:8-248:9
+    Source: '../../src/table.rs', lines 251:8-254:9
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.new_loop.body
@@ -21278,7 +21541,7 @@ def table.Table.new_loop.body
   else ok (done shards)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop 0:
-    Source: '../../src/table.rs', lines 245:8-248:9
+    Source: '../../src/table.rs', lines 251:8-254:9
     Visibility: public -/
 @[rust_loop]
 def table.Table.new_loop
@@ -21291,7 +21554,7 @@ def table.Table.new_loop
     (shards, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]:
-    Source: '../../src/table.rs', lines 242:4-258:5
+    Source: '../../src/table.rs', lines 248:4-264:5
     Visibility: public -/
 def table.Table.new
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21316,7 +21579,7 @@ def table.Table.new
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::search_decision]:
-    Source: '../../src/table.rs', lines 274:4-291:5 -/
+    Source: '../../src/table.rs', lines 280:4-297:5 -/
 def table.Table.search_decision
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21375,7 +21638,7 @@ def table.Table.search_decision
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_get]:
-    Source: '../../src/table.rs', lines 305:4-315:5 -/
+    Source: '../../src/table.rs', lines 311:4-321:5 -/
 def table.Table.apply_get
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21412,7 +21675,7 @@ def table.Table.apply_get
   | table.SearchLocation.NoIndex => ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_spill]:
-    Source: '../../src/table.rs', lines 395:4-402:5 -/
+    Source: '../../src/table.rs', lines 401:4-408:5 -/
 def table.Table.get_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21437,7 +21700,7 @@ def table.Table.get_spill
     ok ss.value
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_at]:
-    Source: '../../src/table.rs', lines 370:4-386:5
+    Source: '../../src/table.rs', lines 376:4-392:5
     Visibility: public -/
 def table.Table.get_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21481,7 +21744,7 @@ def table.Table.get_at
       else ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 409:4-414:5 -/
+    Source: '../../src/table.rs', lines 415:4-420:5 -/
 def table.Table.get_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21503,7 +21766,7 @@ def table.Table.get_prepared_shard_at
   ok (core.option.Option.unwrap_or o self.default)
 
 /-- [apeiron_word::table::admitted]:
-    Source: '../../src/table.rs', lines 426:0-432:1 -/
+    Source: '../../src/table.rs', lines 432:0-438:1 -/
 def table.admitted
   (location : table.SearchLocation) : Result table.PayloadLocation := do
   match location with
@@ -21514,7 +21777,7 @@ def table.admitted
   | table.SearchLocation.NoIndex => ok (table.PayloadLocation.Resident 0#usize)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 0:
-    Source: '../../src/table.rs', lines 473:8-484:5 -/
+    Source: '../../src/table.rs', lines 479:8-490:5 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop.body
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21540,7 +21803,7 @@ def table.Table.selected_lanes_loop.body
       else ok (done (core.result.Result.Ok none))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 0:
-    Source: '../../src/table.rs', lines 473:8-484:5 -/
+    Source: '../../src/table.rs', lines 479:8-490:5 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21551,7 +21814,7 @@ def table.Table.selected_lanes_loop
     target
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]:
-    Source: '../../src/table.rs', lines 452:4-484:5 -/
+    Source: '../../src/table.rs', lines 458:4-490:5 -/
 def table.Table.selected_lanes
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21572,7 +21835,7 @@ def table.Table.selected_lanes
       (Option Std.Usize) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 0:
-    Source: '../../src/table.rs', lines 512:8-535:9 -/
+    Source: '../../src/table.rs', lines 518:8-541:9 -/
 @[rust_loop_body]
 def table.Table.grow_spill_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21633,7 +21896,7 @@ def table.Table.grow_spill_loop.body
   else ok (done (tl, fresh, relocation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
-    Source: '../../src/table.rs', lines 512:8-535:9 -/
+    Source: '../../src/table.rs', lines 518:8-541:9 -/
 @[rust_loop]
 def table.Table.grow_spill_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21653,7 +21916,7 @@ def table.Table.grow_spill_loop
     (tl, fresh, i, relocation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]:
-    Source: '../../src/table.rs', lines 489:4-554:5 -/
+    Source: '../../src/table.rs', lines 495:4-560:5 -/
 def table.Table.grow_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -21745,7 +22008,7 @@ def table.Table.grow_spill
     ok (r2, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::flat_index_for]:
-    Source: '../../src/table.rs', lines 793:4-808:5 -/
+    Source: '../../src/table.rs', lines 799:4-814:5 -/
 def table.Table.flat_index_for
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21771,7 +22034,7 @@ def table.Table.flat_index_for
       | some value => ok (Usize.checked_add value lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::keep_unoccupied]:
-    Source: '../../src/table.rs', lines 780:4-791:5 -/
+    Source: '../../src/table.rs', lines 786:4-797:5 -/
 def table.Table.keep_unoccupied
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21789,7 +22052,7 @@ def table.Table.keep_unoccupied
     else ok index
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 0:
-    Source: '../../src/table.rs', lines 574:8-590:9 -/
+    Source: '../../src/table.rs', lines 580:8-596:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21853,7 +22116,7 @@ def table.Table.plan_rebuild_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 0:
-    Source: '../../src/table.rs', lines 574:8-590:9 -/
+    Source: '../../src/table.rs', lines 580:8-596:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21876,7 +22139,7 @@ def table.Table.plan_rebuild_loop0
     (occupied, entries, spill_loads, planning_error, resident_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 2:
-    Source: '../../src/table.rs', lines 594:12-611:13 -/
+    Source: '../../src/table.rs', lines 600:12-617:13 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21946,7 +22209,7 @@ def table.Table.plan_rebuild_loop1_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 2:
-    Source: '../../src/table.rs', lines 594:12-611:13 -/
+    Source: '../../src/table.rs', lines 600:12-617:13 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21970,7 +22233,7 @@ def table.Table.plan_rebuild_loop1_loop0
     (occupied, entries, spill_loads, planning_error, slot_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 1:
-    Source: '../../src/table.rs', lines 592:8-613:9 -/
+    Source: '../../src/table.rs', lines 598:8-619:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22004,7 +22267,7 @@ def table.Table.plan_rebuild_loop1.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 1:
-    Source: '../../src/table.rs', lines 592:8-613:9 -/
+    Source: '../../src/table.rs', lines 598:8-619:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22027,7 +22290,7 @@ def table.Table.plan_rebuild_loop1
     (occupied, entries, spill_loads, planning_error, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]:
-    Source: '../../src/table.rs', lines 555:4-631:5 -/
+    Source: '../../src/table.rs', lines 561:4-637:5 -/
 def table.Table.plan_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22117,7 +22380,7 @@ def table.Table.plan_rebuild
       table.RebuildPlan (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_rebuild]:
-    Source: '../../src/table.rs', lines 633:4-637:5 -/
+    Source: '../../src/table.rs', lines 639:4-643:5 -/
 def table.Table.reserve_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22150,7 +22413,7 @@ def table.Table.reserve_rebuild
       residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop body 0:
-    Source: '../../src/table.rs', lines 665:8-675:9 -/
+    Source: '../../src/table.rs', lines 671:8-681:9 -/
 @[rust_loop_body]
 def table.Table.observe_receipt_loop.body
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22189,7 +22452,7 @@ def table.Table.observe_receipt_loop.body
   else ok (done (regions, error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop 0:
-    Source: '../../src/table.rs', lines 665:8-675:9 -/
+    Source: '../../src/table.rs', lines 671:8-681:9 -/
 @[rust_loop]
 def table.Table.observe_receipt_loop
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22205,7 +22468,7 @@ def table.Table.observe_receipt_loop
     (regions, shard_at, error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]:
-    Source: '../../src/table.rs', lines 645:4-684:5 -/
+    Source: '../../src/table.rs', lines 651:4-690:5 -/
 def table.Table.observe_receipt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22241,7 +22504,7 @@ def table.Table.observe_receipt
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::materialize_rebuild]:
-    Source: '../../src/table.rs', lines 696:4-725:5 -/
+    Source: '../../src/table.rs', lines 702:4-731:5 -/
 def table.Table.materialize_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22268,7 +22531,7 @@ def table.Table.materialize_rebuild
     { reservation, locator, pending_held })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_from_plan]:
-    Source: '../../src/table.rs', lines 735:4-760:5 -/
+    Source: '../../src/table.rs', lines 741:4-766:5 -/
 def table.Table.prepare_from_plan
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22303,7 +22566,7 @@ def table.Table.prepare_from_plan
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_rebuild]:
-    Source: '../../src/table.rs', lines 763:4-774:5 -/
+    Source: '../../src/table.rs', lines 769:4-780:5 -/
 def table.Table.prepare_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22325,7 +22588,7 @@ def table.Table.prepare_rebuild
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::locate_rebuilt]:
-    Source: '../../src/table.rs', lines 817:4-839:5 -/
+    Source: '../../src/table.rs', lines 823:4-845:5 -/
 def table.Table.locate_rebuilt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22377,7 +22640,7 @@ def table.Table.locate_rebuilt
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: '../../src/table.rs', lines 853:4-915:5 -/
+    Source: '../../src/table.rs', lines 859:4-921:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22464,7 +22727,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: '../../src/table.rs', lines 932:8-935:9 -/
+    Source: '../../src/table.rs', lines 938:8-941:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22487,7 +22750,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: '../../src/table.rs', lines 932:8-935:9 -/
+    Source: '../../src/table.rs', lines 938:8-941:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22505,7 +22768,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: '../../src/table.rs', lines 926:4-936:5 -/
+    Source: '../../src/table.rs', lines 932:4-942:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22520,7 +22783,7 @@ def table.Table.relocate_all
     keyrepKeyRepInst self plan reserved 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: '../../src/table.rs', lines 945:4-955:5 -/
+    Source: '../../src/table.rs', lines 951:4-961:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22549,7 +22812,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: '../../src/table.rs', lines 973:4-1019:5 -/
+    Source: '../../src/table.rs', lines 979:4-1025:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22647,7 +22910,7 @@ def table.Table.apply_pending_and_commit
     fail panic
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_rebuild]:
-    Source: '../../src/table.rs', lines 1029:4-1077:5 -/
+    Source: '../../src/table.rs', lines 1035:4-1083:5 -/
 def table.Table.apply_prepared_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22705,7 +22968,7 @@ def table.Table.apply_prepared_rebuild
     ok (core.result.Result.Err error, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::rebuild_resident]:
-    Source: '../../src/table.rs', lines 1081:4-1092:5 -/
+    Source: '../../src/table.rs', lines 1087:4-1098:5 -/
 def table.Table.rebuild_resident
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22725,7 +22988,7 @@ def table.Table.rebuild_resident
     address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_insert]:
-    Source: '../../src/table.rs', lines 1103:4-1149:5 -/
+    Source: '../../src/table.rs', lines 1109:4-1155:5 -/
 def table.Table.apply_insert
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22805,7 +23068,7 @@ def table.Table.apply_insert
       ok (table.ApplyOutcome.NeedsGrowth key value, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::insert_with_reserved]:
-    Source: '../../src/table.rs', lines 1188:4-1220:5 -/
+    Source: '../../src/table.rs', lines 1194:4-1226:5 -/
 def table.Table.insert_with_reserved
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22984,7 +23247,7 @@ def table.Table.insert_with_reserved
             value1 address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 1232:4-1256:5 -/
+    Source: '../../src/table.rs', lines 1238:4-1262:5 -/
 def table.Table.apply_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23025,7 +23288,7 @@ def table.Table.apply_prepared_shard_at
     ok (r3, { self with shards := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop body 0:
-    Source: '../../src/table.rs', lines 1399:8-1405:9 -/
+    Source: '../../src/table.rs', lines 1405:8-1411:9 -/
 @[rust_loop_body]
 def table.Table.build_at_sequential_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23061,7 +23324,7 @@ def table.Table.build_at_sequential_loop.body
   else ok (done (t, failure))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop 0:
-    Source: '../../src/table.rs', lines 1399:8-1405:9 -/
+    Source: '../../src/table.rs', lines 1405:8-1411:9 -/
 @[rust_loop]
 def table.Table.build_at_sequential_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23081,7 +23344,7 @@ def table.Table.build_at_sequential_loop
     (t, failure, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]:
-    Source: '../../src/table.rs', lines 1385:4-1411:5 -/
+    Source: '../../src/table.rs', lines 1391:4-1417:5 -/
 def table.Table.build_at_sequential
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -23121,7 +23384,7 @@ def table.Table.build_at_sequential
   | some error => ok (core.result.Result.Err error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 0:
-    Source: '../../src/table.rs', lines 1304:16-1325:17
+    Source: '../../src/table.rs', lines 1310:16-1331:17
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop0.body
@@ -23186,7 +23449,7 @@ def table.Table.build_at_loop0.body
   else ok (done (t, reservation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 0:
-    Source: '../../src/table.rs', lines 1304:16-1325:17
+    Source: '../../src/table.rs', lines 1310:16-1331:17
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop0
@@ -23206,7 +23469,7 @@ def table.Table.build_at_loop0
     (t, s, reservation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 1:
-    Source: '../../src/table.rs', lines 1330:20-1341:21
+    Source: '../../src/table.rs', lines 1336:20-1347:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop1.body
@@ -23252,7 +23515,7 @@ def table.Table.build_at_loop1.body
   else ok (done t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 1:
-    Source: '../../src/table.rs', lines 1330:20-1341:21
+    Source: '../../src/table.rs', lines 1336:20-1347:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop1
@@ -23272,7 +23535,7 @@ def table.Table.build_at_loop1
     (t, initialized)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 5:
-    Source: '../../src/table.rs', lines 1354:32-1366:33
+    Source: '../../src/table.rs', lines 1360:32-1372:33
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0_loop0.body
@@ -23310,7 +23573,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 5:
-    Source: '../../src/table.rs', lines 1354:32-1366:33
+    Source: '../../src/table.rs', lines 1360:32-1372:33
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0_loop0
@@ -23332,7 +23595,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0
     (t, assembly_error, run_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 4:
-    Source: '../../src/table.rs', lines 1351:28-1368:29
+    Source: '../../src/table.rs', lines 1357:28-1374:29
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0.body
@@ -23365,7 +23628,7 @@ def table.Table.build_at_loop2_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 4:
-    Source: '../../src/table.rs', lines 1351:28-1368:29
+    Source: '../../src/table.rs', lines 1357:28-1374:29
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0
@@ -23388,7 +23651,7 @@ def table.Table.build_at_loop2_loop0_loop0
     (t, assembly_error, chunk)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 3:
-    Source: '../../src/table.rs', lines 1348:24-1370:25
+    Source: '../../src/table.rs', lines 1354:24-1376:25
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0.body
@@ -23421,7 +23684,7 @@ def table.Table.build_at_loop2_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 3:
-    Source: '../../src/table.rs', lines 1348:24-1370:25
+    Source: '../../src/table.rs', lines 1354:24-1376:25
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0
@@ -23444,7 +23707,7 @@ def table.Table.build_at_loop2_loop0
     (t, assembly_error, bin_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 2:
-    Source: '../../src/table.rs', lines 1345:20-1372:21
+    Source: '../../src/table.rs', lines 1351:20-1378:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2.body
@@ -23477,7 +23740,7 @@ def table.Table.build_at_loop2.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 2:
-    Source: '../../src/table.rs', lines 1345:20-1372:21
+    Source: '../../src/table.rs', lines 1351:20-1378:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2
@@ -23499,7 +23762,7 @@ def table.Table.build_at_loop2
     (t, assembly_error, worker)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]:
-    Source: '../../src/table.rs', lines 1278:4-1384:5
+    Source: '../../src/table.rs', lines 1284:4-1390:5
     Visibility: public -/
 def table.Table.build_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23580,8 +23843,43 @@ def table.Table.build_at
       else ok (core.result.Result.Err table.StorageError.SizeOverflow)
     else ok (core.result.Result.Err table.StorageError.SizeOverflow)
 
+/-- [apeiron_word::word_table_reduce_all]:
+    Source: 'lib.rs', lines 165:0-170:1
+    Visibility: public -/
+def word_table_reduce_all
+  (state : table.Table Std.I64 (cell.Cell Std.I64) table.WordHome
+  (table.keyrep.Stored Std.I64) 16#usize) (sigma : cell.Sigma) :
+  Result (table.AffineStep Std.I64)
+  := do
+  table.Table.reduce_all table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+    (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+    I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple
+    core.clone.CloneI64 table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+    table.AffineFoldStep.Insts.Apeiron_wordTableReduceCellI64AffineStepI64
+    state { sigma }
+
+/-- [apeiron_word::word_affine_step_compose]:
+    Source: 'lib.rs', lines 174:0-180:1
+    Visibility: public -/
+def word_affine_step_compose
+  (outer : table.AffineStep Std.I64) (sigma : cell.Sigma)
+  (inner : table.AffineStep Std.I64) :
+  Result (table.AffineStep Std.I64)
+  := do
+  table.AffineStep.compose I64.Insts.Apeiron_wordScalarRing outer sigma inner
+
+/-- [apeiron_word::word_affine_step_apply]:
+    Source: 'lib.rs', lines 183:0-189:1
+    Visibility: public -/
+def word_affine_step_apply
+  (step : table.AffineStep Std.I64) (sigma : cell.Sigma)
+  (z : cell.Cell Std.I64) :
+  Result (cell.Cell Std.I64)
+  := do
+  table.AffineStep.apply I64.Insts.Apeiron_wordScalarRing step sigma z
+
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 157:0-159:1
+    Source: 'lib.rs', lines 192:0-194:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -23590,14 +23888,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 162:0-164:1
+    Source: 'lib.rs', lines 197:0-199:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 171:0-173:1
+    Source: 'lib.rs', lines 206:0-208:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -23607,7 +23905,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 176:0-184:1
+    Source: 'lib.rs', lines 211:0-219:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -23618,7 +23916,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 188:0-195:1
+    Source: 'lib.rs', lines 223:0-230:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -23628,14 +23926,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 198:0-200:1
+    Source: 'lib.rs', lines 233:0-235:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 204:0-209:1
+    Source: 'lib.rs', lines 239:0-244:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -23644,7 +23942,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 212:0-214:1
+    Source: 'lib.rs', lines 247:0-249:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23653,7 +23951,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 217:0-219:1
+    Source: 'lib.rs', lines 252:0-254:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23662,7 +23960,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 226:0-232:1
+    Source: 'lib.rs', lines 261:0-267:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -23672,7 +23970,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 273:0-279:1
+    Source: 'lib.rs', lines 308:0-314:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -23682,7 +23980,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 282:0-286:1
+    Source: 'lib.rs', lines 317:0-321:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -23690,7 +23988,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 289:0-299:1
+    Source: 'lib.rs', lines 324:0-334:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -23705,7 +24003,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 302:0-313:1
+    Source: 'lib.rs', lines 337:0-348:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -23721,7 +24019,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 316:0-324:1
+    Source: 'lib.rs', lines 351:0-359:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23734,7 +24032,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 327:0-336:1
+    Source: 'lib.rs', lines 362:0-371:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -23747,7 +24045,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 349:0-351:1
+    Source: 'lib.rs', lines 384:0-386:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23761,7 +24059,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 365:0-370:1
+    Source: 'lib.rs', lines 400:0-405:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -23776,7 +24074,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 382:0-384:1
+    Source: 'lib.rs', lines 417:0-419:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23791,7 +24089,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 399:0-404:1
+    Source: 'lib.rs', lines 434:0-439:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -23809,7 +24107,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 407:0-413:1
+    Source: 'lib.rs', lines 442:0-448:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23824,7 +24122,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 417:0-425:1
+    Source: 'lib.rs', lines 452:0-460:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23842,7 +24140,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 428:0-430:1
+    Source: 'lib.rs', lines 463:0-465:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23858,7 +24156,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 434:0-442:1
+    Source: 'lib.rs', lines 469:0-477:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23880,7 +24178,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 450:0-452:1
+    Source: 'lib.rs', lines 485:0-487:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23894,7 +24192,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 459:0-471:1
+    Source: 'lib.rs', lines 494:0-506:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -23917,7 +24215,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 474:0-476:1
+    Source: 'lib.rs', lines 509:0-511:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23932,7 +24230,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 479:0-491:1
+    Source: 'lib.rs', lines 514:0-526:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -23958,7 +24256,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 494:0-499:1
+    Source: 'lib.rs', lines 529:0-534:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -23966,37 +24264,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 504:0-506:1
+    Source: 'lib.rs', lines 539:0-541:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 512:0-514:1
+    Source: 'lib.rs', lines 547:0-549:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 517:0-519:1
+    Source: 'lib.rs', lines 552:0-554:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 525:0-527:1
+    Source: 'lib.rs', lines 560:0-562:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 533:0-535:1
+    Source: 'lib.rs', lines 568:0-570:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 543:0-554:1
+    Source: 'lib.rs', lines 578:0-589:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24015,7 +24313,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 560:0-571:1
+    Source: 'lib.rs', lines 595:0-606:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24036,7 +24334,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 579:0-589:1
+    Source: 'lib.rs', lines 614:0-624:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24054,7 +24352,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 594:0-604:1
+    Source: 'lib.rs', lines 629:0-639:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24074,7 +24372,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 613:0-632:1
+    Source: 'lib.rs', lines 648:0-667:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24094,7 +24392,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 638:0-657:1
+    Source: 'lib.rs', lines 673:0-692:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24118,7 +24416,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 665:0-672:1
+    Source: 'lib.rs', lines 700:0-707:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24129,7 +24427,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 678:0-685:1
+    Source: 'lib.rs', lines 713:0-720:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24142,7 +24440,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 690:0-692:1
+    Source: 'lib.rs', lines 725:0-727:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -24151,40 +24449,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 699:0-701:1
+    Source: 'lib.rs', lines 734:0-736:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 706:0-708:1
+    Source: 'lib.rs', lines 741:0-743:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 713:0-715:1
+    Source: 'lib.rs', lines 748:0-750:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 720:0-722:1
+    Source: 'lib.rs', lines 755:0-757:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 729:0-731:1
+    Source: 'lib.rs', lines 764:0-766:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 739:0-744:1
+    Source: 'lib.rs', lines 774:0-779:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -24193,7 +24491,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 751:0-758:1
+    Source: 'lib.rs', lines 786:0-793:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -24204,7 +24502,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 762:0-764:1
+    Source: 'lib.rs', lines 797:0-799:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -24213,7 +24511,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 768:0-770:1
+    Source: 'lib.rs', lines 803:0-805:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -24222,7 +24520,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 776:0-778:1
+    Source: 'lib.rs', lines 811:0-813:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -24233,7 +24531,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 784:0-786:1
+    Source: 'lib.rs', lines 819:0-821:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -24242,7 +24540,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 802:0-804:1
+    Source: 'lib.rs', lines 837:0-839:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -24251,7 +24549,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 821:0-826:1
+    Source: 'lib.rs', lines 856:0-861:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -24260,7 +24558,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 832:0-834:1
+    Source: 'lib.rs', lines 867:0-869:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -24269,7 +24567,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 840:0-846:1
+    Source: 'lib.rs', lines 875:0-881:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -24278,7 +24576,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 852:0-858:1
+    Source: 'lib.rs', lines 887:0-893:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -24287,7 +24585,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 866:0-874:1
+    Source: 'lib.rs', lines 901:0-909:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -24297,7 +24595,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 881:0-883:1
+    Source: 'lib.rs', lines 916:0-918:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -24306,7 +24604,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 893:0-901:1
+    Source: 'lib.rs', lines 928:0-936:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -24316,7 +24614,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 918:0-933:1
+    Source: 'lib.rs', lines 953:0-968:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -24327,7 +24625,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 939:0-946:1
+    Source: 'lib.rs', lines 974:0-981:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -24337,7 +24635,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 953:0-962:1
+    Source: 'lib.rs', lines 988:0-997:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -24347,7 +24645,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 968:0-970:1
+    Source: 'lib.rs', lines 1003:0-1005:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -24356,7 +24654,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 994:0-996:1
+    Source: 'lib.rs', lines 1029:0-1031:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -24365,7 +24663,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1012:0-1021:1
+    Source: 'lib.rs', lines 1047:0-1056:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -24376,7 +24674,7 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_trace_macs]:
-    Source: 'lib.rs', lines 1073:0-1075:1
+    Source: 'lib.rs', lines 1108:0-1110:1
     Visibility: public -/
 def word_trace_macs
   (n_out : Std.Usize) (n_in : Std.Usize) (cols : Std.Usize) :
