@@ -32,14 +32,6 @@ def Tuple.Insts.CoreCmpEq : core.cmp.Eq Unit := {
 
 
 
-/-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for usize}]
-    Source: '/rustc/library/core/src/fmt/num.rs', lines 134:8-134:39
-    Name pattern: [core::fmt::Display<usize>] -/
-@[reducible, rust_trait_impl "core::fmt::Display<usize>"]
-def Usize.Insts.CoreFmtDisplay : core.fmt.Display Std.Usize := {
-  fmt := core.fmt.num.imp.DisplayUsize.fmt
-}
-
 /-- [core::marker::PhantomData]
     Source: '/rustc/library/core/src/marker.rs', lines 811:0-811:39
     Name pattern: [core::marker::PhantomData]
@@ -21445,25 +21437,8 @@ def table.capacity_bound
   Result table.resources.CapacityBound
   := do
   let b ← table.resources.capacity_bound_holds required_len observed_capacity
-  if b
-  then ok { required_len, observed_capacity }
-  else
-    let a ←
-      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
-        observed_capacity
-    let a1 ←
-      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay required_len
-    let _ ←
-      core.fmt.Arguments.new
-        (Array.make 52#usize [
-          18#u8, 114#u8, 101#u8, 115#u8, 101#u8, 114#u8, 118#u8, 101#u8,
-          100#u8, 32#u8, 99#u8, 97#u8, 112#u8, 97#u8, 99#u8, 105#u8, 116#u8,
-          121#u8, 32#u8, 192#u8, 29#u8, 32#u8, 105#u8, 115#u8, 32#u8, 98#u8,
-          101#u8, 108#u8, 111#u8, 119#u8, 32#u8, 116#u8, 104#u8, 101#u8, 32#u8,
-          99#u8, 104#u8, 101#u8, 99#u8, 107#u8, 101#u8, 100#u8, 32#u8, 116#u8,
-          97#u8, 114#u8, 103#u8, 101#u8, 116#u8, 32#u8, 192#u8, 0#u8
-          ]) (Array.make 2#usize [ a, a1 ])
-    fail panic
+  massert b
+  ok { required_len, observed_capacity }
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::empty]:
     Source: '../../src/table/state.rs', lines 466:4-471:5 -/
