@@ -28,16 +28,48 @@
 //! Below `count_par`'s `1 << 15` crossover the hashtrinity face falls back to one serial
 //! aggregation. The reported [`WorkerPolicy`] records the actual pool width and the fallback flag
 //! rather than presenting a serial run as parallel.
+//!
+//! # The charged timed region: the locator registry is executed but not charged
+//!
+//! The pair compares *build a probe-able counter structure, then probe it*. The selected arm's
+//! whole wall-clock region additionally contains [`TableLocator::assemble_directory`], the cold
+//! per-key walk that publishes the locator **reverse-link registry**: one residue-trie path and one
+//! identity-subtree path per non-elliptic live payload (`src/table/locator.rs:961-984`, reached from
+//! `install_and_finalize` at `src/table/parallel.rs:658`). No incumbent timed region builds such a
+//! registry — see [`INCUMBENT_REGISTRY_SYMBOLS`] and the `no_incumbent_timed_region_builds_a_locator_registry`
+//! test, which enforce that from this file's own source.
+//!
+//! So the selected arm charges `elapsed − build_phases.assemble`: [`SELECTED_TIMED_REGION`] names
+//! every phase in and out. Nothing is deleted and nothing is skipped: the directory is assembled
+//! inside `build_parallel_phased` exactly as before, `locator.links` and `locator.admitted` are
+//! published as before, and only its nanoseconds are not attributed to this pair. The exclusion is
+//! also what makes the two selected-side paths consistent: the serial path
+//! ([`run_selected`], used at width one and below the crossover) never assembles a directory at
+//! all, so an unexcluded parallel run would be charging this cell for work the same cell's serial
+//! run does not pay.
+//!
+//! `build_phases.assemble` is the `install_and_finalize` bucket, which bundles the region install,
+//! [`TableLocator::finalize_recorded_locations`] and `assemble_directory`; the bucket is the
+//! finest split the crate's instrumentation exposes and it is the whole registry publication.
+//! [`RegistrySplit`] measures how much of it is the directory itself: an all-elliptic parallel
+//! build of the same population and width runs the same install and finalization but skips every
+//! per-key path (`src/table/locator.rs:974`), so the difference is the directory walk.
+//!
+//! The accounting identity `charged == elapsed − excluded` holds per sample and is checked per
+//! sample by [`validate`]; `spatial-excluded-registry-overcharge` is the control that fires when it
+//! does not.
 
 #![allow(
     clippy::module_name_repetitions,
     reason = "the module owns the REG-1 spatial adapter campaign and its outcome types"
 )]
 
-use std::collections::HashMap as StdHashMap;
+use std::collections::{HashMap as StdHashMap, HashSet as StdHashSet};
 use std::hash::{BuildHasher, Hash};
 use std::hint::black_box;
 use std::time::Instant;
+
+use apeiron::table::parallel::PhaseNanos;
 
 use apeiron::coord::{i21, Packed};
 use apeiron::table::Home;
@@ -113,16 +145,80 @@ const APEIRON_N: usize = 16;
 /// The selected table type on the packed spatial workload.
 type SpatialTable = apeiron::Table<StrataKey, i64, StrataHome, APEIRON_N>;
 
-/// The three rejecting controls.
-pub(crate) const CONTROLS: [&str; 3] = [
-    "spatial-wrong-packed-input",
-    "spatial-wrong-bucket-routing",
-    "spatial-wrong-worker-width",
-];
+/// `src/table.rs:66`'s `BUILD_PARTITION_CROSSOVER`, mirrored because the constant is private to the
+/// crate. Mirrored, not trusted: the width each parallel API dispatched is read back from the
+/// [`PhaseNanos`] it returns, and [`validate_selected_width`] rejects a disagreement between the
+/// mirror and that read-back, so a change to `src/table.rs` is a failing gate and not a wrong
+/// number.
+const BUILD_PARTITION_CROSSOVER: usize = 4096;
 
 /// Whether `name` is a spatial control.
 pub(crate) fn is_control(name: &str) -> bool {
     CONTROLS.contains(&name)
+}
+
+/// The four rejecting controls. `spatial-wrong-tuple-bucket-routing` exists because the tuple path
+/// was previously entered by no control at all: `Corruption::Routing` is read inside
+/// `run_count_par_tuple` and could never fire, and the tuple identity exemption was wide enough to
+/// hide any defect inside it.
+pub(crate) const CONTROLS: [&str; 5] = [
+    "spatial-wrong-packed-input",
+    "spatial-wrong-bucket-routing",
+    "spatial-wrong-tuple-bucket-routing",
+    "spatial-wrong-worker-width",
+    "spatial-excluded-registry-overcharge",
+];
+
+/// The selected spatial pair's timed region, phase by phase.
+///
+/// `IN` is everything the incumbents also pay: the selected build's plan, validation, schedule,
+/// reservation and per-shard kernel, the grouped probe with its query-order readback, and the
+/// order-sensitive fold. `OUT` is one phase bucket, `build_parallel_phased`'s `assemble`, which is
+/// `install_and_finalize` (`src/table/parallel.rs:628-630, 643-659`): install the joined shard
+/// regions, publish each admitted reverse link's payload location, and walk every live
+/// non-elliptic payload's directory path. The bucket is the whole locator reverse-link registry and
+/// it still executes; see the module documentation.
+pub(crate) const SELECTED_TIMED_REGION: &str = concat!(
+    "IN=[build qualify+partition+validate+schedule+reserve+kernel; ",
+    "probe qualify+partition+validate+schedule+kernel+query-order readback; query-order fold] ",
+    "OUT=[build install_and_finalize: region install, finalize_recorded_locations, ",
+    "assemble_directory = the per-key locator reverse-link registry, which no incumbent timed ",
+    "region builds; still executed inside build_parallel_phased]"
+);
+
+/// Symbols that would make an incumbent's timed region build, link or consult a locator registry.
+///
+/// The exclusion in [`SELECTED_TIMED_REGION`] is only defensible while no incumbent performs any of
+/// these. `no_incumbent_timed_region_builds_a_locator_registry` scans this file's own source for
+/// them, over the transitive call closure of every registered spatial arm, so adding one to an
+/// incumbent is a failing test rather than an unfair ratio.
+pub(crate) const INCUMBENT_REGISTRY_SYMBOLS: [&str; 9] = [
+    "Directory",
+    "locator",
+    "Locator",
+    "assemble",
+    "reserve_path",
+    "publish_for_query",
+    "SpatialTable",
+    "Table<",
+    "build_parallel",
+];
+
+/// The rejected controls' single corruption. `None` is the real run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Corruption {
+    None,
+    /// The adapters see a corrupted packed input while the oracle sees the real one.
+    Input,
+    /// The grouped hashtrinity probe routes by the wrong bucket function.
+    Routing,
+    /// The reported worker width is wrong.
+    Width,
+    /// The selected arm charges itself less than its own measured timed region: the exclusion is
+    /// widened by a tenth of the elapsed region while the reported excluded bucket stays the
+    /// phase instrumentation's own reading. This is the under-reporting direction, the one that
+    /// inflates the incumbent's apparent win, and it is what the accounting identity rejects.
+    RegistryCharge,
 }
 
 /// The actual worker policy an arm ran under. Reported, never inferred: a serial fallback is named.
@@ -144,6 +240,10 @@ pub(crate) struct SpatialOutcome {
     pub(crate) samples: Vec<u64>,
     /// The selected samples measured at this incumbent's actual worker width.
     pub(crate) selected_samples: Vec<u64>,
+    /// The selected side's whole timed region per sample, before the locator-registry exclusion.
+    pub(crate) selected_elapsed_samples: Vec<u64>,
+    /// The excluded locator-registry bucket per sample, read from the build's own phase split.
+    pub(crate) selected_excluded_samples: Vec<u64>,
     /// The per-campaign `selected/incumbent` ratios.
     pub(crate) campaign_ratios: Vec<f64>,
     /// Whether every sample's digest equalled the spatial oracle digest, or this arm is a
@@ -151,8 +251,15 @@ pub(crate) struct SpatialOutcome {
     pub(crate) digest_ok: bool,
     /// Whether the width-matched selected samples equalled the same oracle digest.
     pub(crate) selected_digest_ok: bool,
-    /// The selected execution policy for this pair, measured from the width passed to its API.
+    /// The digest this arm's last sample produced, kept so the validator can tell a *registered*
+    /// identity collapse (this arm's digest equals the collapsed oracle) from any other wrong digest.
+    pub(crate) digest: u64,
+    /// The selected side's execution policy, whose `workers` is the width the parallel APIs
+    /// actually dispatched, read back from their returned phase split.
     pub(crate) selected_policy: WorkerPolicy,
+    /// The worker width passed to the selected side's API for this pair. Equal to the incumbent's
+    /// reported width by construction, and checked against it in [`validate`].
+    pub(crate) selected_requested_workers: usize,
     /// The worker policy the arm actually ran under.
     pub(crate) policy: WorkerPolicy,
 }
@@ -169,8 +276,84 @@ pub(crate) struct SpatialCell {
     pub(crate) ops: usize,
     /// The independent count oracle digest folded in query order.
     pub(crate) oracle_digest: u64,
+    /// The tuple-face digest a correct-but-lossy address fold must produce, or `None` on the packed
+    /// face (where the fold is the identity and there is nothing to collapse).
+    pub(crate) collapsed_oracle_digest: Option<u64>,
+    /// The observed whole-key identity of this cell's key population.
+    pub(crate) identity: CellIdentity,
+    /// The measured decomposition of the excluded registry bucket, or `None` for a control cell.
+    pub(crate) registry_split: Option<RegistrySplit>,
     /// Every adapter's outcome on this cell.
     pub(crate) outcomes: Vec<SpatialOutcome>,
+}
+
+/// The observed whole-key identity of one cell's key population, on that cell's measured face.
+///
+/// `merged_keys` is the measured form of "an incumbent with no key store cannot separate two keys":
+/// `distinct_keys - distinct_addresses`, where an address is what `FreqMap` actually stores.
+/// `FreqLine<V>` holds `ctrl` plus `slots: Box<[(u64, MaybeUninit<V>)]>` and no key column
+/// (hashtrinity `4cc14471` `src/freq.rs:271-286`), so two keys with one `FreqMap::freq` address are
+/// one entry and `FreqMap::add`'s `insert_with(.., |new, old| new + old)` sums them
+/// (`src/freq.rs:920-923`). Measured with one `HashSet` pass per side, so it is O(population) time
+/// and O(population) words against a `HashSet` of packed coordinates.
+#[derive(Clone, Copy)]
+pub(crate) struct CellIdentity {
+    /// Distinct keys on the measured face: packed words on `Packed`, tuples on `Tuple`.
+    pub(crate) distinct_keys: usize,
+    /// Distinct hashtrinity `FreqMap::freq` addresses over the same key population.
+    pub(crate) distinct_addresses: usize,
+    /// `distinct_keys - distinct_addresses`: keys the address map cannot tell apart.
+    pub(crate) merged_keys: usize,
+    /// The largest packed word in the population, against `FreqMap::freq`'s `min(EMPTY - 2)` clamp.
+    pub(crate) max_packed: u64,
+}
+
+impl CellIdentity {
+    /// Whether `FreqMap::freq(k) = k.coord().min(EMPTY - 2)` with `EMPTY = u64::MAX` is the
+    /// identity on this cell's packed population. The clamp's whole distortion is the three-point
+    /// top fiber (`src/freq.rs:730-739`), so every packed word at or below `u64::MAX - 2` is left
+    /// untouched. `(i21,i21,i21)::packed()` puts three 21-bit fields at bits 0, 21 and 42
+    /// (`src/coord.rs:461-463, 552`), leaving bit 63 clear; this records the observed maximum so
+    /// the claim is a measurement of this population and not an assumption about it.
+    pub(crate) fn clamp_injective(&self) -> bool {
+        self.max_packed <= u64::MAX - 2
+    }
+}
+
+/// Observe one cell's whole-key identity. `O(population)` time and `O(population)` words: one
+/// `HashSet` over the measured face's keys, one over the packed words (for the clamp bound), one
+/// over the hashtrinity addresses.
+fn observe_identity(face: KeyFace, tuples: &[TupleKey], packed_keys: &[u64]) -> CellIdentity {
+    use hashtrinity::Coord as HtCoord;
+    let packed_set: StdHashSet<u64> = packed_keys.iter().copied().collect();
+    let max_packed = packed_set.iter().copied().max().unwrap_or(0);
+    let (distinct_keys, distinct_addresses) = match face {
+        KeyFace::Packed => (
+            packed_set.len(),
+            packed_set
+                .iter()
+                .map(|&k| k.coord().min(u64::MAX - 2))
+                .collect::<StdHashSet<u64>>()
+                .len(),
+        ),
+        KeyFace::Tuple => {
+            let tuple_set: StdHashSet<TupleKey> = tuples.iter().copied().collect();
+            (
+                tuple_set.len(),
+                tuples
+                    .iter()
+                    .map(|k| k.coord().min(u64::MAX - 2))
+                    .collect::<StdHashSet<u64>>()
+                    .len(),
+            )
+        }
+    };
+    CellIdentity {
+        distinct_keys,
+        distinct_addresses,
+        merged_keys: distinct_keys.saturating_sub(distinct_addresses),
+        max_packed,
+    }
 }
 
 /// The complete spatial enumeration.
@@ -199,27 +382,88 @@ struct ArmResult {
     policy: WorkerPolicy,
 }
 
-/// The in-memory corruption a control applies. `None` is the real run.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Corruption {
-    None,
-    /// The adapters see a corrupted packed input while the oracle sees the real one.
-    Input,
-    /// The grouped hashtrinity probe routes by the wrong bucket function.
-    Routing,
-    /// The reported worker width is wrong.
-    Width,
+/// One selected-side run: the arm's own result plus the accounting of its timed region.
+///
+/// `nanos` is what the pair is charged, `elapsed` is the whole wall-clock region and `excluded` is
+/// the phase bucket taken out of it, so `nanos == elapsed - excluded` on every real run and
+/// [`validate`] checks that identity per sample.
+struct SelectedRun {
+    arm: ArmResult,
+    elapsed: u64,
+    excluded: u64,
 }
 
-/// Whether `id` is a registered colliding arm on `face`.
+/// The measured decomposition of the excluded bucket, for one cell.
+///
+/// `without_directory` is the selected build's `assemble` bucket from an all-elliptic build of the
+/// same population at [`PAR16_WORKERS`], which runs the same region install and finalization but
+/// skips every per-key path (`src/table/locator.rs:974`). The excluded bucket is the parallel
+/// build's own reading, so `excluded - without_directory` is a measured lower bound on the part of
+/// the exclusion that is the directory walk, and it over-counts the directory by whatever the
+/// elliptic call also dropped: the per-entry record writes.
+pub(crate) struct RegistrySplit {
+    /// The `assemble` bucket of an all-elliptic parallel build: install and finalization only.
+    without_directory: u64,
+    /// The refused error name, or `None` when the all-elliptic build returned one.
+    without_directory_error: Option<String>,
+}
+
+/// The digest a *correct but lossy* address-fold implementation must produce on this cell.
+///
+/// hashtrinity's identity on a key is `FreqMap::freq(k) = k.coord().min(EMPTY - 2)` and its
+/// `add` is a running sum at that address (`4cc14471` `src/freq.rs:737-739, 920-923`), so two keys
+/// sharing an address are one entry whose counts add. This oracle reproduces exactly that: it counts
+/// by *address*, not by key, then folds the probe counts in query order. An arm whose digest equals
+/// this is exact under the fold it was given; an arm whose digest equals neither this nor the
+/// key-exact [`oracle_digest`] is defective for some other reason and must reject.
+///
+/// This is what makes the tuple-face exemption falsifiable. Comparing only against
+/// "did the key-exact oracle match, and is this a tuple hashtrinity arm" exempts *any* wrong digest
+/// on the tuple face, which is why a tuple-face routing corruption was invisible to the validator
+/// while the packed face caught its own.
+///
+/// `O(population + probe)` time and `O(population)` words against one `HashSet` of addresses.
+fn oracle_digest_collapsed_tuple(keys: &[TupleKey], probe: &[TupleKey]) -> u64 {
+    use hashtrinity::Coord as HtCoord;
+    let mut counts: StdHashMap<u64, i64> = StdHashMap::with_capacity(keys.len());
+    for k in keys {
+        *counts
+            .entry(HtCoord::coord(k).min(u64::MAX - 2))
+            .or_insert(0) += 1;
+    }
+    let mut hash = FNV_OFFSET;
+    for k in probe {
+        let addr = HtCoord::coord(k).min(u64::MAX - 2);
+        fold(&mut hash, counts.get(&addr).copied().unwrap_or(0));
+    }
+    hash
+}
+
+/// Whether `id` is a registered identity-collapsing arm on `face`, and its digest is the one that
+/// collapse *predicts*.
 ///
 /// On the tuple face `hashtrinity_count_par` and `hashtrinity_get_each` run hashtrinity's lossy
 /// tuple `Coord` (`(a*PHI ^ b)*PHI ^ c`), which maps distinct tuples onto one address; the
 /// `71942db` bench records the resulting count off by 92 at `n=100000`. Their digest is recorded,
 /// not asserted; the pair fails its oracle check downstream. Every other arm on every face must
 /// match the oracle, and the selected side always must.
-fn is_registered_collision(face: KeyFace, id: &str) -> bool {
-    face == KeyFace::Tuple && matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each")
+///
+/// The exemption is exact rather than per-face: it applies only where (a) the cell's own population
+/// actually merges under the address map ([`CellIdentity::merged_keys`] > 0), (b) the arm is one of
+/// the two registered fold-only arms, and (c) the arm's measured digest equals
+/// [`oracle_digest_collapsed_tuple`] for this cell. A digest that matches neither the key-exact
+/// oracle nor the collapsed one is a defect the exemption no longer hides.
+fn is_registered_collision(
+    face: KeyFace,
+    id: &str,
+    identity: &CellIdentity,
+    digest: u64,
+    collapsed_oracle: Option<u64>,
+) -> bool {
+    face == KeyFace::Tuple
+        && identity.merged_keys > 0
+        && matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each")
+        && collapsed_oracle == Some(digest)
 }
 
 /// The per-face, per-arm inputs of one (possibly corrupted) run.
@@ -337,7 +581,12 @@ fn oracle_digest_tuple(keys: &[TupleKey], probe: &[TupleKey]) -> u64 {
 
 /// The selected implementation: the current executing `apeiron::Table` used as a counter. Builds
 /// one increment per entity, probes the occupied cells and folds the counts in query order.
-fn run_selected(keys: &[u64], probe: &[u64]) -> (u64, u64) {
+///
+/// The serial path assembles no directory — [`Self::insert_with`] admits a reverse-link slot per
+/// fresh key and links no path (`src/table.rs:1279-1311`), so nothing is excluded here and the
+/// charged region is the whole elapsed one. That is the same accounting the parallel path applies
+/// after its registry exclusion, which is what makes the two selected paths comparable.
+fn run_selected(keys: &[u64], probe: &[u64]) -> SelectedRun {
     let merge: crate::strata::MergeFn = |new: i64, old: i64| new.wrapping_add(old);
     let mut table = SpatialTable::new(0, StrataHome);
     let mut hash = FNV_OFFSET;
@@ -348,60 +597,188 @@ fn run_selected(keys: &[u64], probe: &[u64]) -> (u64, u64) {
     for &k in probe {
         fold(&mut hash, *table.get(black_box(&StrataKey { tag: k })));
     }
-    (hash, nanos_since(start))
+    let elapsed = nanos_since(start);
+    SelectedRun {
+        arm: ArmResult {
+            digest: hash,
+            nanos: elapsed,
+            policy: WorkerPolicy {
+                workers: 1,
+                serial_fallback: true,
+                note:
+                    "apeiron serial insert_with + get; requested_workers=1; no directory assembled"
+                        .to_string(),
+            },
+        },
+        elapsed,
+        excluded: 0,
+    }
+}
+
+/// The width `build_parallel_phased` actually dispatched, read back from its phase split.
+///
+/// `build_parallel_phased` returns `Self::build`'s sequential result with a `PhaseNanos::default()`
+/// when `workers == 1 || kvs.len() < BUILD_PARTITION_CROSSOVER` (`src/table/parallel.rs:772-774`),
+/// so `qualify == 0` is the sequential path and a nonzero `qualify` is the default-face widening
+/// copy the partitioned path must make. Above the crossover the grouped scatter schedules
+/// `tasks = workers.min(inputs)` (`src/table/parallel.rs:860`), so the achieved width is the clamp.
+fn build_dispatched_width(requested: usize, phases: &PhaseNanos, inputs: usize) -> (usize, bool) {
+    if requested <= 1 || phases.qualify == 0 {
+        (1, true)
+    } else {
+        (requested.min(inputs), false)
+    }
+}
+
+/// The width `get_each_parallel_phased` actually dispatched, read back from its phase split.
+///
+/// Same fallback at `queries.len() < BUILD_PARTITION_CROSSOVER` (`src/table/parallel.rs:950-953`),
+/// returning a default `PhaseNanos`. Above the crossover the grouped probe schedules
+/// `tasks = workers.min(queries_len)` (`src/table/parallel.rs:860`). The achieved width is therefore
+/// the probe's own clamp, not the build's: a cell whose key population clears the crossover while
+/// its occupied-cell probe set does not runs a parallel build and a serial probe.
+fn probe_dispatched_width(requested: usize, phases: &PhaseNanos, queries: usize) -> (usize, bool) {
+    if requested <= 1 || phases.qualify == 0 {
+        (1, true)
+    } else {
+        (requested.min(queries), false)
+    }
 }
 
 /// The selected parallel face. The public APIs restore probe results to query order before this
 /// order-sensitive fold, so its digest is directly comparable with the serial selected face.
-fn run_selected_parallel(keys: &[u64], probe: &[u64], requested_workers: usize) -> ArmResult {
+///
+/// The reported width is the width the two APIs dispatched, read back from the phase split each of
+/// them returns, not the width requested. Below `BUILD_PARTITION_CROSSOVER` on either input both
+/// APIs silently run the sequential path, so a run that reports `min(requested, keys.len())` there
+/// certifies a width it never used.
+///
+/// The returned `excluded` is the build's `assemble` bucket, the locator reverse-link registry
+/// publication, read from the same [`PhaseNanos`] the width is read from. The sequential path
+/// returns `PhaseNanos::default()`, so a below-crossover run excludes nothing rather than excluding
+/// a bucket it never measured.
+fn run_selected_parallel(
+    keys: &[u64],
+    probe: &[u64],
+    requested_workers: usize,
+    corruption: Corruption,
+) -> SelectedRun {
     let merge: crate::strata::MergeFn = |new: i64, old: i64| new.wrapping_add(old);
     let input: Vec<(StrataKey, i64)> = keys
         .iter()
         .copied()
         .map(|tag| (StrataKey { tag }, 1))
         .collect();
-    let start = Instant::now();
-    let table = SpatialTable::build_parallel(&merge, 0, &input, StrataHome, requested_workers)
-        .expect("spatial selected parallel build must fit");
     let queries: Vec<StrataKey> = probe.iter().copied().map(|tag| StrataKey { tag }).collect();
-    let values = table.get_each_parallel(&queries, requested_workers, |value| *value);
+    let start = Instant::now();
+    let (table, build_phases) =
+        SpatialTable::build_parallel_phased(&merge, 0, &input, StrataHome, requested_workers)
+            .expect("spatial selected parallel build must fit");
+    let (values, probe_phases) =
+        table.get_each_parallel_phased(&queries, requested_workers, |value| *value);
     let mut hash = FNV_OFFSET;
     for value in values {
         fold(&mut hash, value);
     }
-    // Both public parallel APIs clamp the requested width to the input size. All registered and
-    // control scenes exceed that size, so this is the task count those APIs can actually schedule.
-    let workers = requested_workers.max(1).min(keys.len());
-    ArmResult {
-        digest: hash,
-        nanos: nanos_since(start),
-        policy: WorkerPolicy {
-            workers,
-            serial_fallback: false,
-            note: format!(
-                "apeiron::Table::build_parallel + get_each_parallel requested_workers={requested_workers}; \
-                 actual_tasks=min(requested_workers, keys.len())={workers}"
-            ),
+    let (build_width, build_serial) =
+        build_dispatched_width(requested_workers, &build_phases, input.len());
+    let (probe_width, probe_serial) =
+        probe_dispatched_width(requested_workers, &probe_phases, queries.len());
+    let elapsed = nanos_since(start);
+    let excluded = build_phases.assemble;
+    // The control widens the exclusion without touching the reported bucket, so the accounting
+    // identity `charged == elapsed - excluded` is what rejects it.
+    let charged = if corruption == Corruption::RegistryCharge {
+        elapsed.saturating_sub(excluded.saturating_add(elapsed / 10))
+    } else {
+        elapsed.saturating_sub(excluded)
+    };
+    // The pair is comparable only if both halves of the timed region ran at the same width; report
+    // the weaker of the two so a serial half is never presented as a parallel run.
+    let workers = build_width.min(probe_width);
+    let serial_fallback = build_serial || probe_serial;
+    SelectedRun {
+        arm: ArmResult {
+            digest: hash,
+            nanos: charged,
+            policy: WorkerPolicy {
+                workers,
+                serial_fallback,
+                note: format!(
+                    "apeiron::Table::build_parallel_phased + get_each_parallel_phased \
+                     requested_workers={requested_workers} build_dispatched={build_width} \
+                     probe_dispatched={probe_width} build_input={} probe_queries={} \
+                     achieved={workers} charged_ns={charged} elapsed_ns={elapsed} \
+                     excluded_registry_ns={excluded}",
+                    input.len(),
+                    queries.len()
+                ),
+            },
         },
+        elapsed,
+        excluded,
     }
 }
 
 /// Run the selected face that matches an observed incumbent policy. Width one retains the existing
 /// serial implementation; every wider run uses the table's parallel build and parallel probe APIs.
-fn run_selected_at_width(keys: &[u64], probe: &[u64], workers: usize) -> ArmResult {
+fn run_selected_at_width(
+    keys: &[u64],
+    probe: &[u64],
+    workers: usize,
+    corruption: Corruption,
+) -> SelectedRun {
     if workers <= 1 {
-        let (digest, nanos) = run_selected(keys, probe);
-        ArmResult {
-            digest,
-            nanos,
-            policy: WorkerPolicy {
-                workers: 1,
-                serial_fallback: false,
-                note: "apeiron serial insert_with + get; requested_workers=1".to_string(),
-            },
-        }
+        run_selected_serial(keys, probe, corruption)
     } else {
-        run_selected_parallel(keys, probe, workers)
+        run_selected_parallel(keys, probe, workers, corruption)
+    }
+}
+
+/// The selected serial face's reported width, for the same reason
+/// [`run_selected_parallel`] reports a dispatched width: the entry point named is the mechanism that
+/// sets the width.
+fn run_selected_serial(keys: &[u64], probe: &[u64], corruption: Corruption) -> SelectedRun {
+    let mut run = run_selected(keys, probe);
+    if corruption == Corruption::RegistryCharge {
+        run.arm.nanos = run.elapsed.saturating_sub(run.elapsed / 10);
+    }
+    run
+}
+
+/// The excluded bucket's decomposition, measured once per cell outside every timed region.
+///
+/// An all-elliptic build of the same population at the same width runs the same install and
+/// finalization and skips every per-key path, because `assemble_directory` filters on
+/// `!matches!(sigma, Sigma::Elliptic)` (`src/table/locator.rs:974`). Temporal and spatial cost:
+/// `Θ(population)` extra words for the face-tagged input slice and one parallel build, so
+/// `Θ(population)` time against the cell's `Θ(population · 64)` charged region.
+///
+/// Only meaningful at or above `BUILD_PARTITION_CROSSOVER`: below it the parallel entry point
+/// returns its sequential result with a zeroed phase split, which is reported as a zero bucket
+/// rather than a decomposition.
+fn registry_bucket_split(keys: &[u64]) -> RegistrySplit {
+    let merge: crate::strata::MergeFn = |new: i64, old: i64| new.wrapping_add(old);
+    let input: Vec<(StrataKey, i64)> = keys
+        .iter()
+        .copied()
+        .map(|tag| (StrataKey { tag }, 1))
+        .collect();
+    let qualified: Vec<((apeiron::Sigma, StrataKey), i64)> = input
+        .into_iter()
+        .map(|(key, value)| ((apeiron::Sigma::Elliptic, key), value))
+        .collect();
+    let outcome =
+        SpatialTable::build_at_parallel_phased(&merge, 0, &qualified, StrataHome, PAR16_WORKERS);
+    match outcome {
+        Ok((_, phases)) => RegistrySplit {
+            without_directory: phases.assemble,
+            without_directory_error: None,
+        },
+        Err(error) => RegistrySplit {
+            without_directory: 0,
+            without_directory_error: Some(format!("{error:?}")),
+        },
     }
 }
 
@@ -517,27 +894,21 @@ fn run_count_par_tuple(keys: &[TupleKey], probe: &[TupleKey], corruption: Corrup
     }
 }
 
-/// `hashtrinity_get_each` is the probe component of the packed combined arm; the reported policy is
-/// the single-core pipelined probe.
+/// `hashtrinity_get_each` is the probe component of the packed combined arm.
+///
+/// The arm *is* the combined `count_par` build plus grouped probe, so the policy it reports is the
+/// one [`run_count_par`] observed for that work. Writing `workers: 1` over it would describe a
+/// single-core pipelined probe the arm never ran on its own: the build inside it partitions over the
+/// hashtrinity pool, and the grouped readback iterates one `get_each` per bucket. The reported width
+/// is the width the timed region used.
 fn arm_get_each(keys: &[u64], probe: &[u64], corruption: Corruption) -> ArmResult {
-    let mut result = run_count_par(keys, probe, corruption);
-    result.policy = WorkerPolicy {
-        workers: 1,
-        serial_fallback: false,
-        note: "hashtrinity get_each single-core pipelined probe (P=16)".to_string(),
-    };
-    result
+    run_count_par(keys, probe, corruption)
 }
 
-/// The tuple-face `get_each`: the probe component of the tuple combined arm.
+/// The tuple-face `get_each`: the probe component of the tuple combined arm, on the same terms as
+/// [`arm_get_each`].
 fn arm_get_each_tuple(keys: &[TupleKey], probe: &[TupleKey], corruption: Corruption) -> ArmResult {
-    let mut result = run_count_par_tuple(keys, probe, corruption);
-    result.policy = WorkerPolicy {
-        workers: 1,
-        serial_fallback: false,
-        note: "hashtrinity tuple get_each single-core pipelined probe (P=16)".to_string(),
-    };
-    result
+    run_count_par_tuple(keys, probe, corruption)
 }
 
 /// `hashbrown` + `rayon`: the parallel fold/reduce build, then a serial probe in query order.
@@ -872,12 +1243,14 @@ fn run_cell(
     occupied.sort_unstable();
     occupied.dedup();
     let packed_probe: Vec<u64> = occupied.iter().map(|&k| pack(k)).collect();
+    let packed_keys: Vec<u64> = tuples.iter().map(|&k| pack(k)).collect();
     let oracle = match face {
-        KeyFace::Packed => {
-            let packed_keys: Vec<u64> = tuples.iter().map(|&k| pack(k)).collect();
-            oracle_digest(&packed_keys, &packed_probe)
-        }
+        KeyFace::Packed => oracle_digest(&packed_keys, &packed_probe),
         KeyFace::Tuple => oracle_digest_tuple(&tuples, &occupied),
+    };
+    let collapsed_oracle = match face {
+        KeyFace::Packed => None,
+        KeyFace::Tuple => Some(oracle_digest_collapsed_tuple(&tuples, &occupied)),
     };
     let mut work_tuples = tuples.clone();
     if corruption == Corruption::Input && !work_tuples.is_empty() {
@@ -885,6 +1258,10 @@ fn run_cell(
         work_tuples.pop();
     }
     let work_keys: Vec<u64> = work_tuples.iter().map(|&k| pack(k)).collect();
+    // The identity record is taken over the real population, never the corrupted `work_keys`: it is
+    // the registered key population's own whole-key identity, and an `Input` control that dropped an
+    // entity must not be able to make the packed face look like it merges keys.
+    let identity = observe_identity(face, &tuples, &packed_keys);
     let (tuple_keys, tuple_probe): (&[TupleKey], &[TupleKey]) = match face {
         KeyFace::Tuple => (&work_tuples, &occupied),
         KeyFace::Packed => (&[], &[]),
@@ -899,32 +1276,48 @@ fn run_cell(
 
     let mut arm_samples: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
     let mut selected_samples: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
+    let mut selected_elapsed: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
+    let mut selected_excluded: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
     let mut arm_ratios: Vec<Vec<f64>> = vec![Vec::new(); ARMS.len()];
     let mut arm_digest_ok: Vec<bool> = vec![true; ARMS.len()];
     let mut selected_digest_ok: Vec<bool> = vec![true; ARMS.len()];
+    let mut arm_digest: Vec<u64> = vec![0; ARMS.len()];
     let mut arm_policy: Vec<Option<WorkerPolicy>> = vec![None; ARMS.len()];
     let mut selected_policy: Vec<Option<WorkerPolicy>> = vec![None; ARMS.len()];
+    let mut selected_requested: Vec<usize> = vec![0; ARMS.len()];
 
     for _ in 0..campaigns {
         for _ in 0..warmup {
             for id in ARMS {
                 let incumbent = run_arm(id, &prepared, corruption);
-                let _ = run_selected_at_width(&work_keys, &packed_probe, incumbent.policy.workers);
+                let _ = run_selected_at_width(
+                    &work_keys,
+                    &packed_probe,
+                    incumbent.policy.workers,
+                    corruption,
+                );
             }
         }
         let mut arm_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
         let mut selected_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
+        let mut elapsed_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
+        let mut excluded_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
         for _ in 0..samples {
             for (i, id) in ARMS.iter().enumerate() {
                 let result = run_arm(id, &prepared, corruption);
                 arm_digest_ok[i] &= result.digest == oracle;
+                arm_digest[i] = result.digest;
+                let requested = result.policy.workers;
                 let selected =
-                    run_selected_at_width(&work_keys, &packed_probe, result.policy.workers);
-                selected_digest_ok[i] &= selected.digest == oracle;
+                    run_selected_at_width(&work_keys, &packed_probe, requested, corruption);
+                selected_digest_ok[i] &= selected.arm.digest == oracle;
                 arm_policy[i] = Some(result.policy);
-                selected_policy[i] = Some(selected.policy);
+                selected_policy[i] = Some(selected.arm.policy);
+                selected_requested[i] = requested;
                 arm_campaign[i].push(result.nanos);
-                selected_campaign[i].push(selected.nanos);
+                selected_campaign[i].push(selected.arm.nanos);
+                elapsed_campaign[i].push(selected.elapsed);
+                excluded_campaign[i].push(selected.excluded);
             }
         }
         for i in 0..ARMS.len() {
@@ -934,6 +1327,8 @@ fn run_cell(
             ));
             arm_samples[i].extend_from_slice(&arm_campaign[i]);
             selected_samples[i].extend_from_slice(&selected_campaign[i]);
+            selected_elapsed[i].extend_from_slice(&elapsed_campaign[i]);
+            selected_excluded[i].extend_from_slice(&excluded_campaign[i]);
         }
     }
 
@@ -951,24 +1346,38 @@ fn run_cell(
             id,
             samples: std::mem::take(&mut arm_samples[i]),
             selected_samples: std::mem::take(&mut selected_samples[i]),
+            selected_elapsed_samples: std::mem::take(&mut selected_elapsed[i]),
+            selected_excluded_samples: std::mem::take(&mut selected_excluded[i]),
             campaign_ratios: std::mem::take(&mut arm_ratios[i]),
             digest_ok: arm_digest_ok[i],
+            digest: arm_digest[i],
             selected_digest_ok: selected_digest_ok[i],
             selected_policy: selected_policy[i].clone().unwrap_or_else(|| WorkerPolicy {
                 workers: 0,
                 serial_fallback: false,
                 note: "unmeasured".to_string(),
             }),
+            selected_requested_workers: selected_requested[i],
             policy,
         });
     }
 
+    // Measured outside every timed region and after every sample, so it cannot perturb a sample:
+    // the all-elliptic control build of the same population at the same width.
+    let registry_split = if corruption == Corruption::None && size >= BUILD_PARTITION_CROSSOVER {
+        Some(registry_bucket_split(&work_keys))
+    } else {
+        None
+    };
     SpatialCell {
         cell_id: format!("spatial/n{size}{}", face.suffix()),
         key_face: face,
         population: work_tuples.len(),
         ops: packed_probe.len(),
         oracle_digest: oracle,
+        collapsed_oracle_digest: collapsed_oracle,
+        identity,
+        registry_split,
         outcomes,
     }
 }
@@ -1032,10 +1441,28 @@ pub(crate) fn validate(w: &SpatialWitness) -> Result<(), String> {
             ));
         }
         for outcome in &cell.outcomes {
-            if !outcome.digest_ok && !is_registered_collision(cell.key_face, outcome.id) {
+            if !outcome.digest_ok
+                && !is_registered_collision(
+                    cell.key_face,
+                    outcome.id,
+                    &cell.identity,
+                    outcome.digest,
+                    cell.collapsed_oracle_digest,
+                )
+            {
                 return Err(format!(
-                    "spatial cell {} adapter {} disagrees with the oracle",
-                    cell.cell_id, outcome.id
+                    "spatial cell {} adapter {} disagrees with the oracle \
+                     (digest={:016x} oracle={:016x} collapsed={:?} cell keys={} addresses={} \
+                     merged_keys={})",
+                    cell.cell_id,
+                    outcome.id,
+                    outcome.digest,
+                    cell.oracle_digest,
+                    cell.collapsed_oracle_digest
+                        .map_or_else(|| "none".to_string(), |d| format!("{d:016x}")),
+                    cell.identity.distinct_keys,
+                    cell.identity.distinct_addresses,
+                    cell.identity.merged_keys
                 ));
             }
             if !outcome.selected_digest_ok {
@@ -1044,12 +1471,19 @@ pub(crate) fn validate(w: &SpatialWitness) -> Result<(), String> {
                     cell.cell_id, outcome.id
                 ));
             }
-            if outcome.selected_samples.len() != expected || outcome.selected_samples.contains(&0) {
+            if outcome.selected_samples.len() != expected {
                 return Err(format!(
                     "spatial cell {} selected {} samples invalid ({} != {expected})",
                     cell.cell_id,
                     outcome.id,
                     outcome.selected_samples.len()
+                ));
+            }
+            validate_charge_accounting(cell, outcome, expected)?;
+            if outcome.selected_samples.contains(&0) {
+                return Err(format!(
+                    "spatial cell {} selected {} samples contain a zero nanosecond sample",
+                    cell.cell_id, outcome.id
                 ));
             }
             if outcome.samples.len() != expected || outcome.samples.contains(&0) {
@@ -1069,28 +1503,118 @@ pub(crate) fn validate(w: &SpatialWitness) -> Result<(), String> {
                 ));
             }
             validate_policy(outcome.id, &outcome.policy)?;
-            if outcome.selected_policy.workers != outcome.policy.workers {
-                return Err(format!(
-                    "spatial cell {} selected {} workers {} != incumbent workers {}",
-                    cell.cell_id,
-                    outcome.id,
-                    outcome.selected_policy.workers,
-                    outcome.policy.workers
-                ));
-            }
+            validate_selected_width(cell, outcome)?;
         }
+    }
+    Ok(())
+}
+
+/// Check that the selected side's charged timed region is exactly its measured timed region minus the
+/// phase bucket the build's own instrumentation reported, on every sample.
+///
+/// The fairness claim is that the pair charges the selected side for the phases the incumbents also
+/// pay and does not charge it for the locator reverse-link registry. That claim is worth nothing if
+/// the charged number is not *exactly* elapsed minus the measured bucket: an adapter that excluded
+/// more than it measured would make the incumbent look better than the mechanism allows.
+/// `spatial-excluded-registry-overcharge` widens the exclusion while leaving the reported bucket
+/// alone, and this is the check that rejects it.
+///
+/// Temporal `O(expected)` comparisons per pair; spatial `O(1)` beyond the three sample vectors the
+/// run already holds.
+fn validate_charge_accounting(
+    cell: &SpatialCell,
+    outcome: &SpatialOutcome,
+    expected: usize,
+) -> Result<(), String> {
+    if outcome.selected_elapsed_samples.len() != expected
+        || outcome.selected_excluded_samples.len() != expected
+    {
+        return Err(format!(
+            "spatial cell {} selected {} timed-region accounting has {} elapsed and {} excluded \
+             samples, expected {expected}",
+            cell.cell_id,
+            outcome.id,
+            outcome.selected_elapsed_samples.len(),
+            outcome.selected_excluded_samples.len()
+        ));
+    }
+    for (at, (charged, elapsed, excluded)) in outcome
+        .selected_samples
+        .iter()
+        .zip(&outcome.selected_elapsed_samples)
+        .zip(&outcome.selected_excluded_samples)
+        .map(|((charged, elapsed), excluded)| (charged, elapsed, excluded))
+        .enumerate()
+    {
+        if excluded > elapsed {
+            return Err(format!(
+                "spatial cell {} selected {} sample {at} excludes {excluded} ns of a {elapsed} ns \
+                 timed region",
+                cell.cell_id, outcome.id
+            ));
+        }
+        if *charged != *elapsed - *excluded {
+            return Err(format!(
+                "spatial cell {} selected {} sample {at} is charged {charged} ns but its timed \
+                 region is {elapsed} ns with a {excluded} ns locator-registry exclusion, so the \
+                 charged region is not elapsed minus the measured bucket",
+                cell.cell_id, outcome.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Check the selected side's reported width against the two facts it must agree with.
+///
+/// 1. It was asked for the incumbent's width, so the pair compares the same width on both sides.
+///    The *achieved* width is a separate question and is deliberately not required to equal it: below
+///    `BUILD_PARTITION_CROSSOVER` on either input, `build_parallel_phased` and
+///    `get_each_parallel_phased` take their sequential path and the achieved width is `1`
+///    (`src/table/parallel.rs:772, 950`). The pair is then correctly reported as a concurrency
+///    mismatch by the acceptance layer instead of being labelled matched.
+/// 2. The achieved width is exactly what those two fallbacks force, derived from the mirrored
+///    crossover. A disagreement means the mirror is stale, so it rejects.
+///
+/// Both inputs are the registered cell's own key and query populations, so the check is a statement
+/// about this cell.
+fn validate_selected_width(cell: &SpatialCell, outcome: &SpatialOutcome) -> Result<(), String> {
+    if outcome.selected_requested_workers != outcome.policy.workers {
+        return Err(format!(
+            "spatial cell {} selected {} requested {} workers != incumbent workers {}",
+            cell.cell_id, outcome.id, outcome.selected_requested_workers, outcome.policy.workers
+        ));
+    }
+    let requested = outcome.selected_requested_workers;
+    let expected = if requested <= 1
+        || cell.population < BUILD_PARTITION_CROSSOVER
+        || cell.ops < BUILD_PARTITION_CROSSOVER
+    {
+        1
+    } else {
+        requested.min(cell.population).min(cell.ops)
+    };
+    if outcome.selected_policy.workers != expected {
+        return Err(format!(
+            "spatial cell {} selected {} reports achieved width {} but the parallel APIs \
+             dispatch {expected} at requested_workers={requested} population={} ops={}",
+            cell.cell_id, outcome.id, outcome.selected_policy.workers, cell.population, cell.ops
+        ));
     }
     Ok(())
 }
 
 /// Check one reported worker policy against the arm's actual mechanism. A wrong reported width
 /// rejects: the policy is evidence, not a label.
+///
+/// `hashtrinity_get_each` is checked on the same terms as `hashtrinity_count_par` because it *is*
+/// that arm: the combined build plus grouped probe. Its recorded policy is what the timed region
+/// used.
 fn validate_policy(id: &str, policy: &WorkerPolicy) -> Result<(), String> {
     let expected = match id {
         "foldhash_par16" | "fxhash_par16" => PAR16_WORKERS,
         "hashbrown_rayon" => rayon::current_num_threads(),
-        "hashtrinity_get_each" => 1,
-        "hashtrinity_count_par" => {
+        "hashtrinity_get_each" | "hashtrinity_count_par" => {
             let width = hashtrinity::par::Pool::global().width();
             if width <= 1 || policy.serial_fallback {
                 1
@@ -1141,6 +1665,44 @@ pub(crate) fn print(w: &SpatialWitness) {
         cpu_model()
     );
     for cell in &w.cells {
+        // The charged region and its exclusion, named with the numbers, so a reader can see what
+        // the pair paid and what it did not.
+        let excluded = median(
+            &cell
+                .outcomes
+                .first()
+                .map_or(Vec::new(), |o| o.selected_excluded_samples.clone()),
+        );
+        let elapsed = median(
+            &cell
+                .outcomes
+                .first()
+                .map_or(Vec::new(), |o| o.selected_elapsed_samples.clone()),
+        );
+        let charged = median(
+            &cell
+                .outcomes
+                .first()
+                .map_or(Vec::new(), |o| o.selected_samples.clone()),
+        );
+        let directory_only = cell
+            .registry_split
+            .as_ref()
+            .map_or(0, |s| excluded.saturating_sub(s.without_directory));
+        println!(
+            "spatial_region cell={} selected_median_charged_ns={charged} \
+             selected_median_elapsed_ns={elapsed} excluded_registry_median_ns={excluded} \
+             excluded_share={:.4} install_finalize_only_ns={} directory_only_ns={directory_only} \
+             elliptic_control_error={} timed_region=\"{SELECTED_TIMED_REGION}\"",
+            cell.cell_id,
+            ratio(excluded, elapsed),
+            cell.registry_split
+                .as_ref()
+                .map_or_else(|| "n/a".to_string(), |s| s.without_directory.to_string()),
+            cell.registry_split.as_ref().map_or("n/a", |s| {
+                s.without_directory_error.as_deref().unwrap_or("none")
+            }),
+        );
         for outcome in &cell.outcomes {
             let sel_median = median(&outcome.selected_samples);
             let med = median(&outcome.samples);
@@ -1240,7 +1802,8 @@ pub(crate) fn validate_registry(w: &SpatialWitness) -> Result<usize, String> {
     }
     println!(
         "spatial_registry state=closed registered={} measured={} \
-         source=matrix.json.spatial_cells identity=enforced",
+         source=matrix.json.spatial_cells identity=enforced \
+         incumbent_registry_symbols_forbidden={INCUMBENT_REGISTRY_SYMBOLS:?}",
         registered.len(),
         w.cells.len()
     );
@@ -1249,14 +1812,16 @@ pub(crate) fn validate_registry(w: &SpatialWitness) -> Result<usize, String> {
 
 /// Build the control witness for `name`, applying exactly one corruption to the packed face.
 fn control_witness(name: &str) -> Result<SpatialWitness, String> {
-    let corruption = match name {
-        "spatial-wrong-packed-input" => Corruption::Input,
-        "spatial-wrong-bucket-routing" => Corruption::Routing,
-        "spatial-wrong-worker-width" => Corruption::Width,
+    let (face, corruption) = match name {
+        "spatial-wrong-packed-input" => (KeyFace::Packed, Corruption::Input),
+        "spatial-wrong-bucket-routing" => (KeyFace::Packed, Corruption::Routing),
+        "spatial-wrong-tuple-bucket-routing" => (KeyFace::Tuple, Corruption::Routing),
+        "spatial-wrong-worker-width" => (KeyFace::Packed, Corruption::Width),
+        "spatial-excluded-registry-overcharge" => (KeyFace::Packed, Corruption::RegistryCharge),
         _ => return Err(format!("unknown spatial control {name}")),
     };
     Ok(SpatialWitness {
-        cells: vec![run_cell(CONTROL_SIZE, KeyFace::Packed, 1, 1, 2, corruption)],
+        cells: vec![run_cell(CONTROL_SIZE, face, 1, 1, 2, corruption)],
         campaigns: 1,
         warmup: 1,
         samples: 2,
@@ -1405,24 +1970,61 @@ mod registration_tests {
         );
     }
 
-    /// The registered `(face, arm)` collision set is exactly the two hashtrinity tuple arms; the
-    /// packed face has no exemptions. A regression that widens or drops the exemption fails here.
+    /// The exemption is exact, not per-face: it fires only for the two hashtrinity tuple arms, only
+    /// where the cell's own population merges, and only when the arm's digest is the one
+    /// [`super::oracle_digest_collapsed_tuple`] predicts. A wrong digest on the tuple face is not
+    /// exempted, which is the property that lets the tuple routing control fail.
     #[test]
-    fn registered_collisions_are_the_hashtrinity_tuple_arms() {
-        use super::{is_registered_collision, KeyFace, ARMS};
+    fn registered_collision_exemption_is_exact() {
+        use super::{
+            is_registered_collision, observe_identity, pack, scene, CellIdentity, KeyFace, ARMS,
+        };
+        let merging = CellIdentity {
+            distinct_keys: 99_943,
+            distinct_addresses: 99_897,
+            merged_keys: 46,
+            max_packed: 0x7FFF_FFFF_FFFF_FFFF,
+        };
+        let injective = CellIdentity {
+            merged_keys: 0,
+            ..merging
+        };
+        // The digest the collapse predicts, and one it does not.
+        let predicted = 0x0123_4567_89AB_CDEF;
+        let other = 0x0123_4567_89AB_CDE0;
         for id in ARMS {
             assert!(
-                !is_registered_collision(KeyFace::Packed, id),
-                "packed face must not exempt {id}"
+                !is_registered_collision(KeyFace::Packed, id, &merging, predicted, Some(predicted)),
+                "the packed face has no exemptions, not for {id}"
             );
-        }
-        for id in ARMS {
+            assert!(
+                !is_registered_collision(KeyFace::Tuple, id, &merging, other, Some(predicted)),
+                "a digest the collapse does not predict must not be exempted, not for {id}"
+            );
+            assert!(
+                !is_registered_collision(
+                    KeyFace::Tuple,
+                    id,
+                    &injective,
+                    predicted,
+                    Some(predicted)
+                ),
+                "a cell whose fold is injective must not be exempted, not for {id}"
+            );
             let expected = matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each");
             assert_eq!(
-                is_registered_collision(KeyFace::Tuple, id),
+                is_registered_collision(KeyFace::Tuple, id, &merging, predicted, Some(predicted)),
                 expected,
                 "tuple face collision registration wrong for {id}"
             );
         }
+        // The observation the exemption keys on is real: a small scene's fold is injective.
+        let tuples = scene(1000);
+        let packed: Vec<u64> = tuples.iter().map(|&k| pack(k)).collect();
+        assert_eq!(
+            observe_identity(KeyFace::Packed, &tuples, &packed).merged_keys,
+            0,
+            "the packed face's u64 coordinate must merge no keys"
+        );
     }
 }

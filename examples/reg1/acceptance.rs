@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
-use crate::matrix::{self, RegisteredCell};
+use crate::matrix::{self, median, RegisteredCell};
 use crate::performance::{self, Profile};
 use crate::strata::{self, StrataWitness};
 
@@ -80,24 +80,104 @@ impl PairStatus {
     }
 }
 
-fn spatial_address_face(id: &str) -> AddressFace {
+/// Whether an incumbent's `FreqMap` can distinguish two keys, from its own surface.
+///
+/// hashtrinity's `FreqLine<V>` holds `ctrl` plus `slots: Box<[(u64, MaybeUninit<V>)]>` and no key
+/// column (`4cc14471` `src/freq.rs:271-286`), and `FreqMap::add` is
+/// `insert_with(freq(k), v, |new, old| new + old)` (`src/freq.rs:920-923`). Identity is therefore
+/// the address `freq(k) = k.coord().min(EMPTY - 2)` (`src/freq.rs:737-739`) and nothing else, so the
+/// arm is exact over a key population exactly when that fold is injective on it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AddressIdentity {
+    /// The map stores the whole key and compares it on lookup: identity is the key.
+    WholeKeyStored,
+    /// The map stores no key: identity is the address fold, and two keys sharing an address are one
+    /// entry whose `add` sums them.
+    AddressFoldOnly,
+}
+
+fn spatial_identity_mechanism(id: &str) -> Option<AddressIdentity> {
     match id {
-        "foldhash_par16" | "fxhash_par16" => AddressFace::Matched,
-        _ => AddressFace::Unmatched,
+        // `FreqMap` holds no key column; identity is `coord`.
+        "hashtrinity_count_par" | "hashtrinity_get_each" => Some(AddressIdentity::AddressFoldOnly),
+        // `hashbrown::HashMap<TupleKey, i64>` and `sharded_16::<TupleKey, S>` both store and compare
+        // the whole key.
+        "hashbrown_rayon" | "foldhash_par16" | "fxhash_par16" => {
+            Some(AddressIdentity::WholeKeyStored)
+        }
+        _ => None,
     }
 }
 
-/// The timed-region worker width of a spatial incumbent, corrected for the combined arm.
+/// The address-face verdict for a spatial pair, with the reason the mechanism produced.
 ///
-/// `hashtrinity_get_each` is measured by `run_count_par`, the combined `count_par` build plus
-/// grouped probe: its build phase runs on the hashtrinity global pool, while the reported policy
-/// names only the single-core probe (`workers = 1`, note `P=16`). Comparing that reported width
-/// against the single-core selected run silently matches a parallel-build arm to a serial-build arm.
-/// Return the build pool width so [`pair_concurrency`] reports the mismatch instead.
-fn spatial_incumbent_workers(id: &str, reported: usize) -> usize {
-    match id {
-        "hashtrinity_get_each" => hashtrinity::par::Pool::global().width().max(1),
-        _ => reported,
+/// Decided from the arm's registered identity surface, the cell's key face and the cell's own
+/// observed [`CellIdentity`] — never from a per-arm list of labels.
+///
+/// * A stored whole key is `Matched` on both faces: identity is the key itself, so the incumbent
+///   preserves whole-key identity over the whole population.
+/// * hashtrinity's address fold on the **packed** face is `Matched`: `Coord for u64` is the identity
+///   (`4cc14471` `src/algebra.rs:18-23`) and the `min(EMPTY - 2)` clamp's only distortion is the
+///   three-point top fiber, while `(i21,i21,i21)::packed()` places three 21-bit fields at bits 0, 21
+///   and 42 (`src/coord.rs:461-463, 552`) and so leaves bit 63 clear. `CellIdentity::max_packed`
+///   records the observed maximum, and the verdict requires `merged_keys == 0` on this cell.
+/// * hashtrinity's address fold on the **tuple** face is `Unmatched` with the `no key store` reason:
+///   `FreqLine` stores no key, so identity is the 93→64 fold `((a·PHI ^ b)·PHI ^ c)`
+///   (`src/algebra.rs:358-363`) and distinct tuples that share a coordinate are one entry. Where this
+///   cell's own population merges, the count of merged keys is named in the reason.
+/// * A spatial incumbent with no registered identity surface is `NotApplicable`; the harness then
+///   has no mechanism for the pair, which is not the same as a matched one.
+fn spatial_address_face(
+    id: &str,
+    key_face: crate::performance::spatial::KeyFace,
+    identity: &crate::performance::spatial::CellIdentity,
+) -> (AddressFace, String) {
+    use crate::performance::spatial::KeyFace;
+    let Some(mechanism) = spatial_identity_mechanism(id) else {
+        return (
+            AddressFace::NotApplicable,
+            format!("arm {id} has no registered address-identity mechanism"),
+        );
+    };
+    if mechanism == AddressIdentity::WholeKeyStored {
+        return (
+            AddressFace::Matched,
+            format!(
+                "whole key stored and compared on lookup; cell keys={} addresses={} merged_keys={}",
+                identity.distinct_keys, identity.distinct_addresses, identity.merged_keys
+            ),
+        );
+    }
+    match key_face {
+        KeyFace::Packed => {
+            if identity.merged_keys == 0 && identity.clamp_injective() {
+                (
+                    AddressFace::Matched,
+                    format!(
+                        "address fold is exact on the packed face: Coord(u64) is the identity and \
+                         min(EMPTY-2) leaves max_packed=0x{:016x} below the three-point top fiber; \
+                         merged_keys=0 of {} keys",
+                        identity.max_packed, identity.distinct_keys
+                    ),
+                )
+            } else {
+                (
+                    AddressFace::Unmatched,
+                    format!(
+                        "packed address fold merged {} of {} keys (max_packed=0x{:016x})",
+                        identity.merged_keys, identity.distinct_keys, identity.max_packed
+                    ),
+                )
+            }
+        }
+        KeyFace::Tuple => (
+            AddressFace::Unmatched,
+            format!(
+                "no key store: FreqLine holds (u64, V) with no key column, so identity is the \
+                 93->64 Coord fold and this cell merges {} of {} tuples into {} addresses",
+                identity.merged_keys, identity.distinct_keys, identity.distinct_addresses
+            ),
+        ),
     }
 }
 
@@ -446,6 +526,8 @@ pub(crate) struct PairOutcome {
     pub(crate) inc_impl: &'static str,
     pub(crate) inc_workers: Option<usize>,
     pub(crate) address_face: AddressFace,
+    /// The recorded reason the address-face mechanism produced this verdict.
+    pub(crate) address_reason: String,
     pub(crate) selected_address: &'static str,
     pub(crate) oracle_digest: u64,
     pub(crate) expected_oracle_digest: u64,
@@ -453,6 +535,9 @@ pub(crate) struct PairOutcome {
     pub(crate) incumbent_samples: Vec<u64>,
     /// The per-campaign `selected/incumbent` ratios.
     pub(crate) campaign_ratios: Vec<f64>,
+    /// The timed region this pair compares, in and out. Recorded on the pair so a ratio cannot be
+    /// read without the phases it covers.
+    pub(crate) timed_region: &'static str,
 }
 
 pub(crate) struct Campaign {
@@ -519,14 +604,25 @@ fn not_applicable_pair(
         inc_impl: inc.id,
         inc_workers: None,
         address_face: AddressFace::NotApplicable,
+        address_reason: reason.to_string(),
         selected_address: "n/a",
         oracle_digest: 0,
         expected_oracle_digest: 0,
         selected_samples: Vec::new(),
         incumbent_samples: Vec::new(),
         campaign_ratios: Vec::new(),
+        timed_region: "n/a: the pair carries no samples",
     }
 }
+
+/// The selected serial pair's timed region. The serial selected face admits one reverse-link slot
+/// per fresh key and assembles no directory (`src/table.rs:1279-1311`), so nothing is excluded and
+/// the charged region is the whole elapsed one: `insert_with` per entity, `get` per occupied cell,
+/// then the order-sensitive fold.
+pub(crate) const SERIAL_TIMED_REGION: &str = concat!(
+    "IN=[the whole serial region: Table::insert_with per entity, Table::get per occupied cell, ",
+    "query-order fold; no directory is assembled and nothing is excluded] OUT=[]"
+);
 
 #[allow(
     clippy::too_many_lines,
@@ -607,12 +703,16 @@ pub(crate) fn build_campaign(
                 inc_impl: inc.id,
                 inc_workers,
                 address_face: serial_address_face(inc.id),
+                address_reason: "the raw-coordinate serial face: the selected table and every \
+                     serial incumbent key the same u64 coordinate word"
+                    .to_string(),
                 selected_address: serial_selected_address(&cell.cell_id),
                 oracle_digest,
                 expected_oracle_digest,
                 selected_samples,
                 incumbent_samples,
                 campaign_ratios,
+                timed_region: SERIAL_TIMED_REGION,
             });
         }
     }
@@ -648,10 +748,10 @@ pub(crate) fn build_campaign(
                     } else {
                         cell.oracle_digest.wrapping_add(1)
                     },
-                    // The width the arm actually ran under, read from its reported policy and
-                    // corrected for the combined get_each arm, whose build phase runs on the
-                    // hashtrinity pool while only the probe is single-core.
-                    Some(spatial_incumbent_workers(inc.id, outcome.policy.workers)),
+                    // The width the arm actually ran under, as its own reported policy states. Both
+                    // hashtrinity arms report the width their timed region used, and the selected
+                    // side reports the width its parallel APIs dispatched.
+                    Some(outcome.policy.workers),
                     outcome.selected_policy.workers,
                     if outcome.selected_policy.workers == 1 {
                         "serial"
@@ -661,6 +761,8 @@ pub(crate) fn build_campaign(
                 ),
                 None => (Vec::new(), Vec::new(), Vec::new(), 0, None, 0, "unmeasured"),
             };
+            let (address_face, address_reason) =
+                spatial_address_face(inc.id, cell.key_face, &cell.identity);
             pairs.push(PairOutcome {
                 cell_id: cell.cell_id.clone(),
                 incumbent_id: inc.id,
@@ -674,17 +776,74 @@ pub(crate) fn build_campaign(
                 sample_basis,
                 inc_impl: inc.id,
                 inc_workers,
-                address_face: spatial_address_face(inc.id),
+                address_face,
+                address_reason,
                 selected_address: "spread-word;direct_word=mixed",
                 oracle_digest,
                 expected_oracle_digest: cell.oracle_digest,
                 selected_samples,
                 incumbent_samples,
                 campaign_ratios,
+                timed_region: performance::spatial::SELECTED_TIMED_REGION,
             });
         }
     }
     Campaign { cells, pairs }
+}
+
+/// Print the spatial pairs' timed region with the numbers it covers, so the exclusion is read with
+/// its magnitude rather than in the abstract. `|`, `"` and newlines are sanitised out of the text so
+/// the report format is unaffected.
+fn print_spatial_timed_regions(
+    campaign: &Campaign,
+    spatial: &performance::spatial::SpatialWitness,
+) {
+    for cell in &spatial.cells {
+        for outcome in &cell.outcomes {
+            let Some(pair) = campaign
+                .pairs
+                .iter()
+                .find(|p| p.cell_id == cell.cell_id && p.incumbent_id == outcome.id)
+            else {
+                continue;
+            };
+            println!(
+                "acceptance_timed_region cell={} incumbent={} sel_charged_ns={} sel_elapsed_ns={} \
+                 excluded_ns={} rmax={:.4} region=\"{}\"",
+                pair.cell_id,
+                pair.incumbent_id,
+                median(&outcome.selected_samples),
+                median(&outcome.selected_elapsed_samples),
+                median(&outcome.selected_excluded_samples),
+                pair.campaign_ratios
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max),
+                pair.timed_region.replace(['|', '\n', '"'], " ")
+            );
+        }
+    }
+}
+
+/// Print the address-face mechanism's recorded reason for every spatial pair.
+///
+/// The pair table's `address_face` column carries only the verdict. The reason a mechanism produced
+/// that verdict is what makes it checkable, so it is printed per pair rather than collapsed into the
+/// `address_face_unmatched` counter. One line, `|` and newlines sanitised out of the reason so the
+/// table format is unaffected.
+fn print_address_faces(campaign: &Campaign) {
+    for pair in &campaign.pairs {
+        if !pair.cell_id.starts_with("spatial/") {
+            continue;
+        }
+        println!(
+            "acceptance_address_face cell={} incumbent={} face={} reason=\"{}\"",
+            pair.cell_id,
+            pair.incumbent_id,
+            pair.address_face.name(),
+            pair.address_reason.replace(['|', '\n'], " ")
+        );
+    }
 }
 
 fn update_worst(worst: &mut Option<(String, f64)>, cell: &str, incumbent: &str, r: f64) {
@@ -927,7 +1086,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
     }
 }
 
-pub(crate) const CONTROLS: [&str; 8] = [
+pub(crate) const CONTROLS: [&str; 11] = [
     "acceptance-failing-non-hashtrinity-pair",
     "acceptance-omitted-incumbent-pair",
     "acceptance-unauthorized-not-applicable",
@@ -936,7 +1095,21 @@ pub(crate) const CONTROLS: [&str; 8] = [
     "acceptance-serial-adapter-wrong-result",
     "acceptance-concurrency-mismatch",
     "acceptance-address-face-mismatch",
+    "acceptance-address-face-mechanism",
+    "spatial-wrong-tuple-bucket-routing",
+    "spatial-excluded-registry-overcharge",
 ];
+
+/// The spatial adapter's own rejecting controls.
+///
+/// The adapter registers its controls in `spatial::CONTROLS` and `main.rs` dispatches a
+/// `--performance-control` name to [`is_control`]; listing the tuple-path routing control and the
+/// timed-region accounting control here is what puts them in the run. `performance::CONTROLS` carries
+/// the three packed-face spatial controls and this list carries the acceptance, tuple-path and
+/// accounting ones, and `run_accept` chains both, so all of them run under `--accept --controls`.
+pub(crate) fn is_spatial_adapter_control(name: &str) -> bool {
+    performance::spatial::is_control(name)
+}
 
 /// Whether `name` is an acceptance control.
 pub(crate) fn is_control(name: &str) -> bool {
@@ -963,12 +1136,14 @@ fn synthetic_campaign() -> Campaign {
                 inc_impl: inc.id,
                 inc_workers: Some(1),
                 address_face: serial_address_face(inc.id),
+                address_reason: "synthetic control pair".to_string(),
                 selected_address: "raw-word;direct_word=Some",
                 oracle_digest: 0xABCD,
                 expected_oracle_digest: 0xABCD,
                 selected_samples: vec![100, 101, 102],
                 incumbent_samples: vec![100, 101, 102],
                 campaign_ratios: vec![0.5, 0.5, 0.5],
+                timed_region: SERIAL_TIMED_REGION,
             });
         }
     }
@@ -1008,6 +1183,80 @@ fn run_crossing_control() -> i32 {
          invalid_rejected={invalid_rejected}"
     );
     1
+}
+
+/// The address-face mechanism must reject a mechanism change, not just accept a correct one.
+///
+/// Two directions, both required:
+/// * `address_face_unmatched == 0` for a packed cell where every identity-exact arm is matched — a
+///   mechanism that returned `Unmatched` for a `Matched` arm would leave the counter at 0 and pass a
+///   counter-only check.
+/// * a tuple cell still counts its hashtrinity pairs, so the exemption is not silently widened.
+fn run_address_mechanism_control() -> i32 {
+    use crate::performance::spatial::{CellIdentity, KeyFace};
+    let name = "acceptance-address-face-mechanism";
+    let packed_exact = CellIdentity {
+        distinct_keys: 1000,
+        distinct_addresses: 1000,
+        merged_keys: 0,
+        max_packed: 0x7FFF_FFFF_FFFF_FFFF,
+    };
+    let tuple_colliding = CellIdentity {
+        distinct_keys: 99_943,
+        distinct_addresses: 99_897,
+        merged_keys: 46,
+        max_packed: 0x7FFF_FFFF_FFFF_FFFF,
+    };
+    let mut checked = 0usize;
+    for id in [
+        "hashtrinity_count_par",
+        "hashbrown_rayon",
+        "foldhash_par16",
+        "fxhash_par16",
+    ] {
+        let (face, _) = spatial_address_face(id, KeyFace::Packed, &packed_exact);
+        if face != AddressFace::Matched {
+            eprintln!(
+                "performance-control {name} NOT rejected: packed identity-exact arm {id} \
+                 reported {}",
+                face.name()
+            );
+            return 1;
+        }
+        checked += 1;
+    }
+    let (ht, reason) =
+        spatial_address_face("hashtrinity_count_par", KeyFace::Tuple, &tuple_colliding);
+    if ht != AddressFace::Unmatched || !reason.contains("no key store") {
+        eprintln!(
+            "performance-control {name} NOT rejected: tuple hashtrinity arm reported {} with \
+             reason {reason}",
+            ht.name()
+        );
+        return 1;
+    }
+    // The merged-key count in the reason must be this cell's observation, so the verdict is evidence.
+    if !reason.contains("46 of 99943") {
+        eprintln!(
+            "performance-control {name} NOT rejected: the tuple reason does not carry this cell's \
+             merged-key observation: {reason}"
+        );
+        return 1;
+    }
+    let (whole_key, _) = spatial_address_face("hashbrown_rayon", KeyFace::Tuple, &tuple_colliding);
+    if whole_key != AddressFace::Matched {
+        eprintln!(
+            "performance-control {name} NOT rejected: hashbrown_rayon stores the whole tuple key \
+             and must be matched on the tuple face, reported {}",
+            whole_key.name()
+        );
+        return 1;
+    }
+    eprintln!(
+        "performance-control {name} rejected: {checked} packed identity-exact arms matched, \
+         tuple hashtrinity unmatched with the no-key-store reason carrying the observed merge"
+    );
+    2
 }
 
 fn run_concurrency_control() -> i32 {
@@ -1118,6 +1367,14 @@ pub(crate) fn run_control_child(name: &str) -> i32 {
     }
     if name == "acceptance-crossing-ratio-interval" {
         return run_crossing_control();
+    }
+    if name == "acceptance-address-face-mechanism" {
+        return run_address_mechanism_control();
+    }
+    // The tuple-path routing control: the adapter's `Corruption::Routing` branch inside
+    // `run_count_par_tuple`, which no packed-face control could reach. Dispatched here so it runs.
+    if is_spatial_adapter_control(name) {
+        return performance::spatial::run_control_child(name, Profile::Smoke);
     }
     if name == "acceptance-concurrency-mismatch" {
         return run_concurrency_control();
@@ -1441,6 +1698,8 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
     }
     let outcome = evaluate(&campaign, profile == Profile::Full);
     performance::phase_mark("accept.evaluate", t_total, &mut t_last);
+    print_address_faces(&campaign);
+    print_spatial_timed_regions(&campaign, &spatial);
     if json {
         print_acceptance(&outcome);
     } else {
