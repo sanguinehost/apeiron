@@ -36,11 +36,20 @@ LEAN_BACKEND="$AENEAS_HOME/backends/lean"
 # Charon reports and keep it under `target/`, beside the pinned tools and outside the shared
 # `$XDG_CACHE_HOME/miri` every other toolchain on the box writes to. Charon builds it on first run;
 # the path is not created here, because an empty directory is not a built sysroot.
+#
+# The pinned Charon reads `CHARON_MIRI_SYSROOTS` (the plural name,
+# `charon/src/bin/charon-driver/driver.rs:171`) and takes that branch only when the path carries
+# `lib/rustlib/<target>`. Exporting the singular `CHARON_MIRI_SYSROOT` alone therefore left the run
+# reading `$CHARON_CACHE_DIR/full-mir-sysroot-cache/<toolchain>-<target>`, a cache outside this
+# repository, and falling through to a cold `cargo miri setup` when that cache is empty. All three
+# names are exported: the plural one is what the pinned driver reads, and the singular one and
+# `MIRI_SYSROOT` are read by `cargo miri setup` itself on that cold path.
 CHARON_TOOLCHAIN=$("$CHARON" toolchain-version)
 SYSROOT="$REPO_DIR/target/aeneas-sysroot/$CHARON_TOOLCHAIN"
+CHARON_MIRI_SYSROOTS="$SYSROOT"
 CHARON_MIRI_SYSROOT="$SYSROOT"
 MIRI_SYSROOT="$SYSROOT"
-export CHARON_MIRI_SYSROOT MIRI_SYSROOT
+export CHARON_MIRI_SYSROOTS CHARON_MIRI_SYSROOT MIRI_SYSROOT
 
 for f in "$CHARON" "$AENEAS"; do
     [ -f "$f" ] && [ -x "$f" ] || { echo "missing executable tool: $f" >&2; exit 2; }
@@ -230,6 +239,7 @@ run_extract() {
         --start-from crate::word_gate_weights \
         --start-from crate::word_check_fragment \
         --start-from crate::word_policy_decide \
+        --start-from crate::word_trace_macs \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \
@@ -252,21 +262,39 @@ audit() {
     python3 "$PROOF_DIR/audit-extraction.py" "$1" "$PROOF_DIR/boundary-axioms.txt"
 }
 
+# `--check` returns two independent verdicts, each printed under its own name: `cone:` for the
+# fail-closed audit and `stale:` for the freshness diff. Neither short-circuits the other. Running
+# the audit first and exiting on its status made every red `--check` unnameable, because an unlisted
+# axiom ended the run before the diff and a stale file with an unlisted axiom, a fresh file with an
+# unlisted axiom and a drifted source all printed the same audit rejection. Both verdicts are now
+# computed and recorded, and the exit status is their disjunction: green requires both.
 if [ "${1:-}" = "--check" ]; then
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/out"
     run_extract "$tmp/out" "$tmp/$CRATE.llbc"
-    audit "$tmp/out/$GENERATED"
-    if ! diff -u "$PROOF_DIR/$GENERATED" "$tmp/out/$GENERATED"; then
-        echo "stale: $GENERATED does not match regeneration from current source" >&2
-        exit 1
+    check_rc=0
+    if audit "$tmp/out/$GENERATED"; then
+        echo "cone: admitted; no sorry/admit, no unlisted axiom"
+    else
+        echo "cone: REJECTED; the audit lines above name the sorry/admit or unlisted axiom" >&2
+        check_rc=1
     fi
+    if diff -u "$PROOF_DIR/$GENERATED" "$tmp/out/$GENERATED"; then :; else
+        echo "stale: $GENERATED does not match regeneration from current source" >&2
+        check_rc=1
+    fi
+    [ "$check_rc" -eq 0 ] || exit 1
     echo "extraction is fresh"
 else
     run_extract "$PROOF_DIR" "$LLBC"
     rm -f "$LLBC"
-    audit "$PROOF_DIR/$GENERATED"
+    if audit "$PROOF_DIR/$GENERATED"; then
+        echo "cone: admitted; no sorry/admit, no unlisted axiom"
+    else
+        echo "cone: REJECTED; the audit lines above name the sorry/admit or unlisted axiom" >&2
+        exit 1
+    fi
 fi
 
 cd "$PROOF_DIR"
