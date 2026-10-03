@@ -527,7 +527,7 @@ structure coord.locator.locator_core.ExactIdentity (Self : Type) (Self_Retained
   retained_encoding_byte : Self_Retained → Std.Usize → Result Std.U8
 
 /-- [stored_relocate_all_source::table::TableAddress]
-    Source: 'src/table.rs', lines 101:0-106:1
+    Source: 'src/table.rs', lines 109:0-114:1
     Visibility: public -/
 structure table.TableAddress where
   place : Std.U64
@@ -540,13 +540,13 @@ def coord.locator.locator_core.identity_address
   ok { place := 0#u64, direct_word := none }
 
 /-- [stored_relocate_all_source::table::WordHome]
-    Source: 'src/table.rs', lines 148:0-148:20
+    Source: 'src/table.rs', lines 156:0-156:20
     Visibility: public -/
 @[reducible]
 def table.WordHome := Unit
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::EllipticPacking<i64> for stored_relocate_all_source::table::WordHome}::elliptic_unpack]:
-    Source: 'src/table.rs', lines 182:4-184:5
+    Source: 'src/table.rs', lines 190:4-192:5
     Visibility: public -/
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressEllipticPackingI64.elliptic_unpack
@@ -555,7 +555,7 @@ def
     () word
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::EllipticPacking<i64> for stored_relocate_all_source::table::WordHome}::elliptic_pack]:
-    Source: 'src/table.rs', lines 179:4-181:5
+    Source: 'src/table.rs', lines 187:4-189:5
     Visibility: public -/
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressEllipticPackingI64.elliptic_pack
@@ -564,7 +564,7 @@ def
     () key
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::EllipticPacking<i64> for stored_relocate_all_source::table::WordHome}]
-    Source: 'src/table.rs', lines 178:0-185:1 -/
+    Source: 'src/table.rs', lines 186:0-193:1 -/
 @[reducible]
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressEllipticPackingI64
@@ -576,7 +576,7 @@ def
 }
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::FaceResidueCapability<i64> for stored_relocate_all_source::table::WordHome}::hyperbolic_scalar]:
-    Source: 'src/table.rs', lines 174:4-176:5
+    Source: 'src/table.rs', lines 182:4-184:5
     Visibility: public -/
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressFaceResidueCapabilityI64.hyperbolic_scalar
@@ -587,7 +587,7 @@ def
     () profile key
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::FaceResidueCapability<i64> for stored_relocate_all_source::table::WordHome}::parabolic_dual]:
-    Source: 'src/table.rs', lines 171:4-173:5
+    Source: 'src/table.rs', lines 179:4-181:5
     Visibility: public -/
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressFaceResidueCapabilityI64.parabolic_dual
@@ -598,7 +598,7 @@ def
     () key
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::FaceResidueCapability<i64> for stored_relocate_all_source::table::WordHome}]
-    Source: 'src/table.rs', lines 170:0-177:1 -/
+    Source: 'src/table.rs', lines 178:0-185:1 -/
 @[reducible]
 def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressFaceResidueCapabilityI64
@@ -610,7 +610,7 @@ def
 }
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::FaceCoord<i64, stored_relocate_all_source::cell::Sigma> for stored_relocate_all_source::table::WordHome}]
-    Source: 'src/table.rs', lines 186:0-188:1 -/
+    Source: 'src/table.rs', lines 194:0-196:1 -/
 @[reducible]
 impl_def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressFaceCoordI64Sigma
@@ -626,7 +626,7 @@ impl_def
 }
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::address::FaceHome<i64, stored_relocate_all_source::cell::Sigma> for stored_relocate_all_source::table::WordHome}]
-    Source: 'src/table.rs', lines 189:0-189:34 -/
+    Source: 'src/table.rs', lines 197:0-197:34 -/
 @[reducible]
 impl_def
   table.WordHome.Insts.Stored_relocate_all_sourceCoordAddressFaceHomeI64Sigma :
@@ -638,7 +638,7 @@ impl_def
 }
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::table::Home<i64, stored_relocate_all_source::cell::Sigma> for stored_relocate_all_source::table::WordHome}::address]:
-    Source: 'src/table.rs', lines 158:4-168:5
+    Source: 'src/table.rs', lines 166:4-176:5
     Visibility: public -/
 def table.WordHome.Insts.Stored_relocate_all_sourceTableHomeI64Sigma.address
   (self : table.WordHome) (_sigma : cell.Sigma) (key : Std.I64) :
@@ -654,7 +654,7 @@ def table.WordHome.Insts.Stored_relocate_all_sourceTableHomeI64Sigma.address
   else ok { place := a.place, direct_word := none }
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::table::Home<i64, stored_relocate_all_source::cell::Sigma> for stored_relocate_all_source::table::WordHome}::home]:
-    Source: 'src/table.rs', lines 150:4-152:5
+    Source: 'src/table.rs', lines 158:4-160:5
     Visibility: public -/
 def table.WordHome.Insts.Stored_relocate_all_sourceTableHomeI64Sigma.home
   (self : table.WordHome) (key : Std.I64) : Result Std.U64 := do
@@ -663,7 +663,7 @@ def table.WordHome.Insts.Stored_relocate_all_sourceTableHomeI64Sigma.home
   ok a.place
 
 /-- Trait declaration: [stored_relocate_all_source::table::Home]
-    Source: 'src/table.rs', lines 124:0-131:1
+    Source: 'src/table.rs', lines 132:0-139:1
     Visibility: public -/
 structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   Type) where
@@ -673,7 +673,7 @@ structure table.Home (Self : Type) (K : Type) (Self_Clause0_Clause0_Faces :
   address : Self → cell.Sigma → K → Result table.TableAddress
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::table::Home<i64, stored_relocate_all_source::cell::Sigma> for stored_relocate_all_source::table::WordHome}]
-    Source: 'src/table.rs', lines 149:0-169:1 -/
+    Source: 'src/table.rs', lines 157:0-177:1 -/
 @[reducible]
 def table.WordHome.Insts.Stored_relocate_all_sourceTableHomeI64Sigma :
   table.Home table.WordHome Std.I64 cell.Sigma := {
@@ -1618,13 +1618,13 @@ def table.keyrep.Stored.Insts.Stored_relocate_all_sourceTableKeyrepKeyRep {K :
 }
 
 /-- [stored_relocate_all_source::table::QueryIdentity]
-    Source: 'src/table/locator.rs', lines 282:0-287:1 -/
+    Source: 'src/table/locator.rs', lines 278:0-283:1 -/
 structure table.QueryIdentity (K : Type) (H : Type) (R : Type) where
   key : K
   _carrier : core.marker.PhantomData (H × R)
 
 /-- [stored_relocate_all_source::table::query_identity_bytes_equal]: loop body 0:
-    Source: 'src/table/locator.rs', lines 300:4-307:1 -/
+    Source: 'src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop_body]
 def table.query_identity_bytes_equal_loop.body
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1642,7 +1642,7 @@ def table.query_identity_bytes_equal_loop.body
   else ok (done true)
 
 /-- [stored_relocate_all_source::table::query_identity_bytes_equal]: loop 0:
-    Source: 'src/table/locator.rs', lines 300:4-307:1 -/
+    Source: 'src/table/locator.rs', lines 296:4-303:1 -/
 @[rust_loop]
 def table.query_identity_bytes_equal_loop
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1655,7 +1655,7 @@ def table.query_identity_bytes_equal_loop
     index
 
 /-- [stored_relocate_all_source::table::query_identity_bytes_equal]:
-    Source: 'src/table/locator.rs', lines 294:0-307:1 -/
+    Source: 'src/table/locator.rs', lines 290:0-303:1 -/
 def table.query_identity_bytes_equal
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
   H) (left : K) (right : K) :
@@ -1670,7 +1670,7 @@ def table.query_identity_bytes_equal
       0#usize
 
 /-- [stored_relocate_all_source::table::{impl core::cmp::PartialEq<stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::eq]:
-    Source: 'src/table/locator.rs', lines 318:4-320:5
+    Source: 'src/table/locator.rs', lines 314:4-316:5
     Visibility: public -/
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   {K : Type} {H : Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K
@@ -1680,7 +1680,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
   table.query_identity_bytes_equal keyrepKeyRepInst self.key other.key
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl core::cmp::PartialEq<stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'src/table/locator.rs', lines 309:0-321:1 -/
+    Source: 'src/table/locator.rs', lines 305:0-317:1 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H :
   Type} {R : Type} (keyrepKeyRepInst : table.keyrep.KeyRep R K H) :
@@ -1691,7 +1691,7 @@ def table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity {K : Type} {H :
 }
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl core::cmp::Eq for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'src/table/locator.rs', lines 322:0-322:72 -/
+    Source: 'src/table/locator.rs', lines 318:0-318:72 -/
 @[reducible]
 def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
   (keyrepKeyRepInst : table.keyrep.KeyRep R K H) : core.cmp.Eq
@@ -1701,7 +1701,7 @@ def table.QueryIdentity.Insts.CoreCmpEq {K : Type} {H : Type} {R : Type}
 }
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_byte]:
-    Source: 'src/table/locator.rs', lines 360:4-362:5
+    Source: 'src/table/locator.rs', lines 356:4-358:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_byte
@@ -1712,7 +1712,7 @@ def
   ok 0#u8
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::retained_encoding_len]:
-    Source: 'src/table/locator.rs', lines 353:4-355:5
+    Source: 'src/table/locator.rs', lines 349:4-351:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retained_encoding_len
@@ -1723,7 +1723,7 @@ def
   ok 0#usize
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::encoding_byte]:
-    Source: 'src/table/locator.rs', lines 346:4-348:5
+    Source: 'src/table/locator.rs', lines 342:4-344:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_byte
@@ -1734,7 +1734,7 @@ def
   keyrepKeyRepInst.query_encoding_byte self.key index
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::encoding_len]:
-    Source: 'src/table/locator.rs', lines 343:4-345:5
+    Source: 'src/table/locator.rs', lines 339:4-341:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.encoding_len
@@ -1745,7 +1745,7 @@ def
   keyrepKeyRepInst.query_encoding_len self.key
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::matches_retained]:
-    Source: 'src/table/locator.rs', lines 340:4-342:5
+    Source: 'src/table/locator.rs', lines 336:4-338:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.matches_retained
@@ -1756,7 +1756,7 @@ def
   ok false
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::retain_reserved]:
-    Source: 'src/table/locator.rs', lines 335:4-335:40
+    Source: 'src/table/locator.rs', lines 331:4-331:40
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retain_reserved
@@ -1767,7 +1767,7 @@ def
   ok ()
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::reserve_retain]:
-    Source: 'src/table/locator.rs', lines 332:4-334:5
+    Source: 'src/table/locator.rs', lines 328:4-330:5
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.reserve_retain
@@ -1778,7 +1778,7 @@ def
   ok (core.result.Result.Ok ())
 
 /-- [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}::retain]:
-    Source: 'src/table/locator.rs', lines 331:4-331:23
+    Source: 'src/table/locator.rs', lines 327:4-327:23
     Visibility: public -/
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple.retain
@@ -1789,7 +1789,7 @@ def
   ok ()
 
 /-- Trait implementation: [stored_relocate_all_source::table::{impl stored_relocate_all_source::coord::locator::locator_core::ExactIdentity<(), ()> for stored_relocate_all_source::table::QueryIdentity<'_0, K, H, R>}]
-    Source: 'src/table/locator.rs', lines 324:0-363:1 -/
+    Source: 'src/table/locator.rs', lines 320:0-359:1 -/
 @[reducible]
 def
   table.QueryIdentity.Insts.Stored_relocate_all_sourceCoordLocatorLocator_coreExactIdentityTupleTuple
@@ -1826,14 +1826,14 @@ def
 }
 
 /-- [stored_relocate_all_source::table::PayloadLocation]
-    Source: 'src/table/state.rs', lines 510:0-515:1 -/
+    Source: 'src/table/state.rs', lines 448:0-453:1 -/
 @[discriminant isize]
 inductive table.PayloadLocation where
 | Resident : Std.Usize → table.PayloadLocation
 | Spill : Std.Usize → Std.Usize → table.PayloadLocation
 
 /-- [stored_relocate_all_source::table::same_location]:
-    Source: 'src/table/locator.rs', lines 371:0-380:1 -/
+    Source: 'src/table/locator.rs', lines 367:0-376:1 -/
 def table.same_location
   (left : table.PayloadLocation) (right : table.PayloadLocation) :
   Result Bool
@@ -1852,7 +1852,7 @@ def table.same_location
       else ok false
 
 /-- [stored_relocate_all_source::table::TableLocator]
-    Source: 'src/table/state.rs', lines 523:0-532:1 -/
+    Source: 'src/table/state.rs', lines 461:0-470:1 -/
 structure table.TableLocator where
   profile : Option coord.address.H3_40
   directory : Option coord.locator.locator_core.Directory
@@ -1860,7 +1860,7 @@ structure table.TableLocator where
   staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::TableLocator}::linked_handle]:
-    Source: 'src/table/locator.rs', lines 716:4-752:5 -/
+    Source: 'src/table/locator.rs', lines 712:4-748:5 -/
 def table.TableLocator.linked_handle
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -1915,7 +1915,7 @@ def table.TableLocator.linked_handle
       Std.U32 residual
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::TableLocator}::retarget_held]:
-    Source: 'src/table/locator.rs', lines 773:4-800:5 -/
+    Source: 'src/table/locator.rs', lines 769:4-796:5 -/
 def table.TableLocator.retarget_held
   {K : Type} {H : Type} {R : Type} {Clause1_Clause0_Clause0_Faces : Type}
   (corecloneCloneInst : core.clone.Clone K) (HomeInst : table.Home H K
@@ -1952,691 +1952,202 @@ def table.TableLocator.retarget_held
         else ok self
       else ok self
 
-/-- [stored_relocate_all_source::table::WINDOWS]
-    Source: 'src/table.rs', lines 86:0-86:25 -/
-@[global_simps, irreducible] def table.WINDOWS : Std.Usize := 7#usize
-
-/-- [stored_relocate_all_source::table::least_set_lane]: loop body 0:
-    Source: 'src/table/state.rs', lines 392:4-394:5 -/
-@[rust_loop_body]
-def table.least_set_lane_loop.body
-  (bits : Std.U64) (lane : Std.Usize) :
-  Result (ControlFlow Std.Usize Std.Usize)
-  := do
-  let i ← lift (UScalar.cast .Usize core.num.U64.BITS)
-  if lane < i
-  then
-    let i1 ← bits >>> lane
-    let i2 ← lift (i1 &&& 1#u64)
-    if i2 = 0#u64
-    then let lane1 ← lane + 1#usize
-         ok (cont lane1)
-    else ok (done lane)
-  else ok (done lane)
-
-/-- [stored_relocate_all_source::table::least_set_lane]: loop 0:
-    Source: 'src/table/state.rs', lines 392:4-394:5 -/
-@[rust_loop]
-def table.least_set_lane_loop
-  (bits : Std.U64) (lane : Std.Usize) : Result Std.Usize := do
-  loop
-    (fun lane1 => table.least_set_lane_loop.body bits lane1)
-    lane
-
-/-- [stored_relocate_all_source::table::least_set_lane]:
-    Source: 'src/table/state.rs', lines 390:0-396:1 -/
-@[reducible]
-def table.least_set_lane (bits : Std.U64) : Result Std.Usize := do
-  table.least_set_lane_loop bits 0#usize
-
-/-- [stored_relocate_all_source::table::WINDOW_MASK]
-    Source: 'src/table.rs', lines 85:0-85:30 -/
-@[global_simps, irreducible] def table.WINDOW_MASK : Std.U64 := 127#u64
-
-/-- [stored_relocate_all_source::table::DESCENT_MASK]
-    Source: 'src/table.rs', lines 84:0-84:40 -/
-@[global_simps, irreducible]
-def table.DESCENT_MASK : Result Std.U64 := do
-  let i ← 1#u64 <<< 49#i32
-  i - 1#u64
-
-/-- [stored_relocate_all_source::table::group]:
-    Source: 'src/table/state.rs', lines 379:0-386:1 -/
-def table.group
-  (place : Std.U64) (step : Std.Usize) (mask : Std.Usize) :
-  Result Std.Usize
-  := do
-  let i ← place >>> 8#i32
-  let i1 ← table.DESCENT_MASK
-  let d ← lift (i &&& i1)
-  if step < table.WINDOWS
-  then
-    let i2 ← step + 1#usize
-    let i3 ← 7#usize * i2
-    let i4 ← 49#usize - i3
-    let i5 ← d >>> i4
-    let i6 ← lift (i5 &&& table.WINDOW_MASK)
-    let i7 ← lift (UScalar.cast .Usize i6)
-    ok (i7 &&& mask)
-  else
-    let i2 ← lift (UScalar.cast .Usize d)
-    let i3 ← lift (i2 &&& mask)
-    let i4 ← step - table.WINDOWS
-    let i5 ← i4 + 1#usize
-    let i6 ← lift (core.num.Usize.wrapping_add i3 i5)
-    ok (i6 &&& mask)
+/-- [stored_relocate_all_source::table::TAG_FINGERPRINT_BITS]
+    Source: 'src/table.rs', lines 72:0-72:36 -/
+@[global_simps, irreducible] def table.TAG_FINGERPRINT_BITS : Std.U32 := 7#u32
 
 /-- [stored_relocate_all_source::table::TAG_FINGERPRINT_MASK]
-    Source: 'src/table.rs', lines 83:0-83:38 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_MASK : Std.U8 := 127#u8
+    Source: 'src/table.rs', lines 94:0-94:65 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_MASK : Result Std.U8 := do
+  let i ← 1#u8 <<< table.TAG_FINGERPRINT_BITS
+  i - 1#u8
+
+/-- [stored_relocate_all_source::table::TAG_SPREAD]
+    Source: 'src/table.rs', lines 92:0-92:42 -/
+@[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
 
 /-- [stored_relocate_all_source::table::TAG_FINGERPRINT_SHIFT]
-    Source: 'src/table.rs', lines 81:0-81:37 -/
-@[global_simps, irreducible] def table.TAG_FINGERPRINT_SHIFT : Std.U32 := 8#u32
+    Source: 'src/table.rs', lines 87:0-87:61 -/
+@[global_simps, irreducible]
+def table.TAG_FINGERPRINT_SHIFT : Result Std.U32 :=
+  64#u32 - table.TAG_FINGERPRINT_BITS
 
 /-- [stored_relocate_all_source::table::TAG_LIVE]
-    Source: 'src/table.rs', lines 72:0-72:26 -/
+    Source: 'src/table.rs', lines 70:0-70:26 -/
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [stored_relocate_all_source::table::tag]:
-    Source: 'src/table/state.rs', lines 337:0-339:1 -/
+    Source: 'src/table/state.rs', lines 286:0-289:1 -/
 def table.tag (place : Std.U64) : Result Std.U8 := do
-  let i ← place >>> table.TAG_FINGERPRINT_SHIFT
-  let i1 ← lift (UScalar.cast .U8 i)
-  let i2 ← lift (i1 &&& table.TAG_FINGERPRINT_MASK)
-  ok (table.TAG_LIVE ||| i2)
+  let spread ← lift (core.num.U64.wrapping_mul place table.TAG_SPREAD)
+  let i ← table.TAG_FINGERPRINT_SHIFT
+  let i1 ← spread >>> i
+  let i2 ← lift (UScalar.cast .U8 i1)
+  let i3 ← table.TAG_FINGERPRINT_MASK
+  let i4 ← lift (i2 &&& i3)
+  ok (table.TAG_LIVE ||| i4)
+
+/-- [stored_relocate_all_source::table::MAX_GROUP]
+    Source: 'src/table.rs', lines 68:0-68:28 -/
+@[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
+
+/-- [stored_relocate_all_source::table::valid_n]:
+    Source: 'src/table/state.rs', lines 266:0-268:1 -/
+def table.valid_n (n : Std.Usize) : Result Bool := do
+  if n != 0#usize
+  then
+    if n <= table.MAX_GROUP
+    then core.num.Usize.is_power_of_two n
+    else ok false
+  else ok false
 
 /-- [stored_relocate_all_source::table::SpillSite]
-    Source: 'src/table/state.rs', lines 237:0-241:1 -/
+    Source: 'src/table/state.rs', lines 186:0-190:1 -/
 @[discriminant isize]
 inductive table.SpillSite where
 | Found : Std.Usize → table.SpillSite
 | Vacant : Std.Usize → table.SpillSite
 | Grow : table.SpillSite
 
-/-- [stored_relocate_all_source::table::summary_trailing_zeros]: loop body 0:
-    Source: 'src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop_body]
-def table.summary_trailing_zeros_loop.body
-  (value : Std.Usize) (zeros : Std.U32) :
-  Result (ControlFlow (Std.Usize × Std.U32) Std.U32)
-  := do
-  if zeros < core.num.Usize.BITS
-  then
-    let i ← lift (value &&& 1#usize)
-    if i = 0#usize
-    then
-      let zeros1 ← zeros + 1#u32
-      let value1 ← value >>> 1#i32
-      ok (cont (value1, zeros1))
-    else ok (done zeros)
-  else ok (done zeros)
-
-/-- [stored_relocate_all_source::table::summary_trailing_zeros]: loop 0:
-    Source: 'src/table/state.rs', lines 24:4-27:5 -/
-@[rust_loop]
-def table.summary_trailing_zeros_loop
-  (value : Std.Usize) (zeros : Std.U32) : Result Std.U32 := do
-  loop
-    (fun (value1, zeros1) => table.summary_trailing_zeros_loop.body value1
-      zeros1)
-    (value, zeros)
-
-/-- [stored_relocate_all_source::table::summary_trailing_zeros]:
-    Source: 'src/table/state.rs', lines 22:0-29:1 -/
-@[reducible]
-def table.summary_trailing_zeros (value : Std.Usize) : Result Std.U32 := do
-  table.summary_trailing_zeros_loop value 0#u32
-
-/-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::summary_index]:
-    Source: 'src/table/state.rs', lines 149:4-165:5 -/
-def table.Region.summary_index
-  (R : Type) (V : Type) (place : Std.U64) (len_words : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  if len_words = 0#usize
-  then ok none
-  else
-    let b ← core.num.Usize.is_power_of_two len_words
-    if b
-    then
-      let i ← core.num.Usize.MAX >>> 6#i32
-      if len_words <= i
-      then
-        let i1 ← lift (UScalar.cast .U64 len_words)
-        let i2 ← i1 <<< 6#i32
-        let mask ← i2 - 1#u64
-        let i3 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-        let i4 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i4)
-        let i5 ← lift (mixed1 &&& mask)
-        let i6 ← lift (UScalar.cast .Usize i5)
-        ok (some i6)
-      else
-        let i1 ← table.summary_trailing_zeros len_words
-        let bits ← i1 + 6#u32
-        if bits >= core.num.U64.BITS
-        then ok none
-        else
-          let i2 ← 1#u64 <<< bits
-          let mask ← i2 - 1#u64
-          let i3 ← place >>> 8#i32
-          let mixed ←
-            lift (core.num.U64.wrapping_mul i3 11400714819323198485#u64)
-          let i4 ← mixed >>> 29#i32
-          let mixed1 ← lift (mixed ^^^ i4)
-          let i5 ← lift (mixed1 &&& mask)
-          let i6 ← lift (UScalar.cast .Usize i5)
-          ok (some i6)
-    else
-      let i ← table.summary_trailing_zeros len_words
-      let bits ← i + 6#u32
-      if bits >= core.num.U64.BITS
-      then ok none
-      else
-        let i1 ← 1#u64 <<< bits
-        let mask ← i1 - 1#u64
-        let i2 ← place >>> 8#i32
-        let mixed ←
-          lift (core.num.U64.wrapping_mul i2 11400714819323198485#u64)
-        let i3 ← mixed >>> 29#i32
-        let mixed1 ← lift (mixed ^^^ i3)
-        let i4 ← lift (mixed1 &&& mask)
-        let i5 ← lift (UScalar.cast .Usize i4)
-        ok (some i5)
+/-- [stored_relocate_all_source::table::SpillSlot]
+    Source: 'src/table/state.rs', lines 49:0-58:1 -/
+structure table.SpillSlot (R : Type) (V : Type) where
+  tag : Std.U8
+  sigma : cell.Sigma
+  held : R
+  value : V
 
 /-- [stored_relocate_all_source::table::Region]
-    Source: 'src/table/state.rs', lines 107:0-118:1 -/
+    Source: 'src/table/state.rs', lines 93:0-98:1 -/
 structure table.Region (R : Type) (V : Type) where
-  tags : alloc.vec.Vec Std.U8
-  slots : alloc.vec.Vec (cell.Sigma × R × V)
-  summary : alloc.vec.Vec Std.U64
+  slots : alloc.vec.Vec (table.SpillSlot R V)
+  live : Std.Usize
 
-/-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::summary_maybe]:
-    Source: 'src/table/state.rs', lines 183:4-188:5 -/
-def table.Region.summary_maybe
+/-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::home]:
+    Source: 'src/table/state.rs', lines 125:4-129:5 -/
+def table.Region.home
   {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result Bool
+  Result Std.Usize
   := do
-  let i := alloc.vec.Vec.len self.summary
-  let o ← table.Region.summary_index R V place i
-  match o with
-  | none => ok true
-  | some index =>
-    let i1 ← index / 64#usize
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.summary i1
-    let i3 ← index % 64#usize
-    let i4 ← 1#u64 <<< i3
-    let i5 ← lift (i2 &&& i4)
-    ok (i5 != 0#u64)
+  let i ← place >>> 8#i32
+  let mixed ← lift (core.num.U64.wrapping_mul i 11400714819323198485#u64)
+  let i1 ← mixed >>> 29#i32
+  let mixed1 ← lift (mixed ^^^ i1)
+  let i2 ← lift (UScalar.cast .Usize mixed1)
+  let i3 := alloc.vec.Vec.len self.slots
+  let i4 ← i3 - 1#usize
+  ok (i2 &&& i4)
 
-/-- [stored_relocate_all_source::table::scan::LANES_PER_WORD]
-    Source: 'src/table/scan.rs', lines 14:0-14:36
-    Visibility: public -/
-@[global_simps, irreducible]
-def table.scan.LANES_PER_WORD : Std.Usize := 8#usize
-
-/-- [stored_relocate_all_source::table::scan::word_at]:
-    Source: 'src/table/scan.rs', lines 64:0-68:1 -/
-def table.scan.word_at
-  (line : Slice Std.U8) (off : Std.Usize) : Result Std.U64 := do
-  let buf := Array.repeat 8#usize 0#u8
-  let (s, to_slice_mut_back) ← lift (Array.to_slice_mut buf)
-  let i ← off + table.scan.LANES_PER_WORD
-  let s1 ←
-    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
-      Std.U8) line { start := off, «end» := i }
-  let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
-  let buf1 := to_slice_mut_back s2
-  ok (core.num.U64.from_le_bytes buf1)
-
-/-- [stored_relocate_all_source::table::scan::GATHER]
-    Source: 'src/table/scan.rs', lines 26:0-26:42 -/
-@[global_simps, irreducible]
-def table.scan.GATHER : Std.U64 := 567382630219905#u64
-
-/-- [stored_relocate_all_source::table::scan::gather]:
-    Source: 'src/table/scan.rs', lines 55:0-57:1 -/
-def table.scan.gather (marked : Std.U64) : Result Std.U8 := do
-  let i ← lift (core.num.U64.wrapping_mul marked table.scan.GATHER)
-  let i1 ← i >>> 56#i32
-  ok (UScalar.cast .U8 i1)
-
-/-- [stored_relocate_all_source::table::scan::HI]
-    Source: 'src/table/scan.rs', lines 19:0-19:38 -/
-@[global_simps, irreducible]
-def table.scan.HI : Std.U64 := 9259542123273814144#u64
-
-/-- [stored_relocate_all_source::table::scan::LO]
-    Source: 'src/table/scan.rs', lines 17:0-17:38 -/
-@[global_simps, irreducible]
-def table.scan.LO : Std.U64 := 72340172838076673#u64
-
-/-- [stored_relocate_all_source::table::scan::zero_swar]:
-    Source: 'src/table/scan.rs', lines 44:0-46:1 -/
-def table.scan.zero_swar (word : Std.U64) : Result Std.U64 := do
-  let i ← lift (word ||| table.scan.HI)
-  let i1 ← lift (core.num.U64.wrapping_sub i table.scan.LO)
-  let i2 ← lift (word ||| i1)
-  let i3 ← lift (~~~ i2)
-  ok (i3 &&& table.scan.HI)
-
-/-- [stored_relocate_all_source::table::scan::match_empty]: loop body 0:
-    Source: 'src/table/scan.rs', lines 107:4-112:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_empty_loop0.body
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) (Std.U64 × Std.Usize
-    × Std.U32))
-  := do
-  let i ← off + table.scan.LANES_PER_WORD
-  let i1 := Slice.len line
-  if i <= i1
-  then
-    let i2 ← base + 8#u32
-    if i2 <= 64#u32
-    then
-      let word ← table.scan.word_at line off
-      let i3 ← table.scan.zero_swar word
-      let i4 ← table.scan.gather i3
-      let i5 ← lift (core.convert.num.FromU64U8.from i4)
-      let i6 ← i5 <<< base
-      let mask1 ← lift (mask ||| i6)
-      ok (cont (mask1, i, i2))
-    else ok (done (mask, off, base))
-  else ok (done (mask, off, base))
-
-/-- [stored_relocate_all_source::table::scan::match_empty]: loop 0:
-    Source: 'src/table/scan.rs', lines 107:4-112:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_empty_loop0
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (Std.U64 × Std.Usize × Std.U32)
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_empty_loop0.body line mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [stored_relocate_all_source::table::scan::match_empty]: loop body 1:
-    Source: 'src/table/scan.rs', lines 113:4-119:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_empty_loop1.body
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) Std.U64)
-  := do
-  let i := Slice.len line
-  if off < i
-  then
-    if base < 64#u32
-    then
-      let i1 ← Slice.index_usize line off
-      let mask1 ←
-        if i1 = 0#u8
-        then do
-             let i2 ← 1#u64 <<< base
-             ok (mask ||| i2)
-        else ok mask
-      let off1 ← off + 1#usize
-      let base1 ← base + 1#u32
-      ok (cont (mask1, off1, base1))
-    else ok (done mask)
-  else ok (done mask)
-
-/-- [stored_relocate_all_source::table::scan::match_empty]: loop 1:
-    Source: 'src/table/scan.rs', lines 113:4-119:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_empty_loop1
-  (line : Slice Std.U8) (mask : Std.U64) (off : Std.Usize) (base : Std.U32) :
-  Result Std.U64
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_empty_loop1.body line mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [stored_relocate_all_source::table::scan::match_empty]:
-    Source: 'src/table/scan.rs', lines 103:0-121:1
-    Visibility: public -/
-def table.scan.match_empty (line : Slice Std.U8) : Result Std.U64 := do
-  let (mask, off, base) ←
-    table.scan.match_empty_loop0 line 0#u64 0#usize 0#u32
-  table.scan.match_empty_loop1 line mask off base
-
-/-- [stored_relocate_all_source::table::scan::eq_swar]:
-    Source: 'src/table/scan.rs', lines 35:0-38:1 -/
-def table.scan.eq_swar (word : Std.U64) (byte : Std.U8) : Result Std.U64 := do
-  let i ← lift (UScalar.cast .U64 byte)
-  let i1 ← lift (core.num.U64.wrapping_mul table.scan.LO i)
-  let x ← lift (word ^^^ i1)
-  let i2 ← lift (x ||| table.scan.HI)
-  let i3 ← lift (core.num.U64.wrapping_sub i2 table.scan.LO)
-  let i4 ← lift (x ||| i3)
-  let i5 ← lift (~~~ i4)
-  ok (i5 &&& table.scan.HI)
-
-/-- [stored_relocate_all_source::table::scan::match_tag]: loop body 0:
-    Source: 'src/table/scan.rs', lines 81:4-86:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_tag_loop0.body
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) (Std.U64 × Std.Usize
-    × Std.U32))
-  := do
-  let i ← off + table.scan.LANES_PER_WORD
-  let i1 := Slice.len line
-  if i <= i1
-  then
-    let i2 ← base + 8#u32
-    if i2 <= 64#u32
-    then
-      let word ← table.scan.word_at line off
-      let i3 ← table.scan.eq_swar word tag
-      let i4 ← table.scan.gather i3
-      let i5 ← lift (core.convert.num.FromU64U8.from i4)
-      let i6 ← i5 <<< base
-      let mask1 ← lift (mask ||| i6)
-      ok (cont (mask1, i, i2))
-    else ok (done (mask, off, base))
-  else ok (done (mask, off, base))
-
-/-- [stored_relocate_all_source::table::scan::match_tag]: loop 0:
-    Source: 'src/table/scan.rs', lines 81:4-86:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_tag_loop0
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (Std.U64 × Std.Usize × Std.U32)
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_tag_loop0.body line tag mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [stored_relocate_all_source::table::scan::match_tag]: loop body 1:
-    Source: 'src/table/scan.rs', lines 87:4-93:5
-    Visibility: public -/
-@[rust_loop_body]
-def table.scan.match_tag_loop1.body
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result (ControlFlow (Std.U64 × Std.Usize × Std.U32) Std.U64)
-  := do
-  let i := Slice.len line
-  if off < i
-  then
-    if base < 64#u32
-    then
-      let i1 ← Slice.index_usize line off
-      let mask1 ←
-        if i1 = tag
-        then do
-             let i2 ← 1#u64 <<< base
-             ok (mask ||| i2)
-        else ok mask
-      let off1 ← off + 1#usize
-      let base1 ← base + 1#u32
-      ok (cont (mask1, off1, base1))
-    else ok (done mask)
-  else ok (done mask)
-
-/-- [stored_relocate_all_source::table::scan::match_tag]: loop 1:
-    Source: 'src/table/scan.rs', lines 87:4-93:5
-    Visibility: public -/
-@[rust_loop]
-def table.scan.match_tag_loop1
-  (line : Slice Std.U8) (tag : Std.U8) (mask : Std.U64) (off : Std.Usize)
-  (base : Std.U32) :
-  Result Std.U64
-  := do
-  loop
-    (fun (mask1, off1, base1) => table.scan.match_tag_loop1.body line tag mask1
-      off1 base1)
-    (mask, off, base)
-
-/-- [stored_relocate_all_source::table::scan::match_tag]:
-    Source: 'src/table/scan.rs', lines 77:0-95:1
-    Visibility: public -/
-def table.scan.match_tag
-  (line : Slice Std.U8) (tag : Std.U8) : Result Std.U64 := do
-  let (mask, off, base) ←
-    table.scan.match_tag_loop0 line tag 0#u64 0#usize 0#u32
-  table.scan.match_tag_loop1 line tag mask off base
-
-/-- [stored_relocate_all_source::table::probe::spill_locate_held]: loop body 1:
-    Source: 'src/table/probe.rs', lines 286:20-295:21 -/
-@[rust_loop_body]
-def table.probe.spill_locate_held_loop0_loop0.body
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (carrier : R) (base : Std.Usize) (b : Bool)
-  (i : Std.Usize) (hits : Std.U64) :
-  Result (ControlFlow (Bool × Std.Usize × Std.U64) (Bool × Std.Usize))
-  := do
-  if hits != 0#u64
-  then
-    if b
-    then ok (done (true, i))
-    else
-      let lane ← table.least_set_lane hits
-      let slot ← base + lane
-      let (s, t, _) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) v slot
-      let b1 ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq s sigma
-      let (b2, i1) ←
-        if b1
-        then
-          do
-          let b3 ← keyrepKeyRepInst.matches_held sigma t carrier
-          let i2 ← if b3
-                     then ok slot
-                     else ok i
-          ok (b3, i2)
-        else ok (false, i)
-      let i2 ← hits - 1#u64
-      let hits1 ← lift (hits &&& i2)
-      ok (cont (b2, i1, hits1))
-  else ok (done (b, i))
-
-/-- [stored_relocate_all_source::table::probe::spill_locate_held]: loop 1:
-    Source: 'src/table/probe.rs', lines 286:20-295:21 -/
-@[rust_loop]
-def table.probe.spill_locate_held_loop0_loop0
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec (cell.Sigma × R × V))
-  (sigma : cell.Sigma) (carrier : R) (b : Bool) (i : Std.Usize)
-  (base : Std.Usize) (hits : Std.U64) :
-  Result (Bool × Std.Usize)
-  := do
-  loop
-    (fun (b1, i1, hits1) => table.probe.spill_locate_held_loop0_loop0.body
-      keyrepKeyRepInst v sigma carrier base b1 i1 hits1)
-    (b, i, hits)
+/-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::bound]:
+    Source: 'src/table/state.rs', lines 112:4-114:5 -/
+def table.Region.bound
+  {R : Type} {V : Type} (self : table.Region R V) : Result Std.Usize := do
+  ok (alloc.vec.Vec.len self.slots)
 
 /-- [stored_relocate_all_source::table::probe::spill_locate_held]: loop body 0:
-    Source: 'src/table/probe.rs', lines 282:12-304:13 -/
+    Source: 'src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop_body]
-def table.probe.spill_locate_held_loop0.body
+def table.probe.spill_locate_held_loop.body
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (carrier : R) (n : Std.Usize) (groups : Std.Usize)
-  (mask : Std.Usize) (wanted : Std.U8) (b : Bool) (i1 : Std.Usize) (b1 : Bool)
-  (i2 : Std.Usize) (may_match : Bool) (step : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize × Bool × Std.Usize × Bool ×
-    Std.Usize) (Bool × Std.Usize × Bool × Std.Usize))
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (carrier : R) (bound : Std.Usize) (home : Std.Usize) (wanted : Std.U8)
+  (step : Std.Usize) :
+  Result (ControlFlow Std.Usize table.SpillSite)
   := do
-  let i3 ← table.WINDOWS + groups
-  if step < i3
+  if step < bound
   then
-    if b1
-    then ok (done (b, i1, true, i2))
+    let i ← home + step
+    let i1 ← bound - 1#usize
+    let slot ← lift (i &&& i1)
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) r.slots slot
+    if ss.tag = 0#u8
+    then ok (done (table.SpillSite.Vacant slot))
     else
-      if may_match
+      if ss.tag = wanted
       then
-        let i4 ← table.group i step mask
-        let base ← i4 * n
-        let i5 ← base + n
-        let s ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-            Std.U8) v { start := base, «end» := i5 }
-        let hits ← table.scan.match_tag s wanted
-        let (b2, i6) ←
-          table.probe.spill_locate_held_loop0_loop0 keyrepKeyRepInst v1 sigma
-            carrier false i2 base hits
-        let (b3, i7) ←
-          if b
-          then ok (true, i1)
-          else
-            do
-            let i8 ← base + n
-            let s1 ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-                Std.U8) v { start := base, «end» := i8 }
-            let empty ← table.scan.match_empty s1
-            if empty != 0#u64
-            then
-              let i9 ← table.least_set_lane empty
-              let i10 ← base + i9
-              ok (true, i10)
-            else ok (false, i1)
-        let step1 ← step + 1#usize
-        ok (cont (b3, i7, b2, i6, true, step1))
-      else
+        let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq ss.sigma sigma
         if b
-        then ok (done (true, i1, false, i2))
-        else
-          let i4 ← table.group i step mask
-          let base ← i4 * n
-          let i5 ← base + n
-          let s ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-              Std.U8) v { start := base, «end» := i5 }
-          let empty ← table.scan.match_empty s
-          let (b2, i6) ←
-            if empty != 0#u64
-            then
-              do
-              let i7 ← table.least_set_lane empty
-              let i8 ← base + i7
-              ok (true, i8)
-            else ok (false, i1)
-          let step1 ← step + 1#usize
-          ok (cont (b2, i6, false, i2, false, step1))
-  else ok (done (b, i1, b1, i2))
+        then
+          let b1 ← keyrepKeyRepInst.matches_held sigma ss.held carrier
+          if b1
+          then ok (done (table.SpillSite.Found slot))
+          else let step1 ← step + 1#usize
+               ok (cont step1)
+        else let step1 ← step + 1#usize
+             ok (cont step1)
+      else let step1 ← step + 1#usize
+           ok (cont step1)
+  else ok (done table.SpillSite.Grow)
 
 /-- [stored_relocate_all_source::table::probe::spill_locate_held]: loop 0:
-    Source: 'src/table/probe.rs', lines 282:12-304:13 -/
+    Source: 'src/table/probe.rs', lines 76:4-91:1 -/
 @[rust_loop]
-def table.probe.spill_locate_held_loop0
+def table.probe.spill_locate_held_loop
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (v : alloc.vec.Vec Std.U8)
-  (v1 : alloc.vec.Vec (cell.Sigma × R × V)) (sigma : cell.Sigma)
-  (i : Std.U64) (carrier : R) (n : Std.Usize) (groups : Std.Usize) (b : Bool)
-  (i1 : Std.Usize) (b1 : Bool) (i2 : Std.Usize) (mask : Std.Usize)
-  (wanted : Std.U8) (may_match : Bool) (step : Std.Usize) :
-  Result (Bool × Std.Usize × Bool × Std.Usize)
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (carrier : R) (bound : Std.Usize) (home : Std.Usize) (wanted : Std.U8)
+  (step : Std.Usize) :
+  Result table.SpillSite
   := do
   loop
-    (fun (b2, i3, b3, i4, may_match1, step1) =>
-      table.probe.spill_locate_held_loop0.body keyrepKeyRepInst v v1 sigma i
-      carrier n groups mask wanted b2 i3 b3 i4 may_match1 step1)
-    (b, i1, b1, i2, may_match, step)
+    (fun step1 => table.probe.spill_locate_held_loop.body keyrepKeyRepInst r
+      sigma carrier bound home wanted step1)
+    step
 
 /-- [stored_relocate_all_source::table::probe::spill_locate_held]:
-    Source: 'src/table/probe.rs', lines 265:0-313:1 -/
+    Source: 'src/table/probe.rs', lines 62:0-91:1 -/
 def table.probe.spill_locate_held
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
   (address : table.TableAddress) (carrier : R) (n : Std.Usize) :
   Result table.SpillSite
   := do
-  let i := alloc.vec.Vec.len r.slots
-  if i != 0#usize
+  let b ← table.valid_n n
+  if b
   then
-    let i1 := alloc.vec.Vec.len r.slots
-    let groups ← i1 / n
-    if groups >= 2#usize
-    then
-      let i2 ← groups * n
-      let i3 := alloc.vec.Vec.len r.slots
-      if i2 = i3
-      then
-        let b ← core.num.Usize.is_power_of_two groups
-        if b
-        then
-          let mask ← groups - 1#usize
-          let wanted ← table.tag address.place
-          let may_match ← table.Region.summary_maybe r address.place
-          let (b1, i4, b2, i5) ←
-            table.probe.spill_locate_held_loop0 keyrepKeyRepInst r.tags
-              r.slots sigma address.place carrier n groups false 0#usize false
-              0#usize mask wanted may_match 0#usize
-          if b2
-          then ok (table.SpillSite.Found i5)
-          else
-            if b1
-            then ok (table.SpillSite.Vacant i4)
-            else ok table.SpillSite.Grow
-        else ok table.SpillSite.Grow
-      else ok table.SpillSite.Grow
-    else ok table.SpillSite.Grow
+    let i ← table.Region.bound r
+    if i = 0#usize
+    then ok table.SpillSite.Grow
+    else
+      let home ← table.Region.home r address.place
+      let wanted ← table.tag address.place
+      table.probe.spill_locate_held_loop keyrepKeyRepInst r sigma carrier i
+        home wanted 0#usize
   else ok table.SpillSite.Grow
 
-/-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::summary_set]:
-    Source: 'src/table/state.rs', lines 169:4-174:5 -/
-def table.Region.summary_set
-  {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result (table.Region R V)
-  := do
-  let i := alloc.vec.Vec.len self.summary
-  let o ← table.Region.summary_index R V place i
-  match o with
-  | none => ok self
-  | some index =>
-    let i1 ← index % 64#usize
-    let i2 ← 1#u64 <<< i1
-    let i3 ← index / 64#usize
-    let (i4, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.summary i3
-    let i5 ← lift (i4 ||| i2)
-    let v := index_mut_back i5
-    ok { self with summary := v }
-
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Region<R, V>}::publish_live]:
-    Source: 'src/table/state.rs', lines 197:4-207:5 -/
+    Source: 'src/table/state.rs', lines 137:4-147:5 -/
 def table.Region.publish_live
   {R : Type} {V : Type} (self : table.Region R V) (index : Std.Usize)
   (payload : (cell.Sigma × R × V)) (place : Std.U64) :
   Result (table.Region R V)
   := do
-  let (_, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-      × R × V)) self.slots index
-  let v := index_mut_back payload
-  let self1 ← table.Region.summary_set { self with slots := v } place
+  let (s, t, t1) := payload
+  let (ss, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) self.slots index
+  let v := index_mut_back { ss with sigma := s }
+  let (ss1, index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v index
+  let v1 := index_mut_back1 { ss1 with held := t }
+  let (ss2, index_mut_back2) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v1 index
   let i ← table.tag place
-  let (_, index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
-      self1.tags index
-  let v1 := index_mut_back1 i
-  ok { self1 with tags := v1 }
+  let v2 := index_mut_back2 { ss2 with value := t1 }
+  let (ss3, index_mut_back3) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (table.SpillSlot R V)) v2 index
+  let i1 ← self.live + 1#usize
+  let v3 := index_mut_back3 { ss3 with tag := i }
+  ok { slots := v3, live := i1 }
 
 /-- [stored_relocate_all_source::table::FlatSlot]
-    Source: 'src/table/state.rs', lines 419:0-424:1 -/
+    Source: 'src/table/state.rs', lines 355:0-360:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -2644,40 +2155,40 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [stored_relocate_all_source::table::Flat]
-    Source: 'src/table/state.rs', lines 426:0-429:1 -/
+    Source: 'src/table/state.rs', lines 362:0-365:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
 
 /-- [stored_relocate_all_source::table::RebuildSource]
-    Source: 'src/table/state.rs', lines 432:0-435:1 -/
+    Source: 'src/table/state.rs', lines 368:0-371:1 -/
 @[discriminant isize]
 inductive table.RebuildSource where
 | Resident : Std.Usize → table.RebuildSource
 | Spill : Std.Usize → Std.Usize → table.RebuildSource
 
 /-- [stored_relocate_all_source::table::RebuildPlanEntry]
-    Source: 'src/table/state.rs', lines 437:0-441:1 -/
+    Source: 'src/table/state.rs', lines 373:0-377:1 -/
 structure table.RebuildPlanEntry where
   source : table.RebuildSource
   flat : Option Std.Usize
   spill : Std.Usize
 
 /-- [stored_relocate_all_source::table::RebuildPlan]
-    Source: 'src/table/state.rs', lines 443:0-447:1 -/
+    Source: 'src/table/state.rs', lines 379:0-383:1 -/
 structure table.RebuildPlan where
   lanes : Std.Usize
   entries : alloc.vec.Vec table.RebuildPlanEntry
   spill_loads : alloc.vec.Vec Std.Usize
 
 /-- [stored_relocate_all_source::table::RebuildReserved]
-    Source: 'src/table/state.rs', lines 449:0-452:1 -/
+    Source: 'src/table/state.rs', lines 385:0-388:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- [stored_relocate_all_source::table::Table]
-    Source: 'src/table.rs', lines 218:0-230:1
+    Source: 'src/table.rs', lines 226:0-238:1
     Visibility: public -/
 structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   Std.Usize) where
@@ -2690,7 +2201,7 @@ structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
   locator : table.TableLocator
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: 'src/table.rs', lines 944:4-1006:5 -/
+    Source: 'src/table.rs', lines 926:4-988:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -2718,12 +2229,12 @@ def table.Table.relocate_entry
       let r ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
           (table.Region R V)) self.shards shard
-      let (s, t, t1) ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (cell.Sigma
-          × R × V)) r.slots index
-      let t2 ← keyrepKeyRepInst.corecloneCloneInst.clone t
-      let t3 ← corecloneCloneInst1.clone t1
-      ok (self.resident, entry.source, s, t2, t3)
+      let source1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.SpillSlot R V)) r.slots index
+      let t ← keyrepKeyRepInst.corecloneCloneInst.clone source1.held
+      let t1 ← corecloneCloneInst1.clone source1.value
+      ok (self.resident, entry.source, source1.sigma, t, t1)
   let old_location ←
     match source with
     | table.RebuildSource.Resident index =>
@@ -2777,7 +2288,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: 'src/table.rs', lines 1023:8-1026:9 -/
+    Source: 'src/table.rs', lines 1005:8-1008:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -2800,7 +2311,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: 'src/table.rs', lines 1023:8-1026:9 -/
+    Source: 'src/table.rs', lines 1005:8-1008:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -2818,7 +2329,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [stored_relocate_all_source::table::{stored_relocate_all_source::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: 'src/table.rs', lines 1017:4-1027:5 -/
+    Source: 'src/table.rs', lines 999:4-1009:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :

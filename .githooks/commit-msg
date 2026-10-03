@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# commit-msg: the per-commit board declaration, enforced where git gives it.
+#
+# git hands this hook the message file as $1. It is the only commit-time hook
+# that can see the message: at pre-commit time COMMIT_EDITMSG still holds the
+# previous commit's message (verified with a probe hook and `git commit -F`).
+# So the presence of the declaration is required here, and the row it names is
+# resolved against the board exactly as pre-commit resolves one found in the
+# staged change.
+#
+# Budget: APEIRON_HOOKS_COMMITMSG_BUDGET (default 90s). A check that reaches its
+# budget fails the commit; a timed-out gate is not a pass (AGENTS.md §10).
+
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "commit-msg: staged-state-unreadable: not inside a git work tree" >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+budget=${APEIRON_HOOKS_COMMITMSG_BUDGET:-90}
+started=$(date +%s)
+timeout "$budget" python3 -B tools/hooks/lane.py message "$1"
+code=$?
+elapsed=$(( $(date +%s) - started ))
+
+if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+  echo "commit-msg: board-declaration: FAIL budget ${budget}s exceeded (AGENTS.md §10)" >&2
+  exit 1
+fi
+if [ "$code" -ne 0 ]; then
+  echo "commit-msg: board-declaration: FAIL exit $code after ${elapsed}s" >&2
+  exit "$code"
+fi
+echo "commit-msg: board-declaration: PASS ${elapsed}s (budget ${budget}s)"
+exit 0

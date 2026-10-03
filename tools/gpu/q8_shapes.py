@@ -24,6 +24,7 @@ imports q8_bench's compile/synthesis helpers and invokes the compiled driver.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import statistics
@@ -94,6 +95,10 @@ def remaining(deadline: float) -> float:
     return deadline - time.monotonic()
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def run_case(bench, driver_bin: Path, shader_spv: Path, scratch: Path,
              label: str, m: int, tokens: int, blocks: int, reps: int,
              deadline: float) -> dict[str, object]:
@@ -159,9 +164,16 @@ def check_ordering(results: list[dict[str, object]], shapes, tokens_list) -> lis
     """Control: device_ns must grow with blocks (fixed M, tokens) and with tokens.
 
     A stuck or zero timer flattens device_ns and violates one of these orderings.
+
+    Ordered on ``device_ns_min``, the same estimator the reported rate uses. On the median, one
+    host-interrupt-inflated repetition out of ``--reps`` reorders two shapes whose true times differ
+    by less than that inflation -- observed on this box as ``attn_output`` at 2641824 ns against
+    ``ffn_down`` at 1490016 ns, both at tokens=200 -- which is a red on the instrument's noise, not
+    on the kernel. Both fields are seeded in ``--control-self-test``, so this ordering control cannot
+    pass vacuously.
     """
     problems: list[str] = []
-    by = {(str(r["label"]), int(r["tokens"])): float(r["device_ns_med"]) for r in results}
+    by = {(str(r["label"]), int(r["tokens"])): float(r["device_ns_min"]) for r in results}
 
     for label, _m, _b in shapes:
         if (label, tokens_list[0]) not in by or (label, tokens_list[1]) not in by:
@@ -209,29 +221,49 @@ def shape_variation_control(results: list[dict[str, object]]) -> list[str]:
 
 
 def control_self_test() -> int:
-    """Seed an inverted ordering and a flat rate series; both must be rejected."""
+    """Seed an inverted ordering and a flat rate series; both must be rejected.
+
+    Both ``device_ns_min`` and ``device_ns_med`` are seeded: ``check_ordering`` reads the minimum, so
+    a seed on the median alone would make the control pass vacuously.
+    """
     good = []
     for label, m, blocks in SHAPES:
         for tokens in PROMPT_TOKENS:
             good.append({"label": label, "m": m, "tokens": tokens, "blocks": blocks,
-                         "device_ns_med": float(blocks * tokens), "gmac_per_s": float(blocks + m)})
+                         "device_ns_min": float(blocks * tokens),
+                         "device_ns_med": float(blocks * tokens),
+                         "gmac_per_s": float(blocks + m)})
     if check_ordering(good, SHAPES, PROMPT_TOKENS):
         raise RuntimeError("control self-test: monotone series was rejected")
     seeded = [dict(r) for r in good]
     for r in seeded:
         if r["label"] == "ffn_down" and r["tokens"] == PROMPT_TOKENS[1]:
-            r["device_ns_med"] = 1.0  # zeroed/stuck timer
+            r["device_ns_min"] = 1.0  # zeroed/stuck timer
     problems = check_ordering(seeded, SHAPES, PROMPT_TOKENS)
     if not problems:
         raise RuntimeError("control self-test: inverted ordering survived")
+
+    # An inflated MEDIAN with an honest minimum must NOT redden: the estimator the control orders on
+    # is the minimum, and this is the shape of the host-interrupt case that made it necessary.
+    inflated = [dict(r) for r in good]
+    for r in inflated:
+        if r["label"] == "attn_output":
+            r["device_ns_med"] = 10_000_000.0
+        if r["label"] == "ffn_down":
+            r["device_ns_med"] = 1.0
+    if check_ordering(inflated, SHAPES, PROMPT_TOKENS):
+        raise RuntimeError(
+            "control self-test: the ordering control ordered on device_ns_med, so one inflated "
+            "median rep reddens it")
 
     flat = [dict(r, gmac_per_s=1.0) for r in good]
     if not shape_variation_control(flat):
         raise RuntimeError("control self-test: flat GMAC/s series survived")
     if shape_variation_control(good):
         raise RuntimeError("control self-test: varying GMAC/s series was rejected")
-    print(f"control self-test PASS: inverted series rejected ({problems[0]}); "
-          "flat rate series rejected, varying rate series accepted", flush=True)
+    print(f"control self-test PASS: inverted device_ns_min series rejected ({problems[0]}); "
+          "an inflated median alone accepted; flat rate series rejected, varying rate series "
+          "accepted", flush=True)
     return 0
 
 
@@ -269,6 +301,10 @@ def main() -> int:
         driver_bin = scratch / "q8_driver"
         bench.compile_shader(glslc, spirv_val, bench.SHADER, shader_spv, deadline=deadline)
         bench.compile_driver(cc, bench.DRIVER, driver_bin, deadline=deadline)
+        # Identity of the module actually executed: the shader source it was compiled from and the
+        # SPIR-V that resulted. A joined comparator checks these to refuse a wrong-kernel run.
+        shader_src_sha = sha256(bench.SHADER)
+        shader_spirv_sha = sha256(shader_spv)
 
         for label, m, blocks in shapes:
             for tokens in PROMPT_TOKENS:
@@ -281,6 +317,8 @@ def main() -> int:
     print("APEIRON Q8 SPIR-V PRIMITIVE LATENCY — REAL PROJECTION SHAPES")
     print("=" * 118)
     print(f"device        = {ident['device_name']} (driver={ident['driver_version']}, api={ident['api_version']})")
+    print(f"kernel        = src/spirv/q8_tile.comp  source_sha256={shader_src_sha[:16]}  "
+          f"spirv_sha256={shader_spirv_sha[:16]}")
     print(f"timestampPeriod = {ident['timestamp_period']:.2f} ns   timestampValidBits = {ident['timestamp_valid_bits']}")
     print(f"reps          = {args.reps}   budget = {args.budget:.0f} s   elapsed = {elapsed:.2f} s")
     print("device_ns is the GPU timestamp delta across one dispatch; submit/wait are host-side.")
@@ -322,10 +360,19 @@ def main() -> int:
     if args.json:
         rows = [{
             "shape": r["label"], "m": r["m"], "k": int(r["blocks"]) * 32, "tokens": r["tokens"],
-            "blocks": r["blocks"], "dev_med_ns": r["device_ns_med"], "gmac_s": r["gmac_per_s"],
-            "gb_s": r["gb_per_s"], "device_name": r["device_name"],
+            "blocks": r["blocks"], "macs": r["macs"],
+            "dev_med_ns": r["device_ns_med"], "dev_min_ns": r["device_ns_min"],
+            "dev_max_ns": r["device_ns_max"], "reps": r["reps"],
+            "gmac_s": r["gmac_per_s"], "gb_s": r["gb_per_s"], "device_name": r["device_name"],
+            "driver_version": r["driver_version"], "api_version": r["api_version"],
+            "timestamp_period": r["timestamp_period"],
         } for r in results]
-        print(json.dumps({"incumbent": rows}))
+        print(json.dumps({"incumbent": rows, "kernel": {
+            "name": "incumbent q8_tile.comp (Vulkan SPIR-V GEMV)",
+            "shader_source": str(bench.SHADER.relative_to(ROOT)),
+            "shader_source_sha256": shader_src_sha,
+            "shader_spirv_sha256": shader_spirv_sha,
+        }}))
     print("=" * 118)
     print("PASS", flush=True)
     return 0

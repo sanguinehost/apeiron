@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# pre-commit: the gates that fit a commit.
+#
+# Tier 1 (this hook), each step under its own wall-clock budget:
+#
+#   1. board declaration   python3 tools/hooks/lane.py staged
+#   2. formatting          cargo fmt --all -- --check
+#   3. citation resolution python3 tools/check-claims.py
+#
+# Step 1 checks a declaration the *staged change* carries; git does not give a
+# pre-commit hook the message (COMMIT_EDITMSG still holds the previous commit's
+# message when this runs), so requiring the field here would refuse a commit
+# that is about to name its row in the message. `.githooks/commit-msg` receives
+# the message file as $1 and is where the declaration is required.
+#
+# The board *reconciliation* (`tools/board/board.py check`) is deliberately not
+# here: it compares the whole board against docs/plan.md, which is red between
+# wave boundaries by design. It is a wave barrier, run from the barrier, not
+# per commit. The per-commit requirement is the declaration: a dispatch names
+# its row (`board: <row-id>`) or declares `board: none -- internal lane`.
+#
+# Budgets: APEIRON_HOOKS_PRECOMMIT_BUDGET (total, default 180s),
+# APEIRON_HOOKS_STEP_BUDGET (per step, default 90s). A step that reaches its
+# budget fails the commit and is reported: a timed-out gate is a failure of the
+# run, never a pass (AGENTS.md §10).
+#
+# Nothing here is bypassable by an environment variable. `git commit
+# --no-verify` skips the hook, as it skips every hook; the wave barrier is the
+# authority on that.
+
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-commit: staged-state-unreadable: not inside a git work tree" >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+total_budget=${APEIRON_HOOKS_PRECOMMIT_BUDGET:-180}
+step_budget=${APEIRON_HOOKS_STEP_BUDGET:-90}
+started=$(date +%s)
+status=0
+
+run_step() {
+  # run_step <name> <command...>
+  local name=$1
+  shift
+  local remaining=$((total_budget - ( $(date +%s) - started )))
+  local budget=$step_budget
+  if (( remaining <= 0 )); then
+    echo "pre-commit: $name: FAIL budget exhausted before the step ran (total ${total_budget}s)" >&2
+    status=1
+    return
+  fi
+  if (( budget > remaining )); then budget=$remaining; fi
+  local t0 t1 code
+  t0=$(date +%s)
+  timeout "$budget" "$@"
+  code=$?
+  t1=$(date +%s)
+  if (( code == 124 || code == 137 )); then
+    echo "pre-commit: $name: FAIL budget ${budget}s exceeded (AGENTS.md §10; a timed-out gate is not a pass)" >&2
+    status=1
+    return
+  fi
+  if (( code != 0 )); then
+    echo "pre-commit: $name: FAIL exit $code after $((t1 - t0))s" >&2
+    status=1
+    return
+  fi
+  echo "pre-commit: $name: PASS $((t1 - t0))s (budget ${budget}s)"
+}
+
+run_step board-declaration python3 -B tools/hooks/lane.py staged
+run_step cargo-fmt cargo fmt --all -- --check
+run_step check-claims python3 -B tools/check-claims.py
+
+if (( status != 0 )); then
+  echo "pre-commit: REFUSED; the commit was not created" >&2
+else
+  echo "pre-commit: OK in $(( $(date +%s) - started ))s of ${total_budget}s"
+fi
+exit "$status"

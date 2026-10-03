@@ -247,7 +247,10 @@ def main():
     selected={}
     for name in ['AENEAS','CHARON']:
         for key in ['COMMIT','TREE']:selected[name+'_'+key]=re.search(r'^'+name+'_'+key+r'=(\w+)$',s,re.M).group(1)
-    if selected!={'AENEAS_COMMIT':'505b6ca35217e7be5c96c3e2f8045edfbdf47291','AENEAS_TREE':'af23d5d9d866050c2158700cedab07501443bcdd','CHARON_COMMIT':'b104e24fea7d721b71e6c39fd70f26ff20bc0980','CHARON_TREE':'784a177101bbfd956047ac2ee1b7335d4c057b7b'}:raise RuntimeError('STEP_PIN_DRIFT')
+    # The installed translator is identified by the one authoritative pin file, not by a second
+    # literal here; `PINS` content itself is fixed below, so this cannot be relaxed from either side.
+    selected['AENEAS_TRANSLATOR_SHA256']=re.search(r'^AENEAS_TRANSLATOR_SHA256=(\w+)$',s,re.M).group(1)
+    if selected!={'AENEAS_COMMIT':'505b6ca35217e7be5c96c3e2f8045edfbdf47291','AENEAS_TREE':'af23d5d9d866050c2158700cedab07501443bcdd','CHARON_COMMIT':'b104e24fea7d721b71e6c39fd70f26ff20bc0980','CHARON_TREE':'784a177101bbfd956047ac2ee1b7335d4c057b7b','AENEAS_TRANSLATOR_SHA256':'84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1'}:raise RuntimeError('STEP_PIN_DRIFT')
     for p in [pins,*ROOT.joinpath('proof/native').glob('StepRefinement.lean'),ROOT/'proof/native/step_gate.py',ROOT/'proof/native/step_compat.patch',*ROOT.joinpath('proof/patches').glob('*.patch'),MAIN/'src/lib.rs',MAIN/'src/engine/kern/gemm.rs',MAIN/'src/engine/chart/mod.rs',MAIN/'src/engine/kern/pow2.rs',MAIN/'src/engine/value.rs']:bind(p)
     a=WORK/'aeneas';c=WORK/'charon'
     archive('/home/socol/Workspace/aeneas',selected['AENEAS_COMMIT'],selected['AENEAS_TREE'],a,'aeneas')
@@ -315,7 +318,7 @@ def main():
     reg=a/'src/extract/ExtractBuiltinLean.ml';text=reg.read_text();bind(reg)
     if 'StepUsize.forward_overflowing' not in text or '"forward_overflowing"' not in text:raise RuntimeError('STEP_REGISTRY_FIELDS_MISSING')
     charon=MAIN/'target/aeneas/charon';installed=MAIN/'target/aeneas/aeneas'
-    if sha(installed)!='33d0ce1a1cc2f1d3935c0cd2ab34f283797da61c531ed6d4e09d5c97b0d0228a':raise RuntimeError('STEP_INSTALLED_TOOL_DRIFT')
+    if sha(installed)!=selected['AENEAS_TRANSLATOR_SHA256']:raise RuntimeError('STEP_INSTALLED_TOOL_DRIFT observed='+sha(installed)+' pinned='+selected['AENEAS_TRANSLATOR_SHA256'])
     for p in [charon,MAIN/'target/aeneas/charon-driver',installed,lean/'lean-toolchain',lean/'lake-manifest.json',lean/'AeneasExtract.lean']:bind(p)
     for argv,label in [([charon,'version'],'charon-version'),([charon,'toolchain-version'],'rustc-version'),([charon,'toolchain-path'],'rustc-sysroot'),([installed,'-version'],'installed-version'),(['dune','--version'],'dune-version'),(['ocamlc','-version'],'ocaml-version')]:run(argv,ROOT,label)
     rustsys=Path(run([charon,'toolchain-path'],ROOT,'sysroot-source')[1].strip())

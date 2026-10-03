@@ -75,6 +75,9 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
+| §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
+| §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
+| §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
 
 Enforcers that are MISSING and named so that prose cannot stand in for them: a Rust gate driver
 (`tools/gate`) replacing the per-task `*_gate.py` scripts, and a documentation-removal reachability
@@ -143,6 +146,29 @@ GRADE:      evidence grade and before/after result; unmeasured or not applicable
 ```
 
 `REGISTER` classifies the obligation; it does not import Song's deciders or R1–R5 certification.
+
+## 3a · Dispatch priority
+
+Order dispatch by contribution to the goal and by difficulty, never by dispatchability.
+
+- The question is which task moves the programme outcome most and is hardest to do — not which
+  task is bounded, well-specified, or likely to return green. A body of easy, safe, locally-green
+  work (control registration, citation repair, splits, documentation sweeps) is not progress while
+  the governing outcome is an open quantitative gate; it is avoidance, and it is not a reason to
+  open a lane.
+- Work each goal's written dependencies in order. A goal whose dependency is open gets no lane.
+  **Penglai and webfold are downstream of the apeiron core and are frozen until apeiron beats
+  hashtrinity *and* is formally verified** — i.e. G1 acceptance green (`full_acceptance=true`) and
+  the real-source extraction with its refinement proved under the closed axiom cone. No penglai or
+  webfold lane opens before that condition holds. Penglai's water frame rate and webfold's parser
+  both ride the apeiron core; working them first is the same avoidance as hygiene.
+- When a goal's gap is a measured number — a failing ratio, a frame rate, a latency — the lane that
+  attacks that number outranks every hygiene task, and its first task is to reproduce the number on
+  the current source. A recorded number is stale until re-measured; a stale number is not a status.
+- Rank by expected contribution, then by difficulty. The hardest high-contribution task is
+  dispatched before the easiest, however many lanes it needs.
+
+Owner direction.
 
 ## 4 · Definition of done
 
@@ -478,6 +504,28 @@ reader can open it.
 
 A citation is a pointer until the artifact is in hand and read (§5). A finding resolves to a gate, a
 digest, a theorem or a retrieved source.
+
+### Job board (Operately)
+
+Operately is the primary job board for the Sanguine stream (`apeiron`, `song`, `penglai`). Check it
+before starting tracked work and move the task's status as the work proceeds; receipts and evidence
+stay in this repository. The board tracks status; it does not replace the epic/wave/task
+decomposition, a gate or a control.
+
+- Board: company `TWN`, space `Sanguine` (`sanguine-COpRXpkvCi19pKoDZnOPg0`), Tasks tool — one
+  board across the three repositories; projects `apeiron`, `song` and `penglai` hold their scope.
+  Statuses: Not started, In progress, Done, Canceled.
+- OpenCode MCP: server `operately`; `tools.operately.list_tasks`, `get_task`, `update_task_status`
+  (a status ID, value or label from `list_task_statuses`) and `create_task`.
+- REST fallback for reads: `https://projects.tas.twn.network/api/external/v1/...`, header
+  `Authorization: Bearer $OPERATELY_API_KEY`; the token is untracked (`.env`; owner-provided).
+  `spaces/list_tasks?space_id=sanguine-COpRXpkvCi19pKoDZnOPg0` and `tasks/get?id=<task>` are
+  verified.
+- Tasks were seeded from each repository's planning documents and each description names its source
+  paths. New tasks come from a repository plan or owner direction, not from board invention.
+- Instance quirks: REST `create_space` and `tasks/update_status` return 500 — use MCP (or the UI)
+  for those; OpenCode can report a response-schema error for a mutation that landed — confirm with
+  a read.
 
 ## 10 · Failure register
 

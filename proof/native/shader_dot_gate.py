@@ -4,7 +4,7 @@ SCOPE: proof/native/ShaderDot.lean, proof/native/shader_dot_gate.py.
 REGISTER: arithmetic equivalence between GLSL packed dot and CPU block dot; GLSL translation, GPU execution, codegen excluded.
 CORPUS: LaneTrace.lean, LoopTrace.lean, Apeiron.Trichotomy.AnyRing.
 REFERENCE: src/spirv/q8_tile.comp, src/engine/chart/portable.rs, proof/corpus/Spirv/Semantics.lean.
-GATE: python3 proof/native/shader_dot_gate.py --controls; 540s whole invocation.
+GATE: python3 proof/native/shader_dot_gate.py --controls --exact-dot <repo>/target/step-sol-*/aeneas/backends/lean/ExactDotSource.lean; 540s whole invocation.
 GRADE: model theorem on signed packed quad and 32-lane block dot; GLSL->SPIR-V translation, GPU execution, codegen excluded.
 """
 from pathlib import Path
@@ -79,6 +79,12 @@ def main():
     global WORK
     parser = argparse.ArgumentParser()
     parser.add_argument('--controls', action='store_true')
+    parser.add_argument(
+        '--exact-dot', required=True, metavar='PATH',
+        help=('ExactDotSource.lean produced by a step_gate.py run: '
+              '<repo>/target/step-sol-*/aeneas/backends/lean/ExactDotSource.lean. The gate takes the '
+              'path as an argument instead of naming one historical tempfile.mkdtemp result, and '
+              'still requires its content to hash to EXACT_DOT_SHA.'))
     args = parser.parse_args()
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -92,7 +98,17 @@ def main():
     shader_dot_src = ROOT / 'proof/native/ShaderDot.lean'
     lane_trace_src = ROOT / 'proof/native/LaneTrace.lean'
     loop_trace_src = ROOT / 'proof/native/LoopTrace.lean'
-    exact_dot_src = MAIN / 'target/step-sol-c5hbky9_/aeneas/backends/lean/ExactDotSource.lean'
+    exact_dot_src = Path(args.exact_dot).resolve()
+    # The extracted body must be the one a step_gate.py run wrote into its own work tree; a
+    # hand-placed or unrelated copy cannot stand in for a fresh extraction.
+    work_tree = exact_dot_src.parent.parent.parent.parent
+    if (exact_dot_src.name != 'ExactDotSource.lean' or exact_dot_src.parent.name != 'lean'
+            or exact_dot_src.parent.parent.name != 'backends'
+            or exact_dot_src.parent.parent.parent.name != 'aeneas'
+            or not work_tree.name.startswith('step-sol-')
+            or work_tree.parent != (MAIN / 'target')):
+        raise RuntimeError('SHADER_DOT_EXACT_DOT_NOT_A_STEP_WORK_TREE ' + str(exact_dot_src)
+                           + ' (want <repo>/target/step-sol-*/aeneas/backends/lean/ExactDotSource.lean)')
     anyring_src = MAIN / 'proof/corpus/.lake/packages/apeiron/proof/Apeiron/Trichotomy/AnyRing.lean'
     pins_file = ROOT / 'proof/patches/PINS'
     seed_cache = MAIN / 'target/native-step-model-cache'

@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# pre-push: the gates that fit a push.
+#
+# Tier 2 (this hook):
+#
+#   1. clippy        cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+#   2. tests         cargo test --locked --lib --test table --test native_locator
+#   3. board drift   python3 tools/board/board.py check --controls
+#                   --plan docs/plan.md --live   (or --source <snapshot>)
+#
+# Tier 3 stays at the wave barrier and is NOT wired into any hook:
+# `cargo test --workspace --all-features`, `proof/regen.sh --check`,
+# `cd proof/corpus && lake build`. Those are barrier gates; running them per push
+# is what exhausts a budget.
+#
+# The board reconcile is reported, not enforced, by default: it compares the
+# whole board against docs/plan.md and is red between wave boundaries by design.
+# AIDEIRON_HOOKS_BOARD_CHECK=block makes it blocking (the lead's choice at a
+# boundary). It is never silent: drift is printed with the exact wave-boundary
+# command, and the exit status of the reconcile is reported either way.
+#
+# Budgets: APEIRON_HOOKS_PREPUSH_BUDGET (total, default 540s),
+# APEIRON_HOOKS_PUSH_STEP_BUDGET (per Rust step, default 420s),
+# APEIRON_HOOKS_BOARD_BUDGET (default 120s). A step reaching its budget fails
+# the push; a timed-out gate is not a pass (AGENTS.md §10).
+#
+# Scope: the two Rust steps run when the pushed range touches Rust sources
+# (APEIRON_HOOKS_PUSH_SCOPE=rust, the default) or always
+# (APEIRON_HOOKS_PUSH_SCOPE=always). What was skipped, and why, is printed.
+
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-push: staged-state-unreadable: not inside a git work tree" >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+total_budget=${APEIRON_HOOKS_PREPUSH_BUDGET:-540}
+step_budget=${APEIRON_HOOKS_PUSH_STEP_BUDGET:-420}
+board_budget=${APEIRON_HOOKS_BOARD_BUDGET:-120}
+board_mode=${APEIRON_HOOKS_BOARD_CHECK:-report}
+scope=${APEIRON_HOOKS_PUSH_SCOPE:-rust}
+started=$(date +%s)
+status=0
+
+# git sends: "<remote name> <remote url>", then per ref two lines,
+# "<local ref> <local sha>" and "<remote ref> <remote sha>". Read once, in
+# full; git waits on this hook while it reads.
+reflines=()
+while read -r line; do
+  [ -n "$line" ] && reflines+=("$line")
+done
+echo "pre-push: refs: ${reflines[*]:-<none>}"
+
+pushed_shas=()
+count=${#reflines[@]}
+for (( i = 1; i + 1 < count; i += 2 )); do
+  local_sha=${reflines[i]##* }
+  remote_sha=${reflines[i + 1]##* }
+  [ "$local_sha" = "$remote_sha" ] && continue
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    pushed_shas+=("$local_sha")
+  else
+    pushed_shas+=("$remote_sha..$local_sha")
+  fi
+done
+
+touches_rust() {
+  local range
+  for range in "${pushed_shas[@]}"; do
+    if git diff --name-only "$range" 2>/dev/null |
+      grep -qE '(^|/)(Cargo\.(toml|lock)|rustfmt\.toml|\.rustfmt\.toml)$|\.rs$'; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_step() {
+  # run_step <name> <budget> <command...>
+  local name=$1 budget=$2
+  shift 2
+  local remaining=$((total_budget - ( $(date +%s) - started )))
+  if (( remaining <= 0 )); then
+    echo "pre-push: $name: FAIL budget exhausted before the step ran (total ${total_budget}s)" >&2
+    status=1
+    return
+  fi
+  if (( budget > remaining )); then budget=$remaining; fi
+  local t0 t1 code
+  t0=$(date +%s)
+  timeout "$budget" "$@"
+  code=$?
+  t1=$(date +%s)
+  if (( code == 124 || code == 137 )); then
+    echo "pre-push: $name: FAIL budget ${budget}s exceeded (AGENTS.md §10; a timed-out gate is not a pass)" >&2
+    status=1
+    return
+  fi
+  if (( code != 0 )); then
+    echo "pre-push: $name: FAIL exit $code after $((t1 - t0))s" >&2
+    status=1
+    return
+  fi
+  echo "pre-push: $name: PASS $((t1 - t0))s (budget ${budget}s)"
+}
+
+run_board() {
+  # The reconcile as tools/board/README.md runs it: the controls, the named
+  # source of truth, and a board to reconcile. Without a plan it reports
+  # plan-source-undeclared; without a source it reports no board.
+  local plan=${APEIRON_HOOKS_BOARD_PLAN:-docs/plan.md}
+  local board_source=""
+  local board_cmd=(python3 -B tools/board/board.py check --controls)
+  [ -f "$plan" ] && board_cmd+=(--plan "$plan")
+  if [ -n "${APEIRON_HOOKS_BOARD_SOURCE:-}" ]; then
+    board_cmd+=(--source "$APEIRON_HOOKS_BOARD_SOURCE")
+    board_source="snapshot $APEIRON_HOOKS_BOARD_SOURCE"
+  elif [ -n "${OPERATELY_API_KEY:-}" ]; then
+    board_cmd+=(--live)
+    board_source="live operately"
+  else
+    board_source="none (no OPERATELY_API_KEY, no APEIRON_HOOKS_BOARD_SOURCE)"
+    echo "pre-push: board-reconcile: no board source; set OPERATELY_API_KEY or APEIRON_HOOKS_BOARD_SOURCE" >&2
+  fi
+  local t0 t1 code
+  t0=$(date +%s)
+  timeout "$board_budget" "${board_cmd[@]}"
+  code=$?
+  t1=$(date +%s)
+  echo "pre-push: board-reconcile: source=${board_source}, plan=${plan}, budget ${board_budget}s"
+  if (( code == 124 || code == 137 )); then
+    echo "pre-push: board-reconcile: FAIL budget ${board_budget}s exceeded (AGENTS.md §10)" >&2
+    status=1
+    return
+  fi
+  case "$code" in
+    0) echo "pre-push: board-reconcile: CLEAN exit 0 after $((t1 - t0))s" ;;
+    1)
+      echo "pre-push: board-reconcile: DRIFT exit 1 after $((t1 - t0))s" >&2
+      echo "pre-push: board-reconcile: mode=${board_mode}; the wave boundary runs this" >&2
+      echo "pre-push: board-reconcile: python3 tools/board/board.py check --controls" >&2
+      if [ "$board_mode" = "block" ]; then
+        echo "pre-push: board-reconcile: refusing the push (APEIRON_HOOKS_BOARD_CHECK=block)" >&2
+        status=1
+      else
+        echo "pre-push: board-reconcile: report mode; drift is open at the barrier" >&2
+      fi
+      ;;
+    2|3)
+      # 2 is usage/transport/controls failure, 3 is "no actionable task". Neither
+      # is a clean verdict: report mode names it and leaves the barrier authority.
+      echo "pre-push: board-reconcile: ERROR exit $code after $((t1 - t0))s (see above)" >&2
+      echo "pre-push: board-reconcile: mode=${board_mode}; this is not a clean board" >&2
+      if [ "$board_mode" = "block" ]; then
+        echo "pre-push: board-reconcile: refusing the push (APEIRON_HOOKS_BOARD_CHECK=block)" >&2
+        status=1
+      fi
+      ;;
+    *) echo "pre-push: board-reconcile: FAIL exit $code" >&2
+       status=1 ;;
+  esac
+}
+
+if (( ${#pushed_shas[@]} == 0 )); then
+  echo "pre-push: no ref to push (${count} stdin line(s) read); nothing to gate"
+  exit 0
+fi
+
+case "$scope" in
+  always)
+    run_rust=1
+    ;;
+  rust)
+    if touches_rust; then
+      run_rust=1
+    else
+      run_rust=0
+      echo "pre-push: clippy+tests: SKIP (no Rust source or Cargo manifest in the pushed range)"
+    fi
+    ;;
+  *)
+    echo "pre-push: APEIRON_HOOKS_PUSH_SCOPE must be 'rust' or 'always', got '$scope'" >&2
+    exit 2
+    ;;
+esac
+
+if (( run_rust )); then
+  run_step clippy "$step_budget" cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
+  run_step cargo-test "$step_budget" cargo test --locked --lib --test table --test native_locator
+fi
+
+run_board
+
+if (( status != 0 )); then
+  echo "pre-push: REFUSED; the push was not sent" >&2
+else
+  echo "pre-push: OK in $(( $(date +%s) - started ))s of ${total_budget}s"
+fi
+exit "$status"
