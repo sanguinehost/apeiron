@@ -10,7 +10,14 @@
 //!   validator controls.
 //! - `--check performance --profile smoke|full [--accept] [--json]`: the W3 measurement. Both real
 //!   tables run one deterministic shared fixed-16 schedule; the smoke profile is the focused gate
-//!   and the full profile is the exact preregistered counts. The default human output is a
+//!   and the full profile is the exact preregistered counts. Before the first sample the run takes
+//!   an exclusive `flock` on `/tmp/opencode/reg1.lock` (override with `REG1_MEASURE_LOCK`, queue
+//!   behind a held lock with `REG1_MEASURE_LOCK_WAIT_S`, default `0` = refuse immediately) and
+//!   reads the quiet-box instruments; a contended box **refuses** with
+//!   `measurement_valid=false reason=<lock_contended|load1_above_limit|contending_processes|
+//!   host_busy_above_limit|precondition_error>` on stdout and exit 3. A refused run prints no pass
+//!   tally, no HEADLINE and no `strict_acceptance` line: it is invalid for measurement, not a
+//!   verdict. See `measure_guard` for the limits and their overrides. The default human output is a
 //!   fixed-width `(cell, incumbent)` pair table with the selected and incumbent worker counts, a
 //!   `concurrency` column (`matched`/`MISMATCH`), an `address_face` column and a single HEADLINE;
 //!   `--json` restores the machine-line dump. `--accept` is the strict acceptance mode: it applies
@@ -52,6 +59,7 @@ mod correctness;
 mod coverage;
 mod history;
 mod matrix;
+mod measure_guard;
 mod performance;
 mod strata;
 mod workload;
@@ -387,7 +395,7 @@ fn git_head() -> (String, bool) {
     (head, dirty)
 }
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -587,24 +595,32 @@ fn run(args: &[String]) -> i32 {
             correctness::run_correctness(controls)
         }
         Some("performance") => {
-            if let Some(profile) = parse_profile(args) {
-                if accept {
-                    acceptance::run_accept(profile, controls, json)
-                } else {
-                    let output = if json {
-                        performance::Output::Json
-                    } else {
-                        performance::Output::Table
-                    };
-                    performance::run_performance(profile, controls, false, output)
-                }
-            } else {
+            let Some(profile) = parse_profile(args) else {
                 eprintln!(
                     "usage: reg1 --check performance --profile smoke|full [--accept] [--controls] \
                      [--json]"
                 );
-                64
-            }
+                return 64;
+            };
+            // The measurement precondition. A timing claim on a contended box is a different
+            // quantity, so the run refuses by name instead of reporting; see
+            // `measure_guard`. The lock is held for the whole measurement and released on exit.
+            let guard = match measure_guard::acquire(profile, accept) {
+                Ok(guard) => guard,
+                Err(refusal) => return refusal.report(),
+            };
+            let code = if accept {
+                acceptance::run_accept(profile, controls, json)
+            } else {
+                let output = if json {
+                    performance::Output::Json
+                } else {
+                    performance::Output::Table
+                };
+                performance::run_performance(profile, controls, false, output)
+            };
+            guard.release();
+            code
         }
         Some("coverage") => coverage::run_coverage(controls),
         Some("history") => history::run_history(controls),
