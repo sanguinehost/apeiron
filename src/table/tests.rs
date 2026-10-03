@@ -6,7 +6,7 @@ use super::{
     shard, slots_for, spill_locate, spill_read, tag, ApplyOutcome, Flat, FlatSlot, Home,
     PreparedResult, RebuildPlan, RebuildReserved, Region, ReplacementMerge, SearchClass,
     SearchDecision, SearchLocation, SpillSite, StorageError, Stored, Table, TableAddress, WordHome,
-    SHARDS,
+    COORD_EMPTY, SHARDS,
 };
 use crate::cell::Sigma;
 use crate::coord::address::{
@@ -114,83 +114,111 @@ impl Home<Counted> for CountWordHome {
 // route, so the collision-only placement cannot leak into a face encoding.
 locator_face!(CountWordHome, Counted, counted_word);
 
-/// The flat density planner is fallible and part of the reserve-all path: an oversized bitmap
-/// sizing or a refused reservation returns `Err` with the committed table unchanged and no
-/// hold, clone, merge or relocation. The admitted path returns the exact count and the extent
-/// decision on a fixed fixture is the one the former infallible planner selected.
+/// The resident-width planner is the incumbent's one sizing law and is constant time.
+///
+/// `fold hashtrinity/src/lib.rs:498-502` (`bits_for`) is the next power of two that admits the
+/// population, with no table-wide census. The two contracts that survive the census are checked
+/// here in `O(1)`: the new width admits `required_lane`, and the new width fits the byte budget.
+/// A required lane at or beyond the budget ceiling returns `None`, which is the only refusal the
+/// resident path has; the table is untouched either way.
 #[test]
-fn density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged() {
+fn selected_lanes_admits_the_required_lane_and_refuses_past_the_byte_budget() {
     let sigma = Sigma::Parabolic;
     let clones = Rc::new(Cell::new(0usize));
     let mk = |value: i64| Counted {
         value,
         clones: Rc::clone(&clones),
     };
-
-    // Fixed fixture: 1000 live resident direct words across four lanes.
-    let mut resident = Flat::<Stored<Counted>, Counted>::reserve(4).expect("four lanes");
-    let seed = <Stored<Counted> as KeyRep<Counted, CountWordHome>>::hold(
-        sigma,
-        &mk(0),
-        &Home::address(&CountWordHome, sigma, &mk(0)),
-    );
-    resident.initialize(sigma, &seed, &mk(-1));
-    let mut key = 0i64;
-    while key < 1000 {
-        let held = <Stored<Counted> as KeyRep<Counted, CountWordHome>>::hold(
-            sigma,
-            &mk(key),
-            &Home::address(&CountWordHome, sigma, &mk(key)),
-        );
-        let word = Home::address(&CountWordHome, sigma, &mk(key))
-            .direct_word
-            .expect("word key");
-        let index = resident.index(word).expect("admitted lane");
-        resident.slots[index] = FlatSlot {
-            live: true,
-            sigma,
-            held,
-            value: mk(key),
-        };
-        key += 1;
-    }
     let mut table = Table::<Counted, Counted, CountWordHome, 16>::new(mk(-1), CountWordHome);
-    table.resident = resident;
 
-    // The admitted bitmap returns the exact distinct count and the extent is unchanged.
+    // The minimum rung is admitted, and each rung is the next power of two.
+    assert_eq!(table.selected_lanes(0, 0), Ok(Some(1)));
+    assert_eq!(table.selected_lanes(1, 0), Ok(Some(2)));
+    assert_eq!(table.selected_lanes(3, 0), Ok(Some(4)));
+    assert_eq!(table.selected_lanes(15, 0), Ok(Some(16)));
+    assert_eq!(table.selected_lanes(16, 0), Ok(Some(32)));
+
+    // `Flat::byte_len_for(lane) = lane * 256 * 32` and `DEFAULT_BUDGET_BYTES = 256 * 1024`, so
+    // width 32 is exactly at the budget and width 64 is one rung above it. A required lane of 31
+    // therefore rounds to 32 and is admitted; a required lane of 32 rounds to 64 and is not.
     assert_eq!(
-        table.density_bitmap(4, Some(1000)).map(|(_, n)| n),
-        Ok(1001)
+        Flat::<Stored<Counted>, Counted>::byte_len_for(32),
+        Some(262_144)
     );
-    assert_eq!(table.selected_lanes(0, 1000), Ok(Some(4)));
-
-    // Snapshot the committed state; a refusal must not touch it.
-    let before_len = table.len();
-    let before_lanes = table.resident.lanes;
-    let before_resident_len = table.resident.slots.len();
-    let before_tags: Vec<u8> = table.shards[0].markers();
-    let before_slots = table.shards[0].slots.len();
-    clones.set(0);
-
-    // A bitmap whose checked size overflows `usize` refuses before any allocation attempt.
     assert_eq!(
-        table.density_bitmap(usize::MAX, Some(0)).map(|(_, n)| n),
-        Err(StorageError::SizeOverflow)
+        Flat::<Stored<Counted>, Counted>::byte_len_for(64),
+        Some(524_288),
+        "one rung above the budget"
     );
-    // A bitmap sizing that fits but whose reservation the allocator refuses is a refusal too.
+    assert_eq!(table.selected_lanes(31, 0), Ok(Some(32)));
     assert_eq!(
-        table
-            .density_bitmap(usize::MAX / 256, Some(0))
-            .map(|(_, n)| n),
-        Err(StorageError::AllocationFailed)
+        table.selected_lanes(32, 0),
+        Ok(None),
+        "a required lane whose next-power-of-two width exceeds the byte budget is not admitted"
+    );
+    assert_eq!(
+        table.selected_lanes(usize::MAX, 0),
+        Err(StorageError::SizeOverflow),
+        "a required lane that cannot be rounded up is a checked sizing refusal"
     );
 
-    assert_eq!(table.len(), before_len);
-    assert_eq!(table.resident.lanes, before_lanes);
-    assert_eq!(table.resident.slots.len(), before_resident_len);
-    assert_eq!(table.shards[0].markers(), before_tags);
-    assert_eq!(table.shards[0].slots.len(), before_slots);
-    assert_eq!(clones.get(), 0, "a density refusal must not clone");
+    // Every arm above is a pure decision: nothing was committed and no carrier was cloned.
+    assert_eq!(table.len(), 0);
+    assert_eq!(table.resident.lanes, 0);
+    assert_eq!(table.resident.slots.len(), 0);
+    assert_eq!(clones.get(), 0, "a width refusal must not clone");
+}
+
+/// An absent key is decided by the vacant coordinate word at its home slot.
+///
+/// This is the read the incumbent's kernel buys. `full.asm` `probe_get` answers absence with
+/// `mov (%rcx,%rax,8),%rcx` / `cmp $0xffffffffffffffff` / `ret`: one contiguous coordinate load,
+/// one compare, no cycle. The test pins both halves, because either alone is weak. The returned
+/// `None` alone cannot discriminate — a read that ignored the vacant coordinate and walked the whole
+/// cycle would return the same `None`. The step count and the vacancy certificate are what
+/// discriminate, so a read that dropped or inverted the vacant-coordinate compare costs the region's
+/// whole capacity here instead of one load.
+///
+/// Placement `0` homes slot 0 and publication there leaves slots `1..=31` vacant, so placement
+/// `256` (coordinate `256 >> 8 = 1`, below the capacity) homes the vacant slot 1. The live key in
+/// slot 0 is what a read that started at the wrong slot would return.
+#[test]
+fn an_absent_read_is_decided_by_the_vacant_coordinate_at_its_home() {
+    let live = TableAddress {
+        place: 0,
+        direct_word: None,
+    };
+    let mut region = Region::<Stored<i64>, i64>::reserve_empty(32).expect("one flat region");
+    let held = <Stored<i64> as KeyRep<i64, WordHome>>::hold(Sigma::Parabolic, &7, &live);
+    region.initialize(Sigma::Parabolic, &held, &0);
+    region.publish_live(0, (Sigma::Parabolic, held.clone(), 41), live.place);
+
+    let absent = TableAddress {
+        place: 256,
+        direct_word: None,
+    };
+    assert_eq!(
+        region.home(absent.place),
+        1,
+        "the fixture's absent coordinate homes the vacant slot beside the live one"
+    );
+
+    read_trace::clear();
+    assert_eq!(
+        spill_read::<i64, WordHome, Stored<i64>, i64>(&region, Sigma::Parabolic, &absent, &99, 16),
+        None,
+        "a key absent from the region reads the default"
+    );
+    assert_eq!(
+        read_trace::sweep_steps(),
+        1,
+        "an absent read costs one coordinate load, not one cycle of 32"
+    );
+    assert_eq!(
+        read_trace::absence_certificates(),
+        1,
+        "the vacant coordinate word is the absence certificate"
+    );
 }
 
 /// The bounded linear cycle finds a match stored past every same-fingerprint reject.
@@ -1133,22 +1161,30 @@ fn table_get_certifies_absence_on_a_completed_spill_cycle() {
     );
 
     // The control: a vacancy present makes the same absent key cheap, so the cost above is the
-    // cycle and not the key.
+    // cycle and not the key. The vacancy is the region's vacant coordinate word
+    // (`Region::publish_live`'s publication point), so the control blanks `coords[home]`; blanking
+    // only the per-slot `tag` leaves a live coordinate and the read still runs the whole cycle.
     let absent_address = Home::address(&WordKeyHome, Sigma::Parabolic, &absent);
     let home = table.shards[0].home(absent_address.place);
-    table.shards[0].slots[home].tag = 0;
-    table.shards[0].live -= 1;
+    let blank_coordinate = {
+        let region = &mut table.shards[0];
+        region.slots[home].tag = 0;
+        region.live -= 1;
+        region.coords[home] = COORD_EMPTY;
+        true
+    };
+    assert!(blank_coordinate, "the control committed its vacancy");
     read_trace::clear();
     assert_eq!(table.get(&absent), &table.default);
     assert_eq!(
         read_trace::sweep_steps(),
         1,
-        "with a vacancy at the home slot the same absent key stops on the first zero tag"
+        "with a vacant coordinate at the home slot the same absent key stops on the first load"
     );
     assert_eq!(
         read_trace::absence_certificates(),
         1,
-        "the vacancy is the certificate now"
+        "the vacant coordinate is the certificate now"
     );
 }
 

@@ -9,6 +9,15 @@
 /// so the budget uses this bound. A larger element type is capped to correspondingly fewer lanes.
 const ASSUMED_SLOT_BYTES: usize = 32;
 
+/// The vacant-slot marker of a region's coordinate array.
+///
+/// Ported from `fold hashtrinity/src/lib.rs:298` (`const EMPTY: u64 = u64::MAX`). A live coordinate
+/// never equals it: [`Region::coord_of`] nudges the one colliding value aside, so
+/// `coord == COORD_EMPTY` unambiguously means "vacant" and nothing else. This is the word that
+/// makes an absent read `O(1)`: one load, one compare, `ret` (`full.asm` `probe_get`,
+/// `cmp $0xffffffffffffffff`).
+const COORD_EMPTY: u64 = u64::MAX;
+
 /// Test-only record of the spill publication steps, so the contract order can be checked on the
 /// real write path. Inert outside `cfg(test)`; it is not a production or reference path.
 #[cfg(test)]
@@ -80,19 +89,33 @@ impl<R, V> SpillSlot<R, V> {
 /// that cycle having visited it.
 ///
 /// **No deletion.** Nothing in the table removes a spill entry; a repeated key merges in place.
-/// There are therefore no tombstones, and a zero tag terminates a probe correctly: no live slot can
-/// sit beyond a vacancy, because a linear insert only ever places at the first vacancy at or after
-/// its home. (A future deletion would have to introduce a tombstone and would void this argument.)
+/// There are therefore no tombstones, and a vacant coordinate terminates a probe correctly: no live
+/// slot can sit beyond a vacancy, because a linear insert only ever places at the first vacancy at
+/// or after its home. (A future deletion would have to introduce a tombstone and would void this
+/// argument.)
 ///
 /// **Publication order.** A fresh write stores `sigma`, `held` and `value` first, then writes the
-/// nonzero `tag` last. The tag write is the occupancy publication point, so no search-visible state
-/// has a live tag over an unpublished payload.
+/// nonzero `tag`, then writes the coordinate word. The coordinate write is the occupancy
+/// publication point, so no search-visible state has a live coordinate over an unpublished payload.
 ///
-/// The occupancy summary, the per-slot tag array and the group/window descent are retired: the tag
-/// travels with its payload in one array, and absence is certified by the bounded probe.
+/// **The resident kernel is the incumbent's.** `coords` is the contiguous coordinate array of
+/// `fold hashtrinity/src/lib.rs:409` (`coords: Box<[u64]>`): one `u64` per slot holding the placed
+/// key's own coordinate word, or [`COORD_EMPTY`] while vacant. One word carries occupancy, identity
+/// and the absence certificate at once, so an absent read is one load and one compare
+/// (`full.asm` `probe_get`: `mov (%rcx,%rax,8),%rcx` then `cmp $0xffffffffffffffff`). The per-slot
+/// `tag` stays as the published occupancy marker the relocation and coverage passes read; it is not
+/// on the probe path.
 pub(crate) struct Region<R, V> {
     /// The open-addressed slot array; length is the capacity, a power of two or zero.
     slots: Vec<SpillSlot<R, V>>,
+    /// The contiguous coordinate array: one placed coordinate word per slot index, or
+    /// [`COORD_EMPTY`] while vacant. Its length equals [`Self::slots`].
+    coords: Vec<u64>,
+    /// The incumbent's `bits` for this capacity: `log2(slots.len())`, or `0` while there is no
+    /// storage. Stored rather than recomputed, because `usize::trailing_zeros` has no field in the
+    /// pinned Aeneas Lean model and the fail-closed audit rejects the external (see
+    /// `density_below`'s note on the same rule).
+    bits: u32,
     /// The number of occupied slots.
     live: usize,
 }
@@ -100,6 +123,8 @@ impl<R, V> Region<R, V> {
     fn empty() -> Self {
         Self {
             slots: Vec::new(),
+            coords: Vec::new(),
+            bits: 0,
             live: 0,
         }
     }
@@ -113,26 +138,58 @@ impl<R, V> Region<R, V> {
         self.slots.len()
     }
 
-    /// The home slot of `place`: the mixed placement word masked to the region capacity.
+    /// A placement's coordinate word: `place` with the low shard byte removed, and the reserved
+    /// vacant marker nudged aside.
     ///
-    /// The mixing is the retired summary's mixer, so the home of a placement is unchanged by the
-    /// flat port. `O(1)`; spatial `O(1)`.
+    /// The low [`SHARD_BITS`] bits of `place` select the region (see [`shard`]), so they are
+    /// constant across one region's whole population and carry no information inside it; the
+    /// coordinate word is what remains. The nudge is `Table::coord_of` of
+    /// `fold hashtrinity/src/lib.rs:548-561`, which maps the one colliding value aside so a live
+    /// coordinate is never [`COORD_EMPTY`]. That nudge aliases the top of the range, the same
+    /// 2⁻⁶⁴ identity risk the coordinate already trusts and unreachable for the coordinate words
+    /// this table homes.
+    #[inline]
+    fn coord_of(place: u64) -> u64 {
+        let c = place >> SHARD_BITS;
+        if c == COORD_EMPTY {
+            COORD_EMPTY - 1
+        } else {
+            c
+        }
+    }
+
+    /// The home slot of `place`: the incumbent's home, `fold hashtrinity/src/lib.rs:565-572`.
+    ///
+    /// A coordinate below the region capacity indexes directly, with no hash; a larger one takes the
+    /// top `bits` of `coord · PHI`, the Fibonacci multiply-shift whose multiply is on the
+    /// fall-through branch in `full.asm` `probe_get` (`1822b`/`18235`) while the direct index is the
+    /// taken branch (`18225`/`18229`). `PHI` is odd, so the multiply-shift is a bijection on the
+    /// word and loses no key. `O(1)`; spatial `O(1)`.
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "the mask is `capacity - 1`, so the retained value is below capacity and fits usize"
+        reason = "the direct branch proves the value is below capacity and the shift leaves at most                   `bits` bits, so both fit usize"
     )]
     #[inline]
     fn home(&self, place: u64) -> usize {
-        let mixed = (place >> 8).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        let mixed = mixed ^ (mixed >> 29);
-        (mixed as usize) & (self.slots.len() - 1)
+        let c = Self::coord_of(place);
+        let len = self.coords.len();
+        // A region with no storage never reaches a probe; the guard keeps the shift below 64.
+        if len == 0 {
+            return 0;
+        }
+        if c < len as u64 {
+            c as usize
+        } else {
+            (c.wrapping_mul(TAG_SPREAD) >> (64 - self.bits)) as usize
+        }
     }
 
-    /// Publishes one fresh live spill slot in the contract order: payload, then the nonzero tag.
+    /// Publishes one fresh live spill slot in the contract order: payload, then the nonzero tag,
+    /// then the coordinate word.
     ///
-    /// The tag write is the occupancy publication point; no fallible operation and no
-    /// search-visible handoff runs between the payload store and the tag store, so every
-    /// search-visible state with a live tag has its published payload.
+    /// The coordinate write is the occupancy publication point; no fallible operation and no
+    /// search-visible handoff runs between the payload store and the coordinate store, so every
+    /// search-visible state with a live coordinate has its published payload.
     #[inline]
     fn publish_live(&mut self, index: usize, payload: (Sigma, R, V), place: u64) {
         self.slots[index].sigma = payload.0;
@@ -141,6 +198,7 @@ impl<R, V> Region<R, V> {
         #[cfg(test)]
         publication_trace::record(publication_trace::PAYLOAD);
         self.slots[index].tag = tag(place);
+        self.coords[index] = Self::coord_of(place);
         self.live += 1;
         #[cfg(test)]
         publication_trace::record(publication_trace::TAG);
@@ -159,14 +217,22 @@ impl<R: Clone, V: Clone> Region<R, V> {
     /// Reserves `capacity` initialized-length slots of storage without writing any slot.
     ///
     /// The capacity is checked before any reservation, so a sizing overflow refuses without a
-    /// partial allocation. `O(capacity)`; spatial `O(capacity)` slots.
+    /// partial allocation. Both arrays are checked, so a refused second reservation commits neither.
+    /// `O(capacity)`; spatial `O(capacity)` slots and `O(capacity)` coordinate words.
     fn reserve_empty(capacity: usize) -> Result<Self, StorageError> {
         let mut slots = Vec::new();
         try_reserve_exact(&mut slots, capacity)?;
-        Ok(Self { slots, live: 0 })
+        let mut coords = Vec::new();
+        try_reserve_exact(&mut coords, capacity)?;
+        Ok(Self {
+            slots,
+            coords,
+            bits: 0,
+            live: 0,
+        })
     }
 
-    /// Writes the vacant marker into every slot, filling the array to its reserved capacity.
+    /// Writes the vacant marker into every slot, filling both arrays to their reserved capacity.
     ///
     /// Temporal `O(capacity)` clones; spatial `O(capacity)`.
     fn initialize(&mut self, sigma: Sigma, held: &R, default: &V) {
@@ -179,6 +245,18 @@ impl<R: Clone, V: Clone> Region<R, V> {
                 value: default.clone(),
             });
         }
+        while self.coords.len() < capacity {
+            self.coords.push(COORD_EMPTY);
+        }
+        // The capacity is a power of two, so this counts the doublings that produce it: `bits` is
+        // `log2(capacity)`, the shift width the multiply-shift home needs.
+        let mut width = capacity;
+        let mut bits = 0u32;
+        while width > 1 {
+            width /= 2;
+            bits += 1;
+        }
+        self.bits = bits;
     }
 }
 
@@ -347,32 +425,6 @@ fn capacity_bound(required_len: usize, observed_capacity: usize) -> CapacityBoun
         required_len,
         observed_capacity,
     }
-}
-/// Marks a certified direct word in the density bitmap and increments `count` on its first sight.
-///
-/// The marking half of the density bitmap: sets the bit for `word` below `limit` and reports
-/// whether it was newly set.
-///
-/// A caller reads its counts as prefix popcounts of one bitmap, so marking is separable from
-/// counting and no running tally is kept. The `word < limit` guard is load-bearing: only words
-/// that could select a resident slot below `limit` participate in a density count. Temporal O(1);
-/// spatial O(1).
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "the `word < limit` guard bounds the index by a lane count that fits usize"
-)]
-fn mark_direct_word_bit(seen: &mut [u64], word: u32, limit: u64) -> bool {
-    if u64::from(word) >= limit {
-        return false;
-    }
-    let bit = word as usize;
-    let slot = &mut seen[bit / 64];
-    let mask = 1u64 << (bit % 64);
-    if *slot & mask == 0 {
-        *slot |= mask;
-        return true;
-    }
-    false
 }
 /// A total-default table with flat certified resident cells and grouped spill regions.
 struct FlatSlot<R, V> {
