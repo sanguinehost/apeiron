@@ -70,10 +70,11 @@ pub struct PhaseNanos {
     /// `Parts::loads` plus `Schedule::lpt`; now the shard schedule and worker bins derived from the
     /// scatter plan's loads, before the first scatter worker.
     pub schedule: u64,
-    /// The serial reserve-all: every nonempty shard's checked region, every distinct key's
-    /// complete directory path and per-input handle table, one placement-record buffer per
+    /// The serial reserve-all: every nonempty shard's checked region, the batch's aggregate locator
+    /// reverse-link extent, every input entry's admitted handle, one placement-record buffer per
     /// nonempty shard, and every worker's outcome buffer and joined-results sink, reserved before
-    /// any worker starts.
+    /// any worker starts. The per-key directory path is not walked here; the cold
+    /// [`Self::assemble_directory`] builds it after the workers join.
     pub reserve: u64,
     /// The scoped per-shard build or grouped probe.
     pub kernel: u64,
@@ -531,14 +532,15 @@ where
         let mut reserved = reserve_all_shards::<R, V, N>(&loads)?;
         phases.reserve = elapsed_ns(mark);
         // The recording structures and the directory: the per-input handle table and one
-        // placement-record buffer per nonempty shard, then a reserved and linked complete path for
-        // every distinct key, all before any worker starts. Each input entry's terminal handle is
-        // recorded; the recorded payload locations are placeholders overwritten by the
-        // recorded-location finalization after assembly.
+        // placement-record buffer per nonempty shard, then the aggregate locator extent for every
+        // input entry, all before any worker starts. Each input entry's handle is recorded without
+        // a per-key directory walk: its admitted reverse-link slot is written into the reserved
+        // extent, and the cold `assemble_directory` resolves the directory after the workers join.
         let mark = Instant::now();
         let mut handles = reserve_handle_table(kvs.len())?;
         let mut record_bufs = reserve_placement_records(&loads)?;
-        table.preassemble_directory(kvs, &mut handles)?;
+        table.reserve_locator_batch(kvs.len())?;
+        table.admit_parallel_handles(kvs, &mut handles)?;
         phases.reserve += elapsed_ns(mark);
         // The scatter plan's loads are the assembled partition's per-shard counts; derive the shard
         // schedule, the worker bins and every worker's outcome buffer on the calling thread before
@@ -629,12 +631,15 @@ where
         Ok((table, phases))
     }
 
-    /// Installs every joined shard region and then the worker-recorded payload locations.
+    /// Installs every joined shard region, finalizes the worker-recorded payload locations and
+    /// assembles the locator directory.
     ///
     /// Runs after every worker has joined. Each outcome's region moves into its shard slot and its
     /// placement records into the caller's pre-reserved staging; when all regions are installed,
-    /// [`Self::finalize_recorded_locations`] sets the reverse links. No fallible allocation,
-    /// `Home::address`, directory walk, payload probe, clone or merge happens here.
+    /// [`Self::finalize_recorded_locations`] consumes the recorded handles and then
+    /// [`Self::assemble_directory`] links each live payload's complete path cold, resolving the
+    /// reverse links the reserve phase admitted. The directory build is the only fallible part; the
+    /// region install and the finalization add no reservation.
     fn install_and_finalize(
         &mut self,
         built: Vec<WorkerOutcomes<R, V>>,
@@ -649,7 +654,8 @@ where
                 placed.push((s, records));
             }
         }
-        self.finalize_recorded_locations(handles, placed)
+        self.finalize_recorded_locations(handles, placed)?;
+        self.assemble_directory()
     }
 
     /// Installs every worker-recorded payload location as its input entry's reverse link.

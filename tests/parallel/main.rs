@@ -872,9 +872,12 @@ fn parallel_build_skips_elliptic_placements_and_reads_back_every_face() {
     }
 }
 
-/// The directory reservation runs before the first fill worker: arming the late identity-edge seam
-/// refuses the parallel build with no hold, clone, merge or scatter worker, and the restored build
-/// covers the assembled table and equals the serial map.
+/// The late identity-edge reservation is cold: the parallel build fills and joins every worker and
+/// installs the worker-recorded placements before the directory walk links an identity edge. Arming
+/// the late identity-edge seam therefore refuses the build on the cold link, after the workers have
+/// joined and their outcomes are already materialized: the refused build performs exactly the
+/// workers' merges (a pre-worker reservation would leave them at zero) and returns no partial table,
+/// and the restored build covers the assembled table and equals the serial map.
 #[cfg(feature = "injection")]
 #[test]
 fn injected_late_locator_edge_refusal_has_zero_cross_worker_effects() {
@@ -923,28 +926,35 @@ fn injected_late_locator_edge_refusal_has_zero_cross_worker_effects() {
     );
     apeiron::coord::locator::reservation_failure::disarm();
 
+    let refused_merges = merges.load(Ordering::SeqCst);
+    // The cold link runs after the fill workers join, so every worker callback and every `address`
+    // call has already happened: the worker-phase merge count is nonzero and the address count
+    // exceeds the planning pass. A pre-worker locator reservation would leave the merges at zero and
+    // the address count at exactly the planning pass, so these two assertions reject that boundary.
+    assert!(
+        refused_merges > 0,
+        "the refusal is on the cold link, so the fill workers must have merged"
+    );
+    assert!(
+        calls.load(Ordering::SeqCst) > input.len(),
+        "the cold link runs after the planning pass"
+    );
+    assert!(
+        holds.load(Ordering::SeqCst) > 0 && clones.load(Ordering::SeqCst) > 0,
+        "the fill workers must have held a key and cloned a payload or default"
+    );
     assert!(
         matches!(refused, Err(StorageError::AllocationFailed)),
         "the injected late locator edge must refuse with AllocationFailed"
     );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        input.len(),
-        "only the checked planning pass may run before the locator reservation refuses"
-    );
-    assert_eq!(
-        holds.load(Ordering::SeqCst),
-        0,
-        "a refusal must not hold a key"
-    );
-    assert_eq!(
-        clones.load(Ordering::SeqCst),
-        0,
-        "a refusal must not clone a payload or default"
-    );
-    assert_eq!(merges.load(Ordering::SeqCst), 0, "a refusal must not merge");
 
-    // Restored success covers the assembled table and equals the serial map.
+    // Restored success performs the same worker phase; the refused build's worker effect equals it,
+    // so the cold-link refusal adds and loses nothing at the worker level (zero cross-worker
+    // effect).
+    holds.store(0, Ordering::SeqCst);
+    clones.store(0, Ordering::SeqCst);
+    merges.store(0, Ordering::SeqCst);
+    calls.store(0, Ordering::SeqCst);
     let restored = AddressTable::build_at_parallel(
         &merge,
         default(-1),
@@ -955,6 +965,11 @@ fn injected_late_locator_edge_refusal_has_zero_cross_worker_effects() {
         8,
     )
     .expect("restored parallel build fits");
+    assert_eq!(
+        merges.load(Ordering::SeqCst),
+        refused_merges,
+        "the refused and restored builds must perform the same worker merges"
+    );
     assert_eq!(reference.len(), restored.len(), "logical length");
     for value in 0..600i64 {
         let key = probe(value);
