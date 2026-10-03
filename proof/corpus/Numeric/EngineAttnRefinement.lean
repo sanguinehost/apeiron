@@ -103,6 +103,25 @@ in this pass, and therefore no longer stated: `word_attn_head_score_refuses`,
 `word_attn_head_exp_refuses`, `word_attn_head_zero_sum`, `word_attn_head_weight_refuses`,
 `word_attn_head_out_refuses`, `word_attn_head_ok`.
 
+`word_attn_head_zero_sum` was re-derived in this pass and is left open for a reason internal to the
+extraction, not for the guard chain: the guard-chain prologue, the `hstor` iota-reduction of the
+storage match, the three `Overflow` `ok_or`/`branch` reductions and both loop-result rewrites all
+close, and the residual is the triple destructuring of the score-loop result. After
+`bind_tc_ok` the goal is
+
+```
+let (scores1, mx, err) := (scores1, mx, none)
+match err with
+| none => do let (exps1, total, err1) ← attn_head_loop1 …; …
+```
+
+a pattern `let`, which `simp` and `rw` do not zeta-reduce (so `hloop1`/`herr1` are reported unused),
+while `rw [if_pos hzero]` cannot reach the `total ≤ 0` test through it. The open goal is exactly
+that `let`/`match` term against `ok (core.result.Result.Err attn.AttnError.ZeroSum, out)`; closing
+it needs either a zeta-capable destructuring of the loop result (a `match`-shape helper lemma applied
+by `simp`, or `cases` on the returned tuple) or the `Ok`/`Err` loop-result equations stated as
+`Option`-`none` payloads with the triple destructuring pre-eliminated.
+
 Residual (`attn_head_refines_proved` is not proved; `attn_head_refines` is unchanged):
 
 1. the four `attn_head_loop0..3` loop specifications over `alloc.vec.Vec.push`, `Vec.index` and
