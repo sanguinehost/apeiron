@@ -1266,7 +1266,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         key: K,
         value: V,
     ) -> Result<(), StorageError> {
-        self.insert_with_at(merge, <H::Faces as FaceDomain<K, H>>::DEFAULT, key, value)
+        self.insert_with_fast(merge, <H::Faces as FaceDomain<K, H>>::DEFAULT, key, value)
     }
     /// Folds a face-qualified stream in the input order of its entries.
     ///
@@ -1466,3 +1466,89 @@ mod tests;
 // module declaration is the only edit this file needs.
 #[path = "table/geteach.rs"]
 pub mod geteach;
+
+// Appended after the last extracted definition, on the same rule the `geteach` declaration above
+// records: `proof/regen.sh --check` diffs the generated `Source: '../../src/table.rs', lines N:M`
+// spans, so an insertion above a reachable definition reports drift with no body change. Nothing
+// above this block moves, the helper emits no definition and no extracted source span shifts;
+// `proof/regen.sh --check` reports the extraction fresh (measured).
+impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
+    /// Inserts at a face, reserving a reverse link only for an admission that needs one.
+    ///
+    /// This is the single-key merge of [`Self::insert_with_at`] with the aggregate reservation made
+    /// conditional on the entry's classification: a found update — resident or spill — admits no
+    /// fresh representative, so it reserves nothing and records nothing, exactly as the incumbent's
+    /// update path does. A vacant lane (resident or routed spill), a completed probe cycle that
+    /// grows a region, and the lane-widening rebuild each admit one representative, so each commits
+    /// [`Self::reserve_locator_batch`] for one slot before its first payload effect, and the vacant
+    /// lane records its admitted slot. The batch entry points keep their own aggregate reservation
+    /// and call [`Self::insert_with_reserved`] unchanged, so this method's shape is local to the
+    /// single-key path.
+    ///
+    /// Temporal `O(1)` on the found and resident paths and the probe walk's cost otherwise; spatial
+    /// `O(1)`. The classification is [`Self::search_decision`], so every key gets the same decision
+    /// [`Self::insert_with_at`] would compute.
+    fn insert_with_fast<F: Merge<V>>(
+        &mut self,
+        merge: &F,
+        face: H::Faces,
+        key: K,
+        value: V,
+    ) -> Result<(), StorageError> {
+        if !valid_n(N) {
+            return Err(StorageError::SizeOverflow);
+        }
+        // Erasure boundary: the typed token becomes the stored `Sigma` here, as in the slow path.
+        let sigma = face.sigma();
+        let address = Home::address(&self.home, sigma, &key);
+        // Resident exact hit: the incumbent's own update fast path. It commits no payload, admits no
+        // representative and reserves nothing, so it returns before the classifier and the
+        // reservation.
+        if let Some(word) = address.direct_word {
+            if let Some(index) = self.resident.index(word) {
+                let found = {
+                    let flat = &self.resident.slots[index];
+                    flat.live
+                        && flat.sigma == sigma
+                        && R::matches(sigma, &flat.held, &key, &address)
+                };
+                if found {
+                    let old = self.resident.slots[index].value.clone();
+                    self.resident.slots[index].value = merge.merge(value, old);
+                    return Ok(());
+                }
+            }
+        }
+        if let Some(word) = address.direct_word {
+            let lane = (word >> SHARD_BITS) as usize;
+            if lane >= self.resident.lanes {
+                if let Some(next) = self.selected_lanes(lane, word)? {
+                    // The widening rebuild admits the pending representative through
+                    // `apply_prepared_rebuild`; its reverse-link slot is reserved here, before the
+                    // rebuild's first merge.
+                    self.reserve_locator_batch(1)?;
+                    return self.rebuild_resident(next, merge, sigma, key, value, &address);
+                }
+            }
+        }
+        let decision = self.search_decision(sigma, &key, &address);
+        // A vacancy admits a fresh representative, so it commits the aggregate reservation for one
+        // slot and records its admitted reverse-link slot before any payload effect. A found update
+        // admits nothing and reserves nothing; a completed probe cycle grows the spill region and
+        // reserves below, before its first commit.
+        if matches!(decision.class, SearchClass::Vacant) {
+            self.reserve_locator_batch(1)?;
+            self.locator
+                .record_admitted_link(sigma, admitted(decision.location))?;
+        }
+        match self.apply_insert(decision, merge, sigma, key, value, &address) {
+            ApplyOutcome::Committed => Ok(()),
+            ApplyOutcome::NeedsGrowth(key, value) => {
+                // Growth admits the pending representative through `grow_spill`, which records its
+                // reverse-link slot; the slot is reserved here, before the region is committed.
+                self.reserve_locator_batch(1)?;
+                self.grow_spill(shard(&address), merge, sigma, key, value, &address)
+            }
+        }
+    }
+}
