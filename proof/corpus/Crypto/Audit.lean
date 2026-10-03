@@ -10,8 +10,9 @@ The `#audit` command below is the same one `Crypto/Keccak/Audit.lean` defines: i
 constant's transitive axiom dependencies with `Lean.collectAxioms` — the mechanism
 `#print axioms` uses — and calls `throwError` on anything outside
 `{propext, Classical.choice, Quot.sound}`. `Crypto.Sponge`, `Crypto.ChaCha`, `Crypto.Sha2`,
-`Crypto.Hmac` and `Crypto.Merkle` carry known-answer `#guard` checks over the untrusted evaluator and
-no proved headlines, so they register nothing here.
+`Crypto.Sha512`, `Crypto.Aes`, `Crypto.Hmac`, `Crypto.Blake2` and `Crypto.Blake2s` carry
+known-answer `#guard` checks over the untrusted evaluator and no `theorem`s at all (audit sweep
+2026-10-03), so they register nothing here; `Crypto.Merkle`'s 21 theorems are registered below.
 -/
 
 import Crypto.Security.Core
@@ -20,6 +21,7 @@ import Crypto.Field.GF2n
 import Crypto.Field.Fp25519
 import Crypto.Field.FpSecp256k1
 import Crypto.Transcript
+import Crypto.Merkle
 import Lean
 
 set_option autoImplicit false
@@ -246,3 +248,30 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Crypto.Transcript.absorbChallenge_absorbed
 #audit Apeiron.Crypto.Transcript.absorbChallenge_counter
 #audit Apeiron.Crypto.Transcript.changes_the_wire_absorbed
+
+-- Crypto.Merkle: RFC 6962 §2.1. The height bound on a node, the two `combine` step laws that
+-- fix which sibling is combined first, the range and shape laws of `path`, the RFC 6962 §2.1.1
+-- path-length bound, the agreement of `path` and `dataAt` on the in-range indices, the
+-- reconstruction of a tree's own root from its own path (`rootFn`, `combine_eq_rootFn`,
+-- `rootFn_apply_root`, `combine_eq_root`) and the `verify_root` acceptance direction.
+#audit Apeiron.Crypto.Merkle.height_node_of_le
+#audit Apeiron.Crypto.Merkle.combine_cons_true
+#audit Apeiron.Crypto.Merkle.combine_cons_false
+#audit Apeiron.Crypto.Merkle.path_leaf_succ
+#audit Apeiron.Crypto.Merkle.path_leaf
+#audit Apeiron.Crypto.Merkle.size_pos
+#audit Apeiron.Crypto.Merkle.size_node_pos
+#audit Apeiron.Crypto.Merkle.cons_tag_ne
+#audit Apeiron.Crypto.Merkle.path_node
+#audit Apeiron.Crypto.Merkle.path_of_node_right
+#audit Apeiron.Crypto.Merkle.path_eq_some_iff
+#audit Apeiron.Crypto.Merkle.path_length_le_height
+#audit Apeiron.Crypto.Merkle.dataAt_none_iff
+#audit Apeiron.Crypto.Merkle.path_none_of_dataAt_none
+#audit Apeiron.Crypto.Merkle.exists_path_of_dataAt
+#audit Apeiron.Crypto.Merkle.exists_dataAt_of_path
+#audit Apeiron.Crypto.Merkle.rootFn_iff_path
+#audit Apeiron.Crypto.Merkle.combine_eq_rootFn
+#audit Apeiron.Crypto.Merkle.rootFn_apply_root
+#audit Apeiron.Crypto.Merkle.combine_eq_root
+#audit Apeiron.Crypto.Merkle.verify_root
