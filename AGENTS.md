@@ -178,7 +178,8 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   dispatched before the easiest, however many lanes it needs.
 
 - **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
-  revision `4cc14471` (`src/lib.rs` sha256 `5bc1c9f48ef0bb17…`) and its monomorphized disassembly,
+  revision `4cc14471` (`src/lib.rs` sha256 `f8c8fd12fc2b7a69…`; fold HEAD `d497161f`'s `lib.rs` is
+  `5bc1c9f48ef0bb17…`, a **different** file — do not mix the two) and its monomorphized disassembly,
   already emitted, at `/home/socol/oc-tmp/ht-llvm/`: `full.asm` sha256 `b68a950e375e5516…`, `ap.asm`
   `2841d4faa631e537…`, `disasm.txt` `61bc3365ac8c71d5…`, with the instruction-level work order in
   `ht-llvm/receipt.md` and the attribution in `ht-probe/receipt.md`. A lane **reads those**; it
