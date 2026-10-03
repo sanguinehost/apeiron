@@ -37,6 +37,10 @@
   `absorb_block` with the lane index `x + 5 * y`, the 24-round permutation fold
   (stage 3, alongside `Crypto/Keccak/Certificate.lean`), the padding merge
   (stage 4) and the squeeze bound (stage 5).
+
+  `absorb_body_step` and `absorb_loop_spec` carry a finite `maxHeartbeats`
+  bound (not `0`) for the extracted loop-body reductions; the bound is
+  documented here and not applied anywhere else in the file.
 -/
 
 import Crypto.Sponge
@@ -357,6 +361,404 @@ theorem absorb_step (a : Array Std.U64 25#usize) (block : Slice Std.U8) (i : Std
   · rw [if_pos h, if_pos h, ← hxl]
     exact hx
   · rw [if_neg h, if_neg h]
+
+/-! ## The absorb loop
+
+`crypto.absorb_block` (3181) reads `Slice.len` twice: the `massert` that the block length is a whole
+number of lanes, then `lanes = |block| / 8`; `crypto.absorb_block_loop` (3170) XORs one
+little-endian block lane per iteration into state lane `i`. This section carries the loop
+invariant against the canonical `xorBlock`: after the loop, lane `k < rate / 8` is the old lane XOR
+the eight block bytes at `8 * k` (the `foldLane` of `absorb_step`), and every other lane is
+unchanged. -/
+
+/-- One `rate`-byte block of a byte list, in the shape `xorBlock` reads: byte `k` of the block is
+byte `k` of the list, out of bounds as zero. -/
+def blockVec (rate : Nat) (bs : List (BitVec 8)) : Vector (BitVec 8) rate :=
+  Vector.ofFn fun i : Fin rate => bs.getD i.val 0
+
+/-- `xorBlock` is read lane by lane: the old lane XOR the `List.range 8` fold over the block
+bytes at `8 * i`. -/
+theorem xorBlock_get (rate : Nat) (s : State) (b : Vector (BitVec 8) rate) (i : Fin 25) :
+    (xorBlock rate s b).get i
+      = s.get i ^^^ (List.range 8).foldl
+          (fun acc j => acc ^^^ ((b.getD (8 * i.val + j) 0).setWidth 64 <<< (8 * j))) 0 := by
+  show (xorBlock rate s b)[i.val] = _
+  simp only [xorBlock, Vector.getElem_ofFn]
+
+/-- An in-bounds byte of a `blockVec` block is the byte of the list. -/
+theorem blockVec_getD (rate : Nat) (bs : List (BitVec 8)) (k : Nat) (hk : k < rate) :
+    (blockVec rate bs).getD k 0 = bs.getD k 0 := by
+  simp [blockVec, Vector.getD, Array.getD, hk]
+
+/-- A byte past the end of a `blockVec` block reads as zero. -/
+theorem blockVec_getD_ge (rate : Nat) (bs : List (BitVec 8)) (k : Nat) (hk : rate ≤ k) :
+    (blockVec rate bs).getD k 0 = 0 := by
+  simp [blockVec, Vector.getD, Array.getD, Nat.not_lt.mpr hk]
+
+/-- Two step functions that agree, at every accumulator, on the elements of the folded list fold
+alike. -/
+theorem foldl_congr {α β : Type} (f g : α → β → α) :
+    ∀ (l : List β), (∀ b ∈ l, ∀ x, f x b = g x b) → ∀ x, l.foldl f x = l.foldl g x := by
+  intro l
+  induction l with
+  | nil => intro _ x; rfl
+  | cons a t ih =>
+    intro h x
+    simp only [List.foldl]
+    rw [← h a (by simp) x]
+    exact ih (fun b hb y => h b (by simp [hb]) y) _
+
+/-- The eight bytes of a window past the end of a byte list fold to the zero lane. -/
+theorem foldLane_eq_zero {bs : List (BitVec 8)} {o : Nat} (h : bs.length ≤ o) :
+    foldLane bs o = 0 := by
+  have key : ∀ j : Nat, j < 8 → (bs.getD (o + j) 0).setWidth 64 <<< (8 * j) = 0 := by
+    intro j _
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (by omega)]
+    simp
+  unfold foldLane
+  rw [foldl_congr _ (fun x _ => x) _
+    (fun j hj x => by rw [key j (List.mem_range.mp hj)]; simp [BitVec.xor_zero]) 0]
+  rfl
+
+/-- `xorBlock` of a byte-list block at a rate lane is the old lane XOR the eight block bytes at
+`8 * k`: the `rate % 8 = 0` bound keeps every byte of that window inside the block. -/
+theorem xorBlock_blockVec_foldLane (rate : Nat) (s : State) (bs : List (BitVec 8))
+    (hrate : rate % 8 = 0) (i : Fin 25) (hi : i.val < rate / 8) :
+    (xorBlock rate s (blockVec rate bs)).get i = s.get i ^^^ foldLane bs (8 * i.val) := by
+  rw [xorBlock_get]
+  have hr8 : rate = 8 * (rate / 8) := by omega
+  have hfun : ∀ j : Nat, j < 8 →
+      (blockVec rate bs).getD (8 * i.val + j) 0 = bs.getD (8 * i.val + j) 0 := by
+    intro j hj
+    exact blockVec_getD rate bs (8 * i.val + j) (by omega)
+  unfold foldLane
+  rw [foldl_congr _ _ _
+    (fun j hj x => by rw [hfun j (List.mem_range.mp hj)]) 0]
+
+/-- `xorBlock` of a byte-list block past the rate block leaves the lane unchanged: the block holds
+`rate` bytes and reads out of bounds as zero. -/
+theorem xorBlock_lane_ge (rate : Nat) (s : State) (bs : List (BitVec 8)) (hrate : rate % 8 = 0)
+    (hlen : bs.length = rate) (i : Fin 25) (hi : rate / 8 ≤ i.val) :
+    (xorBlock rate s (blockVec rate bs)).get i = s.get i := by
+  rw [xorBlock_get]
+  have hr8 : rate = 8 * (rate / 8) := by omega
+  have hfun : ∀ j : Nat, j < 8 → (blockVec rate bs).getD (8 * i.val + j) 0 = 0 := by
+    intro j hj
+    exact blockVec_getD_ge rate bs (8 * i.val + j) (by omega)
+  rw [foldl_congr _ (fun x _ => x) _
+    (fun j hj x => by rw [hfun j (List.mem_range.mp hj)]; simp [BitVec.xor_zero]) 0]
+  simp
+
+/-- Loop invariant of the extracted absorb loop, read through `stateView`: lane `k` below the
+counter holds its old value XOR the eight block bytes at `8 * k`, every other lane is unchanged. -/
+def absorbInv (block : Slice Std.U8) (state a : Array Std.U64 25#usize) (i : Std.Usize) : Prop :=
+  ∀ k : Fin 25, (stateView a).get k
+    = if k.val < i.val then (stateView state).get k ^^^ foldLane (sliceView block) (8 * k.val)
+      else (stateView state).get k
+
+/-- The absorb-loop postcondition named opaquely: the final state is the canonical `xorBlock` of
+the start state with the block bytes. Kept a named `def` so `loop.spec_decr_nat` unifies the post
+without unfolding `xorBlock`/`blockVec`/`stateView`. -/
+def absorbPost (rate : Nat) (state : Array Std.U64 25#usize) (block : Slice Std.U8)
+    (a : Array Std.U64 25#usize) : Prop :=
+  ∀ k : Fin 25, (stateView a).get k
+    = (xorBlock rate (stateView state) (blockVec rate (sliceView block))).get k
+
+/-- The absorb-loop invariant together with the counter bound that keeps the counter inside the
+rate block. -/
+def absorbLoopInv (block : Slice Std.U8) (lanes : Std.Usize)
+    (state a : Array Std.U64 25#usize) (i : Std.Usize) : Prop :=
+  i.val ≤ lanes.val ∧ absorbInv block state a i
+
+/-- The extracted absorb-loop step function named opaquely, so `loop.spec_decr_nat` fixes it as the
+loop body without the elaborator unfolding the whole `do` chain. -/
+def absorbBody (block : Slice Std.U8) (lanes : Std.Usize) :
+    Array Std.U64 25#usize × Std.Usize →
+      Result (ControlFlow (Array Std.U64 25#usize × Std.Usize) (Array Std.U64 25#usize)) :=
+  fun s => crypto.absorb_block_loop.body block lanes s.1 s.2
+
+/-- The extracted loop with the opaque named body: definitional, and stated as an equality so
+`loop.spec_decr_nat` can fix the body without the elaborator unfolding the `do` chain. -/
+theorem absorb_block_loop_eq (state : Array Std.U64 25#usize) (block : Slice Std.U8)
+    (lanes : Std.Usize) (i : Std.Usize) :
+    crypto.absorb_block_loop state block lanes i = loop (absorbBody block lanes) (state, i) := rfl
+
+/-- From the invariant and the counter run to the end of the rate block, the state is the
+canonical `xorBlock` of the start state with the block bytes. -/
+theorem absorbInv_post (block : Slice Std.U8) (rate : Nat) (state a : Array Std.U64 25#usize)
+    (i : Std.Usize) (hrate : rate % 8 = 0) (hi : i.val = rate / 8)
+    (hlen : (sliceView block).length = rate) (hinv : absorbInv block state a i) :
+    absorbPost rate state block a := by
+  unfold absorbPost
+  intro k
+  rw [hinv k]
+  by_cases hlt : k.val < i.val
+  · -- `k < i = rate / 8`, so `k` is inside the rate block and `xorBlock` reads the eight block
+    -- bytes at `8 * k`.
+    rw [if_pos hlt]
+    rw [xorBlock_blockVec_foldLane rate (stateView state) (sliceView block) hrate k (by omega)]
+  · -- `i = rate / 8 ≤ k`: the lane is past the rate block, and `xorBlock` leaves it alone.
+    rw [if_neg hlt]
+    rw [xorBlock_lane_ge rate (stateView state) (sliceView block) hrate hlen k (by omega)]
+
+/-- The eight block bytes the extracted loop reads at `o`, as the eight-element list the
+little-endian lane read consumes. -/
+theorem blockBytes_eq_list (block : Slice Std.U8) (o : Nat) :
+    blockBytes block o = [block.val.getD (o + 0) (0#u8), block.val.getD (o + 1) (0#u8),
+      block.val.getD (o + 2) (0#u8), block.val.getD (o + 3) (0#u8),
+      block.val.getD (o + 4) (0#u8), block.val.getD (o + 5) (0#u8),
+      block.val.getD (o + 6) (0#u8), block.val.getD (o + 7) (0#u8)] := by
+  unfold blockBytes
+  rw [List.ofFn_succ, List.ofFn_succ, List.ofFn_succ, List.ofFn_succ, List.ofFn_succ,
+    List.ofFn_succ, List.ofFn_succ, List.ofFn_succ]
+  rfl
+
+/-- One iteration's little-endian lane read, of the eight block bytes at `o = 8 * i`, is the
+`foldLane` of those bytes at that offset - the same fold `xorBlock` runs for lane `i`. -/
+theorem from_le_bytes_eight (block : Slice Std.U8) (o : Nat) (i : Nat)
+    (b0 b1 b2 b3 b4 b5 b6 b7 : Std.U8)
+    (hlen : ([b0, b1, b2, b3, b4, b5, b6, b7] : List Std.U8).length = 8)
+    (hb0 : b0 = block.val.getD (o + 0) (0#u8)) (hb1 : b1 = block.val.getD (o + 1) (0#u8))
+    (hb2 : b2 = block.val.getD (o + 2) (0#u8)) (hb3 : b3 = block.val.getD (o + 3) (0#u8))
+    (hb4 : b4 = block.val.getD (o + 4) (0#u8)) (hb5 : b5 = block.val.getD (o + 5) (0#u8))
+    (hb6 : b6 = block.val.getD (o + 6) (0#u8)) (hb7 : b7 = block.val.getD (o + 7) (0#u8))
+    (ho : o = 8 * i) :
+    (core.num.U64.from_le_bytes
+      (Array.make 8#usize [b0, b1, b2, b3, b4, b5, b6, b7] hlen)).bv
+      = foldLane (sliceView block) (8 * i) := by
+  subst ho
+  have hlist : ([b0, b1, b2, b3, b4, b5, b6, b7] : List Std.U8) = blockBytes block (8 * i) := by
+    rw [blockBytes_eq_list block (8 * i)]
+    simp only [hb0, hb1, hb2, hb3, hb4, hb5, hb6, hb7]
+  rw [from_le_bytes_denote_list [b0, b1, b2, b3, b4, b5, b6, b7] hlen,
+    foldLane_eq_fromLEBytes]
+  exact fromLEBytes_cast_eq (by rw [hlist, blockBytes_view])
+
+/-- In-bounds `Array.index_usize` reads the underlying list. -/
+theorem array_index_usize_eq {α : Type} {n : Std.Usize} (a : Array α n) (i : Std.Usize)
+    (h : i.val < a.val.length) : Array.index_usize a i = ok (a.val[i.val]'h) := by
+  obtain ⟨x, hx, hxv⟩ := WP.spec_imp_exists (Array.index_usize_spec a i h)
+  rw [hxv] at hx
+  exact hx
+
+/-- In-bounds `Slice.index_usize` reads the underlying list. -/
+theorem slice_index_usize_eq {α : Type} (s : Slice α) (i : Std.Usize)
+    (h : i.val < s.val.length) : Slice.index_usize s i = ok (s.val[i.val]'h) := by
+  obtain ⟨x, hx, hxv⟩ := WP.spec_imp_exists (Slice.index_usize_spec s i h)
+  rw [hxv] at hx
+  exact hx
+
+/-- The lane list of an `Array Std.U64 25#usize` has length 25, so an in-bounds index is a lane
+index. -/
+theorem array_u64_25_length (a : Array Std.U64 25#usize) : a.val.length = 25 := by
+  simpa using a.property
+
+
+
+set_option maxHeartbeats 1500000 in
+/-- One iteration of the extracted absorb loop from the current state `a`, with the initial state
+`state` fixed: lane `i` takes its old value XOR the little-endian block window at `8 * i`, the
+counter advances, and the loop invariant relating `a` to `state` is preserved. -/
+theorem absorb_body_step (state : Array Std.U64 25#usize) (a : Array Std.U64 25#usize)
+    (block : Slice Std.U8)
+    (lanes : Std.Usize) (rate : Nat) (i : Std.Usize) (hlt : i.val < lanes.val)
+    (hrate : rate % 8 = 0) (hlanes : lanes.val = rate / 8) (hr25 : rate / 8 ≤ 25)
+    (hlen : (sliceView block).length = rate) (hinv : absorbInv block state a i) :
+    ∃ (a1 : Array Std.U64 25#usize) (i1 : Std.Usize),
+      crypto.absorb_block_loop.body block lanes a i = ok (ControlFlow.cont (a1, i1)) ∧
+      i1.val = i.val + 1 ∧ absorbInv block state a1 i1 := by
+  have hblen : block.val.length = rate := by rw [← sliceView_length]; exact hlen
+  have hi25 : i.val < 25 := by omega
+  have h8i : 8 * i.val + 7 < rate := by omega
+  have hmax8 : i.val * (8#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o, ho, hov⟩ := WP.spec_imp_exists (Usize.mul_spec (x := i) (y := 8#usize) hmax8)
+  have hoval : o.val = i.val * 8 := by rw [hov]; rfl
+  have h8o : o.val = 8 * i.val := by omega
+  have hb0 : o.val < block.val.length := by rw [h8o]; omega
+  have hidx0 : Slice.index_usize block o = ok (block.val[o.val]'hb0) :=
+    slice_index_usize_eq block o hb0
+  have hmax1 : o.val + (1#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o1, ho1, hov1⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 1#usize) hmax1)
+  have ho1val : o1.val = o.val + 1 := by rw [hov1]; rfl
+  have hb1 : o1.val < block.val.length := by rw [ho1val, h8o]; omega
+  have hidx1 : Slice.index_usize block o1 = ok (block.val[o1.val]'hb1) :=
+    slice_index_usize_eq block o1 hb1
+  have hmax2 : o.val + (2#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o2, ho2, hov2⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 2#usize) hmax2)
+  have ho2val : o2.val = o.val + 2 := by rw [hov2]; rfl
+  have hb2 : o2.val < block.val.length := by rw [ho2val, h8o]; omega
+  have hidx2 : Slice.index_usize block o2 = ok (block.val[o2.val]'hb2) :=
+    slice_index_usize_eq block o2 hb2
+  have hmax3 : o.val + (3#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o3, ho3, hov3⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 3#usize) hmax3)
+  have ho3val : o3.val = o.val + 3 := by rw [hov3]; rfl
+  have hb3 : o3.val < block.val.length := by rw [ho3val, h8o]; omega
+  have hidx3 : Slice.index_usize block o3 = ok (block.val[o3.val]'hb3) :=
+    slice_index_usize_eq block o3 hb3
+  have hmax4 : o.val + (4#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o4, ho4, hov4⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 4#usize) hmax4)
+  have ho4val : o4.val = o.val + 4 := by rw [hov4]; rfl
+  have hb4 : o4.val < block.val.length := by rw [ho4val, h8o]; omega
+  have hidx4 : Slice.index_usize block o4 = ok (block.val[o4.val]'hb4) :=
+    slice_index_usize_eq block o4 hb4
+  have hmax5 : o.val + (5#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o5, ho5, hov5⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 5#usize) hmax5)
+  have ho5val : o5.val = o.val + 5 := by rw [hov5]; rfl
+  have hb5 : o5.val < block.val.length := by rw [ho5val, h8o]; omega
+  have hidx5 : Slice.index_usize block o5 = ok (block.val[o5.val]'hb5) :=
+    slice_index_usize_eq block o5 hb5
+  have hmax6 : o.val + (6#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o6, ho6, hov6⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 6#usize) hmax6)
+  have ho6val : o6.val = o.val + 6 := by rw [hov6]; rfl
+  have hb6 : o6.val < block.val.length := by rw [ho6val, h8o]; omega
+  have hidx6 : Slice.index_usize block o6 = ok (block.val[o6.val]'hb6) :=
+    slice_index_usize_eq block o6 hb6
+  have hmax7 : o.val + (7#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨o7, ho7, hov7⟩ := WP.spec_imp_exists (Usize.add_spec (x := o) (y := 7#usize) hmax7)
+  have ho7val : o7.val = o.val + 7 := by rw [hov7]; rfl
+  have hb7 : o7.val < block.val.length := by rw [ho7val, h8o]; omega
+  have hidx7 : Slice.index_usize block o7 = ok (block.val[o7.val]'hb7) :=
+    slice_index_usize_eq block o7 hb7
+  have hi25b : i.val < a.val.length := by
+    have hs : a.val.length = 25 := by simpa using a.property
+    omega
+  have hidx17 : Array.index_usize a i = ok (a.val[i.val]'hi25b) :=
+    array_index_usize_eq a i hi25b
+  have hmaxi1 : i.val + (1#usize).val ≤ Usize.max := by scalar_tac
+  obtain ⟨i1, hi1, hovi1⟩ := WP.spec_imp_exists (Usize.add_spec (x := i) (y := 1#usize) hmaxi1)
+  have hi1val : i1.val = i.val + 1 := by rw [hovi1]; rfl
+  have hlit : ([block.val[o.val]'hb0, block.val[o1.val]'hb1, block.val[o2.val]'hb2,
+      block.val[o3.val]'hb3, block.val[o4.val]'hb4, block.val[o5.val]'hb5,
+      block.val[o6.val]'hb6, block.val[o7.val]'hb7] : List Std.U8).length = 8 := rfl
+  obtain ⟨a1, ha1, ha1v⟩ := WP.spec_imp_exists (Array.update_spec a i
+    (a.val[i.val]'hi25b ^^^ core.num.U64.from_le_bytes
+      (Array.make 8#usize [block.val[o.val]'hb0, block.val[o1.val]'hb1, block.val[o2.val]'hb2,
+        block.val[o3.val]'hb3, block.val[o4.val]'hb4, block.val[o5.val]'hb5,
+        block.val[o6.val]'hb6, block.val[o7.val]'hb7] hlit)) hi25b)
+  have hb0' : block.val[o.val]'hb0 = block.val.getD (8 * i.val + 0) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), h8o]
+    simp
+  have hb1' : block.val[o1.val]'hb1 = block.val.getD (8 * i.val + 1) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho1val, h8o]
+  have hb2' : block.val[o2.val]'hb2 = block.val.getD (8 * i.val + 2) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho2val, h8o]
+  have hb3' : block.val[o3.val]'hb3 = block.val.getD (8 * i.val + 3) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho3val, h8o]
+  have hb4' : block.val[o4.val]'hb4 = block.val.getD (8 * i.val + 4) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho4val, h8o]
+  have hb5' : block.val[o5.val]'hb5 = block.val.getD (8 * i.val + 5) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho5val, h8o]
+  have hb6' : block.val[o6.val]'hb6 = block.val.getD (8 * i.val + 6) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho6val, h8o]
+  have hb7' : block.val[o7.val]'hb7 = block.val.getD (8 * i.val + 7) (0#u8) := by
+    rw [List.getElem_eq_getD (0#u8), ho7val, h8o]
+  have hlist : [block.val[o.val]'hb0, block.val[o1.val]'hb1, block.val[o2.val]'hb2,
+      block.val[o3.val]'hb3, block.val[o4.val]'hb4, block.val[o5.val]'hb5,
+      block.val[o6.val]'hb6, block.val[o7.val]'hb7] = blockBytes block (8 * i.val) := by
+    rw [hb0', hb1', hb2', hb3', hb4', hb5', hb6', hb7', ← blockBytes_eq_list]
+  refine ⟨a1, i1, ?_, hi1val, ?_⟩
+  · unfold crypto.absorb_block_loop.body
+    rw [if_pos ((UScalar.lt_equiv i lanes).mpr hlt)]
+    rw [ho]
+    simp only [bind_tc_ok]
+    rw [hidx0]
+    simp only [bind_tc_ok]
+    rw [ho1]
+    simp only [bind_tc_ok]
+    rw [hidx1]
+    simp only [bind_tc_ok]
+    rw [ho2]
+    simp only [bind_tc_ok]
+    rw [hidx2]
+    simp only [bind_tc_ok]
+    rw [ho3]
+    simp only [bind_tc_ok]
+    rw [hidx3]
+    simp only [bind_tc_ok]
+    rw [ho4]
+    simp only [bind_tc_ok]
+    rw [hidx4]
+    simp only [bind_tc_ok]
+    rw [ho5]
+    simp only [bind_tc_ok]
+    rw [hidx5]
+    simp only [bind_tc_ok]
+    rw [ho6]
+    simp only [bind_tc_ok]
+    rw [hidx6]
+    simp only [bind_tc_ok]
+    rw [ho7]
+    simp only [bind_tc_ok]
+    rw [hidx7]
+    simp only [lift, bind_tc_ok]
+    rw [hidx17]
+    simp only [lift, bind_tc_ok]
+    rw [ha1]
+    simp only [bind_tc_ok]
+    rw [hi1]
+    simp only [bind_tc_ok]
+  · intro k
+    have hx : (a.val[i.val]'hi25b ^^^ core.num.U64.from_le_bytes
+        (Array.make 8#usize [block.val[o.val]'hb0, block.val[o1.val]'hb1, block.val[o2.val]'hb2,
+          block.val[o3.val]'hb3, block.val[o4.val]'hb4, block.val[o5.val]'hb5,
+          block.val[o6.val]'hb6, block.val[o7.val]'hb7] hlit)).bv
+        = (stateView a).get ⟨i.val, hi25⟩ ^^^
+          (core.num.U64.from_le_bytes
+            (Array.make 8#usize (blockBytes block (8 * i.val))
+              (blockBytes_length block (8 * i.val)))).bv := by
+      rw [List.getElem_eq_getD (0#u64), stateView_get, UScalar.bv_xor]
+      simp only [from_le_bytes_denote_list]
+      congr 1
+      exact fromLEBytes_cast_eq (by rw [hlist, blockBytes_view])
+    rw [ha1v, absorb_step a block i hi25 _ hx k]
+    by_cases h : k.val = i.val
+    · have hk : k = ⟨i.val, hi25⟩ := Fin.ext h
+      subst hk
+      rw [if_pos rfl, if_pos (by omega)]
+      rw [hinv ⟨i.val, hi25⟩, if_neg (by omega)]
+    · rw [if_neg h, hinv k]
+      by_cases hlt : k.val < i.val
+      · rw [if_pos hlt, if_pos (by omega)]
+      · rw [if_neg hlt, if_neg (by omega)]
+
+set_option maxHeartbeats 1500000 in
+/-- The extracted absorb loop over one rate block: on success the state is the canonical
+`xorBlock` of the start state with the block bytes. -/
+theorem absorb_loop_spec (state : Array Std.U64 25#usize) (block : Slice Std.U8)
+    (rate : Nat) (lanes : Std.Usize) (hrate : rate % 8 = 0) (hlanes : lanes.val = rate / 8)
+    (hr25 : rate / 8 ≤ 25) (hlen : (sliceView block).length = rate) :
+    crypto.absorb_block_loop state block lanes 0#usize ⦃ absorbPost rate state block ⦄ := by
+  rw [absorb_block_loop_eq]
+  apply loop.spec_decr_nat
+    (measure := fun s : Array Std.U64 25#usize × Std.Usize => lanes.val - s.2.val)
+    (inv := fun s => s.2.val ≤ lanes.val ∧ absorbInv block state s.1 s.2)
+    (post := absorbPost rate state block)
+  · intro s hs
+    rcases s with ⟨a1, i1⟩
+    have hs' : i1.val ≤ lanes.val ∧ absorbInv block state a1 i1 := hs
+    obtain ⟨hi1, hinv1⟩ := hs'
+    by_cases hlt : i1.val < lanes.val
+    · obtain ⟨a2, i2, hbody, hi2v, hinv2⟩ :=
+        absorb_body_step state a1 block lanes rate i1 hlt hrate hlanes hr25 hlen hinv1
+      have hbody' : absorbBody block lanes (a1, i1) = ok (ControlFlow.cont (a2, i2)) := hbody
+      rw [hbody']
+      simp only [Aeneas.Std.WP.spec_ok]
+      refine ⟨⟨by omega, ?_⟩, by omega⟩
+      exact hinv2
+    · have hnot : ¬ (i1 < lanes) := by
+        intro hc'
+        exact hlt ((UScalar.lt_equiv i1 lanes).mp hc')
+      have hbody : absorbBody block lanes (a1, i1) = ok (ControlFlow.done a1) := by
+        unfold absorbBody
+        unfold crypto.absorb_block_loop.body
+        rw [if_neg hnot]
+      rw [hbody]
+      simp only [Aeneas.Std.WP.spec_ok]
+      exact absorbInv_post block rate state a1 i1 hrate (by omega) hlen hinv1
+  · change (0#usize).val ≤ lanes.val ∧ absorbInv block state state 0#usize
+    refine ⟨by simp, ?_⟩
+    intro k
+    rw [if_neg (by simp)]
 
 /-! ## Rates, offsets and domain separation
 
