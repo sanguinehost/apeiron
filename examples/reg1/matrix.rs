@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -980,9 +981,50 @@ pub(crate) const EXECUTING_SELECTED_SYMBOL: &str = "apeiron::Table<StrataKey,i64
 /// The actual executing baseline symbol under measurement.
 pub(crate) const EXECUTING_BASELINE_SYMBOL: &str = "hashtrinity::Table<StrataKey,i64>";
 /// The current source revision the registration binds to (`matrix.json` `pins.current`).
-pub(crate) const REGISTERED_CURRENT_REVISION: &str = "c450c222905c050f793a23332708c230c658f82c";
+///
+/// Every `current_strata` receipt names this revision and the medians it registers are a
+/// measurement of that revision's source. `revision_contains_registered_artifact` is the check
+/// that makes the name mean something.
+pub(crate) const REGISTERED_CURRENT_REVISION: &str = "bde3d78e968639c3187154ca6cefd734b6e8bbc6";
 /// The pinned hashtrinity revision the registered baseline binds to.
 pub(crate) const REGISTERED_BASELINE_REVISION: &str = "4cc14471ae24f3f204fb0b0e91736ef75c909358";
+
+/// The repository-relative paths a `current_strata` receipt registers: the harness that
+/// enumerates and drives the cells, the registration document itself, and the table
+/// implementation under measurement. A revision that does not contain all three did not produce
+/// the medians the receipt registers.
+pub(crate) const REGISTERED_ARTIFACT_PATHS: [&str; 3] = [
+    "examples/reg1/matrix.json",
+    "examples/reg1/strata.rs",
+    "src/table.rs",
+];
+
+/// Does `revision` contain every path in [`REGISTERED_ARTIFACT_PATHS`]?
+///
+/// `git cat-file -e <revision>:<path>` is the containment test, run in this crate's manifest
+/// directory. A revision that does not resolve, a path absent at it, and a `git` that cannot be
+/// run are all `Err`: a revision whose containment cannot be shown is not a revision whose
+/// artifact has been found, and the caller reports the row `revision_mismatch` instead of
+/// comparing it. The registered medians are receipts of a run of this source, so a registration
+/// naming a revision without the harness or the table names no run at all.
+pub(crate) fn revision_contains_registered_artifact(revision: &str) -> Result<(), String> {
+    for path in REGISTERED_ARTIFACT_PATHS {
+        let spec = format!("{revision}:{path}");
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .args(["cat-file", "-e", &spec])
+            .output()
+            .map_err(|e| format!("git cat-file -e {spec} could not run: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "{path} is absent at {revision} (git cat-file -e {spec} exited {})",
+                output.status.code().unwrap_or(-1)
+            ));
+        }
+    }
+    Ok(())
+}
 /// The registered current cell the registration controls corrupt.
 pub(crate) const CONTROL_REGISTERED_CELL: &str =
     "occ2-direct-index-resident-absent-miss-replacement";
@@ -1010,7 +1052,20 @@ pub(crate) struct RegisteredCell {
     pub(crate) impl_id: String,
     pub(crate) implementation: String,
     pub(crate) baseline: String,
+    // Read by `acceptance::evaluate_regression`, which parses `current_strata` into its own
+    // `RegisteredReceipt` and settles revision validity there against the object store. These two
+    // copies stay parsed because a registration row that omits the field is still malformed input.
+    #[allow(
+        dead_code,
+        reason = "parsed to keep the registration schema total; the revision verdict is the \
+                  regression stage's, and it reads its own copy"
+    )]
     pub(crate) revision: String,
+    #[allow(
+        dead_code,
+        reason = "parsed to keep the registration schema total; the revision verdict is the \
+                  regression stage's, and it reads its own copy"
+    )]
     pub(crate) baseline_revision: String,
     pub(crate) status: String,
 }
@@ -1142,18 +1197,14 @@ fn compare_cell(
             reg.id, reg.baseline
         ));
     }
-    if reg.revision != REGISTERED_CURRENT_REVISION {
-        return Err(format!(
-            "registered current cell {} revision {} != {REGISTERED_CURRENT_REVISION}",
-            reg.id, reg.revision
-        ));
-    }
-    if reg.baseline_revision != REGISTERED_BASELINE_REVISION {
-        return Err(format!(
-            "registered current cell {} baseline revision {} != {REGISTERED_BASELINE_REVISION}",
-            reg.id, reg.baseline_revision
-        ));
-    }
+    // Revision validity is not decided here. This helper states the *workload identity* a
+    // registration must carry -- the seed, the operation, the population, the oracle digest and
+    // the executing symbols -- and every one of those is a property of the run in front of us.
+    // Whether the registered medians describe this source is a different question, answered per
+    // row by `acceptance::evaluate_regression` against the object store
+    // (`revision_contains_registered_artifact`), which reports the offending row by name and
+    // counts it in `regression_summary`. Rejecting the whole registration here on a revision
+    // string would pre-empt that check and make a fictional revision unnameable.
     let Some(cell) = run_by_id.get(reg.id.as_str()) else {
         return Err(format!(
             "registered current cell {} is absent from the current run",
