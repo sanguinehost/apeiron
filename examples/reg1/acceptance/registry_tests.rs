@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 
 use super::{
-    evaluate, is_spatial_incumbent, pair_concurrency, serial_address_face, spatial_address_face,
-    synthetic_campaign, AdapterState, AddressFace, Applicability, Concurrency, PairClass,
-    INCUMBENTS, INFORMATIONAL_COMPARATORS, RATIO_LIMIT, REQUIRED_LOAD_BEARING, SELECTED_WORKERS,
+    campaign_median_spread, evaluate, evaluate_regression, is_spatial_incumbent,
+    load_registered_receipts, pair_concurrency, serial_address_face, spatial_address_face,
+    synthetic_campaign, tolerance, AdapterState, AddressFace, Applicability, Concurrency,
+    PairClass, PairOutcome, RegisteredReceipt, INCUMBENTS, INFORMATIONAL_COMPARATORS, RATIO_LIMIT,
+    REGRESSION_CANDIDATE_CROSS_RUN_FLOOR, REGRESSION_CANDIDATE_QUIET_FLOOR, REGRESSION_INCUMBENT,
+    REGRESSION_INCUMBENT_CROSS_RUN_FLOOR, REGRESSION_INCUMBENT_QUIET_FLOOR,
+    REGRESSION_SPREAD_CEILING, REGRESSION_SPREAD_FACTOR, REQUIRED_LOAD_BEARING, SELECTED_WORKERS,
     SERIAL_TIMED_REGION, SPATIAL_INCUMBENTS,
 };
 use crate::performance::spatial::{self, CellIdentity, KeyFace, INCUMBENT_REGISTRY_SYMBOLS};
@@ -499,4 +503,295 @@ fn omitted_required_pair_is_reported_missing() {
         outcome.missing
     );
     assert!(!outcome.passed());
+}
+
+/// Every registered `current_strata` row carries the four performance fields and the two revisions
+/// the regression check reads, and every row names the incumbent this check compares against.
+///
+/// Without this the regression check would silently compare against fewer cells than the
+/// registration carries, and a registration that dropped its medians would leave the comparison
+/// empty rather than red.
+#[test]
+fn every_registered_receipt_carries_its_performance_fields() {
+    let receipts = load_registered_receipts().expect("registered receipts must parse");
+    assert!(
+        !receipts.is_empty(),
+        "the registered receipts are empty, so the regression check compares nothing"
+    );
+    let root = crate::Reader::new(super::MATRIX_JSON)
+        .parse()
+        .expect("matrix must parse");
+    let crate::Json::Arr(entries) = crate::field(
+        root.as_obj().expect("matrix is an object"),
+        "current_strata",
+    )
+    .expect("current_strata field") else {
+        panic!("current_strata is not an array");
+    };
+    assert_eq!(
+        receipts.len(),
+        entries.len(),
+        "the regression check read a different number of receipts than the registration holds"
+    );
+    let mut ids = HashMap::new();
+    for receipt in &receipts {
+        assert!(
+            ids.insert(receipt.id.as_str(), ()).is_none(),
+            "registered cell {} appears twice in the performance receipts",
+            receipt.id
+        );
+        assert!(
+            receipt.apeiron_median_ns > 0 && receipt.ht_median_ns > 0,
+            "registered cell {} carries a zero median ({} / {})",
+            receipt.id,
+            receipt.apeiron_median_ns,
+            receipt.ht_median_ns
+        );
+        assert!(
+            receipt.ratio.is_finite() && receipt.ratio > 0.0,
+            "registered cell {} carries a non-positive ratio {}",
+            receipt.id,
+            receipt.ratio
+        );
+        assert_eq!(
+            receipt.revision,
+            super::matrix::REGISTERED_CURRENT_REVISION,
+            "registered cell {} names candidate revision {}",
+            receipt.id,
+            receipt.revision
+        );
+        assert_eq!(
+            receipt.baseline_revision,
+            super::matrix::REGISTERED_BASELINE_REVISION,
+            "registered cell {} names baseline revision {}",
+            receipt.id,
+            receipt.baseline_revision
+        );
+    }
+    let incumbent = crate::str_field(
+        &entries[0].as_obj().expect("receipt object"),
+        "baseline_impl_id",
+    )
+    .expect("baseline_impl_id");
+    assert_eq!(
+        incumbent, REGRESSION_INCUMBENT,
+        "the registration pairs its receipts with {incumbent}, not with {REGRESSION_INCUMBENT}, so \
+         the regression check would compare the wrong incumbent"
+    );
+}
+
+/// The tolerance cannot exceed what the check is able to detect: a three-fold seeded regression is
+/// outside the widest tolerance either side can be granted, and a cell with no measurable spread
+/// gets exactly its side's measured cross-run floor.
+#[test]
+fn regression_tolerance_cannot_reach_a_seeded_regression() {
+    assert_eq!(
+        tolerance(f64::NAN, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR),
+        REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        "a cell with no measurable in-run spread must get its side's cross-run floor, not more"
+    );
+    assert_eq!(
+        tolerance(1.0, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR),
+        REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        "a cell whose campaigns agree must still get the cross-run floor"
+    );
+    assert_eq!(
+        tolerance(1.0 + 0.05, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR),
+        REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        "a spread below the floor must not widen the tolerance past the floor"
+    );
+    assert_eq!(
+        tolerance(1.0 + 0.40, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR),
+        REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        "a cell whose own spread is inside the cross-run floor must not narrow it"
+    );
+    assert!(
+        (tolerance(1.0 + 0.95, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR)
+            - REGRESSION_SPREAD_FACTOR * 0.95)
+            .abs()
+            < 1e-12,
+        "a cell that measured 95% of spread, above the floor, must be granted exactly that much, \
+         found {}",
+        tolerance(1.0 + 0.95, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR)
+    );
+    assert_eq!(
+        tolerance(1.0 + 5.0, REGRESSION_CANDIDATE_CROSS_RUN_FLOOR),
+        REGRESSION_SPREAD_CEILING,
+        "an unbounded spread must clamp to the ceiling, not grant the whole spread"
+    );
+    for floor in [
+        REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        REGRESSION_INCUMBENT_CROSS_RUN_FLOOR,
+    ] {
+        for spread in [1.0, 1.02, 1.10, 1.50, 2.0, 10.0] {
+            let granted = tolerance(spread, floor);
+            assert!(
+                granted <= REGRESSION_SPREAD_CEILING,
+                "tolerance {granted} for spread {spread} exceeds the ceiling \
+                 {REGRESSION_SPREAD_CEILING}"
+            );
+            assert!(
+                granted + 1.0 < 3.0,
+                "tolerance {granted} for spread {spread} would tolerate a 3x seeded regression"
+            );
+        }
+    }
+    assert!(
+        REGRESSION_INCUMBENT_CROSS_RUN_FLOOR > REGRESSION_CANDIDATE_CROSS_RUN_FLOOR,
+        "the incumbent side measured a wider cross-run bound and must carry the wider floor"
+    );
+    assert!(
+        REGRESSION_CANDIDATE_QUIET_FLOOR < REGRESSION_CANDIDATE_CROSS_RUN_FLOOR
+            && REGRESSION_INCUMBENT_QUIET_FLOOR < REGRESSION_INCUMBENT_CROSS_RUN_FLOOR,
+        "the non-gating band must sit strictly inside the gating tolerance on both sides"
+    );
+}
+
+/// A pooled sample vector is only read as campaigns when its shape is the one `strata::run_cell`
+/// produces, so the measured spread is never fabricated from a differently shaped vector.
+#[test]
+fn campaign_spread_requires_the_campaign_sample_shape() {
+    let block = crate::strata::STRATA_SAMPLES as usize;
+    let pooled: Vec<u64> = (0..block * 3).map(|i| 100 + (i % block) as u64).collect();
+    let spread = campaign_median_spread(&pooled, 3).expect("three campaigns of 15 samples");
+    // Three identical medians (each block is a uniform ramp, so each block median is the same).
+    assert!(
+        (spread - 1.0).abs() < f64::EPSILON,
+        "three identical block medians must measure a spread of 1.0, found {spread}"
+    );
+    assert!(
+        campaign_median_spread(&pooled[..block * 2], 3).is_none(),
+        "a vector shorter than three campaigns must not yield a spread"
+    );
+    assert!(
+        campaign_median_spread(&pooled, 2).is_none(),
+        "a campaign count that disagrees with the vector length must not yield a spread"
+    );
+    assert!(
+        campaign_median_spread(&vec![0u64; block * 3], 3).is_none(),
+        "a zero-nanosecond block must not yield a spread"
+    );
+}
+
+/// The verdict separation the check claims, as a plain test: the candidate is judged against the
+/// candidate tolerance, the incumbent against the incumbent tolerance, and neither may decide the
+/// other's verdict.
+#[test]
+fn regression_verdicts_separate_the_two_deltas() {
+    let receipt = RegisteredReceipt {
+        id: "registry-control-cell".to_string(),
+        apeiron_median_ns: 1_000,
+        ht_median_ns: 1_000,
+        ratio: 1.0,
+        revision: super::matrix::REGISTERED_CURRENT_REVISION.to_string(),
+        baseline_revision: super::matrix::REGISTERED_BASELINE_REVISION.to_string(),
+    };
+    let block = crate::strata::STRATA_SAMPLES as usize;
+    let campaign = |candidate: u64, incumbent: u64| -> super::Campaign {
+        super::Campaign {
+            cells: vec![receipt.id.clone()],
+            pairs: vec![PairOutcome {
+                cell_id: receipt.id.clone(),
+                incumbent_id: REGRESSION_INCUMBENT,
+                class: PairClass::LoadBearing,
+                adapter: AdapterState::Built,
+                applicability: Applicability::Applicable("registry control pair"),
+                sel_impl: super::SELECTED_IMPL,
+                sel_workers: SELECTED_WORKERS,
+                sample_basis: "serial",
+                inc_impl: REGRESSION_INCUMBENT,
+                inc_workers: Some(1),
+                address_face: AddressFace::Matched,
+                address_reason: "registry control pair".to_string(),
+                selected_address: "raw-word;direct_word=Some",
+                oracle_digest: 0,
+                expected_oracle_digest: 0,
+                selected_samples: vec![candidate; block * 3],
+                incumbent_samples: vec![incumbent; block * 3],
+                campaign_ratios: vec![1.0; 3],
+                timed_region: SERIAL_TIMED_REGION,
+            }],
+        }
+    };
+    let verdict = |campaign: super::Campaign| {
+        let outcome = evaluate_regression(&campaign, std::slice::from_ref(&receipt), true);
+        (outcome.cells[0].verdict, outcome)
+    };
+
+    let (unseeded, unseeded_outcome) = verdict(campaign(1_000, 1_000));
+    assert_eq!(
+        unseeded,
+        super::RegressionVerdict::Within,
+        "a cell reproducing its registered receipt must read within tolerance"
+    );
+    assert!(unseeded_outcome.passed() && unseeded_outcome.full_acceptance);
+
+    let (candidate_3x, candidate_outcome) = verdict(campaign(3_000, 1_000));
+    assert_eq!(
+        candidate_3x,
+        super::RegressionVerdict::Regressed,
+        "a 3x candidate median is beyond any tolerance the check can grant"
+    );
+    assert!(
+        !candidate_outcome.passed() && !candidate_outcome.full_acceptance,
+        "a regressed cell must block the verdict"
+    );
+    assert!(
+        candidate_outcome
+            .failing
+            .iter()
+            .any(|line| line.contains("beyond its tolerance")),
+        "a regressed cell must be reported by name with its numbers: {:?}",
+        candidate_outcome.failing
+    );
+
+    let (incumbent_3x, incumbent_outcome) = verdict(campaign(1_000, 3_000));
+    assert_eq!(
+        incumbent_3x,
+        super::RegressionVerdict::IncumbentSlower,
+        "a 3x incumbent median must be reported as the incumbent's movement, not the candidate's"
+    );
+    assert_eq!(
+        incumbent_outcome.regressed, 0,
+        "the incumbent's movement must not be charged to the candidate"
+    );
+    assert_eq!(incumbent_outcome.incumbent_slower, 1);
+    assert!(
+        incumbent_outcome.passed(),
+        "an incumbent-only movement is reported and does not block the verdict"
+    );
+
+    let (candidate_1_5x, band_outcome) = verdict(campaign(1_500, 1_000));
+    assert_eq!(
+        candidate_1_5x,
+        super::RegressionVerdict::RegressedNoiseBand,
+        "a 1.5x candidate median is inside the measured cross-run floor and must be named, not gated"
+    );
+    assert_eq!(band_outcome.regressed, 0);
+    assert_eq!(band_outcome.noise_band(), 1);
+    assert!(
+        band_outcome.passed(),
+        "a movement inside the cross-run floor must not block the verdict"
+    );
+
+    let mut foreign = receipt.clone();
+    foreign.revision = "1111111111111111111111111111111111111111".to_string();
+    let mismatched = evaluate_regression(
+        &campaign(1_000, 1_000),
+        std::slice::from_ref(&foreign),
+        true,
+    );
+    assert_eq!(
+        mismatched.cells[0].verdict,
+        super::RegressionVerdict::RevisionMismatch,
+        "a receipt recorded against another revision must be reported, not compared"
+    );
+    assert_eq!(
+        mismatched.compared, 0,
+        "a revision-mismatched receipt must not be compared at all"
+    );
+    assert!(
+        !mismatched.passed(),
+        "an incomplete comparison must not read as a pass"
+    );
 }
