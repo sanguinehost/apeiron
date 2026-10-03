@@ -228,6 +228,11 @@ include!("table/prepared.rs");
 // and the extracted `table::` names are what the refinement links.
 include!("table/reduce.rs");
 
+// The bit-exact read, ported from incumbent `fold hashtrinity/src/lib.rs:1124` (`get_exact`).
+// Included the same way: it shares the table's private storage and the extracted `table::` names,
+// and its `get_exact_at` / `get_exact_spill` bodies are what a refinement would link.
+include!("table/getexact.rs");
+
 /// A total-default table whose compile-time `R` policy selects carried or regenerated keys.
 pub struct Table<K, V, H, const N: usize = 16, R = Stored<K>>
 where
@@ -376,19 +381,11 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     pub fn get_at(&self, face: H::Faces, key: &K) -> &V {
         let sigma = face.sigma();
         let address = Home::address(&self.home, sigma, key);
-        if let Some(word) = address.direct_word {
-            if let Some(index) = self.resident.index(word) {
-                let flat = &self.resident.slots[index];
-                if flat.live {
-                    if flat.sigma == sigma && R::matches(sigma, &flat.held, key, &address) {
-                        return &flat.value;
-                    }
-                } else {
-                    return &self.default;
-                }
-            }
+        match self.resident_exact(sigma, &address, key) {
+            ResidentRead::Vacant => &self.default,
+            ResidentRead::Hit(value) => value,
+            ResidentRead::Miss => self.get_spill(sigma, address.place, address.direct_word, key),
         }
-        self.get_spill(sigma, address.place, address.direct_word, key)
     }
     /// Reads the routed spill region for a query the resident fast path did not return.
     ///
@@ -396,15 +393,14 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     /// `Some`: a reconstructed `None` would select a different region than the query's own
     /// coordinate does. Temporal `O(region capacity)` slot visits counted in tag compares plus the
     /// full-key compares of the lanes whose fingerprint matches; spatial `O(1)`.
+    ///
+    /// This is [`Self::get_exact_spill`] with `None` mapped to the default, so the total and the
+    /// exact read run one `spill_read` body rather than two.
     #[must_use]
     #[inline(never)]
     fn get_spill(&self, sigma: Sigma, place: u64, direct_word: Option<u32>, key: &K) -> &V {
-        let address = TableAddress { place, direct_word };
-        let shard_at = shard(&address);
-        match spill_read::<K, H, R, V>(&self.shards[shard_at], sigma, &address, key, N) {
-            Some(index) => &self.shards[shard_at].slots[index].value,
-            None => &self.default,
-        }
+        self.get_exact_spill(sigma, place, direct_word, key)
+            .unwrap_or(&self.default)
     }
     /// Reads the routed spill region under the prepared-region precondition.
     #[must_use]

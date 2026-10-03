@@ -188,6 +188,40 @@ pub fn word_affine_step_apply(
     step.apply(sigma, z)
 }
 
+/// `Table::get_exact_at`, the incumbent's `fold hashtrinity/src/lib.rs:1124` (`get_exact`) over the
+/// real `src/table/getexact.rs` body.
+///
+/// Calls the real body; it does not restate the compare and does not restate the walk. Returns the
+/// stored value, or `None` for one of the three absence certificates the read admits, so the
+/// generated bodies carry the exactness a refinement would link rather than a re-derivation of it.
+/// The `Option` is destructured by `match`, not through `Option::copied`: the pinned Aeneas Lean
+/// model does not define `copied`, so it would land as an unlisted axiom and `proof/regen.sh`'s
+/// fail-closed audit rejects the extraction (measured, §regen-1 of this task's receipt).
+pub fn word_stored_table_get_exact_at(
+    state: &WordStoredTable,
+    sigma: cell::Sigma,
+    key: i64,
+) -> Option<i64> {
+    match state.get_exact_at(sigma, &key) {
+        Some(value) => Some(*value),
+        None => None,
+    }
+}
+
+/// The same read at the elliptic carrier, where identity is a regenerated word rather than a
+/// retained key. Both carriers run one method; the two `Source:` bodies differ only in the `KeyRep`
+/// instance, which is the two-arm face obligation the port states.
+pub fn word_regen_table_get_exact_at(
+    state: &WordRegenTable,
+    sigma: cell::Sigma,
+    key: i64,
+) -> Option<i64> {
+    match state.get_exact_at(sigma, &key) {
+        Some(value) => Some(*value),
+        None => None,
+    }
+}
+
 /// `Cell::<i64>::mul`, rooted so Charon does not have to translate the whole crate.
 pub fn word_mul(a: cell::Cell<i64>, sigma: cell::Sigma, b: cell::Cell<i64>) -> cell::Cell<i64> {
     a.mul(sigma, b)

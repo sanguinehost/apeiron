@@ -1692,3 +1692,520 @@ fn encircle_two_witnesses_disagree_so_neither_test_is_vacuous() {
         "compose is not commutative at the mixing witness, so argument order is observable"
     );
 }
+
+// ---------------------------------------------------------------------------
+// : an order oracle that is not the traversal under test.
+//
+// Every `encircle_*` test above builds its expected order from `Table::values_in_order`, which is
+// the traversal the tests measure. They therefore pin `reduce_all == values_in_order.fold` and not
+// `values_in_order == true storage order`, and a direction reversed in both at once is invisible
+// (ht-encircle-w2 receipt §6 residual 1). The two tests below fix the order from outside that
+// traversal, three independent ways:
+//
+//   1. by recomputing each key's physical slot here from its placement word and the documented
+//      flat/spill layout (`derived_storage_order` below), which reads no table traversal;
+//   2. by `Table::search_decision_at`, the real classifier, which names the slot one key occupies
+//      and emits no order at all -- it cannot agree with a traversal by construction;
+//   3. by a hand-written expected key list, transcribed from the layout of (1).
+//
+// The fixture also carries both halves of the order, and a region with more than one live slot:
+// four live keys sit in resident slots and four in spill, three of them in one shard
+// (ht-encircle-w2 receipt §6 residual 2, where every fixture had `resident_live = 0` and one live
+// slot per region). `WordHome` supplies a direct word, and the nine tests above use
+// `IdentityI64Home`, which supplies none -- that is the whole reason their resident slots were all
+// vacant.
+
+/// The mixed-layout fixture's keys, in insertion order: four that the resident extent admits and
+/// four whose direct word exceeds it.
+///
+/// The direct words are `3, 258, 5, 1, 11012, 10756, 12036, 8320`, so the lanes asked for are
+/// `0, 1, 0, 0, 43, 42, 47, 32`. `insert_with_reserved` widens the resident width to admit lane
+/// `1` and refuses to widen for lane `32` and above, so the first four keys land in the resident
+/// area and the last four in two spill shards (`4` and `128`), three of them in shard `4` at home
+/// slots `13`, `1` and `5` -- which is why the insertion order of that triple is its reverse.
+const MIXED_KEYS: [i64; 8] = [3, 258, 5, 1, 11012, 10756, 12036, 8320];
+
+/// The keys `MIXED_KEYS` holds, in the storage order the layout forces, written out.
+///
+/// Derived in `derived_storage_order` and cross-checked against `Table::search_decision_at`; this
+/// list is that derivation's transcription, so a silent change in either cannot pass. The resident
+/// block is `(word & 255) * lanes + (word >> 8)` at `lanes = 2`, which is neither insertion order
+/// nor key order: flat index `2` holds `1`, `5` holds `258`, `6` holds `3` and `10` holds `5`. The
+/// spill block is `(shard, slot)`: `(4, 1)` holds `10756`, `(4, 5)` holds `12036`, `(4, 13)` holds
+/// `11012` and `(128, 4)` holds `8320`.
+const MIXED_STORAGE_ORDER: [i64; 8] = [1, 258, 3, 5, 10756, 12036, 11012, 8320];
+
+/// The value `MIXED_KEYS[position]` is written with, so a value names the key that holds it.
+fn mixed_value(position: usize) -> Cell<i64> {
+    let index = i64::try_from(position).expect("a fixture position fits an i64");
+    Cell::of(index + 1, -index - 2)
+}
+
+/// Builds the mixed-layout fixture: four live resident slots and four live spill slots, three of
+/// them in shard `4`.
+fn mixed_cell_table() -> Table<i64, Cell<i64>, WordHome, 16> {
+    let merge = |new: Cell<i64>, _old: Cell<i64>| new;
+    let mut table = Table::<i64, Cell<i64>, WordHome, 16>::new(Cell::zero(), WordHome);
+    for (position, key) in MIXED_KEYS.into_iter().enumerate() {
+        table
+            .insert_with_at(&merge, Sigma::Parabolic, key, mixed_value(position))
+            .expect("the insertion reserves and commits");
+    }
+    assert_eq!(table.len(), MIXED_KEYS.len(), "every fixture key is live");
+    table
+}
+
+/// Recomputes each fixture key's physical slot from its placement word, and returns the keys in the
+/// order those slots force: every resident slot by ascending flat index, then every spill slot by
+/// ascending `(shard, slot)`.
+///
+/// This reads no table traversal and no table accessor at all. Its inputs are the public
+/// `Home::address` and `Home::home` of `WordHome` -- the placement adapter, an input to admission
+/// -- and the layout rules, transcribed here from the admission path:
+///
+///   * `src/table.rs:799` `flat_index_for`: the resident slot of a direct word is
+///     `(word & 255) * lanes + (word >> 8)`.
+///   * `src/table.rs:1198` `insert_with_reserved`: a key whose `word >> 8` is not below `lanes`
+///     widens `lanes` to the least power of two that admits it, and
+///     `src/table.rs:458` `selected_lanes` refuses a width over the byte budget
+///     `256 * 1024 / (256 * 32) = 32` lanes. So `lanes` is `32` at most, and every key with
+///     `word >= 8192` is routed to spill instead of widening it.
+///   * `src/table.rs:352` `shard`: a spilled key is routed on `word & 255`.
+///   * `src/table.rs:394` `slots_for`: the first entry of a region reserves the least power of two
+///     at or above `max(2 * n, 2 * load) = max(32, 2) = 32` slots, and the fixture's regions hold at
+///     most three keys, so no bounded probe cycle completes and `grow_spill` never doubles the
+///     capacity: it stays `32`, and `Region::home` (`src/table/state.rs:181`) takes the top
+///     `log2 32 = 5` bits of `coord * PHI` whenever `coord = place >> 8` is not itself an index
+///     below the capacity. Every fixture spill key's coord exceeds `32`, so each lands on its own
+///     home slot and the linear probe walk does not displace it. The agreement with
+///     `Table::search_decision_at` asserted below is what checks those two claims.
+fn derived_storage_order() -> Vec<i64> {
+    const SHARDS: usize = 256;
+    const SHARD_MASK: usize = SHARDS - 1;
+    const SHARD_BITS: u32 = 8;
+    const ASSUMED_SLOT_BYTES: usize = 32;
+    const BUDGET_BYTES: usize = SHARDS * 1024;
+    const REGION_SLOTS: usize = 32;
+    const GROUP_WIDTH: usize = 16;
+    const MAX_LANES: usize = BUDGET_BYTES / (SHARDS * ASSUMED_SLOT_BYTES);
+    const REGION_BITS: u32 = 5;
+    let lane_of = |key: i64| -> usize {
+        usize::try_from(key.cast_unsigned() >> SHARD_BITS).expect("the lane fits a usize")
+    };
+    // The resident width the fixture's own direct words ask for: the least power of two at or above
+    // `lane + 1` over the keys the budget can admit. Here lane 1 is the widest admissible request,
+    // so the width is 2; the four spill keys ask for lane 32 and above and are refused by the
+    // budget.
+    let widest = MIXED_KEYS
+        .into_iter()
+        .filter(|key| lane_of(*key) < MAX_LANES)
+        .map(|key| lane_of(key) + 1)
+        .max()
+        .expect("the fixture has resident keys");
+    let mut lanes = 1_usize;
+    while lanes < widest {
+        lanes *= 2;
+    }
+    assert_eq!(REGION_SLOTS, GROUP_WIDTH * 2, "slots_for(1, 16) is 32");
+    assert_eq!(1_usize << REGION_BITS, REGION_SLOTS, "bits = log2 capacity");
+
+    let mut ranked: Vec<(bool, usize, usize, i64)> = Vec::new();
+    for key in MIXED_KEYS {
+        let word = key.cast_unsigned();
+        let direct = Home::address(&WordHome, Sigma::Parabolic, &key)
+            .direct_word
+            .expect("WordHome carries a direct word for these keys");
+        assert_eq!(u64::from(direct), word, "the direct word is the key word");
+        let lane = lane_of(key);
+        let shard_of = usize::try_from(word & u64::try_from(SHARD_MASK).expect("255 fits"))
+            .expect("the shard byte fits a usize");
+        if lane < lanes {
+            let index = shard_of * lanes + lane;
+            ranked.push((false, 0, index, key));
+        } else {
+            let coord = WordHome.home(&key) >> SHARD_BITS;
+            let index = usize::try_from(if coord < u64::try_from(REGION_SLOTS).expect("32 fits") {
+                coord
+            } else {
+                coord.wrapping_mul(apeiron::coord::PHI) >> (64 - REGION_BITS)
+            })
+            .expect("a region index fits a usize");
+            ranked.push((true, shard_of, index, key));
+        }
+    }
+    ranked.sort_by_key(|entry| (entry.0, entry.1, entry.2));
+    ranked.into_iter().map(|entry| entry.3).collect()
+}
+
+/// The keys `Table::values_in_order` yields, read back through the fixture's own value encoding.
+fn keys_in_order(table: &Table<i64, Cell<i64>, WordHome, 16>) -> Vec<i64> {
+    table
+        .values_in_order()
+        .iter()
+        .map(|value| MIXED_KEYS[usize::try_from(value.a - 1).expect("a fixture value")])
+        .collect()
+}
+
+#[test]
+fn encircle_storage_order_is_resident_then_spill_over_the_physical_layout() {
+    let table = mixed_cell_table();
+
+    // The classifier the real read path uses, asked once per key: it names the slot one key occupies
+    // and emits no order at all, so it cannot agree with a traversal by construction.
+    let mut resident = 0_usize;
+    let mut spilled = 0_usize;
+    let mut classified: Vec<(bool, usize, usize, i64)> = Vec::new();
+    for key in MIXED_KEYS {
+        let decision = table.search_decision_at(Sigma::Parabolic, &key);
+        assert_eq!(
+            decision.class,
+            SearchClass::Found,
+            "key {key} is live in the fixture"
+        );
+        let rank = match decision.location {
+            SearchLocation::Flat(index) => {
+                resident += 1;
+                (false, 0, index)
+            }
+            SearchLocation::Spill(shard, index) => {
+                spilled += 1;
+                (true, shard, index)
+            }
+            SearchLocation::NoIndex => panic!("a live key has an index"),
+        };
+        classified.push((rank.0, rank.1, rank.2, key));
+    }
+
+    // The fixture exercises both halves of the order, which the `encircle_*` fixtures above do not:
+    // every key there has `direct_word: None`, so all of them are in spill.
+    assert_eq!(resident, 4, "four live resident slots: 1, 258, 3 and 5");
+    assert_eq!(
+        spilled, 4,
+        "four live spill slots: 10756, 12036, 11012 and 8320"
+    );
+
+    // The hand-derived layout, checked against that classification. The two disagree about a key's
+    // slot, then, not only about an order.
+    classified.sort_by_key(|entry| (entry.0, entry.1, entry.2));
+    let classified: Vec<i64> = classified.into_iter().map(|entry| entry.3).collect();
+    let derived = derived_storage_order();
+    assert_eq!(
+        derived, classified,
+        "the derived slot of every key is the slot the classifier found"
+    );
+
+    // The transcribed expectation, so neither derivation can drift unnoticed.
+    assert_eq!(
+        derived,
+        MIXED_STORAGE_ORDER.to_vec(),
+        "the layout derivation and the hand-written list agree"
+    );
+    assert_eq!(
+        keys_in_order(&table),
+        MIXED_STORAGE_ORDER.to_vec(),
+        "values_in_order yields every resident slot by ascending flat index, then every spill \
+         slot by ascending (shard, slot)"
+    );
+
+    // The order claim is non-vacuous: the mirror image is a different key sequence, so a traversal
+    // run backwards cannot agree with the expectation.
+    let mut mirrored = MIXED_STORAGE_ORDER.to_vec();
+    mirrored.reverse();
+    assert_ne!(
+        keys_in_order(&table),
+        mirrored,
+        "a reversed traversal is observable"
+    );
+    let mut swapped: Vec<i64> = MIXED_STORAGE_ORDER[4..].to_vec();
+    swapped.extend_from_slice(&MIXED_STORAGE_ORDER[..4]);
+    assert_ne!(
+        derived, swapped,
+        "resident-before-spill is observable: swapping the two blocks is a different sequence"
+    );
+}
+
+#[test]
+fn encircle_reduce_all_is_the_fold_of_the_hand_derived_storage_order() {
+    let table = mixed_cell_table();
+    // The step list is built from the hand-written key order and the fixture's own value encoding.
+    // It never reads `values_in_order` or `reduce_all`, so it is a fold law over an independently
+    // fixed order rather than an equality between two traversals of the same loop.
+    let steps_in_order = |key: i64| {
+        let position = MIXED_KEYS
+            .into_iter()
+            .position(|candidate| candidate == key)
+            .expect("a fixture key");
+        mixed_value(position)
+    };
+    let forward: Vec<Cell<i64>> = MIXED_STORAGE_ORDER
+        .into_iter()
+        .map(steps_in_order)
+        .collect();
+    let mut backward = forward.clone();
+    backward.reverse();
+    assert_eq!(
+        table.values_in_order().len(),
+        forward.len(),
+        "the fixture holds one value per fixture key"
+    );
+
+    let translate = AffineFoldStep {
+        sigma: Sigma::Parabolic,
+    };
+    let mixing = AffineMixStep {
+        sigma: Sigma::Parabolic,
+    };
+    let translate_steps: Vec<AffineStep<i64>> = forward
+        .iter()
+        .map(|value| translate.residual(value))
+        .collect();
+    assert_eq!(
+        table.reduce_all(&translate),
+        translate.fold(&translate_steps),
+        "the table reduce is the corpus left fold over the hand-derived storage order"
+    );
+    let mixing_steps: Vec<AffineStep<i64>> =
+        forward.iter().map(|value| mixing.residual(value)).collect();
+    assert_eq!(
+        table.reduce_all(&mixing),
+        mixing.fold(&mixing_steps),
+        "the table reduce is the corpus left fold at the non-commutative witness, over the \
+         hand-derived storage order"
+    );
+
+    // The control for the order: at the non-commutative witness the mirror-image order is a
+    // different accumulator, so the assertion above can fail if the traversal direction moves.
+    // (`AffineFoldStep` cannot carry this control: its steps are all `<1, v>`, so `compose` on
+    // them is addition of injections and the fold is commutative -- `src/table/reduce.rs`.)
+    let backward_steps: Vec<AffineStep<i64>> = backward
+        .iter()
+        .map(|value| mixing.residual(value))
+        .collect();
+    assert_ne!(
+        mixing.fold(&backward_steps),
+        mixing.fold(&mixing_steps),
+        "the mirror-image order is observable at the non-commutative witness"
+    );
+}
+
+/// A deliberately colliding word home: `place = key >> 1`, so the two keys `2m` and `2m + 1` share
+/// one placement, one published coordinate word and one home slot, and no `direct_word` exists.
+///
+/// This is the `(A, B)` fold `tests/coord_is_injective.rs` measures at 49% on a signed grid,
+/// reduced to its deterministic core. It exists so the exact compare is the **only** thing that can
+/// separate two distinct keys: `spill_read` gates the full `(Sigma, K)` compare behind a coordinate
+/// match (`src/table/probe.rs:279`), so under a collision-free home the compare is provably
+/// redundant (`CoordinateReadout.exact_read_is_read`) and no test could observe its removal.
+#[derive(Clone, Copy)]
+struct CollidingHome;
+
+impl Home<i64> for CollidingHome {
+    fn home(&self, key: &i64) -> u64 {
+        key.cast_unsigned() >> 1
+    }
+
+    fn address(&self, _sigma: Sigma, key: &i64) -> TableAddress {
+        TableAddress {
+            place: key.cast_unsigned() >> 1,
+            direct_word: None,
+        }
+    }
+}
+
+sigma_word_face!(CollidingHome, i64);
+
+/// `get_exact_at` reports absence as `None` where the total read substitutes the default.
+///
+/// The stored value is deliberately equal to the table default: that is the whole reason the
+/// `Option` read exists, because under [`Table::get`] a stored default and an absent key are the
+/// same observation.
+#[test]
+fn get_exact_at_separates_a_stored_default_from_an_absent_key() {
+    let mut table = Table::<i64, i64, _, 16>::new(7, CollidingHome);
+    table.insert_with(&ReplacementMerge, 10, 7).unwrap();
+    assert_eq!(
+        *table.get(&10),
+        7,
+        "the total read cannot see this entry: its value is the default"
+    );
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &10),
+        Some(&7),
+        "the exact read finds the stored default"
+    );
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &11),
+        None,
+        "the neighbour under the same placement is absent, not the default"
+    );
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &12),
+        None,
+        "an unrelated absent key stays absent"
+    );
+}
+
+/// **The `get_exact` contract**: a coordinate collision returns absence, never the neighbour's
+/// value.
+///
+/// Keys `20` and `21` share one placement under [`CollidingHome`], so the coordinate confirm at the
+/// home slot matches for both and the full `(Sigma, K)` compare is the only separator. A read that
+/// trusted the coordinate — `fold hashtrinity`'s 10-instruction `get`, `full.asm` `probe_get` —
+/// would answer `Some(&200)` for key `21`.
+#[test]
+fn get_exact_at_rejects_the_neighbour_under_a_shared_coordinate() {
+    let mut table = Table::<i64, i64, _, 16>::new(-1, CollidingHome);
+    table.insert_with(&ReplacementMerge, 20, 200).unwrap();
+    table.insert_with(&ReplacementMerge, 21, 210).unwrap();
+
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &20),
+        Some(&200),
+        "the stored key is found at the shared placement"
+    );
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &21),
+        Some(&210),
+        "the neighbour is found at its own slot under the same coordinate"
+    );
+    for absent in [22, 23, 24] {
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &absent),
+            None,
+            "key {absent} shares the placement and coordinate of a stored key, so only the full \
+             compare can exclude it"
+        );
+    }
+    // The exact read and the total read agree on every stored key, and differ only on absence.
+    for key in [20, 21] {
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &key),
+            Some(table.get(&key)),
+            "key {key}: the exact read returns the same value as the total read"
+        );
+    }
+}
+
+/// The face is part of exact identity: the same key stored under one `Sigma` is absent under the
+/// other two, so `get_exact_at` cannot report another face's entry.
+///
+/// Both halves of the read are covered, because they are two distinct compares and either can be
+/// dropped independently: [`CollidingHome`] has no `direct_word`, so its read is the spill compare
+/// at `src/table/state.rs:369`, and [`DirectHome`] certifies a direct word, so its read is the
+/// resident compare in `resident_exact`. Dropping the spill compare reds the first block and
+/// dropping the resident face conjunct reds the second.
+#[test]
+fn get_exact_at_is_face_specific() {
+    let mut spill = Table::<i64, i64, _, 16>::new(-1, CollidingHome);
+    spill.insert_with(&ReplacementMerge, 30, 300).unwrap();
+    assert_eq!(
+        spill.get_exact_at(Sigma::Parabolic, &30),
+        Some(&300),
+        "the spill entry is stored under the parabolic default face and read back under it"
+    );
+
+    let mut resident = Table::<i64, i64, _, 16>::new(-1, DirectHome);
+    resident.insert_with(&ReplacementMerge, 2, 302).unwrap();
+    assert_eq!(
+        resident.get_exact_at(Sigma::Parabolic, &2),
+        Some(&302),
+        "the resident entry is stored under the parabolic default face and read back under it"
+    );
+
+    for other in [Sigma::Elliptic, Sigma::Hyperbolic] {
+        assert_eq!(
+            spill.get_exact_at(other, &30),
+            None,
+            "spill, {other:?}: not the stored face, so the entry is absent there"
+        );
+        assert_eq!(
+            resident.get_exact_at(other, &2),
+            None,
+            "resident, {other:?}: not the stored face, so the entry is absent there"
+        );
+    }
+}
+
+/// The three resident states are distinguishable, and the two reads treat `Vacant` differently.
+///
+/// `DirectHome` gives key `k` the direct word `Some(k << 8)`, so key `k` occupies resident lane `k`
+/// of shard 0. `Flat::index` maps lane `k` to slot `k` while `k < lanes`, and the insert path's
+/// `selected_lanes` rounds the width up to the next power of two, so inserting lanes 0, 1 and 2
+/// leaves **`lanes == 4` with lane 3 reserved and unpublished**. That is the only way to reach
+/// `ResidentRead::Vacant` at all: a direct word beyond the width (`key 8` here) takes the `Miss`
+/// branch instead, because `Flat::index` refuses it.
+///
+/// | key | resident state | `get_exact_at` | `get` |
+/// |---|---|---|---|
+/// | 0 | `Hit` | `Some(&900)` | `&900` |
+/// | 1 | `Hit` | `Some(&901)` | `&901` |
+/// | 3 | `Vacant` (inside the extent, unpublished) | `None` — falls through to spill | `&default` — terminal |
+/// | 8 | `Miss` (outside the extent) | `None` — falls through to spill | `&default` — terminal |
+#[test]
+fn get_exact_at_distinguishes_the_three_resident_states() {
+    let mut table = Table::<i64, i64, _, 16>::new(-1, DirectHome);
+    table.insert_with(&ReplacementMerge, 0, 900).unwrap();
+    table.insert_with(&ReplacementMerge, 1, 901).unwrap();
+    table.insert_with(&ReplacementMerge, 2, 902).unwrap();
+    for (key, stored) in [(0, 900), (1, 901), (2, 902)] {
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &key),
+            Some(&stored),
+            "key {key}: the occupied direct word is a Hit"
+        );
+        assert_eq!(
+            *table.get(&key),
+            stored,
+            "key {key}: and the total read agrees"
+        );
+    }
+
+    // Lane 3 is inside the resident extent but was never published: the `Vacant` branch.
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &3),
+        None,
+        "an unpublished slot inside the resident extent is not a stored entry"
+    );
+    assert_eq!(
+        *table.get(&3),
+        -1,
+        "the total read treats the same slot as terminal and substitutes the default"
+    );
+
+    // Lane 8 is outside the resident extent: the `Miss` branch, which the total read also sends
+    // to spill. Recorded here so the two absences are not confused with each other.
+    assert_eq!(
+        table.get_exact_at(Sigma::Parabolic, &8),
+        None,
+        "a direct word beyond the resident extent is absent"
+    );
+    assert_eq!(*table.get(&8), -1, "the total read substitutes the default");
+}
+
+/// Both carriers agree: the exact read separates a shared coordinate identically for the parabolic
+/// carrier, which retains `K`, and the elliptic carrier, which retains only an identity word.
+#[test]
+fn get_exact_at_separates_a_shared_coordinate_on_both_carriers() {
+    fn check<R: KeyRep<i64, CollidingHome>>(label: &str) {
+        let mut table = Table::<i64, i64, _, 16, R>::new(-1, CollidingHome);
+        table.insert_with(&ReplacementMerge, 40, 400).unwrap();
+        table.insert_with(&ReplacementMerge, 41, 410).unwrap();
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &40),
+            Some(&400),
+            "{label}: the stored key is found at the shared placement"
+        );
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &41),
+            Some(&410),
+            "{label}: the neighbour is found at its own slot"
+        );
+        assert_eq!(
+            table.get_exact_at(Sigma::Parabolic, &42),
+            None,
+            "{label}: a third key under the same coordinate is absent, not a neighbour's value"
+        );
+    }
+    check::<Stored<i64>>("Stored");
+    check::<Regen<I64WordCodec>>("Regen");
+}

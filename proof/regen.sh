@@ -112,6 +112,7 @@ $REPO_DIR/src/table/partition.rs
 $REPO_DIR/src/table/resources.rs
 $REPO_DIR/src/table/parallel.rs
 $REPO_DIR/src/table/reduce.rs
+$REPO_DIR/src/table/getexact.rs
 $REPO_DIR/src/numeric/fixed_exp.rs
 $REPO_DIR/src/numeric/fixed_rsqrt.rs
 $REPO_DIR/src/numeric/fixed_trig.rs
@@ -209,6 +210,8 @@ run_extract() {
         --start-from crate::word_table_reduce_all \
         --start-from crate::word_affine_step_compose \
         --start-from crate::word_affine_step_apply \
+        --start-from crate::word_stored_table_get_exact_at \
+        --start-from crate::word_regen_table_get_exact_at \
         --start-from crate::word_stored_relocate_entry \
         --start-from crate::word_regen_relocate_entry \
         --start-from crate::word_stored_relocate_all \

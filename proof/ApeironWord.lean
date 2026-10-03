@@ -17157,6 +17157,121 @@ def spirv.check.check_fragment
               (alloc.vec.Vec.new (Std.U32 × spirv.check.TyTag))
               spirv.check.HEADER_WORDS
 
+/-- [apeiron_word::table::ResidentRead]
+    Source: '../../src/table/getexact.rs', lines 41:0-48:1 -/
+@[discriminant isize]
+inductive table.ResidentRead (V : Type) where
+| Vacant : table.ResidentRead V
+| Miss : table.ResidentRead V
+| Hit : V → table.ResidentRead V
+
+/-- [apeiron_word::table::PayloadLocation]
+    Source: '../../src/table/state.rs', lines 523:0-528:1 -/
+@[discriminant isize]
+inductive table.PayloadLocation where
+| Resident : Std.Usize → table.PayloadLocation
+| Spill : Std.Usize → Std.Usize → table.PayloadLocation
+
+/-- [apeiron_word::table::TableLocator]
+    Source: '../../src/table/state.rs', lines 536:0-556:1 -/
+structure table.TableLocator where
+  profile : Option coord.address.H3_40
+  directory : Option coord.locator.locator_core.Directory
+  links : alloc.vec.Vec (Std.U32 × table.PayloadLocation)
+  admitted : Std.Usize
+  staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
+
+/-- [apeiron_word::table::FlatSlot]
+    Source: '../../src/table/state.rs', lines 430:0-435:1 -/
+structure table.FlatSlot (R : Type) (V : Type) where
+  live : Bool
+  sigma : cell.Sigma
+  held : R
+  value : V
+
+/-- [apeiron_word::table::Flat]
+    Source: '../../src/table/state.rs', lines 437:0-440:1 -/
+structure table.Flat (R : Type) (V : Type) where
+  lanes : Std.Usize
+  slots : alloc.vec.Vec (table.FlatSlot R V)
+
+/-- [apeiron_word::table::SpillSlot]
+    Source: '../../src/table/state.rs', lines 58:0-67:1 -/
+structure table.SpillSlot (R : Type) (V : Type) where
+  tag : Std.U8
+  sigma : cell.Sigma
+  held : R
+  value : V
+
+/-- [apeiron_word::table::Region]
+    Source: '../../src/table/state.rs', lines 108:0-121:1 -/
+structure table.Region (R : Type) (V : Type) where
+  slots : alloc.vec.Vec (table.SpillSlot R V)
+  coords : alloc.vec.Vec Std.U64
+  bits : Std.U32
+  live : Std.Usize
+
+/-- [apeiron_word::table::Table]
+    Source: '../../src/table.rs', lines 237:0-249:1
+    Visibility: public -/
+structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
+  Std.Usize) where
+  default : V
+  home : H
+  resident : table.Flat R V
+  shards : alloc.vec.Vec (table.Region R V)
+  len : Std.Usize
+  key : core.marker.PhantomData K
+  locator : table.TableLocator
+
+/-- [apeiron_word::table::partition::SHARD_BITS]
+    Source: '../../src/table/partition.rs', lines 30:0-30:37 -/
+@[global_simps, irreducible] def table.partition.SHARD_BITS : Std.U32 := 8#u32
+
+/-- [apeiron_word::table::partition::SHARDS]
+    Source: '../../src/table/partition.rs', lines 33:0-33:49 -/
+@[global_simps, irreducible]
+def table.partition.SHARDS : Result Std.Usize :=
+  1#usize <<< table.partition.SHARD_BITS
+
+/-- [apeiron_word::table::partition::SHARD_MASK]
+    Source: '../../src/table/partition.rs', lines 36:0-36:48 -/
+@[global_simps, irreducible]
+def table.partition.SHARD_MASK : Result Std.Usize := do
+  let i ← table.partition.SHARDS
+  i - 1#usize
+
+/-- [apeiron_word::table::SHARD_MASK]
+    Source: '../../src/table.rs', lines 61:0-61:48 -/
+@[global_simps, irreducible]
+def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
+
+/-- [apeiron_word::table::SHARD_BITS]
+    Source: '../../src/table.rs', lines 60:0-60:46 -/
+@[global_simps, irreducible]
+def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
+
+/-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::index]:
+    Source: '../../src/table/state.rs', lines 478:4-489:5 -/
+def table.Flat.index
+  {R : Type} {V : Type} (self : table.Flat R V) (word : Std.U32) :
+  Result (Option Std.Usize)
+  := do
+  let i ← word >>> table.SHARD_BITS
+  let lane_word ← lift (core.convert.num.FromU64U32.from i)
+  let i1 ← lift (UScalar.cast .U64 self.lanes)
+  if lane_word >= i1
+  then ok none
+  else
+    let lane ← lift (UScalar.cast .Usize lane_word)
+    let i2 ← lift (UScalar.cast .Usize word)
+    let i3 ← table.SHARD_MASK
+    let shard ← lift (i2 &&& i3)
+    let o ← lift (Usize.checked_mul shard self.lanes)
+    match o with
+    | none => ok none
+    | some base => ok (Usize.checked_add base lane)
+
 /-- Trait declaration: [apeiron_word::table::keyrep::sealed::Sealed]
     Source: '../../src/table/keyrep.rs', lines 16:4-16:23
     Visibility: public -/
@@ -17182,6 +17297,284 @@ structure table.keyrep.KeyRep (Self : Type) (K : Type) (H : Type) where
     (coordaddressFaceHomeInst : coord.address.FaceHome H K
     Clause0_Clause0_Faces), H → coord.address.H3_40 → Clause0_Clause0_Faces
     → Self → Result coord.address.FaceTableAddress
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::resident_exact]:
+    Source: '../../src/table/getexact.rs', lines 57:4-71:5 -/
+def table.Table.resident_exact
+  {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
+  Type} {N : Std.Usize} (HomeInst : table.Home H K
+  Clause0_Clause0_Clause0_Faces) (keyrepKeyRepInst : table.keyrep.KeyRep R K H)
+  (self : table.Table K V H R N) (sigma : cell.Sigma)
+  (address : table.TableAddress) (key : K) :
+  Result (table.ResidentRead V)
+  := do
+  match address.direct_word with
+  | none => ok table.ResidentRead.Miss
+  | some word =>
+    let o ← table.Flat.index self.resident word
+    match o with
+    | none => ok table.ResidentRead.Miss
+    | some index =>
+      let flat ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (table.FlatSlot R V)) self.resident.slots index
+      if flat.live
+      then
+        let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma
+        if b
+        then
+          let b1 ← keyrepKeyRepInst.«matches» sigma flat.held key address
+          if b1
+          then ok (table.ResidentRead.Hit flat.value)
+          else ok table.ResidentRead.Miss
+        else ok table.ResidentRead.Miss
+      else ok table.ResidentRead.Vacant
+
+/-- [apeiron_word::table::shard]:
+    Source: '../../src/table/state.rs', lines 352:0-357:1 -/
+def table.shard (address : table.TableAddress) : Result Std.Usize := do
+  match address.direct_word with
+  | none =>
+    let i ← lift (UScalar.cast .Usize address.place)
+    let i1 ← table.SHARD_MASK
+    ok (i &&& i1)
+  | some word =>
+    let i ← lift (UScalar.cast .Usize word)
+    let i1 ← table.SHARD_MASK
+    ok (i &&& i1)
+
+/-- [apeiron_word::table::matches]:
+    Source: '../../src/table/state.rs', lines 369:0-376:1 -/
+def table.matches
+  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (slot : table.SpillSlot R V) (sigma : cell.Sigma)
+  (key : K) (address : table.TableAddress) :
+  Result Bool
+  := do
+  let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq slot.sigma sigma
+  if b
+  then keyrepKeyRepInst.«matches» sigma slot.held key address
+  else ok false
+
+/-- [apeiron_word::table::MAX_GROUP]
+    Source: '../../src/table.rs', lines 69:0-69:28 -/
+@[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
+
+/-- [apeiron_word::table::valid_n]:
+    Source: '../../src/table/state.rs', lines 344:0-346:1 -/
+def table.valid_n (n : Std.Usize) : Result Bool := do
+  if n != 0#usize
+  then
+    if n <= table.MAX_GROUP
+    then core.num.Usize.is_power_of_two n
+    else ok false
+  else ok false
+
+/-- [apeiron_word::table::TAG_SPREAD]
+    Source: '../../src/table.rs', lines 93:0-93:42 -/
+@[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
+
+/-- [apeiron_word::table::COORD_EMPTY]
+    Source: '../../src/table/state.rs', lines 19:0-19:34 -/
+@[global_simps, irreducible]
+def table.COORD_EMPTY : Std.U64 := core.num.U64.MAX
+
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::coord_of]:
+    Source: '../../src/table/state.rs', lines 152:4-159:5 -/
+def table.Region.coord_of
+  (R : Type) (V : Type) (place : Std.U64) : Result Std.U64 := do
+  let c ← place >>> table.SHARD_BITS
+  if c = table.COORD_EMPTY
+  then table.COORD_EMPTY - 1#u64
+  else ok c
+
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::home]:
+    Source: '../../src/table/state.rs', lines 173:4-185:5 -/
+def table.Region.home
+  {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
+  Result Std.Usize
+  := do
+  let c ← table.Region.coord_of R V place
+  let len := alloc.vec.Vec.len self.coords
+  if len = 0#usize
+  then ok 0#usize
+  else
+    let i ← lift (UScalar.cast .U64 len)
+    if c < i
+    then ok (UScalar.cast .Usize c)
+    else
+      let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+      let i2 ← 64#u32 - self.bits
+      let i3 ← i1 >>> i2
+      ok (UScalar.cast .Usize i3)
+
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::bound]:
+    Source: '../../src/table/state.rs', lines 137:4-139:5 -/
+def table.Region.bound
+  {R : Type} {V : Type} (self : table.Region R V) : Result Std.Usize := do
+  ok (alloc.vec.Vec.len self.slots)
+
+/-- [apeiron_word::table::probe::spill_read_tail]: loop body 0:
+    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
+@[rust_loop_body]
+def table.probe.spill_read_tail_loop.body
+  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (i : Std.U64) (o : Option Std.U32) (key : K) (home : Std.Usize)
+  (bound : Std.Usize) (mask : Std.Usize) (wanted : Std.U64) (step : Std.Usize)
+  :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
+  := do
+  if step < bound
+  then
+    let i1 ← home + step
+    let slot ← lift (i1 &&& mask)
+    let found ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        r.coords slot
+    if found = table.COORD_EMPTY
+    then ok (done none)
+    else
+      if found = wanted
+      then
+        let ss ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+            (table.SpillSlot R V)) r.slots slot
+        let b ←
+          table.matches keyrepKeyRepInst ss sigma key
+            { place := i, direct_word := o }
+        if b
+        then ok (done (some slot))
+        else let step1 ← step + 1#usize
+             ok (cont step1)
+      else let step1 ← step + 1#usize
+           ok (cont step1)
+  else ok (done none)
+
+/-- [apeiron_word::table::probe::spill_read_tail]: loop 0:
+    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
+@[rust_loop]
+def table.probe.spill_read_tail_loop
+  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (i : Std.U64) (o : Option Std.U32) (key : K) (home : Std.Usize)
+  (bound : Std.Usize) (mask : Std.Usize) (wanted : Std.U64) (step : Std.Usize)
+  :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun step1 => table.probe.spill_read_tail_loop.body keyrepKeyRepInst r
+      sigma i o key home bound mask wanted step1)
+    step
+
+/-- [apeiron_word::table::probe::spill_read_tail]:
+    Source: '../../src/table/probe.rs', lines 303:0-342:1 -/
+def table.probe.spill_read_tail
+  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (address : table.TableAddress) (key : K) (home : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  let bound ← table.Region.bound r
+  let mask ← bound - 1#usize
+  let wanted ← table.Region.coord_of R V address.place
+  table.probe.spill_read_tail_loop keyrepKeyRepInst r sigma address.place
+    address.direct_word key home bound mask wanted 1#usize
+
+/-- [apeiron_word::table::probe::spill_read]:
+    Source: '../../src/table/probe.rs', lines 252:0-293:1 -/
+def table.probe.spill_read
+  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
+  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
+  (address : table.TableAddress) (key : K) (n : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  let i := alloc.vec.Vec.len r.slots
+  if i != 0#usize
+  then
+    let b ← table.valid_n n
+    if b
+    then
+      let home ← table.Region.home r address.place
+      let wanted ← table.Region.coord_of R V address.place
+      let found ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+          r.coords home
+      if found = table.COORD_EMPTY
+      then ok none
+      else
+        let hit ←
+          if found = wanted
+          then
+            do
+            let ss ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                (table.SpillSlot R V)) r.slots home
+            let b1 ← table.matches keyrepKeyRepInst ss sigma key address
+            if b1
+            then ok (some home)
+            else ok none
+          else ok none
+        let b1 := core.option.Option.is_none hit
+        if b1
+        then
+          table.probe.spill_read_tail keyrepKeyRepInst r sigma address key home
+        else ok hit
+    else ok none
+  else ok none
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_exact_spill]:
+    Source: '../../src/table/getexact.rs', lines 115:4-126:5 -/
+def table.Table.get_exact_spill
+  {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
+  Type} {N : Std.Usize} (HomeInst : table.Home H K
+  Clause0_Clause0_Clause0_Faces) (keyrepKeyRepInst : table.keyrep.KeyRep R K H)
+  (self : table.Table K V H R N) (sigma : cell.Sigma) (place : Std.U64)
+  (direct_word : Option Std.U32) (key : K) :
+  Result (Option V)
+  := do
+  let shard_at ← table.shard { place, direct_word }
+  let r ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.Region R
+      V)) self.shards shard_at
+  let o ←
+    table.probe.spill_read keyrepKeyRepInst r sigma { place, direct_word } key
+      N
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let ss ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (table.SpillSlot R V)) r.slots val
+    ok (some ss.value)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      V residual
+
+/-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_exact_at]:
+    Source: '../../src/table/getexact.rs', lines 97:4-106:5
+    Visibility: public -/
+def table.Table.get_exact_at
+  {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
+  Type} {N : Std.Usize} (HomeInst : table.Home H K
+  Clause0_Clause0_Clause0_Faces) (keyrepKeyRepInst : table.keyrep.KeyRep R K H)
+  (self : table.Table K V H R N) (face : Clause0_Clause0_Clause0_Faces)
+  (key : K) :
+  Result (Option V)
+  := do
+  let sigma ←
+    HomeInst.coordaddressFaceHomeInst.FaceCoordInst.FaceDomainInst.sigma face
+  let address ← HomeInst.address self.home sigma key
+  let rr ←
+    table.Table.resident_exact HomeInst keyrepKeyRepInst self sigma address key
+  match rr with
+  | table.ResidentRead.Vacant =>
+    table.Table.get_exact_spill HomeInst keyrepKeyRepInst self sigma
+      address.place address.direct_word key
+  | table.ResidentRead.Miss =>
+    table.Table.get_exact_spill HomeInst keyrepKeyRepInst self sigma
+      address.place address.direct_word key
+  | table.ResidentRead.Hit value => ok (some value)
 
 /-- [apeiron_word::table::keyrep::Stored]
     Source: '../../src/table/keyrep.rs', lines 112:0-114:1
@@ -17766,43 +18159,6 @@ def
     table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces.identity_encoding_byte
     HomeHI64Clause0_Clause0_Clause0_FacesInst
 }
-
-/-- [apeiron_word::table::PayloadLocation]
-    Source: '../../src/table/state.rs', lines 523:0-528:1 -/
-@[discriminant isize]
-inductive table.PayloadLocation where
-| Resident : Std.Usize → table.PayloadLocation
-| Spill : Std.Usize → Std.Usize → table.PayloadLocation
-
-/-- [apeiron_word::table::FlatSlot]
-    Source: '../../src/table/state.rs', lines 430:0-435:1 -/
-structure table.FlatSlot (R : Type) (V : Type) where
-  live : Bool
-  sigma : cell.Sigma
-  held : R
-  value : V
-
-/-- [apeiron_word::table::Flat]
-    Source: '../../src/table/state.rs', lines 437:0-440:1 -/
-structure table.Flat (R : Type) (V : Type) where
-  lanes : Std.Usize
-  slots : alloc.vec.Vec (table.FlatSlot R V)
-
-/-- [apeiron_word::table::SpillSlot]
-    Source: '../../src/table/state.rs', lines 58:0-67:1 -/
-structure table.SpillSlot (R : Type) (V : Type) where
-  tag : Std.U8
-  sigma : cell.Sigma
-  held : R
-  value : V
-
-/-- [apeiron_word::table::Region]
-    Source: '../../src/table/state.rs', lines 108:0-121:1 -/
-structure table.Region (R : Type) (V : Type) where
-  slots : alloc.vec.Vec (table.SpillSlot R V)
-  coords : alloc.vec.Vec Std.U64
-  bits : Std.U32
-  live : Std.Usize
 
 /-- [apeiron_word::table::{apeiron_word::table::SpillSlot<R, V>}::live]:
     Source: '../../src/table/state.rs', lines 72:4-74:5 -/
@@ -18408,15 +18764,6 @@ def table.same_location
       then ok (left_index = right_index)
       else ok false
 
-/-- [apeiron_word::table::TableLocator]
-    Source: '../../src/table/state.rs', lines 536:0-556:1 -/
-structure table.TableLocator where
-  profile : Option coord.address.H3_40
-  directory : Option coord.locator.locator_core.Directory
-  links : alloc.vec.Vec (Std.U32 × table.PayloadLocation)
-  admitted : Std.Usize
-  staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
-
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::profile_or_init]:
     Source: '../../src/table/locator.rs', lines 426:4-433:5 -/
 def table.TableLocator.profile_or_init
@@ -18996,19 +19343,6 @@ def table.TableLocator.retarget_held
         else ok self
       else ok self
 
-/-- [apeiron_word::table::Table]
-    Source: '../../src/table.rs', lines 232:0-244:1
-    Visibility: public -/
-structure table.Table (K : Type) (V : Type) (H : Type) (R : Type) (N :
-  Std.Usize) where
-  default : V
-  home : H
-  resident : table.Flat R V
-  shards : alloc.vec.Vec (table.Region R V)
-  len : Std.Usize
-  key : core.marker.PhantomData K
-  locator : table.TableLocator
-
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_locator_path]:
     Source: '../../src/table/locator.rs', lines 927:4-933:5 -/
 def table.Table.reserve_locator_path
@@ -19166,46 +19500,11 @@ def table.Table.assemble_directory
     HomeInst keyrepKeyRepInst self.default self.home self.resident self.shards
     self.len self.key { self.locator with links := v } locations 0#usize
 
-/-- [apeiron_word::table::partition::SHARD_BITS]
-    Source: '../../src/table/partition.rs', lines 30:0-30:37 -/
-@[global_simps, irreducible] def table.partition.SHARD_BITS : Std.U32 := 8#u32
-
-/-- [apeiron_word::table::partition::SHARDS]
-    Source: '../../src/table/partition.rs', lines 33:0-33:49 -/
-@[global_simps, irreducible]
-def table.partition.SHARDS : Result Std.Usize :=
-  1#usize <<< table.partition.SHARD_BITS
-
-/-- [apeiron_word::table::partition::SHARD_MASK]
-    Source: '../../src/table/partition.rs', lines 36:0-36:48 -/
-@[global_simps, irreducible]
-def table.partition.SHARD_MASK : Result Std.Usize := do
-  let i ← table.partition.SHARDS
-  i - 1#usize
-
 /-- [apeiron_word::table::partition::Parts]
     Source: '../../src/table/partition.rs', lines 50:0-53:1 -/
 structure table.partition.Parts where
   buf : alloc.vec.Vec Std.Usize
   ends : Array Std.Usize 257#usize
-
-/-- [apeiron_word::table::SHARD_MASK]
-    Source: '../../src/table.rs', lines 61:0-61:48 -/
-@[global_simps, irreducible]
-def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
-
-/-- [apeiron_word::table::shard]:
-    Source: '../../src/table/state.rs', lines 352:0-357:1 -/
-def table.shard (address : table.TableAddress) : Result Std.Usize := do
-  match address.direct_word with
-  | none =>
-    let i ← lift (UScalar.cast .Usize address.place)
-    let i1 ← table.SHARD_MASK
-    ok (i &&& i1)
-  | some word =>
-    let i ← lift (UScalar.cast .Usize word)
-    let i1 ← table.SHARD_MASK
-    ok (i &&& i1)
 
 /-- [apeiron_word::table::partition::partition_chunk]: loop body 0:
     Source: '../../src/table/partition.rs', lines 203:4-209:5 -/
@@ -20246,11 +20545,6 @@ def table.reserve_plan_regions
       (alloc.vec.Vec (table.Region R V)) (core.convert.FromSame
       table.StorageError) residual
 
-/-- [apeiron_word::table::COORD_EMPTY]
-    Source: '../../src/table/state.rs', lines 19:0-19:34 -/
-@[global_simps, irreducible]
-def table.COORD_EMPTY : Std.U64 := core.num.U64.MAX
-
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 0:
     Source: '../../src/table/state.rs', lines 240:8-247:9 -/
 @[rust_loop_body]
@@ -20437,186 +20731,6 @@ def table.account_spill_load
   if b
   then ok (none, spill_loads)
   else table.increment_spill_load spill_loads spill
-
-/-- [apeiron_word::table::matches]:
-    Source: '../../src/table/state.rs', lines 369:0-376:1 -/
-def table.matches
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (slot : table.SpillSlot R V) (sigma : cell.Sigma)
-  (key : K) (address : table.TableAddress) :
-  Result Bool
-  := do
-  let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq slot.sigma sigma
-  if b
-  then keyrepKeyRepInst.«matches» sigma slot.held key address
-  else ok false
-
-/-- [apeiron_word::table::MAX_GROUP]
-    Source: '../../src/table.rs', lines 69:0-69:28 -/
-@[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
-
-/-- [apeiron_word::table::valid_n]:
-    Source: '../../src/table/state.rs', lines 344:0-346:1 -/
-def table.valid_n (n : Std.Usize) : Result Bool := do
-  if n != 0#usize
-  then
-    if n <= table.MAX_GROUP
-    then core.num.Usize.is_power_of_two n
-    else ok false
-  else ok false
-
-/-- [apeiron_word::table::TAG_SPREAD]
-    Source: '../../src/table.rs', lines 93:0-93:42 -/
-@[global_simps, irreducible] def table.TAG_SPREAD : Std.U64 := coord.PHI
-
-/-- [apeiron_word::table::SHARD_BITS]
-    Source: '../../src/table.rs', lines 60:0-60:46 -/
-@[global_simps, irreducible]
-def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
-
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::coord_of]:
-    Source: '../../src/table/state.rs', lines 152:4-159:5 -/
-def table.Region.coord_of
-  (R : Type) (V : Type) (place : Std.U64) : Result Std.U64 := do
-  let c ← place >>> table.SHARD_BITS
-  if c = table.COORD_EMPTY
-  then table.COORD_EMPTY - 1#u64
-  else ok c
-
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::home]:
-    Source: '../../src/table/state.rs', lines 173:4-185:5 -/
-def table.Region.home
-  {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
-  Result Std.Usize
-  := do
-  let c ← table.Region.coord_of R V place
-  let len := alloc.vec.Vec.len self.coords
-  if len = 0#usize
-  then ok 0#usize
-  else
-    let i ← lift (UScalar.cast .U64 len)
-    if c < i
-    then ok (UScalar.cast .Usize c)
-    else
-      let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
-      let i2 ← 64#u32 - self.bits
-      let i3 ← i1 >>> i2
-      ok (UScalar.cast .Usize i3)
-
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::bound]:
-    Source: '../../src/table/state.rs', lines 137:4-139:5 -/
-def table.Region.bound
-  {R : Type} {V : Type} (self : table.Region R V) : Result Std.Usize := do
-  ok (alloc.vec.Vec.len self.slots)
-
-/-- [apeiron_word::table::probe::spill_read_tail]: loop body 0:
-    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
-@[rust_loop_body]
-def table.probe.spill_read_tail_loop.body
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (home : Std.Usize)
-  (bound : Std.Usize) (mask : Std.Usize) (wanted : Std.U64) (step : Std.Usize)
-  :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  if step < bound
-  then
-    let i1 ← home + step
-    let slot ← lift (i1 &&& mask)
-    let found ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        r.coords slot
-    if found = table.COORD_EMPTY
-    then ok (done none)
-    else
-      if found = wanted
-      then
-        let ss ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (table.SpillSlot R V)) r.slots slot
-        let b ←
-          table.matches keyrepKeyRepInst ss sigma key
-            { place := i, direct_word := o }
-        if b
-        then ok (done (some slot))
-        else let step1 ← step + 1#usize
-             ok (cont step1)
-      else let step1 ← step + 1#usize
-           ok (cont step1)
-  else ok (done none)
-
-/-- [apeiron_word::table::probe::spill_read_tail]: loop 0:
-    Source: '../../src/table/probe.rs', lines 314:4-342:1 -/
-@[rust_loop]
-def table.probe.spill_read_tail_loop
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-  (i : Std.U64) (o : Option Std.U32) (key : K) (home : Std.Usize)
-  (bound : Std.Usize) (mask : Std.Usize) (wanted : Std.U64) (step : Std.Usize)
-  :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun step1 => table.probe.spill_read_tail_loop.body keyrepKeyRepInst r
-      sigma i o key home bound mask wanted step1)
-    step
-
-/-- [apeiron_word::table::probe::spill_read_tail]:
-    Source: '../../src/table/probe.rs', lines 303:0-342:1 -/
-def table.probe.spill_read_tail
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-  (address : table.TableAddress) (key : K) (home : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  let bound ← table.Region.bound r
-  let mask ← bound - 1#usize
-  let wanted ← table.Region.coord_of R V address.place
-  table.probe.spill_read_tail_loop keyrepKeyRepInst r sigma address.place
-    address.direct_word key home bound mask wanted 1#usize
-
-/-- [apeiron_word::table::probe::spill_read]:
-    Source: '../../src/table/probe.rs', lines 252:0-293:1 -/
-def table.probe.spill_read
-  {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
-  table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-  (address : table.TableAddress) (key : K) (n : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  let i := alloc.vec.Vec.len r.slots
-  if i != 0#usize
-  then
-    let b ← table.valid_n n
-    if b
-    then
-      let home ← table.Region.home r address.place
-      let wanted ← table.Region.coord_of R V address.place
-      let found ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-          r.coords home
-      if found = table.COORD_EMPTY
-      then ok none
-      else
-        let hit ←
-          if found = wanted
-          then
-            do
-            let ss ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-                (table.SpillSlot R V)) r.slots home
-            let b1 ← table.matches keyrepKeyRepInst ss sigma key address
-            if b1
-            then ok (some home)
-            else ok none
-          else ok none
-        let b1 := core.option.Option.is_none hit
-        if b1
-        then
-          table.probe.spill_read_tail keyrepKeyRepInst r sigma address key home
-        else ok hit
-    else ok none
-  else ok none
 
 /-- [apeiron_word::table::get_prepared_shard]:
     Source: '../../src/table/prepared.rs', lines 94:0-105:1 -/
@@ -21356,27 +21470,6 @@ def table.capacity_bound
 def table.Flat.empty (R : Type) (V : Type) : Result (table.Flat R V) := do
   ok { lanes := 0#usize, slots := (alloc.vec.Vec.new (table.FlatSlot R V)) }
 
-/-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::index]:
-    Source: '../../src/table/state.rs', lines 478:4-489:5 -/
-def table.Flat.index
-  {R : Type} {V : Type} (self : table.Flat R V) (word : Std.U32) :
-  Result (Option Std.Usize)
-  := do
-  let i ← word >>> table.SHARD_BITS
-  let lane_word ← lift (core.convert.num.FromU64U32.from i)
-  let i1 ← lift (UScalar.cast .U64 self.lanes)
-  if lane_word >= i1
-  then ok none
-  else
-    let lane ← lift (UScalar.cast .Usize lane_word)
-    let i2 ← lift (UScalar.cast .Usize word)
-    let i3 ← table.SHARD_MASK
-    let shard ← lift (i2 &&& i3)
-    let o ← lift (Usize.checked_mul shard self.lanes)
-    match o with
-    | none => ok none
-    | some base => ok (Usize.checked_add base lane)
-
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::byte_len_for]:
     Source: '../../src/table/state.rs', lines 490:4-492:5 -/
 def table.Flat.byte_len_for
@@ -21522,7 +21615,7 @@ def table.WordMerge.Insts.Apeiron_wordTableMergeI64 : table.Merge
 }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop body 0:
-    Source: '../../src/table.rs', lines 251:8-254:9
+    Source: '../../src/table.rs', lines 256:8-259:9
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.new_loop.body
@@ -21541,7 +21634,7 @@ def table.Table.new_loop.body
   else ok (done shards)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]: loop 0:
-    Source: '../../src/table.rs', lines 251:8-254:9
+    Source: '../../src/table.rs', lines 256:8-259:9
     Visibility: public -/
 @[rust_loop]
 def table.Table.new_loop
@@ -21554,7 +21647,7 @@ def table.Table.new_loop
     (shards, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::new]:
-    Source: '../../src/table.rs', lines 248:4-264:5
+    Source: '../../src/table.rs', lines 253:4-269:5
     Visibility: public -/
 def table.Table.new
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21579,7 +21672,7 @@ def table.Table.new
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::search_decision]:
-    Source: '../../src/table.rs', lines 280:4-297:5 -/
+    Source: '../../src/table.rs', lines 285:4-302:5 -/
 def table.Table.search_decision
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21638,7 +21731,7 @@ def table.Table.search_decision
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_get]:
-    Source: '../../src/table.rs', lines 311:4-321:5 -/
+    Source: '../../src/table.rs', lines 316:4-326:5 -/
 def table.Table.apply_get
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21675,7 +21768,7 @@ def table.Table.apply_get
   | table.SearchLocation.NoIndex => ok self.default
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_spill]:
-    Source: '../../src/table.rs', lines 401:4-408:5 -/
+    Source: '../../src/table.rs', lines 401:4-404:5 -/
 def table.Table.get_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21684,23 +21777,13 @@ def table.Table.get_spill
   (direct_word : Option Std.U32) (key : K) :
   Result V
   := do
-  let shard_at ← table.shard { place, direct_word }
-  let r ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.Region R
-      V)) self.shards shard_at
   let o ←
-    table.probe.spill_read keyrepKeyRepInst r sigma { place, direct_word } key
-      N
-  match o with
-  | none => ok self.default
-  | some index =>
-    let ss ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (table.SpillSlot R V)) r.slots index
-    ok ss.value
+    table.Table.get_exact_spill HomeInst keyrepKeyRepInst self sigma place
+      direct_word key
+  ok (core.option.Option.unwrap_or o self.default)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_at]:
-    Source: '../../src/table.rs', lines 376:4-392:5
+    Source: '../../src/table.rs', lines 381:4-389:5
     Visibility: public -/
 def table.Table.get_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
@@ -21713,38 +21796,17 @@ def table.Table.get_at
   let sigma ←
     HomeInst.coordaddressFaceHomeInst.FaceCoordInst.FaceDomainInst.sigma face
   let address ← HomeInst.address self.home sigma key
-  match address.direct_word with
-  | none =>
+  let rr ←
+    table.Table.resident_exact HomeInst keyrepKeyRepInst self sigma address key
+  match rr with
+  | table.ResidentRead.Vacant => ok self.default
+  | table.ResidentRead.Miss =>
     table.Table.get_spill HomeInst keyrepKeyRepInst self sigma address.place
-      none key
-  | some word =>
-    let o ← table.Flat.index self.resident word
-    match o with
-    | none =>
-      table.Table.get_spill HomeInst keyrepKeyRepInst self sigma address.place
-        address.direct_word key
-    | some index =>
-      let flat ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (table.FlatSlot R V)) self.resident.slots index
-      if flat.live
-      then
-        let b ← cell.Sigma.Insts.CoreCmpPartialEqSigma.eq flat.sigma sigma
-        if b
-        then
-          let b1 ← keyrepKeyRepInst.«matches» sigma flat.held key address
-          if b1
-          then ok flat.value
-          else
-            table.Table.get_spill HomeInst keyrepKeyRepInst self sigma
-              address.place address.direct_word key
-        else
-          table.Table.get_spill HomeInst keyrepKeyRepInst self sigma
-            address.place address.direct_word key
-      else ok self.default
+      address.direct_word key
+  | table.ResidentRead.Hit value => ok value
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::get_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 415:4-420:5 -/
+    Source: '../../src/table.rs', lines 411:4-416:5 -/
 def table.Table.get_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause0_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (HomeInst : table.Home H K
@@ -21766,7 +21828,7 @@ def table.Table.get_prepared_shard_at
   ok (core.option.Option.unwrap_or o self.default)
 
 /-- [apeiron_word::table::admitted]:
-    Source: '../../src/table.rs', lines 432:0-438:1 -/
+    Source: '../../src/table.rs', lines 428:0-434:1 -/
 def table.admitted
   (location : table.SearchLocation) : Result table.PayloadLocation := do
   match location with
@@ -21777,7 +21839,7 @@ def table.admitted
   | table.SearchLocation.NoIndex => ok (table.PayloadLocation.Resident 0#usize)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 0:
-    Source: '../../src/table.rs', lines 479:8-490:5 -/
+    Source: '../../src/table.rs', lines 475:8-486:5 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop.body
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21803,7 +21865,7 @@ def table.Table.selected_lanes_loop.body
       else ok (done (core.result.Result.Ok none))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 0:
-    Source: '../../src/table.rs', lines 479:8-490:5 -/
+    Source: '../../src/table.rs', lines 475:8-486:5 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21814,7 +21876,7 @@ def table.Table.selected_lanes_loop
     target
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]:
-    Source: '../../src/table.rs', lines 458:4-490:5 -/
+    Source: '../../src/table.rs', lines 454:4-486:5 -/
 def table.Table.selected_lanes
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21835,7 +21897,7 @@ def table.Table.selected_lanes
       (Option Std.Usize) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 0:
-    Source: '../../src/table.rs', lines 518:8-541:9 -/
+    Source: '../../src/table.rs', lines 514:8-537:9 -/
 @[rust_loop_body]
 def table.Table.grow_spill_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21896,7 +21958,7 @@ def table.Table.grow_spill_loop.body
   else ok (done (tl, fresh, relocation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
-    Source: '../../src/table.rs', lines 518:8-541:9 -/
+    Source: '../../src/table.rs', lines 514:8-537:9 -/
 @[rust_loop]
 def table.Table.grow_spill_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21916,7 +21978,7 @@ def table.Table.grow_spill_loop
     (tl, fresh, i, relocation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]:
-    Source: '../../src/table.rs', lines 495:4-560:5 -/
+    Source: '../../src/table.rs', lines 491:4-556:5 -/
 def table.Table.grow_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22008,7 +22070,7 @@ def table.Table.grow_spill
     ok (r2, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::flat_index_for]:
-    Source: '../../src/table.rs', lines 799:4-814:5 -/
+    Source: '../../src/table.rs', lines 795:4-810:5 -/
 def table.Table.flat_index_for
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22034,7 +22096,7 @@ def table.Table.flat_index_for
       | some value => ok (Usize.checked_add value lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::keep_unoccupied]:
-    Source: '../../src/table.rs', lines 786:4-797:5 -/
+    Source: '../../src/table.rs', lines 782:4-793:5 -/
 def table.Table.keep_unoccupied
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22052,7 +22114,7 @@ def table.Table.keep_unoccupied
     else ok index
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 0:
-    Source: '../../src/table.rs', lines 580:8-596:9 -/
+    Source: '../../src/table.rs', lines 576:8-592:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22116,7 +22178,7 @@ def table.Table.plan_rebuild_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 0:
-    Source: '../../src/table.rs', lines 580:8-596:9 -/
+    Source: '../../src/table.rs', lines 576:8-592:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22139,7 +22201,7 @@ def table.Table.plan_rebuild_loop0
     (occupied, entries, spill_loads, planning_error, resident_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 2:
-    Source: '../../src/table.rs', lines 600:12-617:13 -/
+    Source: '../../src/table.rs', lines 596:12-613:13 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22209,7 +22271,7 @@ def table.Table.plan_rebuild_loop1_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 2:
-    Source: '../../src/table.rs', lines 600:12-617:13 -/
+    Source: '../../src/table.rs', lines 596:12-613:13 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22233,7 +22295,7 @@ def table.Table.plan_rebuild_loop1_loop0
     (occupied, entries, spill_loads, planning_error, slot_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 1:
-    Source: '../../src/table.rs', lines 598:8-619:9 -/
+    Source: '../../src/table.rs', lines 594:8-615:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22267,7 +22329,7 @@ def table.Table.plan_rebuild_loop1.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 1:
-    Source: '../../src/table.rs', lines 598:8-619:9 -/
+    Source: '../../src/table.rs', lines 594:8-615:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22290,7 +22352,7 @@ def table.Table.plan_rebuild_loop1
     (occupied, entries, spill_loads, planning_error, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]:
-    Source: '../../src/table.rs', lines 561:4-637:5 -/
+    Source: '../../src/table.rs', lines 557:4-633:5 -/
 def table.Table.plan_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22380,7 +22442,7 @@ def table.Table.plan_rebuild
       table.RebuildPlan (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_rebuild]:
-    Source: '../../src/table.rs', lines 639:4-643:5 -/
+    Source: '../../src/table.rs', lines 635:4-639:5 -/
 def table.Table.reserve_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22413,7 +22475,7 @@ def table.Table.reserve_rebuild
       residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop body 0:
-    Source: '../../src/table.rs', lines 671:8-681:9 -/
+    Source: '../../src/table.rs', lines 667:8-677:9 -/
 @[rust_loop_body]
 def table.Table.observe_receipt_loop.body
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22452,7 +22514,7 @@ def table.Table.observe_receipt_loop.body
   else ok (done (regions, error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop 0:
-    Source: '../../src/table.rs', lines 671:8-681:9 -/
+    Source: '../../src/table.rs', lines 667:8-677:9 -/
 @[rust_loop]
 def table.Table.observe_receipt_loop
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22468,7 +22530,7 @@ def table.Table.observe_receipt_loop
     (regions, shard_at, error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]:
-    Source: '../../src/table.rs', lines 651:4-690:5 -/
+    Source: '../../src/table.rs', lines 647:4-686:5 -/
 def table.Table.observe_receipt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22504,7 +22566,7 @@ def table.Table.observe_receipt
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::materialize_rebuild]:
-    Source: '../../src/table.rs', lines 702:4-731:5 -/
+    Source: '../../src/table.rs', lines 698:4-727:5 -/
 def table.Table.materialize_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22531,7 +22593,7 @@ def table.Table.materialize_rebuild
     { reservation, locator, pending_held })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_from_plan]:
-    Source: '../../src/table.rs', lines 741:4-766:5 -/
+    Source: '../../src/table.rs', lines 737:4-762:5 -/
 def table.Table.prepare_from_plan
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22566,7 +22628,7 @@ def table.Table.prepare_from_plan
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_rebuild]:
-    Source: '../../src/table.rs', lines 769:4-780:5 -/
+    Source: '../../src/table.rs', lines 765:4-776:5 -/
 def table.Table.prepare_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22588,7 +22650,7 @@ def table.Table.prepare_rebuild
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::locate_rebuilt]:
-    Source: '../../src/table.rs', lines 823:4-845:5 -/
+    Source: '../../src/table.rs', lines 819:4-841:5 -/
 def table.Table.locate_rebuilt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22640,7 +22702,7 @@ def table.Table.locate_rebuilt
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: '../../src/table.rs', lines 859:4-921:5 -/
+    Source: '../../src/table.rs', lines 855:4-917:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22727,7 +22789,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: '../../src/table.rs', lines 938:8-941:9 -/
+    Source: '../../src/table.rs', lines 934:8-937:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22750,7 +22812,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: '../../src/table.rs', lines 938:8-941:9 -/
+    Source: '../../src/table.rs', lines 934:8-937:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22768,7 +22830,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: '../../src/table.rs', lines 932:4-942:5 -/
+    Source: '../../src/table.rs', lines 928:4-938:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22783,7 +22845,7 @@ def table.Table.relocate_all
     keyrepKeyRepInst self plan reserved 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: '../../src/table.rs', lines 951:4-961:5 -/
+    Source: '../../src/table.rs', lines 947:4-957:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22812,7 +22874,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: '../../src/table.rs', lines 979:4-1025:5 -/
+    Source: '../../src/table.rs', lines 975:4-1021:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22910,7 +22972,7 @@ def table.Table.apply_pending_and_commit
     fail panic
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_rebuild]:
-    Source: '../../src/table.rs', lines 1035:4-1083:5 -/
+    Source: '../../src/table.rs', lines 1031:4-1079:5 -/
 def table.Table.apply_prepared_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22968,7 +23030,7 @@ def table.Table.apply_prepared_rebuild
     ok (core.result.Result.Err error, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::rebuild_resident]:
-    Source: '../../src/table.rs', lines 1087:4-1098:5 -/
+    Source: '../../src/table.rs', lines 1083:4-1094:5 -/
 def table.Table.rebuild_resident
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22988,7 +23050,7 @@ def table.Table.rebuild_resident
     address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_insert]:
-    Source: '../../src/table.rs', lines 1109:4-1155:5 -/
+    Source: '../../src/table.rs', lines 1105:4-1151:5 -/
 def table.Table.apply_insert
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23068,7 +23130,7 @@ def table.Table.apply_insert
       ok (table.ApplyOutcome.NeedsGrowth key value, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::insert_with_reserved]:
-    Source: '../../src/table.rs', lines 1194:4-1226:5 -/
+    Source: '../../src/table.rs', lines 1190:4-1222:5 -/
 def table.Table.insert_with_reserved
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23247,7 +23309,7 @@ def table.Table.insert_with_reserved
             value1 address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 1238:4-1262:5 -/
+    Source: '../../src/table.rs', lines 1234:4-1258:5 -/
 def table.Table.apply_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23288,7 +23350,7 @@ def table.Table.apply_prepared_shard_at
     ok (r3, { self with shards := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop body 0:
-    Source: '../../src/table.rs', lines 1405:8-1411:9 -/
+    Source: '../../src/table.rs', lines 1401:8-1407:9 -/
 @[rust_loop_body]
 def table.Table.build_at_sequential_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23324,7 +23386,7 @@ def table.Table.build_at_sequential_loop.body
   else ok (done (t, failure))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop 0:
-    Source: '../../src/table.rs', lines 1405:8-1411:9 -/
+    Source: '../../src/table.rs', lines 1401:8-1407:9 -/
 @[rust_loop]
 def table.Table.build_at_sequential_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23344,7 +23406,7 @@ def table.Table.build_at_sequential_loop
     (t, failure, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]:
-    Source: '../../src/table.rs', lines 1391:4-1417:5 -/
+    Source: '../../src/table.rs', lines 1387:4-1413:5 -/
 def table.Table.build_at_sequential
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -23384,7 +23446,7 @@ def table.Table.build_at_sequential
   | some error => ok (core.result.Result.Err error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 0:
-    Source: '../../src/table.rs', lines 1310:16-1331:17
+    Source: '../../src/table.rs', lines 1306:16-1327:17
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop0.body
@@ -23449,7 +23511,7 @@ def table.Table.build_at_loop0.body
   else ok (done (t, reservation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 0:
-    Source: '../../src/table.rs', lines 1310:16-1331:17
+    Source: '../../src/table.rs', lines 1306:16-1327:17
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop0
@@ -23469,7 +23531,7 @@ def table.Table.build_at_loop0
     (t, s, reservation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 1:
-    Source: '../../src/table.rs', lines 1336:20-1347:21
+    Source: '../../src/table.rs', lines 1332:20-1343:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop1.body
@@ -23515,7 +23577,7 @@ def table.Table.build_at_loop1.body
   else ok (done t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 1:
-    Source: '../../src/table.rs', lines 1336:20-1347:21
+    Source: '../../src/table.rs', lines 1332:20-1343:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop1
@@ -23535,7 +23597,7 @@ def table.Table.build_at_loop1
     (t, initialized)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 5:
-    Source: '../../src/table.rs', lines 1360:32-1372:33
+    Source: '../../src/table.rs', lines 1356:32-1368:33
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0_loop0.body
@@ -23573,7 +23635,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 5:
-    Source: '../../src/table.rs', lines 1360:32-1372:33
+    Source: '../../src/table.rs', lines 1356:32-1368:33
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0_loop0
@@ -23595,7 +23657,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0
     (t, assembly_error, run_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 4:
-    Source: '../../src/table.rs', lines 1357:28-1374:29
+    Source: '../../src/table.rs', lines 1353:28-1370:29
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0.body
@@ -23628,7 +23690,7 @@ def table.Table.build_at_loop2_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 4:
-    Source: '../../src/table.rs', lines 1357:28-1374:29
+    Source: '../../src/table.rs', lines 1353:28-1370:29
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0
@@ -23651,7 +23713,7 @@ def table.Table.build_at_loop2_loop0_loop0
     (t, assembly_error, chunk)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 3:
-    Source: '../../src/table.rs', lines 1354:24-1376:25
+    Source: '../../src/table.rs', lines 1350:24-1372:25
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0.body
@@ -23684,7 +23746,7 @@ def table.Table.build_at_loop2_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 3:
-    Source: '../../src/table.rs', lines 1354:24-1376:25
+    Source: '../../src/table.rs', lines 1350:24-1372:25
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0
@@ -23707,7 +23769,7 @@ def table.Table.build_at_loop2_loop0
     (t, assembly_error, bin_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 2:
-    Source: '../../src/table.rs', lines 1351:20-1378:21
+    Source: '../../src/table.rs', lines 1347:20-1374:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2.body
@@ -23740,7 +23802,7 @@ def table.Table.build_at_loop2.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 2:
-    Source: '../../src/table.rs', lines 1351:20-1378:21
+    Source: '../../src/table.rs', lines 1347:20-1374:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2
@@ -23762,7 +23824,7 @@ def table.Table.build_at_loop2
     (t, assembly_error, worker)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]:
-    Source: '../../src/table.rs', lines 1284:4-1390:5
+    Source: '../../src/table.rs', lines 1280:4-1386:5
     Visibility: public -/
 def table.Table.build_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23878,8 +23940,45 @@ def word_affine_step_apply
   := do
   table.AffineStep.apply I64.Insts.Apeiron_wordScalarRing step sigma z
 
+/-- [apeiron_word::word_stored_table_get_exact_at]:
+    Source: 'lib.rs', lines 200:0-209:1
+    Visibility: public -/
+def word_stored_table_get_exact_at
+  (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
+  Std.I64) 16#usize) (sigma : cell.Sigma) (key : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let o ←
+    table.Table.get_exact_at table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+      (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+      I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple
+      core.clone.CloneI64 table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+      state sigma key
+  match o with
+  | none => ok none
+  | some _ => ok o
+
+/-- [apeiron_word::word_regen_table_get_exact_at]:
+    Source: 'lib.rs', lines 214:0-223:1
+    Visibility: public -/
+def word_regen_table_get_exact_at
+  (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
+  table.keyrep.I64WordCodec) 16#usize) (sigma : cell.Sigma) (key : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let o ←
+    table.Table.get_exact_at table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+      (table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep
+      I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple
+      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+      (table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces
+      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
+  match o with
+  | none => ok none
+  | some _ => ok o
+
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 192:0-194:1
+    Source: 'lib.rs', lines 226:0-228:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -23888,14 +23987,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 197:0-199:1
+    Source: 'lib.rs', lines 231:0-233:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 206:0-208:1
+    Source: 'lib.rs', lines 240:0-242:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -23905,7 +24004,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 211:0-219:1
+    Source: 'lib.rs', lines 245:0-253:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -23916,7 +24015,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 223:0-230:1
+    Source: 'lib.rs', lines 257:0-264:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -23926,14 +24025,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 233:0-235:1
+    Source: 'lib.rs', lines 267:0-269:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 239:0-244:1
+    Source: 'lib.rs', lines 273:0-278:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -23942,7 +24041,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 247:0-249:1
+    Source: 'lib.rs', lines 281:0-283:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23951,7 +24050,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 252:0-254:1
+    Source: 'lib.rs', lines 286:0-288:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -23960,7 +24059,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 261:0-267:1
+    Source: 'lib.rs', lines 295:0-301:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -23970,7 +24069,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 308:0-314:1
+    Source: 'lib.rs', lines 342:0-348:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -23980,7 +24079,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 317:0-321:1
+    Source: 'lib.rs', lines 351:0-355:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -23988,7 +24087,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 324:0-334:1
+    Source: 'lib.rs', lines 358:0-368:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -24003,7 +24102,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 337:0-348:1
+    Source: 'lib.rs', lines 371:0-382:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -24019,7 +24118,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 351:0-359:1
+    Source: 'lib.rs', lines 385:0-393:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -24032,7 +24131,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 362:0-371:1
+    Source: 'lib.rs', lines 396:0-405:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -24045,7 +24144,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 384:0-386:1
+    Source: 'lib.rs', lines 418:0-420:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24059,7 +24158,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 400:0-405:1
+    Source: 'lib.rs', lines 434:0-439:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -24074,7 +24173,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 417:0-419:1
+    Source: 'lib.rs', lines 451:0-453:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24089,7 +24188,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 434:0-439:1
+    Source: 'lib.rs', lines 468:0-473:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -24107,7 +24206,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 442:0-448:1
+    Source: 'lib.rs', lines 476:0-482:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24122,7 +24221,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 452:0-460:1
+    Source: 'lib.rs', lines 486:0-494:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24140,7 +24239,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 463:0-465:1
+    Source: 'lib.rs', lines 497:0-499:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24156,7 +24255,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 469:0-477:1
+    Source: 'lib.rs', lines 503:0-511:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24178,7 +24277,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 485:0-487:1
+    Source: 'lib.rs', lines 519:0-521:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24192,7 +24291,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 494:0-506:1
+    Source: 'lib.rs', lines 528:0-540:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24215,7 +24314,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 509:0-511:1
+    Source: 'lib.rs', lines 543:0-545:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24230,7 +24329,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 514:0-526:1
+    Source: 'lib.rs', lines 548:0-560:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24256,7 +24355,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 529:0-534:1
+    Source: 'lib.rs', lines 563:0-568:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -24264,37 +24363,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 539:0-541:1
+    Source: 'lib.rs', lines 573:0-575:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 547:0-549:1
+    Source: 'lib.rs', lines 581:0-583:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 552:0-554:1
+    Source: 'lib.rs', lines 586:0-588:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 560:0-562:1
+    Source: 'lib.rs', lines 594:0-596:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 568:0-570:1
+    Source: 'lib.rs', lines 602:0-604:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 578:0-589:1
+    Source: 'lib.rs', lines 612:0-623:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24313,7 +24412,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 595:0-606:1
+    Source: 'lib.rs', lines 629:0-640:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24334,7 +24433,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 614:0-624:1
+    Source: 'lib.rs', lines 648:0-658:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24352,7 +24451,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 629:0-639:1
+    Source: 'lib.rs', lines 663:0-673:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24372,7 +24471,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 648:0-667:1
+    Source: 'lib.rs', lines 682:0-701:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -24392,7 +24491,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 673:0-692:1
+    Source: 'lib.rs', lines 707:0-726:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -24416,7 +24515,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 700:0-707:1
+    Source: 'lib.rs', lines 734:0-741:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24427,7 +24526,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 713:0-720:1
+    Source: 'lib.rs', lines 747:0-754:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -24440,7 +24539,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 725:0-727:1
+    Source: 'lib.rs', lines 759:0-761:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -24449,40 +24548,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 734:0-736:1
+    Source: 'lib.rs', lines 768:0-770:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 741:0-743:1
+    Source: 'lib.rs', lines 775:0-777:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 748:0-750:1
+    Source: 'lib.rs', lines 782:0-784:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 755:0-757:1
+    Source: 'lib.rs', lines 789:0-791:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 764:0-766:1
+    Source: 'lib.rs', lines 798:0-800:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 774:0-779:1
+    Source: 'lib.rs', lines 808:0-813:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -24491,7 +24590,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 786:0-793:1
+    Source: 'lib.rs', lines 820:0-827:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -24502,7 +24601,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 797:0-799:1
+    Source: 'lib.rs', lines 831:0-833:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -24511,7 +24610,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 803:0-805:1
+    Source: 'lib.rs', lines 837:0-839:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -24520,7 +24619,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 811:0-813:1
+    Source: 'lib.rs', lines 845:0-847:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -24531,7 +24630,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 819:0-821:1
+    Source: 'lib.rs', lines 853:0-855:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -24540,7 +24639,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 837:0-839:1
+    Source: 'lib.rs', lines 871:0-873:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -24549,7 +24648,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 856:0-861:1
+    Source: 'lib.rs', lines 890:0-895:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -24558,7 +24657,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 867:0-869:1
+    Source: 'lib.rs', lines 901:0-903:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -24567,7 +24666,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 875:0-881:1
+    Source: 'lib.rs', lines 909:0-915:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -24576,7 +24675,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 887:0-893:1
+    Source: 'lib.rs', lines 921:0-927:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -24585,7 +24684,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 901:0-909:1
+    Source: 'lib.rs', lines 935:0-943:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -24595,7 +24694,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 916:0-918:1
+    Source: 'lib.rs', lines 950:0-952:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -24604,7 +24703,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 928:0-936:1
+    Source: 'lib.rs', lines 962:0-970:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -24614,7 +24713,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 953:0-968:1
+    Source: 'lib.rs', lines 987:0-1002:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -24625,7 +24724,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 974:0-981:1
+    Source: 'lib.rs', lines 1008:0-1015:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -24635,7 +24734,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 988:0-997:1
+    Source: 'lib.rs', lines 1022:0-1031:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -24645,7 +24744,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 1003:0-1005:1
+    Source: 'lib.rs', lines 1037:0-1039:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -24654,7 +24753,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 1029:0-1031:1
+    Source: 'lib.rs', lines 1063:0-1065:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -24663,7 +24762,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1047:0-1056:1
+    Source: 'lib.rs', lines 1081:0-1090:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -24674,7 +24773,7 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_trace_macs]:
-    Source: 'lib.rs', lines 1108:0-1110:1
+    Source: 'lib.rs', lines 1142:0-1144:1
     Visibility: public -/
 def word_trace_macs
   (n_out : Std.Usize) (n_in : Std.Usize) (cols : Std.Usize) :
