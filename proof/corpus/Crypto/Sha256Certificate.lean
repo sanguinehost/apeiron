@@ -459,6 +459,85 @@ theorem wGet_set (w : Array Std.U32 64#usize) (i : Std.Usize) (v : Std.U32)
   unfold wGet
   rw [Array.set_val_eq, getD_set _ _ _ _ (by omega) (0#u32)]
   by_cases h : i.val = j <;> simp [h]
+
+/-! ## The block-word path
+
+`sha256.compress` fills its schedule with `w[i] = u32::from_be_bytes([b[4i], b[4i+1],
+b[4i+2], b[4i+3]])` (`src/sha256.rs:37-41`), so the extracted `Array Std.U8 64#usize`
+is read as the canonical `Sha2.Block` by big-endian regrouping. `bytesToWords` is
+that one read; there is no second spelling of it.
+
+`ofFn_getD'` is `ofFn_getD` at an arbitrary length, needed here because the
+block is `Vector Word 16` while the schedule is `Vector Word 64`. -/
+
+/-- Reading a `Vector.ofFn` of any length through `getD` is reading the function. -/
+theorem ofFn_getD' {α : Type} {n : Nat} (f : Fin n → α) (i : Nat) (hi : i < n) (d : α) :
+    (Vector.ofFn f).getD i d = f ⟨i, hi⟩ := by
+  simp [Vector.getD, hi]
+
+/-- Byte `j` of an extracted 64-byte block, as the canonical byte. -/
+def b64 (blk : Array Std.U8 64#usize) (j : Nat) : BitVec 8 :=
+  (blk.val.getD j (0#u8)).bv
+
+/-- Word `i` of the big-endian regrouping of an extracted 64-byte block: the
+    inverse of `u32::from_be_bytes` at `[b[4i], b[4i+1], b[4i+2], b[4i+3]]`. -/
+def beWord16 (blk : Array Std.U8 64#usize) (i : Fin 16) : Word :=
+  BitVec.ofNat 32
+    ((b64 blk (4 * i.val)).toNat * 16777216 +
+      (b64 blk (4 * i.val + 1)).toNat * 65536 +
+      (b64 blk (4 * i.val + 2)).toNat * 256 +
+      (b64 blk (4 * i.val + 3)).toNat)
+
+/-- The extracted 64-byte block read as the canonical sixteen-word block:
+    word `i` is the big-endian regrouping of bytes `4i … 4i+3`. -/
+def bytesToWords (blk : Array Std.U8 64#usize) : Block :=
+  Vector.ofFn fun i : Fin 16 => beWord16 blk i
+
+/-- Reading the block through `bytesToWords` is the big-endian regrouping. -/
+theorem bytesToWords_get (blk : Array Std.U8 64#usize) (i : Fin 16) :
+    (bytesToWords blk).get i = beWord16 blk i := by
+  show (bytesToWords blk)[i.val] = beWord16 blk i
+  simp only [bytesToWords, Vector.getElem_ofFn]
+
+/-- The same read through `getD`, at any row below sixteen. -/
+theorem bytesToWords_getD (blk : Array Std.U8 64#usize) (j : Nat) (hj : j < 16) :
+    (bytesToWords blk).getD j 0 = beWord16 blk ⟨j, hj⟩ :=
+  ofFn_getD' _ j hj 0
+
+/-- A 64-byte block has length 64, so every `beWord16` byte index is in range. -/
+theorem b64_length (blk : Array Std.U8 64#usize) : blk.val.length = 64 := by
+  simpa using blk.property
+
+/-- Below row sixteen the canonical schedule row of an extracted block is the
+    big-endian regrouping of that block's bytes. -/
+theorem schedRow_block (blk : Array Std.U8 64#usize) (j : Nat) (hj : j < 16) :
+    schedRow (bytesToWords blk) j = beWord16 blk ⟨j, hj⟩ := by
+  rw [schedRow, dif_pos hj, bytesToWords_getD blk j hj]
+
+/-! ## The zero schedule
+
+`sha256.compress` starts its schedule at `Array.repeat 64#usize 0#u32`, so the
+state of every row before `sha256.compress_loop0` writes row `0` is zero, and
+the canonical fold before its first extension step is `schedStart`. -/
+
+/-- The canonical fold before its first extension step is the start vector: the
+    sixty-four rows `sha256.compress` holds before `compress_loop1` runs are the
+    sixteen block words below row sixteen and zero above. -/
+theorem schedZero_spec (b : Block) : schedN b 0 = schedStart b := rfl
+
+/-- Every row of the all-zero 64-word array `sha256.compress` starts its schedule
+    from reads as zero. -/
+theorem wGet_zero (j : Nat) (hj : j < 64) :
+    wGet (Array.repeat 64#usize 0#u32) j = 0 := by
+  show ((Array.repeat 64#usize 0#u32).val.getD j (0#u32)).bv = 0
+  rw [Array.repeat_val]
+  have h64 : (64#usize : Std.Usize).val = 64 := by rfl
+  rw [h64]
+  have hrep : (List.replicate 64 (0#u32)).getD j (0#u32) = 0#u32 := by
+    rw [List.getD_eq_getElem?_getD, List.getElem?_replicate, if_pos hj, Option.getD_some]
+  rw [hrep]
+  rfl
+
 /-! ## Headline -/
 
 /-- The refinement target: on every input, `word_sha256` returns a digest array
