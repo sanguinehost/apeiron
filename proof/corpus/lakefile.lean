@@ -23,13 +23,13 @@ lean_lib ApeironWordBridge where
   -- The `TableRefinement*`, `TableRefinement/*`, and `Joint.TableInstance*` modules prove the
   -- revision-bound fixed-shard layout. They remain on disk as historical evidence but are not
   -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
-  roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.HyperbolicFaceNullCell, `Native.HashtrinityBasis, `Native.LocatorSpec,
+  roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
     `Security.InterpretationWitnesses,
     `Growable.Geometry, `Growable.Identity, `Growable.Scan,
     `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
     `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,
-    `Growable.Relocation, `Growable.Refinement, `Growable.InsertRefine, `Growable.HomeBound, `Growable.BuildRefine, `Growable.FaceBound, `Growable.GaplessRead, `Growable.Resources, `Growable.Representation,
-    `Growable.Schedule, `Growable.Rebuild, `TableRefinement.EncircleFold,
+    `Growable.Relocation, `Growable.Refinement, `Growable.Resources, `Growable.Representation,
+    `Growable.Rebuild,
     `AxiomAudit, `Joint.WordBridge,
     `Slang.Audit.Empty,
     `Slang.Syntax, `Slang.Decode,
@@ -132,7 +132,7 @@ lean_lib Spirv where
 lean_lib Policy where
   globs := #[.submodules `Policy]
 
--- Discrete flux pairing and the lattice divergence theorem (docs/epics/magnetic-flux.md): the
--- finite content of `∇·B = 0`, staged here until the corpus migration. Module discovery under Flux/.
-lean_lib Flux where
-  globs := #[.submodules `Flux]
+-- FIPS-202 Keccak-f[1600] constants and the refinement chain over them. Module discovery under
+-- Crypto/.
+lean_lib Crypto where
+  globs := #[.submodules `Crypto]

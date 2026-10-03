@@ -74,9 +74,9 @@ direct-index healthy cells are not pathological (present-hit 3.3860x and absent-
 serial `hashtrinity_table`, about 2.7–4.7x across the load-bearing band when the receipt was cut; the current cut reproduces 1.68–2.63x across the same cells), and the current cut measures
 those two cells at 23.59x and 1.53x. No speed recovery is
 claimed. That receipt binds `examples/reg1/acceptance.rs` sha256 `f0f9aff0…` and `src/table.rs`
-sha256 `a89e9ec7…`; the current tree carries the T1 registry (`examples/reg1/acceptance.rs` sha256
-`ce927a49…`) and a post-receipt spill/growth fix (`src/table.rs` sha256 `93f15f15…`; both digests
-recomputed here with `sha256sum`), so the receipt
+sha256 `a89e9ec7…`; the current tree carries the T1 registry plus a lint-only clippy fix
+(`examples/reg1/acceptance.rs` sha256 `e74f8dd4…`) and a post-receipt spill/growth fix
+(`src/table.rs` sha256 `aee4526a…`; both digests recomputed here with `sha256sum`), so the receipt
 is the last strict full-profile result but not a measurement of the current identity. The
 re-anchored performance workstream in the barrier section continues: comparison coverage is repaired
 (T1) and the combined `get_each` arm is now `concurrency_unmatched`; serial direct-path overhead and
@@ -88,8 +88,8 @@ The per-entry relocation step is extracted and proved for both carriers and both
 `proof/ApeironWord.lean`, and `proof/corpus/Growable/Relocation.lean` proves
 `word_stored_relocate_entry_flat_preserves`, `word_regen_relocate_entry_flat_preserves`,
 `word_stored_relocate_entry_spill_preserves` and `word_regen_relocate_entry_spill_preserves` under the
-closed cone, with `nested_region_set_readback`/`nested_region_payload_set_readback` carrying the
-nested spill `Vec::set` readback, all registered in `proof/corpus/AxiomAudit.lean`; the spill-tag
+closed cone, with `reservedObservation_writeSpill_same`/`reservedObservation_writeFlat_same` carrying
+the nested destination `Vec::set` readback, all registered in `proof/corpus/AxiomAudit.lean`; the spill-tag
 mutation `tag(address.place) -> 0` is red and the restored source green. The traversal skeleton and
 the commit equation are now proved in the same closed cone:
 `proof/corpus/Growable/Relocation.lean` proves `word_stored_relocate_all_preserves` and
@@ -581,7 +581,7 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 
 | wave | tasks | files | gate | agents | heavy |
 |---|---|---|---|---|---|
-| W1 | index the evidence receipts — **landed** `003bfad` (66 rows: 61 receipt, 2 log, 3 figure) at `docs/evidence/ledger.jsonl`; the index sits beside the files it indexes and records the kind per row, rather than being split across `artifacts/<kind>/`. Remaining: fold the per-run wrappers and the stray lane docs (bench done; reviews, intent-lane docs remain) | `docs/evidence/ledger.jsonl`, `docs/evidence/` | `python3 tools/rooting/index_check.py --check` (exactly one fresh row per receipt; `--self-test`, `--controls`) | 4 | 0 |
+| W1 | index the evidence receipts — **landed** `003bfad` (67 rows: 62 receipt, 2 log, 3 figure) at `docs/evidence/ledger.jsonl`; the index sits beside the files it indexes and records the kind per row, rather than being split across `artifacts/<kind>/`. Remaining: fold the per-run wrappers and the stray lane docs (bench done; reviews, intent-lane docs remain) | `docs/evidence/ledger.jsonl`, `docs/evidence/` | `python3 tools/rooting/index_check.py --check` (exactly one fresh row per receipt; `--self-test`, `--controls`) | 4 | 0 |
 | W2 | reachability gate for removals | `tools/rooting/retire_check.py` | `python3 tools/rooting/retire_check.py --check` plus `--self-test` and `--controls` (the bare string cannot run; E2.W2 receipt) | 1 | 0 |
 | W3 | delete the absorbed documents; classify the root junk | `docs/`, repo root | no dangling citation | 2 | 0 |
 

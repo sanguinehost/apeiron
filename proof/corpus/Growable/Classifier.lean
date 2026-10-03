@@ -1,4 +1,6 @@
 import Growable.Representation
+import Growable.LocateLoop
+import Growable.Search
 import Lean
 
 /-!
@@ -6,20 +8,18 @@ import Lean
 
 Row 7 of the read map (`docs/epics/read-proof.md`) splits into the `Growable.Search`
 interface (landed) and this producer module.  Each bridge below derives a `Growable.Search`
-certificate from `Apeiron.GrowableRepresentation.RepR` fields and the generated route facts.  No
-premise is a caller-supplied `Found`/`Absent` result and no desired conclusion is assumed:
+certificate from `Apeiron.GrowableRepresentation.RepR` fields, the generated route facts and the
+generated routed miss result.  No premise is a caller-supplied `Found`/`Absent` result and no
+desired conclusion is assumed:
 
-1. `flatMatchAdmitted_of_repR` sources flat direct-admission from `RepR.address` (flat case via
+1. `summaryMissSound_of_repR` packages the representation's `RepR` plus the generated
+   address/shard/region route and the routed pointwise miss into the `Search`-local
+   `Apeiron.GrowableSearch.SummaryMissSound` (shard inventory + `excludes`);
+2. `flatMatchAdmitted_of_repR` sources flat direct-admission from `RepR.address` (flat case via
    `GrowableGeometry.preparedFlatIndex`) and `RepR.directIndex`;
-2. `spillMatchRouted_of_repR` sources the routed shard from `RepR.address` (spill case).
-
-The retired bridges `summaryMissSound_of_repR`, `repR_absenceCertificate_of_summaryMiss` and
-`repR_absent_of_summaryMiss` are gone with `GrowableRepresentation.SpillSummaryMissSound`: their
-premise was a negative read of the generated occupancy summary, and `table.Region.summary_maybe`,
-`table.summary_trailing_zeros` and `table.scan.*` no longer exist in the extraction.  Their
-replacement is `Apeiron.GrowableSearch.AbsenceCertificate.coverage` together with
-`Apeiron.GrowableSearch.CompleteCoverage`, fed by `Apeiron.GrowableScan.spill_probe_bound_absent_sound`
-over a completed bounded cycle; the producer of that `checked` list is `Growable.Read`/`Growable.ReadLoop`.
+3. `spillMatchRouted_of_repR` sources the routed shard from `RepR.address` (spill case);
+4. `repR_absenceCertificate_of_summaryMiss` assembles the `directExcludedSummaryMiss` certificate,
+   and `repR_absent_of_summaryMiss` derives logical absence from that certificate.
 
 The remaining `SearchDecisionCorrect` fields (exact first fit, `DecisionSymbolicCorrespondence`,
 `FreshLengthBound`, callback laws) are downstream producer work, not asserted here.
@@ -36,6 +36,34 @@ set_option linter.apeiron.citation false
 abbrev LogicalKey := Apeiron.GrowableSearch.LogicalKey
 abbrev Location := Apeiron.GrowableSearch.Location
 abbrev WordTable := Apeiron.GrowableRepresentation.WordTable
+
+/--
+1. A generated routed miss plus the representation's shard inventory yields the `Search`-local
+`SummaryMissSound` (shard inventory + `excludes`). The pointwise exclusion is the generated
+linear-probe result (`table.probe.spill_read`), not a retired summary lane; the `RepR`-checked
+state is carried as the caller's contract.
+-/
+def summaryMissSound_of_repR {R : Type}
+    {state : WordTable R} {decode : cell.Sigma → R → Option I64}
+    {direct : LogicalKey → Option Location} {live : LogicalKey → Prop}
+    {logical : Apeiron.Table.HMap LogicalKey I64}
+    (_hrep : Apeiron.GrowableRepresentation.RepR state decode direct live logical)
+    (query : LogicalKey) (address : table.TableAddress) (shard : Usize)
+    (region : table.Region R I64)
+    (haddress :
+      Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 = ok address)
+    (hshard : table.shard address = ok shard)
+    (hregion : state.shards.val[shard.val]? = some region)
+    (hexcludes : ∀ index value,
+      Apeiron.GrowableSearch.entryAt state decode (.spill shard index) ≠ some (query, value)) :
+    Apeiron.GrowableSearch.SummaryMissSound state decode query :=
+  { address := address
+    shard := shard
+    generatedAddress := haddress
+    shardEq := hshard
+    region := region
+    regionAt := hregion
+    excludes := hexcludes }
 
 /--
 2. A live flat representative's key is direct-admitted: `RepR.address` places the entry at the
@@ -69,6 +97,67 @@ theorem spillMatchRouted_of_repR {R : Type}
     ∃ address, Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 =
         ok address ∧ table.shard address = ok shard :=
   hrep.address (.spill shard index) query value hentry
+
+/--
+4. The `directExcludedSummaryMiss` certificate for any decision and checked set: a
+direct-excluded query plus a routed summary miss (bridge 1).
+-/
+theorem repR_absenceCertificate_of_summaryMiss {R : Type}
+    {state : WordTable R} {decode : cell.Sigma → R → Option I64}
+    {direct : LogicalKey → Option Location} {live : LogicalKey → Prop}
+    {logical : Apeiron.Table.HMap LogicalKey I64}
+    (hrep : Apeiron.GrowableRepresentation.RepR state decode direct live logical)
+    (query : LogicalKey) (decision : table.SearchDecision) (checked : List Location)
+    (address : table.TableAddress) (shard : Usize) (region : table.Region R I64)
+    (haddress :
+      Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 = ok address)
+    (hshard : table.shard address = ok shard)
+    (hregion : state.shards.val[shard.val]? = some region)
+    (hexcludes : ∀ index value,
+      Apeiron.GrowableSearch.entryAt state decode (.spill shard index) ≠ some (query, value))
+    (hexcluded : direct query = none) :
+    Apeiron.GrowableSearch.AbsenceCertificate state decode logical query decision direct checked :=
+  .directExcludedSummaryMiss hexcluded
+    (summaryMissSound_of_repR hrep query address shard region haddress hshard hregion hexcludes)
+
+/--
+Logical absence from a sound routed summary miss on a direct-excluded query. The flat side is
+excluded by bridge 2 against `direct query = none`; the spill side by bridge 3 aligning every
+representative with the routed shard and the exclusion of bridge 1. No absence is assumed.
+-/
+theorem repR_absent_of_summaryMiss {R : Type}
+    {state : WordTable R} {decode : cell.Sigma → R → Option I64}
+    {direct : LogicalKey → Option Location} {live : LogicalKey → Prop}
+    {logical : Apeiron.Table.HMap LogicalKey I64}
+    (hrep : Apeiron.GrowableRepresentation.RepR state decode direct live logical)
+    (query : LogicalKey)
+    (address : table.TableAddress) (shard : Usize) (region : table.Region R I64)
+    (haddress :
+      Apeiron.GrowableIdentity.wordHomeInst.address state.home query.1 query.2 = ok address)
+    (hshard : table.shard address = ok shard)
+    (hregion : state.shards.val[shard.val]? = some region)
+    (hexcludes : ∀ index value,
+      Apeiron.GrowableSearch.entryAt state decode (.spill shard index) ≠ some (query, value))
+    (hexcluded : direct query = none) :
+    Apeiron.GrowableSearch.Absent state decode query := by
+  have hmissSound := summaryMissSound_of_repR hrep query address shard region haddress hshard
+    hregion hexcludes
+  intro location value hentry
+  cases location with
+  | flat index =>
+      obtain ⟨location, hdirect⟩ := flatMatchAdmitted_of_repR hrep query index value hentry
+      rw [hexcluded] at hdirect
+      cases hdirect
+  | spill spillShard index =>
+      obtain ⟨address', haddress', hshard'⟩ :=
+        spillMatchRouted_of_repR hrep query spillShard index value hentry
+      rw [hmissSound.generatedAddress] at haddress'
+      have haddrEq : address' = hmissSound.address := (Result.ok_injective haddress').symm
+      rw [haddrEq] at hshard'
+      rw [hmissSound.shardEq] at hshard'
+      have hshardEq : spillShard = hmissSound.shard := (Result.ok_injective hshard').symm
+      rw [hshardEq] at hentry
+      exact hmissSound.excludes index value hentry
 
 /-! ## Generated decision provenance
 
@@ -290,14 +379,13 @@ theorem search_decision_found_flat_guards {K V H R : Type} {N : Usize}
           simp only at hclass
           cases hclass
 
-/-- The exact missing spill-route lemma, stated but not proved: a `.Found` hit returned by the
-generated `table.probe.spill_locate` carries a full-key match certificate. `SpillSite.Found index`
-transports no payload, so the certificate must come from the loop invariant of
-`table.probe.spill_locate_loop0_loop0.body`, whose `matched` flag is exactly
-`table.matches keyrep payload sigma key address = ok true` at the returned lane. Needed premises:
-the inner loop's completion invariant (`done (true, i1)` only from a `matched = true` step), the
-tag-hit lane's payload index in bounds (`base + least_set_lane hits < slots.length`) and full-key
-`matches` exactness at that payload. -/
+/-- The spill-route lemma consumed by `spill_locate_found_full_match`: a `.Found` hit returned by
+the generated `table.probe.spill_locate` carries a full-key match certificate. `SpillSite.Found
+index` transports no payload, so the certificate must come from the loop invariant of
+`table.probe.spill_locate_loop.body`, whose matched flag is exactly
+`table.matches keyrep slot sigma key address = ok true` at the returned fused lane. Needed
+premises: the loop's completion invariant (a found lane only from a `matches = ok true` step), the
+hit lane's slot index in bounds and full-key `matches` exactness at that slot. -/
 def SpillLocateFoundFullMatch {K V H R : Type} {N : Usize}
     (keyrep : table.keyrep.KeyRep R K H) (region : table.Region R V) (sigma : cell.Sigma)
     (address : table.TableAddress) (key : K) (index : Usize) : Prop :=
@@ -319,17 +407,14 @@ theorem vec_index_readback {T : Type} (slots : alloc.vec.Vec T) (i : Usize) (ent
       simp only [hget] at hindex'
       exact congrArg Option.some (Result.ok_injective hindex')
 
-/-- The generated `matches` and `Sigma` equality guards compose to the full `table.matches` call. The
-generated matcher takes the whole `table.SpillSlot`, so the guard pair is composed on a slot whose
-`sigma` and `held` are the guarded ones and whose `tag` and `value` are arbitrary. -/
+/-- The generated `matches` and `Sigma` equality guards compose to the full `table.matches` call on
+the fused spill-slot record. -/
 theorem table_matches_of_guards {K H R V : Type}
-    (keyrep : table.keyrep.KeyRep R K H) (slotSigma : cell.Sigma) (held : R) (value : V)
-    (slotTag : U8)
+    (keyrep : table.keyrep.KeyRep R K H) (slot : table.SpillSlot R V)
     (sigma : cell.Sigma) (key : K) (address : table.TableAddress)
-    (hsigma : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq slotSigma sigma = ok true)
-    (hmatch : keyrep.«matches» sigma held key address = ok true) :
-    table.matches keyrep { tag := slotTag, sigma := slotSigma, held := held, value := value }
-      sigma key address = ok true := by
+    (hsigma : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq slot.sigma sigma = ok true)
+    (hmatch : keyrep.«matches» sigma slot.held key address = ok true) :
+    table.matches keyrep slot sigma key address = ok true := by
   unfold table.matches
   simp [hsigma, hmatch]
 
@@ -348,8 +433,9 @@ theorem stored_entryAt_flat
   have hmatches : table.matches Apeiron.GrowableIdentity.storedKeyRep
       { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
       sigma key address = ok true :=
-    table_matches_of_guards Apeiron.GrowableIdentity.storedKeyRep slot.sigma slot.held slot.value
-      0#u8 sigma key address hsigma hmatch
+    table_matches_of_guards Apeiron.GrowableIdentity.storedKeyRep
+      { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
+      sigma key address hsigma hmatch
   have hfull : Apeiron.GrowableIdentity.logicalStored slot.sigma slot.held = (sigma, key) :=
     (Apeiron.GrowableIdentity.stored_matches_iff slot.sigma sigma slot.held slot.value key address).mp
       hmatches
@@ -381,8 +467,9 @@ theorem regen_entryAt_flat
   have hmatches : table.matches Apeiron.GrowableIdentity.regenKeyRep
       { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
       sigma key address = ok true :=
-    table_matches_of_guards Apeiron.GrowableIdentity.regenKeyRep slot.sigma slot.held slot.value
-      0#u8 sigma key address hsigma hmatch
+    table_matches_of_guards Apeiron.GrowableIdentity.regenKeyRep
+      { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
+      sigma key address hsigma hmatch
   have hfull : (slot.sigma, original) = (sigma, key) :=
     (Apeiron.GrowableIdentity.regen_slot_matches_iff_of_reachable slot.sigma sigma slot.held
       original key slot.value address hheld).mp hmatches
@@ -482,59 +569,67 @@ theorem search_decision_found_flat_denotes_regen
   have hdenotes := foundDenotes_of_repR hrep (sigma, key) (.flat index) slot.value hentry
   exact ⟨hlive, hentry, hdenotes⟩
 
-/-- Spill found packaging for the Stored carrier: a live spill slot whose generated `matches`
-succeeds denotes `((sigma, key), value)` under `decodeStoredOption`. -/
+/-- Spill found packaging for the Stored carrier: a live fused spill slot whose generated
+`matches` succeeds denotes `((sigma, key), slot.value)` under `decodeStoredOption`. -/
 theorem stored_entryAt_spill
     (state : WordTable Apeiron.GrowableIdentity.StoredI64)
     (sigma : cell.Sigma) (key : I64) (address : table.TableAddress)
     (shard index : Usize) (region : table.Region Apeiron.GrowableIdentity.StoredI64 I64)
-    (tag : U8) (slotSigma : cell.Sigma) (held : Apeiron.GrowableIdentity.StoredI64) (value : I64)
+    (slot : table.SpillSlot Apeiron.GrowableIdentity.StoredI64 I64)
     (hshard : state.shards.val[shard.val]? = some region)
-    (hpayload : region.slots.val[index.val]? =
-      some { tag := tag, sigma := slotSigma, held := held, value := value })
-    (htagNonzero : tag ≠ 0#u8)
-    (hmatch : table.matches Apeiron.GrowableIdentity.storedKeyRep
-      { tag := tag, sigma := slotSigma, held := held, value := value } sigma key address = ok true) :
+    (hslot : region.slots.val[index.val]? = some slot)
+    (htagNonzero : slot.tag ≠ 0#u8)
+    (hmatch : table.matches Apeiron.GrowableIdentity.storedKeyRep slot
+      sigma key address = ok true) :
     Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
-        (.spill shard index) = some ((sigma, key), value) := by
-  have hfull : Apeiron.GrowableIdentity.logicalStored slotSigma held = (sigma, key) :=
-    (Apeiron.GrowableIdentity.stored_matches_iff slotSigma sigma held value key address).mp hmatch
-  have hsigmaEq : slotSigma = sigma := by
-    have hp : (slotSigma, Apeiron.GrowableIdentity.decodeStored slotSigma held) = (sigma, key) := hfull
+        (.spill shard index) = some ((sigma, key), slot.value) := by
+  have hcanon : table.matches Apeiron.GrowableIdentity.storedKeyRep
+      { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
+      sigma key address = ok true := by
+    simpa only [table.matches] using hmatch
+  have hfull : Apeiron.GrowableIdentity.logicalStored slot.sigma slot.held = (sigma, key) :=
+    (Apeiron.GrowableIdentity.stored_matches_iff slot.sigma sigma slot.held slot.value key address).mp
+      hcanon
+  have hsigmaEq : slot.sigma = sigma := by
+    have hp : (slot.sigma, Apeiron.GrowableIdentity.decodeStored slot.sigma slot.held) = (sigma, key) := hfull
     exact (Prod.mk.inj hp).1
-  have hkeyEq : held.key = key := by
-    have hp : (slotSigma, Apeiron.GrowableIdentity.decodeStored slotSigma held) = (sigma, key) := hfull
+  have hkeyEq : slot.held.key = key := by
+    have hp : (slot.sigma, Apeiron.GrowableIdentity.decodeStored slot.sigma slot.held) = (sigma, key) := hfull
     exact (Prod.mk.inj hp).2
-  simp [Apeiron.GrowableSearch.entryAt, hshard, hpayload, htagNonzero,
+  simp [Apeiron.GrowableSearch.entryAt, hshard, hslot, htagNonzero,
     Apeiron.GrowableSearch.decodeStoredOption, hsigmaEq, hkeyEq]
 
-/-- Spill found packaging for the Regen carrier: a live spill slot on a reachable carrier whose
-generated `matches` succeeds denotes `((sigma, key), value)` under `decodeRegenOption`. -/
+/-- Spill found packaging for the Regen carrier: a live fused spill slot on a reachable carrier
+whose generated `matches` succeeds denotes `((sigma, key), slot.value)` under
+`decodeRegenOption`. -/
 theorem regen_entryAt_spill
     (state : WordTable Apeiron.GrowableIdentity.RegenI64)
     (sigma : cell.Sigma) (key original : I64) (address : table.TableAddress)
     (shard index : Usize) (region : table.Region Apeiron.GrowableIdentity.RegenI64 I64)
-    (tag : U8) (slotSigma : cell.Sigma) (held : Apeiron.GrowableIdentity.RegenI64) (value : I64)
+    (slot : table.SpillSlot Apeiron.GrowableIdentity.RegenI64 I64)
     (hshard : state.shards.val[shard.val]? = some region)
-    (hpayload : region.slots.val[index.val]? =
-      some { tag := tag, sigma := slotSigma, held := held, value := value })
-    (htagNonzero : tag ≠ 0#u8)
-    (hheld : word_regen_hold slotSigma original = ok held)
-    (hmatch : table.matches Apeiron.GrowableIdentity.regenKeyRep
-      { tag := tag, sigma := slotSigma, held := held, value := value } sigma key address = ok true) :
+    (hslot : region.slots.val[index.val]? = some slot)
+    (htagNonzero : slot.tag ≠ 0#u8)
+    (hheld : word_regen_hold slot.sigma original = ok slot.held)
+    (hmatch : table.matches Apeiron.GrowableIdentity.regenKeyRep slot
+      sigma key address = ok true) :
     Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeRegenOption
-        (.spill shard index) = some ((sigma, key), value) := by
-  have hfull : (slotSigma, original) = (sigma, key) :=
-    (Apeiron.GrowableIdentity.regen_slot_matches_iff_of_reachable slotSigma sigma held
-      original key value address hheld).mp hmatch
-  have hsigmaEq : slotSigma = sigma := (Prod.mk.inj hfull).1
+        (.spill shard index) = some ((sigma, key), slot.value) := by
+  have hcanon : table.matches Apeiron.GrowableIdentity.regenKeyRep
+      { tag := 0#u8, sigma := slot.sigma, held := slot.held, value := slot.value }
+      sigma key address = ok true := by
+    simpa only [table.matches] using hmatch
+  have hfull : (slot.sigma, original) = (sigma, key) :=
+    (Apeiron.GrowableIdentity.regen_slot_matches_iff_of_reachable slot.sigma sigma slot.held
+      original key slot.value address hheld).mp hcanon
+  have hsigmaEq : slot.sigma = sigma := (Prod.mk.inj hfull).1
   have hkeyEq : original = key := (Prod.mk.inj hfull).2
-  have hdecodeOriginal := Apeiron.GrowableIdentity.regen_hold_decodes slotSigma original
+  have hdecodeOriginal := Apeiron.GrowableIdentity.regen_hold_decodes slot.sigma original
   rw [hheld] at hdecodeOriginal
   simp only [WP.spec_ok] at hdecodeOriginal
-  have hdecode : Apeiron.GrowableSearch.decodeRegenOption slotSigma held = some key := by
+  have hdecode : Apeiron.GrowableSearch.decodeRegenOption slot.sigma slot.held = some key := by
     simp [Apeiron.GrowableSearch.decodeRegenOption, hdecodeOriginal, hkeyEq]
-  simp only [Apeiron.GrowableSearch.entryAt, hshard, hpayload, htagNonzero, ite_false]
+  simp only [Apeiron.GrowableSearch.entryAt, hshard, hslot, htagNonzero, ite_false]
   rw [hdecode]
   simp [hsigmaEq]
 
@@ -545,9 +640,9 @@ run_cmd do
   let allowed : Lean.NameSet :=
     ({} : Lean.NameSet) |>.insert `propext |>.insert `Classical.choice |>.insert `Quot.sound
   let external : Array Lean.Name := #[``Apeiron.GrowableRepresentation.RepR,
-    ``Apeiron.GrowableSearch.AbsenceCertificate]
-  let localNames : Array Lean.Name := #[`flatMatchAdmitted_of_repR,
-    `spillMatchRouted_of_repR,
+    ``Apeiron.GrowableSearch.SummaryMissSound, ``Apeiron.GrowableSearch.AbsenceCertificate]
+  let localNames : Array Lean.Name := #[`summaryMissSound_of_repR, `flatMatchAdmitted_of_repR,
+    `spillMatchRouted_of_repR, `repR_absenceCertificate_of_summaryMiss, `repR_absent_of_summaryMiss,
     `DecisionProvenance, `search_decision_provenance, `search_decision_wellFormed,
     `search_decision_found_flat_guards, `SpillLocateFoundFullMatch,
     `vec_index_readback, `table_matches_of_guards, `stored_entryAt_flat, `regen_entryAt_flat,
@@ -560,14 +655,9 @@ run_cmd do
       throwError m!"'{decl}' depends on axioms outside the closed cone: {bad.toList}"
     logInfo m!"'{decl}' depends on axioms: {axioms.toList}"
 
-/-- `SpillSite.Grow` and `SpillSite.Found` are distinct constructors, so the probe's
-`Grow` terminator never presents as a found hit. -/
-private theorem spillSite_grow_ne_found {i : Usize}
-    (h : table.SpillSite.Grow = table.SpillSite.Found i) : False := by
-  cases h
-
-/-- Generic bind inversion on the generated `do` form: a successful bind ran its head to
-`ok`. -/
+/-- Generic bind inversion on the generated `do` form: a successful bind ran its head to `ok`.
+Mirrors the private helper of `Apeiron.GrowableLocateLoop` for this module's local unfold of
+`table.probe.spill_locate`. -/
 private theorem bind_ret_inv {α β : Type} (x : Result α) (f : α → Result β) (r : β)
     (hrun : (do let y ← x; f y) = ok r) : ∃ y, x = ok y ∧ f y = ok r := by
   cases hx : x with
@@ -584,388 +674,42 @@ private theorem bind_ret_inv {α β : Type} (x : Result α) (f : α → Result �
       simp only [bind_tc_ok] at hrun
       exact ⟨y, rfl, hrun⟩
 
-/-- One step of the generated `loop`: a successful run either stops at its first step's
-`done`, or takes a `cont` step and continues from there. The `loop` unfolds one step because
-the generated loop is definitionally `bind (body x) (fun r => match r with
-cont x' => loop body x' | done z => ok z)`. -/
-private theorem loop_run_cases {α β : Type} (body : α → Result (ControlFlow α β)) (x : α)
-    (y : β) (hrun : loop body x = ok y) :
-    ∃ r, body x = ok r ∧
-      match r with
-      | ControlFlow.done z => z = y
-      | ControlFlow.cont x' => loop body x' = ok y := by
-  unfold loop at hrun
-  obtain ⟨r, hr, hfin⟩ := bind_ret_inv (body x) (fun r =>
-      match r with
-      | ControlFlow.cont x' => loop body x'
-      | ControlFlow.done z => ok z) y hrun
-  cases r with
-  | done z =>
-      exact ⟨ControlFlow.done z, hr, Result.ok_injective hfin⟩
-  | cont x' =>
-      exact ⟨ControlFlow.cont x', hr, hfin⟩
-
-/-- A generated locate body step that reports a `Found` hit at `slot`. The generated body
-reads the lane's coordinate from `region.coords`, tests the vacancy marker
-`found = table.COORD_EMPTY`, tests the identity guard `found = wanted`, and only then reads
-`region.slots` and runs `table.matches`, so the found step carries the coordinate readback,
-its occupancy and identity guards and the full-key `matches` success in the same step. The
-body never reads `ss.tag`. -/
-private theorem spill_locate_body_found {K V H R : Type}
-    (keyrep : table.keyrep.KeyRep R K H) (region : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (i home : Usize) (wanted : U64) (st slot : Usize)
-    (hbody : table.probe.spill_locate_loop.body keyrep region sigma place direct key i home
-      wanted st = ok (ControlFlow.done (table.SpillSite.Found slot))) :
-    ∃ coord : U64, ∃ ss : table.SpillSlot R V,
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        region.coords slot = ok coord ∧
-      coord ≠ table.COORD_EMPTY ∧ coord = wanted ∧
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.SpillSlot R V))
-        region.slots slot = ok ss ∧
-      table.matches keyrep ss sigma key { place := place, direct_word := direct } = ok true := by
-  unfold table.probe.spill_locate_loop.body at hbody
-  by_cases hlt : st < i
-  · rw [if_pos hlt] at hbody
-    cases hadd : (home + st) with
-    | vis eff k =>
-        rw [hadd, bind_tc_vis] at hbody
-        exact (vis_not_ok hbody).elim
-    | div =>
-        rw [hadd, bind_tc_div] at hbody
-        exact (div_not_ok hbody).elim
-    | ret i1 =>
-        rw [hadd, bind_tc_ok] at hbody
-        cases hsub : (i - 1#usize) with
-        | vis eff k =>
-            rw [hsub, bind_tc_vis] at hbody
-            exact (vis_not_ok hbody).elim
-        | div =>
-            rw [hsub, bind_tc_div] at hbody
-            exact (div_not_ok hbody).elim
-        | ret i2 =>
-            rw [hsub, bind_tc_ok] at hbody
-            have hlift : (lift (i1 &&& i2) : Result Usize) = ok (i1 &&& i2) := rfl
-            rw [hlift, bind_tc_ok] at hbody
-            cases hidx : alloc.vec.Vec.index
-                (core.slice.index.SliceIndexUsizeSlice Std.U64)
-                region.coords (i1 &&& i2) with
-            | vis eff k =>
-                rw [hidx, bind_tc_vis] at hbody
-                exact (vis_not_ok hbody).elim
-            | div =>
-                rw [hidx, bind_tc_div] at hbody
-                exact (div_not_ok hbody).elim
-            | ret coord =>
-                rw [hidx, bind_tc_ok] at hbody
-                by_cases hzero : coord = table.COORD_EMPTY
-                · rw [if_pos hzero] at hbody
-                  exact False.elim (by
-                    have h := Result.ok_injective hbody
-                    cases h)
-                · rw [if_neg hzero] at hbody
-                  by_cases hmatch : coord = wanted
-                  · rw [if_pos hmatch] at hbody
-                    cases hss : alloc.vec.Vec.index
-                        (core.slice.index.SliceIndexUsizeSlice (table.SpillSlot R V))
-                        region.slots (i1 &&& i2) with
-                    | vis eff k =>
-                        rw [hss, bind_tc_vis] at hbody
-                        exact (vis_not_ok hbody).elim
-                    | div =>
-                        rw [hss, bind_tc_div] at hbody
-                        exact (div_not_ok hbody).elim
-                    | ret ss =>
-                        rw [hss, bind_tc_ok] at hbody
-                        cases hmt : table.matches keyrep ss sigma key
-                            { place := place, direct_word := direct } with
-                        | vis eff k =>
-                            rw [hmt, bind_tc_vis] at hbody
-                            exact (vis_not_ok hbody).elim
-                        | div =>
-                            rw [hmt, bind_tc_div] at hbody
-                            exact (div_not_ok hbody).elim
-                        | ret b =>
-                            rw [hmt, bind_tc_ok] at hbody
-                            by_cases hb : b = true
-                            · rw [if_pos hb] at hbody
-                              have h := Result.ok_injective hbody
-                              have hslot : slot = i1 &&& i2 := by
-                                cases h
-                                rfl
-                              have hcoord : alloc.vec.Vec.index
-                                  (core.slice.index.SliceIndexUsizeSlice Std.U64)
-                                  region.coords slot = ok coord := by
-                                rw [hslot]
-                                exact hidx
-                              have hread : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-                                  (table.SpillSlot R V)) region.slots slot = ok ss := by
-                                rw [hslot]
-                                exact hss
-                              exact ⟨coord, ss, hcoord, hzero, hmatch, hread,
-                                hmt.trans (congrArg ok hb)⟩
-                            · rw [if_neg hb] at hbody
-                              obtain ⟨s1, hninc, hfin⟩ := bind_ret_inv (st + 1#usize)
-                                (fun s1 => ok (ControlFlow.cont s1))
-                                (ControlFlow.done (table.SpillSite.Found slot)) hbody
-                              exact False.elim (by
-                                have h := Result.ok_injective hfin
-                                cases h)
-                  · rw [if_neg hmatch] at hbody
-                    obtain ⟨s1, hninc, hfin⟩ := bind_ret_inv (st + 1#usize)
-                      (fun s1 => ok (ControlFlow.cont s1))
-                            (ControlFlow.done (table.SpillSite.Found slot)) hbody
-                    exact False.elim (by
-                      have h := Result.ok_injective hfin
-                      cases h)
-  · rw [if_neg hlt] at hbody
-    exact False.elim (by
-      have h := Result.ok_injective hbody
-      cases h)
-
-/-- A generated locate body step that reports a `cont` successor `step1`. Every `cont`
-branch computes `step1 ← st + 1`, so the successor raises the counter by exactly one, and
-the step occurred strictly below the bound. -/
-private theorem spill_locate_body_cont {K V H R : Type}
-    (keyrep : table.keyrep.KeyRep R K H) (region : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (i home : Usize) (wanted : U64)
-    (st step1 : Usize)
-    (hbody : table.probe.spill_locate_loop.body keyrep region sigma place direct key i home
-      wanted st = ok (ControlFlow.cont step1)) :
-    st < i ∧ step1.val = st.val + 1 := by
-  have incr (hrun : (do let s1 ← st + 1#usize; ok (ControlFlow.cont s1 : ControlFlow Usize table.SpillSite)) = ok (ControlFlow.cont step1)) :
-      step1.val = st.val + 1 := by
-    obtain ⟨s1, hninc, hfin⟩ := bind_ret_inv (st + 1#usize)
-      (fun s1 => ok (ControlFlow.cont (s1 : Usize) : ControlFlow Usize table.SpillSite))
-      (ControlFlow.cont step1) hrun
-    have hs1 : s1.val = st.val + 1 := by
-      have hadd := UScalar.add_equiv st (1#usize)
-      rw [hninc] at hadd
-      simpa using hadd.2.1
-    have hcontra : (ControlFlow.cont s1) = (ControlFlow.cont step1) :=
-      Result.ok_injective hfin
-    cases hcontra
-    exact hs1
-  unfold table.probe.spill_locate_loop.body at hbody
-  by_cases hlt : st < i
-  · rw [if_pos hlt] at hbody
-    cases hadd : (home + st) with
-    | vis eff k =>
-        rw [hadd, bind_tc_vis] at hbody
-        exact (vis_not_ok hbody).elim
-    | div =>
-        rw [hadd, bind_tc_div] at hbody
-        exact (div_not_ok hbody).elim
-    | ret i1 =>
-        rw [hadd, bind_tc_ok] at hbody
-        cases hsub : (i - 1#usize) with
-        | vis eff k =>
-            rw [hsub, bind_tc_vis] at hbody
-            exact (vis_not_ok hbody).elim
-        | div =>
-            rw [hsub, bind_tc_div] at hbody
-            exact (div_not_ok hbody).elim
-        | ret i2 =>
-            rw [hsub, bind_tc_ok] at hbody
-            have hlift : (lift (i1 &&& i2) : Result Usize) = ok (i1 &&& i2) := rfl
-            rw [hlift, bind_tc_ok] at hbody
-            cases hidx : alloc.vec.Vec.index
-                (core.slice.index.SliceIndexUsizeSlice Std.U64)
-                region.coords (i1 &&& i2) with
-            | vis eff k =>
-                rw [hidx, bind_tc_vis] at hbody
-                exact (vis_not_ok hbody).elim
-            | div =>
-                rw [hidx, bind_tc_div] at hbody
-                exact (div_not_ok hbody).elim
-            | ret coord =>
-                rw [hidx, bind_tc_ok] at hbody
-                by_cases hzero : coord = table.COORD_EMPTY
-                · rw [if_pos hzero] at hbody
-                  exact False.elim (by
-                    have h := Result.ok_injective hbody
-                    cases h)
-                · rw [if_neg hzero] at hbody
-                  by_cases hmatch : coord = wanted
-                  · rw [if_pos hmatch] at hbody
-                    cases hss : alloc.vec.Vec.index
-                        (core.slice.index.SliceIndexUsizeSlice (table.SpillSlot R V))
-                        region.slots (i1 &&& i2) with
-                    | vis eff k =>
-                        rw [hss, bind_tc_vis] at hbody
-                        exact (vis_not_ok hbody).elim
-                    | div =>
-                        rw [hss, bind_tc_div] at hbody
-                        exact (div_not_ok hbody).elim
-                    | ret ss =>
-                        rw [hss, bind_tc_ok] at hbody
-                        cases hmt : table.matches keyrep ss sigma key
-                            { place := place, direct_word := direct } with
-                        | vis eff k =>
-                            rw [hmt, bind_tc_vis] at hbody
-                            exact (vis_not_ok hbody).elim
-                        | div =>
-                            rw [hmt, bind_tc_div] at hbody
-                            exact (div_not_ok hbody).elim
-                        | ret b =>
-                            rw [hmt, bind_tc_ok] at hbody
-                            by_cases hb : b = true
-                            · rw [if_pos hb] at hbody
-                              exact False.elim (by
-                                have h := Result.ok_injective hbody
-                                cases h)
-                            · rw [if_neg hb] at hbody
-                              exact ⟨hlt, incr hbody⟩
-                  · rw [if_neg hmatch] at hbody
-                    exact ⟨hlt, incr hbody⟩
-  · rw [if_neg hlt] at hbody
-    exact False.elim (by
-      have h := Result.ok_injective hbody
-      cases h)
-
-/-- The locate loop's found hit carries a full-key match certificate at the returned lane.
-Each step is read with `spill_locate_body_step`; the `cont` successor raises the step counter by
-one below the bound, so the loop strictly decreases the remaining step budget `i.val - st.val`
-and induction on that budget reaches the terminating step. -/
-private theorem loop_hit_of_loop_run {K V H R : Type}
-    (keyrep : table.keyrep.KeyRep R K H) (region : table.Region R V) (sigma : cell.Sigma)
-    (address : table.TableAddress) (key : K) (i home : Usize) (wanted : U64) (index : Usize)
-    (hrun : table.probe.spill_locate_loop keyrep region sigma address.place address.direct_word
-      key i home wanted 0#usize = ok (table.SpillSite.Found index)) :
-    ∃ slot : table.SpillSlot R V, region.slots.val[index.val]? = some slot ∧
-      table.matches keyrep slot sigma key address = ok true := by
-  have step0 : ∀ (st : Usize),
-      (table.probe.spill_locate_loop keyrep region sigma address.place address.direct_word
-          key i home wanted st
-        = ok (table.SpillSite.Found index)) →
-      (∃ slot : table.SpillSlot R V, region.slots.val[index.val]? = some slot ∧
-          table.matches keyrep slot sigma key address = ok true) ∨
-        (∃ st1 : Usize, st1.val ≤ i.val ∧ i.val - st1.val < i.val - st.val ∧
-            table.probe.spill_locate_loop keyrep region sigma address.place
-              address.direct_word key i home wanted st1
-            = ok (table.SpillSite.Found index)) := by
-    intro st hloop
-    obtain ⟨r, hbody, hred⟩ := loop_run_cases
-      (fun st1 => table.probe.spill_locate_loop.body keyrep region sigma address.place
-        address.direct_word key i home wanted st1) st (table.SpillSite.Found index) hloop
-    cases r with
-    | cont step1 =>
-        obtain ⟨hlt, hs1⟩ := spill_locate_body_cont keyrep region sigma address.place
-          address.direct_word key i home wanted st step1 hbody
-        have hltv : st.val < i.val := hlt
-        exact Or.inr ⟨step1, by omega, by rw [hs1]; omega, hred⟩
-    | done site =>
-        cases site with
-        | Grow =>
-            exact False.elim (spillSite_grow_ne_found hred)
-        | Vacant slot =>
-            exact False.elim (by cases hred)
-        | Found slot =>
-            have hslot : slot = index := by injection hred
-            obtain ⟨coord, ss, hcoord, hlive, htag, hread, hmatch⟩ :=
-              spill_locate_body_found keyrep region
-              sigma address.place address.direct_word key i home wanted st slot hbody
-            rw [← hslot]
-            exact Or.inl ⟨ss, vec_index_readback region.slots slot ss hread, by
-              cases address
-              exact hmatch⟩
-  have aux : ∀ n : Nat, ∀ st : Usize, i.val - st.val = n →
-      (table.probe.spill_locate_loop keyrep region sigma address.place address.direct_word
-          key i home wanted st
-        = ok (table.SpillSite.Found index)) →
-      ∃ slot : table.SpillSlot R V, region.slots.val[index.val]? = some slot ∧
-        table.matches keyrep slot sigma key address = ok true := by
-    intro n
-    induction n using Nat.strong_induction_on with
-    | _ n ih =>
-        intro st hn hloop
-        cases step0 st hloop with
-        | inl hfound =>
-            obtain ⟨w, hread, hmatch⟩ := hfound
-            exact ⟨w, hread, hmatch⟩
-        | inr hdown =>
-            obtain ⟨st1, hst1, hdec, hloop1⟩ := hdown
-            cases n with
-            | zero =>
-                rw [hn] at hdec
-                exact False.elim ((Nat.not_lt_zero _) hdec)
-            | succ m =>
-                exact ih (i.val - st1.val) (by simpa [hn] using hdec) st1 rfl hloop1
-  have hzero : (0#usize).val = 0 := rfl
-  exact aux (i.val - 0#usize) 0#usize (by rw [hzero]) hrun
-
-/-- L6: a generated `spill_locate` `Found` hit carries a full-key match certificate at
-the returned lane. The readback and the real matcher's `ok true` come from the executed match
-step: the locate body tests the vacancy marker on the lane coordinate and the identity guard
-`found = wanted` before reading the slot, so the step that returns `Found` is the step that
-read the slot and ran `table.matches` on it. `loop_run_cases`
-reads the generated `loop` one step at a time and `spill_locate_body_found` /
-`spill_locate_body_cont` read the step's own guards, so the proof reads the executed body
-rather than a summary of it. `Growable/LocateLoop.lean` remains red and is not imported here. -/
+/-- L6: a generated `spill_locate` `Found` hit carries a full-key match certificate at the
+returned fused slot. The slot readback and the real matcher's `ok true` come from the executed
+match step, extracted through `Apeiron.GrowableLocateLoop`; `bound` is the live
+`table.Region.bound region` value consumed by the linear probe loop. -/
 theorem spill_locate_found_full_match {K V H R : Type} {N : Usize}
     (keyrep : table.keyrep.KeyRep R K H) (region : table.Region R V) (sigma : cell.Sigma)
     (address : table.TableAddress) (key : K) (index : Usize) :
     SpillLocateFoundFullMatch (N := N) keyrep region sigma address key index := by
   intro hloc
   unfold table.probe.spill_locate at hloc
-  cases hnb : table.valid_n N with
+  obtain ⟨b, hb, hloc⟩ := bind_ret_inv _ _ _ hloc
+  cases hv : table.valid_n N with
   | vis eff k =>
-      rw [hnb, bind_tc_vis] at hloc
-      exact (vis_not_ok hloc).elim
+      rw [hv] at hb
+      exact (vis_not_ok hb).elim
   | div =>
-      rw [hnb, bind_tc_div] at hloc
-      exact (div_not_ok hloc).elim
-  | ret b =>
-      rw [hnb, bind_tc_ok] at hloc
-      by_cases hb : b = true
-      · rw [if_pos hb] at hloc
-        cases hbd : table.Region.bound region with
-        | vis eff k =>
-            rw [hbd, bind_tc_vis] at hloc
-            exact (vis_not_ok hloc).elim
-        | div =>
-            rw [hbd, bind_tc_div] at hloc
-            exact (div_not_ok hloc).elim
-        | ret i =>
-            rw [hbd, bind_tc_ok] at hloc
-            by_cases hz : i = 0#usize
-            · rw [if_pos hz] at hloc
-              exact False.elim (spillSite_grow_ne_found (Result.ok_injective hloc))
-            · rw [if_neg hz] at hloc
-              cases hh : table.Region.home region address.place with
-              | vis eff k =>
-                  rw [hh, bind_tc_vis] at hloc
-                  exact (vis_not_ok hloc).elim
-              | div =>
-                  rw [hh, bind_tc_div] at hloc
-                  exact (div_not_ok hloc).elim
-              | ret home =>
-                  rw [hh, bind_tc_ok] at hloc
-                  cases hw : table.Region.coord_of R V address.place with
-                  | vis eff k =>
-                      rw [hw, bind_tc_vis] at hloc
-                      exact (vis_not_ok hloc).elim
-                  | div =>
-                      rw [hw, bind_tc_div] at hloc
-                      exact (div_not_ok hloc).elim
-                  | ret wanted =>
-                      rw [hw, bind_tc_ok] at hloc
-                      exact loop_hit_of_loop_run keyrep region sigma address key i home wanted
-                        index hloc
-      · rw [if_neg hb] at hloc
-        exact False.elim (spillSite_grow_ne_found (Result.ok_injective hloc))
--- The cone check above runs before `spill_locate_found_full_match`, so the headline and the
--- loop-reading helpers it depends on are audited here. `AxiomAudit/Core.lean` registers the
--- headline's `#audit`, but that module imports `Growable.ReadLoop`, so this local check is the
--- one that executes while `Growable/ReadLoop.lean` is red.
-open Lean Elab Command in
-run_cmd do
-  let allowed : Lean.NameSet :=
-    ({} : Lean.NameSet) |>.insert `propext |>.insert `Classical.choice |>.insert `Quot.sound
-  let headline : Lean.Name := `Apeiron.GrowableClassifier.spill_locate_found_full_match
-  let axioms ← liftTermElabM <| Lean.collectAxioms headline
-  let bad := axioms.filter (fun ax => !allowed.contains ax)
-  unless bad.isEmpty do
-    throwError m!"'{headline}' depends on axioms outside the closed cone: {bad.toList}"
-  logInfo m!"'{headline}' depends on axioms: {axioms.toList}"
+      rw [hv] at hb
+      exact (div_not_ok hb).elim
+  | ret b' =>
+      rw [hv] at hb
+      have hbb : b' = b := Result.ok_injective hb
+      subst b
+      by_cases hb' : b'
+      · simp only [hb', ↓reduceIte] at hloc
+        obtain ⟨bound, _hbound, hloc⟩ := bind_ret_inv _ _ _ hloc
+        by_cases hzero : bound = 0#usize
+        · simp only [hzero, ↓reduceIte] at hloc
+          cases Result.ok_injective hloc
+        · rw [if_neg hzero] at hloc
+          obtain ⟨home, _hhome, hloc⟩ := bind_ret_inv _ _ _ hloc
+          obtain ⟨wanted, _htag, hloc⟩ := bind_ret_inv _ _ _ hloc
+          have hcert := Apeiron.GrowableLocateLoop.generated_locate_outer_found keyrep region
+            sigma address.place address.direct_word key bound home wanted index hloc
+          rcases hcert with ⟨entry, hidx, hmatch⟩
+          exact ⟨entry, vec_index_readback region.slots index entry hidx, hmatch⟩
+      · rw [if_neg hb'] at hloc
+        cases Result.ok_injective hloc
 
 end Apeiron.GrowableClassifier

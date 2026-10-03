@@ -11,14 +11,24 @@ pins the *single-head, fixed-KV-state* case:
   (`Numeric.EngineAttnRefinement`), where the score list `sc` is the real `<key_j, y> / √head_dim`
   (`Numeric.EngineAttnRefinement.idealScoreList`); `attnScoreList_gridVec` proves the two agree on
   `gridVec q` (`Numeric/MatvecBridge.lean`) under `q.val.length = head_dim`.
-* `attnExec` — the executing map, the real reading of the `word_attn_head` output chosen by
-  `attn_head_refines_v2_proved` on the (single) domain witness; `0` off the domain.
+* `attnRef_lipschitz` — the global expansion bound of `attnRef`, with constant `attnStageL`.
 * `attnStageDom` — the admissible domain: the `gridVec` images of the `attn_domain_v2` slices with a
   component bound `B`.
-* `attnHeadStage` — the assembled `Stage (Fin head_dim → ℝ) (Fin head_dim → ℝ)` with
-  `delta = attnErrBoundV2 (pos+1) V δ` and `L = attnStageL pos V R head_dim`, where `R` is the max
-  row `ℓ1` norm of the key block (`keyBlockBound`) and `V`, `δ` are the uniform value and score-stage
-  bounds supplied as parameters.
+* the `attnErrBoundV2`/`scoreErrV2` nonnegativity and monotonicity lemmas that a consumer of the
+  stage needs.
+
+## Dropped with the attention-downstream move
+
+`Numeric.AttnHeadRefines`, `Numeric.AttnHeadWindowsScore`, `Numeric.AttnHeadWindowsValue`,
+`Numeric.AttnLoopScore` and `Numeric.AttnLoopOutput` moved to
+`work/wip/attn-downstream/` (`attn.score_at` and `attn.value_component` are no longer extraction
+targets). The executed half of this module rested on `attn_head_refines_v2_proved` from
+`Numeric.AttnHeadRefines`, so `attnOut`, `attnVec`, `attnExec`, `attnOut_spec`, `attnVec_bound`,
+`attnHeadStage` and `attnHeadStage_dom_witness` are dropped with it. `attn_head_refines_v2` itself
+remains an `anchor` in `Numeric.AttnSoftmaxPerturb` and is **not** proved in the corpus. The
+reference map, its Lipschitz constant, the domain predicate and the error-bound monotonicity
+lemmas stand on `Numeric.AttnSoftmaxPerturb` and `Numeric.AttnScoreStage` alone.
+`Nous/Model/AttnStageWitness.lean` consumed only `attnHeadStage`; it is left dangling.
 
 ## The global expansion constant
 
@@ -33,14 +43,16 @@ global bound; no domain restriction is needed.
 
 ## Trust boundary
 
-Kernel-checked `ℝ`/`ℤ` algebra plus the reused `attn_head_refines_v2_proved`
-(`Numeric/AttnHeadRefines.lean`) and `denseAttnReal` denotations. Does not cover rustc/LLVM codegen
+Kernel-checked `ℝ`/`ℤ` algebra plus the `denseAttnReal`/`idealScoreList` denotations of
+`Numeric.EngineAttnRefinement`. No claim here reaches the extracted `word_attn_head` body any more;
+see "Dropped with the attention-downstream move" above. Does not cover rustc/LLVM codegen
 of `src/engine/attn.rs`, the kernel ABI, GPU/SPIR-V, or the `unsafe` container. The `B` conjunct of
 the domain is a restriction carried for the caller's uniform `δ` bound; it is not used by the
 Lipschitz proof.
 -/
 import Nous.Model.BlockComposition
-import Numeric.AttnHeadRefines
+import Numeric.AttnSoftmaxPerturb
+import Numeric.AttnScoreStage
 import Numeric.MatvecBridge
 
 namespace Nous.Model
@@ -449,63 +461,15 @@ theorem attnRef_lipschitz (state : attn.KvState) (q_head pos : Usize)
   unfold attnRef
   exact le_trans hmain (le_of_eq htarget)
 
-/-! ## The executed map -/
+/-! ## The domain of the stage -/
 
 /-- The `attn_domain_v2` slices whose `gridVec` is `y`, with the query component bound `B`. -/
 def attnStageDom (state : attn.KvState) (layer q_head pos : Usize)
-    (kplane vplane : alloc.vec.Vec I64) (hd : ℕ) (B : ℝ) : Set (Fin hd → ℝ) :=
+    (k v : alloc.vec.Vec (alloc.vec.Vec I64)) (kplane vplane : alloc.vec.Vec I64)
+    (hd : ℕ) (B : ℝ) : Set (Fin hd → ℝ) :=
   {y | ∃ p : Slice I64 × Slice I64, y = MatvecBridge.gridVec (n := hd) p.1 ∧
-    attn_domain_v2 state layer q_head pos p.1 p.2 kplane vplane ∧
+    attn_domain_v2 state layer q_head pos p.1 p.2 k v kplane vplane ∧
     (∀ i : Fin hd, |toReal (p.1.val.getD i.val 0#i64)| ≤ B)}
-
-/-- The extracted output slice of `word_attn_head`, chosen by `attn_head_refines_v2_proved`. -/
-def attnOut (state : attn.KvState) (layer q_head pos : Usize) (kplane vplane : alloc.vec.Vec I64)
-    (q out : Slice I64) (h : attn_domain_v2 state layer q_head pos q out kplane vplane) : Slice I64 :=
-  Classical.choose (attn_head_refines_v2_proved state layer q_head pos q out kplane vplane h)
-
-/-- The real reading of the chosen output as a `Fin hd` vector. -/
-def attnVec (state : attn.KvState) (layer q_head pos : Usize) (kplane vplane : alloc.vec.Vec I64)
-    (hd : ℕ) (q out : Slice I64) (h : attn_domain_v2 state layer q_head pos q out kplane vplane) :
-    Fin hd → ℝ :=
-  fun i => toReal ((attnOut state layer q_head pos kplane vplane q out h).val.getD i.val 0#i64)
-
-/-- The executing map: on the domain, the real reading of `word_attn_head`'s output at the chosen
-`attn_domain_v2` input; `0` off it. -/
-def attnExec (state : attn.KvState) (layer q_head pos : Usize) (kplane vplane : alloc.vec.Vec I64)
-    (hd : ℕ) (B : ℝ) (y : Fin hd → ℝ) : Fin hd → ℝ :=
-  if h : y ∈ attnStageDom state layer q_head pos kplane vplane hd B
-  then attnVec state layer q_head pos kplane vplane hd (Classical.choose h).1 (Classical.choose h).2
-    (Classical.choose_spec h).2.1
-  else 0
-
-/-- `attn_head_refines_v2_proved`'s specification for `attnOut`, with the `let`-binders zeta-reduced
-so the score/value lists are syntactically the `attnScoreList`/`valueList` forms. -/
-theorem attnOut_spec (state : attn.KvState) (layer q_head pos : Usize)
-    (kplane vplane : alloc.vec.Vec I64) (q out : Slice I64)
-    (h : attn_domain_v2 state layer q_head pos q out kplane vplane) :
-    word_attn_head state layer q_head q pos out
-        = ok (core.result.Result.Ok (), attnOut state layer q_head pos kplane vplane q out h) ∧
-      (attnOut state layer q_head pos kplane vplane q out h).val.length = out.val.length ∧
-      ∀ i : ℕ, i < state.head_dim.val →
-        |toReal ((attnOut state layer q_head pos kplane vplane q out h).val.getD i 0#i64)
-            - denseAttnReal
-              (listAbsMax (idealScoreList kplane.val q.val state.n_head_kv.val state.head_dim.val
-                (q_head.val / (state.n_head.val / state.n_head_kv.val)) (state.head_dim.val : ℝ)
-                pos.val))
-              (idealScoreList kplane.val q.val state.n_head_kv.val state.head_dim.val
-                (q_head.val / (state.n_head.val / state.n_head_kv.val)) (state.head_dim.val : ℝ)
-                pos.val)
-              (toRealList (valueList vplane.val state.n_head_kv.val state.head_dim.val
-                (q_head.val / (state.n_head.val / state.n_head_kv.val)) pos.val i))|
-          ≤ attnErrBoundV2 (pos.val + 1)
-              (listAbsMax (toRealList (valueList vplane.val state.n_head_kv.val state.head_dim.val
-                (q_head.val / (state.n_head.val / state.n_head_kv.val)) pos.val i)))
-              (scoreErrV2 (state.head_dim.val : ℝ)
-                (listAbsMax (idealScoreList kplane.val q.val state.n_head_kv.val state.head_dim.val
-                  (q_head.val / (state.n_head.val / state.n_head_kv.val)) (state.head_dim.val : ℝ)
-                  pos.val))
-                |toReal state.scale|) :=
-  Classical.choose_spec (attn_head_refines_v2_proved state layer q_head pos q out kplane vplane h)
 
 /-! ## `attnErrBoundV2` monotonicity -/
 
@@ -584,123 +548,6 @@ theorem attnErrBoundV2_mono (n : ℕ) {V V' δ δ' : ℝ} (hV : 0 ≤ V) (hVV : 
     div_le_div_of_nonneg_right (mul_le_mul_of_nonneg_left hVV (Nat.cast_nonneg n))
       (mul_nonneg (by norm_num) q32_pos.le)
   linarith
-
-/-! ## The head stage -/
-
-/-- The per-component defect from `attn_head_refines_v2_proved` against `attnRef`, monotone in the
-uniform bounds `V`, `δ`. -/
-theorem attnVec_bound (state : attn.KvState) (layer q_head pos : Usize)
-    (kplane vplane : alloc.vec.Vec I64) (q out : Slice I64)
-    (hdom : attn_domain_v2 state layer q_head pos q out kplane vplane)
-    (B V δ : ℝ) (_hV : 0 ≤ V)
-    (hVb : ∀ i : Fin state.head_dim.val, listAbsMax (toRealList (valueList vplane.val
-      state.n_head_kv.val state.head_dim.val (kvhOf state q_head) pos.val i.val)) ≤ V)
-    (hδb : ∀ y ∈ attnStageDom state layer q_head pos kplane vplane state.head_dim.val B,
-      scoreErrV2 (state.head_dim.val : ℝ)
-        (listAbsMax (attnScoreList (hd := state.head_dim.val) kplane.val state.n_head_kv.val
-          (kvhOf state q_head) pos.val (state.head_dim.val : ℝ) y))
-        |toReal state.scale| ≤ δ)
-    (hBq : ∀ i : Fin state.head_dim.val, |toReal (q.val.getD i.val 0#i64)| ≤ B)
-    (i : Fin state.head_dim.val) :
-    |attnVec state layer q_head pos kplane vplane state.head_dim.val q out hdom i
-        - attnRef state q_head pos kplane vplane state.head_dim.val
-            (MatvecBridge.gridVec (n := state.head_dim.val) q) i|
-      ≤ attnErrBoundV2 (pos.val + 1) V δ := by
-  have hadom : attn_domain state layer q_head pos q out := hdom.1
-  unfold attn_domain at hadom
-  obtain ⟨_, _, _, _, _, _, _, _, hqlen, _, _⟩ := hadom
-  obtain ⟨-, -, hbound⟩ := attnOut_spec state layer q_head pos kplane vplane q out hdom
-  have hsc := attnScoreList_gridVec kplane.val q state.n_head_kv.val (kvhOf state q_head) pos.val
-    (state.head_dim.val : ℝ) hqlen
-  have hy : MatvecBridge.gridVec (n := state.head_dim.val) q ∈
-      attnStageDom state layer q_head pos kplane vplane state.head_dim.val B :=
-    ⟨(q, out), rfl, hdom, hBq⟩
-  have hbi := hbound i.val i.isLt
-  rw [← hsc] at hbi
-  unfold attnVec attnRef
-  refine le_trans hbi (attnErrBoundV2_mono (pos.val + 1) (listAbsMax_nonneg _) (hVb i)
-    (scoreErrV2_nonneg (listAbsMax_nonneg _) (abs_nonneg _))
-    (hδb (MatvecBridge.gridVec (n := state.head_dim.val) q) hy))
-
-/-- **The single-head attention `Stage`** at a fixed KV state: input the real query vector, output
-the real head output vector; `ref` the ideal dense softmax attention (`attnRef`), `exec` the
-extracted output (`attnExec`), `dom` the `attn_domain_v2` grid with the query component bound `B`,
-`delta = attnErrBoundV2 (pos+1) V δ`, `L = attnStageL` (the global Lipschitz constant of `attnRef`).
-`V`/`δ` are uniform bounds supplied as parameters. -/
-noncomputable def attnHeadStage (state : attn.KvState) (layer q_head pos : Usize)
-    (kplane vplane : alloc.vec.Vec I64) (hh : 0 < state.head_dim.val) (B V δ : ℝ)
-    (_hB : 0 ≤ B) (hV : 0 ≤ V) (hδ : 0 ≤ δ)
-    (hVb : ∀ i : Fin state.head_dim.val, listAbsMax (toRealList (valueList vplane.val
-      state.n_head_kv.val state.head_dim.val (kvhOf state q_head) pos.val i.val)) ≤ V)
-    (hδb : ∀ y ∈ attnStageDom state layer q_head pos kplane vplane state.head_dim.val B,
-      scoreErrV2 (state.head_dim.val : ℝ)
-        (listAbsMax (attnScoreList (hd := state.head_dim.val) kplane.val state.n_head_kv.val
-          (kvhOf state q_head) pos.val (state.head_dim.val : ℝ) y))
-        |toReal state.scale| ≤ δ) :
-    Stage (Fin state.head_dim.val → ℝ) (Fin state.head_dim.val → ℝ) :=
-  { ref := attnRef state q_head pos kplane vplane state.head_dim.val
-    exec := attnExec state layer q_head pos kplane vplane state.head_dim.val B
-    dom := attnStageDom state layer q_head pos kplane vplane state.head_dim.val B
-    delta := attnErrBoundV2 (pos.val + 1) V δ
-    L := attnStageL pos.val V
-      (keyBlockBound kplane.val state.n_head_kv.val state.head_dim.val (kvhOf state q_head) pos.val)
-      (state.head_dim.val : ℝ)
-    delta_nonneg := attnErrBoundV2_nonneg (pos.val + 1) hV hδ
-    L_nonneg := attnStageL_nonneg pos.val hV
-      (keyBlockBound_nonneg kplane.val state.n_head_kv.val state.head_dim.val
-        (kvhOf state q_head) pos.val) (by exact_mod_cast hh)
-    defect := by
-      intro y hy
-      have hspec := Classical.choose_spec hy
-      rw [attnExec, dif_pos hy]
-      have hrefeq : attnRef state q_head pos kplane vplane state.head_dim.val y
-          = attnRef state q_head pos kplane vplane state.head_dim.val
-              (MatvecBridge.gridVec (n := state.head_dim.val) (Classical.choose hy).1) :=
-        congrArg (attnRef state q_head pos kplane vplane state.head_dim.val) hspec.1
-      rw [hrefeq]
-      apply (pi_norm_le_iff_of_nonneg (attnErrBoundV2_nonneg (pos.val + 1) hV hδ)).2
-      intro i
-      rw [Real.norm_eq_abs]
-      exact attnVec_bound state layer q_head pos kplane vplane (Classical.choose hy).1
-        (Classical.choose hy).2 (Classical.choose_spec hy).2.1 B V δ hV hVb hδb
-        (Classical.choose_spec hy).2.2 i
-    expansion := by
-      intro z w
-      exact attnRef_lipschitz state q_head pos kplane vplane state.head_dim.val hh V hV hVb z w }
-
-/-- **Domain non-vacuity.** The `attn_domain_v2` witness point (`attn_domain_v2_witness`,
-`Numeric.AttnSoftmaxPerturb.lean:745`) is on the stage's domain at the one-layer, one-position
-state. -/
-theorem attnHeadStage_dom_witness (hh : 0 < attnOneState.head_dim.val) (B V δ : ℝ)
-    (hB : 0 ≤ B) (hV : 0 ≤ V) (hδ : 0 ≤ δ)
-    (hVb : ∀ i : Fin attnOneState.head_dim.val, listAbsMax (toRealList (valueList
-      (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)).val
-      attnOneState.n_head_kv.val attnOneState.head_dim.val (kvhOf attnOneState 0#usize) 0
-      i.val)) ≤ V)
-    (hδb : ∀ y ∈ attnStageDom attnOneState 0#usize 0#usize 0#usize
-      (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-      (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-      attnOneState.head_dim.val B,
-      scoreErrV2 (attnOneState.head_dim.val : ℝ)
-        (listAbsMax (attnScoreList (hd := attnOneState.head_dim.val)
-          (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)).val
-          attnOneState.n_head_kv.val (kvhOf attnOneState 0#usize) 0
-          (attnOneState.head_dim.val : ℝ) y))
-        |toReal attnOneState.scale| ≤ δ) :
-    MatvecBridge.gridVec (n := attnOneState.head_dim.val) attnZeroRow ∈
-      (attnHeadStage attnOneState 0#usize 0#usize 0#usize
-        (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-        (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
-        hh B V δ hB hV hδ hVb hδb).dom := by
-  refine ⟨(attnZeroRow, attnZeroRow), rfl, attn_domain_v2_witness, ?_⟩
-  intro i
-  have hz : attnZeroRow.val.getD i.val 0#i64 = 0#i64 := by
-    cases i.val with
-    | zero => simp [attnZeroRow, Slice.from_val]
-    | succ k => simp [attnZeroRow, Slice.from_val]
-  rw [hz]
-  simp [toReal]
-  exact hB
 
 end
 

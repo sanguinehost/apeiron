@@ -242,7 +242,7 @@ exact zero-capacity build split.
 - The real `new`, `get`, `insert_with` and `build` bodies occur in `proof/ApeironWord.lean`, and
   `proof/regen.sh --check` accepts the real generic bodies and concrete word roots. Extraction is not
   a proof of termination, `Rep`, or equality to `HMap`.
-- The manifest resolves corpus Git `3d66ea3aa2fe1de5997b6b757247454a2f771358` and Mathlib
+- The manifest resolves corpus Git `880aa57e47e782ed7a9d9ee1974cfc87360b446b` and Mathlib
   `fabf563a7c95a166b8d7b6efca11c8b4dc9d911f`. A source-proof run log is historical evidence, not
   fresh acceptance.
 
@@ -315,7 +315,7 @@ orchestration boundary; the extracted roots are the sequential partition, worker
 bodies. The schedule obligation composes the implementation-specific per-key subsequence equation
 with `Apeiron.Table.build_eq_of_key_streams_eq`
 (`proof/corpus/.lake/packages/apeiron/proof/Apeiron/Table/Basic.lean:167-174`, package revision
-`3d66ea3aa2fe1de5997b6b757247454a2f771358`). This covers sequential worker semantics and schedule
+`880aa57e47e782ed7a9d9ee1974cfc87360b446b`). This covers sequential worker semantics and schedule
 preservation only. It does not cover Rust thread memory semantics, exclusive-borrow realization,
 spawn/join failure, panic propagation, liveness, allocator behaviour or rustc/LLVM codegen. Those
 realization obligations remain open and are not waived by this statement.
@@ -325,7 +325,7 @@ realization obligations remain open and are not waived by this statement.
 `../sanguine-apeiron/proof/Apeiron/Table/WordIdentity.lean`, registered in `Audit.lean`. The Rust
 refinement belongs in `proof/corpus/TableRefinement/CoordIdentity.lean`, unfolding the generated
 `coord.spread` low-word truncation and instantiating at `PHI`. Pin-transport rule: the bridge pins
-canonical `3d66ea3aa2fe1de5997b6b757247454a2f771358` (the revision carrying
+canonical `880aa57e47e782ed7a9d9ee1974cfc87360b446b` (the revision carrying
 `Table/WordIdentity.lean`); no dirty-sibling import is admitted, and a separately gated
 `lakefile.lean` / `lake-manifest.json` / `proof/README.md` update is required before the import. This chain uses the Rust/canonical `{propext, Classical.choice, Quot.sound}` cone
 and must not enter `Slang.*`, whose audit requires the empty cone.
@@ -485,7 +485,7 @@ insertion, relocation and sequential build at the audited theorem domain. It exc
 allocator/global-allocator realization, thread/executor realization and `std::thread::scope`,
 rustc/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container. The Slang chain retains
 its separate empty cone. Astra's verdict and the Sol contract are `anchor`, not `proved`; REG-1/G1
-remains **OPEN**. Bridge pin `3d66ea3aa2fe1de5997b6b757247454a2f771358`.
+remains **OPEN**. Bridge pin `880aa57e47e782ed7a9d9ee1974cfc87360b446b`.
 
 ## Extraction-shaped representation boundary (Astra, APEIRON-EXTRACT-REP)
 

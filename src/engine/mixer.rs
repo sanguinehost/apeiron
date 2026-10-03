@@ -291,8 +291,7 @@ pub(crate) fn exact_scan() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         std::env::var("APEIRON_EXACT_SCAN")
-            .ok()
-            .is_some_and(|v| v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"))
+            .is_ok_and(|v| v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"))
     })
 }
 

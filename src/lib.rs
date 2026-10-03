@@ -5,17 +5,16 @@
 //!
 //! [`Table`] is the sole storage type. It is tested; its source refinement is pending.
 
+pub mod aes;
 pub mod carrier;
 pub mod cell;
+pub mod chacha;
 pub mod coord;
+pub mod crypto;
 pub mod engine;
 pub mod exchange;
 pub mod fold;
 pub mod format;
-/// The sovereign GPU runtime (dlopen Vulkan device + dispatch) over the ported `simt`
-/// kernels. Behind the `gpu` feature; the kernel builders themselves stay always-on.
-#[cfg(feature = "gpu")]
-pub mod gpu;
 pub mod kepler;
 pub mod keystore;
 pub mod merge;
@@ -23,6 +22,7 @@ pub mod numeric;
 pub mod pepper;
 pub mod policy;
 pub mod scalar;
+pub mod sha256;
 /// The ported SIMT (GPU) substrate: the 12-op alphabet encoded to SPIR-V, the carrier-dial GEMV
 /// fold and the integer-dot (DP4A) chart GEMV. Faithful port of fold's `modelfold::simt`.
 pub mod simt;
