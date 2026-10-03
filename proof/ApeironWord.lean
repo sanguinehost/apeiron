@@ -21514,7 +21514,7 @@ def table.admitted
   | table.SearchLocation.NoIndex => ok (table.PayloadLocation.Resident 0#usize)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop body 0:
-    Source: '../../src/table.rs', lines 467:8-478:5 -/
+    Source: '../../src/table.rs', lines 473:8-484:5 -/
 @[rust_loop_body]
 def table.Table.selected_lanes_loop.body
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21540,7 +21540,7 @@ def table.Table.selected_lanes_loop.body
       else ok (done (core.result.Result.Ok none))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]: loop 0:
-    Source: '../../src/table.rs', lines 467:8-478:5 -/
+    Source: '../../src/table.rs', lines 473:8-484:5 -/
 @[rust_loop]
 def table.Table.selected_lanes_loop
   (V : Type) (R : Type) (need : Std.Usize) (target : Std.Usize) :
@@ -21551,7 +21551,7 @@ def table.Table.selected_lanes_loop
     target
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::selected_lanes]:
-    Source: '../../src/table.rs', lines 446:4-478:5 -/
+    Source: '../../src/table.rs', lines 452:4-484:5 -/
 def table.Table.selected_lanes
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -21572,7 +21572,7 @@ def table.Table.selected_lanes
       (Option Std.Usize) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop body 0:
-    Source: '../../src/table.rs', lines 506:8-529:9 -/
+    Source: '../../src/table.rs', lines 512:8-535:9 -/
 @[rust_loop_body]
 def table.Table.grow_spill_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21633,7 +21633,7 @@ def table.Table.grow_spill_loop.body
   else ok (done (tl, fresh, relocation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]: loop 0:
-    Source: '../../src/table.rs', lines 506:8-529:9 -/
+    Source: '../../src/table.rs', lines 512:8-535:9 -/
 @[rust_loop]
 def table.Table.grow_spill_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21653,7 +21653,7 @@ def table.Table.grow_spill_loop
     (tl, fresh, i, relocation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::grow_spill]:
-    Source: '../../src/table.rs', lines 483:4-548:5 -/
+    Source: '../../src/table.rs', lines 489:4-554:5 -/
 def table.Table.grow_spill
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -21745,7 +21745,7 @@ def table.Table.grow_spill
     ok (r2, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::flat_index_for]:
-    Source: '../../src/table.rs', lines 787:4-802:5 -/
+    Source: '../../src/table.rs', lines 793:4-808:5 -/
 def table.Table.flat_index_for
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21771,7 +21771,7 @@ def table.Table.flat_index_for
       | some value => ok (Usize.checked_add value lane)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::keep_unoccupied]:
-    Source: '../../src/table.rs', lines 774:4-785:5 -/
+    Source: '../../src/table.rs', lines 780:4-791:5 -/
 def table.Table.keep_unoccupied
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -21789,7 +21789,7 @@ def table.Table.keep_unoccupied
     else ok index
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 0:
-    Source: '../../src/table.rs', lines 568:8-584:9 -/
+    Source: '../../src/table.rs', lines 574:8-590:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21853,7 +21853,7 @@ def table.Table.plan_rebuild_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 0:
-    Source: '../../src/table.rs', lines 568:8-584:9 -/
+    Source: '../../src/table.rs', lines 574:8-590:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21876,7 +21876,7 @@ def table.Table.plan_rebuild_loop0
     (occupied, entries, spill_loads, planning_error, resident_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 2:
-    Source: '../../src/table.rs', lines 588:12-605:13 -/
+    Source: '../../src/table.rs', lines 594:12-611:13 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1_loop0.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21946,7 +21946,7 @@ def table.Table.plan_rebuild_loop1_loop0.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 2:
-    Source: '../../src/table.rs', lines 588:12-605:13 -/
+    Source: '../../src/table.rs', lines 594:12-611:13 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1_loop0
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -21970,7 +21970,7 @@ def table.Table.plan_rebuild_loop1_loop0
     (occupied, entries, spill_loads, planning_error, slot_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop body 1:
-    Source: '../../src/table.rs', lines 586:8-607:9 -/
+    Source: '../../src/table.rs', lines 592:8-613:9 -/
 @[rust_loop_body]
 def table.Table.plan_rebuild_loop1.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22004,7 +22004,7 @@ def table.Table.plan_rebuild_loop1.body
   else ok (done (occupied, entries, spill_loads, planning_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]: loop 1:
-    Source: '../../src/table.rs', lines 586:8-607:9 -/
+    Source: '../../src/table.rs', lines 592:8-613:9 -/
 @[rust_loop]
 def table.Table.plan_rebuild_loop1
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22027,7 +22027,7 @@ def table.Table.plan_rebuild_loop1
     (occupied, entries, spill_loads, planning_error, shard_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::plan_rebuild]:
-    Source: '../../src/table.rs', lines 549:4-625:5 -/
+    Source: '../../src/table.rs', lines 555:4-631:5 -/
 def table.Table.plan_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22117,7 +22117,7 @@ def table.Table.plan_rebuild
       table.RebuildPlan (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::reserve_rebuild]:
-    Source: '../../src/table.rs', lines 627:4-631:5 -/
+    Source: '../../src/table.rs', lines 633:4-637:5 -/
 def table.Table.reserve_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22150,7 +22150,7 @@ def table.Table.reserve_rebuild
       residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop body 0:
-    Source: '../../src/table.rs', lines 659:8-669:9 -/
+    Source: '../../src/table.rs', lines 665:8-675:9 -/
 @[rust_loop_body]
 def table.Table.observe_receipt_loop.body
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22189,7 +22189,7 @@ def table.Table.observe_receipt_loop.body
   else ok (done (regions, error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]: loop 0:
-    Source: '../../src/table.rs', lines 659:8-669:9 -/
+    Source: '../../src/table.rs', lines 665:8-675:9 -/
 @[rust_loop]
 def table.Table.observe_receipt_loop
   {V : Type} {R : Type} (N : Std.Usize) (i : Std.Usize)
@@ -22205,7 +22205,7 @@ def table.Table.observe_receipt_loop
     (regions, shard_at, error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::observe_receipt]:
-    Source: '../../src/table.rs', lines 639:4-678:5 -/
+    Source: '../../src/table.rs', lines 645:4-684:5 -/
 def table.Table.observe_receipt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22241,7 +22241,7 @@ def table.Table.observe_receipt
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::materialize_rebuild]:
-    Source: '../../src/table.rs', lines 690:4-719:5 -/
+    Source: '../../src/table.rs', lines 696:4-725:5 -/
 def table.Table.materialize_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22268,7 +22268,7 @@ def table.Table.materialize_rebuild
     { reservation, locator, pending_held })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_from_plan]:
-    Source: '../../src/table.rs', lines 729:4-754:5 -/
+    Source: '../../src/table.rs', lines 735:4-760:5 -/
 def table.Table.prepare_from_plan
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22303,7 +22303,7 @@ def table.Table.prepare_from_plan
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::prepare_rebuild]:
-    Source: '../../src/table.rs', lines 757:4-768:5 -/
+    Source: '../../src/table.rs', lines 763:4-774:5 -/
 def table.Table.prepare_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22325,7 +22325,7 @@ def table.Table.prepare_rebuild
     ok (pr, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::locate_rebuilt]:
-    Source: '../../src/table.rs', lines 811:4-833:5 -/
+    Source: '../../src/table.rs', lines 817:4-839:5 -/
 def table.Table.locate_rebuilt
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone K)
@@ -22377,7 +22377,7 @@ def table.Table.locate_rebuilt
       else table.SearchDecision.vacant_flat i
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_entry]:
-    Source: '../../src/table.rs', lines 847:4-909:5 -/
+    Source: '../../src/table.rs', lines 853:4-915:5 -/
 def table.Table.relocate_entry
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22464,7 +22464,7 @@ def table.Table.relocate_entry
       { reserved with resident := { reserved.resident with slots := v } })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop body 0:
-    Source: '../../src/table.rs', lines 926:8-929:9 -/
+    Source: '../../src/table.rs', lines 932:8-935:9 -/
 @[rust_loop_body]
 def table.Table.relocate_all_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22487,7 +22487,7 @@ def table.Table.relocate_all_loop.body
   else ok (done (self, reserved))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]: loop 0:
-    Source: '../../src/table.rs', lines 926:8-929:9 -/
+    Source: '../../src/table.rs', lines 932:8-935:9 -/
 @[rust_loop]
 def table.Table.relocate_all_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22505,7 +22505,7 @@ def table.Table.relocate_all_loop
     (self, reserved, entry_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::relocate_all]:
-    Source: '../../src/table.rs', lines 920:4-930:5 -/
+    Source: '../../src/table.rs', lines 926:4-936:5 -/
 @[reducible]
 def table.Table.relocate_all
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
@@ -22520,7 +22520,7 @@ def table.Table.relocate_all
     keyrepKeyRepInst self plan reserved 0#usize
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::recycle_unused_staged_path]:
-    Source: '../../src/table.rs', lines 939:4-949:5 -/
+    Source: '../../src/table.rs', lines 945:4-955:5 -/
 def table.Table.recycle_unused_staged_path
   {K : Type} {V : Type} {H : Type} {R : Type} {Clause2_Clause0_Clause0_Faces :
   Type} {N : Std.Usize} (corecloneCloneInst : core.clone.Clone K)
@@ -22549,7 +22549,7 @@ def table.Table.recycle_unused_staged_path
         }
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_pending_and_commit]:
-    Source: '../../src/table.rs', lines 967:4-1013:5 -/
+    Source: '../../src/table.rs', lines 973:4-1019:5 -/
 def table.Table.apply_pending_and_commit
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22647,7 +22647,7 @@ def table.Table.apply_pending_and_commit
     fail panic
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_rebuild]:
-    Source: '../../src/table.rs', lines 1023:4-1071:5 -/
+    Source: '../../src/table.rs', lines 1029:4-1077:5 -/
 def table.Table.apply_prepared_rebuild
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22705,7 +22705,7 @@ def table.Table.apply_prepared_rebuild
     ok (core.result.Result.Err error, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::rebuild_resident]:
-    Source: '../../src/table.rs', lines 1075:4-1086:5 -/
+    Source: '../../src/table.rs', lines 1081:4-1092:5 -/
 def table.Table.rebuild_resident
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22725,7 +22725,7 @@ def table.Table.rebuild_resident
     address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_insert]:
-    Source: '../../src/table.rs', lines 1097:4-1143:5 -/
+    Source: '../../src/table.rs', lines 1103:4-1149:5 -/
 def table.Table.apply_insert
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22805,7 +22805,7 @@ def table.Table.apply_insert
       ok (table.ApplyOutcome.NeedsGrowth key value, self)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::insert_with_reserved]:
-    Source: '../../src/table.rs', lines 1182:4-1214:5 -/
+    Source: '../../src/table.rs', lines 1188:4-1220:5 -/
 def table.Table.insert_with_reserved
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -22984,7 +22984,7 @@ def table.Table.insert_with_reserved
             value1 address
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::apply_prepared_shard_at]:
-    Source: '../../src/table.rs', lines 1226:4-1250:5 -/
+    Source: '../../src/table.rs', lines 1232:4-1256:5 -/
 def table.Table.apply_prepared_shard_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} {N : Std.Usize} (corecloneCloneInst :
@@ -23025,7 +23025,7 @@ def table.Table.apply_prepared_shard_at
     ok (r3, { self with shards := v })
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop body 0:
-    Source: '../../src/table.rs', lines 1393:8-1399:9 -/
+    Source: '../../src/table.rs', lines 1399:8-1405:9 -/
 @[rust_loop_body]
 def table.Table.build_at_sequential_loop.body
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23061,7 +23061,7 @@ def table.Table.build_at_sequential_loop.body
   else ok (done (t, failure))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]: loop 0:
-    Source: '../../src/table.rs', lines 1393:8-1399:9 -/
+    Source: '../../src/table.rs', lines 1399:8-1405:9 -/
 @[rust_loop]
 def table.Table.build_at_sequential_loop
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
@@ -23081,7 +23081,7 @@ def table.Table.build_at_sequential_loop
     (t, failure, i)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at_sequential]:
-    Source: '../../src/table.rs', lines 1379:4-1405:5 -/
+    Source: '../../src/table.rs', lines 1385:4-1411:5 -/
 def table.Table.build_at_sequential
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}
   {Clause2_Clause0_Clause0_Faces : Type} (N : Std.Usize) (corecloneCloneInst :
@@ -23121,7 +23121,7 @@ def table.Table.build_at_sequential
   | some error => ok (core.result.Result.Err error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 0:
-    Source: '../../src/table.rs', lines 1298:16-1319:17
+    Source: '../../src/table.rs', lines 1304:16-1325:17
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop0.body
@@ -23186,7 +23186,7 @@ def table.Table.build_at_loop0.body
   else ok (done (t, reservation_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 0:
-    Source: '../../src/table.rs', lines 1298:16-1319:17
+    Source: '../../src/table.rs', lines 1304:16-1325:17
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop0
@@ -23206,7 +23206,7 @@ def table.Table.build_at_loop0
     (t, s, reservation_error)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 1:
-    Source: '../../src/table.rs', lines 1324:20-1335:21
+    Source: '../../src/table.rs', lines 1330:20-1341:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop1.body
@@ -23252,7 +23252,7 @@ def table.Table.build_at_loop1.body
   else ok (done t)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 1:
-    Source: '../../src/table.rs', lines 1324:20-1335:21
+    Source: '../../src/table.rs', lines 1330:20-1341:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop1
@@ -23272,7 +23272,7 @@ def table.Table.build_at_loop1
     (t, initialized)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 5:
-    Source: '../../src/table.rs', lines 1348:32-1360:33
+    Source: '../../src/table.rs', lines 1354:32-1366:33
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0_loop0.body
@@ -23310,7 +23310,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 5:
-    Source: '../../src/table.rs', lines 1348:32-1360:33
+    Source: '../../src/table.rs', lines 1354:32-1366:33
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0_loop0
@@ -23332,7 +23332,7 @@ def table.Table.build_at_loop2_loop0_loop0_loop0
     (t, assembly_error, run_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 4:
-    Source: '../../src/table.rs', lines 1345:28-1362:29
+    Source: '../../src/table.rs', lines 1351:28-1368:29
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0_loop0.body
@@ -23365,7 +23365,7 @@ def table.Table.build_at_loop2_loop0_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 4:
-    Source: '../../src/table.rs', lines 1345:28-1362:29
+    Source: '../../src/table.rs', lines 1351:28-1368:29
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0_loop0
@@ -23388,7 +23388,7 @@ def table.Table.build_at_loop2_loop0_loop0
     (t, assembly_error, chunk)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 3:
-    Source: '../../src/table.rs', lines 1342:24-1364:25
+    Source: '../../src/table.rs', lines 1348:24-1370:25
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2_loop0.body
@@ -23421,7 +23421,7 @@ def table.Table.build_at_loop2_loop0.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 3:
-    Source: '../../src/table.rs', lines 1342:24-1364:25
+    Source: '../../src/table.rs', lines 1348:24-1370:25
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2_loop0
@@ -23444,7 +23444,7 @@ def table.Table.build_at_loop2_loop0
     (t, assembly_error, bin_at)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop body 2:
-    Source: '../../src/table.rs', lines 1339:20-1366:21
+    Source: '../../src/table.rs', lines 1345:20-1372:21
     Visibility: public -/
 @[rust_loop_body]
 def table.Table.build_at_loop2.body
@@ -23477,7 +23477,7 @@ def table.Table.build_at_loop2.body
   else ok (done (t, assembly_error))
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]: loop 2:
-    Source: '../../src/table.rs', lines 1339:20-1366:21
+    Source: '../../src/table.rs', lines 1345:20-1372:21
     Visibility: public -/
 @[rust_loop]
 def table.Table.build_at_loop2
@@ -23499,7 +23499,7 @@ def table.Table.build_at_loop2
     (t, assembly_error, worker)
 
 /-- [apeiron_word::table::{apeiron_word::table::Table<K, V, H, R, N>}::build_at]:
-    Source: '../../src/table.rs', lines 1272:4-1378:5
+    Source: '../../src/table.rs', lines 1278:4-1384:5
     Visibility: public -/
 def table.Table.build_at
   {K : Type} {V : Type} {H : Type} {R : Type} {F : Type}

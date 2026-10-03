@@ -443,6 +443,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
         self.len == 0
     }
 
+    #[allow(
+        clippy::unused_self,
+        reason = "the receiver is retained because the generated extraction models `selected_lanes` \
+                  as a `Table` method (9 references in `proof/ApeironWord.lean`); the sizing law is a \
+                  pure function of the const byte budget"
+    )]
     fn selected_lanes(
         &self,
         required_lane: usize,
@@ -1449,3 +1455,12 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
 #[cfg(test)]
 #[path = "table/tests.rs"]
 mod tests;
+
+// Declared last, deliberately. Rust item order is independent, so this costs nothing, and it keeps
+// every line above at the offset the committed `proof/ApeironWord.lean` records: `regen.sh --check`
+// diffs the generated `Source: '../../src/table.rs', lines N:M` annotations, so any insertion above
+// the last extracted definition would report drift with no change to any extracted body. The
+// batched read adds no extracted root — no `proof/extract/lib.rs` wrapper reaches it — so its
+// module declaration is the only edit this file needs.
+#[path = "table/geteach.rs"]
+pub mod geteach;

@@ -123,13 +123,12 @@ locator_face!(CountWordHome, Counted, counted_word);
 /// resident path has; the table is untouched either way.
 #[test]
 fn selected_lanes_admits_the_required_lane_and_refuses_past_the_byte_budget() {
-    let sigma = Sigma::Parabolic;
     let clones = Rc::new(Cell::new(0usize));
     let mk = |value: i64| Counted {
         value,
         clones: Rc::clone(&clones),
     };
-    let mut table = Table::<Counted, Counted, CountWordHome, 16>::new(mk(-1), CountWordHome);
+    let table = Table::<Counted, Counted, CountWordHome, 16>::new(mk(-1), CountWordHome);
 
     // The minimum rung is admitted, and each rung is the next power of two.
     assert_eq!(table.selected_lanes(0, 0), Ok(Some(1)));
