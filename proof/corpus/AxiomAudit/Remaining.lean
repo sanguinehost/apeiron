@@ -1,5 +1,9 @@
+import TableRefinement.EncircleFold
 import AxiomAudit.Core
 import Nous.Model.HyperbolicAttention
+import Nous.Core.Rank
+import Nous.Core.Complementarity
+import Nous.Core.Portfolio
 
 set_option linter.apeiron.notation false
 set_option linter.apeiron.citation false
@@ -351,6 +355,7 @@ open apeiron_word
 #audit apeiron_word.weight_rounding_bound
 #audit apeiron_word.value_component_rounding_bound
 #audit apeiron_word.value_sum_toReal
+#audit apeiron_word.attn_head_loop3_body_epilogue
 #audit apeiron_word.exp_at_real_bound
 #audit apeiron_word.exp_at_underflow_real
 #audit apeiron_word.softmaxWeights_shift_invariant
@@ -422,9 +427,10 @@ open apeiron_word
 #audit apeiron_word.attnNumeratorCase_le
 #audit apeiron_word.attn_head_loop1_spec
 -- Numeric.AttnLoopOutput
+-- The per-component accumulation law of the deleted `attn.value_component` is now the nested
+-- loop of `attn_head_loop2`, audited here through `attn_head_loop2_spec`, and its output epilogue
+-- through `attn_head_loop3_body_epilogue` (renamed from `value_component_epilogue`) above.
 #audit apeiron_word.attn_head_loop2_spec
-#audit apeiron_word.attn_value_component_loop_spec
-#audit apeiron_word.value_component_spec
 #audit apeiron_word.attn_head_loop3_spec
 -- Numeric.AttnHeadWindowsScore
 #audit apeiron_word.attn_v2_prefix
@@ -439,7 +445,6 @@ open apeiron_word
 #audit apeiron_word.plane_at_spec
 #audit apeiron_word.attn_value_fit
 #audit apeiron_word.attn_value_window_of_v2
-#audit apeiron_word.attn_value_components
 -- Numeric.AttnScoreStage
 #audit apeiron_word.attn_scale_bound
 #audit apeiron_word.attnScoreInt_err
@@ -1034,6 +1039,48 @@ open apeiron_word
 #audit Nous.Seq.ChunkedRounding.witness_delta_net_100_lsb
 #audit Nous.Seq.ChunkedRounding.witness_delta_net_bound_pos
 
+-- Nous.Seq.DeltaCarrier
+#audit Nous.Seq.DeltaCarrier.householder_nonexpansive
+#audit Nous.Seq.DeltaCarrier.deltaCol_sub
+#audit Nous.Seq.DeltaCarrier.deltaCol_lipschitz
+#audit Nous.Seq.DeltaCarrier.carrier_error_le_errorSeq
+#audit Nous.Seq.DeltaCarrier.carrier_error_uniform
+#audit Nous.Seq.DeltaCarrier.delta_carrier_error_uniform
+#audit Nous.Seq.DeltaCarrier.readout_error_le
+#audit Nous.Seq.DeltaCarrier.carriedTraj_deviation
+#audit Nous.Seq.DeltaCarrier.witness_delta_carrier
+
+-- Nous.Seq.CarrierEpsilon
+#audit Nous.Seq.CarrierEpsilon.relative_carrier_bound_of_le
+#audit Nous.Seq.CarrierEpsilon.relative_carrier_normal_bound_of_le
+#audit Nous.Seq.CarrierEpsilon.binary64_finer_than_q32
+#audit Nous.Seq.CarrierEpsilon.binary32_coarser_than_q32
+#audit Nous.Seq.CarrierEpsilon.roundVec_error_le_absolute
+#audit Nous.Seq.CarrierEpsilon.roundVec_error_le_relative
+#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_error_uniform
+#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_q32_numeric_bound
+#audit Nous.Seq.CarrierEpsilon.delta_absolute_carrier_q32_numeric_le_pow
+#audit Nous.Seq.CarrierEpsilon.witness_roundVec_shift_norm
+#audit Nous.Seq.CarrierEpsilon.witness_roundVec_scale_norm
+#audit Nous.Seq.CarrierEpsilon.witness_carrier_trajectory
+#audit Nous.Seq.CarrierEpsilon.witness_carrier_trajectory_numeric
+#audit Nous.Seq.CarrierEpsilon.delta_exact_norm_le
+#audit Nous.Seq.CarrierEpsilon.delta_carried_norm_le
+#audit Nous.Seq.CarrierEpsilon.delta_carried_norm_le_max
+#audit Nous.Seq.CarrierEpsilon.relative_carrier_fixed_point
+#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_error_uniform
+#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound
+#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound_tighter
+#audit Nous.Seq.CarrierEpsilon.delta_relative_carrier_b32_numeric_bound_v1
+#audit Nous.Seq.CarrierEpsilon.higham_gamma_step
+#audit Nous.Seq.CarrierEpsilon.higham_lemma_3_1
+#audit Nous.Seq.CarrierEpsilon.fl_dot_one_le
+#audit Nous.Seq.CarrierEpsilon.witness_delta_exact_norm_le
+#audit Nous.Seq.CarrierEpsilon.witness_delta_carried_norm_le
+#audit Nous.Seq.CarrierEpsilon.witness_relative_carrier_trajectory
+#audit Nous.Seq.CarrierEpsilon.witness_higham_lemma_3_1
+#audit Nous.Seq.CarrierEpsilon.witness_fl_dot_one
+
 -- Nous.Model.SpectralTrichotomy
 #audit Nous.Model.SpectralTrichotomy.toMatrix_mul
 #audit Nous.Model.SpectralTrichotomy.toMatrix_one
@@ -1111,3 +1158,32 @@ open apeiron_word
 #audit Nous.Model.boost_finite_rank_recurrence_vec
 #audit Nous.Model.boost_witness
 #audit Nous.Model.boost_score_witness
+
+-- Nous.Core.{Rank,Complementarity,Portfolio}: the LACE selection layer (rank, complementarity,
+-- portfolio coverage). Generic over a linearly ordered cost; no canonical-carrier dependency.
+#audit Nous.Core.rankKey_inj
+#audit Nous.Core.stableRank_pos
+#audit Nous.Core.stableRank_le
+#audit Nous.Core.stableRank_lt_of_lt
+#audit Nous.Core.stableRank_injective
+#audit Nous.Core.stableRank_scale_free
+#audit Nous.Core.two_mul_card_lt_pairs
+#audit Nous.Core.stableRank_sum_two_mul
+#audit Nous.Core.stableRank_sum
+#audit Nous.Core.exists_stableRank_ge
+#audit Nous.Core.rankDistance_symm
+#audit Nous.Core.rankDistance_self
+#audit Nous.Core.rankDistance_triangle
+#audit Nous.Core.rankDistance_eq_zero_iff
+#audit Nous.Core.cpi_le_of_subset
+#audit Nous.Core.cpi_insert_eq_of_equal_columns
+#audit Nous.Core.cpi_insert_lt_of_strict
+#audit Apeiron.TableRefinement.encircleSteps
+#audit Apeiron.TableRefinement.foldLaw_reduce_eq_ringAffineFold
+#audit Apeiron.TableRefinement.foldLaw_identity_neutral
+#audit Apeiron.TableRefinement.chunks_from
+#audit Apeiron.TableRefinement.ringAffineFold_chunks
+#audit Apeiron.TableRefinement.foldLaw_chunk_points
+#audit Apeiron.TableRefinement.foldLaw_face_witness_elliptic
+#audit Apeiron.TableRefinement.foldLaw_face_witness_parabolic
+#audit Apeiron.TableRefinement.foldLaw_face_witness_hyperbolic

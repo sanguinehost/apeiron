@@ -1,5 +1,6 @@
 import WordRefinement
 import Native.HyperbolicBase
+import Native.HyperbolicFaceNullCell
 import Native.LocatorSpec
 import Security.InterpretationWitnesses
 import Growable.Identity
@@ -149,6 +150,8 @@ import Nous.Seq.TwoChannelRouter
 import Nous.Seq.BitplaneRouter
 import Nous.Seq.StatePrecision
 import Nous.Seq.ChunkedRounding
+import Nous.Seq.DeltaCarrier
+import Nous.Seq.CarrierEpsilon
 import Nous.Model.SpectralTrichotomy
 import Nous.Model.CertifiedDecision
 import Spirv.SplitLimb
@@ -195,73 +198,73 @@ elab "#audit " id:ident : command => do
         m!"(propext, Classical.choice, Quot.sound): {bad.toList}"
 
 -- The extracted word kernels refine the canonical algebra
-#audit sigma_value_eq
-#audit denote_from_i64
-#audit word_mul_denote
-#audit word_norm_denote
-#audit denoteCell_cellConj
-#audit word_mul_total
-#audit word_norm_total
-#audit word_norm_mul
-#audit word_mul_conj
-#audit word_norm_of_mul_denote
+#audit apeiron_word.sigma_value_eq
+#audit apeiron_word.denote_from_i64
+#audit apeiron_word.word_mul_denote
+#audit apeiron_word.word_norm_denote
+#audit apeiron_word.denoteCell_cellConj
+#audit apeiron_word.word_mul_total
+#audit apeiron_word.word_norm_total
+#audit apeiron_word.word_norm_mul
+#audit apeiron_word.word_mul_conj
+#audit apeiron_word.word_norm_of_mul_denote
 
 -- Point density and flux refinement
-#audit word_point_density_unfold
-#audit word_point_density_denote
-#audit word_point_density_total
-#audit word_point_density_eq
-#audit word_point_flux_unfold
-#audit word_point_flux_denote
-#audit word_point_density_ringOne
-#audit word_point_density_ringOne_independent
-#audit word_point_flux_ringOne
-#audit word_point_flux_ringOne_independent
+#audit apeiron_word.word_point_density_unfold
+#audit apeiron_word.word_point_density_denote
+#audit apeiron_word.word_point_density_total
+#audit apeiron_word.word_point_density_eq
+#audit apeiron_word.word_point_flux_unfold
+#audit apeiron_word.word_point_flux_denote
+#audit apeiron_word.word_point_density_ringOne
+#audit apeiron_word.word_point_density_ringOne_independent
+#audit apeiron_word.word_point_flux_ringOne
+#audit apeiron_word.word_point_flux_ringOne_independent
 
 -- Exchange refinement
-#audit word_exchange_impulse_denote
-#audit word_elastic_exchange_denote
-#audit word_elastic_exchange_carrier
-#audit word_elastic_exchange_body
-#audit word_elastic_exchange_totalMomentum
-#audit word_elastic_exchange_normFormLedger
-#audit word_exchange_impulse_antisymm
+#audit apeiron_word.word_exchange_impulse_denote
+#audit apeiron_word.word_elastic_exchange_denote
+#audit apeiron_word.word_elastic_exchange_carrier
+#audit apeiron_word.word_elastic_exchange_body
+#audit apeiron_word.word_elastic_exchange_totalMomentum
+#audit apeiron_word.word_elastic_exchange_normFormLedger
+#audit apeiron_word.word_exchange_impulse_antisymm
 
 -- The checked-claim acceptance kernel
-#audit word_accept_derived_impulse_spec
-#audit word_accept_derived_impulse_rejects
-#audit word_accept_derived_impulse_rejects_of_ne
-#audit word_accept_derived_impulse_accepts
-#audit word_accept_derived_impulse_accepts_derived
-#audit word_accept_derived_impulse_denote
-#audit word_accept_derived_impulse_denote_canonical
+#audit apeiron_word.word_accept_derived_impulse_spec
+#audit apeiron_word.word_accept_derived_impulse_rejects
+#audit apeiron_word.word_accept_derived_impulse_rejects_of_ne
+#audit apeiron_word.word_accept_derived_impulse_accepts
+#audit apeiron_word.word_accept_derived_impulse_accepts_derived
+#audit apeiron_word.word_accept_derived_impulse_denote
+#audit apeiron_word.word_accept_derived_impulse_denote_canonical
 
 -- The scalar carrier step and the exact-half flux
-#audit word_conservative_density_step_denote
-#audit word_conservative_density_step_eq_some_iff
-#audit word_conservative_density_step_success
-#audit word_diffusive_flux_half_denote
-#audit word_diffusive_flux_half_success
-#audit word_diffusive_flux_half_odd_refusal
-#audit word_diffusive_flux_half_unrepresentable_refusal
-#audit word_conservative_density_step_overflow_refusal
+#audit apeiron_word.word_conservative_density_step_denote
+#audit apeiron_word.word_conservative_density_step_eq_some_iff
+#audit apeiron_word.word_conservative_density_step_success
+#audit apeiron_word.word_diffusive_flux_half_denote
+#audit apeiron_word.word_diffusive_flux_half_success
+#audit apeiron_word.word_diffusive_flux_half_odd_refusal
+#audit apeiron_word.word_diffusive_flux_half_unrepresentable_refusal
+#audit apeiron_word.word_conservative_density_step_overflow_refusal
 
 -- The finite conservative total through the extracted step
-#audit word_conservative_total_mass
-#audit word_conservative_total_mass_closed
+#audit apeiron_word.word_conservative_total_mass
+#audit apeiron_word.word_conservative_total_mass_closed
 
 -- The extracted three-cell diffusive line
-#audit sum_line3
-#audit word_diffusive_flux_half_cases
-#audit word_conservative_density_step_cases
-#audit word_diffusive_line3_step_eq_some_iff
-#audit word_diffusive_line3_step_denote_of
-#audit word_diffusive_line3_step_denote
-#audit word_diffusive_line3_step_total_mass
-#audit word_diffusive_line3_step_total_mass_zero_source
-#audit word_diffusive_line3_step_odd_refusal
-#audit word_diffusive_line3_step_zero_success
-#audit word_diffusive_line3_step_unrepresentable_refusal
+#audit apeiron_word.sum_line3
+#audit apeiron_word.word_diffusive_flux_half_cases
+#audit apeiron_word.word_conservative_density_step_cases
+#audit apeiron_word.word_diffusive_line3_step_eq_some_iff
+#audit apeiron_word.word_diffusive_line3_step_denote_of
+#audit apeiron_word.word_diffusive_line3_step_denote
+#audit apeiron_word.word_diffusive_line3_step_total_mass
+#audit apeiron_word.word_diffusive_line3_step_total_mass_zero_source
+#audit apeiron_word.word_diffusive_line3_step_odd_refusal
+#audit apeiron_word.word_diffusive_line3_step_zero_success
+#audit apeiron_word.word_diffusive_line3_step_unrepresentable_refusal
 
 -- The ring-generic exchange specification
 #audit Apeiron.Physics.ringCarrierMomentumAfter_eq
@@ -371,65 +374,20 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableGeometry.prepared_destination_in_bounds
 #audit Apeiron.GrowableGeometry.geometry_wellFormed
 
--- Extracted SWAR byte marker and structural no-cross-byte-borrow decomposition
-#audit Apeiron.GrowableScan.summary_set_maybe_one_word_witness
-#audit Apeiron.GrowableScan.oneWordZeroRegion
-#audit Apeiron.GrowableScan.oneSlotZeroRegion
-#audit Apeiron.GrowableScan.summary_set_implies_maybe
-#audit Apeiron.GrowableScan.publish_live_implies_summary_maybe
-#audit Apeiron.GrowableScan.u64_one_shift_nonzero
-#audit Apeiron.GrowableScan.u64_or_mask_and_mask
-#audit Apeiron.GrowableScan.summary_remainder_lt64
-#audit Apeiron.GrowableScan.summary_mask_nonzero
-#audit Apeiron.GrowableScan.summary_mask_zero_word_witness
-#audit Apeiron.GrowableScan.summary_index_word_lt_len
-#audit Apeiron.GrowableScan.summary_max_shift_six
-#audit Apeiron.GrowableScan.FixedWidthTrailingZeros
-#audit Apeiron.GrowableScan.TrailingZerosInv
-#audit Apeiron.GrowableScan.usize_and_one_val
-#audit Apeiron.GrowableScan.summary_trailing_zeros_eq
-#audit Apeiron.GrowableScan.append_sub_byte_noBorrow
-#audit Apeiron.GrowableScan.byte_zero_marker
-#audit Apeiron.GrowableScan.zero_marker_decomposition
-#audit Apeiron.GrowableScan.extracted_zero_swar_exact
-#audit Apeiron.GrowableScan.lo_mul_broadcast
-#audit Apeiron.GrowableScan.extracted_eq_swar_exact
-#audit Apeiron.GrowableScan.gather_spreadMarkerBits
-#audit Apeiron.GrowableScan.scan_exact
+-- Spill placement, the bounded probe cycle, and the tag fingerprint
+#audit Apeiron.GrowableScan.SpillVacantCount
+#audit Apeiron.GrowableScan.SpillPlacement
+#audit Apeiron.GrowableScan.region_empty_spillPlacement
+#audit Apeiron.GrowableScan.reserve_empty_spillPlacement
+#audit Apeiron.GrowableScan.SpillCycleSlot
+#audit Apeiron.GrowableScan.spill_cycle_slot_lt
+#audit Apeiron.GrowableScan.spill_cycle_covers
+#audit Apeiron.GrowableScan.is_power_of_two_exists
+#audit Apeiron.GrowableScan.spill_cycle_covers_of_placement
+#audit Apeiron.GrowableScan.SpillProbeBoundAbsentSound
+#audit Apeiron.GrowableScan.spill_probe_bound_absent_sound
 
 -- Summary shape, recorded-bit exclusion, tag readback and fingerprint exactness (read-classifier row 2)
-#audit Apeiron.GrowableScan.SpillSummaryShape
-#audit Apeiron.GrowableScan.spillSummaryShape
-#audit Apeiron.GrowableScan.SummaryBitRecorded
-#audit Apeiron.GrowableScan.summary_maybe_false_excludes_recorded
-#audit Apeiron.GrowableScan.tag_ne_zero
-#audit Apeiron.GrowableScan.publish_live_tag_readback
-#audit Apeiron.GrowableScan.spillFingerprint
-#audit Apeiron.GrowableScan.SpillFingerprintExact
-#audit Apeiron.GrowableScan.spillFingerprintExact
-#audit Apeiron.GrowableScan.spillFingerprint_eq_of_identity
-#audit Apeiron.GrowableScan.spillFingerprint_collision_witness
-#audit Apeiron.GrowableScan.SpillTagHit
-#audit Apeiron.GrowableScan.fingerprint_hit_requires_full_matches
-#audit Apeiron.GrowableScan.word_at_exact
-#audit Apeiron.GrowableScan.ascendingByteLine
-#audit Apeiron.GrowableScan.mapBytes_lane
-#audit Apeiron.GrowableScan.from_le_bytes_lane
-#audit Apeiron.GrowableScan.from_le_bytes_end_lanes
-#audit Apeiron.GrowableScan.tagMarkers_from_le_bytes_lane
-#audit Apeiron.GrowableScan.tagMarkers_from_le_bytes_word
-#audit Apeiron.GrowableScan.tagMarkers_asymmetric_witness
-#audit Apeiron.GrowableScan.generated_clear_hits_strict
-#audit Apeiron.GrowableScan.generated_tail_steps_in_bound
-#audit Apeiron.GrowableScan.least_set_lane_selects
-#audit Apeiron.GrowableScan.least_set_lane_exact
-#audit Apeiron.GrowableScan.least_set_lane_in_range
-#audit Apeiron.GrowableScan.least_set_lane_high_fixture
-#audit Apeiron.GrowableScan.match_tag_window_exact
-#audit Apeiron.GrowableScan.match_tag_exact
-#audit Apeiron.GrowableScan.generated_clear_hits_exact
-#audit Apeiron.GrowableScan.generated_clear_hits_live_decrease
-#audit Apeiron.GrowableScan.generated_spill_read_clears_selected
 #audit Apeiron.GrowableReadLoop.generated_outer_stops_on_hit
 #audit Apeiron.GrowableReadLoop.generated_outer_stops_at_limit
 #audit Apeiron.GrowableReadLoop.generated_tail_indices_eligible
@@ -456,7 +414,12 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableReadLoop.grouped_admission_of_checked_branch
 #audit Apeiron.GrowableReadLoop.repR_summary_read_branch
 #audit Apeiron.GrowableReadLoop.repR_live_spill_summary_positive
-#audit Apeiron.GrowableRepresentation.summary_set_frames
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `Apeiron.GrowableRepresentation.summary_set_frames` was
+-- removed with the summary schema; retargeted to
+-- `Apeiron.GrowableRepresentation.publish_live_slot_readback`, registered in the
+-- Representation block below.  The removed theorem framed the parallel `tags` array;
+-- `table.Region` carries `slots : Vec (table.SpillSlot R V)` and `live : Usize` only
+-- (`proof/ApeironWord.lean:17759`), so there is no second array to frame.
 #audit Apeiron.GrowableReadLoop.StoredLiveTagAddress
 #audit Apeiron.GrowableReadLoop.StoredTaggedRepR
 #audit Apeiron.GrowableReadLoop.stored_live_tag_address_of_empty_repR
@@ -557,7 +520,11 @@ elab "#audit " id:ident : command => do
 
 -- Extracted search apply under the unextracted SearchDecisionCorrect premise
 #audit Apeiron.GrowableSearch.SearchDecisionCorrect
-#audit Apeiron.GrowableSearch.SummaryMissSound
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `Apeiron.GrowableSearch.SummaryMissSound` no longer
+-- exists. It was the structure stating that a negative generated summary query excludes the
+-- queried key from its routed spill region. Retired with the summary schema: there is no
+-- generated summary query any more. `AbsenceCertificate` below is the remaining search-side
+-- absence statement and stays registered; no replacement was invented here.
 #audit Apeiron.GrowableSearch.AbsenceCertificate
 #audit Apeiron.GrowableSearch.QueryAddressCorrect
 #audit Apeiron.GrowableSearch.QueryAddressCorrect.generatedAddress
@@ -604,11 +571,14 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableSearch.search_decision_simulates
 
 -- Classifier producer bridges: RepR to the Search absence certificate (row 7)
-#audit Apeiron.GrowableClassifier.summaryMissSound_of_repR
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `summaryMissSound_of_repR`,
+-- `repR_absenceCertificate_of_summaryMiss` and `repR_absent_of_summaryMiss` no longer exist.
+-- All three were producers of the removed `Apeiron.GrowableSearch.SummaryMissSound`; they were
+-- removed from `Growable/Classifier.lean` in the same edit that retired the structure. The
+-- absence certificate is still reachable through the `flatMatchAdmitted_of_repR` and
+-- `spillMatchRouted_of_repR` rows kept below; no replacement name was invented here.
 #audit Apeiron.GrowableClassifier.flatMatchAdmitted_of_repR
 #audit Apeiron.GrowableClassifier.spillMatchRouted_of_repR
-#audit Apeiron.GrowableClassifier.repR_absenceCertificate_of_summaryMiss
-#audit Apeiron.GrowableClassifier.repR_absent_of_summaryMiss
 #audit Apeiron.GrowableClassifier.DecisionProvenance
 #audit Apeiron.GrowableClassifier.search_decision_provenance
 #audit Apeiron.GrowableClassifier.search_decision_wellFormed
@@ -780,16 +750,24 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.GrowableRepresentation.destinationLocation
 #audit Apeiron.GrowableRepresentation.reservedObservation_eq_entryAt
 #audit Apeiron.GrowableRepresentation.reservedRepR_singleDestination
-#audit Apeiron.GrowableRepresentation.LivePublicationRecorded
-#audit Apeiron.GrowableRepresentation.publish_live_recorded
+-- The merged-slot publication lemmas. These replace the three retired summary-era facts
+-- `summary_set_frames`, `publish_live_frames` and `publish_live_recorded`; see the
+-- module header of `Growable/Representation.lean` at the two definitions.
+#audit Apeiron.GrowableRepresentation.publish_live_slot_readback
+#audit Apeiron.GrowableRepresentation.publish_live_frame
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `LivePublicationRecorded` no longer exists. It bundled the
+-- three search-visible facts established at one completed spill publication point; under the
+-- merged schema each of them is one of the two `publish_live_*` rows registered just above.
 #audit Apeiron.GrowableRepresentation.CarrierAddressRespecting
-#audit Apeiron.GrowableRepresentation.SpillSummaryShapes
-#audit Apeiron.GrowableRepresentation.SpillSummaryRecorded
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `SpillSummaryShapes` and `SpillSummaryRecorded` no longer
+-- exist. They constrained the scalar summary-vector shape of a spill region and the recorded
+-- address bit of a live spill payload. Both read the separate `tags` array; `table.Region` has
+-- `slots : Vec (table.SpillSlot R V)` and `live : Usize` only (`proof/ApeironWord.lean:17759`).
 #audit Apeiron.GrowableRepresentation.SpillFingerprintExactRegions
-#audit Apeiron.GrowableRepresentation.SpillSummaryMissSound
-#audit Apeiron.GrowableRepresentation.repR_spillSummaryMissSound
-#audit Apeiron.GrowableRepresentation.reservedRepR_summaryShape
-#audit Apeiron.GrowableRepresentation.reservedRepR_summaryRecorded
+-- RETIRED (APEIRON-CORPUS-AUDIT-W1): `SpillSummaryMissSound` and `repR_spillSummaryMissSound`
+-- no longer exist. The first stated that a negative generated summary query excludes the
+-- queried key from its routed region, the second that such a miss contradicts every live
+-- representative of the key. There is no generated summary query to make the miss about.
 #audit Apeiron.GrowableRepresentation.reservedRepR_fingerprintExact
 #audit Apeiron.GrowableRepresentation.word_stored_table_new_repR
 #audit Apeiron.GrowableRepresentation.word_regen_table_new_repR
@@ -1296,3 +1274,43 @@ elab "#audit " id:ident : command => do
 #audit apeiron_word.fixed_exp_round_neg_abs
 #audit apeiron_word.word_fixed_exp_body_refines
 #audit apeiron_word.fixed_exp_refines_proved
+-- APEIRON-HYP-ALG-LAND-W1: the hyperbolic face of the trichotomy is the coordinate-indexed
+-- address cell. Headlines and the lemmas they rest on.
+#audit Apeiron.NativeAddress.h3_40_face_is_hyperbolic
+#audit Apeiron.NativeAddress.h3_40_source_profile_ok
+#audit Apeiron.NativeAddress.h3_40_sealed_root_is_unit
+#audit Apeiron.NativeAddress.h3_40_index_read_not_injective
+#audit Apeiron.NativeAddress.h3_40_index_kernel
+#audit Apeiron.NativeAddress.h3_40_same_index_iff
+#audit Apeiron.NativeAddress.h3_40_both_channels_decide
+#audit Apeiron.NativeAddress.h3_40_null_cells_annihilate
+#audit Apeiron.NativeAddress.h3_40_null_cells_not_divisible
+#audit Apeiron.NativeAddress.h3_40_parabolic_face_has_no_split
+#audit Apeiron.NativeAddress.normForm_eq_channels
+#audit Apeiron.NativeAddress.null_cone_eq_channels_of_domain
+#audit Apeiron.NativeAddress.h3_40IndexCell_index
+#audit Apeiron.NativeAddress.h3_40IndexCell_second
+#audit Apeiron.NativeAddress.h3_40IndexCell_is_idemPlus_multiple
+#audit Apeiron.NativeAddress.h3_40IndexCell_injective
+#audit Apeiron.NativeAddress.h3_40_normForm_eq_channels
+#audit Apeiron.NativeAddress.h3_40_nullCell_norm_zero
+#audit Apeiron.NativeAddress.h3_40_nullMirror_norm_zero
+#audit Apeiron.NativeAddress.h3_40_nullCell_ne_zero
+#audit Apeiron.NativeAddress.h3_40_nullMirror_ne_zero
+#audit Apeiron.NativeAddress.h3_40_null_channel_reads
+#audit Apeiron.NativeAddress.h3_40_idemPlus_shape
+#audit Apeiron.NativeAddress.h3_40_idemMinus_shape
+#audit Apeiron.NativeAddress.h3_40_idem_channel_reads
+#audit Apeiron.NativeAddress.h3_40_slot_reading_channels_equal
+#audit Apeiron.NativeAddress.h3_40_readings_differ_along_null
+#audit Apeiron.NativeAddress.h3_40_readings_agree_iff
+#audit Apeiron.NativeAddress.h3_40NullMirror_smul
+#audit Apeiron.NativeAddress.h3_40_half_add_half
+#audit Apeiron.NativeAddress.h3_40IndexCell_slots
+#audit Apeiron.NativeAddress.h3_40_half_slots_sum
+#audit Apeiron.NativeAddress.h3_40_index_kernel_is_null
+#audit Apeiron.NativeAddress.h3_40_null_of_second_zero
+#audit Apeiron.NativeAddress.h3_40_one_ne_zero
+#audit Apeiron.NativeAddress.h3_40_nontrivial
+#audit Apeiron.NativeAddress.h3_40_zero_not_unit
+

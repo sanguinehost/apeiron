@@ -8,6 +8,7 @@ The encoding is exact for `Op.eq`, `Op.le`, `Op.ge` on slots below the column co
 `Op.any` and out-of-range slots are not encodable and yield the empty DNF.
 -/
 import Policy.Core
+import Policy.Laws
 import Apeiron.Decider.CompleteDecision
 
 -- This module carries the statement of each declaration in prose; the canonical corpus'
@@ -409,6 +410,11 @@ theorem testBit_zero_of_and_one_ne_zero (x : Nat) (h : band x 1 ≠ 0) : x.testB
     omega
   rw [Nat.testBit_zero]; simp [hmod]
 
+/-- The retired `testBit_ncomp_lt`, the `i < W` specialisation of `testBit_ncomp`. -/
+theorem testBit_ncomp_lt {x i : Nat} (hi : i < W) : (ncomp x).testBit i = !(x.testBit i) := by
+  rw [testBit_ncomp]
+  simp [hi]
+
 theorem ncomp_testBit_zero (x : Nat) : (ncomp x).testBit 0 = !(x.testBit 0) :=
   testBit_ncomp_lt (by decide : 0 < W)
 
@@ -427,7 +433,7 @@ theorem permRights_testBit_zero {rs : List Rule} {q : Req}
         by_cases hp : Permits q r
         · rw [show permStep q acc r = bor acc r.rights from by rw [permStep, if_pos hp]] at h
           rcases ih (bor acc r.rights) h with h1 | hw
-          · rw [testBit_bor_lt (by decide : 0 < W)] at h1
+          · rw [testBit_bor_of_lt (by decide : 0 < W)] at h1
             rcases Bool.or_eq_true_iff.mp h1 with h1 | h1
             · exact Or.inl h1
             · exact Or.inr ⟨r, List.mem_cons.mpr (Or.inl rfl), hp, h1⟩
@@ -447,8 +453,27 @@ theorem forbRights_testBit_zero_eq_false {rs : List Rule} {q : Req}
     (hr : Forbids q r) : r.rights.testBit 0 = false := by
   have hsub := forbRights_sub_of_mem rs q r hrs hr
   have hb := congrArg (fun x : Nat => x.testBit 0) hsub
-  rw [testBit_band_lt (by decide : 0 < W), testBit_mask_lt (by decide : 0 < W), h] at hb
+  rw [testBit_band_of_lt (by decide : 0 < W), testBit_mask_of_lt (by decide : 0 < W), h] at hb
   simpa using hb.symm
+
+/-- A granted set equal to the raw want forces the want to be already masked: `gOf` is a
+    submask of `mask q.want` (`gOf_sub_mask_want`), so `band (gOf rs q) (mask q.want) = q.want`
+    leaves no bit of `q.want` above the width. -/
+theorem want_eq_mask_of_gOf (rs : List Rule) (q : Req) (h : gOf rs q = q.want) :
+    q.want = mask q.want := by
+  have hband : band (gOf rs q) (mask q.want) = gOf rs q := by
+    have hs := gOf_sub_mask_want rs q
+    rw [hs, mask_of_lt (gOf_lt rs q)]
+  have hb : band (q.want) (mask q.want) = q.want := by rw [h] at hband; exact hband
+  apply Nat.eq_of_testBit_eq
+  intro i
+  by_cases hi : i < W
+  · exact (testBit_mask_of_lt hi).symm
+  · have hmask : (mask q.want).testBit i = false := by rw [testBit_mask]; simp [hi]
+    have hbit := congrArg (fun t : Nat => t.testBit i) hb
+    rw [testBit_band] at hbit
+    simp [hi] at hbit
+    exact hbit.trans hmask.symm
 
 theorem decide_allow_facts {rs : List Rule} {q : Req} {g b : Nat}
     (h : Apeiron.Policy.decide rs q = Verdict.allow g b) :
@@ -584,10 +609,10 @@ theorem neverAllows_of_canAllow_false
   have hbit : (band (band (mask q.want) (permRights rs q)) (ncomp (forbRights rs q))).testBit 0 = true := by
     rw [hPQ, Nat.testBit_one_zero]
   have hbit' := hbit
-  rw [testBit_band_lt (by decide : 0 < W)] at hbit'
+  rw [testBit_band_of_lt (by decide : 0 < W)] at hbit'
   obtain ⟨hPbit, hQbit⟩ := Bool.and_eq_true_iff.mp hbit'
   have hpermbit : (permRights rs q).testBit 0 = true := by
-    have hh := hPbit; rw [testBit_band_lt (by decide : 0 < W)] at hh
+    have hh := hPbit; rw [testBit_band_of_lt (by decide : 0 < W)] at hh
     exact (Bool.and_eq_true_iff.mp hh).2
   have hforbbit : (forbRights rs q).testBit 0 = false := by
     have hh := hQbit; rw [ncomp_testBit_zero] at hh; simpa using hh
@@ -754,7 +779,7 @@ theorem forbRights_testBit_zero_eq_false_of_guards {rs : List Rule} {q : Req}
         have hstep : (forbStep q acc r).testBit 0 = acc.testBit 0 := by
           unfold forbStep
           by_cases hf : Forbids q r
-          · rw [if_pos hf, testBit_bor_lt (by decide : 0 < W)]
+          · rw [if_pos hf, testBit_bor_of_lt (by decide : 0 < W)]
             have hbitf : r.rights.testBit 0 = false := by
               by_cases hrw : band r.rights 1 ≠ 0
               · have hg := hl r (by simp) hf.1 hf.2.1 hrw
@@ -781,7 +806,7 @@ theorem askRights_testBit_zero_eq_false_of_noask {rs : List Rule} {q : Req}
         have hstep : (askStep q acc r).testBit 0 = acc.testBit 0 := by
           unfold askStep
           by_cases ha : Asks q r
-          · rw [if_pos ha, testBit_bor_lt (by decide : 0 < W)]
+          · rw [if_pos ha, testBit_bor_of_lt (by decide : 0 < W)]
             have hbit0 : band r.rights 1 = 0 := hl r (by simp) ha.1 ha.2.1
             have hbitf : r.rights.testBit 0 = false :=
               testBit_zero_eq_false_of_and_one_eq_zero r.rights hbit0
@@ -862,14 +887,16 @@ theorem exists_allow_of_canAllow_true
     rw [hP, band_comm, and_one_eq_one_of_testBit_zero _ hQbit]
   refine ⟨gOf rs (⟨ρf, action, 1⟩ : Req), (permBy rs (⟨ρf, action, 1⟩ : Req)).getD 0,
     ⟨ρf, action, 1⟩, rfl, rfl, ?_⟩
-  refine decide_allow_of ?_ ?_ ?_
-  · rw [hgo]; decide
-  · have haskmod : askRights rs (⟨ρf, action, 1⟩ : Req) % 2 = 0 := by
+  unfold Apeiron.Policy.decide
+  rw [if_neg (by rw [hgo]; decide)]
+  rw [if_neg (by
+    have haskmod : askRights rs (⟨ρf, action, 1⟩ : Req) % 2 = 0 := by
       have hne : ¬ (askRights rs (⟨ρf, action, 1⟩ : Req) % 2 = 1) :=
         of_decide_eq_false (by simpa [Nat.testBit_zero] using haskbit)
       have hlt : askRights rs (⟨ρf, action, 1⟩ : Req) % 2 < 2 := Nat.mod_lt _ (by norm_num)
       omega
     rw [hgo, band_comm, band_one, haskmod]
-  · rw [hgo, mask_one]
+    decide)]
+  rw [if_pos (by rw [hgo, mask_one])]
 
 end Apeiron.Policy.Analysis

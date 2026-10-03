@@ -31,14 +31,14 @@ abbrev Location := Apeiron.GrowableSearch.Location
 
 noncomputable local instance : DecidableEq LogicalKey := Classical.decEq _
 
-/-- A flat live bit or nonzero spill tag is the sole occupancy authority. -/
+/-- A flat live bit or nonzero spill tag is the sole occupancy authority. Under the merged slot
+schema the spilled marker is the destination slot's own `tag`, so occupancy is one readback. -/
 def Occupied {R : Type} (state : WordTable R) : Location → Prop
   | .flat index => ∃ slot,
       state.resident.slots.val[index.val]? = some slot ∧ slot.live = true
-  | .spill shard index => ∃ region tag payload,
+  | .spill shard index => ∃ region slot,
       state.shards.val[shard.val]? = some region ∧
-      region.tags.val[index.val]? = some tag ∧
-      region.slots.val[index.val]? = some payload ∧ tag ≠ 0#u8
+      region.slots.val[index.val]? = some slot ∧ slot.tag ≠ 0#u8
 
 /-- The logical keys represented by live physical entries are exactly the declared live set. -/
 def LiveSetEqual {R : Type} (state : WordTable R) (decode : cell.Sigma → R → Option I64)
@@ -91,12 +91,19 @@ def AddressCorrect {R : Type} (state : WordTable R)
         Apeiron.GrowableIdentity.wordHomeInst.address state.home key.1 key.2 = ok address ∧
         table.shard address = ok shard
 
-/-- Flat extent, fixed spill directory, and each spill tag/payload directory have matching lengths. -/
+/-- Flat extent, fixed spill directory, and the placement invariant of every spill region.
+
+The retired third conjunct was `region.tags.length = region.slots.length`, the length agreement of
+the two parallel per-region arrays.  There is one array now, so the agreement is tautological and its
+replacement is the placement invariant `Apeiron.GrowableScan.SpillPlacement`: the capacity is `0` or a
+power of two and `live` counts the occupied slots.  That is the invariant a completed bounded probe
+cycle consumes (`spill_cycle_covers_of_placement`, `spill_probe_bound_absent_sound`), so the retired
+summary conjunct is replaced rather than dropped. -/
 def SpillDirectoryConsistent {R : Type} (state : WordTable R) : Prop :=
   state.resident.slots.length =
       Apeiron.GrowableGeometry.shardCount * state.resident.lanes.val ∧
   state.shards.length = Apeiron.GrowableGeometry.shardCount ∧
-  ∀ region ∈ state.shards.val, region.tags.length = region.slots.length
+  ∀ region ∈ state.shards.val, Apeiron.GrowableScan.SpillPlacement region
 
 /-- `len` counts the finite logical live set, including live entries whose value equals the default. -/
 def LengthCorrect {R : Type} (state : WordTable R) (live : LogicalKey → Prop) : Prop :=
@@ -111,25 +118,6 @@ def CarrierAddressRespecting {R : Type} (state : WordTable R)
     keyRep.address_held state.home sigma held =
       Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key
 
-/-- Every search-visible spill region has the scalar summary-vector shape used by `summary_maybe`. -/
-def SpillSummaryShapes {R : Type} (state : WordTable R) : Prop :=
-  ∀ (shard : Usize) (region : table.Region R I64),
-    state.shards.val[shard.val]? = some region →
-    Apeiron.GrowableScan.SpillSummaryShape region
-
-/-- Every live spill payload records the bit selected through its carrier-reconstructed address. -/
-def SpillSummaryRecorded {R : Type} (state : WordTable R)
-    (decode : cell.Sigma → R → Option I64) (keyRep : table.keyrep.KeyRep R I64 table.WordHome) :
-    Prop :=
-  ∀ (shard index : Usize) (region : table.Region R I64) (tag : U8)
-      (sigma : cell.Sigma) (held : R) (value key : I64) (address : table.TableAddress),
-    state.shards.val[shard.val]? = some region →
-    region.tags.val[index.val]? = some tag → tag ≠ 0#u8 →
-    region.slots.val[index.val]? = some (sigma, held, value) →
-    decode sigma held = some key →
-    keyRep.address_held state.home sigma held = ok address →
-    Apeiron.GrowableScan.SummaryBitRecorded region address.place
-
 /-- Fingerprint equality is exact at equal held identities in every search-visible spill region. -/
 def SpillFingerprintExactRegions {R : Type} (state : WordTable R) : Prop :=
   ∀ (shard : Usize) (region : table.Region R I64),
@@ -137,220 +125,258 @@ def SpillFingerprintExactRegions {R : Type} (state : WordTable R) : Prop :=
     Apeiron.GrowableScan.SpillFingerprintExact
       (fun sigma key => Apeiron.GrowableIdentity.wordHomeInst.address state.home sigma key)
 
-/-- A negative generated summary query excludes the queried key from its routed spill region. -/
-structure SpillSummaryMissSound {R : Type} (state : WordTable R)
-    (decode : cell.Sigma → R → Option I64) (query : LogicalKey)
-    (shard : Usize) (region : table.Region R I64) : Prop where
-  shape : Apeiron.GrowableScan.SpillSummaryShape region
-  excludes : ∀ index value,
-    Apeiron.GrowableSearch.entryAt state decode (.spill shard index) ≠ some (query, value)
+/--
+## The generated spill publication under the merged slot schema
 
-/-- The three search-visible facts established at one completed spill publication point. -/
-structure LivePublicationRecorded {R V : Type} (region : table.Region R V) (index : Usize)
-    (payload : cell.Sigma × R × V) (place : U64) : Prop where
-  payloadAt : region.slots.val[index.val]? = some payload
-  occupancy : ∃ tag, region.tags.val[index.val]? = some tag ∧ tag ≠ 0#u8
-  summary : table.Region.summary_maybe region place = ok true
+`table.Region.publish_live` reaches its destination through four `Vec.index_mut` steps at the same
+index — `sigma`, `held`, `value`, `tag` — and one checked `Region.live` increment.  Under the merged
+schema that composite is one `Vec.set` of a `table.SpillSlot`, and the generated marker of the
+computed place is that slot's own `tag`.  These two lemmas are the replacement for the three retired
+summary-era facts `summary_set_frames`, `publish_live_frames` and `publish_live_recorded`: they state
+the destination readback and the destination frame rule over the single array.  They are strictly
+local: they read the generated body, not the placement invariant, and they do not constrain
+`Region.live`.
+-/
 
-private theorem tag_ne_zero (place : U64) (tag : U8) (htag : table.tag place = ok tag) :
-    tag ≠ 0#u8 := by
-  unfold table.tag at htag
-  cases hshift : place >>> table.TAG_FINGERPRINT_SHIFT with
-  | vis eff k => simp [hshift] at htag
-  | div => simp [hshift] at htag
-  | ret shifted =>
-      simp only [hshift, bind_tc_ok, lift] at htag
-      have hbits := congrArg UScalar.bv (Result.ok_injective htag)
-      intro hzero
-      have hzeroBits := congrArg UScalar.bv hzero
-      simp only [UScalar.bv_or] at hbits
-      rw [hzeroBits] at hbits
-      have hlive := (BitVec.or_eq_zero_iff.mp hbits).1
-      have hliveScalar : table.TAG_LIVE = 0#u8 :=
-        (UScalar.eq_equiv_bv_eq table.TAG_LIVE 0#u8).mpr hlive
-      have hvalue := congrArg UScalar.val hliveScalar
-      norm_num [table.TAG_LIVE] at hvalue
+private theorem getElem?_set_eq_of_ne {α : Type} (xs : List α) (written read : Nat)
+    (value : α) (hne : read ≠ written) : (xs.set written value)[read]? = xs[read]? := by
+  simp [hne]
 
-theorem summary_set_frames {R V : Type} (before after : table.Region R V) (place : U64)
-    (hset : table.Region.summary_set before place = ok after) :
-    after.slots = before.slots ∧ after.tags = before.tags := by
-  unfold table.Region.summary_set at hset
-  cases hindex : table.Region.summary_index R V place (alloc.vec.Vec.len before.summary) with
-  | vis eff k => simp [hindex] at hset
-  | div => simp [hindex] at hset
-  | ret result =>
-      simp only [hindex, bind_tc_ok] at hset
-      cases result with
-      | none => simp at hset; subst after; exact ⟨rfl, rfl⟩
-      | some index =>
-          cases hrem : index % 64#usize with
-          | vis eff k => simp [hrem] at hset
-          | div => simp [hrem] at hset
-          | ret shift =>
-              simp only [hrem, bind_tc_ok] at hset
-              cases hshift : 1#u64 <<< shift with
-              | vis eff k => rw [hshift] at hset; simp at hset
-              | div => rw [hshift] at hset; simp at hset
-              | ret mask =>
-                  rw [hshift] at hset
-                  simp only [bind_tc_ok] at hset
-                  cases hdiv : index / 64#usize with
-                  | vis eff k => rw [hdiv] at hset; simp at hset
-                  | div => rw [hdiv] at hset; simp at hset
-                  | ret wordIndex =>
-                      rw [hdiv] at hset
-                      simp only [bind_tc_ok] at hset
-                      cases hmut : alloc.vec.Vec.index_mut
-                          (core.slice.index.SliceIndexUsizeSlice U64) before.summary wordIndex with
-                      | vis eff k => rw [hmut] at hset; simp at hset
-                      | div => rw [hmut] at hset; simp at hset
-                      | ret pair =>
-                          rcases pair with ⟨word, back⟩
-                          rw [hmut] at hset
-                          simp [lift] at hset
-                          subst after
-                          exact ⟨rfl, rfl⟩
+/-- One generated `Vec.index_mut_usize` step at an in-bounds index: the read element is the element
+under the index, the closure is the generated `Vec.set`, so the closure writes the new element at
+that index and leaves every other lane alone. -/
+private theorem vec_index_mut_step {α : Type} (v : alloc.vec.Vec α) (i : Usize) (old : α)
+    (back : α → alloc.vec.Vec α) (y : α) (hbound : i.val < v.val.length)
+    (hstep : alloc.vec.Vec.index_mut_usize v i = ok (old, back))
+    (hold : old = v.val[i.val]) (hback : back = v.set i) :
+    (back y).val[i.val]? = some y ∧
+      ∀ j : Nat, j ≠ i.val → (back y).val[j]? = v.val[j]? := by
+  subst old back
+  rw [alloc.vec.Vec.set_val_eq]
+  exact ⟨List.getElem?_set_self hbound, fun _ hne => getElem?_set_eq_of_ne _ _ _ _ hne⟩
 
-/-- A successful generated publication changes only its selected payload
-and tag lane; the intervening summary update frames both vectors. -/
-theorem publish_live_frames {R V : Type}
-    (before after : table.Region R V) (index read : Usize)
-    (payload : cell.Sigma × R × V) (place : U64)
-    (hpub : table.Region.publish_live before index payload place = ok after)
-    (hne : read.val ≠ index.val) :
-    after.tags.val[read.val]? = before.tags.val[read.val]? ∧
-      after.slots.val[read.val]? = before.slots.val[read.val]? := by
+/-- **Destination readback of a generated publication.**  The slot read back at the destination index
+carries the published triple's `sigma`, `held` and `value`, and its `tag` is the generated marker,
+which is nonzero because `table.tag` always sets the live bit.  The in-bounds obligation is not a
+premise: a successful publication implies the destination `index_mut` succeeded, hence the bound. -/
+theorem publish_live_slot_readback {R V : Type} (before after : table.Region R V) (index : Usize)
+    (sigma : cell.Sigma) (held : R) (value : V) (place : U64)
+    (hpub : table.Region.publish_live before index (sigma, held, value) place = ok after) :
+    ∃ slot, after.slots.val[index.val]? = some slot ∧
+      slot.sigma = sigma ∧ slot.held = held ∧ slot.value = value ∧
+      (∃ tag, slot.tag = tag ∧ table.tag place = ok tag ∧ tag ≠ 0#u8) := by
   unfold table.Region.publish_live at hpub
-  cases hslot : alloc.vec.Vec.index_mut
-      (core.slice.index.SliceIndexUsizeSlice (cell.Sigma × R × V)) before.slots index with
-  | vis eff k => simp [hslot] at hpub
-  | div => simp [hslot] at hpub
-  | ret slotResult =>
-      rcases slotResult with ⟨_, slotBack⟩
-      simp only [hslot, bind_tc_ok] at hpub
-      generalize hset : table.Region.summary_set
-          { before with slots := slotBack payload } place = summaryResult at hpub
-      cases summaryResult with
-      | vis eff k => simp [hset] at hpub
-      | div => simp [hset] at hpub
-      | ret interim =>
-          simp at hpub
-          generalize htag : table.tag place = tagResult at hpub
-          cases tagResult with
-          | vis eff k => simp [hset] at hpub
-          | div => simp [hset] at hpub
-          | ret tag =>
-              simp [hset] at hpub
-              generalize htagSlot : alloc.vec.Vec.index_mut_usize interim.tags index =
-                  tagSlotResult at hpub
-              cases tagSlotResult with
-              | vis eff k => simp at hpub
-              | div => simp at hpub
-              | ret tagResult =>
-                  rcases tagResult with ⟨_, tagBack⟩
-                  simp at hpub
-                  subst after
-                  have hslotBound : index.val < before.slots.length := by
-                    cases hget : before.slots.val[index.val]? with
-                    | none =>
-                        rw [alloc.vec.Vec.index_mut_slice_index] at hslot
-                        simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize,
-                          hget] at hslot
-                    | some old => exact (List.getElem?_eq_some_iff.mp hget).1
-                  have htagBound : index.val < interim.tags.length := by
-                    cases hget : interim.tags.val[index.val]? with
-                    | none =>
-                        simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize,
-                          hget] at htagSlot
-                    | some old => exact (List.getElem?_eq_some_iff.mp hget).1
-                  have hslotSpec := alloc.vec.Vec.index_mut_usize_spec
-                    before.slots index hslotBound
-                  rw [alloc.vec.Vec.index_mut_slice_index] at hslot
-                  rw [hslot, WP.spec_ok] at hslotSpec
-                  have htagSpec := alloc.vec.Vec.index_mut_usize_spec
-                    interim.tags index htagBound
-                  rw [htagSlot, WP.spec_ok] at htagSpec
-                  have hframes := summary_set_frames
-                    { before with slots := slotBack payload } interim place hset
-                  constructor
-                  · change (tagBack tag).val[read.val]? = before.tags.val[read.val]?
-                    rw [htagSpec.2, alloc.vec.Vec.set_val_eq, hframes.2]
-                    simp [hne]
-                  · change interim.slots.val[read.val]? = before.slots.val[read.val]?
-                    rw [hframes.1, hslotSpec.2, alloc.vec.Vec.set_val_eq]
-                    simp [hne]
-
-/-- Successful generated payload-summary-tag publication establishes the local recordedness fact. -/
-theorem publish_live_recorded {R V : Type} (before after : table.Region R V) (index : Usize)
-    (payload : cell.Sigma × R × V) (place : U64)
-    (hpub : table.Region.publish_live before index payload place = ok after) :
-    LivePublicationRecorded after index payload place := by
-  unfold table.Region.publish_live at hpub
-  cases hslot : alloc.vec.Vec.index_mut
-      (core.slice.index.SliceIndexUsizeSlice (cell.Sigma × R × V)) before.slots index with
-  | vis eff k => simp [hslot] at hpub
-  | div => simp [hslot] at hpub
-  | ret slotResult =>
-      rcases slotResult with ⟨oldPayload, slotBack⟩
-      simp only [hslot, bind_tc_ok] at hpub
+  rw [alloc.vec.Vec.index_mut_slice_index] at hpub
+  cases h1 : alloc.vec.Vec.index_mut_usize before.slots index with
+  | vis eff k => simp [h1] at hpub
+  | div => simp [h1] at hpub
+  | ret r1 =>
+      rcases r1 with ⟨ss, back1⟩
+      simp only [h1, bind_tc_ok] at hpub
       simp at hpub
-      generalize hset : table.Region.summary_set
-          { before with slots := slotBack payload } place = summaryResult at hpub
-      cases summaryResult with
-      | vis eff k => simp at hpub
-      | div => simp at hpub
-      | ret interim =>
+      have hbound0 : index.val < before.slots.val.length := by
+        cases hget : before.slots.val[index.val]? with
+        | none => simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize, hget] at h1
+        | some old => exact (List.getElem?_eq_some_iff.mp hget).1
+      have h1spec := alloc.vec.Vec.index_mut_usize_spec before.slots index hbound0
+      rw [h1, WP.spec_ok] at h1spec
+      cases h2 : alloc.vec.Vec.index_mut_usize (back1 { ss with sigma := sigma }) index with
+      | vis eff k => simp [h2] at hpub
+      | div => simp [h2] at hpub
+      | ret r2 =>
+          rcases r2 with ⟨ss1, back2⟩
+          simp only [h2, bind_tc_ok] at hpub
           simp at hpub
-          generalize htag : table.tag place = tagResult at hpub
-          cases tagResult with
-          | vis eff k => simp at hpub
-          | div => simp at hpub
-          | ret tag =>
+          have hbound1 : index.val < (back1 { ss with sigma := sigma }).val.length := by
+            rw [h1spec.2, alloc.vec.Vec.set_val_eq]
+            simpa using hbound0
+          have h2spec := alloc.vec.Vec.index_mut_usize_spec
+            (back1 { ss with sigma := sigma }) index hbound1
+          rw [h2, WP.spec_ok] at h2spec
+          cases h3 : alloc.vec.Vec.index_mut_usize (back2 { ss1 with held := held }) index with
+          | vis eff k => simp [h3] at hpub
+          | div => simp [h3] at hpub
+          | ret r3 =>
+              rcases r3 with ⟨ss2, back3⟩
+              simp only [h3, bind_tc_ok] at hpub
               simp at hpub
-              generalize htagSlot : alloc.vec.Vec.index_mut_usize
-                  interim.tags index = tagSlotResult at hpub
-              cases tagSlotResult with
+              have hbound2 : index.val < (back2 { ss1 with held := held }).val.length := by
+                rw [h2spec.2, alloc.vec.Vec.set_val_eq]
+                simpa using hbound1
+              have h3spec := alloc.vec.Vec.index_mut_usize_spec
+                (back2 { ss1 with held := held }) index hbound2
+              rw [h3, WP.spec_ok] at h3spec
+              generalize htag : table.tag place = tagResult at hpub
+              cases tagResult with
               | vis eff k => simp at hpub
               | div => simp at hpub
-              | ret tagResult =>
-                  rcases tagResult with ⟨oldTag, tagBack⟩
-                  simp at hpub
-                  subst after
-                  have hslotBound : index.val < before.slots.length := by
-                    cases hget : before.slots.val[index.val]? with
-                    | none =>
-                        rw [alloc.vec.Vec.index_mut_slice_index] at hslot
-                        simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize, hget] at hslot
-                    | some old => exact (List.getElem?_eq_some_iff.mp hget).1
-                  have htagBound : index.val < interim.tags.length := by
-                    cases hget : interim.tags.val[index.val]? with
-                    | none =>
-                        simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize, hget] at htagSlot
-                    | some old => exact (List.getElem?_eq_some_iff.mp hget).1
-                  have hslotSpec :=
-                    alloc.vec.Vec.index_mut_usize_spec before.slots index hslotBound
-                  rw [alloc.vec.Vec.index_mut_slice_index] at hslot
-                  rw [hslot, WP.spec_ok] at hslotSpec
-                  have htagSpec :=
-                    alloc.vec.Vec.index_mut_usize_spec interim.tags index htagBound
-                  rw [htagSlot, WP.spec_ok] at htagSpec
-                  have hslotBack : slotBack = before.slots.set index := hslotSpec.2
-                  have htagBack : tagBack = interim.tags.set index := htagSpec.2
-                  have hframes := summary_set_frames
-                    { before with slots := slotBack payload } interim place hset
-                  have hinterimSlots : interim.slots = slotBack payload := hframes.1
-                  refine ⟨?_, ⟨tag, ?_, tag_ne_zero place tag htag⟩, ?_⟩
-                  · change interim.slots.val[index.val]? = some payload
-                    rw [hinterimSlots, hslotBack]
-                    rw [alloc.vec.Vec.set_val_eq]
-                    exact List.getElem?_set_self hslotBound
-                  · change (tagBack tag).val[index.val]? = some tag
-                    rw [htagBack]
-                    rw [alloc.vec.Vec.set_val_eq]
-                    exact List.getElem?_set_self htagBound
-                  · change table.Region.summary_maybe interim place = ok true
-                    exact Apeiron.GrowableScan.summary_set_implies_maybe
-                      { before with slots := slotBack payload } interim place hset
+              | ret tag =>
+                  cases h4 : alloc.vec.Vec.index_mut_usize (back3 { ss2 with value := value }) index with
+                  | vis eff k => simp [h4] at hpub
+                  | div => simp [h4] at hpub
+                  | ret r4 =>
+                      rcases r4 with ⟨ss3, back4⟩
+                      simp only [h4, bind_tc_ok] at hpub
+                      simp at hpub
+                      have hbound3 :
+                          index.val < (back3 { ss2 with value := value }).val.length := by
+                        rw [h3spec.2, alloc.vec.Vec.set_val_eq]
+                        simpa using hbound2
+                      have h4spec := alloc.vec.Vec.index_mut_usize_spec
+                        (back3 { ss2 with value := value }) index hbound3
+                      rw [h4, WP.spec_ok] at h4spec
+                      cases h5 : table.Region.coord_of R V place with
+                      | vis eff k => simp [h5] at hpub
+                      | div => simp [h5] at hpub
+                      | ret coord =>
+                          cases h6 : alloc.vec.Vec.index_mut_usize before.coords index with
+                          | vis eff k => simp [h5, h6] at hpub
+                          | div => simp [h5, h6] at hpub
+                          | ret r5 =>
+                              rcases r5 with ⟨coordSlot, coordBack⟩
+                              simp only [h5, h6, bind_tc_ok] at hpub
+                              simp at hpub
+                              generalize hadd : before.live + 1#usize = addResult at hpub
+                              cases addResult with
+                              | vis eff k => simp at hpub
+                              | div => simp at hpub
+                              | ret live1 =>
+                                  simp at hpub
+                                  subst after
+                                  have hread0 := vec_index_mut_step before.slots index ss back1
+                                    { ss with sigma := sigma } hbound0 h1 h1spec.1 h1spec.2
+                                  have hread1 := vec_index_mut_step (back1 { ss with sigma := sigma }) index
+                                    ss1 back2 { ss1 with held := held } hbound1 h2 h2spec.1 h2spec.2
+                                  have hread2 := vec_index_mut_step (back2 { ss1 with held := held }) index
+                                    ss2 back3 { ss2 with value := value } hbound2 h3 h3spec.1 h3spec.2
+                                  have hread3 := vec_index_mut_step (back3 { ss2 with value := value }) index
+                                    ss3 back4 { ss3 with tag := tag } hbound3 h4 h4spec.1 h4spec.2
+                                  have hval1 : (back1 { ss with sigma := sigma }).val[index.val] =
+                                      { ss with sigma := sigma } :=
+                                    (List.getElem?_eq_some_iff.mp hread0.1).2
+                                  have hval2 : (back2 { ss1 with held := held }).val[index.val] =
+                                      { ss1 with held := held } :=
+                                    (List.getElem?_eq_some_iff.mp hread1.1).2
+                                  have hval3 : (back3 { ss2 with value := value }).val[index.val] =
+                                      { ss2 with value := value } :=
+                                    (List.getElem?_eq_some_iff.mp hread2.1).2
+                                  have hss1 : ss1 = { ss with sigma := sigma } := h2spec.1.trans hval1
+                                  have hss2 : ss2 = { ss1 with held := held } := h3spec.1.trans hval2
+                                  have hss3 : ss3 = { ss2 with value := value } := h4spec.1.trans hval3
+                                  subst ss1 ss2 ss3
+                                  refine ⟨{ tag := tag, sigma := sigma, held := held, value := value },
+                                    hread3.1, rfl, rfl, rfl, tag, rfl, rfl,
+                                    Apeiron.GrowableScan.tag_ne_zero place tag htag⟩
+
+/-- **Destination frame of a generated publication.**  A publication changes the destination lane
+only; every other lane reads back as before.  This is the merged-slot form of the retired
+`publish_live_frames`, which additionally framed the parallel `tags` array. -/
+theorem publish_live_frame {R V : Type} (before after : table.Region R V) (index read : Usize)
+    (sigma : cell.Sigma) (held : R) (value : V) (place : U64)
+    (hpub : table.Region.publish_live before index (sigma, held, value) place = ok after)
+    (hne : read.val ≠ index.val) :
+    after.slots.val[read.val]? = before.slots.val[read.val]? := by
+  unfold table.Region.publish_live at hpub
+  rw [alloc.vec.Vec.index_mut_slice_index] at hpub
+  cases h1 : alloc.vec.Vec.index_mut_usize before.slots index with
+  | vis eff k => simp [h1] at hpub
+  | div => simp [h1] at hpub
+  | ret r1 =>
+      rcases r1 with ⟨ss, back1⟩
+      simp only [h1, bind_tc_ok] at hpub
+      simp at hpub
+      have hbound0 : index.val < before.slots.val.length := by
+        cases hget : before.slots.val[index.val]? with
+        | none => simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize, hget] at h1
+        | some old => exact (List.getElem?_eq_some_iff.mp hget).1
+      have h1spec := alloc.vec.Vec.index_mut_usize_spec before.slots index hbound0
+      rw [h1, WP.spec_ok] at h1spec
+      cases h2 : alloc.vec.Vec.index_mut_usize (back1 { ss with sigma := sigma }) index with
+      | vis eff k => simp [h2] at hpub
+      | div => simp [h2] at hpub
+      | ret r2 =>
+          rcases r2 with ⟨ss1, back2⟩
+          simp only [h2, bind_tc_ok] at hpub
+          simp at hpub
+          have hbound1 : index.val < (back1 { ss with sigma := sigma }).val.length := by
+            rw [h1spec.2, alloc.vec.Vec.set_val_eq]
+            simpa using hbound0
+          have h2spec := alloc.vec.Vec.index_mut_usize_spec
+            (back1 { ss with sigma := sigma }) index hbound1
+          rw [h2, WP.spec_ok] at h2spec
+          cases h3 : alloc.vec.Vec.index_mut_usize (back2 { ss1 with held := held }) index with
+          | vis eff k => simp [h3] at hpub
+          | div => simp [h3] at hpub
+          | ret r3 =>
+              rcases r3 with ⟨ss2, back3⟩
+              simp only [h3, bind_tc_ok] at hpub
+              simp at hpub
+              have hbound2 : index.val < (back2 { ss1 with held := held }).val.length := by
+                rw [h2spec.2, alloc.vec.Vec.set_val_eq]
+                simpa using hbound1
+              have h3spec := alloc.vec.Vec.index_mut_usize_spec
+                (back2 { ss1 with held := held }) index hbound2
+              rw [h3, WP.spec_ok] at h3spec
+              generalize htag : table.tag place = tagResult at hpub
+              cases tagResult with
+              | vis eff k => simp at hpub
+              | div => simp at hpub
+              | ret tag =>
+                  cases h4 : alloc.vec.Vec.index_mut_usize (back3 { ss2 with value := value }) index with
+                  | vis eff k => simp [h4] at hpub
+                  | div => simp [h4] at hpub
+                  | ret r4 =>
+                      rcases r4 with ⟨ss3, back4⟩
+                      simp only [h4, bind_tc_ok] at hpub
+                      simp at hpub
+                      have hbound3 :
+                          index.val < (back3 { ss2 with value := value }).val.length := by
+                        rw [h3spec.2, alloc.vec.Vec.set_val_eq]
+                        simpa using hbound2
+                      have h4spec := alloc.vec.Vec.index_mut_usize_spec
+                        (back3 { ss2 with value := value }) index hbound3
+                      rw [h4, WP.spec_ok] at h4spec
+                      cases h5 : table.Region.coord_of R V place with
+                      | vis eff k => simp [h5] at hpub
+                      | div => simp [h5] at hpub
+                      | ret coord =>
+                          cases h6 : alloc.vec.Vec.index_mut_usize before.coords index with
+                          | vis eff k => simp [h5, h6] at hpub
+                          | div => simp [h5, h6] at hpub
+                          | ret r5 =>
+                              rcases r5 with ⟨coordSlot, coordBack⟩
+                              simp only [h5, h6, bind_tc_ok] at hpub
+                              simp at hpub
+                              generalize hadd : before.live + 1#usize = addResult at hpub
+                              cases addResult with
+                              | vis eff k => simp at hpub
+                              | div => simp at hpub
+                              | ret live1 =>
+                                  simp at hpub
+                                  subst after
+                                  have hread3 := vec_index_mut_step (back3 { ss2 with value := value }) index
+                                    ss3 back4 { ss3 with tag := tag } hbound3 h4 h4spec.1 h4spec.2
+                                  have hread2 := vec_index_mut_step (back2 { ss1 with held := held }) index
+                                    ss2 back3 { ss2 with value := value } hbound2 h3 h3spec.1 h3spec.2
+                                  have hread1 := vec_index_mut_step (back1 { ss with sigma := sigma }) index
+                                    ss1 back2 { ss1 with held := held } hbound1 h2 h2spec.1 h2spec.2
+                                  have hread0 := vec_index_mut_step before.slots index ss back1
+                                    { ss with sigma := sigma } hbound0 h1 h1spec.1 h1spec.2
+                                  have hval1 : (back1 { ss with sigma := sigma }).val[index.val] =
+                                      { ss with sigma := sigma } :=
+                                    (List.getElem?_eq_some_iff.mp hread0.1).2
+                                  have hval2 : (back2 { ss1 with held := held }).val[index.val] =
+                                      { ss1 with held := held } :=
+                                    (List.getElem?_eq_some_iff.mp hread1.1).2
+                                  have hval3 : (back3 { ss2 with value := value }).val[index.val] =
+                                      { ss2 with value := value } :=
+                                    (List.getElem?_eq_some_iff.mp hread2.1).2
+                                  have hss1 : ss1 = { ss with sigma := sigma } := h2spec.1.trans hval1
+                                  have hss2 : ss2 = { ss1 with held := held } := h3spec.1.trans hval2
+                                  have hss3 : ss3 = { ss2 with value := value } := h4spec.1.trans hval3
+                                  subst ss1 ss2 ss3
+                                  rw [hread3.2 read.val hne, hread2.2 read.val hne,
+                                    hread1.2 read.val hne, hread0.2 read.val hne]
 
 /--
 The whole generated table represents one canonical `Apeiron.Table.HMap (Sigma × I64) I64`.
@@ -368,13 +394,17 @@ structure RepR {R : Type} (state : WordTable R) (decode : cell.Sigma → R → O
   directCover : Apeiron.GrowableSearch.DirectCover state decode direct
   directory : SpillDirectoryConsistent state
   length : LengthCorrect state live
-  summaryShape : SpillSummaryShapes state
-  summaryRecorded : ∃ keyRep : table.keyrep.KeyRep R I64 table.WordHome,
-    CarrierAddressRespecting state decode keyRep ∧ SpillSummaryRecorded state decode keyRep
   fingerprintExact : SpillFingerprintExactRegions state
 
 private def EmptyRegion {R : Type} (region : table.Region R I64) : Prop :=
-  region.tags.val = [] ∧ region.slots.val = [] ∧ region.summary.val = []
+  region.slots.val = [] ∧ region.live.val = 0
+
+/-- The zero-capacity placement invariant of an uninitialized region: the capacity branch is `0` and
+`live` is zero, so the vacant count is zero. -/
+private theorem spillPlacement_of_empty {R : Type} {region : table.Region R I64}
+    (hempty : EmptyRegion region) : Apeiron.GrowableScan.SpillPlacement region := by
+  refine ⟨Or.inl (by rw [hempty.1]; rfl), ?_⟩
+  simp [Apeiron.GrowableScan.SpillVacantCount, hempty.1, hempty.2]
 
 private theorem table_new_loop_empty {R : Type} (shards : alloc.vec.Vec (table.Region R I64))
     (shardAt : Usize) (hAt : shardAt.val ≤ Apeiron.GrowableGeometry.shardCount)
@@ -458,7 +488,7 @@ private theorem table_new_loop_empty {R : Type} (shards : alloc.vec.Vec (table.R
 private theorem table_new_empty_repR {R : Type}
     (keyRep : table.keyrep.KeyRep R I64 table.WordHome)
     (decode : cell.Sigma → R → Option I64)
-    (haddress : ∀ sigma held key, decode sigma held = some key →
+    (_haddress : ∀ sigma held key, decode sigma held = some key →
       keyRep.address_held () sigma held =
         Apeiron.GrowableIdentity.wordHomeInst.address () sigma key)
     (default : I64) :
@@ -480,13 +510,14 @@ private theorem table_new_empty_repR {R : Type}
       key := ()
       locator :=
         { profile := none, directory := none
-          links := alloc.vec.Vec.new (U32 × table.PayloadLocation), staged := none } }
+          links := alloc.vec.Vec.new (U32 × table.PayloadLocation), admitted := 0#usize,
+          staged := none } }
   change RepR state decode (fun _ => none) (fun _ => False) (fun _ => default)
   have regionEmpty {shard : Usize} {region : table.Region R I64}
       (hregion : state.shards.val[shard.val]? = some region) : EmptyRegion region := by
     apply hshardsEmpty region
     exact List.mem_of_getElem? hregion
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro key
     constructor
     · intro h; contradiction
@@ -529,7 +560,7 @@ private theorem table_new_empty_repR {R : Type}
         | none => simp [Occupied, Apeiron.GrowableSearch.entryAt, hregion]
         | some region =>
             have hempty := regionEmpty hregion
-            simp [Occupied, Apeiron.GrowableSearch.entryAt, hregion, hempty.1, hempty.2.1]
+            simp [Occupied, Apeiron.GrowableSearch.entryAt, hregion, hempty.1]
   · intro location key value hentry
     cases location with
     | flat index => simp [Apeiron.GrowableSearch.entryAt, state, alloc.vec.Vec.new] at hentry
@@ -551,18 +582,8 @@ private theorem table_new_empty_repR {R : Type}
   · refine ⟨?_, hshardsLength, ?_⟩
     · simp [state, Apeiron.GrowableGeometry.shardCount, alloc.vec.Vec.new]
     · intro region hregion
-      have hempty := hshardsEmpty region hregion
-      simp [hempty.1, hempty.2.1]
+      exact spillPlacement_of_empty (hshardsEmpty region hregion)
   · exact ⟨[], by simp, by simp [state]⟩
-  · intro shard region hregion
-    exact Apeiron.GrowableScan.spillSummaryShape region
-  · refine ⟨keyRep, ?_, ?_⟩
-    · intro sigma held key hdecode
-      exact haddress sigma held key hdecode
-    · intro shard index region tag sigma held value key address hregion htag
-        _htagLive hpayload
-      have hempty := regionEmpty hregion
-      simp [hempty.1] at htag
   · intro shard region hregion
     exact Apeiron.GrowableScan.spillFingerprintExact _
 
@@ -599,52 +620,22 @@ theorem word_regen_table_new_repR (default : I64) :
       rw [hresult]
       simp
 
-/-- A generated summary miss contradicts every live representative of the same routed key. -/
-theorem repR_spillSummaryMissSound {R state decode direct live logical}
-    (h : @RepR R state decode direct live logical) (query : LogicalKey)
-    (address : table.TableAddress) (shard : Usize) (region : table.Region R I64)
-    (haddress : Apeiron.GrowableIdentity.wordHomeInst.address
-      state.home query.1 query.2 = ok address)
-    (_hshard : table.shard address = ok shard)
-    (hregion : state.shards.val[shard.val]? = some region)
-    (hmiss : table.Region.summary_maybe region address.place = ok false) :
-    SpillSummaryMissSound state decode query shard region := by
-  rcases query with ⟨querySigma, queryKey⟩
-  refine ⟨h.summaryShape shard region hregion, ?_⟩
-  intro index value hentry
-  have hentryAddress := h.address (.spill shard index) (querySigma, queryKey) value hentry
-  rcases hentryAddress with ⟨entryAddress, hentryAddress, _⟩
-  have heqAddress : entryAddress = address := by
-    rw [haddress] at hentryAddress
-    exact (Result.ok_injective hentryAddress).symm
-  subst entryAddress
-  simp only [Apeiron.GrowableSearch.entryAt] at hentry
-  rw [hregion] at hentry
-  cases htag : region.tags.val[index.val]? with
-  | none => simp [htag] at hentry
-  | some tag =>
-      cases hpayload : region.slots.val[index.val]? with
-      | none => simp [htag, hpayload] at hentry
-      | some payload =>
-          rcases payload with ⟨sigma, held, storedValue⟩
-          by_cases hzero : tag = 0#u8
-          · simp [htag, hpayload, hzero] at hentry
-          · cases hdecode : decode sigma held with
-            | none => simp [htag, hpayload, hzero, hdecode] at hentry
-            | some key =>
-                simp only [htag, hpayload, hzero, hdecode, ↓reduceIte,
-                  Option.some.injEq, Prod.mk.injEq] at hentry
-                rcases hentry with ⟨⟨hsigma, hkey⟩, hvalue⟩
-                subst sigma
-                subst key
-                subst storedValue
-                rcases h.summaryRecorded with ⟨keyRep, hcarrierAddress, hsummaryRecorded⟩
-                have hheldAddress : keyRep.address_held state.home querySigma held = ok address := by
-                  rw [hcarrierAddress querySigma held queryKey hdecode, haddress]
-                have hrecorded := hsummaryRecorded shard index region tag querySigma held value
-                  queryKey address hregion htag hzero hpayload hdecode hheldAddress
-                exact (Apeiron.GrowableScan.summary_maybe_false_excludes_recorded
-                  region address.place hmiss) hrecorded
+/-! # The retired routed-summary absence route
+
+`repR_spillSummaryMissSound` and the structure `SpillSummaryMissSound` are gone.  Both were
+parameterized by `table.Region.summary_maybe region address.place = ok false`, and
+`table.scan.*`, `table.summary_trailing_zeros` and `Region.{summary_index,summary_set,summary_maybe}`
+no longer exist in the extraction, so the certificate has no generated counterpart to refine.  The
+replacement is the placement/absence pair of `Growable.Scan`: `RepR.directory` now carries
+`Apeiron.GrowableScan.SpillPlacement` for every search-visible region, and
+`Apeiron.GrowableScan.spill_probe_bound_absent_sound` derives the per-region absence fact from a
+completed bounded cycle.  The route from a routed decision to that certificate is
+`Apeiron.GrowableSearch.AbsenceCertificate.coverage` together with
+`Apeiron.GrowableSearch.CompleteCoverage`; its producer is `Growable.Read`/`Growable.ReadLoop`, and
+the checked-caller inventory for the retirement is `Representation.lean:141,611`,
+`Classifier.lean:13`, `Search.lean:119`, `ReadLoop.lean:772`, `AxiomAudit/Core.lean:791`
+(`docs/plan.md:743`).
+-/
 
 /-- Materialized relocation storage represents the old map before the pending write is committed. -/
 def ReservedRepR {R : Type} (state : WordTable R) (reserved : table.RebuildReserved R I64)
@@ -708,18 +699,11 @@ theorem reservedRepR_of_components {R state reserved decode direct live logical}
       (Apeiron.GrowableRefinement.rebuiltView state reserved))
     (hlength : LengthCorrect
       (Apeiron.GrowableRefinement.rebuiltView state reserved) live)
-    (keyRep : table.keyrep.KeyRep R I64 table.WordHome)
-    (hcarrierAddress : CarrierAddressRespecting
-      (Apeiron.GrowableRefinement.rebuiltView state reserved) decode keyRep)
-    (hsummaryShape : SpillSummaryShapes
-      (Apeiron.GrowableRefinement.rebuiltView state reserved))
-    (hsummaryRecorded : SpillSummaryRecorded
-      (Apeiron.GrowableRefinement.rebuiltView state reserved) decode keyRep)
     (hfingerprintExact : SpillFingerprintExactRegions
       (Apeiron.GrowableRefinement.rebuiltView state reserved)) :
     @ReservedRepR R state reserved decode direct live logical :=
   ⟨hliveSet, hobservations, hunique, hcoverage, haddress, hdirectIndex, hdirectCover, hdirectory,
-    hlength, hsummaryShape, ⟨keyRep, hcarrierAddress, hsummaryRecorded⟩, hfingerprintExact⟩
+    hlength, hfingerprintExact⟩
 
 /-- The rebuilt target's live set is the one named by its reserved relation. -/
 theorem reservedRepR_liveSet {R state reserved decode direct live logical}
@@ -751,19 +735,6 @@ theorem reservedRepR_directory {R state reserved decode direct live logical}
 theorem reservedRepR_length {R state reserved decode direct live logical}
     (h : @ReservedRepR R state reserved decode direct live logical) :
     LengthCorrect (Apeiron.GrowableRefinement.rebuiltView state reserved) live := h.length
-
-/-- Every rebuilt search-visible spill region has valid generated summary shape. -/
-theorem reservedRepR_summaryShape {R state reserved decode direct live logical}
-    (h : @ReservedRepR R state reserved decode direct live logical) :
-    SpillSummaryShapes (Apeiron.GrowableRefinement.rebuiltView state reserved) := h.summaryShape
-
-/-- Every rebuilt live spill representative has its routed summary bit recorded. -/
-theorem reservedRepR_summaryRecorded {R state reserved decode direct live logical}
-    (h : @ReservedRepR R state reserved decode direct live logical) :
-    ∃ keyRep : table.keyrep.KeyRep R I64 table.WordHome,
-      CarrierAddressRespecting (Apeiron.GrowableRefinement.rebuiltView state reserved) decode keyRep ∧
-      SpillSummaryRecorded (Apeiron.GrowableRefinement.rebuiltView state reserved) decode keyRep :=
-  h.summaryRecorded
 
 /-- Every rebuilt search-visible spill region uses an equality-respecting fingerprint dictionary. -/
 theorem reservedRepR_fingerprintExact {R state reserved decode direct live logical}
@@ -816,20 +787,15 @@ theorem sourceObservation_eq_entryAt {R : Type} (state : WordTable R)
       | none => simp [Apeiron.GrowableRelocation.sourceObservation,
           Apeiron.GrowableSearch.entryAt, sourceLocation, hregion]
       | some region =>
-          cases htag : region.tags.val[index.val]? with
+          cases hslot : region.slots.val[index.val]? with
           | none => simp [Apeiron.GrowableRelocation.sourceObservation,
-              Apeiron.GrowableSearch.entryAt, sourceLocation, hregion, htag]
-          | some tag =>
-              cases hslot : region.slots.val[index.val]? with
-              | none => simp [Apeiron.GrowableRelocation.sourceObservation,
-                  Apeiron.GrowableSearch.entryAt, sourceLocation, hregion, htag, hslot]
-              | some payload =>
-                  rcases payload with ⟨sigma, held, value⟩
-                  by_cases hzero : tag = 0#u8 <;>
-                    cases hdecode : decode sigma held <;>
-                    simp [Apeiron.GrowableRelocation.sourceObservation,
-                      Apeiron.GrowableSearch.entryAt, sourceLocation, hregion, htag, hslot,
-                      hzero, hdecode]
+              Apeiron.GrowableSearch.entryAt, sourceLocation, hregion, hslot]
+          | some slot =>
+              by_cases hzero : slot.tag = 0#u8 <;>
+                cases hdecode : decode slot.sigma slot.held <;>
+                simp [Apeiron.GrowableRelocation.sourceObservation,
+                  Apeiron.GrowableSearch.entryAt, sourceLocation, hregion, hslot,
+                  hzero, hdecode]
 
 /-- Whole-table representation agrees with the existing selected-source `RepR`. -/
 theorem repR_singleSource {R state decode direct live logical}
@@ -872,22 +838,16 @@ theorem reservedObservation_eq_entryAt {R : Type} (state : WordTable R)
           Apeiron.GrowableSearch.entryAt, Apeiron.GrowableRefinement.rebuiltView,
           destinationLocation, hregion]
       | some region =>
-          cases htag : region.tags.val[index.val]? with
+          cases hslot : region.slots.val[index.val]? with
           | none => simp [Apeiron.GrowableRelocation.reservedObservation,
               Apeiron.GrowableSearch.entryAt, Apeiron.GrowableRefinement.rebuiltView,
-              destinationLocation, hregion, htag]
-          | some tag =>
-              cases hslot : region.slots.val[index.val]? with
-              | none => simp [Apeiron.GrowableRelocation.reservedObservation,
+              destinationLocation, hregion, hslot]
+          | some slot =>
+              by_cases hzero : slot.tag = 0#u8 <;>
+                cases hdecode : decode slot.sigma slot.held <;>
+                simp [Apeiron.GrowableRelocation.reservedObservation,
                   Apeiron.GrowableSearch.entryAt, Apeiron.GrowableRefinement.rebuiltView,
-                  destinationLocation, hregion, htag, hslot]
-              | some payload =>
-                  rcases payload with ⟨sigma, held, value⟩
-                  by_cases hzero : tag = 0#u8 <;>
-                    cases hdecode : decode sigma held <;>
-                    simp [Apeiron.GrowableRelocation.reservedObservation,
-                      Apeiron.GrowableSearch.entryAt, Apeiron.GrowableRefinement.rebuiltView,
-                      destinationLocation, hregion, htag, hslot, hzero, hdecode]
+                  destinationLocation, hregion, hslot, hzero, hdecode]
 
 /-- Whole reserved representation agrees with the existing selected-destination relation. -/
 theorem reservedRepR_singleDestination {R state reserved decode direct live logical}
@@ -913,7 +873,7 @@ theorem word_stored_vacant_spill_return_shards
     (region published : table.Region Apeiron.GrowableIdentity.StoredI64 I64)
     (hregion : state.shards.val[shard.val]? = some region)
     (nextLocator : table.TableLocator)
-    (hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublish : table.Region.publish_live region index
@@ -948,7 +908,7 @@ theorem word_stored_vacant_flat_return_frame
     (index : Usize) (old : table.FlatSlot Apeiron.GrowableIdentity.StoredI64 I64)
     (hslot : state.resident.slots.val[index.val]? = some old)
     (nextLocator : table.TableLocator)
-    (hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
@@ -976,9 +936,9 @@ theorem word_stored_vacant_flat_return_frame
 ## Rebuild relocation step equations and destination-traversal induction
 
 The equations below pin the *actual generated* `word_stored_relocate_entry` post-state at its
-planned spill or flat destination.  They are the summary-aware write facts for the destination
-traversal: spill publication commits the generated tag of the computed address and the region
-summary word, so a summary-blind symbolic write is not this body's post-state.
+planned spill or flat destination.  They are the write facts for the destination traversal: spill
+publication commits the generated marker of the computed address into the destination slot's own
+`tag`, so a marker-blind symbolic write is not this body's post-state.
 -/
 
 /-- Exact successful post-state of the generated stored-carrier *spill* relocation step.  The
@@ -1052,10 +1012,10 @@ theorem word_stored_relocate_entry_spill_run
                     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
                   state.locator state.home sourceSlot.sigma { key := sourceSlot.held.key }
                   (.Resident sourceIndex) (.Spill shard index) = ok nextLocator := by
-              rw [hsrc] at hretarget
-              simpa [Apeiron.GrowableIdentity.storedKeyRep, Apeiron.GrowableIdentity.wordHomeInst,
-                Apeiron.GrowableRelocation.sourceLocation,
-                Apeiron.GrowableRelocation.destinationLocation, hspill] using hretarget
+                rw [hsrc] at hretarget
+                simpa [Apeiron.GrowableIdentity.storedKeyRep, Apeiron.GrowableIdentity.wordHomeInst,
+                  Apeiron.GrowableRelocation.sourceLocation,
+                  Apeiron.GrowableRelocation.destinationLocation, hspill] using hretarget
             unfold word_stored_relocate_entry table.Table.relocate_entry
             simp [hentry, hsrc, hslot, hflat, hspill, haddress', hvacant', hretarget',
               hregion, hpublish, table.keyrep.Stored.Insts.CoreCloneClone.clone,
@@ -1067,41 +1027,38 @@ theorem word_stored_relocate_entry_spill_run
       cases hsourceRegion : state.shards.val[sourceShard.val]? with
       | none => simp [hsourceRegion] at hsource
       | some sourceRegion =>
-          cases hsourceTag : sourceRegion.tags.val[sourceIndex.val]? with
-          | none => simp [hsourceRegion, hsourceTag] at hsource
-          | some sourceTag =>
-              cases hsourceSlot : sourceRegion.slots.val[sourceIndex.val]? with
-              | none => simp [hsourceRegion, hsourceTag, hsourceSlot] at hsource
-              | some sourcePayloadVal =>
-                  rcases sourcePayloadVal with ⟨sSigma, sHeld, sValue⟩
-                  by_cases hzero : sourceTag = 0#u8
-                  · simp [hsourceRegion, hsourceTag, hsourceSlot, hzero] at hsource
-                  · simp only [hsourceRegion, hsourceTag, hsourceSlot, hzero, ↓reduceIte,
-                      Option.some.injEq] at hsource
-                    obtain ⟨hsigma, htail⟩ := Prod.mk.inj hsource
-                    obtain ⟨hheld, hvalue⟩ := Prod.mk.inj htail
-                    subst hsigma
-                    subst hheld
-                    subst hvalue
-                    have hretarget' :
-                        table.TableLocator.retarget_held core.clone.CloneI64
-                          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
-                          (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
-                            Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
-                            table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
-                          state.locator state.home sSigma { key := sHeld.key }
-                          (.Spill sourceShard sourceIndex) (.Spill shard index) = ok nextLocator := by
-                      rw [hsrc] at hretarget
-                      simpa [Apeiron.GrowableIdentity.storedKeyRep,
-                        Apeiron.GrowableIdentity.wordHomeInst,
-                        Apeiron.GrowableRelocation.sourceLocation,
-                        Apeiron.GrowableRelocation.destinationLocation, hspill] using hretarget
-                    unfold word_stored_relocate_entry table.Table.relocate_entry
-                    simp [hentry, hsrc, hsourceRegion, hsourceSlot, hflat, hspill,
-                      haddress', hvacant', hretarget', hregion, hpublish,
-                      table.keyrep.Stored.Insts.CoreCloneClone.clone,
-                      alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
-                      alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
+          cases hsourceSlot : sourceRegion.slots.val[sourceIndex.val]? with
+          | none => simp [hsourceRegion, hsourceSlot] at hsource
+          | some sourcePayloadVal =>
+              rcases sourcePayloadVal with ⟨sTag, sSigma, sHeld, sValue⟩
+              by_cases hzero : sTag = 0#u8
+              · simp [hsourceRegion, hsourceSlot, hzero] at hsource
+              · simp only [hsourceRegion, hsourceSlot, hzero, ↓reduceIte,
+                  Option.some.injEq] at hsource
+                obtain ⟨hsigma, htail⟩ := Prod.mk.inj hsource
+                obtain ⟨hheld, hvalue⟩ := Prod.mk.inj htail
+                subst hsigma
+                subst hheld
+                subst hvalue
+                have hretarget' :
+                  table.TableLocator.retarget_held core.clone.CloneI64
+                    table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+                    (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+                      Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
+                      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+                    state.locator state.home sSigma { key := sHeld.key }
+                    (.Spill sourceShard sourceIndex) (.Spill shard index) = ok nextLocator := by
+                  rw [hsrc] at hretarget
+                  simpa [Apeiron.GrowableIdentity.storedKeyRep,
+                    Apeiron.GrowableIdentity.wordHomeInst,
+                    Apeiron.GrowableRelocation.sourceLocation,
+                    Apeiron.GrowableRelocation.destinationLocation, hspill] using hretarget
+                unfold word_stored_relocate_entry table.Table.relocate_entry
+                simp [hentry, hsrc, hsourceRegion, hsourceSlot, hflat, hspill,
+                haddress', hvacant', hretarget', hregion, hpublish,
+                table.keyrep.Stored.Insts.CoreCloneClone.clone,
+                alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
+                alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
 
 /-- Exact successful post-state of the generated stored-carrier *flat* relocation step.  The
 reserved storage replaces exactly the planned resident slot; no spill region is touched. -/
@@ -1151,10 +1108,10 @@ theorem word_stored_relocate_entry_flat_run
                     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
                   state.locator state.home sourceSlot.sigma { key := sourceSlot.held.key }
                   (.Resident sourceIndex) (.Resident index) = ok nextLocator := by
-              rw [hsrc] at hretarget
-              simpa [Apeiron.GrowableIdentity.storedKeyRep, Apeiron.GrowableIdentity.wordHomeInst,
-                Apeiron.GrowableRelocation.sourceLocation,
-                Apeiron.GrowableRelocation.destinationLocation] using hretarget
+                rw [hsrc] at hretarget
+                simpa [Apeiron.GrowableIdentity.storedKeyRep, Apeiron.GrowableIdentity.wordHomeInst,
+                  Apeiron.GrowableRelocation.sourceLocation,
+                  Apeiron.GrowableRelocation.destinationLocation] using hretarget
             unfold word_stored_relocate_entry table.Table.relocate_entry
             simp [hentry, hsrc, hslot, hflat, hdst, hretarget',
               table.keyrep.Stored.Insts.CoreCloneClone.clone,
@@ -1166,43 +1123,40 @@ theorem word_stored_relocate_entry_flat_run
       cases hsourceRegion : state.shards.val[sourceShard.val]? with
       | none => simp [hsourceRegion] at hsource
       | some sourceRegion =>
-          cases hsourceTag : sourceRegion.tags.val[sourceIndex.val]? with
-          | none => simp [hsourceRegion, hsourceTag] at hsource
-          | some sourceTag =>
-              cases hsourceSlot : sourceRegion.slots.val[sourceIndex.val]? with
-              | none => simp [hsourceRegion, hsourceTag, hsourceSlot] at hsource
-              | some sourcePayloadVal =>
-                  rcases sourcePayloadVal with ⟨sSigma, sHeld, sValue⟩
-                  by_cases hzero : sourceTag = 0#u8
-                  · simp [hsourceRegion, hsourceTag, hsourceSlot, hzero] at hsource
-                  · simp only [hsourceRegion, hsourceTag, hsourceSlot, hzero, ↓reduceIte,
-                      Option.some.injEq] at hsource
-                    obtain ⟨hsigma, htail⟩ := Prod.mk.inj hsource
-                    obtain ⟨hheld, hvalue⟩ := Prod.mk.inj htail
-                    subst hsigma
-                    subst hheld
-                    subst hvalue
-                    have hretarget' :
-                        table.TableLocator.retarget_held core.clone.CloneI64
-                          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
-                          (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
-                            Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
-                            table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
-                          state.locator state.home sSigma { key := sHeld.key }
-                          (.Spill sourceShard sourceIndex) (.Resident index) = ok nextLocator := by
-                      rw [hsrc] at hretarget
-                      simpa [Apeiron.GrowableIdentity.storedKeyRep,
-                        Apeiron.GrowableIdentity.wordHomeInst,
-                        Apeiron.GrowableRelocation.sourceLocation,
-                        Apeiron.GrowableRelocation.destinationLocation] using hretarget
-                    unfold word_stored_relocate_entry table.Table.relocate_entry
-                    simp [hentry, hsrc, hsourceRegion, hsourceSlot, hflat, hdst, hretarget',
-                      table.keyrep.Stored.Insts.CoreCloneClone.clone,
-                      alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
-                      alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
+          cases hsourceSlot : sourceRegion.slots.val[sourceIndex.val]? with
+          | none => simp [hsourceRegion, hsourceSlot] at hsource
+          | some sourcePayloadVal =>
+              rcases sourcePayloadVal with ⟨sTag, sSigma, sHeld, sValue⟩
+              by_cases hzero : sTag = 0#u8
+              · simp [hsourceRegion, hsourceSlot, hzero] at hsource
+              · simp only [hsourceRegion, hsourceSlot, hzero, ↓reduceIte,
+                  Option.some.injEq] at hsource
+                obtain ⟨hsigma, htail⟩ := Prod.mk.inj hsource
+                obtain ⟨hheld, hvalue⟩ := Prod.mk.inj htail
+                subst hsigma
+                subst hheld
+                subst hvalue
+                have hretarget' :
+                    table.TableLocator.retarget_held core.clone.CloneI64
+                      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+                      (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+                        Apeiron.GrowableIdentity.wordExactIdentityInst core.clone.CloneI64
+                        table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+                      state.locator state.home sSigma { key := sHeld.key }
+                      (.Spill sourceShard sourceIndex) (.Resident index) = ok nextLocator := by
+                    rw [hsrc] at hretarget
+                    simpa [Apeiron.GrowableIdentity.storedKeyRep,
+                      Apeiron.GrowableIdentity.wordHomeInst,
+                      Apeiron.GrowableRelocation.sourceLocation,
+                      Apeiron.GrowableRelocation.destinationLocation] using hretarget
+                unfold word_stored_relocate_entry table.Table.relocate_entry
+                simp [hentry, hsrc, hsourceRegion, hsourceSlot, hflat, hdst, hretarget',
+                  table.keyrep.Stored.Insts.CoreCloneClone.clone,
+                  alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_mut_slice_index,
+                  alloc.vec.Vec.index_usize, alloc.vec.Vec.index_mut_usize]
 
 /-- Per-step relocation: the generated spill relocation/materialize step publishes its selected
-destination slot with the generated tag of the computed address for the held key, keeps the
+destination slot with the generated marker of the computed address for the held key, keeps the
 computed address routed to the planned shard, and leaves every other destination slot unchanged.
 The routing equation `table.shard address = ok shard` is an explicit input-side premise carried
 into the conclusion; the body itself writes at the plan's `entry.spill` shard. -/
@@ -1236,33 +1190,31 @@ theorem word_stored_relocate_entry_spill_publishes_tag_address
     (hshard : table.shard address = ok shard) :
     word_stored_relocate_entry state plan current entryAt ⦃ result =>
       result.2.regions.val[shard.val]? = some published ∧
-      published.slots.val[index.val]? = some (sigma, { key := held.key }, value) ∧
-      (∃ tag : U8, published.tags.val[index.val]? = some tag ∧
-        table.tag address.place = ok tag ∧ tag ≠ 0#u8) ∧
+      (∃ slot, published.slots.val[index.val]? = some slot ∧
+        slot.sigma = sigma ∧ slot.held = { key := held.key } ∧ slot.value = value ∧
+        (∃ tag : U8, slot.tag = tag ∧ table.tag address.place = ok tag ∧ tag ≠ 0#u8)) ∧
       table.shard address = ok shard ∧
       Apeiron.GrowableIdentity.wordHomeInst.address result.1.home sigma held.key = ok address ∧
       (∀ other : Usize, other.val ≠ shard.val →
         result.2.regions.val[other.val]? = current.regions.val[other.val]?) ∧
       (∀ other : Usize, other.val ≠ index.val →
-        published.tags.val[other.val]? = region.tags.val[other.val]? ∧
         published.slots.val[other.val]? = region.slots.val[other.val]?) ⦄ := by
   rw [word_stored_relocate_entry_spill_run state plan current entryAt shard index entry sigma held
     value address region published nextLocator hentry hsource hflat hspill haddress hregion hvacant
     hretarget hpublish, WP.spec_ok]
   have hshardBound : shard.val < current.regions.length :=
     (List.getElem?_eq_some_iff.mp hregion).1
-  obtain ⟨tag, htagGen, htagNz, htagAt⟩ := Apeiron.GrowableScan.publish_live_tag_readback
-    region published index (sigma, { key := held.key }, value) address.place hpublish
-  have hrecorded := publish_live_recorded region published index
-    (sigma, { key := held.key }, value) address.place hpublish
-  refine ⟨?_, ?_, ⟨tag, htagAt, htagGen, htagNz⟩, hshard, haddress, ?_, ?_⟩
+  obtain ⟨slot, hslotAt, hslotSigma, hslotHeld, hslotValue, tag, htagAt, htagGen, htagNz⟩ :=
+    publish_live_slot_readback region published index sigma { key := held.key } value
+      address.place hpublish
+  refine ⟨?_, ⟨slot, hslotAt, hslotSigma, hslotHeld, hslotValue, tag, htagAt, htagGen, htagNz⟩,
+    hshard, haddress, ?_, ?_⟩
   · simp [alloc.vec.Vec.set_val_eq, List.getElem?_set_self hshardBound]
-  · exact hrecorded.payloadAt
   · intro other hne
     simp [alloc.vec.Vec.set_val_eq, hne]
   · intro other hne
-    exact publish_live_frames region published index other
-      (sigma, { key := held.key }, value) address.place hpublish hne
+    exact publish_live_frame region published index other sigma { key := held.key } value
+      address.place hpublish hne
 
 /-- The published destination reads back through the rebuilt view's `entryAt` at the reserved
 destination location; the identity of the destination read is the landed reserved-observation
@@ -1308,18 +1260,17 @@ theorem word_stored_relocate_entry_spill_entryAt
     hretarget hpublish, WP.spec_ok]
   have hshardBound : shard.val < current.regions.length :=
     (List.getElem?_eq_some_iff.mp hregion).1
-  obtain ⟨tag, _, htagNz, htagAt⟩ := Apeiron.GrowableScan.publish_live_tag_readback
-    region published index (sigma, { key := held.key }, value) address.place hpublish
-  have hrecorded := publish_live_recorded region published index
-    (sigma, { key := held.key }, value) address.place hpublish
+  obtain ⟨slot, hslotAt, hslotSigma, hslotHeld, hslotValue, tag, htagAt, _, htagNz⟩ :=
+    publish_live_slot_readback region published index sigma { key := held.key } value
+      address.place hpublish
   have hread :
       Apeiron.GrowableRelocation.reservedObservation
           { current with regions := current.regions.set shard published }
           Apeiron.GrowableSearch.decodeStoredOption (.spill shard index) =
         some ((sigma, held.key), value) := by
     simp [Apeiron.GrowableRelocation.reservedObservation, alloc.vec.Vec.set_val_eq,
-      List.getElem?_set_self hshardBound, hrecorded.payloadAt, htagAt, htagNz,
-      Apeiron.GrowableSearch.decodeStoredOption]
+      List.getElem?_set_self hshardBound, hslotAt, hslotSigma, hslotHeld, hslotValue, htagAt,
+      htagNz, Apeiron.GrowableSearch.decodeStoredOption]
   refine ⟨hread, ?_⟩
   rw [← reservedObservation_eq_entryAt]
   exact hread

@@ -41,7 +41,7 @@ one-position state. The target is proved as `attn_head_refines_v2_proved`
 (`Numeric/AttnHeadRefines.lean`) from the loop specifications (`Numeric/AttnLoopScore.lean`,
 `Numeric/AttnLoopOutput.lean`), the window derivations (`Numeric/AttnHeadWindowsScore.lean`,
 `Numeric/AttnHeadWindowsValue.lean`) and the score-stage bound (`Numeric/AttnScoreStage.lean`);
-no conjunct was added to `attn_domain_v2`.
+the carrier conjunct listed last is the only one not carried by `attn_domain` itself.
 
 ## Trust boundary
 
@@ -68,15 +68,25 @@ theorem attn_one_le_usize_max : 1 ≤ Usize.max := by
     simp [Usize.max, Usize.numBits]
   rcases System.Platform.numBits_eq with h' | h' <;> simp [h, h']
 
-/-- A state on `attn_domain` whose single layer holds zero appended positions. -/
+/-- The key table of the one-layer witnesses: one plane of one zero. -/
+def attnZeroKtab : alloc.vec.Vec (alloc.vec.Vec I64) :=
+  alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
+    (by simpa using attn_one_le_usize_max)
+
+/-- The value table of the one-layer witnesses: one plane of one zero. -/
+def attnZeroVtab : alloc.vec.Vec (alloc.vec.Vec I64) :=
+  alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
+    (by simpa using attn_one_le_usize_max)
+
+/-- A state on `attn_domain` whose single layer holds zero appended positions. The `Q32` carrier
+and the `Q32` storage arm carrying `attnZeroKtab`/`attnZeroVtab` are the two discriminants
+`attn_head` reads before the guard chain. -/
 def attnEmptyState : attn.KvState :=
-  { n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
+  { carrier := mixer.Carrier.Q32,
+    n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
     cap := 1#usize, scale := 0#i64,
     occupied := alloc.vec.Vec.from [0#usize] (by simpa using attn_one_le_usize_max),
-    k := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max),
-    v := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max) }
+    storage := attn.KvStorage.Q32 attnZeroKtab attnZeroVtab }
 
 /-- The one-wide zero row. -/
 def attnZeroRow : Slice I64 := Slice.from [0#i64] (by simpa using attn_one_le_usize_max)
@@ -92,15 +102,16 @@ theorem attnEmptyState_domain :
 theorem not_attn_head_refines : ¬ attn_head_refines := by
   intro h
   obtain ⟨out', hok, -, -⟩ := h attnEmptyState 0#usize 0#usize 0#usize attnZeroRow attnZeroRow
+    attnZeroKtab attnZeroVtab
     (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max))
     (alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)) 1
-    attnEmptyState_domain (by simp [attnEmptyState]) (by simp [attnEmptyState])
-    (by simp [attnEmptyState])
+    attnEmptyState_domain rfl rfl (by simp [attnZeroKtab]) (by simp [attnZeroVtab])
+    (by norm_num [attnEmptyState])
   have href := word_attn_head_pos_refuses attnEmptyState 0#usize 0#usize attnZeroRow attnZeroRow
-    0#usize (by simp [attnEmptyState]) (by simp [attnEmptyState])
+    0#usize rfl (by simp [attnEmptyState]) (by simp [attnEmptyState])
     (by simp [attnEmptyState, attnZeroRow, Slice.len]; rfl)
-    (by simp [attnEmptyState, attnZeroRow, Slice.len]; rfl) 0#usize
-    (by simp [attnEmptyState]; rfl) (by simp)
+    (by simp [attnEmptyState, attnZeroRow, Slice.len]; rfl) attnZeroKtab attnZeroVtab rfl
+    0#usize (by simp [attnEmptyState]; rfl) (by simp)
   rw [href] at hok
   simp at hok
 
@@ -665,11 +676,14 @@ structural conjuncts hold on every reachable state (`attn_domain_v2_structural`,
 * `attn_domain`;
 * occupancy: `pos < occupied[layer]` (`src/engine/attn.rs:465-467`);
 * scale: `state.scale` is the `fixed_rsqrt` result of `head_dim·2^32` (`KvState::new`);
-* planes: `k[layer] = kplane`, `v[layer] = vplane`, each `n_head_kv·cap·head_dim` long;
+* storage: `state.storage` is the `Q32` arm of some `(ktab, vtab)`, with `ktab[layer] = kplane` and
+  `vtab[layer] = vplane`, each `n_head_kv·cap·head_dim` long;
 * per-key `row_dot_domain` of every causal key row against `q`;
 * score window `|score_j| ≤ 2^62` (so `score_j - mx` is a checked `i64` subtraction);
 * value window `|v_{j,i}| ≤ 2^62` and `pos + 1 ≤ 2^30` (so `|W_j·v_{j,i}| ≤ 2^95`, the `i128`
-  accumulation and the `i64` output narrowing stay on their `Ok` arms).
+  accumulation and the `i64` output narrowing stay on their `Ok` arms);
+* carrier: `state.carrier = mixer.Carrier.Q32`, the discriminant every `Q32`-storage state carries
+  (`attnOneState`), which the extracted `q32_to_f32` narrowing reads.
 
 The windows suffice: `Numeric/AttnHeadWindowsScore.lean` and `Numeric/AttnHeadWindowsValue.lean`
 derive every loop window from them. -/
@@ -679,7 +693,9 @@ def attn_domain_v2 (state : attn.KvState) (layer q_head pos : Usize) (q out : Sl
   (∃ len : Usize, state.occupied.val[layer.val]? = some len ∧ pos.val < len.val) ∧
   (∃ r : I64, r.val = (state.head_dim.val : ℤ) * (2 : ℤ) ^ (32 : ℕ) ∧
     word_fixed_rsqrt r = ok (core.result.Result.Ok state.scale)) ∧
-  state.k.val[layer.val]? = some kplane ∧ state.v.val[layer.val]? = some vplane ∧
+  (∃ ktab vtab : alloc.vec.Vec (alloc.vec.Vec I64),
+    state.storage = attn.KvStorage.Q32 ktab vtab ∧
+    ktab.val[layer.val]? = some kplane ∧ vtab.val[layer.val]? = some vplane) ∧
   kplane.val.length = state.n_head_kv.val * state.cap.val * state.head_dim.val ∧
   vplane.val.length = state.n_head_kv.val * state.cap.val * state.head_dim.val ∧
   (∀ s, s ≤ pos.val → ∀ krow : Slice I64,
@@ -693,7 +709,8 @@ def attn_domain_v2 (state : attn.KvState) (layer q_head pos : Usize) (q out : Sl
     |((planeRow vplane.val state.n_head_kv.val state.head_dim.val
       (q_head.val / (state.n_head.val / state.n_head_kv.val)) s).getD i 0#i64).val|
       ≤ (2 : ℤ) ^ (62 : ℕ)) ∧
-  pos.val + 1 ≤ 2 ^ 30
+  pos.val + 1 ≤ 2 ^ 30 ∧
+  state.carrier = mixer.Carrier.Q32
 
 /-- **Corrected end-to-end target** (proved as `attn_head_refines_v2_proved`,
 `Numeric/AttnHeadRefines.lean`). On `attn_domain_v2`, `word_attn_head`
@@ -731,15 +748,13 @@ def attnUnitScale : I64 :=
   Classical.choose (fixed_rsqrt_refines_proved (4294967296#i64) attn_unit_radicand_window)
 
 /-- A one-layer, one-head, one-position state with one appended zero key/value and the
-`fixed_rsqrt` scale. -/
+`fixed_rsqrt` scale. The two discriminants are the `Q32` carrier and the `Q32` storage arm. -/
 def attnOneState : attn.KvState :=
-  { n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
+  { carrier := mixer.Carrier.Q32,
+    n_layer := 1#usize, n_head := 1#usize, n_head_kv := 1#usize, head_dim := 1#usize,
     cap := 1#usize, scale := attnUnitScale,
     occupied := alloc.vec.Vec.from [1#usize] (by simpa using attn_one_le_usize_max),
-    k := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max),
-    v := alloc.vec.Vec.from [alloc.vec.Vec.from [0#i64] (by simpa using attn_one_le_usize_max)]
-      (by simpa using attn_one_le_usize_max) }
+    storage := attn.KvStorage.Q32 attnZeroKtab attnZeroVtab }
 
 /-- **Joint witness.** `attnOneState` at layer 0, head 0, position 0 satisfies every conjunct
 of `attn_domain_v2` at once. -/
@@ -750,10 +765,11 @@ theorem attn_domain_v2_witness :
   have hspec := Classical.choose_spec
     (fixed_rsqrt_refines_proved (4294967296#i64) attn_unit_radicand_window)
   refine ⟨?_, ⟨1#usize, by simp [attnOneState], by simp⟩, ⟨4294967296#i64, by simp [attnOneState],
-    hspec.1⟩, by simp [attnOneState], by simp [attnOneState], by simp [attnOneState],
-    by simp [attnOneState], ?_, ?_, ?_, by simp⟩
+    hspec.1⟩, ?_, by simp [attnOneState], by simp [attnOneState], ?_, ?_, ?_, by simp,
+    by simp [attnOneState]⟩
   · refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
       simp [attnOneState, attnZeroRow, Slice.from_val]
+  · exact ⟨attnZeroKtab, attnZeroVtab, rfl, by simp [attnZeroKtab], by simp [attnZeroVtab]⟩
   · intro s hs krow hk
     simp at hs
     subst hs

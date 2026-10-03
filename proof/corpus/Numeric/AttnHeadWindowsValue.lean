@@ -3,19 +3,64 @@ Attention weight and value-side windows (`APEIRON-ALGEBRA-G3-ATTN-W3-T1c`).
 
 Discharges the weight-loop window (`AttnWeightWindow`), the value-loop window (`AttnValueWindow`)
 and the per-component output composition from the numerator-loop output and `attn_domain_v2`,
-with no new domain conjunct.
+with no new `attn_domain_v2` conjunct.
 
 * `attn_weight_bounds`: the pure `ℤ` weight bound `0 ≤ W_j ≤ 2^32`, `Σ_{j<n} W_j ≤ 2^32 + n`
   for `W_j = divRoundNearest (E_j·2^32) T`, `T = Σ E_j`;
 * `attn_weight_window_of_numerators`: `AttnWeightWindow` from the numerator-loop output;
-* `attn_value_fit`: the `value_component_spec` narrowing (`hlo`/`hhi`/`hfit`) from the weight and
+* `plane_at_spec`: the checked address identity of the folded value pass — for `s ≤ pos` the
+  `head_dim`-wide block at `first + s·stride` lies inside the plane and its `i`-th entry is the
+  plane's `(s·kv + kvh)·hd + i` entry. This is the predecessor's `attn.plane_at` address
+  identity, restated over the extracted `alloc.vec.Vec.index` range read;
+* `attn_value_fit`: the output epilogue's narrowing (`hlo`/`hhi`/`hfit`) from the weight and
   value windows;
-* `plane_at_spec`: the checked `usize` address identity of `attn.plane_at`;
-* `attn_value_window_of_v2`: `AttnValueWindow` from `attn_domain_v2` and the weight bounds;
-* `attn_value_components`: the per-component `value_component` result.
+* `attn_value_window_of_v2`: `AttnValueWindow` from `attn_domain_v2`, `plane_at_spec` and the
+  `usize` headroom of the extracted block arithmetic;
+* `attn_value_components`: the per-component result — the value pass followed by the output pass,
+  every component `i < head_dim` the exact half-biased reduction
+  `divRoundNearest (Σ_{s≤pos} W_s·V_{s,i}) 2^32` of the `valueList` entries.
 
-Trust boundary: reaches the extracted `attn.plane_at`, `attn.value_component`,
-`attn.KvState.attn_head_loop2` / `_loop3` of `proof/ApeironWord.lean`. Does not cover
+## The reshaped extraction this module reads
+
+The staged artifact deletes `attn.plane_at`, `attn.value_component`, `attn.value_component_loop`
+and `attn.value_term`, and folds the weight division into the value pass: `attn_head_loop2`
+resolves `W_s = divRoundNearest (E_s·2^32) T` itself, reads each key's `head_dim`-wide row once at
+the hoisted `first + s·stride`, and folds it into a zeroed `i128` accumulator; `attn_head_loop3`
+applies the single `round_shift_32` epilogue. The three theorems that named the deleted helpers
+are therefore restated over the loops that exist, keeping their content — the per-index row
+address, the per-component weighted sum and its one half-biased reduction:
+
+* `plane_at_spec` is the row-read identity, the same claim the predecessor drew from
+  `attn.plane_at`'s four checked `usize` operations;
+* `attn_value_components` is the two executed loops, through `Numeric.AttnLoopOutput`'s
+  `attn_head_loop2_spec`, `attn_head_loop2_component` and `value_component_spec` (reused, not
+  restated), with the narrowing supplied by `attn_value_fit` exactly as the predecessor supplied
+  it to its own `value_component_spec`.
+
+`stride = n_head_kv·head_dim` and `first = kvh·head_dim` are the Rust `kv.checked_mul(hd)` and
+`kvh.checked_mul(hd)` of `src/engine/attn.rs:1079-1080`; both hypotheses are named `hstride`,
+`hfirst`, as `Numeric.AttnLoopOutput`'s `value_component_spec` names them.
+
+`AttnValueWindow`'s first conjunct is `stride·pos + first + head_dim ≤ Usize.max`, the largest
+value the executed block arithmetic takes: `src/engine/attn.rs:1183-1187` reads
+`base = first + s·stride` and `end = base + head_dim` under the loop guard `s ≤ pos`
+(`src/engine/attn.rs:1176`), so `s = pos` is the last key addressed and no key one step past it is.
+The wider form `stride·(pos+1) + first + head_dim ≤ Usize.max` that the conjunct previously carried
+is not a consequence of `attn_domain_v2`: on `n_head_kv = 2^63 - 1`, `head_dim = 1`, `cap = 2`,
+`pos = 1`, `kvh = 2^63 - 2` (all of `attn_domain` and `attn_domain_v2` hold — the plane length is
+`2^64 - 2 ≤ Usize.max` and `pos+1 = 2 ≤ 2^30`) the left side is `2^64 + 2^63 - 3 > Usize.max`, while
+the executed arithmetic on that state refuses earlier, at `base > vplane.len().saturating_sub(hd)`.
+The narrow form is derivable from `plane_at_spec`: at `s = pos` it gives
+`first + pos·stride + head_dim = end_.val ≤ vplane.val.length ≤ Usize.max`, and
+`first + pos·stride + head_dim ≤ n_head_kv·cap·head_dim = vplane.val.length` is the per-key bound
+`src/engine/attn.rs:1186` checks. `attn_value_window_of_v2` and `attn_value_components` therefore
+carry the conjunct as the premise `harith`, in this narrow form; no `attn_domain_v2` conjunct is
+added.
+
+Trust boundary: reaches the extracted `attn.KvState.attn_head_loop2`,
+`attn.KvState.attn_head_loop2_loop0`, `attn.KvState.attn_head_loop3` and `attn.weight_at` of
+`proof/ApeironWord.lean` at sha256
+`ac563ff7c7398d05aeec3f8fe1b0c66bd4ec365cce621f4d34749949c8e1e1c9`. Does not cover
 rustc/LLVM codegen of `src/engine/attn.rs`, the kernel ABI, GPU/SPIR-V, or the `unsafe`
 container.
 -/
@@ -112,10 +157,11 @@ theorem attn_weight_bounds (n : ℕ) (E W : ℕ → ℤ) (T : ℤ)
 
 /-- **Weight window.** From the numerator-loop output — `exps` of length `pos+1`, each numerator in
 the `attnNumeratorCase` form at a nonpositive shift, one shift exactly `0`, and the executed total
-equal to the sum of the numerators — the `AttnWeightWindow`. The total's positivity is the shift-`0`
-numerator `E/2^32 ≥ 1 - epsExp - 4/2^32 > 0`; the headroom and `i64` fit come from
-`attnNumeratorCase_le` (`E_j ≤ 4·2^32`) and `attn_weight_bounds`. No `attn_domain_v2` conjunct is
-added. -/
+equal to the sum of the numerators — the `AttnWeightWindow`: the loop's room for the numerator
+vector, the `weight_at_spec` premises at every index and the magnitude `0 ≤ W_j ≤ 2^32` of each
+rounded weight. The total's positivity is the shift-`0` numerator `E/2^32 ≥ 1 - epsExp - 4/2^32 > 0`;
+the headroom and `i64` fit come from `attnNumeratorCase_le` (`E_j ≤ 4·2^32`) and
+`attn_weight_bounds`. No `attn_domain_v2` conjunct is added. -/
 theorem attn_weight_window_of_numerators (exps : alloc.vec.Vec I64) (total : I128)
     (pos : Usize) (sh : ℕ → ℤ)
     (hlen : exps.val.length = pos.val + 1)
@@ -168,72 +214,180 @@ theorem attn_weight_window_of_numerators (exps : alloc.vec.Vec I64) (total : I12
           have hp : (((pos.val + 1 : ℕ)) : ℤ) ≤ ((2 : ℕ) ^ 30 : ℤ) := by exact_mod_cast hpos
           exact mul_le_mul_of_nonneg_right hp (by norm_num)
       _ = (2 : ℤ) ^ (64 : ℕ) := by norm_num
-  refine ⟨hlen, hcap, htotpos, ?_⟩
-  intro j hj
-  have hmem : j ∈ Finset.range (pos.val + 1) := Finset.mem_range.mpr (by omega)
-  obtain ⟨hEnn, hEle4⟩ := attnNumeratorCase_le (sh j) _ (hcase j hj).1 (hcase j hj).2
-  obtain ⟨hW0, hW32⟩ := hbounds.1 j hmem
-  have hI128max : I128.max = (2 : ℤ) ^ (127 : ℕ) - 1 := by
-    norm_num [I128.max, IScalar.max, I128.numBits]
-  refine ⟨hEnn, ?_, ?_, ?_⟩
-  · rw [hI128max]
-    have hEj : (exps.val.getD j 0#i64).val * (2 : ℤ) ^ (32 : ℕ) ≤ (2 : ℤ) ^ (66 : ℕ) := by
-      calc (exps.val.getD j 0#i64).val * (2 : ℤ) ^ (32 : ℕ)
-          ≤ (4 * (2 : ℤ) ^ (32 : ℕ)) * (2 : ℤ) ^ (32 : ℕ) :=
-            mul_le_mul_of_nonneg_right hEle4 (by positivity)
-        _ = (2 : ℤ) ^ (66 : ℕ) := by norm_num
-    have hhalf : total.val / 2 ≤ (2 : ℤ) ^ (63 : ℕ) := by
-      have h2 : total.val ≤ 2 * (2 : ℤ) ^ (63 : ℕ) := by
-        have : (2 : ℤ) ^ (64 : ℕ) = 2 * (2 : ℤ) ^ (63 : ℕ) := by norm_num
-        linarith [htotle]
+  refine ⟨hlen, hcap, htotpos, ?_, ?_⟩
+  · intro j hj
+    have hmem : j ∈ Finset.range (pos.val + 1) := Finset.mem_range.mpr (by omega)
+    obtain ⟨hEnn, hEle4⟩ := attnNumeratorCase_le (sh j) _ (hcase j hj).1 (hcase j hj).2
+    obtain ⟨hW0, hW32⟩ := hbounds.1 j hmem
+    have hI128max : I128.max = (2 : ℤ) ^ (127 : ℕ) - 1 := by
+      norm_num [I128.max, IScalar.max, I128.numBits]
+    refine ⟨hEnn, ?_, ?_, ?_⟩
+    · rw [hI128max]
+      have hEj : (exps.val.getD j 0#i64).val * (2 : ℤ) ^ (32 : ℕ) ≤ (2 : ℤ) ^ (66 : ℕ) := by
+        calc (exps.val.getD j 0#i64).val * (2 : ℤ) ^ (32 : ℕ)
+            ≤ (4 * (2 : ℤ) ^ (32 : ℕ)) * (2 : ℤ) ^ (32 : ℕ) :=
+              mul_le_mul_of_nonneg_right hEle4 (by positivity)
+          _ = (2 : ℤ) ^ (66 : ℕ) := by norm_num
+      have hhalf : total.val / 2 ≤ (2 : ℤ) ^ (63 : ℕ) := by
+        have h2 : total.val ≤ 2 * (2 : ℤ) ^ (63 : ℕ) := by
+          have : (2 : ℤ) ^ (64 : ℕ) = 2 * (2 : ℤ) ^ (63 : ℕ) := by norm_num
+          linarith [htotle]
+        omega
+      linarith
+    · have hbig : -(2 : ℤ) ^ (63 : ℕ) ≤ 0 := by norm_num
+      linarith
+    · have hbig : (2 : ℤ) ^ (32 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by norm_num
+      linarith
+  · intro j hj
+    have hmem : j ∈ Finset.range (pos.val + 1) := Finset.mem_range.mpr (by omega)
+    exact hbounds.1 j hmem
+
+/-! ## The checked row address -/
+
+/-- The value of the extracted `saturating_sub` on `usize`: the clamped difference. -/
+private theorem usize_saturating_sub_val (x y : Usize) :
+    (core.num.Usize.saturating_sub x y).val = max 0 (x.val - y.val) := by
+  rw [core.num.Usize.saturating_sub, UScalar.saturating_sub, UScalar.val, BitVec.toNat_ofNat]
+  have hle : max 0 (x.val - y.val) ≤ x.val :=
+    max_le (Nat.zero_le _) (Nat.sub_le x.val y.val)
+  rw [Nat.mod_eq_of_lt (lt_of_le_of_lt hle x.hBounds)]
+
+/-- `getD` at an in-range index of a `List.slice` is the same entry of the original list. -/
+private theorem getD_slice_eq {α : Type} (l : List α) (s e i : ℕ) (hi : i < e - s) (d : α) :
+    (l.slice s e).getD i d = l.getD (s + i) d := by
+  rw [List.getD_eq_getElem?_getD (l := l.slice s e), List.getD_eq_getElem?_getD (l := l)]
+  rw [List.slice, List.getElem?_take, if_pos hi, List.getElem?_drop]
+
+/-- `x ≤ Usize.max` is `x < 2^numBits`, the bound `UScalar.ofNatCore` needs. -/
+private theorem usize_lt_pow_numBits (x : ℕ) (h : x ≤ Usize.max) :
+    x < 2 ^ UScalarTy.Usize.numBits := by
+  have hmax : (Usize.max : ℕ) = 2 ^ System.Platform.numBits - 1 := by
+    simp [Usize.max, Usize.numBits]
+  rw [UScalarTy.Usize_numBits_eq]
+  rw [hmax] at h
+  have hp : (0 : ℕ) < 2 ^ System.Platform.numBits := pow_pos (by norm_num) _
+  omega
+
+/-- **Row-read address identity.** With `stride = n_head_kv·head_dim`, `first = kvh·head_dim`,
+`kvh < n_head_kv`, `pos < cap`, both head dimensions positive and the plane length
+`n_head_kv·cap·head_dim`, the `head_dim`-wide block the folded value pass reads at
+`first + s·stride` for `s ≤ pos` is in range, and its `i`-th entry is the plane's
+`(s·kv + kvh)·hd + i` entry. This is the predecessor's `attn.plane_at` address identity
+(`src/engine/attn.rs:86-91`), restated over the extracted `alloc.vec.Vec.index` range read at
+`src/engine/attn.rs:1190-1191`. -/
+theorem plane_at_spec (state : attn.KvState) (pos kvh stride first : Usize)
+    (vplane : alloc.vec.Vec I64)
+    (hvlen : vplane.val.length = state.n_head_kv.val * state.cap.val * state.head_dim.val)
+    (hfirst : first.val = kvh.val * state.head_dim.val)
+    (hstride : stride.val = state.n_head_kv.val * state.head_dim.val)
+    (hkvhlt : kvh.val < state.n_head_kv.val)
+    (hwidth : 0 < state.head_dim.val)
+    (hposcap : pos.val < state.cap.val) :
+    ∀ s : Usize, s.val ≤ pos.val →
+      ∃ (sat base end_ : Usize) (row : Slice I64),
+        sat.val = max 0 (vplane.val.length - state.head_dim.val) ∧
+        base.val = first.val + s.val * stride.val ∧
+        end_.val = base.val + state.head_dim.val ∧
+        end_.val ≤ vplane.val.length ∧
+        ¬ (base > sat) ∧
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) vplane
+            { start := base, «end» := end_ } = ok row ∧
+        row.val.length = state.head_dim.val ∧
+        (∀ i, i < state.head_dim.val →
+          row.val.getD i 0#i64 =
+            vplane.val.getD (s.val * stride.val + first.val + i) 0#i64) := by
+  intro s hs
+  -- the flat block index of key `s` is `(s·kv + kvh)·hd`, and one more key fits in the plane
+  have hidx : first.val + s.val * stride.val
+      = (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val := by
+    rw [hfirst, hstride]
+    ring
+  have hA : s.val * state.n_head_kv.val + kvh.val + 1
+      ≤ state.cap.val * state.n_head_kv.val := by
+    calc s.val * state.n_head_kv.val + kvh.val + 1
+        ≤ s.val * state.n_head_kv.val + state.n_head_kv.val := by omega
+      _ = (s.val + 1) * state.n_head_kv.val := by ring
+      _ ≤ state.cap.val * state.n_head_kv.val := Nat.mul_le_mul_right _ (by omega)
+  have hbase_le : first.val + s.val * stride.val + state.head_dim.val
+      ≤ vplane.val.length := by
+    calc first.val + s.val * stride.val + state.head_dim.val
+        = (s.val * state.n_head_kv.val + kvh.val + 1) * state.head_dim.val := by
+            rw [hidx]
+            ring
+      _ ≤ state.cap.val * state.n_head_kv.val * state.head_dim.val :=
+          Nat.mul_le_mul_right state.head_dim.val hA
+      _ = vplane.val.length := by rw [hvlen]; ring
+  -- every one of these addresses is inside `usize`
+  have hbase_max : first.val + s.val * stride.val + state.head_dim.val ≤ Usize.max :=
+    le_trans hbase_le vplane.property
+  have hsat_lt : max 0 (vplane.val.length - state.head_dim.val)
+      < 2 ^ UScalarTy.Usize.numBits :=
+    usize_lt_pow_numBits _
+      (le_trans (max_le (Nat.zero_le _) (Nat.sub_le _ _)) vplane.property)
+  have hbase_lt : first.val + s.val * stride.val < 2 ^ UScalarTy.Usize.numBits := by
+    have h1 : first.val + s.val * stride.val
+        < first.val + s.val * stride.val + state.head_dim.val := by omega
+    exact lt_of_lt_of_le h1 (le_of_lt (usize_lt_pow_numBits _ hbase_max))
+  have hend_lt : first.val + s.val * stride.val + state.head_dim.val
+      < 2 ^ UScalarTy.Usize.numBits :=
+    usize_lt_pow_numBits _ hbase_max
+  
+  -- the three addresses, as `usize` scalars carrying the arithmetic above
+  have hsatv : (UScalar.ofNatCore _ hsat_lt).val
+      = max 0 (vplane.val.length - state.head_dim.val) := UScalar.ofNatCore_val_eq hsat_lt
+  have hbasev : (UScalar.ofNatCore _ hbase_lt).val
+      = first.val + s.val * stride.val := UScalar.ofNatCore_val_eq hbase_lt
+  have hendv : (UScalar.ofNatCore _ hend_lt).val
+      = first.val + s.val * stride.val + state.head_dim.val := UScalar.ofNatCore_val_eq hend_lt
+  have hbe : (UScalar.ofNatCore _ hbase_lt).val ≤ (UScalar.ofNatCore _ hend_lt).val := by
+    rw [hbasev, hendv]
+    omega
+  have hen : (UScalar.ofNatCore _ hend_lt).val ≤ vplane.val.length := by
+    rw [hendv]
+    exact hbase_le
+  obtain ⟨row, hindex, hrowval, hrowlen⟩ := WP.spec_imp_exists
+    (alloc.vec.Vec.index_Range_spec vplane
+      { start := UScalar.ofNatCore _ hbase_lt, «end» := UScalar.ofNatCore _ hend_lt } hbe hen)
+  refine ⟨UScalar.ofNatCore _ hsat_lt, UScalar.ofNatCore _ hbase_lt,
+    UScalar.ofNatCore _ hend_lt, row, ?_, ?_, ?_, ?_, ?_, hindex, ?_, ?_⟩
+  · show (UScalar.ofNatCore _ hsat_lt).val
+      = max 0 (vplane.val.length - state.head_dim.val)
+    exact hsatv
+  · show (UScalar.ofNatCore _ hbase_lt).val = first.val + s.val * stride.val
+    exact hbasev
+  · show (UScalar.ofNatCore _ hend_lt).val
+      = (UScalar.ofNatCore _ hbase_lt).val + state.head_dim.val
+    rw [hendv, hbasev]
+  · show (UScalar.ofNatCore _ hend_lt).val ≤ vplane.val.length
+    exact hen
+  · show ¬ ((UScalar.ofNatCore _ hbase_lt) : Usize)
+        > (UScalar.ofNatCore _ hsat_lt : Usize)
+    intro hgt
+    have hlt : (UScalar.ofNatCore _ hsat_lt).val
+        < (UScalar.ofNatCore _ hbase_lt).val := (UScalar.lt_equiv _ _).1 hgt
+    rw [hsatv, hbasev] at hlt
+    have hmax : first.val + s.val * stride.val
+        ≤ max 0 (vplane.val.length - state.head_dim.val) :=
+      (Nat.le_sub_of_add_le hbase_le).trans (Nat.le_max_right _ _)
+    omega
+  · show Slice.length row = state.head_dim.val
+    rw [show Slice.length row = (UScalar.ofNatCore _ hend_lt).val
+        - (UScalar.ofNatCore _ hbase_lt).val from hrowlen, hendv, hbasev]
+    omega
+  · intro i hi
+    rw [hrowval,
+      getD_slice_eq vplane.val (UScalar.ofNatCore _ hbase_lt).val
+        (UScalar.ofNatCore _ hend_lt).val i (by rw [hendv, hbasev]; omega) (0#i64)]
+    have hidxn : (UScalar.ofNatCore _ hbase_lt).val + i
+        = s.val * stride.val + first.val + i := by
+      rw [hbasev]
       omega
-    linarith
-  · have hbig : -(2 : ℤ) ^ (63 : ℕ) ≤ 0 := by norm_num
-    linarith
-  · have hbig : (2 : ℤ) ^ (32 : ℕ) ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by norm_num
-    linarith
-
-/-! ## The checked plane address -/
-
-/-- `checked_mul` succeeds with the exact product inside `usize`. -/
-private theorem usize_checked_mul_some (x y : Usize) (h : x.val * y.val ≤ Usize.max) :
-    ∃ z : Usize, Usize.checked_mul x y = some z ∧ z.val = x.val * y.val := by
-  have hs := Usize.checked_mul_bv_spec x y
-  cases hc : Usize.checked_mul x y with
-  | none => rw [hc] at hs; simp only at hs; omega
-  | some z => rw [hc] at hs; exact ⟨z, rfl, hs.2.1⟩
-
-/-- `checked_add` succeeds with the exact sum inside `usize`. -/
-private theorem usize_checked_add_some (x y : Usize) (h : x.val + y.val ≤ Usize.max) :
-    ∃ z : Usize, Usize.checked_add x y = some z ∧ z.val = x.val + y.val := by
-  have hs := Usize.checked_add_bv_spec x y
-  cases hc : Usize.checked_add x y with
-  | none => rw [hc] at hs; simp only at hs; omega
-  | some z => rw [hc] at hs; exact ⟨z, rfl, hs.2.1⟩
-
-/-- **Plane address.** With the four checked `usize` operations of `((s·kv+kvh)·hd+i)` in range,
-`attn.plane_at kv kvh hd s i` returns `Ok idx` with `idx.val` exactly `(s·kv+kvh)·hd+i`
-(`src/engine/attn.rs:86-91`). -/
-theorem plane_at_spec (kv kvh hd s i : Usize)
-    (hkv : s.val * kv.val ≤ Usize.max)
-    (hadd : s.val * kv.val + kvh.val ≤ Usize.max)
-    (hmul : (s.val * kv.val + kvh.val) * hd.val ≤ Usize.max)
-    (hidx : (s.val * kv.val + kvh.val) * hd.val + i.val ≤ Usize.max) :
-    ∃ idx : Usize, attn.plane_at kv kvh hd s i = ok (core.result.Result.Ok idx) ∧
-      idx.val = (s.val * kv.val + kvh.val) * hd.val + i.val := by
-  obtain ⟨base, hbase, hbasev⟩ := usize_checked_mul_some s kv hkv
-  obtain ⟨val1, hval1, hval1v⟩ := usize_checked_add_some base kvh (by rw [hbasev]; exact hadd)
-  obtain ⟨val2, hval2, hval2v⟩ := usize_checked_mul_some val1 hd (by rw [hval1v, hbasev]; exact hmul)
-  obtain ⟨idx, hval3, hval3v⟩ := usize_checked_add_some val2 i (by rw [hval2v, hval1v, hbasev]; exact hidx)
-  refine ⟨idx, ?_, ?_⟩
-  · simp only [attn.plane_at, hbase, hval1, hval2, hval3, lift,
-      core.option.Option.ok_or_some, bind_tc_ok, result_branch_ok]
-  · rw [hval3v, hval2v, hval1v, hbasev]
+    rw [hidxn]
 
 /-! ## The value fit -/
 
 /-- **Value fit.** With `0 ≤ W_s ≤ 2^32`, `Σ W_s ≤ 2^32 + n`, `|V_s| ≤ 2^62` and `n = pos+1 ≤ 2^30`,
-the `value_component_spec` narrowing conditions hold for `acc = Σ_{s<n} W_s·V_s`:
+the output epilogue's narrowing conditions hold for `acc = Σ_{s<n} W_s·V_s`:
 `I128.min ≤ acc + 2^31 ≤ I128.max` and `-2^63 ≤ divRoundNearest acc 2^32 ≤ 2^63 − 1`
 (since `|acc|/2^32 ≤ 2^62 + 2^60`). -/
 theorem attn_value_fit (n : ℕ) (W V : ℕ → ℤ) (pos : Usize)
@@ -336,23 +490,24 @@ theorem attn_value_fit (n : ℕ) (W V : ℕ → ℤ) (pos : Usize)
 
 /-! ## The value window from `attn_domain_v2` -/
 
-/-- **Value window.** `attn_domain_v2` gives the plane lengths, the value magnitude window and
-`pos+1 ≤ 2^30`; `kvh = q_head/(n_head/n_head_kv)` makes `kvh < n_head_kv`; the weight window
-(`length = pos+1`, `|W_s| ≤ 2^33`) is supplied. Then `AttnValueWindow` holds, its checked
-range-index identity discharged by `plane_at_spec` from `pos < cap`, `kvh < kv`,
-`i < head_dim`. -/
+/-- **Value window.** `attn_domain_v2` gives the plane length, the value magnitude window and
+`pos+1 ≤ 2^30`; `kvh = q_head/(n_head/n_head_kv)` makes `kvh < n_head_kv`. Then `AttnValueWindow`
+holds at `stride = n_head_kv·head_dim`, `first = kvh·head_dim`: the block arithmetic at the largest
+key read is the premise `harith`, `stride·pos + first + head_dim ≤ Usize.max` (see the module
+header), the row's range-index identity and its bounds are
+`plane_at_spec` from `pos < cap` and `kvh < n_head_kv`, and the value magnitude is the
+`attn_domain_v2` window read through `planeRow_getD`. -/
 theorem attn_value_window_of_v2 (state : attn.KvState) (layer q_head pos : Usize)
-    (q out : Slice I64) (kplane vplane : alloc.vec.Vec I64) (kvh : Usize) (i : Usize)
-    (weights : alloc.vec.Vec I64)
+    (q out : Slice I64) (kplane vplane : alloc.vec.Vec I64) (kvh stride first : Usize)
     (hdom : attn_domain_v2 state layer q_head pos q out kplane vplane)
     (hkvh : kvh.val = q_head.val / (state.n_head.val / state.n_head_kv.val))
-    (hi : i.val < state.head_dim.val)
-    (hwlen : weights.val.length = pos.val + 1)
-    (hwbound : ∀ s, s ≤ pos.val → |(weights.val.getD s 0#i64).val| ≤ (2 : ℤ) ^ (33 : ℕ)) :
-    AttnValueWindow (alloc.vec.Vec.deref vplane) (alloc.vec.Vec.deref weights)
-      state.n_head_kv kvh state.head_dim pos i := by
-  obtain ⟨hdom0, _hocc, _hscale, _hk, _hv, _hklen, hvlen, _hrowdot, _hscore, hvalu, hpos30⟩ := hdom
-  obtain ⟨_hnlayer, _hnhead, hnkhead, hdhead, _hcap, hmod, _hl, hqhead, _hqlen, _houtlen,
+    (hstride : stride.val = state.n_head_kv.val * state.head_dim.val)
+    (hfirst : first.val = kvh.val * state.head_dim.val)
+    (harith : stride.val * pos.val + first.val + state.head_dim.val ≤ Usize.max) :
+    AttnValueWindow state.head_dim stride first pos vplane := by
+  obtain ⟨hdom0, _hocc, _hscale, _hk, _hklen, hvlen, _hrowdot, _hscore, hvalu, hpos30, _hcarrier⟩ :=
+    hdom
+  obtain ⟨_hnlayer, _hnhead, hnkhead, hdhead, _hcap, hmod, _hl, hqhead, _hqlen, houtlen,
     hposcap⟩ := hdom0
   have hdvd : state.n_head_kv.val ∣ state.n_head.val := Nat.dvd_of_mod_eq_zero hmod
   have hmul : state.n_head.val = (state.n_head.val / state.n_head_kv.val) * state.n_head_kv.val :=
@@ -366,152 +521,188 @@ theorem attn_value_window_of_v2 (state : attn.KvState) (layer q_head pos : Usize
   have hkvhlt : kvh.val < state.n_head_kv.val := by
     rw [hkvh]
     exact Nat.div_lt_of_lt_mul (by rw [← hmul]; exact hqhead)
-  have hkvpos : 0 < state.n_head_kv.val := hnkhead
-  have hhdpos : 0 < state.head_dim.val := hdhead
-  have hidxlt : ∀ s : Usize, s.val ≤ pos.val →
-      (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val
-        < vplane.val.length := by
-    intro s hs
-    have hscap : s.val < state.cap.val := lt_of_le_of_lt hs hposcap
-    have hA : s.val * state.n_head_kv.val + kvh.val
-        < state.cap.val * state.n_head_kv.val := by
-      have h1 : s.val * state.n_head_kv.val + kvh.val + 1
-          ≤ state.cap.val * state.n_head_kv.val := by
-        calc s.val * state.n_head_kv.val + kvh.val + 1
-            ≤ s.val * state.n_head_kv.val + state.n_head_kv.val := by omega
-          _ = (s.val + 1) * state.n_head_kv.val := by ring
-          _ ≤ state.cap.val * state.n_head_kv.val :=
-              Nat.mul_le_mul_right _ (by omega)
-      omega
-    have hAi : (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val
-        < state.cap.val * state.n_head_kv.val * state.head_dim.val := by
-      have hA1 : s.val * state.n_head_kv.val + kvh.val + 1
-          ≤ state.cap.val * state.n_head_kv.val := by omega
-      calc (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val
-          < (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val
-              + state.head_dim.val := by omega
-        _ = (s.val * state.n_head_kv.val + kvh.val + 1) * state.head_dim.val := by ring
-        _ ≤ state.cap.val * state.n_head_kv.val * state.head_dim.val :=
-            Nat.mul_le_mul_right _ hA1
-    rw [hvlen]
-    exact lt_of_lt_of_eq hAi (by ring)
-  refine ⟨?_, hpos30, ?_, ?_, ?_⟩
-  · show (alloc.vec.Vec.deref weights).val.length = pos.val + 1
-    rw [alloc.vec.Vec.deref, Slice.from_val]
-    exact hwlen
+  refine ⟨harith, hpos30, ?_, ?_⟩
   · intro s hs
-    have hmax : (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val
-        ≤ Usize.max := le_trans (le_of_lt (hidxlt s hs)) vplane.property
-    have hle1 : s.val * state.n_head_kv.val + kvh.val
-        ≤ (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val := by
-      simpa using Nat.mul_le_mul_left (s.val * state.n_head_kv.val + kvh.val) hhdpos
-    have hA : s.val * state.n_head_kv.val + kvh.val ≤ Usize.max :=
-      le_trans hle1
-        (le_trans (Nat.le_add_right
-          ((s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val) i.val) hmax)
-    have hB : (s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val ≤ Usize.max :=
-      le_trans (Nat.le_add_right
-        ((s.val * state.n_head_kv.val + kvh.val) * state.head_dim.val) i.val) hmax
-    have hC : s.val * state.n_head_kv.val ≤ Usize.max :=
-      le_trans (Nat.le_add_right (s.val * state.n_head_kv.val) kvh.val) hA
-    obtain ⟨idx, hplane, hidxeq⟩ := plane_at_spec state.n_head_kv kvh state.head_dim s i hC hA hB hmax
-    refine ⟨idx, hplane, hidxeq, ?_⟩
-    have : (alloc.vec.Vec.deref vplane).val = vplane.val := by
-      rw [alloc.vec.Vec.deref, Slice.from_val]
-    rw [this, hidxeq]
-    exact hidxlt s hs
-  · intro s hs
-    have h1 := hvalu s hs i.val hi
+    exact plane_at_spec state pos kvh stride first vplane hvlen hfirst hstride hkvhlt hdhead
+      hposcap s hs
+  · intro s hs i hi
+    have h1 := hvalu s hs i hi
     rw [← hkvh] at h1
-    rw [planeRow_getD vplane.val state.n_head_kv.val state.head_dim.val kvh.val s i.val hi] at h1
-    have hval_eq : (alloc.vec.Vec.deref vplane).val = vplane.val := by
-      rw [alloc.vec.Vec.deref, Slice.from_val]
-    rw [hval_eq]
-    exact h1
-  · intro s hs
-    have h1 := hwbound s hs
-    have hval_eq : (alloc.vec.Vec.deref weights).val = weights.val := by
-      rw [alloc.vec.Vec.deref, Slice.from_val]
-    rw [hval_eq]
+    rw [planeRow_getD vplane.val state.n_head_kv.val state.head_dim.val kvh.val s i hi] at h1
+    show |(vplane.val.getD (s * stride.val + first.val + i) 0#i64).val|
+      ≤ (2 : ℤ) ^ (62 : ℕ)
+    have hidx : s * stride.val + first.val + i
+        = (s * state.n_head_kv.val + kvh.val) * state.head_dim.val + i := by
+      rw [hstride, hfirst]
+      ring
+    rw [hidx]
     exact h1
 
 /-! ## Per-component output -/
 
-/-- **Per-component output.** Combining `attn_value_window_of_v2`, `attn_value_fit` and
-`value_component_spec`: on `attn_domain_v2`, weights of length `pos+1` whose values are `W` with
-`0 ≤ W_s ≤ 2^32` and `Σ W ≤ 2^32 + (pos+1)`, every component `i < head_dim` is the exact half-biased
-reduction `divRoundNearest (Σ_{s≤pos} W_s·V_{s,i}) 2^32` of the `valueList` entries. -/
+/-- **Per-component output.** Combining `attn_weight_window_of_numerators`,
+`attn_value_window_of_v2`, `attn_value_fit` and `Numeric.AttnLoopOutput`'s
+`value_component_spec`: on `attn_domain_v2`, with the numerator-loop facts that make the weights
+the rounded probabilities `W_s = divRoundNearest (E_s·2^32) T` (so `0 ≤ W_s ≤ 2^32` and
+`Σ W ≤ 2^32 + (pos+1)`), the value pass followed by the output pass returns, clear, and every
+component `i < head_dim` is the exact half-biased reduction `divRoundNearest (Σ_{s≤pos} W_s·V_{s,i})
+2^32` of the `valueList` entries — the claim the predecessor stated over the deleted
+`attn.value_component`. The output length `out'.val.length = out.val.length` is exported as a third
+conjunct, after the two loop equations: it is the component `value_component_spec` now threads
+(`Numeric/AttnLoopOutput.lean`), and `attn_head_refines_v2` requires it. Additive: every existing
+conjunct is unchanged. -/
 theorem attn_value_components (state : attn.KvState) (layer q_head pos : Usize)
-    (q out : Slice I64) (kplane vplane : alloc.vec.Vec I64) (kvh : Usize)
-    (weights : alloc.vec.Vec I64) (W : ℕ → ℤ)
+    (q out : Slice I64) (kplane vplane : alloc.vec.Vec I64) (kvh stride first : Usize)
+    (exps : alloc.vec.Vec I64) (total : I128) (recip : Option U64)
+    (acc0 : alloc.vec.Vec I128) (sh : ℕ → ℤ)
     (hdom : attn_domain_v2 state layer q_head pos q out kplane vplane)
     (hkvh : kvh.val = q_head.val / (state.n_head.val / state.n_head_kv.val))
-    (hwlen : weights.val.length = pos.val + 1)
-    (hW : ∀ s, s ≤ pos.val → (weights.val.getD s 0#i64).val = W s)
-    (hW0 : ∀ s ∈ Finset.range (pos.val + 1), 0 ≤ W s ∧ W s ≤ (2 : ℤ) ^ (32 : ℕ))
-    (hWsum : ∑ s ∈ Finset.range (pos.val + 1), W s
-      ≤ (2 : ℤ) ^ (32 : ℕ) + ((pos.val + 1 : ℕ) : ℤ)) :
-    ∀ i : Usize, i.val < state.head_dim.val →
-      ∃ y : I64,
-        attn.value_component (alloc.vec.Vec.deref vplane) (alloc.vec.Vec.deref weights)
-          state.n_head_kv kvh state.head_dim pos i = ok (core.result.Result.Ok y) ∧
-        y.val = divRoundNearest
-          (∑ s ∈ Finset.range (pos.val + 1), W s *
-            ((valueList vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val i.val).getD s 0))
-          ((2 : ℤ) ^ (32 : ℕ)) := by
+    (hstride : stride.val = state.n_head_kv.val * state.head_dim.val)
+    (hfirst : first.val = kvh.val * state.head_dim.val)
+    (harith : stride.val * pos.val + first.val + state.head_dim.val ≤ Usize.max)
+    (hacl0 : acc0.val.length = state.head_dim.val)
+    (hacc0zero : ∀ i, i < state.head_dim.val → (acc0.val.getD i 0#i128).val = 0)
+    (hwres : AttnWeightResolve exps total pos recip)
+    (hlen : exps.val.length = pos.val + 1)
+    (hcase : ∀ j, j ≤ pos.val →
+      sh j ≤ 0 ∧ attnNumeratorCase (sh j) (exps.val.getD j 0#i64).val)
+    (hzero : ∃ j, j ≤ pos.val ∧ sh j = 0)
+    (htot : total.val = ∑ j ∈ Finset.range (pos.val + 1), (exps.val.getD j 0#i64).val) :
+    ∃ (acc : alloc.vec.Vec I128) (out' : Slice I64),
+      attn.KvState.attn_head_loop2 state.head_dim pos vplane stride first exps total recip
+          acc0 0#usize true none = ok (acc, none) ∧
+      attn.KvState.attn_head_loop3 state.head_dim out acc 0#usize true none = ok (out', none) ∧
+      out'.val.length = out.val.length ∧
+      ∀ i : Usize, i.val < state.head_dim.val →
+        (out'.val.getD i.val 0#i64).val =
+          divRoundNearest
+            (∑ s ∈ Finset.range (pos.val + 1), attnWeightAt exps.val total s *
+              (valueList vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val
+                i.val).getD s 0) ((2 : ℤ) ^ (32 : ℕ)) := by
   have hdomc := hdom
-  obtain ⟨_hdom0, _hocc, _hscale, _hk, _hv, _hklen, _hvlen, _hrowdot, _hscore, hvalu, hpos30⟩ := hdom
-  have hvderef : (alloc.vec.Vec.deref vplane).val = vplane.val := by
-    rw [alloc.vec.Vec.deref, Slice.from_val]
-  have hwderef : (alloc.vec.Vec.deref weights).val = weights.val := by
-    rw [alloc.vec.Vec.deref, Slice.from_val]
-  intro i hi
-  have hwbound : ∀ s, s ≤ pos.val → |(weights.val.getD s 0#i64).val| ≤ (2 : ℤ) ^ (33 : ℕ) := by
-    intro s hs
-    have h1 := (hW0 s (Finset.mem_range.mpr (by omega))).1
-    have h2 := (hW0 s (Finset.mem_range.mpr (by omega))).2
-    have h3 := hW s hs
-    rw [h3]
-    have : (2 : ℤ) ^ (32 : ℕ) ≤ (2 : ℤ) ^ (33 : ℕ) := by norm_num
-    rw [abs_of_nonneg h1]
-    linarith
-  have hwin := attn_value_window_of_v2 state layer q_head pos q out kplane vplane kvh i weights
-    hdomc hkvh hi hwlen hwbound
-  set V : ℕ → ℤ := fun s =>
-    ((alloc.vec.Vec.deref vplane).val.getD
-      ((s * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val) 0#i64).val with hVdef
-  have hV : ∀ s ∈ Finset.range (pos.val + 1), |V s| ≤ (2 : ℤ) ^ (62 : ℕ) := by
-    intro s hs
-    have hsle : s ≤ pos.val := by simp only [Finset.mem_range] at hs; omega
-    rw [hVdef]
-    rw [hvderef]
-    have h1 := hvalu s hsle i.val hi
-    rw [← hkvh] at h1
-    rwa [planeRow_getD vplane.val state.n_head_kv.val state.head_dim.val kvh.val s i.val hi] at h1
-  have fit := attn_value_fit (pos.val + 1) W V pos rfl hpos30 hW0 hWsum hV
-  have hsum_eq : (∑ s ∈ Finset.range (pos.val + 1),
-        ((alloc.vec.Vec.deref weights).val.getD s 0#i64).val *
-          ((alloc.vec.Vec.deref vplane).val.getD
-            ((s * state.n_head_kv.val + kvh.val) * state.head_dim.val + i.val) 0#i64).val)
-      = ∑ s ∈ Finset.range (pos.val + 1), W s * V s := by
-    apply Finset.sum_congr rfl
+  obtain ⟨hdom0, _hocc, _hscale, _hk, _hklen, _hvlen, _hrowdot, _hscore, hvalu, hpos30, _hcarrier⟩ :=
+    hdom
+  obtain ⟨_hnlayer, _hnhead, _hnkhead, _hdhead, _hcap, _hmod, _hl, _hqhead, _hqlen, houtlen,
+    _hposcap⟩ := hdom0
+  have hwin := attn_weight_window_of_numerators exps total pos sh hlen hpos30 hcase hzero htot
+  have hhvwin := attn_value_window_of_v2 state layer q_head pos q out kplane vplane kvh stride
+    first hdomc hkvh hstride hfirst harith
+  obtain ⟨acc, haccloop, hinv⟩ := attn_head_loop2_spec state.head_dim pos vplane stride first
+    exps total recip acc0 hwin hhvwin hwres hacl0 hacc0zero
+  -- the accumulator's per-component content, in the `stride`/`first` addressing
+  have hcc : ∀ i, i < state.head_dim.val →
+      (acc.val.getD i 0#i128).val =
+        ∑ j ∈ Finset.range (pos.val + 1), attnWeightAt exps.val total j *
+          attnValueAt vplane.val (state.n_head_kv.val * state.head_dim.val)
+            (kvh.val * state.head_dim.val) j i := by
+    intro i hi
+    have hz := hinv.2.2.2.2 i hi
+    rw [hstride, hfirst] at hz
+    rw [hz, hacc0zero i hi, zero_add]
+  have hcontent := attn_head_loop2_component state.head_dim pos vplane exps total acc
+    state.n_head_kv.val kvh.val hcc
+  -- the weight bounds, read off the window rather than restated
+  have hW0 : ∀ s ∈ Finset.range (pos.val + 1), 0 ≤ attnWeightAt exps.val total s ∧
+      attnWeightAt exps.val total s ≤ (2 : ℤ) ^ (32 : ℕ) := by
     intro s hs
     have hsle : s ≤ pos.val := by simp only [Finset.mem_range] at hs; omega
-    rw [hVdef]
-    rw [hwderef, hvderef, hW s hsle]
-  obtain ⟨y, hy_eq, hy_val⟩ := value_component_spec (alloc.vec.Vec.deref vplane)
-    (alloc.vec.Vec.deref weights) state.n_head_kv kvh state.head_dim pos i hwin
-    (by rw [hsum_eq]; exact fit.1)
-    (by rw [hsum_eq]; exact fit.2.1)
-    (by rw [hsum_eq]; exact ⟨fit.2.2.1, fit.2.2.2⟩)
-    hi
-  refine ⟨y, hy_eq, ?_⟩
-  rw [hy_val, hvderef]
-  congr 1
-  apply Finset.sum_congr rfl
-  intro s hs
-  have hsle : s ≤ pos.val := by simp only [Finset.mem_range] at hs; omega
-  rw [hwderef, hW s hsle]
+    exact hwin.2.2.2.2 s hsle
+  have hWsum : ∑ s ∈ Finset.range (pos.val + 1), attnWeightAt exps.val total s
+      ≤ (2 : ℤ) ^ (32 : ℕ) + ((pos.val + 1 : ℕ) : ℤ) := by
+    have hEnonneg : ∀ j ∈ Finset.range (pos.val + 1), 0 ≤ (exps.val.getD j 0#i64).val := by
+      intro j hj
+      have hjle : j ≤ pos.val := by simp only [Finset.mem_range] at hj; omega
+      exact (hwin.2.2.2.1 j hjle).1
+    have hwb := attn_weight_bounds (pos.val + 1)
+      (fun k => (exps.val.getD k 0#i64).val) (fun k => attnWeightAt exps.val total k) total.val
+      hEnonneg htot hwin.2.2.1 (by intro k _; rfl)
+    exact hwb.2
+  -- the epilogue narrowing at each component, from the weighted-sum fit
+  have hnarrow : ∀ (acc' : alloc.vec.Vec I128),
+      attn.KvState.attn_head_loop2 state.head_dim pos vplane stride first exps total recip
+          acc0 0#usize true none = ok (acc', none) →
+      ∀ j, j < state.head_dim.val →
+        I128.min ≤ (acc'.val.getD j 0#i128).val + 2 ^ (31 : ℕ) ∧
+        (acc'.val.getD j 0#i128).val + 2 ^ (31 : ℕ) ≤ I128.max ∧
+        -((2 : ℤ) ^ (63 : ℕ)) ≤ attnOutAt acc' j ∧ attnOutAt acc' j ≤ (2 : ℤ) ^ (63 : ℕ) - 1 := by
+    intro acc' hacc' j hj
+    have hcc' : acc' = acc := by
+      have hsame : (ok (acc', none) : Result (alloc.vec.Vec I128 × Option attn.AttnError))
+          = ok (acc, none) := by
+        rw [hacc'] at haccloop
+        exact haccloop
+      exact congrArg Prod.fst (ok.injEq.mp hsame)
+    have hcol : (acc'.val.getD j 0#i128).val
+        = ∑ s ∈ Finset.range (pos.val + 1), attnWeightAt exps.val total s *
+          (valueList vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val j).getD s 0 := by
+      rw [hcc']
+      exact hcontent j hj
+    have hVabs : ∀ s ∈ Finset.range (pos.val + 1),
+        |(valueList vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val j).getD s 0|
+          ≤ (2 : ℤ) ^ (62 : ℕ) := by
+      intro s hs
+      have hsle : s ≤ pos.val := by simp only [Finset.mem_range] at hs; omega
+      rw [valueList_getD vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val j s
+        hj hsle]
+      have h1 := hvalu s hsle j hj
+      rw [← hkvh] at h1
+      rwa [planeRow_getD vplane.val state.n_head_kv.val state.head_dim.val kvh.val s j hj] at h1
+    have fit := attn_value_fit (pos.val + 1) (fun s => attnWeightAt exps.val total s)
+      (fun s => (valueList vplane.val state.n_head_kv.val state.head_dim.val kvh.val pos.val j).getD s 0)
+      pos rfl hpos30 hW0 hWsum hVabs
+    simp only [attnOutAt]
+    rw [hcol]
+    exact fit
+  -- the `i64` values the output loop writes at each component: the epilogue's own reduction. The
+  -- loop's accumulator is unique (it is the value the value loop returns), so one `V` serves.
+  obtain ⟨Vout, hVout⟩ :
+      ∃ V : ℕ → I64, ∀ j : ℕ, j < state.head_dim.val → (V j).val = attnOutAt acc j := by
+    have hI64 : ∀ j : ℕ, j < state.head_dim.val →
+        ∃ y : I64, (y : I64).val = attnOutAt acc j :=
+      fun j hj => by
+      obtain ⟨hlo, hhi, hfl, hfh⟩ := hnarrow acc haccloop j hj
+      obtain ⟨y, _, hyv⟩ := round_shift_32_spec (acc.val.getD j 0#i128) hlo hhi
+      have hnb : (2 : ℤ) ^ (IScalarTy.I64.numBits - 1) = (2 : ℤ) ^ 63 := by
+        rw [IScalarTy.I64_numBits_eq]
+      have hyv' : y.val
+          = divRoundNearest (acc.val.getD j 0#i128).val ((2 : ℤ) ^ (32 : ℕ)) := hyv
+      have hdiv : divRoundNearest (acc.val.getD j 0#i128).val ((2 : ℤ) ^ (32 : ℕ))
+          = attnOutAt acc j := rfl
+      have hfl' : -((2 : ℤ) ^ (IScalarTy.I64.numBits - 1)) ≤ y.val := by
+        rw [hyv', hdiv, hnb]
+        exact hfl
+      have hfh' : y.val < (2 : ℤ) ^ (IScalarTy.I64.numBits - 1) := by
+        rw [hyv', hdiv, hnb]
+        exact lt_of_le_of_lt hfh (by norm_num)
+      have hcast : (IScalar.cast IScalarTy.I64 y).val = y.val := by
+        rw [IScalar.cast_val_eq]
+        norm_num [IScalarTy.numBits]
+        exact bmod_pow_numBits_eq_of_lt IScalarTy.I64 y.val hfl' hfh'
+      refine ⟨IScalar.cast IScalarTy.I64 y, ?_⟩
+      rw [hcast, hyv', hdiv]
+    refine ⟨fun j => if h : j < state.head_dim.val then Classical.choose (hI64 j h) else 0#i64, ?_⟩
+    intro j hj
+    show ((if h : j < state.head_dim.val then Classical.choose (hI64 j h)
+      else 0#i64) : I64).val = attnOutAt acc j
+    rw [dif_pos hj]
+    exact Classical.choose_spec (hI64 j hj)
+  have hV : ∀ (a : alloc.vec.Vec I128),
+      attn.KvState.attn_head_loop2 state.head_dim pos vplane stride first exps total recip
+          acc0 0#usize true none = ok (a, none) →
+      ∀ j : ℕ, j < state.head_dim.val → (Vout j).val = attnOutAt a j := by
+    intro a ha j hj
+    have hcc : a = acc := by
+      have hsame : (ok (a, none) : Result (alloc.vec.Vec I128 × Option attn.AttnError))
+          = ok (acc, none) := by
+        rw [ha] at haccloop
+        exact haccloop
+      exact congrArg Prod.fst (ok.injEq.mp hsame)
+    subst hcc
+    exact hVout j hj
+  obtain ⟨acc', out', hacc, hout, houtvlen, hval⟩ := value_component_spec state.head_dim pos vplane exps
+    total recip acc0 out stride first state.n_head_kv.val kvh.val hstride hfirst hwin hhvwin hwres
+    hacl0 hacc0zero houtlen Vout hV hnarrow
+  exact ⟨acc', out', hacc, hout, houtvlen, fun i hi => hval i.val hi⟩
 
 end
 

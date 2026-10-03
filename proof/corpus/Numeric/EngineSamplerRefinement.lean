@@ -3,7 +3,7 @@ Refinement of the extracted engine sampler argmax and the attention KV-state
 constructor / append (`APEIRON-ALGEBRA-G3-SAMPLER-KV`).
 
 The Rust bodies are `src/engine/sampler.rs` (`argmax_fixed`) and `src/engine/attn.rs`
-(`KvState::new`, `KvState::append`); `i64` Q32.32 logits and Q32.32 KV planes. The public
+(`KvState::with_carrier`, `KvState::append`); `i64` Q32.32 logits and Q32.32 KV planes. The public
 entry points are `apeiron_word.word_argmax_fixed`, `apeiron_word.word_kv_state_new` and
 `apeiron_word.word_kv_append`.
 
@@ -19,15 +19,18 @@ the row-dot module.
   logit (strictly). `argmax_fixed_loop_spec` proves the loop returns such a `best`; the
   `u32` narrowing either returns it as `Ok` or refuses with `LogitsTooLong`.
   The real reading follows from `toReal` being strictly order-preserving.
-* `attn.KvState.new` is a pure constructor: each geometry guard is an exact refusal equality
-  (`BadGeometry` for a zero parameter or a nonzero `n_head % n_head_kv` remainder), and
-  `word_kv_state_new_geometry` projects the `Ok` record's five geometry fields onto the
-  arguments. The `scale` field is the `fixed_rsqrt` output and is not pinned by the guards.
+* The six `word_kv_state_new` guard theorems are exact equalities naming `Err BadGeometry` and
+  `word_kv_state_new_geometry` reads the five geometry fields off the `Ok` record, both against
+  the `def` body of `attn.KvState.with_carrier` in `ApeironWord.lean` at sha256 `c16a68f0…`. The
+  `scale` and `storage` fields are not pinned, and `attn.alloc_f32_storage` is in the cone of
+  every statement about `word_kv_state_new`; see the residual obligations below.
 * `attn.KvState.append` tests the layer index first; the layer-out-of-range, both width
   (`RowLength`) and capacity (`CapacityExceeded`) refusals are exact equalities leaving the
   state unchanged, and `word_kv_append_ok` is the success law: the returned position is
   `occupied[layer]`, it increments that lane to `pos + 1`, and it writes the two
-  `n_head_kv·head_dim`-wide row blocks at `[pos·width, (pos+1)·width)`.
+  `n_head_kv·head_dim`-wide row blocks at `[pos·width, (pos+1)·width)`. `KvState` stores its
+  planes in `storage : attn.KvStorage`, so the success law is stated for the `Q32` branch under
+  a hypothesis `self.storage = attn.KvStorage.Q32 kk vv` and writes through `kk`/`vv`.
 
 The `toReal` denotation is the Q32.32 reading from `Numeric.Scale`; the argmax law is stated
 over the integers and lifted to the reals by strict order preservation.
@@ -302,37 +305,52 @@ theorem argmaxAt_real (logits : Slice I64) (best : Nat) (h : argmaxAt logits bes
 
 /-! ## The attention KV-state constructor
 
-`attn.KvState.new` is the port-map row 5 allocator: five zero-parameter guards, the GQA
+`attn.KvState.with_carrier` is the port-map row 5 allocator: five zero-parameter guards, the GQA
 divisibility guard, the `fixed_rsqrt` window, and the two checked plane products. The refusals
 below are the guard equalities; `word_kv_state_new_geometry` reads the geometry directly off
 the `Ok` record. -/
+
+/-! ### The constructor is a `def`, not an axiom
+
+`ApeironWord.lean` at sha256 `c16a68f0…` translates `attn.KvState.with_carrier`
+(`src/engine/attn.rs` 766:4-826:5) as a `def` whose body is the `do`-block of the Rust
+constructor, and `word_kv_state_new` is that `def` applied to
+`mixer.Carrier.Q32`. Each statement below is therefore an equation about a
+reducible term, not about an uninterpreted constant.
+
+The `Carrier::Q32` arm — the only arm `word_kv_state_new` reaches — is translated: the
+four `alloc.vec.from_elem` / `alloc.vec.CloneVec.clone` allocations of the zeroed plane
+are in the block, and no statement below reduces the `F32` arm. The `Carrier::F32` arm is the
+admitted boundary item `attn.alloc_f32_storage` (`src/engine/attn.rs` 118:1-123:2); it is a
+free constant of `word_kv_state_new`, so it is in the axiom cone of every statement about
+that function — see the cone row under residual obligations. -/
 
 /-- **Zero `n_layer`.** Returns `Err BadGeometry` exactly. -/
 theorem word_kv_state_new_layer_zero (n_head n_head_kv head_dim cap : Usize) :
     word_kv_state_new 0#usize n_head n_head_kv head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new]
+  simp [word_kv_state_new, attn.KvState.with_carrier]
 
 /-- **Zero `n_head`.** Returns `Err BadGeometry` exactly when `n_layer` is nonzero. -/
 theorem word_kv_state_new_head_zero (n_layer n_head_kv head_dim cap : Usize)
     (h : n_layer ≠ 0#usize) :
     word_kv_state_new n_layer 0#usize n_head_kv head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h]
 
 /-- **Zero `n_head_kv`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_kv_zero (n_layer n_head head_dim cap : Usize)
     (h1 : n_layer ≠ 0#usize) (h2 : n_head ≠ 0#usize) :
     word_kv_state_new n_layer n_head 0#usize head_dim cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2]
 
 /-- **Zero `head_dim`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_head_dim_zero (n_layer n_head n_head_kv cap : Usize)
     (h1 : n_layer ≠ 0#usize) (h2 : n_head ≠ 0#usize) (h3 : n_head_kv ≠ 0#usize) :
     word_kv_state_new n_layer n_head n_head_kv 0#usize cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3]
 
 /-- **Zero `cap`.** Returns `Err BadGeometry` exactly when the earlier guards pass. -/
 theorem word_kv_state_new_cap_zero (n_layer n_head n_head_kv head_dim : Usize)
@@ -340,145 +358,115 @@ theorem word_kv_state_new_cap_zero (n_layer n_head n_head_kv head_dim : Usize)
     (h4 : head_dim ≠ 0#usize) :
     word_kv_state_new n_layer n_head n_head_kv head_dim 0#usize =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3, h4]
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3, h4]
 
 /-- **GQA divisibility.** A nonzero remainder `n_head % n_head_kv` returns `Err BadGeometry`
-exactly when the zero guards pass. -/
+exactly when the zero guards pass. The model reads `n.is_multiple_of(m)` as
+`n.val % m.val == 0`, so `h6` decides the guard. -/
 theorem word_kv_state_new_not_multiple (nl nh nk hd cap : Usize)
     (h1 : nl ≠ 0#usize) (h2 : nh ≠ 0#usize) (h3 : nk ≠ 0#usize)
     (h4 : hd ≠ 0#usize) (h5 : cap ≠ 0#usize) (h6 : nh.val % nk.val ≠ 0) :
     word_kv_state_new nl nh nk hd cap =
       ok (core.result.Result.Err attn.AttnError.BadGeometry) := by
-  simp [word_kv_state_new, attn.KvState.new, h1, h2, h3, h4, h5,
+  simp [word_kv_state_new, attn.KvState.with_carrier, h1, h2, h3, h4, h5,
     core.num.Usize.is_multiple_of, UScalar.is_multiple_of, h6]
 
 /-- **`Ok`-arm geometry projection.** With the five zero guards and the GQA divisibility guard
 passing, any `Ok` result of the extracted constructor carries the geometry of its inputs: the
 five record fields `n_layer`, `n_head`, `n_head_kv`, `head_dim`, `cap` equal the arguments.
-Each later guard (`UScalar.hcast`, `engine.ONE`, `I64.checked_mul`, `Option.ok_or`, both
-`Try.branch`, `fixed_rsqrt`, `map_err`) and each allocation is peeled by case analysis on the
-monadic `Result` and on the pure `Option`s; the arithmetic block's `scale` value is the
-`fixed_rsqrt` output and is not pinned by the guards. -/
+
+The proof peels the translated `do`-block from the outside in. `Result` is `ITree`, so a
+bind whose continuation produces `ok y` can only have bound an `ok`: `peel` names that bound
+value and refutes the `vis` and `div` alternatives (`bind_tc_vis`/`bind_tc_div` cannot
+produce an `ok`). The `Option` binds are split on their two constructors; each `none` branch
+yields `ok (Err _)` and is refuted by `h`. The `hd` sign guard is the one guard the hypotheses
+do not decide, and its `Err ScaleOutOfRange` arm is refuted by `h` as well. What remains is the
+`Ok` record literal, whose five geometry fields are the arguments. -/
 theorem word_kv_state_new_geometry (nl nh nk hd cap : Usize) (s : attn.KvState)
     (h1 : nl ≠ 0#usize) (h2 : nh ≠ 0#usize) (h3 : nk ≠ 0#usize)
     (h4 : hd ≠ 0#usize) (h5 : cap ≠ 0#usize) (h6 : nh.val % nk.val = 0)
     (h : word_kv_state_new nl nh nk hd cap = ok (core.result.Result.Ok s)) :
     s.n_layer = nl ∧ s.n_head = nh ∧ s.n_head_kv = nk ∧ s.head_dim = hd ∧ s.cap = cap := by
-  unfold word_kv_state_new attn.KvState.new at h
-  rw [if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5] at h
-  have hb : core.num.Usize.is_multiple_of nh nk = ok true := by
+  -- the GQA guard `n_head % n_head_kv == 0` is decided by `h6`
+  have hmul : core.num.Usize.is_multiple_of nh nk = ok true := by
     simp [core.num.Usize.is_multiple_of, UScalar.is_multiple_of, h6]
-  simp only [hb, bind_tc_ok, reduceIte] at h
-  simp only [lift, bind_tc_ok] at h
-  by_cases hneg : UScalar.hcast IScalarTy.I64 hd < 0#i64
-  · rw [if_pos hneg] at h
-    exfalso; have hc := congrArg Result.match h; simp at hc
-  · rw [if_neg hneg] at h
-    cases hONE : engine.ONE with
-    | ret i =>
-      rw [hONE, bind_tc_ok] at h
-      cases hmul : I64.checked_mul (UScalar.hcast IScalarTy.I64 hd) i with
-      | none =>
-        rw [hmul] at h
-        simp only [core.option.Option.ok_or_none, core.result.Result.Insts.CoreOpsTry.branch,
-          bind_tc_ok,
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual,
-          core.convert.FromSame.from] at h
-        exfalso; have hc := congrArg Result.match h; simp at hc
-      | some v =>
-        rw [hmul] at h
-        simp only [core.option.Option.ok_or_some, core.result.Result.Insts.CoreOpsTry.branch,
-          bind_tc_ok] at h
-        cases hr1 : fixed_rsqrt.fixed_rsqrt v with
-        | ret w =>
-          rw [hr1, bind_tc_ok] at h
-          cases hw : w with
-          | Ok val1 =>
-            rw [hw] at h
-            simp only [core.result.Result.map_err_ok, bind_tc_ok] at h
-            cases hnk : nk.checked_mul cap with
-            | none =>
-              simp only [hnk] at h
-              exfalso; have hc := congrArg Result.match h; simp at hc
-            | some x =>
-              simp only [hnk] at h
-              cases hx : x.checked_mul hd with
-              | none =>
-                simp only [hx] at h
-                exfalso; have hc := congrArg Result.match h; simp at hc
-              | some plane =>
-                simp only [hx] at h
-                cases hblank : alloc.vec.from_elem core.clone.CloneI64 0#i64 plane with
-                | ret blank =>
-                  rw [hblank, bind_tc_ok] at h
-                  cases hv : alloc.vec.CloneVec.clone core.clone.CloneI64 blank with
-                  | ret vv =>
-                    rw [hv, bind_tc_ok] at h
-                    cases hk : alloc.vec.from_elem
-                        (core.clone.CloneallocvecVec core.clone.CloneI64) vv nl with
-                    | ret kk =>
-                      rw [hk, bind_tc_ok] at h
-                      cases hv1 : alloc.vec.from_elem
-                          (core.clone.CloneallocvecVec core.clone.CloneI64) blank nl with
-                      | ret vv1 =>
-                        rw [hv1, bind_tc_ok] at h
-                        cases hv2 : alloc.vec.from_elem core.clone.CloneUsize 0#usize nl with
-                        | ret vv2 =>
-                          rw [hv2, bind_tc_ok] at h
-                          have hs : s = { n_layer := nl, n_head := nh, n_head_kv := nk, head_dim := hd, cap := cap, scale := val1, occupied := vv2, k := kk, v := vv1 } := by
-                            apply (core.result.Result.Ok.injEq _ _).mp
-                            exact (Result.ok_injective h).symm
-                          subst hs
-                          simp
-                        | vis e k =>
-                          rw [hv2] at h
-                          exfalso; have hc := congrArg Result.match h; simp at hc
-                        | div =>
-                          rw [hv2] at h
-                          exfalso; have hc := congrArg Result.match h; simp at hc
-                      | vis e k =>
-                        rw [hv1] at h
-                        exfalso; have hc := congrArg Result.match h; simp at hc
-                      | div =>
-                        rw [hv1] at h
-                        exfalso; have hc := congrArg Result.match h; simp at hc
-                    | vis e k =>
-                      rw [hk] at h
-                      exfalso; have hc := congrArg Result.match h; simp at hc
-                    | div =>
-                      rw [hk] at h
-                      exfalso; have hc := congrArg Result.match h; simp at hc
-                  | vis e k =>
-                    rw [hv] at h
-                    exfalso; have hc := congrArg Result.match h; simp at hc
-                  | div =>
-                    rw [hv] at h
-                    exfalso; have hc := congrArg Result.match h; simp at hc
-                | vis e k =>
-                  rw [hblank] at h
-                  exfalso; have hc := congrArg Result.match h; simp at hc
-                | div =>
-                  rw [hblank] at h
-                  exfalso; have hc := congrArg Result.match h; simp at hc
-          | Err e =>
-            rw [hw] at h
-            simp only [core.result.Result.map_err_err, bind_tc_ok,
-              attn.KvState.new.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once,
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual,
-              core.convert.FromSame.from] at h
-            exfalso; have hc := congrArg Result.match h; simp at hc
-        | vis e k =>
-          rw [hr1] at h
-          exfalso; have hc := congrArg Result.match h; simp at hc
-        | div =>
-          rw [hr1] at h
-          exfalso; have hc := congrArg Result.match h; simp at hc
-    | vis e k =>
-      rw [hONE] at h
-      exfalso; have hc := congrArg Result.match h; simp at hc
-    | div =>
-      rw [hONE] at h
-      exfalso; have hc := congrArg Result.match h; simp at hc
+  -- the `?` desugaring turns a `Result Err e` into `ok (Err e)`, never into an `Ok`
+  have hres (e : attn.AttnError) :
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        attn.KvState (core.convert.FromSame attn.AttnError)
+        (core.result.Result.Err e) = ok (core.result.Result.Err e) := by
+    simp [core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual,
+      core.convert.FromSame.from]
+  -- a `Result` bind inside a `do`-block that is `ok y` bound an `ok`; `bind_tc_vis` and
+  -- `bind_tc_div` keep a `vis`/`div` bind a `vis`/`div`, so those cases contradict `hb`
+  have peel {α β : Type} {m : Result α} {K : α → Result β} {y : β}
+      (hb : (do let x ← m; K x) = ok y) : ∃ v, m = ok v := by
+    cases hm : m.match with
+    | ok v => exact ⟨v, Result.match.isOk.mp hm⟩
+    | vis eff k => exact absurd hb (by rw [Result.match.isVis.mp hm] at hb; simp at hb)
+    | div => exact absurd hb (by rw [Result.match.isDiv.mp hm] at hb; simp at hb)
+  unfold word_kv_state_new attn.KvState.with_carrier at h
+  rw [if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5, hmul] at h
+  simp only [bind_tc_ok, if_true] at h
+  -- the sign guard on `UScalar.hcast .I64 hd`: its `Err` arm is not the `Ok` of `h`
+  by_cases hs : UScalar.hcast IScalarTy.I64 hd < 0#i64
+  · simp only [lift, bind_tc_ok] at h
+    rw [if_pos hs] at h
+    simp only [Result.ok.injEq] at h
+    simp at h
+  · simp only [lift, bind_tc_ok, engine.ONE] at h
+    rw [if_neg hs] at h
+    -- `engine.ONE` is the `Result`-valued shift `1#i64 <<< engine.FIXED_FRAC_BITS`
+    obtain ⟨ione, hione⟩ := peel h
+    rw [hione, bind_tc_ok] at h
+    -- `I64.checked_mul (UScalar.hcast .I64 hd) 2^32`
+    cases hcm : I64.checked_mul (UScalar.hcast IScalarTy.I64 hd) ione with
+    | none =>
+      simp only [hcm, core.option.Option.ok_or_none, bind_tc_ok,
+        core.result.Result.Insts.CoreOpsTry.branch] at h
+      rw [hres attn.AttnError.ScaleOutOfRange] at h
+      simp at h
+    | some v1 =>
+      simp only [hcm, core.option.Option.ok_or_some, bind_tc_ok,
+        core.result.Result.Insts.CoreOpsTry.branch] at h
+      -- `fixed_rsqrt` returns `Result (Result I64 RsqrtError)`; peel both layers
+      obtain ⟨v2, hv2⟩ := peel h
+      rw [hv2, bind_tc_ok] at h
+      cases hv2 : v2 with
+      | Err e3 =>
+        -- `map_err` runs the closure, which is `Err ScaleOutOfRange` on any `RsqrtError`
+        simp only [hv2, core.result.Result.map_err, bind_tc_ok,
+          attn.KvState.with_carrier.closure.Insts.CoreOpsFunctionFnOnceTupleRsqrtErrorAttnError.call_once] at h
+        rw [hres attn.AttnError.ScaleOutOfRange] at h
+        simp only [Result.ok.injEq] at h
+        simp at h
+      | Ok v3 =>
+        simp only [hv2, core.result.Result.map_err, bind_tc_ok] at h
+        -- the first checked plane product `n_head_kv · cap`
+        cases hk : Usize.checked_mul nk cap with
+        | none =>
+          simp only [hk] at h
+          simp only [Result.ok.injEq] at h
+          simp at h
+        | some x =>
+          simp only [hk] at h
+          -- the second checked plane product `(n_head_kv · cap) · head_dim`
+          cases hp : Usize.checked_mul x hd with
+          | none =>
+            simp only [hp] at h
+            simp only [Result.ok.injEq] at h
+            simp at h
+          | some plane =>
+            simp only [hp] at h
+            -- the `Carrier::Q32` allocation, then the occupancy vector
+            obtain ⟨storage, hstorage⟩ := peel h
+            rw [hstorage, bind_tc_ok] at h
+            obtain ⟨occ, hocc⟩ := peel h
+            rw [hocc, bind_tc_ok] at h
+            -- the `Ok` record literal: its five geometry fields are the arguments
+            simp only [Result.ok.injEq, core.result.Result.Ok.injEq] at h
+            cases h
+            exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-! ## The attention KV-state append -/
 
@@ -559,31 +547,37 @@ theorem word_kv_append_capacity_refusal (self : attn.KvState) (layer : Usize)
 /-- **Success law.** With an in-range layer, the checked width, both row blocks at that width, a
 non-full layer and the checked position arithmetic succeeding, `append` returns `pos = occupied[layer]`,
 increments `occupied[layer]` to `v3 = pos + 1`, and writes the two `n_head_kv·head_dim`-wide row
-blocks at `[pos·width, (pos+1)·width)` into `self.k` and `self.v`. The two range writes are the
-`setSlice!` at the checked product `v1`; the five extracted `index_mut` threads
-(`index_mut_back`…`index_mut_back4`) are reduced by their `@[step]` specs (`Vec.set` for the
-addressable lane, `Vec.setSlice!` for the range) before the record is reassembled. -/
+blocks at `[pos·width, (pos+1)·width)` into the two `storage` row-block planes `kk` and `vv`. The
+two range writes are the `setSlice!` at the checked product `v1`; the five extracted `index_mut`
+threads (`index_mut_back`…`index_mut_back4`) are reduced by their `@[step]` specs (`Vec.set` for
+the addressable lane, `Vec.setSlice!` for the range) before the record is reassembled. The
+`match self.storage with` in the extracted body is reduced by `hstor` to the `Q32` branch, which
+is the branch whose row copy is `Slice.copy_from_slice`; the `F32` branch converts elementwise
+through `attn.KvState.append_loop0`/`append_loop1` and is not covered here. -/
 theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
     (k_rows v_rows : Slice I64) (w v1 v2 v3 : Usize)
+    (kk vv : alloc.vec.Vec (alloc.vec.Vec I64))
     (hlayer : ¬ self.n_layer ≤ layer)
     (hw_eq : self.n_head_kv.checked_mul self.head_dim = some w)
     (hk : Slice.len k_rows = w) (hv : Slice.len v_rows = w)
     (hbnd : layer.val < self.occupied.length)
     (hcap : ¬ self.cap ≤ (self.occupied.val[layer.val]).val)
-    (hbndk : layer.val < self.k.length) (hbndv : layer.val < self.v.length)
+    (hstor : self.storage = attn.KvStorage.Q32 kk vv)
+    (hbndk : layer.val < kk.length) (hbndv : layer.val < vv.length)
     (hmul : (self.occupied.val[layer.val]).checked_mul w = some v1)
     (hadd : v1.checked_add w = some v2)
     (hadd3 : (self.occupied.val[layer.val]).checked_add 1#usize = some v3)
-    (hkend : v2.val ≤ (self.k.val[layer.val]).length)
-    (hvend : v2.val ≤ (self.v.val[layer.val]).length) :
+    (hkend : v2.val ≤ (kk.val[layer.val]).length)
+    (hvend : v2.val ≤ (vv.val[layer.val]).length) :
     word_kv_append self layer k_rows v_rows =
       ok (core.result.Result.Ok (self.occupied.val[layer.val]),
         { self with
             occupied := self.occupied.set layer v3,
-            k := self.k.set layer
-              (alloc.vec.Vec.setSlice! (self.k.val[layer.val]) v1.val k_rows.val),
-            v := self.v.set layer
-              (alloc.vec.Vec.setSlice! (self.v.val[layer.val]) v1.val v_rows.val) }) ∧
+            storage := attn.KvStorage.Q32
+              (kk.set layer
+                (alloc.vec.Vec.setSlice! (kk.val[layer.val]) v1.val k_rows.val))
+              (vv.set layer
+                (alloc.vec.Vec.setSlice! (vv.val[layer.val]) v1.val v_rows.val)) }) ∧
       v3.val = (self.occupied.val[layer.val]).val + 1 := by
   constructor
   · unfold word_kv_append attn.KvState.append
@@ -608,19 +602,21 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
       exact h.2.1
     have hwv2 : v2.val - v1.val = w.val := by omega
     simp only [hmul, hadd, hadd3, core.option.Option.ok_or_some, bind_tc_ok]
+    -- reduce `match self.storage with` to the Q32 branch, so the row-block planes are `kk`/`vv`
+    simp only [hstor]
     have hle : v1 ≤ v2 := by rw [UScalar.le_equiv]; omega
     have hklen : k_rows.length = w.val := by rw [← Slice.len_val, hk]
     have hvlen : v_rows.length = w.val := by rw [← Slice.len_val, hv]
     -- k: addressable lane
     obtain ⟨p1, hp1_eq, hp1_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_usize_spec self.k layer hbndk)
+      (alloc.vec.Vec.index_mut_usize_spec kk layer hbndk)
     rcases p1 with ⟨kplane, kback⟩
     rw [alloc.vec.Vec.index_mut_slice_index, hp1_eq]
     simp only [bind_tc_ok, uncurry_apply_pair]
     rw [hp1_spec.1]
     -- k: row range
     obtain ⟨p2, hp2_eq, hp2_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_Range_spec (self.k.val[layer.val])
+      (alloc.vec.Vec.index_mut_Range_spec (kk.val[layer.val])
         { start := v1, «end» := v2 } hle hkend)
     rcases p2 with ⟨kslice, kback1⟩
     rw [hp2_eq]
@@ -635,14 +631,14 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
     simp only [bind_tc_ok]
     -- v: addressable lane
     obtain ⟨q1, hq1_eq, hq1_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_usize_spec self.v layer hbndv)
+      (alloc.vec.Vec.index_mut_usize_spec vv layer hbndv)
     rcases q1 with ⟨vplane, vback⟩
     rw [alloc.vec.Vec.index_mut_slice_index, hq1_eq]
     simp only [bind_tc_ok, uncurry_apply_pair]
     rw [hq1_spec.1]
     -- v: row range
     obtain ⟨q2, hq2_eq, hq2_spec⟩ := WP.spec_imp_exists
-      (alloc.vec.Vec.index_mut_Range_spec (self.v.val[layer.val])
+      (alloc.vec.Vec.index_mut_Range_spec (vv.val[layer.val])
         { start := v1, «end» := v2 } hle hvend)
     rcases q2 with ⟨vslice, vback3⟩
     rw [hq2_eq]
@@ -668,12 +664,30 @@ theorem word_kv_append_ok (self : attn.KvState) (layer : Usize)
 
 /-! ## Residual obligations (not established here)
 
-The following row of the task statement is a named, unproven obligation at grade `anchor`.
+The following rows are named, unproven obligations. None is discharged by this module.
 
-* `word_kv_state_new` `scale` field: `s.scale = fixed_rsqrt (hd·2^32)`. The five geometry fields
-  are proved by `word_kv_state_new_geometry`; pinning `scale` also needs `UScalar.hcast .I64 hd`
-  to preserve the value (which uses `hd.val ≤ I64.max`, not implied by `hd ≠ 0`) and
-  `I64.checked_mul hd_signed engine.ONE = some (hd.val·2^32)`.
+* **Constructor `scale` field (grade `anchor`).** `word_kv_state_new_geometry` pins the five
+  geometry fields; the `scale` field is `s.scale = fixed_rsqrt (hd·2^32)`, whose pinning also needs
+  `UScalar.hcast .I64 hd` to preserve the value (which uses `hd.val ≤ I64.max`, not implied by
+  `hd ≠ 0`) and `I64.checked_mul (UScalar.hcast .I64 hd) engine.ONE = some (hd.val·2^32)`. The
+  guard order also matters: the `hd` sign guard precedes the `fixed_rsqrt` window, so a `scale`
+  statement needs the guard discharged first.
+* **Constructor `storage` field (grade `anchor`).** The `Carrier::Q32` allocation value
+  (`alloc.vec.from_elem` / `alloc.vec.CloneVec.clone` at the plane length) is not pinned here;
+  `word_kv_state_new_geometry` peels it as an opaque `Result` because the geometry fields do not
+  depend on it.
+* **`attn.KvState.append` `F32` branch.** The elementwise conversion loops
+  `attn.KvState.append_loop0`/`append_loop1` and their `bad` flags are unrefined, and
+  `mixer.f32_carrier.q32_to_f32` / `core.f32.F32.is_finite` are admitted boundary items, so the
+  F32 success law is outside the closed cone.
+* **Axiom cone of the seven constructor theorems.** `#print axioms` on each of the six guard
+  theorems and on `word_kv_state_new_geometry` reports
+  `[propext, Classical.choice, Quot.sound, apeiron_word.attn.alloc_f32_storage]`. The extra item
+  is the admitted `Carrier::F32` allocation: it is a free constant of `word_kv_state_new`
+  itself, so it appears in the cone of any theorem whose statement mentions `word_kv_state_new`,
+  including statements that never reduce the `F32` arm. `word_kv_append_ok` has the same shape
+  through `mixer.f32_carrier.q32_to_f32` and `core.f32.F32.is_finite`. Whether these boundary
+  items are inside the audited cone is `AxiomAudit/Remaining.lean`'s decision, not this module's.
 -/
 
 end
