@@ -1567,8 +1567,9 @@ mod locator_tests {
     /// A forced late identity-edge refusal does not reach the rebuild transaction, because the
     /// rebuild path reserves no locator path: the batch entry point committed the aggregate
     /// reservation before the first merge and the prepare makes no locator allocation at all. So an
-    /// armed directory refusal is inert here, the rebuild commits, and the fresh key's reverse-link
-    /// slot is admitted into the reserved extent.
+    /// armed directory refusal is inert here, the rebuild commits, and the fresh key's
+    /// representative is admitted as a scalar count into the reserved extent, leaving the cold
+    /// registry empty until [`Table::assemble_directory`] links it.
     #[cfg(feature = "injection")]
     #[test]
     fn a_locator_refusal_is_unreachable_after_a_committed_merge() {
@@ -1580,19 +1581,15 @@ mod locator_tests {
 
         let before_len = table.len();
         let before_lanes = table.resident.lanes;
-        let before_tags: Vec<u8> = table.shards[0].markers();
-        let before_slots = table.shards[0].slots.len();
-
-        // A checked rebuild plan that grows the resident area and commits.
-        let mut spill_loads = vec![0usize; SHARDS];
-        spill_loads[0] = 1;
-        let plan = RebuildPlan {
-            lanes: 1,
-            entries: Vec::new(),
-            spill_loads,
-        };
         let key = 99i64;
         let address = Home::address(&WordHome, Sigma::Parabolic, &key);
+        // The production planner at twice the lanes the first insert established. Its entry list
+        // relocates the live payload, so this is the growing commit the check is about: a hand-built
+        // plan with no entries would drop that payload and resize the extent to what it already is.
+        let lanes = before_lanes.max(1) * 2;
+        let plan = table
+            .plan_rebuild(lanes, Sigma::Parabolic, &address)
+            .expect("the checked plan sizes");
 
         reservation_failure::arm_late_edge(Refusal::AllocationFailed);
         let prepared = table.prepare_from_plan(plan, Sigma::Parabolic, &key, &address);
@@ -1613,19 +1610,32 @@ mod locator_tests {
         );
         assert_eq!(outcome, Ok(()));
 
-        // The merge committed, and its only locator effect is the admitted slot, written into the
-        // extent the batch reserved before it.
+        // The commit moved the rebuilt storage in: one more live payload, the planned resident
+        // extent, and both payloads readable at their own locations.
         assert_eq!(table.len(), before_len + 1);
+        assert_eq!(table.resident.lanes, lanes, "the committed extent is the planned one");
         assert!(table.resident.lanes > before_lanes, "the extent grew");
-        assert!(table.shards[0].markers() == before_tags);
-        assert!(table.shards[0].slots.len() == before_slots);
+        assert_eq!(*table.get_at(Sigma::Parabolic, &7), 41, "the relocated payload readback");
+        assert_eq!(*table.get_at(Sigma::Parabolic, &99), 99, "the committed payload readback");
+
+        // Its only locator effect is the admitted count, one scalar write into the extent the batch
+        // reserved before the merge: no path is staged and no reverse link is written.
         assert!(table.locator.staged.is_none(), "the rebuild stages nothing");
+        assert_eq!(
+            table.locator.admitted,
+            2,
+            "one admitted representative per committed payload"
+        );
+        assert!(
+            table.locator.links.is_empty(),
+            "the merge path writes no reverse link; assembly builds the registry"
+        );
+        table.assemble_directory().expect("the rebuilt table assembles");
         assert_eq!(
             table.locator.links.len(),
             2,
-            "the present payload plus the committed fresh one"
+            "the cold assembly links every live payload"
         );
-        table.assemble_directory().expect("the rebuilt table assembles");
         assert!(table.check_storage_coverage());
     }
 }

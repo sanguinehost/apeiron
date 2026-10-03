@@ -806,12 +806,130 @@ fn search_decision_reports_exhaustion_without_an_index() {
     assert_eq!(decision.location, SearchLocation::NoIndex);
 }
 
+/// The spill region capacity this crate's sizing rule reserves for `load` live entries.
+///
+/// `src/table/state.rs`'s `slots_for` reserves the least power of two at or above twice the live load
+/// and at or above twice the group width; `Table::grow_spill` then takes the double of a full region,
+/// so the same geometric doubling continues above `2 * N`. The geometry is written down here rather
+/// than read back from the table, and its two documented invariants are asserted by the caller, so a
+/// floor of `N` instead of `2 * N` reddens the tests that use it rather than passing silently.
+///
+/// Temporal `O(log(load))` doublings; spatial `O(1)` words.
+fn region_capacity(load: usize, group_width: usize) -> usize {
+    if load == 0 {
+        return 0;
+    }
+    let mut capacity = group_width.max(2) * 2;
+    while capacity < load * 2 {
+        capacity *= 2;
+    }
+    capacity
+}
+
+/// Exhausts the real placement-only decision/apply path and checks the absence certificate at every
+/// live count of one shard's first spill region.
+///
+/// With `ZeroI64Home` every key places at `0`, so shard `0` is the only region, every key probes
+/// from lane `0`, and the `live`-th distinct key lands in lane `live`. The absent probe is a key
+/// outside the inserted family: it walks from lane `0` and stops at the first vacancy, so it is
+/// `Vacant` at lane `live` exactly while the region still holds a vacancy and `Exhausted` with no
+/// index only once every lane is live. Growth is then forced by one more insert and the certificate
+/// is checked again, so the exhaustion boundary is pinned by the table's own behaviour.
+macro_rules! absence_certificate {
+    ($group_width:literal) => {{
+        let group_width = $group_width;
+        let capacity = region_capacity(1, group_width);
+        assert!(
+            capacity.is_power_of_two(),
+            "a region reserves a power-of-two capacity: {capacity} at N = {group_width}"
+        );
+        assert!(
+            capacity >= 2 * group_width,
+            "the 2 * N floor: {capacity} at N = {group_width}"
+        );
+
+        let mut table = Table::<i64, i64, _, $group_width>::new(-1, ZeroI64Home);
+        let resident = |live: usize| i64::try_from(live).expect("a region live count fits i64");
+        let absent = |live: usize| resident(live) + 1_000_000;
+
+        for live in 0..=capacity {
+            if live > 0 {
+                table
+                    .insert_with_at(
+                        &ReplacementMerge,
+                        Sigma::Parabolic,
+                        resident(live - 1),
+                        stored(live - 1),
+                    )
+                    .unwrap();
+            }
+            let decision = table.search_decision_at(Sigma::Parabolic, &absent(live));
+            // `region_capacity(0, _) = 0`: an empty region has no indexed lane, and a full one has
+            // no vacancy to stop on.  `Vacant` needs a reserved region and at least one free lane.
+            if live > 0 && live < capacity {
+                assert_eq!(
+                    decision.class,
+                    SearchClass::Vacant,
+                    "a vacancy remains at live {live} of {capacity}, N = {group_width}"
+                );
+                assert_eq!(decision.location, SearchLocation::Spill(0, live));
+            } else {
+                assert_eq!(
+                    decision.class,
+                    SearchClass::Exhausted,
+                    "no vacancy remains at live {live} of {capacity}, N = {group_width}"
+                );
+                assert_eq!(decision.location, SearchLocation::NoIndex);
+            }
+            assert_eq!(*table.get_at(Sigma::Parabolic, &absent(live)), -1);
+
+            for placed in 0..live {
+                let found = table.search_decision_at(Sigma::Parabolic, &resident(placed));
+                assert_eq!(
+                    found.class,
+                    SearchClass::Found,
+                    "placed {placed} of {live}, N = {group_width}"
+                );
+                assert_eq!(found.location, SearchLocation::Spill(0, placed));
+                assert_eq!(
+                    *table.get_at(Sigma::Parabolic, &resident(placed)),
+                    stored(placed)
+                );
+            }
+        }
+
+        table
+            .insert_with_at(
+                &ReplacementMerge,
+                Sigma::Parabolic,
+                resident(capacity),
+                stored(capacity),
+            )
+            .unwrap();
+        // Growth relocates the full region into a successor of twice its capacity, so lane
+        // `capacity` holds the entry that forced growth and the absence certificate moves to the
+        // first lane after it.
+        let decision = table.search_decision_at(Sigma::Parabolic, &absent(capacity + 1));
+        assert_eq!(
+            decision.class,
+            SearchClass::Vacant,
+            "growth restores the vacancy at N = {group_width}"
+        );
+        assert_eq!(decision.location, SearchLocation::Spill(0, capacity + 1));
+        assert_eq!(table.len(), capacity + 1);
+    }};
+}
+
 /// Exhaustive small model for the real placement-only decision/apply path.
 ///
-/// All six ordered pairs from three full logical keys are checked at every reachable prefix of the
-/// initial two-lane spill. The first absent key selects the first vacant lane, present keys return
-/// their unique insertion lane, and an absent key in the full spill reports exhaustion. The keys
-/// include equal payload words at unequal `Sigma`, so identity is the full logical key.
+/// Every ordered prefix of three full logical keys is built at `N = 1` and every key is queried at
+/// every prefix, so direct spill found, the exact insertion lane, first-fit vacancy, exhaustion, and
+/// default readback are all checked against [`region_capacity`]: an absent key is `Vacant` at lane
+/// `live` exactly while the region holds a vacancy, and `Exhausted` with no index otherwise. The
+/// three logical keys include equal payload words at unequal `Sigma`, so identity is the full
+/// logical key. The absence certificate's boundary is then checked at every live count from zero
+/// past the first region for `N = 1` and for a larger `N`, which pins the `2 * N` floor by behaviour
+/// rather than by a hand-picked constant.
 #[test]
 fn search_decision_matches_the_two_lane_spill_oracle_for_every_small_prefix() {
     let logical = [
@@ -819,59 +937,47 @@ fn search_decision_matches_the_two_lane_spill_oracle_for_every_small_prefix() {
         (Sigma::Parabolic, 7_i64),
         (Sigma::Parabolic, 8_i64),
     ];
+    let capacity = region_capacity(1, 1);
+    assert!(
+        logical.len() < capacity,
+        "the prefix family is shorter than the first region, so the full-region case is covered by \
+         the absence certificate below rather than by a prefix"
+    );
 
-    for first in 0..logical.len() {
-        for second in 0..logical.len() {
-            if first == second {
-                continue;
-            }
-            let mut table = Table::<i64, i64, _, 1>::new(-1, ZeroI64Home);
-            for (query_sigma, query_key) in logical {
-                let decision = table.search_decision_at(query_sigma, &query_key);
-                assert_eq!(decision.class, SearchClass::Exhausted);
-                assert_eq!(decision.location, SearchLocation::NoIndex);
-                assert_eq!(*table.get_at(query_sigma, &query_key), -1);
-            }
-
-            let (first_sigma, first_key) = logical[first];
+    for order in ordered_prefixes(logical.len()) {
+        let mut table = Table::<i64, i64, _, 1>::new(-1, ZeroI64Home);
+        for (rank, &index) in order.iter().enumerate() {
+            let (sigma, key) = logical[index];
             table
-                .insert_with_at(&ReplacementMerge, first_sigma, first_key, stored(first))
+                .insert_with_at(&ReplacementMerge, sigma, key, stored(rank))
                 .unwrap();
-            for (query_at, (query_sigma, query_key)) in logical.into_iter().enumerate() {
-                let decision = table.search_decision_at(query_sigma, &query_key);
-                if query_at == first {
-                    assert_eq!(decision.class, SearchClass::Found);
-                    assert_eq!(decision.location, SearchLocation::Spill(0, 0));
-                    assert_eq!(*table.get_at(query_sigma, &query_key), stored(first));
-                } else {
-                    assert_eq!(decision.class, SearchClass::Vacant);
-                    assert_eq!(decision.location, SearchLocation::Spill(0, 1));
-                    assert_eq!(*table.get_at(query_sigma, &query_key), -1);
+        }
+
+        for (query, &(sigma, key)) in logical.iter().enumerate() {
+            let decision = table.search_decision_at(sigma, &key);
+            match order.iter().position(|&index| index == query) {
+                Some(rank) => {
+                    assert_eq!(decision.class, SearchClass::Found, "key {key} in {order:?}");
+                    assert_eq!(decision.location, SearchLocation::Spill(0, rank));
+                    assert_eq!(*table.get_at(sigma, &key), stored(rank));
                 }
-            }
-
-            let (second_sigma, second_key) = logical[second];
-            table
-                .insert_with_at(&ReplacementMerge, second_sigma, second_key, stored(second))
-                .unwrap();
-            for (query_at, (query_sigma, query_key)) in logical.into_iter().enumerate() {
-                let decision = table.search_decision_at(query_sigma, &query_key);
-                if query_at == first {
-                    assert_eq!(decision.class, SearchClass::Found);
-                    assert_eq!(decision.location, SearchLocation::Spill(0, 0));
-                    assert_eq!(*table.get_at(query_sigma, &query_key), stored(first));
-                } else if query_at == second {
-                    assert_eq!(decision.class, SearchClass::Found);
-                    assert_eq!(decision.location, SearchLocation::Spill(0, 1));
-                    assert_eq!(*table.get_at(query_sigma, &query_key), stored(second));
-                } else {
-                    assert_eq!(decision.class, SearchClass::Exhausted);
+                None if order.is_empty() => {
+                    // No region exists yet, so there is no indexed lane at all.
+                    assert_eq!(decision.class, SearchClass::Exhausted, "empty in {order:?}");
                     assert_eq!(decision.location, SearchLocation::NoIndex);
-                    assert_eq!(*table.get_at(query_sigma, &query_key), -1);
+                    assert_eq!(*table.get_at(sigma, &key), -1);
+                }
+                None => {
+                    assert_eq!(decision.class, SearchClass::Vacant, "absent in {order:?}");
+                    assert_eq!(decision.location, SearchLocation::Spill(0, order.len()));
+                    assert_eq!(*table.get_at(sigma, &key), -1);
                 }
             }
         }
     }
+
+    absence_certificate!(1);
+    absence_certificate!(16);
 }
 
 /// Every ordered sequence of distinct indices from `0..n`, including the empty sequence.

@@ -158,7 +158,10 @@ fn density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged() {
     table.resident = resident;
 
     // The admitted bitmap returns the exact distinct count and the extent is unchanged.
-    assert_eq!(table.density_at(4, Some(1000)), Ok(1001));
+    assert_eq!(
+        table.density_bitmap(4, Some(1000)).map(|(_, n)| n),
+        Ok(1001)
+    );
     assert_eq!(table.selected_lanes(0, 1000), Ok(Some(4)));
 
     // Snapshot the committed state; a refusal must not touch it.
@@ -171,12 +174,14 @@ fn density_plan_refusal_is_transactional_and_the_success_extent_is_unchanged() {
 
     // A bitmap whose checked size overflows `usize` refuses before any allocation attempt.
     assert_eq!(
-        table.density_at(usize::MAX, Some(0)),
+        table.density_bitmap(usize::MAX, Some(0)).map(|(_, n)| n),
         Err(StorageError::SizeOverflow)
     );
     // A bitmap sizing that fits but whose reservation the allocator refuses is a refusal too.
     assert_eq!(
-        table.density_at(usize::MAX / 256, Some(0)),
+        table
+            .density_bitmap(usize::MAX / 256, Some(0))
+            .map(|(_, n)| n),
         Err(StorageError::AllocationFailed)
     );
 
