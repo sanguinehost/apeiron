@@ -86,7 +86,7 @@ diff -ruN a/Aeneas/Std/Core/CoreResult.lean b/Aeneas/Std/Core/CoreResult.lean
 diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 --- a/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:53:50.784693136 +1000
 +++ b/Aeneas/Std/Scalar/Casts.lean	2026-09-26 15:54:09.258998932 +1000
-@@ -100,6 +100,18 @@
+@@ -100,6 +100,38 @@
  def IScalar.cast_fromBool (ty : IScalarTy) (x : Bool) : IScalar ty :=
    if x then ⟨ 1#ty.numBits ⟩ else ⟨ 0#ty.numBits ⟩
  
@@ -101,6 +101,26 @@ diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 +/-- SPIKE model: `From<u8> for i32`, a zero-extending widening conversion. -/
 +@[rust_fun "core::convert::num::{core::convert::From<i32, u8>}::from"]
 +def I32.Insts.CoreConvertFromU8.from (x : U8) : Result I32 := ok (UScalar.hcast .I32 x)
++
++/-- SPIKE model: `From<u64> for i128`, a zero-extending widening conversion. `src/engine/attn.rs`
++    reaches `u64 as i128` through `recip_u64` and `weight_at_recip`; a `u64` fits in an `i128`
++    with 64 zero bits above it, so the cast cannot lose a value. -/
++@[rust_fun "core::convert::num::{core::convert::From<i128, u64>}::from"]
++def I128.Insts.CoreConvertFromU64.from (x : U64) : Result I128 := ok (UScalar.hcast .I128 x)
++
++/-- SPIKE model: the Rust type `f32`, as an opaque value. The pinned generator prints the Lean
++    name `F32` for it (`float_name` in `src/extract/ExtractBase.ml`) and `Aeneas.Std` declares no
++    float type, so a fragment mentioning `f32` does not elaborate without this. The structure is
++    fieldless on purpose: the model carries the value and no operation on it, so
++    `core::f32::f32::is_finite` and the Q32 to `f32` conversions stay `axiom`s of the extracted
++    fragment and are audited as admitted boundary items (`proof/boundary-axioms.txt`). There is no
++    rounding, arithmetic or ordering here, so nothing numeric is read off this type: a claim that
++    needs the meaning of a `f32` is proved in the corpus against that meaning. -/
++@[rust_type "core::f32::{f32}"]
++structure core.f32.F32 where
++
++/-- The bare Lean name the pinned generator prints for Rust `f32`. -/
++abbrev F32 := core.f32.F32
 +
  /-!
  # Casts: Theorems
