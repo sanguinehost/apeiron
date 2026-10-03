@@ -57,6 +57,14 @@ that resolves; run the path before citing it.
 order. Where a document disagrees with the source or a gate, the source and the gate win; fix the
 document.
 
+**This order is enforced, not assumed.** [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py)
+`--check` reddens by name when a stage document is missing or is not referenced in this file;
+`--receipt` pins each stage document's sha256 into a dispatch, and `--verify` reddens on drift
+between the receipt and the tree. **Anything every agent must know to act is stated in this file**,
+because this is the one document every agent is delivered; `docs/` is the referenced detail record,
+not required background. A gate establishes document identity and drift, never comprehension; that
+boundary is stated, not papered over.
+
 ## 1a · Enforcement map
 
 A rule below is non-optional only when a named artefact enforces it and a command shows the verdict.
@@ -65,6 +73,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | rule | enforcing artefact | command |
 |---|---|---|
 | §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 8/8 controls) |
+| §1 the reading order — every stage document resolves and is referenced in this file; a dispatch pins their sha256 | [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py) | `python3 tools/rooting/read_gate.py --check` (`--self-test`: 3 rejection fixtures; `--controls`) |
 | §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 30 reject / 23 accept) |
 | §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
 | §4 obligation 5 — the Slang empty cone | [`tools/slang/zero_axioms.py`](tools/slang/zero_axioms.py) | `python3 tools/slang/zero_axioms.py --stage <stage> --controls` |
