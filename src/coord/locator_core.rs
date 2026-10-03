@@ -636,7 +636,7 @@ pub(crate) struct StagedPath {
     /// number rising by one per level. Publication uses this bound to fill that run as one
     /// contiguous store pass rather than re-reading every level's child slot; the recorded arena
     /// contents are the same either way.
-    pub(crate) residue_fresh_from: u32,
+    pub(crate) residue_fresh_from: usize,
     pub(crate) identity_path: Vec<u32>,
 }
 
@@ -647,6 +647,13 @@ pub(crate) struct StagedPath {
 /// declaration: the pinned extractor elaborates a type parameter at every use site (as
 /// `Directory::reserve_for`'s `K::Reserved` return already shows) while a projection inside a
 /// variant declaration is a shape it has not been shown to translate.
+#[allow(
+    dead_code,
+    reason = "the found-or-staged seam is reached only through the `injection`-gated \
+              `Table::preassemble_handles`, which the default-feature library build does not \
+              compile; `tests/native_locator/main.rs` calls it under `--all-features`, and \
+              `cargo clippy --all-features --lib -- -D warnings` is the build that observes it"
+)]
 pub(crate) enum FoundOrStaged<R> {
     /// The key is already linked at this existing terminal handle. Nothing was created, staged or
     /// retained, and the staged-path scratch returned to its idle slot.
@@ -1133,6 +1140,12 @@ impl Directory {
     /// Temporal `O(encoding_len)` words checked and reserved, one checked-arithmetic chain and
     /// three `try_reserve` calls; spatial `O(encoding_len)` staged-scratch growth beyond the
     /// arenas' capacity-only reservations.
+    #[allow(
+        dead_code,
+        reason = "the found-or-staged seam is reached only through the `injection`-gated \
+                  `Table::preassemble_handles`, which the default-feature library build does not \
+                  compile; `cargo clippy --all-features --lib -- -D warnings` observes it"
+    )]
     fn reserve_all_capacity<K: ExactIdentity>(&mut self, key: &K) -> Result<Vec<u32>, Refusal> {
         let encoding_len = key.encoding_len();
         let new_identity = encoding_len.checked_add(1).ok_or(Refusal::SizeOverflow)?;
@@ -1209,6 +1222,12 @@ impl Directory {
     /// sibling-edge chain: one residue walk and one identity walk that stages as it reuses, plus
     /// one terminal read; the separate repeat-detection walk is gone. Spatial `O(|E(k)|)` staged
     /// path entries beyond [`Directory::reserve_all_capacity`]'s reservations.
+    #[allow(
+        dead_code,
+        reason = "the found-or-staged seam is reached only through the `injection`-gated \
+                  `Table::preassemble_handles`, which the default-feature library build does not \
+                  compile; `cargo clippy --all-features --lib -- -D warnings` observes it"
+    )]
     pub(crate) fn reserve_or_linked<I: ResidueIndex, K: ExactIdentity>(
         &mut self,
         index: &I,
@@ -1301,56 +1320,49 @@ impl Directory {
         // Single exit: each loop records the first refusal and stops, and the one `Result` return
         // follows both. A `?` in a loop is an early return, which Aeneas does not translate.
         let mut refusal: Option<Refusal> = None;
-        // A `break` inside a `for` loop is an Aeneas-shape failure; the refusal guard is in the
-        // `while` condition instead, so each loop is single-exit.
-        //
-        // Phase one walks the committed trie: every level before the first absent child slot is one
-        // dependent indexed load. The first absent slot ends that walk.
+        // A `break` inside a `for` loop is an Aeneas-shape failure; the loop walks the committed
+        // trie and exits at the first absent child slot, which is recorded in `fresh_from`. Both
+        // arms write `residue_path[depth + 1]`: Aeneas cannot join a shared array read on one arm
+        // with a mutable store on the other (`InterpMatchCtxs` VSharedLoan/VMutLoan), so the store
+        // is made unconditional.
         let mut depth = 0;
         let mut fresh_from = I::LEVELS;
+        let mut fresh_start = 0u32;
         while depth < I::LEVELS && fresh_from == I::LEVELS {
             let digit = digits[depth];
             debug_assert!(usize::from(digit) < I::ARITY);
             let parent = residue_path[depth];
             let child = self.residue_child(parent, digit);
             if child == NO_CHILD {
-                fresh_from = depth;
-            } else {
-                residue_path[depth + 1] = child;
-                depth += 1;
-            }
-        }
-        // Phase two appends every remaining level as one contiguous run of records. The parent of
-        // each fresh record is the record before it, so record numbers rise by one per level and the
-        // run is `I::LEVELS - fresh_from` records starting at the current record count. Only the
-        // first fresh record is a child of a committed node; the rest are children of records this
-        // staging owns, so no slot beyond the first can already hold a committed child.
-        if refusal.is_none() && fresh_from < I::LEVELS {
-            let first = self.residue_record_count();
-            let run = I::LEVELS - fresh_from;
-            // The refusal is the same checked sizing the one-record-at-a-time loop performed: the
-            // record numbers this run names must fit `u32` on both ends.
-            let first_node = u32::try_from(first);
-            let end_node = match first_node {
-                Ok(start) => start.checked_add(u32::try_from(run).unwrap_or(u32::MAX)),
-                Err(_) => None,
-            };
-            match (first_node, end_node) {
-                (Ok(start), Some(_)) => {
-                    // One bulk append of the whole run: `run` records of `RESIDUE_STRIDE` unset
-                    // words, rather than `run` separately capacity-checked four-word appends. The
-                    // records are consecutive and the words are identical, so the arena bytes and
-                    // the record count are the same either way; the count moves once.
-                    self.push_residue_defaults(RESIDUE_STRIDE * run);
-                    self.bump_face_nodes_by::<I>(run);
-                    let mut fresh = start;
-                    while depth < I::LEVELS && refusal.is_none() {
-                        residue_path[depth + 1] = fresh;
-                        fresh = fresh.wrapping_add(1);
-                        depth += 1;
+                if fresh_from == I::LEVELS {
+                    fresh_from = depth;
+                    match u32::try_from(self.residue_record_count()) {
+                        Ok(first) => {
+                            let run = I::LEVELS - depth;
+                            self.push_residue_defaults(RESIDUE_STRIDE * run);
+                            self.bump_face_nodes_by::<I>(run);
+                            fresh_start = first;
+                            residue_path[depth + 1] = first;
+                        }
+                        Err(_) => refusal = Some(Refusal::SizeOverflow),
                     }
                 }
-                _ => refusal = Some(Refusal::SizeOverflow),
+            } else {
+                residue_path[depth + 1] = child;
+            }
+            depth += 1;
+        }
+        // The fresh run's records were appended consecutively above, so the levels
+        // `fresh_from + 1 ..= I::LEVELS` name the consecutive record numbers `fresh_start ..`.
+        // Fill the staged path with those numbers here, after the walk, so no loop sits inside
+        // the walk: Aeneas rejects a nested loop in this position.
+        if refusal.is_none() && fresh_from < I::LEVELS {
+            let mut fresh = fresh_start;
+            let mut level = fresh_from;
+            while level < I::LEVELS {
+                residue_path[level + 1] = fresh;
+                fresh = fresh.wrapping_add(1);
+                level += 1;
             }
         }
         let mut node = 0u32;
@@ -1405,7 +1417,7 @@ impl Directory {
             None => Ok(StagedPath {
                 residue_path,
                 residue_digits: digits,
-                residue_fresh_from: u32::try_from(fresh_from).unwrap_or(u32::MAX),
+                residue_fresh_from: fresh_from,
                 identity_path,
             }),
         }
@@ -1513,7 +1525,7 @@ impl Directory {
         staged: StagedPath,
         handle: u32,
     ) {
-        let fresh_from = staged.residue_fresh_from as usize;
+        let fresh_from = staged.residue_fresh_from;
         let mut depth = 0;
         while depth < fresh_from {
             let digit = staged.residue_digits[depth];

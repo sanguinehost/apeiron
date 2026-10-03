@@ -143,66 +143,72 @@ where
     ///
     /// Temporal `O(slots)`; spatial `O(live)`.
     fn live_locations(&self) -> Vec<PayloadLocation> {
-        Self::live_locations_of(self)
+        live_locations_of(&self.resident, &self.shards)
     }
 
     /// Resolves a location to its stored face and held carrier, or `None` when it is not live.
     fn payload_at(&self, location: PayloadLocation) -> Option<(Sigma, &R)> {
-        Self::payload_of(self, location)
+        payload_of(&self.resident, &self.shards, location)
     }
 }
 
-/// The storage-only observers, under no `K`, `V` or `R` bound.
+/// The live payload locations in resident-then-spill storage order.
 ///
-/// Neither walks a key or a carrier, so every table shape and every certificate path shares them.
-impl<K, V, H, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
-    /// The live payload locations in resident-then-spill storage order.
-    ///
-    /// Temporal `O(slots)`; spatial `O(live)`.
-    fn live_locations_of(&self) -> Vec<PayloadLocation> {
-        let mut locations = Vec::new();
-        for (index, slot) in self.resident.slots.iter().enumerate() {
-            if slot.live {
-                locations.push(PayloadLocation::Resident(index));
-            }
+/// A free function of the storage it reads, not a method on `Table`: the extracted `Table` structure
+/// carries a `const N` that appears in no field, so a Lean call whose receiver is a reconstructed
+/// record literal cannot infer it. Reading the two fields directly keeps the generated call free of
+/// that const generic.
+///
+/// Temporal `O(slots)`; spatial `O(live)`.
+fn live_locations_of<V, R>(resident: &Flat<R, V>, shards: &[Region<R, V>]) -> Vec<PayloadLocation> {
+    let mut locations = Vec::new();
+    for (index, slot) in resident.slots.iter().enumerate() {
+        if slot.live {
+            locations.push(PayloadLocation::Resident(index));
         }
-        for (shard, region) in self.shards.iter().enumerate() {
-            for (index, slot) in region.slots.iter().enumerate() {
-                if slot.live() {
-                    locations.push(PayloadLocation::Spill(shard, index));
-                }
-            }
-        }
-        locations
     }
+    for (shard, region) in shards.iter().enumerate() {
+        for (index, slot) in region.slots.iter().enumerate() {
+            if slot.live() {
+                locations.push(PayloadLocation::Spill(shard, index));
+            }
+        }
+    }
+    locations
+}
 
-    /// Resolves a location to its stored face and held carrier, or `None` when it is not live.
-    fn payload_of(&self, location: PayloadLocation) -> Option<(Sigma, &R)> {
-        match location {
-            PayloadLocation::Resident(index) => {
-                let slot = match self.resident.slots.get(index) {
-                    Some(slot) => slot,
-                    None => return None,
-                };
-                // An explicit branch, not `bool::then_some`: the closure form reaches the extracted
-                // cone through `assemble_directory` and the audit admits no unlisted axiom.
-                if slot.live {
-                    Some((slot.sigma, &slot.held))
-                } else {
-                    None
-                }
-            }
-            PayloadLocation::Spill(shard, index) => {
-                let region = match self.shards.get(shard) {
-                    Some(region) => region,
-                    None => return None,
-                };
-                let slot = match region.slots.get(index) {
-                    Some(slot) if slot.live() => slot,
-                    _ => return None,
-                };
+/// Resolves a location to its stored face and held carrier, or `None` when it is not live.
+///
+/// A free function of the storage it reads, for the same reason as [`live_locations_of`].
+fn payload_of<'a, V, R>(
+    resident: &'a Flat<R, V>,
+    shards: &'a [Region<R, V>],
+    location: PayloadLocation,
+) -> Option<(Sigma, &'a R)> {
+    match location {
+        PayloadLocation::Resident(index) => {
+            let slot = match resident.slots.get(index) {
+                Some(slot) => slot,
+                None => return None,
+            };
+            // An explicit branch, not `bool::then_some`: the closure form reaches the extracted
+            // cone through `assemble_directory` and the audit admits no unlisted axiom.
+            if slot.live {
                 Some((slot.sigma, &slot.held))
+            } else {
+                None
             }
+        }
+        PayloadLocation::Spill(shard, index) => {
+            let region = match shards.get(shard) {
+                Some(region) => region,
+                None => return None,
+            };
+            let slot = match region.slots.get(index) {
+                Some(slot) if slot.live() => slot,
+                _ => return None,
+            };
+            Some((slot.sigma, &slot.held))
         }
     }
 }
@@ -610,6 +616,13 @@ impl TableLocator {
     ///
     /// Temporal `O(I::LEVELS + |E(k)| * f)` for the staging walk plus checked sizing and receipt
     /// observation; spatial `O(1)` beyond [`Directory::reserve_or_linked`]'s reservations.
+    #[allow(
+        dead_code,
+        reason = "the found-or-staged seam is reached only through the `injection`-gated \
+                  `Table::preassemble_handles`, which the default-feature library build does not \
+                  compile; `tests/native_locator/main.rs` calls it under `--all-features`, and \
+                  `cargo clippy --all-features --lib -- -D warnings` is the build that observes it"
+    )]
     fn reserve_or_linked<K, H, R>(
         &mut self,
         home: &H,
@@ -672,6 +685,12 @@ impl TableLocator {
 
     /// [`TableLocator::reserve_bytes`] for the found-or-linked seam: stages one exact byte key's
     /// complete path on the committed directory unless the key is already linked.
+    #[allow(
+        dead_code,
+        reason = "the found-or-staged seam is reached only through the `injection`-gated \
+                  `Table::preassemble_handles`, which the default-feature library build does not \
+                  compile; `cargo clippy --all-features --lib -- -D warnings` observes it"
+    )]
     fn reserve_or_linked_bytes<I: ResidueIndex, K, H, R>(
         &mut self,
         index: &I,
@@ -783,6 +802,12 @@ impl TableLocator {
     /// The terminal handle the current staging will publish under, or `None` when nothing is
     /// staged. Temporal `O(1)`; spatial `O(1)`. The handle is assigned at reservation and consumed
     /// unchanged by publication, so this is the handle `record_link` will use.
+    #[allow(
+        dead_code,
+        reason = "the found-or-staged seam is reached only through the `injection`-gated \
+                  `Table::preassemble_handles`, which the default-feature library build does not \
+                  compile; `cargo clippy --all-features --lib -- -D warnings` observes it"
+    )]
     fn staged_handle(&self) -> Option<u32> {
         match &self.staged {
             Some((handle, _)) => Some(*handle),
@@ -938,11 +963,11 @@ where
         // registry, so the assembly rebuilds it from the table's own live payloads. Capacity is
         // retained, so this is not a reservation.
         self.locator.links.clear();
-        let locations = Self::live_locations_of(self);
+        let locations = live_locations_of(&self.resident, &self.shards);
         let mut at = 0;
         while at < locations.len() {
             let location = locations[at];
-            let Some((sigma, held)) = Self::payload_of(self, location) else {
+            let Some((sigma, held)) = payload_of(&self.resident, &self.shards, location) else {
                 return Err(StorageError::AllocationFailed);
             };
             // The elliptic face has no locator: it takes no link and its payload stays uncovered.
@@ -979,6 +1004,15 @@ where
     /// Temporal `O(|kvs| * (64 + |E|))` directory steps, counted in input entries and key bytes —
     /// exactly one staging walk per input entry, where a repeat key's walk reuses every child;
     /// spatial `O(distinct keys * |E|)` directory storage. This is a cold build-time pass.
+    #[allow(
+        dead_code,
+        reason = "the parallel build reached this through `TableLocator::reserve_or_linked`; \
+                  `ab7df32` replaced that walk with `admit_parallel_handles` and the cold \
+                  `assemble_directory` pass, so the only remaining caller is the `injection`-gated \
+                  `Table::preassemble_handles` (tests/native_locator/main.rs). Default-feature \
+                  builds do not compile it, so the default-feature `cargo clippy --lib` arm \
+                  cannot see the use; `--all-features` compiles it and is green"
+    )]
     pub(crate) fn preassemble_directory(
         &mut self,
         kvs: &[((H::Faces, K), V)],
