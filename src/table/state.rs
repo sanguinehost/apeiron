@@ -164,23 +164,37 @@ impl<R, V> Region<R, V> {
     /// top `bits` of `coord · PHI`, the Fibonacci multiply-shift whose multiply is on the
     /// fall-through branch in `full.asm` `probe_get` (`1822b`/`18235`) while the direct index is the
     /// taken branch (`18225`/`18229`). `PHI` is odd, so the multiply-shift is a bijection on the
-    /// word and loses no key. `O(1)`; spatial `O(1)`.
+    /// word and loses no key. Both branches are reduced through the cycle mask `bound - 1`, so the
+    /// returned index is always in `[0, bound)`: it is the probe cycle's step-0 lane and is safe to
+    /// read directly. `O(1)`; spatial `O(1)`.
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "the direct branch proves the value is below capacity and the shift leaves at most                   `bits` bits, so both fit usize"
+        reason = "the cycle mask keeps the value below the slots capacity, so it fits usize"
     )]
     #[inline]
     fn home(&self, place: u64) -> usize {
+        let bound = self.slots.len();
+        // A region with no storage never reaches a probe; the guard also keeps the shift below 64.
+        if bound == 0 {
+            return 0;
+        }
+        // The resident home index is the probe cycle's step-0 lane. The tail sweep and
+        // `spill_locate` both apply the cycle mask `bound - 1` to `home + step`; the resident probe
+        // indexes `coords`/`slots` with the home lane directly, so the home index must lie in
+        // `[0, bound)` before it is used. `coord_of` is bounded by `coords.len()` and by the top
+        // `bits` of the spread product, neither of which is the slots capacity, so reduce the value
+        // through the same mask. On a capacity that is a power of two this is the identity for every
+        // value already below capacity; it is what rules out a home at or above the capacity.
+        let mask = bound - 1;
         let c = Self::coord_of(place);
         let len = self.coords.len();
-        // A region with no storage never reaches a probe; the guard keeps the shift below 64.
         if len == 0 {
             return 0;
         }
         if c < len as u64 {
-            c as usize
+            (c as usize) & mask
         } else {
-            (c.wrapping_mul(TAG_SPREAD) >> (64 - self.bits)) as usize
+            ((c.wrapping_mul(TAG_SPREAD) >> (64 - self.bits)) as usize) & mask
         }
     }
 

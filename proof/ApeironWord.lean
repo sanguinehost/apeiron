@@ -17158,14 +17158,14 @@ inductive table.ResidentRead (V : Type) where
 | Hit : V → table.ResidentRead V
 
 /-- [apeiron_word::table::PayloadLocation]
-    Source: '../../src/table/state.rs', lines 523:0-528:1 -/
+    Source: '../../src/table/state.rs', lines 537:0-542:1 -/
 @[discriminant isize]
 inductive table.PayloadLocation where
 | Resident : Std.Usize → table.PayloadLocation
 | Spill : Std.Usize → Std.Usize → table.PayloadLocation
 
 /-- [apeiron_word::table::TableLocator]
-    Source: '../../src/table/state.rs', lines 536:0-556:1 -/
+    Source: '../../src/table/state.rs', lines 550:0-570:1 -/
 structure table.TableLocator where
   profile : Option coord.address.H3_40
   directory : Option coord.locator.locator_core.Directory
@@ -17174,7 +17174,7 @@ structure table.TableLocator where
   staged : Option (Std.U32 × coord.locator.locator_core.StagedPath)
 
 /-- [apeiron_word::table::FlatSlot]
-    Source: '../../src/table/state.rs', lines 430:0-435:1 -/
+    Source: '../../src/table/state.rs', lines 444:0-449:1 -/
 structure table.FlatSlot (R : Type) (V : Type) where
   live : Bool
   sigma : cell.Sigma
@@ -17182,7 +17182,7 @@ structure table.FlatSlot (R : Type) (V : Type) where
   value : V
 
 /-- [apeiron_word::table::Flat]
-    Source: '../../src/table/state.rs', lines 437:0-440:1 -/
+    Source: '../../src/table/state.rs', lines 451:0-454:1 -/
 structure table.Flat (R : Type) (V : Type) where
   lanes : Std.Usize
   slots : alloc.vec.Vec (table.FlatSlot R V)
@@ -17244,7 +17244,7 @@ def table.SHARD_MASK : Result Std.Usize := table.partition.SHARD_MASK
 def table.SHARD_BITS : Std.U32 := table.partition.SHARD_BITS
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::index]:
-    Source: '../../src/table/state.rs', lines 478:4-489:5 -/
+    Source: '../../src/table/state.rs', lines 492:4-503:5 -/
 def table.Flat.index
   {R : Type} {V : Type} (self : table.Flat R V) (word : Std.U32) :
   Result (Option Std.Usize)
@@ -17323,7 +17323,7 @@ def table.Table.resident_exact
       else ok table.ResidentRead.Vacant
 
 /-- [apeiron_word::table::shard]:
-    Source: '../../src/table/state.rs', lines 352:0-357:1 -/
+    Source: '../../src/table/state.rs', lines 366:0-371:1 -/
 def table.shard (address : table.TableAddress) : Result Std.Usize := do
   match address.direct_word with
   | none =>
@@ -17336,7 +17336,7 @@ def table.shard (address : table.TableAddress) : Result Std.Usize := do
     ok (i &&& i1)
 
 /-- [apeiron_word::table::matches]:
-    Source: '../../src/table/state.rs', lines 369:0-376:1 -/
+    Source: '../../src/table/state.rs', lines 383:0-390:1 -/
 def table.matches
   {K : Type} {H : Type} {R : Type} {V : Type} (keyrepKeyRepInst :
   table.keyrep.KeyRep R K H) (slot : table.SpillSlot R V) (sigma : cell.Sigma)
@@ -17353,7 +17353,7 @@ def table.matches
 @[global_simps, irreducible] def table.MAX_GROUP : Std.Usize := 64#usize
 
 /-- [apeiron_word::table::valid_n]:
-    Source: '../../src/table/state.rs', lines 344:0-346:1 -/
+    Source: '../../src/table/state.rs', lines 358:0-360:1 -/
 def table.valid_n (n : Std.Usize) : Result Bool := do
   if n != 0#usize
   then
@@ -17381,24 +17381,31 @@ def table.Region.coord_of
   else ok c
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::home]:
-    Source: '../../src/table/state.rs', lines 173:4-185:5 -/
+    Source: '../../src/table/state.rs', lines 175:4-199:5 -/
 def table.Region.home
   {R : Type} {V : Type} (self : table.Region R V) (place : Std.U64) :
   Result Std.Usize
   := do
-  let c ← table.Region.coord_of R V place
-  let len := alloc.vec.Vec.len self.coords
-  if len = 0#usize
+  let bound := alloc.vec.Vec.len self.slots
+  if bound = 0#usize
   then ok 0#usize
   else
-    let i ← lift (UScalar.cast .U64 len)
-    if c < i
-    then ok (UScalar.cast .Usize c)
+    let mask ← bound - 1#usize
+    let c ← table.Region.coord_of R V place
+    let len := alloc.vec.Vec.len self.coords
+    if len = 0#usize
+    then ok 0#usize
     else
-      let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
-      let i2 ← 64#u32 - self.bits
-      let i3 ← i1 >>> i2
-      ok (UScalar.cast .Usize i3)
+      let i ← lift (UScalar.cast .U64 len)
+      if c < i
+      then let i1 ← lift (UScalar.cast .Usize c)
+           ok (i1 &&& mask)
+      else
+        let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+        let i2 ← 64#u32 - self.bits
+        let i3 ← i1 >>> i2
+        let i4 ← lift (UScalar.cast .Usize i3)
+        ok (i4 &&& mask)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::bound]:
     Source: '../../src/table/state.rs', lines 137:4-139:5 -/
@@ -20314,7 +20321,7 @@ def table.partition.Schedule.is_complete
 def table.SHARDS : Result Std.Usize := table.partition.SHARDS
 
 /-- [apeiron_word::table::slots_for]: loop body 0:
-    Source: '../../src/table/state.rs', lines 408:4-412:1 -/
+    Source: '../../src/table/state.rs', lines 422:4-426:1 -/
 @[rust_loop_body]
 def table.slots_for_loop.body
   (twice : Std.Usize) (capacity : Std.Usize) :
@@ -20336,7 +20343,7 @@ def table.slots_for_loop.body
   else ok (done (core.result.Result.Ok capacity))
 
 /-- [apeiron_word::table::slots_for]: loop 0:
-    Source: '../../src/table/state.rs', lines 408:4-412:1 -/
+    Source: '../../src/table/state.rs', lines 422:4-426:1 -/
 @[rust_loop]
 def table.slots_for_loop
   (twice : Std.Usize) (capacity : Std.Usize) :
@@ -20347,7 +20354,7 @@ def table.slots_for_loop
     capacity
 
 /-- [apeiron_word::table::slots_for]:
-    Source: '../../src/table/state.rs', lines 396:0-412:1 -/
+    Source: '../../src/table/state.rs', lines 410:0-426:1 -/
 def table.slots_for
   (load : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result Std.Usize table.StorageError)
@@ -20415,7 +20422,7 @@ def table.resources.try_reserve_exact
   ok (r1, items1)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::reserve_empty]:
-    Source: '../../src/table/state.rs', lines 222:4-233:5 -/
+    Source: '../../src/table/state.rs', lines 236:4-247:5 -/
 def table.Region.reserve_empty
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (capacity : Std.Usize) :
@@ -20538,7 +20545,7 @@ def table.reserve_plan_regions
       table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 0:
-    Source: '../../src/table/state.rs', lines 240:8-247:9 -/
+    Source: '../../src/table/state.rs', lines 254:8-261:9 -/
 @[rust_loop_body]
 def table.Region.initialize_loop0.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20560,7 +20567,7 @@ def table.Region.initialize_loop0.body
   else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop 0:
-    Source: '../../src/table/state.rs', lines 240:8-247:9 -/
+    Source: '../../src/table/state.rs', lines 254:8-261:9 -/
 @[rust_loop]
 def table.Region.initialize_loop0
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -20575,7 +20582,7 @@ def table.Region.initialize_loop0
     v
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 1:
-    Source: '../../src/table/state.rs', lines 248:8-250:9 -/
+    Source: '../../src/table/state.rs', lines 262:8-264:9 -/
 @[rust_loop_body]
 def table.Region.initialize_loop1.body
   (capacity : Std.Usize) (v : alloc.vec.Vec Std.U64) :
@@ -20588,7 +20595,7 @@ def table.Region.initialize_loop1.body
   else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop 1:
-    Source: '../../src/table/state.rs', lines 248:8-250:9 -/
+    Source: '../../src/table/state.rs', lines 262:8-264:9 -/
 @[rust_loop]
 def table.Region.initialize_loop1
   (v : alloc.vec.Vec Std.U64) (capacity : Std.Usize) :
@@ -20599,7 +20606,7 @@ def table.Region.initialize_loop1
     v
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop body 2:
-    Source: '../../src/table/state.rs', lines 255:8-258:9 -/
+    Source: '../../src/table/state.rs', lines 269:8-272:9 -/
 @[rust_loop_body]
 def table.Region.initialize_loop2.body
   (width : Std.Usize) (bits : Std.U32) :
@@ -20613,7 +20620,7 @@ def table.Region.initialize_loop2.body
   else ok (done bits)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]: loop 2:
-    Source: '../../src/table/state.rs', lines 255:8-258:9 -/
+    Source: '../../src/table/state.rs', lines 269:8-272:9 -/
 @[rust_loop]
 def table.Region.initialize_loop2
   (width : Std.Usize) (bits : Std.U32) : Result Std.U32 := do
@@ -20622,7 +20629,7 @@ def table.Region.initialize_loop2
     (width, bits)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::initialize]:
-    Source: '../../src/table/state.rs', lines 238:4-260:5 -/
+    Source: '../../src/table/state.rs', lines 252:4-274:5 -/
 def table.Region.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Region R V)
@@ -20751,7 +20758,7 @@ structure table.Merge (Self : Type) (V : Type) where
   merge : Self → V → V → Result V
 
 /-- [apeiron_word::table::SpillSite]
-    Source: '../../src/table/state.rs', lines 264:0-268:1 -/
+    Source: '../../src/table/state.rs', lines 278:0-282:1 -/
 @[discriminant isize]
 inductive table.SpillSite where
 | Found : Std.Usize → table.SpillSite
@@ -20780,7 +20787,7 @@ def table.TAG_FINGERPRINT_SHIFT : Result Std.U32 :=
 @[global_simps, irreducible] def table.TAG_LIVE : Std.U8 := 128#u8
 
 /-- [apeiron_word::table::tag]:
-    Source: '../../src/table/state.rs', lines 364:0-367:1 -/
+    Source: '../../src/table/state.rs', lines 378:0-381:1 -/
 def table.tag (place : Std.U64) : Result Std.U8 := do
   let spread ← lift (core.num.U64.wrapping_mul place table.TAG_SPREAD)
   let i ← table.TAG_FINGERPRINT_SHIFT
@@ -20791,7 +20798,7 @@ def table.tag (place : Std.U64) : Result Std.U8 := do
   ok (table.TAG_LIVE ||| i4)
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::publish_live]:
-    Source: '../../src/table/state.rs', lines 194:4-205:5 -/
+    Source: '../../src/table/state.rs', lines 208:4-219:5 -/
 def table.Region.publish_live
   {R : Type} {V : Type} (self : table.Region R V) (index : Std.Usize)
   (payload : (cell.Sigma × R × V)) (place : Std.U64) :
@@ -21286,27 +21293,27 @@ structure table.resources.PreparedOutcome (R : Type) where
   pending_held : R
 
 /-- [apeiron_word::table::RebuildReserved]
-    Source: '../../src/table/state.rs', lines 460:0-463:1 -/
+    Source: '../../src/table/state.rs', lines 474:0-477:1 -/
 structure table.RebuildReserved (R : Type) (V : Type) where
   resident : table.Flat R V
   regions : alloc.vec.Vec (table.Region R V)
 
 /-- [apeiron_word::table::RebuildSource]
-    Source: '../../src/table/state.rs', lines 443:0-446:1 -/
+    Source: '../../src/table/state.rs', lines 457:0-460:1 -/
 @[discriminant isize]
 inductive table.RebuildSource where
 | Resident : Std.Usize → table.RebuildSource
 | Spill : Std.Usize → Std.Usize → table.RebuildSource
 
 /-- [apeiron_word::table::RebuildPlanEntry]
-    Source: '../../src/table/state.rs', lines 448:0-452:1 -/
+    Source: '../../src/table/state.rs', lines 462:0-466:1 -/
 structure table.RebuildPlanEntry where
   source : table.RebuildSource
   flat : Option Std.Usize
   spill : Std.Usize
 
 /-- [apeiron_word::table::RebuildPlan]
-    Source: '../../src/table/state.rs', lines 454:0-458:1 -/
+    Source: '../../src/table/state.rs', lines 468:0-472:1 -/
 structure table.RebuildPlan where
   lanes : Std.Usize
   entries : alloc.vec.Vec table.RebuildPlanEntry
@@ -21344,7 +21351,7 @@ def table.resources.publish_prepared
 def table.ASSUMED_SLOT_BYTES : Std.Usize := 32#usize
 
 /-- [apeiron_word::table::SearchClass]
-    Source: '../../src/table/state.rs', lines 271:0-278:1
+    Source: '../../src/table/state.rs', lines 285:0-292:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchClass where
@@ -21353,7 +21360,7 @@ inductive table.SearchClass where
 | Exhausted : table.SearchClass
 
 /-- [apeiron_word::table::{impl core::cmp::PartialEq<apeiron_word::table::SearchClass> for apeiron_word::table::SearchClass}::eq]:
-    Source: '../../src/table/state.rs', lines 270:29-270:38
+    Source: '../../src/table/state.rs', lines 284:29-284:38
     Visibility: public -/
 def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   (self : table.SearchClass) (other : table.SearchClass) : Result Bool := do
@@ -21362,7 +21369,7 @@ def table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
   ok (self1 = other1)
 
 /-- [apeiron_word::table::SearchLocation]
-    Source: '../../src/table/state.rs', lines 282:0-289:1
+    Source: '../../src/table/state.rs', lines 296:0-303:1
     Visibility: public -/
 @[discriminant isize]
 inductive table.SearchLocation where
@@ -21371,14 +21378,14 @@ inductive table.SearchLocation where
 | NoIndex : table.SearchLocation
 
 /-- [apeiron_word::table::SearchDecision]
-    Source: '../../src/table/state.rs', lines 293:0-298:1
+    Source: '../../src/table/state.rs', lines 307:0-312:1
     Visibility: public -/
 structure table.SearchDecision where
   «class» : table.SearchClass
   location : table.SearchLocation
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::found_flat]:
-    Source: '../../src/table/state.rs', lines 301:4-306:5 -/
+    Source: '../../src/table/state.rs', lines 315:4-320:5 -/
 def table.SearchDecision.found_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -21388,7 +21395,7 @@ def table.SearchDecision.found_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::vacant_flat]:
-    Source: '../../src/table/state.rs', lines 307:4-312:5 -/
+    Source: '../../src/table/state.rs', lines 321:4-326:5 -/
 def table.SearchDecision.vacant_flat
   (index : Std.Usize) : Result table.SearchDecision := do
   ok
@@ -21398,7 +21405,7 @@ def table.SearchDecision.vacant_flat
     }
 
 /-- [apeiron_word::table::{apeiron_word::table::SearchDecision}::from_spill]:
-    Source: '../../src/table/state.rs', lines 313:4-328:5 -/
+    Source: '../../src/table/state.rs', lines 327:4-342:5 -/
 def table.SearchDecision.from_spill
   (shard : Std.Usize) (site : table.SpillSite) :
   Result table.SearchDecision
@@ -21424,14 +21431,14 @@ def table.SearchDecision.from_spill
       }
 
 /-- [apeiron_word::table::ApplyOutcome]
-    Source: '../../src/table/state.rs', lines 336:0-341:1 -/
+    Source: '../../src/table/state.rs', lines 350:0-355:1 -/
 @[discriminant isize]
 inductive table.ApplyOutcome (K : Type) (V : Type) where
 | Committed : table.ApplyOutcome K V
 | NeedsGrowth : K → V → table.ApplyOutcome K V
 
 /-- [apeiron_word::table::capacity_bound]:
-    Source: '../../src/table/state.rs', lines 419:0-428:1 -/
+    Source: '../../src/table/state.rs', lines 433:0-442:1 -/
 def table.capacity_bound
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
   Result table.resources.CapacityBound
@@ -21441,12 +21448,12 @@ def table.capacity_bound
   ok { required_len, observed_capacity }
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::empty]:
-    Source: '../../src/table/state.rs', lines 466:4-471:5 -/
+    Source: '../../src/table/state.rs', lines 480:4-485:5 -/
 def table.Flat.empty (R : Type) (V : Type) : Result (table.Flat R V) := do
   ok { lanes := 0#usize, slots := (alloc.vec.Vec.new (table.FlatSlot R V)) }
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::byte_len_for]:
-    Source: '../../src/table/state.rs', lines 490:4-492:5 -/
+    Source: '../../src/table/state.rs', lines 504:4-506:5 -/
 def table.Flat.byte_len_for
   (R : Type) (V : Type) (lanes : Std.Usize) : Result (Option Std.Usize) := do
   let i ← table.SHARDS
@@ -21460,7 +21467,7 @@ def table.Flat.byte_len_for
       Std.Usize residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::reserve]:
-    Source: '../../src/table/state.rs', lines 496:4-503:5 -/
+    Source: '../../src/table/state.rs', lines 510:4-517:5 -/
 def table.Flat.reserve
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (lanes : Std.Usize) :
@@ -21487,7 +21494,7 @@ def table.Flat.reserve
       (table.Flat R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop body 0:
-    Source: '../../src/table/state.rs', lines 507:8-514:9 -/
+    Source: '../../src/table/state.rs', lines 521:8-528:9 -/
 @[rust_loop_body]
 def table.Flat.initialize_loop.body
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -21508,7 +21515,7 @@ def table.Flat.initialize_loop.body
   else ok (done v)
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]: loop 0:
-    Source: '../../src/table/state.rs', lines 507:8-514:9 -/
+    Source: '../../src/table/state.rs', lines 521:8-528:9 -/
 @[rust_loop]
 def table.Flat.initialize_loop
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
@@ -21523,7 +21530,7 @@ def table.Flat.initialize_loop
     v
 
 /-- [apeiron_word::table::{apeiron_word::table::Flat<R, V>}::initialize]:
-    Source: '../../src/table/state.rs', lines 505:4-515:5 -/
+    Source: '../../src/table/state.rs', lines 519:4-529:5 -/
 def table.Flat.initialize
   {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
   (corecloneCloneInst1 : core.clone.Clone V) (self : table.Flat R V)
@@ -21538,7 +21545,7 @@ def table.Flat.initialize
   ok { self with slots := v }
 
 /-- [apeiron_word::table::{apeiron_word::table::TableLocator}::new]:
-    Source: '../../src/table/state.rs', lines 560:4-568:5 -/
+    Source: '../../src/table/state.rs', lines 574:4-582:5 -/
 def table.TableLocator.new : Result table.TableLocator := do
   ok
     {
