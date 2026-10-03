@@ -397,7 +397,7 @@ impl<K, V, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V, H, N, R> {
     /// This is [`Self::get_exact_spill`] with `None` mapped to the default, so the total and the
     /// exact read run one `spill_read` body rather than two.
     #[must_use]
-    #[inline(never)]
+    #[inline]
     fn get_spill(&self, sigma: Sigma, place: u64, direct_word: Option<u32>, key: &K) -> &V {
         self.get_exact_spill(sigma, place, direct_word, key)
             .unwrap_or(&self.default)
