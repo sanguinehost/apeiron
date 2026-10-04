@@ -38,6 +38,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [frontier-consumer](epics/frontier-consumer.md) | draft; cross-track roadmap (product ladder R0–R5) |
 | [gate-driver](epics/gate-driver.md) | plan only: replace 33 `proof/resource/*_gate.py` with one `tools/gate` binary; no status line in the file |
 | [gpu-spv](epics/gpu-spv.md) | draft |
+| [icarus-sha256-rooting](epics/icarus-sha256-rooting.md) | active; ports the campaign's 199 bound SHA-256/256d rooting results into a new `Icarus` corpus library |
 | [inference-parity](epics/inference-parity.md) | draft for decision |
 | [kani-retirement](epics/kani-retirement.md) | retired by user direction |
 | [kernel-topology-optimizations](epics/kernel-topology-optimizations.md) | draft |

@@ -136,7 +136,7 @@ def pad (m : List (BitVec 8)) : List (BitVec 8) :=
   m ++ [0x80] ++ List.replicate (total - m.length - 9) 0 ++ lengthBlock m.length
 
 /-- The `k`-th 64-byte block of the padded message as sixteen big-endian words. O(64) time. -/
-private def paddedBlock (p : List (BitVec 8)) (k : Nat) : Block :=
+def paddedBlock (p : List (BitVec 8)) (k : Nat) : Block :=
   Vector.ofFn fun i : Fin 16 =>
     (List.range 4).foldl (fun acc j =>
       ((acc.toNat <<< 8) ||| (p.getD (64 * k + 4 * i.val + j) 0).toNat) % 4294967296) 0
