@@ -182,4 +182,4 @@ import route, pin citation, red/restore control; `APEIRON_LAKE=1` set so the cor
 | Regen window for `word_sha256d` | extraction owner | open — one exclusive `regen.sh` run + `regen.sh --check` with the `rfl` discharge check (manifest §2); then `word_sha256d_denotes` composes the corpus conditional with itself; the parent obligation stays `WordSha256Denotes` |
 | Certificate arcs O11–O15 | certificate owner | open — wave-1 dispatch 2026-10-04 (schedule totality, pad tail + length write, loading-loop invariant, compression fold, store-loop value link) |
 | Public write-up of the rooting results | lead | open — `work/algebra-rooting/final-report-draft.md` + `mining-analysis.md`; needs its own bound claim with a gate |
-| Gate-tool hygiene | lead | open — promote `work/cost_bridge_gate.py` to `tools/` per the plan; the `w-pin` fixture-seeding guard gap; the audit's fresh-elaboration residual |
+| Gate-tool hygiene | lead | **promoted** 2026-10-04: `tools/cost_bridge_gate.py`, guard closed, check + 47/47 suite green; residual: the fresh-elaboration (oleans-removed) audit exceeds this box budget |
