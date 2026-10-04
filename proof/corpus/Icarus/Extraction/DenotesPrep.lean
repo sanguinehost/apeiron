@@ -19,14 +19,17 @@ makes no freshness claim about the extraction and no security, cost or performan
 
 The canonical-side definitions `wordByte`, `stateToBytes`, `paddedBlockBody`,
 `stateToBytes_length`, `pad_len`, `pad_stateToBytes_length`, `hash_one_block_eq_compress_H0`,
-`hash_outer_eq_compress_H0` and `sha256d_eq_outer_compress_H0` are re-declared verbatim from
+`hash_outer_eq_compress_H0` and `sha256d_eq_outer_compress_H0` were re-declared verbatim from
 AR-40 (`work/proofs/AlgebraSha256dCompose.lean`, sha256
-`d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0`, read-only). They are
-re-declared rather than imported because the W3 port of AR-40 is not in this tree yet; when it
-lands, this file's re-declarations must be replaced by imports and re-gated. The conclusion of
-`word_sha256d_strength_eq_outer_compress_H0` is exactly AR-40's right-hand side at the message's
-byte view; `word_sha256d_strength_denotes` reaches AR-40's left-hand side from the composed
-extracted run.
+`d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0`, read-only) while the W3 port
+of AR-40 was absent from this tree. W3 has since landed at
+`Icarus/Composition/AlgebraSha256dCompose.lean`, byte-identical to the staging source (same sha256
+`d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0`), so those re-declarations are
+deleted here and replaced by an import of that module; AR-40 is now the single authority for the
+canonical chain, and this file's `#print axioms` rows for those names read its theorems. The
+conclusion of `word_sha256d_strength_eq_outer_compress_H0` is exactly AR-40's right-hand side at
+the message's byte view; `word_sha256d_strength_denotes` reaches AR-40's left-hand side from the
+composed extracted run.
 
 Named obligations (detail in the icarus-regen-manifest note):
   AR-73-R1 (open, regen window): an exclusive `proof/regen.sh` run must emit
@@ -40,6 +43,7 @@ Named obligations (detail in the icarus-regen-manifest note):
 
 import Crypto.Sha2
 import Crypto.Sha256Certificate
+import Icarus.Composition.AlgebraSha256dCompose
 
 set_option autoImplicit false
 set_option warningAsError true
@@ -52,42 +56,18 @@ namespace AlgebraSha256dDenotes
 open Aeneas Aeneas.Std Result
 open Apeiron.Crypto.Sha2 (Word State Block H0 lengthBlock compress pad)
 
-/-! ## 1 · The canonical-side definitions of AR-40, re-declared verbatim
+/-! ## 1 · The canonical-side definitions of AR-40, imported
 
-Sources, all read-only: `work/proofs/AlgebraSha256dCompose.lean`
-sha256 `d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0`:
-`paddedBlockBody` :46-49, `hash_eq_fold_paddedBlockBody` :53-55, `wordByte` :67-68,
-`stateToBytes` :71-72, `lengthBlock_length` :139-140, `stateToBytes_length` :142-143,
-`pad_len` :362-375, `pad_stateToBytes_length` :378-381,
-`hash_one_block_eq_compress_H0` :342-346, `hash_outer_eq_compress_H0` :391-394,
-`sha256d_eq_outer_compress_H0` :400-403. -/
-
-/-- The body of the private `Sha2.paddedBlock` (`Crypto/Sha2.lean:139-142`), transcribed
-verbatim (AR-40 §1): the kernel's definitional equality identifies it with the private
-constant, so `hash_eq_fold_paddedBlockBody` is `rfl` and the private name never appears. -/
-def paddedBlockBody (p : List (BitVec 8)) (k : Nat) : Block :=
-  Vector.ofFn fun i : Fin 16 =>
-    (List.range 4).foldl (fun acc j =>
-      ((acc.toNat <<< 8) ||| (p.getD (64 * k + 4 * i.val + j) 0).toNat) % 4294967296) 0
-
-/-- The canonical `Sha2.hash` fold is the `paddedBlockBody` fold, definitionally. -/
-theorem hash_eq_fold_paddedBlockBody (m : List (BitVec 8)) :
-    Apeiron.Crypto.Sha2.hash m = (List.range ((pad m).length / 64)).foldl
-      (fun h k => compress h (paddedBlockBody (pad m) k)) H0 := rfl
-
-/-- Byte `j` of a `Sha2.Word`, most significant first, as a `Nat` (AR-14 `wordByte`). -/
-def wordByte (w : Word) (j : Nat) : Nat :=
-  (w.toNat / 2 ^ (8 * (3 - j))) % 256
-
-/-- The 32-byte big-endian flattening of a chaining state (AR-14 `stateToBytes`). -/
-def stateToBytes (s : State) : List (BitVec 8) :=
-  List.ofFn fun k : Fin 32 => (wordByte (s.getD (k / 4) 0) (k % 4) : BitVec 8)
-
-theorem lengthBlock_length (n : Nat) : (lengthBlock n).length = 8 := by
-  simp [lengthBlock]
-
-theorem stateToBytes_length (s : State) : (stateToBytes s).length = 32 := by
-  simp [stateToBytes, List.length_ofFn]
+`paddedBlockBody`, `hash_eq_fold_paddedBlockBody`, `wordByte`, `stateToBytes`,
+`lengthBlock_length`, `stateToBytes_length`, `pad_len`, `pad_stateToBytes_length`,
+`hash_one_block_eq_compress_H0`, `hash_outer_eq_compress_H0` and `sha256d_eq_outer_compress_H0`
+are not declared in this file. They are `Icarus.Composition.AlgebraSha256dCompose`'s (AR-40,
+sha256 `d7eef60f59722007af296e942802e243b1fd1fff7a82ae3ac0aa888789fa0dd0`), opened below by
+name so that no unqualified use of a canonical-side identifier can resolve to a local
+re-declaration. -/
+open AlgebraSha256dCompose (paddedBlockBody hash_eq_fold_paddedBlockBody wordByte stateToBytes
+  lengthBlock_length stateToBytes_length pad_len pad_stateToBytes_length
+  hash_one_block_eq_compress_H0 hash_outer_eq_compress_H0 sha256d_eq_outer_compress_H0)
 
 /-! ## 2 · The named hypothesis, the composition, and the predicate it would feed
 
@@ -119,52 +99,7 @@ def WordSha256dStrengthDenotes (msg : Slice Std.U8) : Prop :=
       = Apeiron.Crypto.Sha2.hash
           (stateToBytes (Apeiron.Crypto.Sha2.hash (apeiron_word.sliceBytes msg)))
 
-/-! ## 3 · AR-40 §6-§7 at the re-declared definitions -/
-
-/-- `Sha2.pad`'s padded length, `Nat` arithmetic only (AR-14 `pad_len`). -/
-theorem pad_len (m : List (BitVec 8)) :
-    (pad m).length = m.length + 9 + (64 - (m.length + 9) % 64) % 64 := by
-  have hz : pad m = m ++ [0x80] ++ List.replicate
-      ((if (m.length + 9) % 64 = 0 then m.length + 9
-        else m.length + 9 + (64 - (m.length + 9) % 64)) - m.length - 9) 0
-      ++ lengthBlock m.length := rfl
-  rw [hz]
-  simp only [List.length_append, List.length_cons, List.length_nil, List.length_replicate,
-    lengthBlock_length]
-  by_cases h : (m.length + 9) % 64 = 0
-  · simp only [h, if_true]
-    omega
-  · simp only [h, if_false]
-    omega
-
-/-- The 32-byte digest store pads to exactly one block, for every state. -/
-theorem pad_stateToBytes_length (s : State) : (pad (stateToBytes s)).length = 64 := by
-  have h := pad_len (stateToBytes s)
-  rw [stateToBytes_length] at h
-  omega
-
-/-- The one-block collapse of `Sha2.hash` (AR-40 §6). -/
-theorem hash_one_block_eq_compress_H0 (m : List (BitVec 8)) (h : (pad m).length = 64) :
-    Apeiron.Crypto.Sha2.hash m = compress H0 (paddedBlockBody (pad m) 0) := by
-  simp only [Apeiron.Crypto.Sha2.hash]
-  rw [h]
-  rfl
-
-/-- **AR-40's outer half, re-proved at the re-declared definitions.** The second application of
-`Sha2.hash` to the 32-byte store of `s` is one compression from `H0`; no hypothesis. -/
-theorem hash_outer_eq_compress_H0 (s : State) :
-    Apeiron.Crypto.Sha2.hash (stateToBytes s)
-      = compress H0 (paddedBlockBody (pad (stateToBytes s)) 0) :=
-  hash_one_block_eq_compress_H0 (stateToBytes s) (pad_stateToBytes_length s)
-
-/-- **AR-40's `sha256d_eq_outer_compress_H0`, re-proved.** The canonical double application is
-one compression from `H0` of the padded 32-byte digest store, for every message. -/
-theorem sha256d_eq_outer_compress_H0 (m : List (BitVec 8)) :
-    Apeiron.Crypto.Sha2.hash (stateToBytes (Apeiron.Crypto.Sha2.hash m))
-      = compress H0 (paddedBlockBody (pad (stateToBytes (Apeiron.Crypto.Sha2.hash m))) 0) :=
-  hash_outer_eq_compress_H0 (Apeiron.Crypto.Sha2.hash m)
-
-/-! ## 4 · The byte-view bridge
+/-! ## 3 · The byte-view bridge
 
 The composition's outer application receives the extracted digest array through
 `Array.to_slice`; its `sliceBytes` must be the canonical 32-byte big-endian flattening of the
@@ -312,13 +247,13 @@ theorem sliceBytes_to_slice_eq_stateToBytes_digView (a : Array Std.U8 32#usize) 
   rw [hval]
   exact bytesList_eq_stateToBytes_digView a
 
-/-! ## 5 · The conditional link
+/-! ## 4 · The conditional link
 
 `word_sha256d_strength_denotes` applies the named hypothesis at both inputs — the inner one at
 `msg`, the outer one at `Array.to_slice inner` — and lands on `sha256d = sha256 ∘ sha256`.
-`word_sha256d_strength_eq_outer_compress_H0` rewrites that with the re-proved AR-40 statement,
-so its conclusion is exactly AR-40's right-hand side. Both are conditional: no certificate
-stage is asserted here. -/
+`word_sha256d_strength_eq_outer_compress_H0` rewrites that with AR-40's imported
+`sha256d_eq_outer_compress_H0`, so its conclusion is exactly AR-40's right-hand side. Both are
+conditional: no certificate stage is asserted here. -/
 
 /-- **The conditional link.** If `word_sha256` denotes canonical SHA-256 on every slice, then
 the two-application composition denotes the canonical double application of the message's byte
@@ -349,7 +284,10 @@ theorem word_sha256d_strength_eq_outer_compress_H0 (h : WordSha256DenotesAll)
   exact ⟨out, hout,
     hview.trans (sha256d_eq_outer_compress_H0 (apeiron_word.sliceBytes msg))⟩
 
-/-! ## 6 · Axiom cone -/
+/-! ## 5 · Axiom cone
+
+The eleven rows for the canonical chain are AR-40's theorems, read here through the import; the
+seven rows below them are this file's own statements. -/
 
 #print axioms paddedBlockBody
 #print axioms hash_eq_fold_paddedBlockBody
