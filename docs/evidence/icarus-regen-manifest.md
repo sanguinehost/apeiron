@@ -41,7 +41,7 @@ wrapper is already prepared on the Rust side and already selected by the extract
 | item | location | state |
 |---|---|---|
 | `pub fn word_sha256d(msg: &[u8]) -> [u8; 32] { sha256::sha256d(msg) }` | `proof/extract/lib.rs:1109` | present |
-| `--start-from crate::word_sha256d` | `proof/regen.sh:242` | present |
+| `--start-from crate::word_sha256d` | `proof/regen.sh:243` | present |
 | `apeiron_word.word_sha256` | `proof/ApeironWord.lean:24896`, body `sha256.sha256 msg` | present |
 | `apeiron_word.word_sha256d` | — | **absent; this is the window's deliverable** |
 
