@@ -46,7 +46,7 @@ use keyrep::{KeyRep, Stored};
 pub use probe::read_stats;
 #[cfg(test)]
 use probe::read_trace;
-use probe::{spill_locate, spill_locate_held, spill_read};
+use probe::{spill_locate, spill_locate_held, spill_read, spill_update_found, SpillUpdate};
 use resources::{
     capacity_bound_holds, publish_prepared, try_reserve_exact, CapacityBound,
     LocatorReservationPlan, LocatorReservationReceipt, PreparedEnvelope, PreparedOutcome,
@@ -1260,6 +1260,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     ///
     /// # Errors
     /// Propagates the checked sizing or reservation error from [`Self::insert_with_at`].
+    #[inline]
     pub fn insert_with<F: Merge<V>>(
         &mut self,
         merge: &F,
@@ -1488,6 +1489,7 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
     /// Temporal `O(1)` on the found and resident paths and the probe walk's cost otherwise; spatial
     /// `O(1)`. The classification is [`Self::search_decision`], so every key gets the same decision
     /// [`Self::insert_with_at`] would compute.
+    #[inline]
     fn insert_with_fast<F: Merge<V>>(
         &mut self,
         merge: &F,
@@ -1530,6 +1532,42 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
                     return self.rebuild_resident(next, merge, sigma, key, value, &address);
                 }
             }
+        }
+        // Pure-spill route: `direct_word` is absent, so the classifier would reach only the spill
+        // region. Fuse the locate and the found-update in one walk so the found path builds no
+        // `SearchDecision` and indexes the region once. A `Vacant`/`Grow` outcome returns the
+        // pending value unconsumed and falls into the same reservation and publish/grow sequence the
+        // classified path uses.
+        if address.direct_word.is_none() {
+            let shard_at = shard(&address);
+            return match spill_update_found::<K, H, R, V, F>(
+                &mut self.shards[shard_at],
+                merge,
+                sigma,
+                &address,
+                &key,
+                value,
+                N,
+            ) {
+                SpillUpdate::Updated => Ok(()),
+                SpillUpdate::Vacant(slot, value) => {
+                    self.reserve_locator_batch(1)?;
+                    self.locator
+                        .record_admitted_link(sigma, PayloadLocation::Spill(shard_at, slot))?;
+                    let merged = merge.merge(value, self.default.clone());
+                    self.shards[shard_at].publish_live(
+                        slot,
+                        (sigma, R::hold(sigma, &key, &address), merged),
+                        address.place,
+                    );
+                    self.len += 1;
+                    Ok(())
+                }
+                SpillUpdate::Grow(value) => {
+                    self.reserve_locator_batch(1)?;
+                    self.grow_spill(shard_at, merge, sigma, key, value, &address)
+                }
+            };
         }
         let decision = self.search_decision(sigma, &key, &address);
         // A vacancy admits a fresh representative, so it commits the aggregate reservation for one
