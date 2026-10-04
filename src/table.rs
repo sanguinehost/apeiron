@@ -799,16 +799,17 @@ impl<K: Clone, V: Clone, H: Home<K>, const N: usize, R: KeyRep<K, H>> Table<K, V
             Some(word) => word,
             None => return None,
         };
-        let lane = (word >> SHARD_BITS) as usize;
-        if lane >= lanes {
-            return None;
-        }
-        let slot = (word as usize) & SHARD_MASK;
-        let scaled = match slot.checked_mul(lanes) {
-            Some(value) => value,
-            None => return None,
-        };
-        scaled.checked_add(lane)
+        // The same law `Flat::index` reads from its stored `lane_bits`, applied to the rebuild
+        // plan's lane count before the reservation exists. `lanes` is `selected_lanes`' doubling-loop
+        // result, so it is a power of two and `trailing_zeros` is the `log2` `Flat::reserve` will
+        // store: the two agree on every index, and a lane count that were not a power of two is
+        // refused by that reservation before any plan reaches a live table.
+        flat_index(
+            lanes.trailing_zeros(),
+            lanes,
+            (word >> SHARD_BITS) as usize,
+            (word as usize) & SHARD_MASK,
+        )
     }
 
     /// Classifies the pending key in the already-relocated reserved storage.

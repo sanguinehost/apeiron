@@ -2,9 +2,9 @@
 
 use super::keyrep::{I64WordCodec, Regen};
 use super::{
-    build_prepared_shard, capacity_bound_holds, keyrep::KeyRep, publication_trace, read_trace,
-    shard, slots_for, spill_locate, spill_read, tag, ApplyOutcome, Flat, FlatSlot, Home,
-    PreparedResult, RebuildPlan, RebuildReserved, Region, ReplacementMerge, SearchClass,
+    build_prepared_shard, capacity_bound_holds, flat_index, keyrep::KeyRep, publication_trace,
+    read_trace, shard, slots_for, spill_locate, spill_read, tag, ApplyOutcome, Flat, FlatSlot,
+    Home, PreparedResult, RebuildPlan, RebuildReserved, Region, ReplacementMerge, SearchClass,
     SearchDecision, SearchLocation, SpillSite, StorageError, Stored, Table, TableAddress, WordHome,
     COORD_EMPTY, SHARDS,
 };
@@ -1677,4 +1677,86 @@ fn serial_build_branches_maintain_storage_coverage() {
     assert_eq!(table.len(), 1);
     assert_eq!(table.locator.links.len(), 1);
     assert!(table.check_storage_coverage());
+}
+
+/// The power-of-two invariant `flat_index`'s index law needs is refused by the resident
+/// reservation, not absorbed: a non-power-of-two lane count would otherwise alias one admitted word
+/// onto another word's slot. The refusal is [`StorageError::SizeOverflow`], the checked boundary's
+/// own channel, so a violated invariant never reaches a wrong index.
+#[test]
+fn flat_reserve_refuses_a_non_power_of_two_lane_count() {
+    assert!(matches!(
+        Flat::<i64, i64>::reserve(3),
+        Err(StorageError::SizeOverflow)
+    ));
+    assert!(matches!(
+        Flat::<i64, i64>::reserve(6),
+        Err(StorageError::SizeOverflow)
+    ));
+    // `0` is not a power of two either: the empty resident area is `Flat::empty`, whose `lane_bits`
+    // is never read, so the reservation must not admit a width the shift law cannot hold.
+    assert!(matches!(
+        Flat::<i64, i64>::reserve(0),
+        Err(StorageError::SizeOverflow)
+    ));
+    // The refusal discriminates: an admitted power-of-two lane count reserves, and the shift it
+    // stores is that count's `log2`.
+    let flat = Flat::<i64, i64>::reserve(4).expect("four lanes is a power of two");
+    assert_eq!(flat.lanes, 4);
+    assert_eq!(flat.lane_bits, 2);
+}
+
+/// `flat_index` is a bijection of the admitted `(lane, shard)` pairs onto `0 .. lanes * SHARDS`
+/// under the invariant: distinct admitted pairs never share a slot, and every slot is named.
+#[test]
+fn flat_index_is_a_bijection_under_the_power_of_two_invariant() {
+    for lanes in [1usize, 2, 4, 8, 16, 32] {
+        let count = lanes * SHARDS;
+        let mut seen = vec![false; count];
+        for shard in 0..SHARDS {
+            for lane in 0..lanes {
+                let index = flat_index(lanes.trailing_zeros(), lanes, lane, shard)
+                    .expect("an admitted lane");
+                assert!(index < count, "index {index} out of {count}");
+                assert!(!seen[index], "(lane {lane}, shard {shard}) aliased {index}");
+                seen[index] = true;
+            }
+        }
+        assert!(seen.into_iter().all(|named| named), "every slot is named");
+        // A lane beyond the extent is the growth trigger, not a lookup miss.
+        assert_eq!(flat_index(lanes.trailing_zeros(), lanes, lanes, 0), None);
+    }
+    // An empty flat admits nothing, and `lanes == 0` never reaches the shift.
+    assert_eq!(flat_index(0, 0, 0, 0), None);
+    // The invariant is what makes the law injective, and this is the aliasing it prevents: with
+    // `lanes = 3` and a shift of `1`, `(lane 0, shard 1)` and `(lane 2, shard 0)` name one slot.
+    // `Flat::reserve` refuses such a lane count, so the shift is always `log2(lanes)`.
+    assert_eq!(flat_index(1, 3, 0, 1), flat_index(1, 3, 2, 0));
+}
+
+/// The stored shift and the law agree on every word the reservation admits: `Flat::index` and the
+/// plan-side `flat_index_for` are the same function over the same `lane_bits`, so a word placed
+/// before a widening rebuild resolves to the same slot after it, and a word beyond the extent is
+/// `None` from both.
+#[test]
+fn resident_index_matches_the_rebuilt_index_for_every_admitted_word() {
+    type WordTable = Table<i64, i64, WordHome, 16, Stored<i64>>;
+    for lanes in [1usize, 2, 4, 8] {
+        let flat = Flat::<Stored<i64>, i64>::reserve(lanes).expect("a power-of-two lane count");
+        for shard in 0..SHARDS {
+            for lane in 0..lanes {
+                let word = (u32::try_from(lane).expect("a lane fits u32") << super::SHARD_BITS)
+                    | u32::try_from(shard).expect("a shard fits u32");
+                assert_eq!(
+                    flat.index(word),
+                    WordTable::flat_index_for(lanes, Some(word)),
+                    "word {word} resolves differently at lanes {lanes}"
+                );
+            }
+        }
+        // The lane one past the extent is the widening signal, and both sides decline it.
+        let beyond = u32::try_from(lanes).expect("a lane count fits u32") << super::SHARD_BITS;
+        assert_eq!(flat.index(beyond), None);
+        assert_eq!(WordTable::flat_index_for(lanes, Some(beyond)), None);
+    }
 }
