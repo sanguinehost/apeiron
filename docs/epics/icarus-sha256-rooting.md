@@ -8,7 +8,7 @@ lifecycle: an epic with intent, specification and plan in one file (AGENTS §2�
 - **Owner:** lead (Icarus campaign); Sol for grades; corpus lead for transport.
 - **Source revision:** `549d00ca62df50802db47f3e58ec4ee11c40c4b6`; working tree dirty, list in the
   commit body of the port tasks (11 pre-existing doc changes, untouched by this epic).
-- **Status:** draft
+- **Status:** active — W1–W4 ported and bound; the closing full-library barrier is green; W5 blocked on the owner's regen window (see the Status section at the end).
 - **Spec / Plan:** the sections below; staging evidence lives in the campaign workspace
   (`lucas/icarus`, `work/algebra-rooting/` and `work/proofs/`, 87 bound claim blocks at the time of
   writing, `python3 work/check_receipts.py --check` exit 0).
@@ -133,3 +133,51 @@ directory's first members and `proof/corpus/lakefile.lean` (one stanza).
 Not a claim that the staging tree is wrong; not a change to any existing corpus statement; not an
 extraction refresh; not a security, performance or mining claim. The port is bookkeeping of proved
 things into their proper tree.
+
+## Status (2026-10-04)
+
+`Icarus` = `proof/corpus/Icarus/` (42 `.lean` modules), built by `lean_lib Icarus` in
+`proof/corpus/lakefile.lean`. All commits local, unpushed, pending the owner.
+
+### Per wave
+
+| wave | state | modules landed |
+|---|---|---|
+| W1 — foundation core | done (`7821a8a`) | `AlgebraCarry`, `AlgebraCarryComputable`, `AlgebraCarryGeneral`, `AlgebraCarryTermCount`, `AlgebraShrExact`, `AlgebraShrExactOpen` |
+| W2 — carrier and round | done (`b04da83`, `d49b7ee`, `c7c97e6`, `b554776`; AR-36 `6d53961`) | `AlgebraBoolCarrier`, `AlgebraBoolCarrier32`, `AlgebraBoolCarrier32Round`, `AlgebraRotorSha`, `AlgebraRotExact`, `AlgebraRotate32`, `AlgebraRotorShift`, `AlgebraRotorUnit`, `AlgebraSigmaHalves`, `AlgebraFaceComposition`, `AlgebraFaceCompositionRound`, `AlgebraFaceCompositionSwitch`, `AlgebraRotBridge32` |
+| W3 — composition | done (`b1a2376`, `ad5d3c3`) | `Composition/AlgebraSha256d`, `Composition/AlgebraSha256dBlockArray`, `Composition/AlgebraSha256dCompose`, `Composition/Sha256BE`, `Composition/SpecImplicationWeb`, `Composition/SpongeBlocks` |
+| W4 — cost | done except the two modules named below (`c275aee`, `30cd3a8`, `dd2bd71`) | `Cost/AlgebraCostSource`, `Cost/AlgebraCostRound`, `Cost/AlgebraCostPow`, `Cost/AlgebraCostCompletePart1`, `Cost/AlgebraCostCompletePart2`, `Cost/AlgebraCostPowComparePart1`, `Cost/AlgebraCostPowComparePart2`, `Cost/AlgebraCostBridge`, `Cost/CostAlgebra` (vendored) |
+| W5 — extraction obligation | **blocked** (owner regen window); the conditional half is ported | `Extraction/DenotesPrep` (`b2ec840`, rewired `d9b5164`), `Extraction/Store` (`9206dc5`), `Extraction/Schedule`, `Extraction/Compression` (`1230b89`) |
+| beyond the W1–W5 plan | done | keystone `Keystone/RootedSha256` (`sha256_round_rooted`, `711df4b`); AR-33 `RingModelWeb` (`5b643d0`); width-32 reads `Sha256/CarrierSigma32` (`575989d`, `43b2eb6`), `Sha256/ReadTrichotomy32` (AR-12, `f37f8a2`) |
+| plan item E1 | done | `Crypto/Sha2.lean` `paddedBlock` un-private (`1f39140`) |
+
+### Barrier
+
+`cd proof/corpus && lake build Icarus` green over the full library: log
+`receipts/logs/review/sol7b-remark-barrier.log`, 3348 jobs, `LEAN_RC=0`, `SOURCE_SHA256=66e62397…`,
+1942 `#print axioms` rows all inside `{propext, Classical.choice, Quot.sound}`, `sorryAx` 0,
+0 error lines. Rows name 41 of the 42 modules; `Cost/CostAlgebra.lean` carries no `#print axioms`
+row (vendored, `Lean`-import only). Not re-run for this status note; the log is the evidence.
+
+### W5 block
+
+`apeiron_word.word_sha256d` is absent from `proof/ApeironWord.lean` (0 occurrences, 24899 lines).
+The prerequisite is the owner's exclusive `proof/regen.sh` window; `proof/extract/lib.rs:1109`
+already defines the wrapper and `proof/regen.sh:242` already selects it, so nothing but the window
+is missing. The handoff is `docs/evidence/icarus-regen-manifest.md`: §1 the required emitted symbol
+and its line-span consequence (`word_sha256d` inserts **before** the trailing `chacha` items, so the
+regen shifts every later span and re-binds the AR-14 / AR-31 / AR-40 / AR-73 pins that hold the
+pre-window digest `855528a8…` **in the same commit** as the new `ApeironWord.lean`), §2 the
+obligations that discharge on arrival (`AR-73-R1` and its `rfl` identification), §3 what the window
+does not discharge (`WordSha256Denotes` stays an unasserted `def`; `DenotesPrep`'s headlines stay
+conditional), §4 the freshness requirements (pre-run digest, derived-olean digest, marker + cone,
+import route, pin citation, red/restore control; `APEIRON_LAKE=1` set so the corpus build runs).
+
+### Remaining
+
+| item | owner | next gate |
+|---|---|---|
+| Owner rebase of the 20 local commits | owner | push |
+| Regen window for `word_sha256d` | extraction owner | `regen.sh --check` + the `rfl` discharge check of manifest §2 |
+| Public write-up of the rooting results | lead | separate bound claim with its own gate |
+| `AlgebraCost.lean` and `AlgebraCostKeccak.lean` not in the tree, though W4 planned them | lead | port decision; 48 of 71 and 82 of 123 staging declaration names respectively are absent from `proof/corpus/Icarus/`, so the W4 line as written is not discharged |
