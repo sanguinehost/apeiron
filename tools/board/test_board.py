@@ -21,6 +21,8 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import board  # noqa: E402
+import board_check  # noqa: E402
+import board_core  # noqa: E402
 
 
 class StubResponse:
@@ -728,11 +730,16 @@ class SecretHygieneTests(unittest.TestCase):
         self.assertIn("projects.tas.twn.network", opener.calls[0])
 
     def test_the_key_is_never_read_from_a_file(self) -> None:
-        with open(board.__file__, encoding="utf-8") as handle:
-            source = handle.read()
-        self.assertNotIn("open('.env'", source)
-        self.assertNotIn('open(".env"', source)
-        self.assertIn('KEY_ENV = "OPERATELY_API_KEY"', source)
+        sources = []
+        for module in (board, board_core):
+            with open(module.__file__, encoding="utf-8") as handle:
+                sources.append(handle.read())
+        for source in sources:
+            self.assertNotIn("open('.env'", source)
+            self.assertNotIn('open(".env"', source)
+        # KEY_ENV is the named constant; it lives in board_core, the module that
+        # owns the driver vocabulary.
+        self.assertIn('KEY_ENV = "OPERATELY_API_KEY"', sources[1])
 
 
 class LiveFetchTests(unittest.TestCase):
@@ -822,10 +829,14 @@ class ControlSuiteTests(unittest.TestCase):
         self.assertEqual(named, set(board.CONTRACT_RULES) - {board.RULE_NO_PATHS})
 
     def test_a_seeded_defect_stops_firing_when_the_rule_is_removed(self) -> None:
-        """A control that cannot fail has no weight: break the rule, expect red."""
-        original = board.check
+        """A control that cannot fail has no weight: break the rule, expect red.
+
+        ``board.check`` is a re-export: the control suite resolves it in
+        ``board_check``, so the rule is broken where it is defined.
+        """
+        original = board_check.check
         try:
-            board.check = lambda *a, **k: []  # type: ignore[assignment]
+            board_check.check = lambda *a, **k: []  # type: ignore[assignment]
             stream = io.StringIO()
             code = board.run_controls(stream)
             output = stream.getvalue()
@@ -833,18 +844,18 @@ class ControlSuiteTests(unittest.TestCase):
             for rule, _, _ in board.SEEDED_DEFECTS:
                 self.assertIn(f"CONTROL FAIL {rule}", output)
         finally:
-            board.check = original  # type: ignore[assignment]
+            board_check.check = original  # type: ignore[assignment]
 
     def test_control_suite_fails_when_the_reconcile_stops_firing(self) -> None:
-        original = board.reconcile
+        original = board_check.reconcile
         try:
-            board.reconcile = lambda *a, **k: ([], [])  # type: ignore[assignment]
+            board_check.reconcile = lambda *a, **k: ([], [])  # type: ignore[assignment]
             stream = io.StringIO()
             code = board.run_controls(stream)
             self.assertEqual(code, 2)
             self.assertIn("CONTROL FAIL drift-plan-row-not-on-board", stream.getvalue())
         finally:
-            board.reconcile = original  # type: ignore[assignment]
+            board_check.reconcile = original  # type: ignore[assignment]
 
     def test_gate_command_exits_zero_on_the_fixtures(self) -> None:
         with contextlib.redirect_stdout(io.StringIO()):
