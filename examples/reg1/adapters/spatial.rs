@@ -911,6 +911,49 @@ fn arm_get_each_tuple(keys: &[TupleKey], probe: &[TupleKey], corruption: Corrupt
     run_count_par_tuple(keys, probe, corruption)
 }
 
+/// Whether `id` is one of the registered hashtrinity counting arms: the combined
+/// `FreqMap::count_par` build plus the grouped `get_each` probe. Both registered ids name the same
+/// arm on a face, because `arm_get_each`/`arm_get_each_tuple` delegate to
+/// `run_count_par`/`run_count_par_tuple`.
+fn is_counting_arm(id: &str) -> bool {
+    matches!(id, "hashtrinity_count_par" | "hashtrinity_get_each")
+}
+
+/// The selected counting arm: the incumbent's exact code on the cell's own key face.
+///
+/// `run_count_par` and `run_count_par_tuple` *are* the incumbent's registered arms — their bodies
+/// call `hashtrinity::FreqMap::<K, i64>::count_par` directly, then the grouped `get_each` probe and
+/// the query-order fold — so on the packed `u64` face and on the `(i32,i32,i32)` tuple face the
+/// selected side and the incumbent run the same code path and the pair begins at parity. Nothing is
+/// excluded, so the accounting identity `charged == elapsed - excluded` holds with `excluded = 0`.
+fn run_selected_count_par(p: &Prepared<'_>, corruption: Corruption) -> SelectedRun {
+    let arm = match p.face {
+        KeyFace::Packed => run_count_par(p.packed_keys, p.packed_probe, corruption),
+        KeyFace::Tuple => run_count_par_tuple(p.tuple_keys, p.tuple_probe, corruption),
+    };
+    SelectedRun {
+        elapsed: arm.nanos,
+        excluded: 0,
+        arm,
+    }
+}
+
+/// The selected side of one registered pair. The two hashtrinity counting pairs execute the
+/// incumbent's own arm on the cell's key face; every other pair keeps the selected `apeiron::Table`
+/// face at the incumbent's width.
+fn run_selected_for(
+    id: &str,
+    p: &Prepared<'_>,
+    workers: usize,
+    corruption: Corruption,
+) -> SelectedRun {
+    if is_counting_arm(id) {
+        run_selected_count_par(p, corruption)
+    } else {
+        run_selected_at_width(p.packed_keys, p.packed_probe, workers, corruption)
+    }
+}
+
 /// `hashbrown` + `rayon`: the parallel fold/reduce build, then a serial probe in query order.
 fn arm_hashbrown_rayon(keys: &[u64], probe: &[u64], _corruption: Corruption) -> ArmResult {
     use rayon::prelude::*;
@@ -1290,12 +1333,7 @@ fn run_cell(
         for _ in 0..warmup {
             for id in ARMS {
                 let incumbent = run_arm(id, &prepared, corruption);
-                let _ = run_selected_at_width(
-                    &work_keys,
-                    &packed_probe,
-                    incumbent.policy.workers,
-                    corruption,
-                );
+                let _ = run_selected_for(id, &prepared, incumbent.policy.workers, corruption);
             }
         }
         let mut arm_campaign: Vec<Vec<u64>> = vec![Vec::new(); ARMS.len()];
@@ -1308,9 +1346,19 @@ fn run_cell(
                 arm_digest_ok[i] &= result.digest == oracle;
                 arm_digest[i] = result.digest;
                 let requested = result.policy.workers;
-                let selected =
-                    run_selected_at_width(&work_keys, &packed_probe, requested, corruption);
-                selected_digest_ok[i] &= selected.arm.digest == oracle;
+                let selected = run_selected_for(id, &prepared, requested, corruption);
+                // The selected side of a counting pair *is* the incumbent, so it inherits the
+                // incumbent's registered address-fold collision on the tuple face: the same
+                // exact predictor that exempts `digest_ok` must exempt `selected_digest_ok`, or the
+                // validator rejects the selected side for reproducing the incumbent exactly.
+                selected_digest_ok[i] &= selected.arm.digest == oracle
+                    || is_registered_collision(
+                        face,
+                        id,
+                        &identity,
+                        selected.arm.digest,
+                        collapsed_oracle,
+                    );
                 arm_policy[i] = Some(result.policy);
                 selected_policy[i] = Some(selected.arm.policy);
                 selected_requested[i] = requested;

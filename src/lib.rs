@@ -15,6 +15,8 @@ pub mod engine;
 pub mod exchange;
 pub mod fold;
 pub mod format;
+/// The incumbent's exact NB count face, called directly from the pinned `hashtrinity` crate.
+pub mod freq;
 pub mod kepler;
 pub mod keystore;
 pub mod merge;

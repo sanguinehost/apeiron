@@ -52,18 +52,32 @@ not the axiom-cone check itself (``lake build`` and ``AxiomAudit.lean`` do that)
 Coverage and exclusions
 =======================
 Governing documents scanned: `the design notes`, `the design notes`,
-`the design notes`, ``README.md`` and ``proof/README.md`` -- the AGENTS.md
-section 1 reading order. `the storage-refinement note` is excluded: it is
-a plan whose grade records are explicitly superseded/historical, so its grades
-are not current claims. Fenced code blocks are excluded (they show commands, not
-grade assertions). A sentence under a plan/modal marker (``next``, ``will``,
+`the design notes`, ``README.md``, ``proof/README.md`` and
+`the storage-refinement note`. The first five are the AGENTS.md section 1
+reading order. The epic is covered from its ``## Coordinate-keyed
+counting-container contract`` heading to the next heading of the same or higher
+level: the sections above it are a plan whose grade records are explicitly
+superseded/historical, so they are not current claims, and covering them whole
+reddens on pre-existing historical records rather than on anything new. A
+covered heading that is absent is a structural error, never a silent pass: the
+checker refuses to report green for a region it was told to scan and did not
+find. Fenced code blocks are excluded (they show commands, not grade
+assertions). A sentence under a plan/modal marker (``next``, ``will``,
 ``must``, ``open``, ``obligation``, ...) before its predicate is an intention,
 not a claim, and is not reported.
 
 Exit status: 0 when every claim names a resolvable artifact; 1 on any finding;
-2 on a missing governing document, a missing Lean source population, or an I/O
-error. ``--json`` emits the machine-readable report; ``--self-test`` runs
-throwaway-copy positive and negative controls under ``/tmp``.
+2 on a missing governing document, a missing covered section, a missing Lean
+source population, or an I/O error. ``--json`` emits the machine-readable
+report; ``--self-test`` runs throwaway-copy positive and negative controls under
+``/tmp``.
+
+Citation forms
+==============
+Citations are read from backticked spans only. A markdown link destination
+(``[text](path)``) is not a citation for this checker and is neither checked nor
+counted as coverage; a contract that relies on link destinations alone carries no
+claim record here.
 """
 
 import argparse
@@ -84,7 +98,18 @@ GOVERNING_DOCUMENTS = (
     "the design notes",
     "README.md",
     "proof/README.md",
+    "the storage-refinement note",
 )
+
+# Governing documents covered only from a named heading to the next heading of the
+# same or higher level. An epic file is long and its earlier sections carry
+# superseded/historical grade records, so whole-file coverage would report those
+# as findings and the gate would be red before any new claim is made. The key is
+# the exact heading text: a renamed or deleted heading is reported as a missing
+# covered section (exit 2), never as a document with nothing to find.
+COVERED_SECTIONS = {
+    "the storage-refinement note": ("## Coordinate-keyed counting-container contract",),
+}
 
 GRADES = ("proved", "tested", "measured", "model", "anchor")
 CLOSED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
@@ -101,6 +126,7 @@ EXCLUDE_DIR_NAMES = {".git", ".lake", "target", "node_modules", "__pycache__", "
 
 BACKTICK_RE = re.compile(r"`([^`]+)`")
 LEAN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.'!?]*$")
+HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
 DECL_RE = re.compile(
     r"^\s*(?:private\s+|protected\s+|noncomputable\s+|partial\s+|unsafe\s+|"
     r"@\[[^\]]*\]\s*)*(?:theorem|lemma|def|abbrev|structure|inductive|class|"
@@ -302,6 +328,38 @@ def resolve_artifact(root, artifact, declarations, namespaces, audits):
 # --------------------------------------------------------------------------
 # claim extraction
 # --------------------------------------------------------------------------
+
+def covered_regions(relative, lines):
+    """``(start, end, heading)`` index ranges this document contributes.
+
+    A document absent from ``COVERED_SECTIONS`` is covered whole as
+    ``(0, len(lines), "")``. A covered document contributes one region per named
+    heading, running to the next heading of the same or higher level. ``start``
+    is the 0-based index of the region's first line, so a claim found at
+    relative line ``n`` is reported at file line ``start + n``.
+
+    Returns an empty list when the document is listed in ``COVERED_SECTIONS`` and
+    none of its headings is present; the caller reports that as a structural
+    error instead of scanning nothing.
+    """
+    headings = COVERED_SECTIONS.get(relative)
+    if not headings:
+        return [(0, len(lines), "")]
+    regions = []
+    for index, line in enumerate(lines):
+        match = HEADING_RE.match(line)
+        if not match or line.strip() not in headings:
+            continue
+        level = len(match.group(1))
+        end = len(lines)
+        for cursor in range(index + 1, len(lines)):
+            following = HEADING_RE.match(lines[cursor])
+            if following and len(following.group(1)) <= level:
+                end = cursor
+                break
+        regions.append((index, end, line.strip()))
+    return regions
+
 
 def make_claim(document, line, grade, kind, text, artifacts):
     return {
@@ -531,6 +589,8 @@ def build_report(root):
         return {
             "root": str(root),
             "documents": [relative for relative, _ in documents],
+            "covered_sections": [],
+            "missing_sections": [],
             "missing_documents": missing,
             "claims": [],
             "findings": [f"governing document missing: {name}" for name in missing],
@@ -543,6 +603,8 @@ def build_report(root):
         return {
             "root": str(root),
             "documents": [relative for relative, _ in documents],
+            "covered_sections": [],
+            "missing_sections": [],
             "missing_documents": [],
             "claims": [],
             "findings": ["no Lean declarations found under proof/ or the pinned corpus"],
@@ -551,37 +613,53 @@ def build_report(root):
         }
 
     claims = []
+    sections = []
+    missing_sections = []
     for relative, path in documents:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as error:
             findings.append(f"{relative}: cannot read: {error}")
             continue
-        for claim in extract_claims(relative, text):
-            claim_findings = evaluate_claim(
-                root, claim, declarations, namespaces, audits
-            )
-            claim["ok"] = not claim_findings
-            claims.append(claim)
-            findings.extend(claim_findings)
+        lines = text.splitlines()
+        regions = covered_regions(relative, lines)
+        for heading in COVERED_SECTIONS.get(relative, ()):
+            if not any(heading == region[2] for region in regions):
+                missing_sections.append(f"{relative}: covered section `{heading}` not found")
+        for start, end, heading in regions:
+            sections.append(f"{relative}:{start + 1}" + (f" `{heading}`" if heading else " (whole file)"))
+            for claim in extract_claims(relative, "\n".join(lines[start:end])):
+                claim["line"] += start
+                claim_findings = evaluate_claim(
+                    root, claim, declarations, namespaces, audits
+                )
+                claim["ok"] = not claim_findings
+                claims.append(claim)
+                findings.extend(claim_findings)
 
+    findings.extend(missing_sections)
     return {
         "root": str(root),
         "documents": [relative for relative, _ in documents],
+        "covered_sections": sections,
+        "missing_sections": missing_sections,
         "missing_documents": [],
         "declaration_count": len(declarations),
         "namespace_count": len(namespaces),
         "audit_count": len(audits),
         "claims": claims,
         "findings": findings,
-        "ok": not findings,
-        "error": False,
+        "ok": not findings and not missing_sections,
+        "error": bool(missing_sections),
     }
 
 
 def print_report(report):
     print(f"repo: {report['root']}")
     print(f"documents: {len(report['documents'])} scanned: {', '.join(report['documents'])}")
+    for entry in report.get("covered_sections", []):
+        if not entry.endswith("(whole file)"):
+            print(f"covered: {entry}")
     if report.get("error"):
         print(f"\nERROR: {len(report['findings'])} structural problem(s)")
         for finding in report["findings"]:
@@ -628,6 +706,18 @@ def _write(path, text):
     path.write_text(text, encoding="utf-8")
 
 
+EPIC_CONTRACT_SECTION = """# storage refinement
+
+## Superseded spikes
+
+Superseded records live above the contract section and are out of coverage.
+
+## Coordinate-keyed counting-container contract
+
+The constructor witness `word_table_new_rep` is proved.
+"""
+
+
 def _synthetic_tree(base):
     """A minimal tree whose one proved claim is backed."""
     _write(base / "Cargo.toml", "[workspace]\n")
@@ -649,6 +739,7 @@ def _synthetic_tree(base):
     _write(base / "docs" / "plan.md", "# handoff\n")
     _write(base / "README.md", "# readme\n")
     _write(base / "proof" / "README.md", "# proof\n")
+    _write(base / "docs" / "epics" / "storage-refinement.md", EPIC_CONTRACT_SECTION)
 
 
 def self_test():
@@ -712,6 +803,32 @@ def self_test():
         def missing_document(tree):
             (tree / "docs" / "direction.md").unlink()
 
+        def epic_bad_citation(tree):
+            with (tree / "docs" / "epics" / "storage-refinement.md").open(
+                "a", encoding="utf-8"
+            ) as handle:
+                handle.write(
+                    "\nThe full-key oracle lives in the no-such-oracle note "
+                    "and is tested.\n"
+                )
+
+        def epic_renamed_section(tree):
+            path = tree / "docs" / "epics" / "storage-refinement.md"
+            text = path.read_text(encoding="utf-8").replace(
+                "## Coordinate-keyed counting-container contract",
+                "## Counting container",
+            )
+            _write(path, text)
+
+        def epic_superseded_record(tree):
+            _write(
+                tree / "docs" / "epics" / "storage-refinement.md",
+                EPIC_CONTRACT_SECTION.replace(
+                    "## Superseded spikes",
+                    "## Superseded spikes\n\nThe removed head `no_such_removed_head` is proved.",
+                ),
+            )
+
         for name, mutate, expected, contains, excludes in (
             (
                 "negative: unbacked proved claim rejected",
@@ -732,6 +849,27 @@ def self_test():
                 missing_command,
                 1,
                 ("proof/no-such-gate.sh",),
+                (),
+            ),
+            (
+                "negative: nonexistent path cited in the epic contract rejected",
+                epic_bad_citation,
+                1,
+                ("the storage-refinement note", "the no-such-oracle note"),
+                (),
+            ),
+            (
+                "positive: superseded epic record above the contract not reported",
+                epic_superseded_record,
+                0,
+                (),
+                ("no_such_removed_head",),
+            ),
+            (
+                "error: renamed epic contract section rejected",
+                epic_renamed_section,
+                2,
+                ("## Coordinate-keyed counting-container contract",),
                 (),
             ),
             (

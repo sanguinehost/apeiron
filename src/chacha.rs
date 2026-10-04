@@ -368,11 +368,23 @@ fn poly1305_finish(h: [u64; 5], s: &[u8; 16]) -> [u8; TAG_LEN] {
 
     // Select g if it did not borrow (the mask is all ones exactly then), else keep h.
     let mask = (g[4] >> 63).wrapping_sub(1);
-    let mut i = 0usize;
-    while i < 5 {
-        h[i] = (h[i] & !mask) | (g[i] & mask);
-        i += 1;
-    }
+    // Read both limbs into scalars before writing `h`, so no projection of `h` or `g` is held
+    // across a write to `h` (Aeneas rejects that shape).
+    let h0 = h[0];
+    let h1 = h[1];
+    let h2 = h[2];
+    let h3 = h[3];
+    let h4 = h[4];
+    let g0 = g[0];
+    let g1 = g[1];
+    let g2 = g[2];
+    let g3 = g[3];
+    let g4 = g[4];
+    h[0] = (h0 & !mask) | (g0 & mask);
+    h[1] = (h1 & !mask) | (g1 & mask);
+    h[2] = (h2 & !mask) | (g2 & mask);
+    h[3] = (h3 & !mask) | (g3 & mask);
+    h[4] = (h4 & !mask) | (g4 & mask);
 
     // Repack the limbs into four 32-bit words, keeping the low 32 bits of each.
     let f0 = (h[0] | (h[1] << 26)) as u32;
