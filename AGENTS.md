@@ -406,6 +406,23 @@ reduction (for example `decide` or `rfl` over a whole source, or `maxRecDepth` r
 guard) are forbidden in committed proofs and in an agent's runs; a reduction that needs them is
 inconclusive, not a proof, and a job that exhausts the cap is a failure of the run, not a red gate.
 
+**Every Rust command runs under the same bound.** `cargo build|test|run|clippy|rustc`, the
+`examples/reg1` campaigns, and every lane's build or test step run under
+`systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0` with a `timeout` carrying the §10
+budget; a lane that spawns a build without the cap is not admitted and its result is not evidence. The
+bound exists because an uncapped workspace build at 16 codegen units is 0.5–2.7 GB: twenty concurrent
+lanes drove this 62 GB box to a **54 GB memory peak plus 50 GB swap inside one terminal cgroup**, with
+no OOM-kill and no panic — the kernel stopped scheduling the cgroup, which presents as a dead terminal.
+A build is not exempt because it is short.
+
+**Concurrency is capped, not aspirational.** At most **eight** build-bearing lanes run at once on this
+box; a ninth waits on `flock /tmp/opencode/apeiron-lane.lock` or on a finished lane's return, and the
+sum of the declared caps stays under half of RAM. Twelve to twenty concurrent workspace builds is the
+ceiling being exceeded, not a width being achieved — a fan-out wider than the file-disjoint set pays
+contention, not throughput, and it is what crashed the terminals. **Measurements never run against a
+live fan-out:** quiesce the build lanes, or run the campaign alone. A contended number is not a
+measurement, and the fan-out is what makes it unmeasurable.
+
 ## 7 · Metadata policy
 
 Some source files carry `//@ key: value` annotations inherited from the sibling tree. They are

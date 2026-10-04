@@ -545,10 +545,28 @@ met across the board** — it is not waived. Order: speed first; then **formaliz
 including the vulnerability**; then **patch the vulnerability** as hashtrinity already does, this time
 with the formal understanding on record. Rationale: the vulnerable quadratic is understood intimately,
 which is the evidence a written account needs, and the patch is then a known action applied to a known,
-formalized object rather than a bolt-on. Measured today: the spill read path is exactly quadratic
-(`n²` probe slots) because growth triggers on exhaustion, not load, so a region sits at load `1.0` at
-every power-of-two population. The adversarial-population test and its receipt live outside the tracked
-tree for now (`/home/socol/oc-tmp/escalation/HASHDOS.md`); landing the test is part of the patch stage.
+formalized object rather than a bolt-on.
+
+**Before any transfer, document the formalization challenges of the succeeding path.** The count face
+succeeds now (parity drawn from the incumbent) and its formalization is where the open obstacles are:
+Aeneas rejects `return` inside loops (fix: a `while` carrying the result out); `RangeInclusive::contains`
+and `IntoIterator for &Vec` put bodies outside the closed cone; `build` has no subject in the counting
+body; the extraction/audit round costs ~1200 s so it does not fit one 570 s invocation; and the base
+corpus (`Growable/Scan`, `Growable/Search`) is stale against the generated region. Those are recorded
+against the path that works, before the vulnerability work is layered on it.
+
+**The HashDOS defense exists in the old corpus and is a port candidate** — `fold/hashtrinity`:
+`tests/hashdos.rs` (the red-team set, mechanisms 1–5), `proof/HashTrinity/RadixDescent.lean`
+(`fold_injective`, `chain_separates_within_radix`), and `synth_breaks_the_exploit`
+(`sanguinehost.com/public/wiki/md/FoldDepth.md:444`), with the theorems of record in
+`sanguine proof/Closures/Engineering/RadixDescent.lean`. **Caveat, from hashtrinity's own header:** those
+theorems bound **aliasing, not probe length**; this tree's failure is probe length, so the port is a
+starting point, not a discharge. Transfer after the succeeding path is formalized and documented.
+**The transfer is already scoped on the Icarus board** (`icarus-rooted-sha-256-GXc6ulF46UDoJGtahKV4lS`):
+`H1 — Port FoldDepth (fold_is_lossy, xorHalves_balanced, …)` and `H2 — Port RadixDescent core
+(fold_injective, chain_separates_within_radix)`, with `H3` (keyed fold), `S1–S4` (finalizer budget,
+SHA-256-compress-as-finalizer, peppers), `Y1` (the cryptographic-hashing position doc) and `T1–T5`
+alongside — 16 rows, all Not started. Do not duplicate them here.
 
 **Parked (retained, not waived).** The prior derivation path — the from-scratch counting container
 `APEIRON-COUNT-W2-T1`/`W2-T2`/`W2-T3`, `APEIRON-R1-W1-T1`, the `W2-T1b-DOMAIN`/`FULLWIDTH` splits,
