@@ -8,8 +8,18 @@
 # resolved against the board exactly as pre-commit resolves one found in the
 # staged change.
 #
-# Budget: APEIRON_HOOKS_COMMITMSG_BUDGET (default 90s). A check that reaches its
-# budget fails the commit; a timed-out gate is not a pass (AGENTS.md §10).
+# The declaration is the Commit->Task link of
+# docs/contracts/commit-task-association.md. lane.py prints the projected link
+# as its `lane-commit:` line; this hook echoes it, so the association is in the
+# commit transcript and not only in the message. A commit that declares a row
+# the enumerated board does not carry is refused (the pre-fix fetch resolved
+# against 77 of 95 rows and read a live row as absent); the row must not be Done
+# or Canceled; and the resolved row id must appear in the committed change.
+#
+# Budget: APEIRON_HOOKS_COMMITMSG_BUDGET (default 90s). The board is enumerated
+# twice per commit, measured at ~8s of the budget on 2026-10-04. A check that
+# reaches its budget fails the commit; a timed-out gate is not a pass
+# (AGENTS.md §10).
 
 set -uo pipefail
 
@@ -21,9 +31,15 @@ cd "$root" || exit 1
 
 budget=${APEIRON_HOOKS_COMMITMSG_BUDGET:-90}
 started=$(date +%s)
-timeout "$budget" python3 -B tools/hooks/lane.py message "$1"
+out=$(timeout "$budget" python3 -B tools/hooks/lane.py message "$1" 2>&1)
 code=$?
 elapsed=$(( $(date +%s) - started ))
+printf '%s\n' "$out"
+
+# The projected Commit->Task link, one line: the row this commit is associated
+# with, read from the object lane.py wrote rather than re-parsed here.
+printf '%s\n' "$out" | grep '^lane-commit: ' | tail -1 |
+  sed 's/^lane-commit: /commit-msg: commit-link: /'
 
 if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
   echo "commit-msg: board-declaration: FAIL budget ${budget}s exceeded (AGENTS.md §10)" >&2
