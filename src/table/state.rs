@@ -448,8 +448,40 @@ struct FlatSlot<R, V> {
     value: V,
 }
 
+/// The resident slot index of `(lane, shard)`: `(shard << lane_bits) + lane`.
+///
+/// The incumbent computes `home(coord) = coord` below `len` and masks with `len - 1` because its
+/// array is power-of-two (`fold hashtrinity/src/lib.rs:565-572`, `:617-618`). Under this flat's own
+/// power-of-two lane count the same law holds with the lane as the low half and the shard as the
+/// high half, which is a shift and an add in place of a multiply by the lane count and its
+/// `checked_mul`/`checked_add` plumbing. The add is the or: `lane < lanes` is tested here and
+/// `lanes == 1 << lane_bits` is the reservation's invariant, so the two halves are disjoint and the
+/// sum carries into neither.
+///
+/// **No overflow check is needed.** `shard < SHARDS` and `lane < lanes` give
+/// `index <= (SHARDS - 1) * lanes + lanes - 1 = lanes * SHARDS - 1`, and `Flat::reserve` established
+/// `lanes * SHARDS` with `checked_mul`, so the sum fits `usize` and the shift amount is at most
+/// `usize::BITS - 1`.
+///
+/// `None` unless `lane < lanes`, so a violated premise costs the spill route instead of a wrong
+/// index; `lanes == 0` is rejected by that test. The power-of-two premise is [`Flat::reserve`]'s
+/// refusal, not a test here: `lane_bits` is derived once from an admitted lane count, so it is
+/// `log2(lanes)` wherever it is read.
+#[inline]
+fn flat_index(lane_bits: u32, lanes: usize, lane: usize, shard: usize) -> Option<usize> {
+    if lane >= lanes {
+        return None;
+    }
+    Some((shard << lane_bits) + lane)
+}
+
+/// The resident area: shard-major slot lanes, one index per `(shard, lane)` word.
 struct Flat<R, V> {
+    /// `0`, or a power of two. See [`Flat::reserve`].
     lanes: usize,
+    /// `log2(lanes)`, derived once from the admitted lane count: the index law's shift amount.
+    lane_bits: u32,
+    /// The payload slots, in index order.
     slots: Vec<FlatSlot<R, V>>,
 }
 
@@ -480,26 +512,24 @@ impl<R, V> Flat<R, V> {
     fn empty() -> Self {
         Self {
             lanes: 0,
+            lane_bits: 0,
             slots: Vec::new(),
         }
     }
+    /// The resident slot index of one direct placement word, or `None` when its lane is beyond
+    /// this flat's extent.
+    ///
+    /// The lane admission test is kept because it is the growth trigger: a word whose lane exceeds
+    /// the reserved extent is the `selected_lanes` widening signal, not a failed lookup.
     #[inline]
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "the lane is below self.lanes as u64, so it fits usize; the shard is at most \
-                  SHARD_MASK"
+        reason = "the lane and shard are the two halves of the same `u32` placement word, split by \
+                  `SHARD_BITS`/`SHARD_MASK`; `lane < self.lanes` is tested inside `flat_index`"
     )]
     fn index(&self, word: u32) -> Option<usize> {
-        let lane_word = u64::from(word >> SHARD_BITS);
-        if lane_word >= self.lanes as u64 {
-            return None;
-        }
-        let lane = lane_word as usize;
-        let shard = (word as usize) & SHARD_MASK;
-        match shard.checked_mul(self.lanes) {
-            Some(base) => base.checked_add(lane),
-            None => None,
-        }
+        let lane = (word >> SHARD_BITS) as usize;
+        flat_index(self.lane_bits, self.lanes, lane, (word as usize) & SHARD_MASK)
     }
     fn byte_len_for(lanes: usize) -> Option<usize> {
         lanes.checked_mul(SHARDS)?.checked_mul(ASSUMED_SLOT_BYTES)
@@ -511,9 +541,25 @@ impl<R: Clone, V: Clone> Flat<R, V> {
         let count = lanes
             .checked_mul(SHARDS)
             .ok_or(StorageError::SizeOverflow)?;
+        // The power-of-two invariant `flat_index`'s index law needs, refused on the checked
+        // boundary rather than absorbed: `StorageError::SizeOverflow`'s own contract admits an
+        // invalid group width, and a non-power-of-two lane count is one, since `log2(lanes)` is not
+        // an integer and the shift would alias two admitted words onto one slot. `lanes` is `0` or a
+        // power of two on the production path — `selected_lanes` (`src/table.rs:476-482`) returns a
+        // doubling loop's result and `Flat::empty` is the only other constructor — so this arm is
+        // unreachable from `Table` and is the located failure a violated invariant gets instead of
+        // a wrong index. `lane_bits` is derived here, once, so the read path's index law is a shift
+        // and an add.
+        if !lanes.is_power_of_two() {
+            return Err(StorageError::SizeOverflow);
+        }
         let mut slots = Vec::new();
         try_reserve_exact(&mut slots, count)?;
-        Ok(Self { lanes, slots })
+        Ok(Self {
+            lanes,
+            lane_bits: lanes.trailing_zeros(),
+            slots,
+        })
     }
 
     fn initialize(&mut self, sigma: Sigma, held: &R, value: &V) {

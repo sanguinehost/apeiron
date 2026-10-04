@@ -17,6 +17,10 @@ pub mod fold;
 pub mod format;
 /// The incumbent's exact NB count face, called directly from the pinned `hashtrinity` crate.
 pub mod freq;
+/// The sovereign GPU runtime (dlopen Vulkan device + dispatch) over the ported `simt`
+/// kernels. Behind the `gpu` feature; the kernel builders themselves stay always-on.
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod kepler;
 pub mod keystore;
 pub mod merge;
