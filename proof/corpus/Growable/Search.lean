@@ -551,7 +551,7 @@ theorem word_stored_apply_insert_vacant_flat
     (slot : table.FlatSlot (table.keyrep.Stored I64) I64)
     (hslot : state.resident.slots.val[index.val]? = some slot) (_hlive : slot.live = false)
     (nextLocator : table.TableLocator)
-    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
@@ -610,7 +610,7 @@ theorem word_regen_apply_insert_vacant_flat
     (slot : table.FlatSlot (table.keyrep.Regen table.keyrep.I64WordCodec) I64)
     (hslot : state.resident.slots.val[index.val]? = some slot) (_hlive : slot.live = false)
     (nextLocator : table.TableLocator)
-    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.regenKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
@@ -714,7 +714,8 @@ def replaceSpillValue {R : Type} (state : table.Table I64 I64 table.WordHome R 1
     home := state.home
     resident := state.resident
     shards := state.shards.set shard
-      { slots := region.slots.set index slot, live := region.live }
+      { slots := region.slots.set index slot, coords := region.coords,
+        bits := region.bits, live := region.live }
     len := state.len
     key := state.key
     locator := state.locator }
@@ -835,7 +836,7 @@ theorem word_stored_apply_insert_vacant_spill
     (_htag : slot.tag = 0#u8)
     (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
-    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublishPayload : PublishReadable region index
@@ -875,7 +876,7 @@ theorem word_regen_apply_insert_vacant_spill
     (_htag : slot.tag = 0#u8)
     (hslot : region.slots.val[index.val]? = some slot)
     (nextLocator : table.TableLocator)
-    (hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hpublish : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.regenKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublishPayload : ∀ identity,
