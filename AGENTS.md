@@ -85,6 +85,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
 | §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
+| §3 the dispatch loop — Sol ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
 | §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
 | §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
 
@@ -134,6 +135,33 @@ An epic without a written intent, spec and plan is still design. Do not allocate
 - Do not run working-tree-mutating git commands (`stash`, `reset`, `checkout`, `restore`, `clean`).
   Preserve unrelated dirty work; a mutation control edits a throwaway copy, never the working tree.
 - A task that needs conversation history to execute is not yet a task.
+
+### The dispatch loop
+
+A red goal is worked by one loop, never by picking the easiest bounded task:
+
+1. **Sol ranks.** The lead asks Sol for the **highest-impact items** that move the goal, ordered by
+   contribution *and difficulty*, hardest first. The ranking is written under
+   `/home/socol/oc-tmp/escalation/` and is the dispatch order.
+2. **One lane per item.** Each item gets **one** lane, and no more lanes than the item's
+   independent-file set: items that share a file (or a shared build product) **serialize** in Sol's
+   order, never run in parallel. Never open the easy, bounded, safe, verification, corpus,
+   instrument or documentation task while the goal's number is red; use spare capacity for
+   independent verification, not invented parallel work.
+3. **Each lane closes on its gate and control**, on the path the crate builds, in an isolated copy.
+   A lane returns the edited artefact, the exact gate output, the measurement and the decision — never
+   a live write and never a commit.
+4. **The lead installs.** The lead applies the lane to the live tree, **re-runs the gate on the live
+   tree**, and commits. A lane's green gate is not the live tree's green gate.
+5. **Measure, then board.** Run the averaged measurement, then update the board: the project
+   check-in with the fresh numbers, and the task rows whose status changed. A checkpoint that reports
+   no measured movement while the goal is red has failed and says so.
+
+Enforced at exactly two points: the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`) fires the
+checklist and fails a checkpoint with no measured movement; and the per-commit board declaration
+(`.githooks/commit-msg`, `tools/hooks/lane.py`) refuses a commit naming no row. The ordering rule —
+hardest first — has **no** mechanical enforcer: it is owner direction, and a dispatch that inverts it
+is a failure the lead owns.
 
 Use `APEIRON-<EPIC>-W<wave>-T<task>` IDs and an isolated `worktree-agent-<id>` per task.
 Record owner, base revision and build lane before editing; serialize shared caches. A documentation
