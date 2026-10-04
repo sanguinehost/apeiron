@@ -224,8 +224,14 @@ theorem publish_live_tag_readback {R V : Type}
   rw [hp2] at hpub
   simp only [bind_tc_ok, uncurry_apply_pair] at hpub
   cases htag : table.tag place with
-  | vis eff k => simp [htag] at hpub
-  | div => simp [htag] at hpub
+  | vis eff k =>
+      rw [htag] at hpub
+      simp only [bind_tc_vis] at hpub
+      exact (vis_not_ok hpub).elim
+  | div =>
+      rw [htag] at hpub
+      simp only [bind_tc_div] at hpub
+      exact (div_not_ok hpub).elim
   | ret tag =>
       rw [htag] at hpub
       simp only [bind_tc_ok] at hpub
@@ -244,17 +250,48 @@ theorem publish_live_tag_readback {R V : Type}
       subst back3
       rw [hp3] at hpub
       simp only [bind_tc_ok, uncurry_apply_pair] at hpub
-      cases hlive : before.live + 1#usize with
-      | vis eff k => simp [hlive] at hpub
-      | div => simp [hlive] at hpub
-      | ret live1 =>
-          rw [hlive] at hpub
+      cases hcoord : table.Region.coord_of R V place with
+      | vis eff k =>
+          rw [hcoord] at hpub
+          simp only [bind_tc_vis] at hpub
+          exact (vis_not_ok hpub).elim
+      | div =>
+          rw [hcoord] at hpub
+          simp only [bind_tc_div] at hpub
+          exact (div_not_ok hpub).elim
+      | ret coord =>
+          rw [hcoord] at hpub
           simp only [bind_tc_ok] at hpub
-          have hafter := (Result.ok_injective hpub).symm
-          subst after
-          refine ⟨tag, { ss3 with tag := tag }, rfl, tag_ne_zero place tag htag, ?_, rfl⟩
-          rw [alloc.vec.Vec.set_val_eq]
-          exact List.getElem?_set_self (List.getElem?_eq_some_iff.mp hget3).1
+          cases h4 : alloc.vec.Vec.index_mut_usize before.coords index with
+          | vis eff k =>
+              rw [h4] at hpub
+              simp only [bind_tc_vis] at hpub
+              exact (vis_not_ok hpub).elim
+          | div =>
+              rw [h4] at hpub
+              simp only [bind_tc_div] at hpub
+              exact (div_not_ok hpub).elim
+          | ret r =>
+              rcases r with ⟨_, back4⟩
+              rw [h4] at hpub
+              simp only [bind_tc_ok, uncurry_apply_pair] at hpub
+              cases hlive : before.live + 1#usize with
+              | vis eff k =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_vis] at hpub
+                  exact (vis_not_ok hpub).elim
+              | div =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_div] at hpub
+                  exact (div_not_ok hpub).elim
+              | ret live1 =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_ok] at hpub
+                  have hafter := (Result.ok_injective hpub).symm
+                  subst after
+                  refine ⟨tag, { ss3 with tag := tag }, rfl, tag_ne_zero place tag htag, ?_, rfl⟩
+                  rw [alloc.vec.Vec.set_val_eq]
+                  exact List.getElem?_set_self (List.getElem?_eq_some_iff.mp hget3).1
 
 /-- Successful `table.matches` entails both generated comparisons. -/
 theorem fingerprint_hit_requires_full_matches {K H R V : Type}

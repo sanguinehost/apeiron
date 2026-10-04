@@ -236,19 +236,50 @@ theorem publish_live_slots_exact {R V : Type}
           rw [alloc.vec.Vec.set_val_eq]
           exact List.getElem?_set_self (List.getElem?_eq_some_iff.mp hget2).1
         exact Option.some.inj (hget3.symm.trans hx)
-      cases hlive : before.live + 1#usize with
-      | vis eff k => simp [hlive] at hpub
-      | div => simp [hlive] at hpub
-      | ret live1 =>
-          rw [hlive] at hpub
+      cases hcoord : table.Region.coord_of R V place with
+      | vis eff k =>
+          rw [hcoord] at hpub
+          simp only [bind_tc_vis] at hpub
+          exact (vis_not_ok hpub).elim
+      | div =>
+          rw [hcoord] at hpub
+          simp only [bind_tc_div] at hpub
+          exact (div_not_ok hpub).elim
+      | ret i1 =>
+          rw [hcoord] at hpub
           simp only [bind_tc_ok] at hpub
-          have hafter := (Result.ok_injective hpub).symm
-          subst after
-          refine ⟨tag, rfl, Apeiron.GrowableScan.tag_ne_zero place tag htag, ?_⟩
-          subst ss3
-          subst ss2
-          subst ss1
-          simp [alloc.vec.Vec.set_val_eq, List.set_set]
+          cases h4 : before.coords.index_mut_usize index with
+          | vis eff k =>
+              rw [h4] at hpub
+              simp only [bind_tc_vis] at hpub
+              exact (vis_not_ok hpub).elim
+          | div =>
+              rw [h4] at hpub
+              simp only [bind_tc_div] at hpub
+              exact (div_not_ok hpub).elim
+          | ret r =>
+              rcases r with ⟨_, back4⟩
+              rw [h4] at hpub
+              simp only [bind_tc_ok, uncurry_apply_pair] at hpub
+              cases hlive : before.live + 1#usize with
+              | vis eff k =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_vis] at hpub
+                  exact (vis_not_ok hpub).elim
+              | div =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_div] at hpub
+                  exact (div_not_ok hpub).elim
+              | ret live1 =>
+                  rw [hlive] at hpub
+                  simp only [bind_tc_ok] at hpub
+                  have hafter := (Result.ok_injective hpub).symm
+                  subst after
+                  refine ⟨tag, rfl, Apeiron.GrowableScan.tag_ne_zero place tag htag, ?_⟩
+                  subst ss3
+                  subst ss2
+                  subst ss1
+                  simp [alloc.vec.Vec.set_val_eq, List.set_set]
 
 /-- A successful generated publication changes only its selected slot. -/
 theorem publish_live_slot_frame {R V : Type}
@@ -385,7 +416,8 @@ private theorem table_new_empty_repR {R : Type}
       key := ()
       locator :=
         { profile := none, directory := none
-          links := alloc.vec.Vec.new (U32 × table.PayloadLocation), staged := none } }
+          links := alloc.vec.Vec.new (U32 × table.PayloadLocation),
+          admitted := 0#usize, staged := none } }
   change RepR state decode (fun _ => none) (fun _ => False) (fun _ => default)
   have regionEmpty {shard : Usize} {region : table.Region R I64}
       (hregion : state.shards.val[shard.val]? = some region) : region.slots.val = [] := by
@@ -723,7 +755,7 @@ theorem word_stored_vacant_spill_return_shards
     (region published : table.Region Apeiron.GrowableIdentity.StoredI64 I64)
     (hregion : state.shards.val[shard.val]? = some region)
     (nextLocator : table.TableLocator)
-    (hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Spill shard index) = ok nextLocator)
     (hpublish : table.Region.publish_live region index
@@ -758,7 +790,7 @@ theorem word_stored_vacant_flat_return_frame
     (index : Usize) (old : table.FlatSlot Apeiron.GrowableIdentity.StoredI64 I64)
     (hslot : state.resident.slots.val[index.val]? = some old)
     (nextLocator : table.TableLocator)
-    (hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
+    (_hlocator : table.TableLocator.publish_for_query core.clone.CloneI64
       Apeiron.GrowableIdentity.wordHomeInst Apeiron.GrowableIdentity.storedKeyRep
       state.locator state.home sigma key (.Resident index) = ok nextLocator)
     (hlen : state.len.val + 1 < Usize.max) :
