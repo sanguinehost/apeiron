@@ -19,6 +19,177 @@ pub(crate) use report::{print_headline, print_pair_table};
 
 pub(crate) const RATIO_LIMIT: f64 = 1.0;
 
+/// The environment variable that selects the acceptance ratio target for one invocation.
+///
+/// Unset is the registered gate: `RATIO_LIMIT` on every applicable pair, unchanged. `half` is the
+/// owner's 0.5 target: `0.50` on every applicable hashtrinity pair and `RATIO_LIMIT` on every other
+/// pair. A finite value in `(0, RATIO_LIMIT]` is that bound on the hashtrinity pairs. Anything else
+/// refuses the invocation with [`USAGE_EXIT`], so a misspelled variable cannot silently run the
+/// registered gate in the reader's place: a refusal is a usage error, distinct from the acceptance
+/// failure `1`.
+pub(crate) const ENV_TARGET_RATIO: &str = "REG1_TARGET_RATIO";
+
+/// The `half` value of [`ENV_TARGET_RATIO`]: the owner's `selected/incumbent <= 0.5` target on every
+/// applicable hashtrinity pair.
+pub(crate) const TARGET_HALF: f64 = 0.5;
+
+/// The incumbents the 0.5 target is scoped to: every registered arm of the pinned hashtrinity
+/// baseline `4cc14471`.
+///
+/// Closed over the registry rather than derived from a name prefix at the decision point, so a newly
+/// registered hashtrinity arm is a [`target_scope_is_closed_over_the_registry`] failure rather than a
+/// silently widened exemption. The list is the scope; `TARGET_SCOPED_INCUMBENT_PREFIX` is the
+/// property that pins it to the registry.
+pub(crate) const TARGET_SCOPED_INCUMBENTS: [&str; 3] = [
+    "hashtrinity_table",
+    "hashtrinity_count_par",
+    "hashtrinity_get_each",
+];
+
+/// The id prefix that makes an incumbent an arm of the hashtrinity baseline. Compiled only for the
+/// registry-closure test that pins [`TARGET_SCOPED_INCUMBENTS`] to it; never read at the decision
+/// point, which reads the list itself.
+#[cfg(test)]
+pub(crate) const TARGET_SCOPED_INCUMBENT_PREFIX: &str = "hashtrinity_";
+
+/// The exit status of a refused ratio-target selection: a usage error, as in [`main::run`]'s `64`,
+/// and distinct from the acceptance failure `1` and the measurement refusal `3`.
+pub(crate) const USAGE_EXIT: i32 = 64;
+
+/// The per-family `selected/incumbent` bound one acceptance invocation applies.
+///
+/// Two bounds, not one: the 0.5 target is scoped to the hashtrinity arms, and every other
+/// incumbent keeps the registered [`RATIO_LIMIT`]. Both are decided on the same pooled campaign
+/// interval max as the registered gate, so neither bound relaxes or tightens the uncertainty rule,
+/// the oracle-identity check, the applicability channels or the concurrency and address-face checks;
+/// those all run before the ratio and are unchanged.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct RatioTarget {
+    /// The bound on every applicable arm of [`TARGET_SCOPED_INCUMBENTS`].
+    scoped: f64,
+    /// The bound on every other applicable pair.
+    other: f64,
+}
+
+impl RatioTarget {
+    /// The registered gate: [`RATIO_LIMIT`] on every applicable pair. This is the default of every
+    /// path that does not name a target, so the `1.0` gate and its recorded history are unaffected by
+    /// the existence of [`RatioTarget::half`].
+    pub(crate) const fn registered() -> Self {
+        Self {
+            scoped: RATIO_LIMIT,
+            other: RATIO_LIMIT,
+        }
+    }
+
+    /// The owner's 0.5 target: [`TARGET_HALF`] on every applicable hashtrinity pair,
+    /// [`RATIO_LIMIT`] on every other pair.
+    pub(crate) const fn half() -> Self {
+        Self {
+            scoped: TARGET_HALF,
+            other: RATIO_LIMIT,
+        }
+    }
+
+    /// Whether this target is the registered gate, whose report lines are printed unchanged.
+    pub(crate) fn is_registered(&self) -> bool {
+        *self == Self::registered()
+    }
+
+    /// The target's report name.
+    pub(crate) fn name(&self) -> &'static str {
+        if *self == Self::registered() {
+            "registered-1.00"
+        } else if *self == Self::half() {
+            "hashtrinity-half"
+        } else {
+            "hashtrinity-custom"
+        }
+    }
+
+    /// The bound this target applies to `incumbent_id`.
+    ///
+    /// Total: an incumbent outside [`TARGET_SCOPED_INCUMBENTS`] takes `other`, and an id the
+    /// registry does not carry is already rejected by [`evaluate`] as an unknown incumbent before
+    /// this is reached.
+    pub(crate) fn limit_for(&self, incumbent_id: &str) -> f64 {
+        if TARGET_SCOPED_INCUMBENTS.contains(&incumbent_id) {
+            self.scoped
+        } else {
+            self.other
+        }
+    }
+
+    /// Whether this target tightens any pair at all, i.e. whether it is worth reporting separately.
+    pub(crate) fn is_stricter(&self) -> bool {
+        self.scoped < RATIO_LIMIT
+    }
+
+    /// Resolve the invocation's target from [`ENV_TARGET_RATIO`].
+    ///
+    /// # Errors
+    /// Returns a description when the variable is set to a value that is not `half` and not a finite
+    /// ratio in `(0, RATIO_LIMIT]`. Unset is the registered target, not an error: the `1.0` gate is
+    /// the default and stays the gate.
+    pub(crate) fn from_env() -> Result<Self, String> {
+        match std::env::var(ENV_TARGET_RATIO) {
+            Ok(raw) => Self::parse(Some(&raw)),
+            Err(std::env::VarError::NotPresent) => Self::parse(None),
+            Err(std::env::VarError::NotUnicode(_)) => {
+                Err(format!("{ENV_TARGET_RATIO} is not valid unicode"))
+            }
+        }
+    }
+
+    /// The selection rule behind [`RatioTarget::from_env`], as a pure function of the raw value, so
+    /// the parse is testable without mutating the process environment.
+    ///
+    /// `None` is the unset variable, which is the registered gate. `Some("half")` is the owner's
+    /// target. Any other value is parsed as the scoped bound and must be finite and in
+    /// `(0, RATIO_LIMIT]`; the `other` bound stays [`RATIO_LIMIT`], so no selection can loosen the
+    /// registered gate for a pair the target does not scope.
+    ///
+    /// # Errors
+    /// Returns a description of why `raw` does not name a target.
+    pub(crate) fn parse(raw: Option<&str>) -> Result<Self, String> {
+        let Some(raw) = raw else {
+            return Ok(Self::registered());
+        };
+        let trimmed = raw.trim();
+        if trimmed == "half" {
+            return Ok(Self::half());
+        }
+        let Ok(scoped) = trimmed.parse::<f64>() else {
+            return Err(format!(
+                "{ENV_TARGET_RATIO}={raw:?} is neither \"half\" nor a ratio in (0, {RATIO_LIMIT}]"
+            ));
+        };
+        if !scoped.is_finite() || scoped <= 0.0 || scoped > RATIO_LIMIT {
+            return Err(format!(
+                "{ENV_TARGET_RATIO}={raw:?} is outside (0, {RATIO_LIMIT}]"
+            ));
+        }
+        Ok(Self {
+            scoped,
+            other: RATIO_LIMIT,
+        })
+    }
+
+    /// The `acceptance_target` line: the bound this invocation applied, and the registered bound it
+    /// replaced.
+    pub(crate) fn print_target(&self) {
+        println!(
+            "acceptance_target name={} scoped_limit={:.2} other_limit={:.2} \
+             scoped_incumbents={} registered_limit={RATIO_LIMIT:.2} source={ENV_TARGET_RATIO} \
+             decision=pooled_campaign_interval_max",
+            self.name(),
+            self.scoped,
+            self.other,
+            TARGET_SCOPED_INCUMBENTS.join(","),
+        );
+    }
+}
+
 pub(crate) const SELECTED_IMPL: &str = "apeiron_table";
 
 pub(crate) const SELECTED_WORKERS: usize = 1;
@@ -858,11 +1029,29 @@ fn update_worst(worst: &mut Option<(String, f64)>, cell: &str, incumbent: &str, 
     }
 }
 
+/// The registered gate's evaluation: [`RATIO_LIMIT`] on every applicable pair. Every caller that
+/// does not name a target reaches the ratio decision through here, so the `1.0` gate is the
+/// default of the whole harness and not a variant a caller has to choose.
+pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOutcome {
+    evaluate_with(campaign, full_profile, RatioTarget::registered())
+}
+
+/// [`evaluate`] under an explicit [`RatioTarget`]: the same channels in the same order, with
+/// `target.limit_for(pair.incumbent_id)` in place of [`RATIO_LIMIT`] at the ratio decision.
+///
+/// Nothing above the ratio decision is parameterised, which is what makes the target a bound change
+/// and not a weaker harness: the oracle-identity check, the applicability channels, the missing
+/// adapter, the empty/zero/non-finite sample checks, the concurrency match and the address face are
+/// each evaluated exactly as before, and each still records its pair before this bound is consulted.
 #[allow(
     clippy::too_many_lines,
     reason = "one function states the whole per-pair acceptance contract in report order"
 )]
-pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOutcome {
+pub(crate) fn evaluate_with(
+    campaign: &Campaign,
+    full_profile: bool,
+    target: RatioTarget,
+) -> AcceptanceOutcome {
     let mut tallies: Vec<IncumbentTally> = INCUMBENTS
         .iter()
         .map(|inc| IncumbentTally {
@@ -1049,11 +1238,12 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
             .iter()
             .copied()
             .fold(f64::NEG_INFINITY, f64::max);
-        if r_max > RATIO_LIMIT {
+        let limit = target.limit_for(pair.incumbent_id);
+        if r_max > limit {
             tallies[index].failed += 1;
             update_worst(&mut worst, &pair.cell_id, pair.incumbent_id, r_max);
             failing.push(format!(
-                "({}, {}) rmax={r_max:.4} > {RATIO_LIMIT:.2}",
+                "({}, {}) rmax={r_max:.4} > {limit:.2}",
                 pair.cell_id, pair.incumbent_id
             ));
             record(PairStatus::Fail, true);
@@ -1100,7 +1290,7 @@ pub(crate) fn evaluate(campaign: &Campaign, full_profile: bool) -> AcceptanceOut
     }
 }
 
-pub(crate) const CONTROLS: [&str; 12] = [
+pub(crate) const CONTROLS: [&str; 13] = [
     "acceptance-failing-non-hashtrinity-pair",
     "acceptance-omitted-incumbent-pair",
     "acceptance-unauthorized-not-applicable",
@@ -1111,6 +1301,7 @@ pub(crate) const CONTROLS: [&str; 12] = [
     "acceptance-address-face-mismatch",
     "acceptance-address-face-mechanism",
     "acceptance-registered-baseline-regression",
+    "acceptance-hashtrinity-half-target",
     "spatial-wrong-tuple-bucket-routing",
     "spatial-excluded-registry-overcharge",
 ];
@@ -1368,6 +1559,166 @@ fn run_address_face_control() -> i32 {
     2
 }
 
+/// The 0.5 target's own control: the bound separates the hashtrinity pairs at 0.75 and it is
+/// scoped to them.
+///
+/// Six directions, all required, so the check cannot pass by rejecting everything or by tightening
+/// one pair the wrong way:
+/// * the unseeded synthetic campaign passes the half target, at exactly `0.50` — the bound is
+///   inclusive, so a check that rejected `>=` would be rejected here;
+/// * a single seeded hashtrinity pair at `0.75` is **rejected** by the half target through the
+///   ratio channel, by name, with `failing.len() == 1` so the rejection is attributable to that
+///   pair and not to collateral damage;
+/// * the same seeded pair at `0.75` **passes** the registered gate, which is the separation the
+///   target claims and which is what makes the `1.0` gate's unchanged behaviour part of the proof
+///   rather than an assumption;
+/// * the same `0.75` on a non-hashtrinity pair is **accepted** by the half target, so a limit
+///   applied globally instead of to [`TARGET_SCOPED_INCUMBENTS`] is caught;
+/// * a hashtrinity pair at exactly `0.50` passes and one at `0.5001` fails, pinning the boundary
+///   from both sides;
+/// * the repetition block's per-campaign flags follow the same per-pair bound, so a target that
+///   gated the pooled decision but reported `1.00` flags is caught.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one function states the whole target control and its six rejecting directions"
+)]
+fn run_target_control() -> i32 {
+    let name = "acceptance-hashtrinity-half-target";
+    let half = RatioTarget::half();
+    let registered = RatioTarget::registered();
+    let seeded_ratio = 0.75;
+
+    let campaign_with = |incumbent: &str, ratio: f64| -> Campaign {
+        let mut campaign = synthetic_campaign();
+        let Some(pair) = campaign
+            .pairs
+            .iter_mut()
+            .find(|p| p.incumbent_id == incumbent && p.class == PairClass::LoadBearing)
+        else {
+            return campaign;
+        };
+        pair.campaign_ratios = vec![ratio, ratio, ratio];
+        campaign
+    };
+
+    // Non-vacuity, and the inclusive boundary: every pair of the synthetic campaign sits at exactly
+    // `TARGET_HALF`, so the half target decides all of them and passes all of them.
+    let unseeded = evaluate_with(&synthetic_campaign(), false, half);
+    if !unseeded.passed() || unseeded.applicable == 0 {
+        eprintln!(
+            "performance-control {name} NOT rejected: the unseeded synthetic campaign at \
+             TARGET_HALF={TARGET_HALF:.2} reported failing={:?} applicable={}",
+            unseeded.failing, unseeded.applicable
+        );
+        return 1;
+    }
+
+    // The seeded hashtrinity pair is rejected by the half target, through the ratio channel alone.
+    let seeded_ht = evaluate_with(&campaign_with(HASHTRINITY_TABLE, seeded_ratio), false, half);
+    let seeded_line = format!("rmax={seeded_ratio:.4} > {TARGET_HALF:.2}");
+    if seeded_ht.passed()
+        || seeded_ht.failing.len() != 1
+        || !seeded_ht.failing[0].contains(&seeded_line)
+        || !seeded_ht.failing[0].contains(HASHTRINITY_TABLE)
+        || !seeded_ht.failing[0].contains("synthetic-cell-a")
+    {
+        eprintln!(
+            "performance-control {name} NOT rejected: a {seeded_ratio:.2} hashtrinity pair reported \
+             failing={:?} missing={:?} unauthorized={:?}",
+            seeded_ht.failing, seeded_ht.missing, seeded_ht.unauthorized
+        );
+        return 1;
+    }
+
+    // The separation claim: the registered gate passes the same pair at the same ratio.
+    let seeded_registered = evaluate_with(
+        &campaign_with(HASHTRINITY_TABLE, seeded_ratio),
+        false,
+        registered,
+    );
+    if !seeded_registered.passed() {
+        eprintln!(
+            "performance-control {name} NOT rejected: the registered gate rejected a {seeded_ratio:.2} \
+             hashtrinity pair (failing={:?}), so the target does not separate the two gates",
+            seeded_registered.failing
+        );
+        return 1;
+    }
+
+    // The scope claim: the same ratio on a non-hashtrinity incumbent is still accepted, so the
+    // target is not a global tightening.
+    let seeded_other = evaluate_with(
+        &campaign_with("hashbrown_foldhash", seeded_ratio),
+        false,
+        half,
+    );
+    if !seeded_other.passed() {
+        eprintln!(
+            "performance-control {name} NOT rejected: the half target tightened a non-hashtrinity \
+             pair at {seeded_ratio:.2} (failing={:?}), so the bound is not scoped to \
+             TARGET_SCOPED_INCUMBENTS",
+            seeded_other.failing
+        );
+        return 1;
+    }
+
+    // The boundary from both sides: `TARGET_HALF` exactly passes and the next representable ratio
+    // above it fails, so the comparison is `r_max > limit` and not `>=`.
+    let at_bound = evaluate_with(&campaign_with(HASHTRINITY_TABLE, TARGET_HALF), false, half);
+    let above_bound = evaluate_with(
+        &campaign_with(HASHTRINITY_TABLE, f64::from_bits(TARGET_HALF.to_bits() + 1)),
+        false,
+        half,
+    );
+    if !at_bound.passed() || above_bound.passed() {
+        eprintln!(
+            "performance-control {name} NOT rejected: at TARGET_HALF={TARGET_HALF:.2} passed={}, the \
+             next ratio above it passed={}",
+            at_bound.passed(),
+            above_bound.passed()
+        );
+        return 1;
+    }
+
+    // The reported per-campaign flags follow the same per-pair bound, so the block cannot advertise
+    // `1.00` flags over a population the gate decided at 0.50.
+    let campaign = campaign_with(HASHTRINITY_TABLE, seeded_ratio);
+    let outcome = evaluate_with(&campaign, false, half);
+    let repetitions = match collect_repetitions_with(&campaign, &outcome, half) {
+        Ok(repetitions) => repetitions,
+        Err(e) => {
+            eprintln!("performance-control {name} NOT rejected: the seeded repetition block: {e}");
+            return 1;
+        }
+    };
+    let Some(flags) = repetitions
+        .pairs
+        .iter()
+        .find(|p| p.incumbent_id == HASHTRINITY_TABLE && p.cell_id == "synthetic-cell-a")
+        .map(|p| p.pass_per_campaign.clone())
+    else {
+        eprintln!(
+            "performance-control {name} NOT rejected: the seeded pair is absent from the block"
+        );
+        return 1;
+    };
+    if flags.iter().any(|passed| *passed) || flags.len() != 3 {
+        eprintln!(
+            "performance-control {name} NOT rejected: the {seeded_ratio:.2} hashtrinity pair reported \
+             per-campaign pass flags {flags:?} under the half target"
+        );
+        return 1;
+    }
+    eprintln!(
+        "performance-control {name} rejected: a {seeded_ratio:.2} hashtrinity pair is rejected by \
+         the half target through the ratio channel alone (failing=1 \"{seeded_line}\") and accepted \
+         by the registered {RATIO_LIMIT:.2} target; the same ratio on a non-hashtrinity incumbent is \
+         accepted by both, so the bound is scoped; TARGET_HALF={TARGET_HALF:.2} itself passes and the \
+         next ratio above it fails; the per-campaign flags for the seeded pair are {flags:?}"
+    );
+    2
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one function dispatches the controls"
@@ -1399,6 +1750,9 @@ pub(crate) fn run_control_child(name: &str) -> i32 {
     }
     if name == "acceptance-registered-baseline-regression" {
         return run_regression_control();
+    }
+    if name == "acceptance-hashtrinity-half-target" {
+        return run_target_control();
     }
     let mut campaign = synthetic_campaign();
     let applied =
@@ -2637,6 +2991,11 @@ impl Repetitions {
 /// pair's ratio interval is empty or non-finite, or when the pairs disagree about the campaign
 /// count. Every one of those means the repetition axis is not what the profile says it is, and a
 /// mean over it would be a fabricated number, so the run fails closed instead.
+/// The repetition aggregation for one invocation's target.
+///
+/// The reported statistics — mean, minimum, maximum, spread — are the same numbers over the same
+/// campaigns under every target; only the `pass_at_campaign` flags read `target.limit_for`, so the
+/// block reports and never decides, as its own rule line states.
 #[allow(
     clippy::too_many_lines,
     clippy::cast_precision_loss,
@@ -2644,9 +3003,10 @@ impl Repetitions {
               and a nanosecond-derived ratio are all far below 2^53, the bound matrix::ratio states \
               for the same conversion"
 )]
-fn collect_repetitions(
+fn collect_repetitions_with(
     campaign: &Campaign,
     outcome: &AcceptanceOutcome,
+    target: RatioTarget,
 ) -> Result<Repetitions, String> {
     if outcome.ratio_decided.len() != campaign.pairs.len() {
         return Err(format!(
@@ -2701,7 +3061,7 @@ fn collect_repetitions(
         let pass_flags: Vec<bool> = pair
             .campaign_ratios
             .iter()
-            .map(|&r| r <= RATIO_LIMIT)
+            .map(|&r| r <= target.limit_for(pair.incumbent_id))
             .collect();
         for (k, passed) in pass_flags.iter().enumerate() {
             if *passed {
@@ -2775,12 +3135,27 @@ fn collect_repetitions(
     })
 }
 
+/// The registered block's rule line, byte-identical to the one printed before a ratio target
+/// existed. Kept as a literal rather than formatted, so the `1.0` report is unchanged.
+const REPEATS_RULE_REGISTERED: &str = "pass_at_campaign_k is campaign k's own selected/incumbent \
+                                      <= 1.00; the gate remains the pooled campaign interval max \
+                                      over all campaigns, so the mean reports and never decides";
+
+/// The rule line when a stricter target is in force: the per-campaign flag compares with the bound
+/// that pair's own incumbent carries, and the gate is still the pooled campaign interval max.
+const REPEATS_RULE_SCOPED: &str = "pass_at_campaign_k is campaign k's own selected/incumbent <= \
+                                   0.50 on a hashtrinity pair and <= 1.00 on every other pair; \
+                                   the gate remains the pooled campaign interval max over all \
+                                   campaigns, so the mean reports and never decides";
+
 /// Print the averaged block: the pass tally's mean and spread, then each incumbent's and each
 /// decided pair's ratio mean and spread, over the campaigns this invocation already ran.
-fn print_repetitions(profile: Profile, r: &Repetitions) {
-    let rule = "pass_at_campaign_k is campaign k's own selected/incumbent <= 1.00; the gate \
-                remains the pooled campaign interval max over all campaigns, so the mean reports \
-                and never decides";
+fn print_repetitions(profile: Profile, r: &Repetitions, target: RatioTarget) {
+    let rule = if target.is_registered() {
+        REPEATS_RULE_REGISTERED
+    } else {
+        REPEATS_RULE_SCOPED
+    };
     println!(
         "acceptance_repeats profile={} axis=campaign campaigns={} decided_pairs={} pooled_pass={} \
          pass_mean={:.2} pass_min={} pass_max={} pass_spread={} pass_sd={:.2} \
@@ -2846,11 +3221,114 @@ fn print_repetitions(profile: Profile, r: &Repetitions) {
     }
 }
 
+/// One scoped pair's verdict under the invocation's target: the bound that pair carries, the pooled
+/// campaign interval max that was compared with it, the `PairStatus` the shared decision produced,
+/// and the failure line when it failed.
+///
+/// A scoped pair that never reached the ratio decision — not applicable, missing, unauthorized, or
+/// rejected on identity, concurrency or address face — is printed with `rmax=-` and its own status,
+/// so an applicability or identity exemption is visible as such rather than as a 0.5 pass. The
+/// counts returned are the scoped population's applicable/decided/failed tallies, and a target that
+/// decided no scoped pair at all is vacuous and rejects: see [`scoped_verdicts`]'s caller.
+fn print_scoped_verdicts(campaign: &Campaign, outcome: &AcceptanceOutcome, target: RatioTarget) {
+    for (index, pair) in campaign.pairs.iter().enumerate() {
+        if !TARGET_SCOPED_INCUMBENTS.contains(&pair.incumbent_id) {
+            continue;
+        }
+        let limit = target.limit_for(pair.incumbent_id);
+        let status = outcome
+            .pair_status
+            .get(index)
+            .copied()
+            .unwrap_or(PairStatus::Fail);
+        let r_max_text = if outcome.ratio_decided.get(index).copied().unwrap_or(false) {
+            format!(
+                "{:.4}",
+                pair.campaign_ratios
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max)
+            )
+        } else {
+            "-".to_string()
+        };
+        let failure = outcome
+            .failing
+            .iter()
+            .find(|line| line.starts_with(&format!("({}, {}) ", pair.cell_id, pair.incumbent_id)))
+            .map_or_else(|| "-".to_string(), Clone::clone);
+        println!(
+            "acceptance_target_pair cell={} incumbent={} limit={limit:.2} rmax={r_max_text} \
+             campaigns={} status={} failing=\"{}\"",
+            pair.cell_id,
+            pair.incumbent_id,
+            pair.campaign_ratios.len(),
+            status.name(),
+            failure
+        );
+    }
+}
+
+/// The scoped population's tallies under `target`: applicable, ratio-decided and failed scoped
+/// pairs, in `campaign.pairs` order against `outcome`'s per-pair records.
+///
+/// `decided == 0` means the target gated nothing, so a stricter target must not report it as a
+/// pass over an empty population.
+fn scoped_tallies(campaign: &Campaign, outcome: &AcceptanceOutcome) -> (usize, usize, usize) {
+    let mut applicable = 0usize;
+    let mut decided = 0usize;
+    let mut failed = 0usize;
+    for (index, pair) in campaign.pairs.iter().enumerate() {
+        if !TARGET_SCOPED_INCUMBENTS.contains(&pair.incumbent_id) {
+            continue;
+        }
+        let status = outcome
+            .pair_status
+            .get(index)
+            .copied()
+            .unwrap_or(PairStatus::Fail);
+        if matches!(
+            status,
+            PairStatus::Pass | PairStatus::Fail | PairStatus::Informational
+        ) {
+            applicable += 1;
+        }
+        if outcome.ratio_decided.get(index).copied().unwrap_or(false) {
+            decided += 1;
+        }
+        if status == PairStatus::Fail {
+            failed += 1;
+        }
+    }
+    (applicable, decided, failed)
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one function states the acceptance campaign's full phase sequence"
 )]
 pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
+    // The ratio target this invocation applies. Resolved before any measurement so a misspelled
+    // selection costs no timed region, and refused rather than defaulted: a reader who typed a bound
+    // must not receive the registered gate in its place.
+    let target = match RatioTarget::from_env() {
+        Ok(target) => target,
+        Err(e) => {
+            eprintln!("acceptance target refused: {e}");
+            return USAGE_EXIT;
+        }
+    };
+    // `report.rs`'s `acceptance_rule` line names `RATIO_LIMIT` as a constant, so under a stricter
+    // target the `--json` dump would print a rule the gate does not apply. Refuse that combination
+    // instead of printing a false rule; the pair table carries the per-pair verdict unchanged.
+    if target.is_stricter() && json {
+        eprintln!(
+            "acceptance target refused: --json prints acceptance_rule with the registered \
+             {RATIO_LIMIT:.2} bound, which is not the rule this invocation applies; run without \
+             --json"
+        );
+        return USAGE_EXIT;
+    }
     // Phase 1: the existing measurement, registration enforcement and diagnostics, unchanged except
     // that the acceptance path prints its own table, so the phase-1 dump is silent.
     let t_total = std::time::Instant::now();
@@ -2931,7 +3409,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         print_registration();
         print_ratio_summary(&campaign);
     }
-    let outcome = evaluate(&campaign, profile == Profile::Full);
+    let outcome = evaluate_with(&campaign, profile == Profile::Full, target);
     performance::phase_mark("accept.evaluate", t_total, &mut t_last);
     print_address_faces(&campaign);
     print_spatial_timed_regions(&campaign, &spatial);
@@ -2941,9 +3419,32 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         print_pair_table(&campaign, &outcome);
     }
     print_headline(&outcome);
+    // The scoped per-pair verdict under this invocation's target. Printed beside the shared pair
+    // table and the HEADLINE, never instead of them: the table's `status` column and the HEADLINE
+    // tallies are the same decision, read through the target.
+    let (scoped_applicable, scoped_decided, scoped_failed) = scoped_tallies(&campaign, &outcome);
+    if target.is_stricter() {
+        target.print_target();
+        print_scoped_verdicts(&campaign, &outcome, target);
+        println!(
+            "acceptance_target_summary applicable={scoped_applicable} ratio_decided={scoped_decided} \
+             failed={scoped_failed} target={}",
+            target.name()
+        );
+        // A target that decided no scoped pair gated nothing. The registered gate reports an empty
+        // population as it always has; a stricter target must reject it rather than pass vacuously.
+        if scoped_decided == 0 {
+            eprintln!(
+                "acceptance target rejected: {} decided 0 of {} scoped pairs, so it gated nothing",
+                target.name(),
+                scoped_applicable
+            );
+            return 1;
+        }
+    }
     // The mean and spread block. The gated verdict above is untouched: the pooled campaign interval
     // max decides, and this reports what the registered campaigns of this one invocation measured.
-    let repetitions = match collect_repetitions(&campaign, &outcome) {
+    let repetitions = match collect_repetitions_with(&campaign, &outcome, target) {
         Ok(repetitions) => repetitions,
         Err(e) => {
             eprintln!("acceptance repetition aggregation failed: {e}");
@@ -2951,7 +3452,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         }
     };
     performance::phase_mark("accept.repetitions", t_total, &mut t_last);
-    print_repetitions(profile, &repetitions);
+    print_repetitions(profile, &repetitions, target);
     // `gate_full_acceptance` is the pair acceptance AND the registered-baseline regression. The
     // HEADLINE line above keeps reporting the pair acceptance alone, so the registered pair tallies
     // it states are unchanged by the regression check; the regression is a separate conjunct here.
@@ -2969,10 +3470,21 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         }
     }
     performance::phase_mark("accept.controls", t_total, &mut t_last);
+    // The registered gate's verdict lines carry no target field, so a `1.0` run's output is
+    // unchanged; a stricter run names the bound its verdicts were decided under.
+    let target_suffix = if target.is_registered() {
+        String::new()
+    } else {
+        format!(
+            " target={} scoped_limit={:.2}",
+            target.name(),
+            target.scoped
+        )
+    };
     if outcome.passed() && regression.passed() {
         println!(
             "strict_acceptance=pass applicable={} failing=0 missing=0 concurrency_unmatched={} \
-             full_acceptance={} regression_registered={} regression_regressed={}",
+             full_acceptance={} regression_registered={} regression_regressed={}{target_suffix}",
             outcome.applicable,
             outcome.concurrency_unmatched,
             outcome.full_acceptance,
@@ -2984,7 +3496,7 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
         eprintln!(
             "acceptance failed: applicable={} failing={} missing={} unauthorized={} \
              concurrency_unmatched={} full_acceptance=false regressed={} revision_mismatch={} \
-             registered={} compared={} gate_full_acceptance=false",
+             registered={} compared={} gate_full_acceptance=false{target_suffix}",
             outcome.applicable,
             outcome.failing.len(),
             outcome.missing.len(),
@@ -3006,11 +3518,198 @@ pub(crate) fn run_accept(profile: Profile, controls: bool, json: bool) -> i32 {
 #[cfg(test)]
 mod registry_tests;
 
+/// Ratio-target tests: the selection rule, the registry closure of its scope, the separation it
+/// claims against the registered gate, and the per-pair bound the repetition block reports.
+#[cfg(test)]
+mod target_tests {
+    use super::{
+        collect_repetitions_with, evaluate, evaluate_with, synthetic_campaign, AdapterState,
+        Applicability, PairClass, RatioTarget, INCUMBENTS, RATIO_LIMIT, TARGET_HALF,
+        TARGET_SCOPED_INCUMBENTS, TARGET_SCOPED_INCUMBENT_PREFIX,
+    };
+
+    /// A campaign whose one named incumbent's every pair sits at `ratio`, every other pair left at
+    /// the synthetic default of `TARGET_HALF`.
+    fn campaign_with(incumbent: &str, ratio: f64) -> super::Campaign {
+        let mut campaign = synthetic_campaign();
+        let Some(pair) = campaign
+            .pairs
+            .iter_mut()
+            .find(|p| p.incumbent_id == incumbent && p.class == PairClass::LoadBearing)
+        else {
+            panic!("synthetic campaign has a load-bearing ({incumbent}) pair");
+        };
+        pair.campaign_ratios = vec![ratio, ratio, ratio];
+        campaign
+    }
+
+    /// The selection rule: unset is the registered gate, `half` is the owner's target, a ratio in
+    /// `(0, RATIO_LIMIT]` tightens only the scoped arms, and every other value is refused rather than
+    /// defaulted — a misspelled selection must not leave the reader the registered gate.
+    #[test]
+    fn target_selection_is_total_and_fail_closed() {
+        assert_eq!(RatioTarget::parse(None), Ok(RatioTarget::registered()));
+        assert_eq!(
+            RatioTarget::parse(Some("1.0")),
+            Ok(RatioTarget::registered())
+        );
+        assert_eq!(RatioTarget::parse(Some("1")), Ok(RatioTarget::registered()));
+        assert_eq!(RatioTarget::parse(Some("half")), Ok(RatioTarget::half()));
+        assert_eq!(RatioTarget::parse(Some(" half ")), Ok(RatioTarget::half()));
+        let custom = RatioTarget::parse(Some("0.75")).expect("0.75 is a ratio in (0, 1.0]");
+        assert_eq!(custom.limit_for("hashtrinity_table"), 0.75);
+        // No selection loosens the bound for a pair it does not scope.
+        assert_eq!(custom.limit_for("hashbrown_foldhash"), RATIO_LIMIT);
+        assert_eq!(
+            RatioTarget::half().limit_for("hashbrown_foldhash"),
+            RATIO_LIMIT
+        );
+        assert!(custom.is_stricter() && RatioTarget::half().is_stricter());
+        assert!(!RatioTarget::registered().is_stricter());
+        assert_eq!(RatioTarget::registered().name(), "registered-1.00");
+        assert_eq!(RatioTarget::half().name(), "hashtrinity-half");
+        assert_eq!(custom.name(), "hashtrinity-custom");
+        // A set-but-unparsable or out-of-range selection is refused, including an empty value: a variable
+        // that was typed and carries no bound is a typo, not an unset variable.
+        for refused in [
+            "", "0", "0.0", "-0.5", "1.5", "nan", "inf", "0.5x", "faster", "HALF",
+        ] {
+            let parsed = RatioTarget::parse(Some(refused));
+            assert!(
+                parsed.is_err(),
+                "{refused:?} must be refused, got {parsed:?}"
+            );
+        }
+    }
+
+    /// The target's scope is closed over the registry: every registered id carrying the hashtrinity
+    /// prefix is in [`TARGET_SCOPED_INCUMBENTS`], and vice versa. A newly registered hashtrinity arm
+    /// therefore fails here instead of silently inheriting the looser bound.
+    #[test]
+    fn target_scope_is_closed_over_the_registry() {
+        let registered_ht: Vec<&str> = INCUMBENTS
+            .iter()
+            .map(|inc| inc.id)
+            .filter(|id| id.starts_with(TARGET_SCOPED_INCUMBENT_PREFIX))
+            .collect();
+        assert_eq!(
+            registered_ht,
+            TARGET_SCOPED_INCUMBENTS.to_vec(),
+            "the scoped list must name exactly the registered hashtrinity arms"
+        );
+        // Each scoped incumbent is registered exactly once, load-bearing and built, so no scoped
+        // bound is carried by an arm that never reaches the ratio decision.
+        for id in TARGET_SCOPED_INCUMBENTS {
+            let matching: Vec<&super::Incumbent> =
+                INCUMBENTS.iter().filter(|inc| inc.id == id).collect();
+            assert_eq!(matching.len(), 1, "{id} must be registered exactly once");
+            assert_eq!(matching[0].class, PairClass::LoadBearing, "{id}");
+            assert_eq!(matching[0].adapter, AdapterState::Built, "{id}");
+            assert!(
+                !matches!(
+                    matching[0].applicability,
+                    Applicability::UnauthorizedNotApplicable(_)
+                ),
+                "{id} must not be an unauthorized not-applicable arm; the scoped bound reaches it \
+                 where a pair is applicable"
+            );
+        }
+    }
+
+    /// The separation the target claims: a single otherwise-valid hashtrinity pair at 0.75 is
+    /// rejected by the half target through the ratio channel and accepted by the registered gate,
+    /// while the same ratio on a pair the target does not scope is accepted by both.
+    #[test]
+    fn the_half_target_rejects_a_075_hashtrinity_pair_and_the_registered_gate_passes_it() {
+        let half = RatioTarget::half();
+        let registered = RatioTarget::registered();
+        for id in TARGET_SCOPED_INCUMBENTS {
+            let seeded = evaluate_with(&campaign_with(id, 0.75), false, half);
+            assert!(!seeded.passed(), "{id} at 0.75 must fail the half target");
+            assert_eq!(
+                seeded.failing.len(),
+                1,
+                "{id}: the rejection must be attributable to the seeded pair alone: {:?}",
+                seeded.failing
+            );
+            assert!(
+                seeded.failing[0].contains(&format!("rmax=0.7500 > {TARGET_HALF:.2}")),
+                "{id}: {} must name the bound it crossed",
+                seeded.failing[0]
+            );
+            assert!(seeded.missing.is_empty() && seeded.unauthorized.is_empty());
+            let unseeded = evaluate_with(&campaign_with(id, TARGET_HALF), false, half);
+            assert!(unseeded.passed(), "{id}: the bound is inclusive");
+            assert!(
+                evaluate_with(&campaign_with(id, 0.75), false, registered).passed(),
+                "{id}: the registered gate must still pass 0.75"
+            );
+        }
+        assert!(evaluate_with(&campaign_with("hashbrown_foldhash", 0.75), false, half).passed());
+    }
+
+    /// The registered gate is the default of every target-free path, and it is bit-for-bit the
+    /// behaviour of the ratio decision before the target existed: a pair at exactly `RATIO_LIMIT`
+    /// passes and one above it fails, under `evaluate` itself.
+    #[test]
+    fn the_registered_gate_is_unchanged_and_is_the_default() {
+        for id in TARGET_SCOPED_INCUMBENTS {
+            assert!(evaluate(&campaign_with(id, RATIO_LIMIT), false).passed());
+            let above = evaluate(&campaign_with(id, 1.0000001), false);
+            assert!(
+                !above.passed(),
+                "{id}: 1.0000001 must exceed the registered bound"
+            );
+            assert_eq!(RatioTarget::parse(None), Ok(RatioTarget::registered()));
+            assert!(RatioTarget::registered().limit_for(id) == RATIO_LIMIT);
+        }
+    }
+
+    /// The repetition block's per-campaign flags read the same per-pair bound the pooled decision
+    /// used, so a target that gated at 0.50 cannot report `1.00` flags over its own population.
+    #[test]
+    fn the_repetition_flags_follow_the_per_pair_bound() {
+        let campaign = campaign_with("hashtrinity_table", 0.75);
+        let half = RatioTarget::half();
+        let outcome = evaluate_with(&campaign, false, half);
+        let r = collect_repetitions_with(&campaign, &outcome, half).expect("well formed");
+        let flags: Vec<bool> = r
+            .pairs
+            .iter()
+            .find(|p| p.incumbent_id == "hashtrinity_table" && p.cell_id == "synthetic-cell-a")
+            .expect("the seeded pair is in the block")
+            .pass_per_campaign
+            .clone();
+        assert_eq!(
+            flags,
+            vec![false, false, false],
+            "0.75 exceeds the half bound"
+        );
+        // And the registered target's flags over the same pair are all true.
+        let registered_outcome = evaluate_with(&campaign, false, RatioTarget::registered());
+        let registered_r =
+            collect_repetitions_with(&campaign, &registered_outcome, RatioTarget::registered())
+                .expect("well formed");
+        let registered_flags: Vec<bool> = registered_r
+            .pairs
+            .iter()
+            .find(|p| p.incumbent_id == "hashtrinity_table" && p.cell_id == "synthetic-cell-a")
+            .expect("the seeded pair is in the block")
+            .pass_per_campaign
+            .clone();
+        assert_eq!(
+            registered_flags,
+            vec![true, true, true],
+            "0.75 meets the registered bound"
+        );
+    }
+}
+
 #[cfg(test)]
 mod repetition_tests {
     use super::{
-        collect_repetitions, synthetic_campaign, Repetitions, ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD,
-        RATIO_LIMIT,
+        collect_repetitions_with, synthetic_campaign, RatioTarget, Repetitions,
+        ACCEPT_PASS_COUNT_CROSS_RUN_SPREAD, RATIO_LIMIT,
     };
     use crate::matrix::median;
 
@@ -3028,7 +3727,8 @@ mod repetition_tests {
         };
         pair.campaign_ratios = ratios.to_vec();
         let outcome = super::evaluate(&campaign, false);
-        collect_repetitions(&campaign, &outcome).expect("the synthetic campaign is well formed")
+        collect_repetitions_with(&campaign, &outcome, RatioTarget::registered())
+            .expect("the synthetic campaign is well formed")
     }
 
     /// The mean is over the campaigns the profile ran, and the spread is the range over the same
@@ -3168,7 +3868,7 @@ mod repetition_tests {
         let campaign = synthetic_campaign();
         let mut outcome = super::evaluate(&campaign, false);
         outcome.ratio_decided.pop();
-        let e = collect_repetitions(&campaign, &outcome)
+        let e = collect_repetitions_with(&campaign, &outcome, RatioTarget::registered())
             .err()
             .expect("a short decided vector must not aggregate");
         assert!(e.contains("decided flags"), "{e}");
@@ -3181,7 +3881,7 @@ mod repetition_tests {
         let mut campaign = synthetic_campaign();
         campaign.pairs[0].campaign_ratios = vec![0.5, 0.5];
         let outcome = super::evaluate(&campaign, false);
-        let e = collect_repetitions(&campaign, &outcome)
+        let e = collect_repetitions_with(&campaign, &outcome, RatioTarget::registered())
             .err()
             .expect("a ragged campaign count must not aggregate");
         assert!(e.contains("campaign ratios"), "{e}");
