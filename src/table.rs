@@ -30,6 +30,8 @@ use core::marker::PhantomData;
 
 // These explicit paths preserve normal crate resolution and also make this file's children resolve
 // from `src/table/` when Charon includes `src/table.rs` through `proof/extract/lib.rs`.
+#[path = "table/count.rs"]
+pub mod count;
 #[path = "table/keyrep.rs"]
 pub mod keyrep;
 #[path = "table/parallel.rs"]

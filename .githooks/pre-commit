@@ -4,8 +4,9 @@
 # Tier 1 (this hook), each step under its own wall-clock budget:
 #
 #   1. board declaration   python3 tools/hooks/lane.py staged
-#   2. formatting          cargo fmt --all -- --check
-#   3. citation resolution python3 tools/check-claims.py
+#   2. board checkpoint    python3 tools/board/checkpoint.py check
+#   3. formatting          cargo fmt --all -- --check
+#   4. citation resolution python3 tools/check-claims.py
 #
 # Step 1 checks a declaration the *staged change* carries; git does not give a
 # pre-commit hook the message (COMMIT_EDITMSG still holds the previous commit's
@@ -13,11 +14,24 @@
 # that is about to name its row in the message. `.githooks/commit-msg` receives
 # the message file as $1 and is where the declaration is required.
 #
+# Step 2 is the per-cycle board update, anchored to this event rather than to a
+# timer (AGENTS.md §3 step 5). A commit that stages a path under `src/` or
+# `examples/reg1/` changes the source the acceptance number is measured on, so
+# it carries a board check-in: `tools/board/checkpoint.py` writes the marker
+# (.apeiron/checkpoint.json) holding the check-in id and the source digest, and
+# this step refuses unless that marker's staged digest equals the digest of the
+# tree being committed. The tool is the whole receipt -- measure, check-in, rows
+# -- so the obligation cannot be skipped from memory; see
+# /home/socol/oc-tmp/escalation/CHECKPOINT-MECHANISM.md for the design. It is
+# the only step whose trigger is content rather than a commit being attempted, so
+# it prints SKIP with the reason when no staged path is under those prefixes. A
+# missing tool is a named refusal, never a silent pass.
+#
 # The board *reconciliation* (`tools/board/board.py check`) is deliberately not
 # here: it compares the whole board against docs/plan.md, which is red between
 # wave boundaries by design. It is a wave barrier, run from the barrier, not
 # per commit. The per-commit requirement is the declaration: a dispatch names
-# its row (`board: <row-id>`) or declares `board: none -- internal lane`.
+# its row (`board: <row-id>`) or declares `board: none -- housekeeping`.
 #
 # Budgets: APEIRON_HOOKS_PRECOMMIT_BUDGET (total, default 180s),
 # APEIRON_HOOKS_STEP_BUDGET (per step, default 90s). A step that reaches its
@@ -72,6 +86,16 @@ run_step() {
 }
 
 run_step board-declaration python3 -B tools/hooks/lane.py staged
+# The checkpoint step is named here and its tool must exist: a missing driver is
+# a refusal with a diagnostic, not a step that quietly passes (the gate.sh
+# control "the board driver missing: named, not a traceback").
+if [ -f tools/board/checkpoint.py ]; then
+  run_step checkpoint python3 -B tools/board/checkpoint.py check
+else
+  echo "pre-commit: checkpoint: FAIL board-checkpoint-tool-missing: tools/board/checkpoint.py is absent, so the per-cycle board check-in cannot be verified for a staged src/ or examples/reg1/ change" >&2
+  echo "pre-commit: checkpoint: fix: python3 tools/board/checkpoint.py self-test" >&2
+  status=1
+fi
 run_step cargo-fmt cargo fmt --all -- --check
 run_step check-claims python3 -B tools/check-claims.py
 

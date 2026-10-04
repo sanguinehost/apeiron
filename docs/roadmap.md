@@ -4,11 +4,25 @@
 > every Kani run, preservation task and barrier requirement below. Historical receipts remain
 > revision-bound evidence; current work uses ordinary Rust gates and semantic mutation controls.
 
+> **Dispatch (`APEIRON-REORIENT`).** The current execution order is the [five-barrier sequence](plan.md#subsumption-execution-sequence-apeiron-subsum):
+> contract and trustworthy correctness, the serial counting representation, matched parallel
+> counting/readback, source-linked refinement, joint acceptance. Every dispatch table and ownership
+> sequence in this file is **superseded scheduling**: the task IDs, owned files, gates, controls,
+> receipts and unresolved obligations are retained verbatim as history, and the mechanism selections
+> in the performance sections are closed experiments, not active recovery tasks. New Intent and Song
+> development is parked behind joint G1 acceptance — `full_acceptance=true` together with the required
+> real-source end-to-end refinement — with every requirement retained, not waived. That parking is a
+> scheduling decision here: `AGENTS.md` §3a on its own freezes Penglai and webfold behind the same
+> condition. No row below is re-dispatched under the barriers, and no gate, threshold, named incumbent,
+> HashDOS requirement or obligation is retired by this note. G1/REG-1 stays **OPEN**. The decision is
+> `anchor`: it establishes no performance, test or proof result.
+
 This is the consolidation and transfer record, not a second programme roadmap. The
 [single R0 chain](direction.md#thesis) and required
 [G1/REG-1](direction.md#required-r0-acceptance-g1--reg-1) govern; the
-[current read/search proof plan](epics/read-proof.md) owns the immediate task and execution order and
-supersedes the older dispatch tables below.
+[read/search proof plan](epics/read-proof.md) owns the read and search proof obligations, and the
+[current execution order is the five-barrier sequence](plan.md#subsumption-execution-sequence-apeiron-subsum),
+which supersedes the dispatch tables below.
 The review below records the forward roadmap; earlier lifecycle receipts are folded at the end.
 
 ## Verified-AI sequence and prior-art index
@@ -24,8 +38,9 @@ GRADE: anchor; historical grades retained, not fresh acceptance.
 ```
 
 Publication and release are downstream of rebase and end-to-end proof. A pre-rebase artifact is not
-publishable and publication is not a programme step; the staged order below is the dispatch order
-for the verified-AI outcome.
+publishable and publication is not a programme step; the staged order below is the stage order for
+the verified-AI outcome. Stage 1 executes the [five barriers](plan.md#subsumption-execution-sequence-apeiron-subsum);
+stages 4-7 are parked behind joint G1 acceptance with their requirements retained.
 
 | # | stage | closes | depends on | gate/evidence |
 |---|---|---|---|---|
@@ -75,8 +90,11 @@ current canonical identity (stage 2) and, where it executes, extracted (stage 3)
 
 `APEIRON-STRATEGY-DECISION-T3`, Astra; base `c450c222905c050f793a23332708c230c658f82c`,
 dirty supplied-checkout documentation exception. Own only direction, kernel-boundary and this file;
-no source/proof/spec edits, build lane, new worktree, commit or push. This is the current dispatch
-decision; older task rows remain historical schedules with their requirements retained.
+no source/proof/spec edits, build lane, new worktree, commit or push. This was the current dispatch
+decision at its revision; its scheduling is superseded by
+[`APEIRON-REORIENT`](plan.md#subsumption-execution-sequence-apeiron-subsum), so the
+`APEIRON-READ-SCATTER-` rows below are historical schedules and the mechanism selection is a closed
+experiment. Older task rows remain historical schedules with their requirements retained.
 
 ```text
 SCOPE: docs/direction.md, docs/kernel-boundary.md, docs/roadmap.md;
@@ -318,6 +336,15 @@ in this checkout, no branch/worktree, build lane, commit or push. Own `docs/dire
 benchmark and Sol's spec. This section supersedes immediate W7 retry scheduling in earlier records,
 not their acceptance requirements. No new proof, test or runtime result is recorded.
 
+**Scheduling superseded (`APEIRON-REORIENT`).** The current execution order is the [five-barrier
+sequence](plan.md#subsumption-execution-sequence-apeiron-subsum). The rows below keep their
+historical task IDs, owned files, gates, controls and requirements; `W2-T1` (size-only factoring of
+`src/table.rs`) and `W3-T1` (serial direct-path overhead) are **closed experiments** on their
+recorded source identities and are not re-dispatched recovery tasks, `W1-T1` landed and is retained,
+and the spatial and measurement rows are barrier work. No receipt, ratio, threshold, named incumbent,
+coverage gap, HashDOS requirement or unresolved obligation in this section is retired here; this note
+changes scheduling only.
+
 ```text
 SCOPE: docs/direction.md, docs/kernel-boundary.md, docs/roadmap.md;
        freeze W7 retries without closing G1; performance priorities and bounded tasks.
@@ -501,7 +528,9 @@ group. The spread top-bits fingerprint (`55421fa`) takes full compares per key f
 1.3646 under the starving home, and the raw formula stays in the harness as a live control column.
 
 Plan: [plan.md E6](plan.md), waves W1 attribution, W2 the port, W3 refinement under the extraction,
-W4 the gate of record.
+W4 the gate of record. That wave order is superseded scheduling; the current execution order is the
+[five-barrier sequence](plan.md#subsumption-execution-sequence-apeiron-subsum), which retains
+every gate and obligation above.
 
 ### Consolidation decision
 

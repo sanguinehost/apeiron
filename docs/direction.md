@@ -323,8 +323,13 @@ never behind and ideally ahead. Applicability is registered per cell/incumbent p
 with a semantic or API reason; there is no family-wide exemption. Missing, duplicate, invalid or
 inconclusive pairs reject. `cargo run --release --locked --example reg1 -- --check performance
 --profile full --accept --controls` is the strict acceptance command; `--accept --profile smoke` is
-diagnostic only and does not close G1. Full acceptance requires every registered pair measured on
-one source/tool identity. `docs/hash-comparison.md` records the comparison axes —
+diagnostic only and does not close G1. **Owner target scope (`APEIRON-REORIENT`):** the same
+command under `REG1_TARGET_RATIO=half` applies `selected/incumbent <= 0.5` to the three hashtrinity
+arms (`hashtrinity::Table`, `hashtrinity::CoordMap`, `hashtrinity::FreqMap`, serial and
+packed-parallel) and `selected/incumbent <= 1.0` to every other named incumbent; neither "<= 0.5
+everywhere" nor a default 1.0 acceptance describes this target. Full acceptance requires every
+registered pair measured on one source/tool identity. `docs/hash-comparison.md` records the
+comparison axes —
 cryptographic versus non-cryptographic, throughput at small and large sizes, latency, collisions
 and avalanche, HashDOS resistance, determinism, `no_std`, licensing and verification — and the
 per-domain "good enough" reading for operating systems, languages, provers, games, servers and
@@ -489,6 +494,60 @@ these extraction, refinement and measurement obligations is separate. No speed r
 
 ## Execution order
 
+<!-- APEIRON-REORIENT BEGIN -->
+### Five-barrier execution sequence (`APEIRON-REORIENT`)
+
+`APEIRON-REORIENT` supersedes the active tuning dispatch below for the performance leg, and the
+Intent/Song development scheduling in the [execution plan](plan.md#subsumption-execution-sequence-apeiron-subsum).
+It is architecture and scheduling at grade `anchor`: it establishes no performance, test or proof
+result, and the plateau and velocity figures behind it are supplied to this document, not
+re-produced here. All five lifecycle milestones keep **no due date**; G1 is "in flight — five planned
+barriers, completion horizon unestablished". Five is the decomposition, not a forecast that five
+attempts suffice, and a barrier counts only when its gate and its negative control pass. G1/REG-1
+stays **OPEN**.
+
+| barrier | work, hardest contribution first | gate that opens the next barrier |
+|---|---|---|
+| **1. Contract and trustworthy correctness** | ratify the counting representation and its proof/resource interfaces; independently reproduce and resolve the six failing digest cells | accepted Intent/Spec/Plan; an executable production-path gate with an attributable red/restored control; a corrected full-key oracle on every affected cell. No implementation before contract acceptance; no timing claim before oracle acceptance |
+| **2. Serial counting representation** | implement the single-region production container and the real counting consumers; preserve exact identity, ordering, growth and transactional refusal | the contract-named Rust gate and its semantic controls green; source-bound repeated runs show improvement outside the unchanged-code spread. A miss triggers representation adjudication, not another speculative tuning campaign |
+| **3. Matched parallel counting/readback** | implement the required `count_par`/`get_each` paths with matched workers, operations, ordering and ownership | correctness controls green; workload, concurrency and address-face matching established; repeated affected-pair runs reported without exemptions |
+| **4. Source-linked refinement and residual discharge** | extract the selected production bodies; establish constructor, preservation, read, build and refusal links; finish the remaining generic-`Table` obligations, REVIEW4 R1 only where its own contract requires it | fresh `proof/regen.sh --check`; bounded builds in `proof/` and `proof/corpus/`; required headlines, audits, joint witnesses and semantic controls green. Named assumed premises do not constitute end-to-end discharge |
+| **5. Joint acceptance** | run the unchanged full registered population under the owner target scope, with the identity and HashDOS requirements, the coverage census and the shared integration gates | strict full-profile acceptance exits 0 with `full_acceptance=true`; every required Rust and proof gate and control green on one source/tool identity. Only then does downstream development reopens |
+
+**Counting-face supersession.** Two statements below are superseded **for the counting face only**:
+the T3 clause "not an exemption or a second container", and the T1 non-goal "a new container … is a
+non-goal of this performance leg". For that face a separate single-region counting representation is
+**selected**; it refines the same canonical object `Apeiron.Table.HMap`, `Apeiron.Table.get`,
+`Apeiron.Table.insertWith` and `Apeiron.Table.build`, and the generic growable `Table` remains. This
+is a second representation of one canonical object, not a second semantic object and not a licence to
+relax any obligation on either face. Every unrelated non-goal and obligation in those lines is
+preserved: cryptographic-face implementation, GPU/ISA work, lossy identity and universal
+O(1)/WCET claims remain non-goals of this performance leg; HashDOS resistance, the remove/growth
+obligations, every named comparison, both axiom cones and the realization exclusions remain required;
+changed flat geometry, cached summaries, first-empty termination or payload layout still require a
+new Astra/Sol contract/refinement decision; and the payload-initialization removal rejected in T2
+remains rejected. The contract is [the counting-container
+contract](epics/storage-refinement.md#coordinate-keyed-counting-container-contract); the
+representation, canonical denotation, extraction perimeter, resource/refusal semantics and trust
+exclusions are [the counting-face
+boundary](kernel-boundary.md#counting-face-representation-boundary-apeiron-reorient).
+
+**Parking rule.** New Intent and Song development is parked behind joint G1 acceptance; it reopens
+when `full_acceptance=true` and the required real-source end-to-end refinement both hold on the
+accepted identity. Parked requirements are retained, not waived, and already-dispatched returns
+integrate only under their existing gates and ownership.
+
+**Owner target scope.** The harness applies `REG1_TARGET_RATIO=half` to the three hashtrinity arms —
+`hashtrinity::Table`, `hashtrinity::CoordMap` and `hashtrinity::FreqMap`, serial and packed-parallel —
+so `selected/incumbent <= 0.5` there, and `selected/incumbent <= 1.0` on every other named incumbent:
+
+```sh
+REG1_TARGET_RATIO=half cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls
+```
+
+Neither "<= 0.5 everywhere" nor a default 1.0 acceptance describes this owner target.
+<!-- APEIRON-REORIENT END -->
+
 <!-- APEIRON-STRATEGY-DECISION-T3 BEGIN -->
 ### Serial read specialization and stable parallel scatter
 
@@ -519,7 +578,11 @@ or summary-positive coverage dominates, the next architecture task must design a
 directory/control lane and a source-proved absence certificate within the same `Table`; cold 256-way
 build ownership need not dictate serial lookup layout. Changed flat geometry, cached summaries,
 first-empty termination or payload layout require a new Astra/Sol contract/refinement decision,
-not an exemption or a second container. Smaller/lazier descriptors alone do not remove the selected
+not an exemption or a second container. That clause is superseded **for the counting face only** by
+the counting-face supersession in
+[`APEIRON-REORIENT`](#five-barrier-execution-sequence-apeiron-reorient); for the generic key/value
+face it stands unchanged, and the geometry/summaries/termination/payload requirements keep it there.
+Smaller/lazier descriptors alone do not remove the selected
 region's dependent loads. The payload-initialization removal rejected in T2 remains rejected.
 
 **Spatial selection:** stable parallel scatter, retaining `Parts` validation and query-order
@@ -537,6 +600,9 @@ W7 composition remains frozen under its unchanged reopening condition; regressio
 All named incumbents, coverage gaps, HashDOS, source-linked proofs, controls, complete Rust/proof
 barriers, both axiom cones and realization exclusions remain required. No runtime or proof gate is
 run by this documentation decision.
+Scheduling of that dispatch is superseded by [`APEIRON-REORIENT`](#five-barrier-execution-sequence-apeiron-reorient):
+the mechanism selection above is historical; its invariants, gates, controls and trust statements
+stand.
 <!-- APEIRON-STRATEGY-DECISION-T3 END -->
 
 <!-- APEIRON-STRATEGY-DECISION-T2 BEGIN -->
@@ -606,7 +672,9 @@ this proof route is mandatory before G1 closure; freezing it indefinitely leaves
 
 **Performance workstream.** The fresh strict full-profile receipt
 ([`perf-remeasure-2026-09-19-post-spill.md`](evidence/perf-ledger.md), sha256
-`946b5d40…`) supersedes the prior full-profile receipt. The supplied 84-pass/566-fail run, serial
+`946b5d40…`) supersedes the prior full-profile receipt. Its dispatch is superseded by
+[`APEIRON-REORIENT`](#five-barrier-execution-sequence-apeiron-reorient): the immediate tuning order is
+a closed experiment, not an active recovery task, and its requirements stay retained. The supplied 84-pass/566-fail run, serial
 direct ratios 1.75–3.94 versus hashtrinity/hashbrown (about 0.50 versus std), and spatial ratios 2–25
 are stale diagnostics, not measurements of the selected identity here. Earlier receipts below remain
 historical. Comparison coverage is repaired: the five named hashers are load-bearing. Next reduce
@@ -630,7 +698,12 @@ with unchanged correctness, workload and worker budgets. This supports a scoped 
 comparators only, not a universal SOTA claim. No aggregate, std-only win, historical envelope, reduced
 matrix or trusted-boundary grade closes G1. Cryptographic-face implementation, GPU/ISA work, a new
 container, lossy identity and universal O(1)/WCET claims are non-goals of this performance leg;
-HashDOS resistance, remove/growth obligations and every named comparison remain required.
+HashDOS resistance, remove/growth obligations and every named comparison remain required. "A new
+container" is superseded **for the counting face only** by the counting-face supersession in
+[`APEIRON-REORIENT`](#five-barrier-execution-sequence-apeiron-reorient), which selects one
+single-region counting representation refining the same canonical `Apeiron.Table` object. Every other
+item in that non-goal list, the strict command, the `<= 1.0` every-pair ceiling, the `<= 0.8` stretch
+target and every HashDOS/remove/growth/comparison obligation are unchanged.
 
 Foundational verification precedes the next large AI implementation. A joint readiness profile is an
 explicit specification obligation and is currently MISSING; it is not satisfied by Song A0 alone,

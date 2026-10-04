@@ -104,20 +104,30 @@ fn expand_key(key: &[u8; KEY_LEN]) -> [[u8; BLOCK_LEN]; ROUNDS + 1] {
     }
     let mut i = 4usize;
     while i < 4 * (ROUNDS + 1) {
-        let mut temp = w[i - 1];
+        // Read the previous word and the word four back into scalars before writing `w[i]`, so no
+        // projection of `w` is held across a write to `w` (Aeneas rejects that shape).
+        let mut t0 = w[i - 1][0];
+        let mut t1 = w[i - 1][1];
+        let mut t2 = w[i - 1][2];
+        let mut t3 = w[i - 1][3];
         if i % 4 == 0 {
-            temp = [
-                SBOX[temp[1] as usize] ^ RCON[i / 4 - 1],
-                SBOX[temp[2] as usize],
-                SBOX[temp[3] as usize],
-                SBOX[temp[0] as usize],
-            ];
+            let s0 = SBOX[t1 as usize] ^ RCON[i / 4 - 1];
+            let s1 = SBOX[t2 as usize];
+            let s2 = SBOX[t3 as usize];
+            let s3 = SBOX[t0 as usize];
+            t0 = s0;
+            t1 = s1;
+            t2 = s2;
+            t3 = s3;
         }
-        let mut b = 0usize;
-        while b < 4 {
-            w[i][b] = w[i - 4][b] ^ temp[b];
-            b += 1;
-        }
+        let p0 = w[i - 4][0];
+        let p1 = w[i - 4][1];
+        let p2 = w[i - 4][2];
+        let p3 = w[i - 4][3];
+        w[i][0] = p0 ^ t0;
+        w[i][1] = p1 ^ t1;
+        w[i][2] = p2 ^ t2;
+        w[i][3] = p3 ^ t3;
         i += 1;
     }
 
@@ -166,11 +176,31 @@ fn sub_bytes(state: &mut [u8; BLOCK_LEN], sbox: &[u8; 256]) {
 fn shift_rows(state: &mut [u8; BLOCK_LEN]) {
     let mut r = 1usize;
     while r < 4 {
-        let col = [state[r], state[r + 4], state[r + 8], state[r + 12]];
-        let mut c = 0usize;
-        while c < 4 {
-            state[r + 4 * c] = col[(c + r) % 4];
-            c += 1;
+        // Read all four row bytes into scalars before writing any of them back, so no projection
+        // of `state` is held across a write to `state` (Aeneas rejects that shape).
+        let a0 = state[r];
+        let a1 = state[r + 4];
+        let a2 = state[r + 8];
+        let a3 = state[r + 12];
+        match r {
+            1 => {
+                state[r] = a1;
+                state[r + 4] = a2;
+                state[r + 8] = a3;
+                state[r + 12] = a0;
+            }
+            2 => {
+                state[r] = a2;
+                state[r + 4] = a3;
+                state[r + 8] = a0;
+                state[r + 12] = a1;
+            }
+            _ => {
+                state[r] = a3;
+                state[r + 4] = a0;
+                state[r + 8] = a1;
+                state[r + 12] = a2;
+            }
         }
         r += 1;
     }
@@ -182,11 +212,31 @@ fn shift_rows(state: &mut [u8; BLOCK_LEN]) {
 fn inv_shift_rows(state: &mut [u8; BLOCK_LEN]) {
     let mut r = 1usize;
     while r < 4 {
-        let col = [state[r], state[r + 4], state[r + 8], state[r + 12]];
-        let mut c = 0usize;
-        while c < 4 {
-            state[r + 4 * ((c + r) % 4)] = col[c];
-            c += 1;
+        // Read all four row bytes into scalars before writing any of them back, so no projection
+        // of `state` is held across a write to `state` (Aeneas rejects that shape).
+        let a0 = state[r];
+        let a1 = state[r + 4];
+        let a2 = state[r + 8];
+        let a3 = state[r + 12];
+        match r {
+            1 => {
+                state[r] = a3;
+                state[r + 4] = a0;
+                state[r + 8] = a1;
+                state[r + 12] = a2;
+            }
+            2 => {
+                state[r] = a2;
+                state[r + 4] = a3;
+                state[r + 8] = a0;
+                state[r + 12] = a1;
+            }
+            _ => {
+                state[r] = a1;
+                state[r + 4] = a2;
+                state[r + 8] = a3;
+                state[r + 12] = a0;
+            }
         }
         r += 1;
     }

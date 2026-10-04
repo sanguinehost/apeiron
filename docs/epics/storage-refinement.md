@@ -3095,3 +3095,344 @@ twin only; no Song declaration enters the Apeiron Rust/canonical cone.
   proved claim. Slang's empty cone remains separate.
 - The current generated artifact is spill-only. Composite search, the decision contract and its real
   apply root remain open. No proof or speed is claimed. REG-1/G1 remains **OPEN**.
+
+## Coordinate-keyed counting-container contract
+
+Recorded by `APEIRON-COUNT-W1-T1` from `/home/socol/oc-tmp/escalation/APEIRON-PARITY-REVIEW5.verdict.md`
+and `/home/socol/oc-tmp/escalation/APEIRON-REORIENT.verdict.md` §3. Grade `anchor`: this is an
+architecture and contract-selection record. It adds no source, extraction, test or measurement result,
+and REG-1/G1 remains **OPEN**.
+
+REVIEW5 is the **selected counting-face architecture**: one single-region, coordinate-keyed,
+open-addressed counting container with no locator. The generic growable flat/spill
+`Table<K, V, H, N, R>` (`src/table.rs:237-268`) is **retained unchanged** as the map face. This
+contract supersedes the T3 clause "not an exemption or a second container" at
+`docs/direction.md:522` and the "a new container" non-goal at `docs/direction.md:631-632`
+**for the counting face only**; no other
+non-goal, obligation or acceptance criterion is superseded. Both citations are bound to the committed
+revision `e6e9d13` (`docs/direction.md` sha256 `c07fa77926cba3003e34928e6483b494ab10895c8cfc9d8feeb9ee1a9b9a03da`),
+which is where both phrases are: `522` reads "not an exemption or a second container", and the
+non-goal list runs `a new container` at `631` into `632`. The uncommitted working-tree
+`docs/direction.md` (sha256 `255997a2c2d6c4bd20bf11485d208828f8ca129c467c157e5f6394a9a23e93e3`,
+78 insertions) renumbers the same text to `:518-519` and `:699-700` and adds the
+**Counting-face supersession** grant at `:517` and `:581`, which does not exist at `e6e9d13`. So the
+grant that licenses taking a second representation into the tree is itself uncommitted, and is owned
+by `APEIRON-COUNT-W1-T3`; a citation against either tree is checkable only against its named digest.
+The canonical object is unchanged:
+`Apeiron.Table.{HMap,get,insertWith,build}` in
+`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean` (`HMap:63`, `get:71`,
+`insertWith:80-81`, `build:121`, `get_build_acc:134`, `get_insertWith_self:89`,
+`get_insertWith_ne:97`, `build_eq_of_key_streams_eq:169`).
+
+### Intent
+
+**Problem.** The counting face cannot reach the owner's target ratio because the resident-coordinate
+admission and the addressing decision are separate losses. `Flat::index` (`src/table/state.rs:492`)
+admits only a `u32` resident coordinate, and `examples/reg1/adapters/native_strata.rs:93-98`
+certifies residency only when the whole coordinate word fits `u32`, so a key whose coordinate is
+outside that domain is spilled while the resident area, 256 spill regions and the locator are still
+allocated (`src/table.rs:237-268`). `Table::shard` (`src/table/state.rs:366-370`) routes on
+`direct_word` when present and on `place` otherwise, so changing one home adapter cannot force a
+single region. HashDOS resistance is a separate obligation and concentrating keys supplies none of it.
+
+**Alternatives rejected.**
+
+| Alternative | Why not |
+|---|---|
+| Route every counting key to one shard of the existing table | It is the same sharded `Table`: the resident area, 256 spill regions and the locator remain, and `Table::shard` has two arms, so one-region routing is not obtained by changing a home. |
+| Literal coordinate-as-array-index | It requires a `2^63` array; a compact open-addressed coordinate table does not. REVIEW5 distinguishes the two proposals. |
+| Benchmark-only substitution for `StrataHome` or `RawStrataHome` | Forbidden: REVIEW5 admits a one-shard placement policy only as an explicitly contracted reusable production policy, never as a benchmark-only substitution. |
+| Provisioning surgery on resident payloads | `examples/reg1/adapters/native_strata.rs:93-98` certifies residency by coordinate width; changing payloads alone does not move spill-routed keys. |
+| A second example-only container | An example competitor is not a production implementation and discharges no acceptance row. |
+| R1-only as the next step | REVIEW5 rejects R1-only as the selected next step; R1 follows the representation evidence. |
+
+**Success condition.** The counting container denotes canonical `Apeiron.Table.HMap` on its admitted
+domain, its reads and writes are proved from real extracted source under the closed cone, and the
+registered full-profile acceptance reports `full_acceptance=true` with the owner target applied.
+
+**Non-goals.** Removing or weakening the generic `Table`, its `Sigma`-separated logical key, its
+transactional refusal or any existing acceptance obligation; changing the canonical corpus; a
+benchmark-only path; HashDOS by key concentration; universal O(1)/WCET claims; the generic-Table
+proofs discharging any counting-face obligation.
+
+### Spec
+
+Ten frozen clauses. A clause with no executable gate is recorded **MISSING** and no implementation
+task may open against it.
+
+**1. Selected physical representation, public operations, consumers.** One single region of
+open-addressed slots holding `(Sigma, u32)` coordinate words and counts, with tags as the sole
+occupancy authority, a growth policy and no `TableLocator` and no 256-region directory. Public
+operations are exactly: construction, `get`, new-first `insertWith` at one coordinate, and ordered
+`build`.
+
+**Production consumers, measured.** No counting container and no production call site reaching one
+exists. `rg -ni "counting|count_par|get_each|CountMap|CountingTable|FreqMap" src/` returns only
+`Table::get_each` / `get_each_at` (`src/table/geteach.rs:115,87`) and the parallel batch and build
+(`src/table/parallel.rs:482,497,793,811,930`); `rg -n "fn n\b|fn n_at|fn n_parallel" src/` returns no
+match, so the generic `Table` has no counting surface to redirect.
+`examples/reg1/adapters/native_strata.rs` is under `examples/`, included by
+`examples/reg1/strata.rs:94-95`, and is a harness key/home adapter: its `address` (`:93-98`,
+`:141-146`) certifies `direct_word: u32::try_from(key.tag).ok()` and refuses nothing.
+`src/table/state.rs` is the generic `Table`'s private state — the representation this contract replaces
+on the counting face, not a consumer of it.
+
+The **minimum production path that becomes the consumer** is the coordinate→count aggregate that
+already has a production form in `src/` and no other:
+
+| production call site | operation | incumbent arm it must match |
+|---|---|---|
+| `Table::sum_parallel`, `src/table/parallel.rs:979-983` | grouped reduction over default-face probes | `hashtrinity::FreqMap::count_par` + `get_each`, `examples/reg1/acceptance.rs:491-492` |
+| `Table::get_each_at`, `src/table/geteach.rs:87-109` | ordered batched read at one face | `hashtrinity::FreqMap::get_each`, `examples/reg1/acceptance.rs:501-502` |
+
+`sum_parallel` is the binding one and the reason is structural rather than convenient: at
+`src/table/parallel.rs:958-962` it clones every query key into a `Vec<((Sigma, K), ())>` before
+probing, so the generic `Table` pays a retained-`K` widening per query to reach a plain `i64`. The
+counting container replaces that widening with the packed `(Sigma, u32)` word of clause 2 and retains
+no key, which is the per-query identity loss clause 2 forbids on the map face.
+`examples/reg1/adapters/spatial.rs` remains the registered
+measurement harness, not a production consumer, and cannot discharge this clause alone.
+
+**2. Admitted coordinate domain, identity and `Sigma` separation.** The admitted domain is the
+packed `u32` coordinate word, the same domain `Flat::index` (`src/table/state.rs:492`) and
+`examples/reg1/adapters/native_strata.rs:93-98` already certify; a coordinate outside it is refused,
+not truncated or wrapped. The logical key is exactly `(Sigma, coordinate)`: equality compares both
+components, reads and writes receive `Sigma`, and for distinct `Sigma` at one coordinate an update
+or read at `(Sigma_1, c)` leaves `(Sigma_2, c)` unchanged even under identical placement. No lossy
+tuple identity, no coordinate-equality identity claim and no sentinel alias: the codec
+`encode/decode : (Sigma, u32) → (Sigma, u32)` must be total, stable, equality-respecting and satisfy
+`decode(s, encode(s, c)) = c` on the admitted domain, and two admitted keys may never share a stored
+word. Where a key is reconstructed rather than carried, the reconstruction uses only a verified codec
+inverse and never `Addr.place`.
+
+**Frozen codec: `CountKeyCodec`, instance `U32CoordWord`.** A sealed trait with exactly one admitted
+instance, in the shape of `ExactCodec` / `I64WordCodec` (`src/table/keyrep.rs:182,281`), so no
+unreviewed instance can be selected. Three operations, no others:
+
+| operation | definition | role |
+|---|---|---|
+| `encode(sigma, coord: u32) -> u64` | `(u64::from((sigma.value() + 1) as u32) << 32) + u64::from(coord)` | the only producer of a stored word; total |
+| `matches(sigma, stored: u64, coord: u32) -> bool` | `stored == encode(sigma, coord)` | the hot identity operation; materializes nothing |
+| `decode(sigma, stored: u64) -> u32` | `stored as u32`, reached only after `matches` returned true | the verified inverse on the image; never reads `Addr.place` |
+
+`Sigma::value()` (`src/cell.rs:39`) is `-1`, `0`, `1` on `Elliptic`, `Parabolic`, `Hyperbolic`, so
+`value() + 1` is the injective face tag `0`, `1`, `2`. That is the `Sigma`-separation encoding: the
+face half occupies bits 32–33 and the coordinate half bits 0–31, two disjoint bit ranges, so the sum
+above is the bitwise-or packing and the image is exactly `{0,1,2} × 2^32` — `12_884_901_888` distinct
+stored words, none reused. The injectivity obligation is therefore
+`encode(s1, c1) = encode(s2, c2) ⟹ s1 = s2 ∧ c1 = c2`, and the law is
+`decode(s, encode(s, c)) = c` for every `s` and every `c < 2^32`. `decode` is total on that image; the
+container must never present a face-mismatched word to it, because identity is the `matches` equality
+first — the order `FlatSlot` identity already uses at `src/table.rs:65`, `flat.live && flat.sigma ==
+sigma && R::matches(sigma, &flat.held, key, address)`. This is what discharges "two admitted keys may
+never share a stored word": the stored word carries the face, so `(s, c)` and `(s', c)` differ for
+`s ≠ s'` at one coordinate and one placement.
+
+**Sentinels and boundary values, frozen.**
+
+| value | admitted | why |
+|---|---|---|
+| `0` | yes | `encode(Elliptic, 0) = 0`, so a stored word of `0` is a **live** coordinate and never a vacancy marker; occupancy is the tag, per clause 1 |
+| `2^31` | yes | the top bit of the `u32` coordinate word: `word >> SHARD_BITS` is `2^23` (`src/table/state.rs:493`) and an `i32` reading of the word changes sign here |
+| `2^32 - 1` | yes | the admitted-domain edge. `Flat::index` takes a `u32` (`src/table/state.rs:492`) and `u32::try_from` accepts it |
+| `2^32` | **no — the first refused coordinate** | the first `u64` tag `u32::try_from(key.tag).ok()` rejects (`examples/reg1/adapters/native_strata.rs:96,144`), so `direct_word = None` and the key routes to spill today. The counting container refuses it: no truncation to `0`, no wrap to `2^32 - 1` |
+
+Bits 34–63 of a stored word lie outside the image of `encode` for every admitted key, so no word above
+`0x2_FFFF_FFFF` is ever a live coordinate and none may be written as one.
+
+**3. Denotation and refinement targets.** The relation is
+`RepC t (Apeiron.Table.HMap (Sigma × Nat32) Int64)` where `Nat32` is the admitted coordinate word.
+The refinement targets are exactly `Apeiron.Table.HMap`, total-by-default `Apeiron.Table.get`, the
+**new-first** `Apeiron.Table.insertWith` (new value then old value, as in
+`insertWith f k v m = fun x => if x = k then f v (m x) else m x`), and the ordered
+`Apeiron.Table.build`, with `get_insertWith_self` at the queried key, `get_insertWith_ne` at every
+unequal key, and `build_eq_of_key_streams_eq` supplied through an implementation-specific per-key
+value-subsequence equation. Word-instance results do not establish arbitrary-carrier refinement.
+
+**4. Establishment, preservation, bounds and witnesses.** The real constructor establishes `RepC`
+from checked empty state. Successful insertion and growth preserve `RepC`, uniqueness, tag authority,
+the coverage clause and the count value. Absence is returned only under a proved coverage certificate
+or complete finite probe coverage; an occupied non-matching slot proves nothing. A recorded first
+vacancy and the mandatory sweep both obey the probe order of the extracted body. Every probe loop
+terminates within the region width, and the bounds are stated in slot comparisons. **Joint reachable
+witnesses** are required at the actual claimed types: fresh successful insert, replacement at
+capacity, growth, `Sigma`-separation, and each refusal branch, each with a checked witness term, not
+separate incompatible witnesses. Which of these witnesses the extraction can reach is currently
+**MISSING**.
+
+**5. Checked sizing, reserve-all, initialization, transaction, refusal.** Every region length, byte
+count, offset and budget is checked arithmetic with an explicit overflow policy, consistent with the
+existing `SizeOverflow`/`AllocationFailed` option (b) contract in the
+[local boundary](../kernel-boundary.md#resourcerefusal-contract-for-the-growable-table). The only
+admitted order is: locate; compute the complete checked plan; reserve **every** fallible allocation;
+initialize vacant slots; apply or relocate without merge; invoke the count merge exactly once;
+commit. The transaction point is the commit. On refusal the committed state is unchanged, no
+partial table is observable, no merge and no clone of a payload has run, and build returns no table.
+Relocation failure is proved unreachable for the checked layout, not aliased to
+`AllocationFailed`.
+
+**Frozen before construction.** The count carrier is `i64` (`Int64`, clause 3's `RepC`); the count
+default is `0`; the overflow policy is **checked refusal, never wrapping** — a count overflow is a
+refusal at the commit point on option (b)'s transactional terms, and a refused merge leaves the
+committed state unchanged and writes nothing. The merge is `f(new, old) = new + old`, in the new-first
+argument order of `Apeiron.Table.insertWith` (`insertWith f k v m = fun x => if x = k then f v (m x)
+else m x`, `/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:80-81`); because
+`i64` addition is commutative the new-first order is not observable through the merge itself, and the
+order clause 6 fixes is the input order of the build.
+
+Checked rather than wrapping, for three stated reasons.
+
+1. Ratified option (b) admits exactly `StorageError::SizeOverflow` for a checked layout and
+   `StorageError::AllocationFailed` for a failed reservation
+   (`docs/kernel-boundary.md:333-352`, variants at `src/table.rs:99-106`). A wrap is neither, and a
+   silently wrong count is the silent domain reduction obligation 2 forbids.
+2. `checked_add` returns an `Option`, the refusal shape the existing sizing path already uses —
+   `checked_mul` → `SizeOverflow` (`src/table/state.rs:414,420,423`) and `try_reserve_exact` →
+   `AllocationFailed` (`src/table/state.rs:515`) — so the transaction point does not move.
+3. The behaviour being replaced is profile-dependent, not an overflow contract. `sum_parallel`
+   reduces with `Iterator::sum()` over `i64` (`src/table/parallel.rs:980-982`), and that operator wraps
+   silently in release and aborts in debug: `rustc -O` on `[i64::MAX, 1]` printed
+   `sum=-9223372036854775808` and exited 0, and the same source without `-O` panicked `attempt to add
+   with overflow` and exited 101, on `rustc 1.97.0-nightly (17584a181 2026-04-13)` with no
+   `[profile]` override in `Cargo.toml`. A wrap is a wrong count and a panic is not a refusal; the
+   deferred `sum_parallel` overflow task (`docs/roadmap.md:394`, `docs/kernel-boundary.md:80`) needs a
+   contract, and this is it for the counting face. The `wrapping_mul` at `src/table/state.rs:379` (a
+   tag fingerprint) and the `saturating_add` chain at `src/table/geteach.rs:167-174` (a
+   non-authoritative footprint estimate) are neither sizing arithmetic nor a count and license
+   nothing here.
+
+The refusal type is `CountRefusal { SizeOverflow, AllocationFailed, CountOverflow }`, a total 1:1
+widening of `StorageError` by `CountOverflow`. It lives in the counting module so `APEIRON-COUNT-W2-T1`
+touches at most three files and `src/table.rs` is not edited for an error variant. The default is a
+parameter, matching `Apeiron.Table.build`'s own default argument
+(`build f d kvs = kvs.foldl (insertWith …) (fun _ => d)`,
+`/home/socol/Workspace/sanguine-apeiron/proof/Apeiron/Table/Basic.lean:121-122`), frozen here at `0`:
+`HMap K V = K → V` (`Basic.lean:63`) is a total function whose absence is the default, and `0` is the
+additive identity of `Int64`, so `get` at a coordinate never written answers `0` and a build of an
+empty stream is the constant-zero table.
+
+This freeze is scoped to the counting container. It does not discharge the deferred `sum_parallel`
+overflow task, which needs `sum_parallel`'s own source changed and is not owned by `APEIRON-COUNT-W2-T1`.
+
+**6. Parallel ownership, per-key ordering, achieved workers, readback.** Ownership of a slot is
+exclusive for the operation holding it and is fixed by the coordinate before any probe, so two
+workers cannot own the same slot for one operation. Per-key merge order is the input order, and the
+stable partition plus disjoint assembly supplies the exact premise of
+`Apeiron.Table.build_eq_of_key_streams_eq`; same-key reordering is not licensed. The **achieved**
+worker count is what the run reports and is compared against the requested width, not assumed from
+it; a requested width with a lower achieved width is a measurement finding. Readback is in query
+order and must reproduce the canonical `build` for the ordered stream.
+
+**7. Extraction feasibility, theorem dependency graph, audits, trust boundary.** Real-source
+extraction by `#[path]` wrappers that only specialize and call the production bodies; the
+pinned-JoinBoundary and `try_reserve_exact` limits recorded above apply to the counting roots
+unchanged. The theorem dependency graph is ordered: codec/identity → constructor establishment →
+insertion/growth preservation → absence/probe bounds → read refinement to `Apeiron.Table.get` →
+update refinement to `Apeiron.Table.insertWith` → ordered-build refinement to `Apeiron.Table.build` →
+joint witnesses. Every headline is registered in `proof/corpus/AxiomAudit.lean` and builds under the
+closed cone `{propext, Classical.choice, Quot.sound}`; the Slang empty-cone chain is separate and no
+Rust/canonical-cone theorem enters it. Excluded: allocator/global-allocator realization,
+`try_reserve_exact`, thread/executor realization including `std::thread::scope`, rustc/LLVM code
+generation, the kernel ABI, GPU/SPIR-V and the `unsafe` container. Existing generic-`Table`
+headlines prove nothing about this container.
+
+**8. Oracle, populations and controls.** An independent **full-key** oracle — not the container's own
+readback and not a hash — decides every population: sentinel and boundary coordinates, aliasing
+pairs, `2^31`, `2^32-1`, the admitted-domain edge and the first refused coordinate, equal coordinates
+at distinct `Sigma`, adversarial/HashDOS populations, and the serialized and packed counting
+populations. The harness's existing limitation that `apeiron::Table` exposes no encode/decode
+surface (`examples/reg1/workload.rs:161`, `examples/reg1/correctness.rs:78`,
+`examples/reg1/coverage.rs:1022`) does not carry over: the counting face must supply the codec surface
+the oracle needs, or the population is recorded **MISSING** coverage rather than passed.
+**Attributable controls, in a disposable copy, never the working tree:** truncate the coordinate
+identity, or alias two sentinel/boundary keys, and require the full-key oracle and the corresponding
+refinement to reject, then pass restored; reservation-failure controls must detect any effect before
+refusal, not only the refusal itself. Every control names the defective cell, the source identity and
+the responsible arm — a `digest_fail` is not attributed to Apeiron by default, since the comparator or
+the harness may own it.
+
+**9. Measurement protocol.** Matched operations, populations, packing, partitioning, threads and
+timed regions; the timed build and probe phases must be the phases the arm label names. Report the
+mean over at least three runs with the observed spread; a movement inside the spread already measured
+on unchanged code is not a change. Bind every figure to source and tool identity (sha256 of the
+measured sources, the Aeneas/Charon/Lean/Mathlib revisions, the machine and the interval) and force a
+rebuild or use a private target directory so a run never reads a sibling worktree's objects. Every
+registered comparator participates: the three hashtrinity arms
+(`hashtrinity_table`, `hashtrinity_count_par`, `hashtrinity_get_each`), the apeiron map arms
+(`apeiron_table`, `apeiron_serial`, `apeiron_parallel`, `apeiron_tuple_par16`),
+`hashbrown_foldhash`, `hashbrown_fxhash`, `hashbrown_rayon`, `std_siphash_par16`, `foldhash_par16`,
+`fxhash_par16`, `xxHash`/`wyhash`/`ahash`/`fnv` on the opaque-key exact face, and the informational
+cryptographic comparators that carry no ratio bound. Every applicable pair retains its bound.
+
+**10. Tasks, owners, dependencies, gates, budgets.** See the plan below. Each task owns at most three
+files, names one gate and one negative control, and every gate runs under an enforced wall-clock
+budget strictly below 600 s; a run at or beyond 600 s fails the budget and is not a pass.
+
+**Blocking rule.** **Implementation stays blocked until this contract names an executable gate and
+that gate's rejecting control is established.** The contract-level gate is
+`python3 tools/check-claims.py` (repository root, 60 s), scoped by `COVERED_SECTIONS`
+(`tools/check-claims.py:110-112`) to this file's `## Coordinate-keyed counting-container contract`
+heading through the next heading of the same or higher level. Its rejecting control is established:
+`python3 tools/check-claims.py --self-test` (60 s) runs the fixture *nonexistent path cited in the epic
+contract rejected* (`tools/check-claims.py:854-860`), which requires exit 1 with a finding naming
+`docs/epics/storage-refinement.md` and the seeded path, and the fixture *renamed epic contract section
+rejected* (`tools/check-claims.py:869-874`), which requires exit 2, so a renamed heading is a refusal
+and not a silent pass. Both hold at grade
+`tested` — `python3 tools/check-claims.py` at exit 0 with 2 graded claims and 0 findings on this
+section, `python3 tools/check-claims.py --self-test` at exit 0 with 11/11 controls — measured on the
+pinned corpus population at
+`proof/corpus/.lake/packages/apeiron`; without that population the same gate reports 36 findings in
+other governing documents and none in this file.
+
+Whether that opens a build lane is the lead's decision and is not taken by this record. The
+task-specific implementation gate of `APEIRON-COUNT-W2-T1` is now **named** — the `cargo test` and its
+control in the plan row below — and its rejecting control is **not established**, because no counting
+module exists to mutate. Per the blocking rule, implementation therefore stays blocked on exactly one
+thing: the first observed red/restored pair for that row's coordinate-identity and sentinel-alias
+mutations. Every other gate named here and not run is recorded
+**MISSING**, never waived by a similar gate elsewhere.
+
+**Owner target scope.** `REG1_TARGET_RATIO` is read at `examples/reg1/acceptance.rs:30`. The owner's
+`half` value (`examples/reg1/acceptance.rs:34`, parsed at `examples/reg1/acceptance.rs:159`) applies
+**`<= 0.5` to the three hashtrinity arms** `hashtrinity_table`, `hashtrinity_count_par` and
+`hashtrinity_get_each` — `TARGET_SCOPED_INCUMBENTS` at `examples/reg1/acceptance.rs:43` — and
+**`<= 1.0` (`RATIO_LIMIT`, `examples/reg1/acceptance.rs:20`) to every other incumbent**. The scope is
+closed over the registry, not over a name prefix, so a newly registered hashtrinity arm is a scope
+failure. Neither "`<= 0.5` everywhere" nor "default `1.0` everywhere" describes this target: the
+registered gate with the variable unset stays `<= 1.0` on every applicable pair, and an unparsable
+value refuses the invocation with `USAGE_EXIT` rather than silently running the registered gate. The
+targeted invocation is
+
+```sh
+REG1_TARGET_RATIO=half cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls
+```
+
+`concurrency_unmatched` (`examples/reg1/acceptance.rs:739`) and `address_face_unmatched`
+(`examples/reg1/acceptance.rs:741`) must both be zero at acceptance, and `full_acceptance`
+(`examples/reg1/acceptance.rs:754`) must be true.
+
+### Plan
+
+| Task | Owned files (≤3) | Gate (budget) | Negative control | Depends on |
+|---|---|---|---|---|
+| `APEIRON-COUNT-W1-T1` | `docs/epics/storage-refinement.md`, `tools/check-claims.py` | `python3 tools/check-claims.py` and `python3 tools/rooting/read_gate.py --check`, repository root (60 s each) | Citation to a nonexistent path inside this contract, added under a `tested` sentence: exit 1 naming `docs/epics/storage-refinement.md` and the line; removed: exit 0. **Coverage established**, scoped: `COVERED_SECTIONS` in `tools/check-claims.py` scans the `## Coordinate-keyed counting-container contract` heading of this file to the next heading of the same or higher level, reports file line numbers, and exits 2 if that heading is absent, so a renamed section is a refusal and not a silent pass. Two coverage residuals stay **open**: whole-file coverage of this epic, because the 35 pre-existing claims above this contract are superseded records and redden the gate at 48 findings re-measured with 37 graded claims whole-file against 2 in this section; and markdown link destinations, which are not citations to this gate. | REVIEW5 selection |
+| `APEIRON-COUNT-W1-T2` | `examples/reg1/matrix.rs`, `examples/reg1/correctness.rs`, `examples/reg1/strata.rs` | the strict full-profile command above, bounded below 600 s per run with repetitions and spread reported | Seeded wrong-output cells; every one of the six `digest_fail` cells must go red then green on restore | exact failing cells reproduced |
+| `APEIRON-COUNT-W1-T3` | `docs/kernel-boundary.md`, `docs/direction.md`, `docs/README.md` | `python3 tools/check-claims.py` and `python3 tools/rooting/check.py --check` (60 s each) | `python3 tools/rooting/check.py --self-test` rejection fixtures must reject | `APEIRON-COUNT-W1-T1` |
+| `APEIRON-COUNT-W2-T1` | the counting module `src/table/count.rs`, its `include!` line in `src/table.rs`, and the one production consumer `Table::sum_parallel` in `src/table/parallel.rs` | `cargo test --locked --lib table::count::tests::` (300 s) — the container's own cells, run on the build path, filtered as `docs/kernel-boundary.md:76` filters `table::partition::tests::partition_integrity_` — plus `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check` (§6, 300 s each) | In a disposable copy under `/home/socol/oc-tmp`, never the working tree. (i) **Coordinate-identity mutation:** replace `CountKeyCodec::encode` with `u64::from(coord)`, dropping the face half; require `cargo test --locked --lib table::count::tests::` red with `sigma_separation_update_leaves_the_other_face_unchanged` and `counting_words_are_injective_across_faces` failing; restore, require green. (ii) **Sentinel alias:** write the vacant marker as the stored word `0`, which is `encode(Elliptic, 0)`; require `zero_word_is_a_live_coordinate_not_a_vacancy` red. The oracle is the independent full-key map over `(Sigma, u32)` in the container's `full_key_oracle_agrees_with_the_counting_container` cell — not the container's own readback and not a hash. A mutation that has never been observed red leaves this control **MISSING** and the row open. | clause 1 consumers and clause 2 codec frozen; clause 5 overflow policy, count carrier and default frozen |
+| `APEIRON-COUNT-W2-T2` | `proof/extract/lib.rs`, `proof/regen.sh`, `proof/ApeironWord.lean` | `proof/regen.sh --check` (570 s) | Generated-body mutation in a throwaway copy, red then restored green | `APEIRON-COUNT-W2-T1` |
+| `APEIRON-COUNT-W2-T3` | `proof/corpus/Counting/*.lean` and `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` under `systemd-run --user --scope -p MemoryMax=<cap> -p MemorySwapMax=0`, `LEAN_NUM_THREADS=1`, `timeout 570`, `flock /tmp/opencode/apeiron-lane.lock` | Codec/identity mutation reddens the named headline; restored source green | `APEIRON-COUNT-W2-T2` |
+| `APEIRON-COUNT-W3-T1` | the parallel executor and readback bodies (≤3 files) | the strict full-profile command with `--controls`, bounded below 600 s per run | Achievable-worker and query-order readback mutations red then green | `APEIRON-COUNT-W2-T1` |
+| `APEIRON-COUNT-W4-T1` | `docs/plan.md`, `docs/roadmap.md` | `python3 tools/rooting/check.py --check` (60 s) | `python3 tools/rooting/check.py --controls` | `APEIRON-COUNT-W3-T1` |
+| `APEIRON-COUNT-W5-T1` | no edit; acceptance run | `REG1_TARGET_RATIO=half cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls`, bounded below 600 s per run, plus `proof/regen.sh --check` and bounded `cd proof/corpus && lake build` | the command's own baseline, red and restore controls | all of the above |
+
+No task opens before its dependency closes, every wave is a barrier with its control run, and no task
+owns a file another task owns. `docs/plan.md` records the order and the board rows; a row is created
+only after this contract is accepted.
+
+**Open obligations carried.** G1 is **OPEN**; the composition headline
+`prepared_rebuild_refines_insertWith` for the generic `Table` stays open and is untouched here; the
+generic `Table`'s `SearchDecisionCorrect`, `ResourceAdapterSimulates` and
+`GrowableSchedule.partition_preserves_key_streams` premises stay open; `hashtrinity::CoordMap` and the
+serial `FreqMap` coverage gap stays open; the six `digest_fail` cells stay open until
+`APEIRON-COUNT-W1-T2` attributes them. Historical fixed-shard and single-shard results cannot
+discharge any obligation above.

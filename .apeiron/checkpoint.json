@@ -1,0 +1,61 @@
+{
+  "acceptance_summary": "registered=2752 load_bearing=2408 applicable=1500 pass=743 fail=757 missing=0 unauthorized=0 not_applicable=908 informational=344 concurrency_unmatched=6 address_face_unmatched=6 worst_pair=spatial/n5000/hashbrown_rayon worst_ratio=8.3849 full_acceptance=false",
+  "check_in_bytes": 2099,
+  "check_in_digest": "6fc39c6fb66ca00ec3e1ae91a4de5da323b2fb4eba7ec83f2d1c55ec96f75d89",
+  "check_in_id": "",
+  "created": "2026-10-04T09:21:25Z",
+  "headline": {
+    "hashtrinity_count_par": {
+      "decided_pairs": 6,
+      "digest_fail": 3,
+      "pass_at_campaign": "[0, 0, 0]",
+      "ratio_max": 5.8998,
+      "ratio_mean": 3.5105,
+      "ratio_min": 1.5536,
+      "ratio_spread": 3.7975,
+      "worst_cell": "spatial/n10000",
+      "worst_cell_pooled": "fail",
+      "worst_cell_ratio_max": 5.8998
+    },
+    "hashtrinity_get_each": {
+      "decided_pairs": 6,
+      "digest_fail": 3,
+      "pass_at_campaign": "[0, 0, 0]",
+      "ratio_max": 5.7077,
+      "ratio_mean": 3.3692,
+      "ratio_min": 1.6683,
+      "ratio_spread": 3.4213,
+      "worst_cell": "spatial/n10000",
+      "worst_cell_pooled": "fail",
+      "worst_cell_ratio_max": 5.7077
+    },
+    "hashtrinity_table": {
+      "decided_pairs": 160,
+      "digest_fail": 0,
+      "pass_at_campaign": "[64, 63, 62]",
+      "ratio_max": 5.1023,
+      "ratio_mean": 1.7465,
+      "ratio_min": 0.0931,
+      "ratio_spread": 54.779,
+      "worst_cell": "occ1-direct-index-resident-admitted-fresh-insert-replacement",
+      "worst_cell_pooled": "fail",
+      "worst_cell_ratio_max": 5.1023
+    }
+  },
+  "measure_path": "/home/socol/oc-tmp/reg1-remeasure/run6.json",
+  "measure_sha256": "75bf75caa12db2ec1b2c8a7770f9e59a1c0976a9e7b9ba7b9658b2db85943159",
+  "measure_skipped_newer": [],
+  "mode": "dry-run",
+  "project": "apeiron",
+  "rows": [],
+  "schema": 1,
+  "source_digest": "15c752c698d15b85f35b1757a2524a4e26deca49c566a2297493f53fac8ee0f0",
+  "source_files": 129,
+  "source_prefixes": [
+    "src/",
+    "examples/reg1/"
+  ],
+  "staged_digest": "15c752c698d15b85f35b1757a2524a4e26deca49c566a2297493f53fac8ee0f0",
+  "staged_files": 129,
+  "tool": "tools/board/checkpoint.py"
+}

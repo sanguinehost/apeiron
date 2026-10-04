@@ -72,7 +72,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 
 | rule | enforcing artefact | command |
 |---|---|---|
-| §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 8/8 controls) |
+| §1 a citation names a path that resolves; §5 a grade maps to a named artefact | [`tools/check-claims.py`](tools/check-claims.py) | `python3 tools/check-claims.py` (`--self-test`: 11/11 controls) |
 | §1 the reading order — every stage document resolves and is referenced in this file; a dispatch pins their sha256 | [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py) | `python3 tools/rooting/read_gate.py --check` (`--self-test`: 3 rejection fixtures; `--controls`) |
 | §2 epic intent/spec/plan; §3 task ≤3 files with one gate and one control; §8 the per-function cost comment; a retired route not presented as active | [`tools/rooting/check.py`](tools/rooting/check.py) | `python3 tools/rooting/check.py --check` (`--self-test`: 30 reject / 23 accept) |
 | §4 obligations 1, 3, 5 — real-source extraction and the closed axiom cone | [`proof/regen.sh`](proof/regen.sh), [`proof/corpus/AxiomAudit.lean`](proof/corpus/AxiomAudit.lean) | `proof/regen.sh --check`; `cd proof/corpus && lake build` |
@@ -150,12 +150,22 @@ A red goal is worked by one loop, never by picking the easiest bounded task:
    independent verification, not invented parallel work.
 3. **Each lane closes on its gate and control**, on the path the crate builds, in an isolated copy.
    A lane returns the edited artefact, the exact gate output, the measurement and the decision — never
-   a live write and never a commit.
+   a live write and never a commit. **A lane runs to completion inside one turn: it must not
+   background its campaign, `sleep`, spawn a detached `runs.sh`/loop, or return "waiting" on a
+   background waiter.** A lane that comes back without its numbers is not a lane; it is a stall the
+   owner cannot distinguish from progress. The lead dispatches agents, not ad-hoc background shell
+   campaigns, and follows them to their return.
 4. **The lead installs.** The lead applies the lane to the live tree, **re-runs the gate on the live
    tree**, and commits. A lane's green gate is not the live tree's green gate.
 5. **Measure, then board.** Run the averaged measurement, then update the board: the project
    check-in with the fresh numbers, and the task rows whose status changed. A checkpoint that reports
-   no measured movement while the goal is red has failed and says so.
+   no measured movement while the goal is red has failed and says so. **The board update is a field of
+   the checkpoint lane's own return, not a step the lead performs from memory: the lane posts the
+   check-in and moves the rows before it returns, and a return that carries numbers without the
+   check-in and the moved rows has failed this step.** The per-cycle trigger is the operator pulse
+   (`/home/socol/oc-tmp/bin/pool-ping.sh`); with it off, the board is stale until the next lane posts
+   it — the cadence is the pulse, the content is the lane. The `commit-msg` hook enforces a board row
+   per commit only; it does not force a per-cycle check-in.
 
 Enforced at exactly two points: the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`) fires the
 checklist and fails a checkpoint with no measured movement; and the per-commit board declaration
@@ -204,6 +214,23 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   the current source. A recorded number is stale until re-measured; a stale number is not a status.
 - Rank by expected contribution, then by difficulty. The hardest high-contribution task is
   dispatched before the easiest, however many lanes it needs.
+
+- **Subsume the empirical best before deriving.** Empiricism and formalism are two sides of one
+  coin: if an empirically better solution exists for a role, **subsume it first and formalize the
+  subsumption**; never iterate from an obviously inferior primitive. The empirical side selects the
+  base — the measured winner becomes the working artifact, on the measured path from step one; the
+  formal side certifies that same artifact — the refinement targets the subsumed body. A
+  formalization of a losing implementation is a certified loss; an unproved winner is an unverified
+  gain. **Every dispatch names the empirically best known solution for its role by repository,
+  revision and digest, and records `subsumed`, or `not-subsumable` with the exact reason and the
+  search command and its output; a new primitive with an unstated or unexplained absence is
+  refused.** Corollary: a lane whose base is a structure the measured winner does not pay is not an
+  optimization but a tax — name the base and its measured ratio first. **Enforcer: the
+  dispatch-admission `subsume` field (MISSING until built; until then this rule is review-enforced
+  only and is recorded as such, not as acceptance).** Worked example: the empirically best counting
+  structure is `../fold/hashtrinity` (pinned `Cargo.toml:76-80`, rev `4cc14471`); it must be
+  subsumed and proved, not re-derived, and the generic `Table` (`src/table.rs`) is the inferior
+  primitive — not a valid base for a count-face optimization.
 
 - **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
   revision `4cc14471` (`src/lib.rs` sha256 `f8c8fd12fc2b7a69…`; fold HEAD `d497161f`'s `lib.rs` is
@@ -427,7 +454,7 @@ dispatch-ready task by default. It is free and the fastest free route measured: 
 TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The free window ends
 2026-10-05**; until then dispatch Space Bunny on every bounded task and lead-verify each result. It
 is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
-proof-search ceiling. `deepseek-flash` (`openrouter/~deepseek/deepseek-flash-latest`) is the paid escalation lane,
+proof-search ceiling. `deepseek-flash` (`deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) is the paid escalation lane,
 taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
 Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) remains an
 available lane but is not the default, and its balance is not spent on ordinary work. Escalation is
@@ -448,7 +475,7 @@ remain historical records.
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
 | Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
-| DeepSeek Flash (`deepseek-flash`, `openrouter/~deepseek/deepseek-flash-latest`) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
+| DeepSeek Flash (`deepseek-flash`, `deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
 | Gemini Flash (`gemini-flash`) | non-default lane, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |

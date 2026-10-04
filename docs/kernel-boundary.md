@@ -8,8 +8,8 @@ controls remain required at their stated scope; universal source refinement rema
 This document owns Apeiron's local representation and trust boundary. The programme thesis,
 ownership and outcomes are in the [programme direction](direction.md); this file does not restate
 them. Local authority: the executing growable flat/spill `Table` representation, the historical
-fixed-shard `Rep` relation, the translation/trust inventory and the kernel scope below are owned
-here. The programme authority is
+fixed-shard `Rep` relation, the counting-face representation boundary, the translation/trust
+inventory and the kernel scope below are owned here. The programme authority is
 `docs/direction.md`; the execution sequence is in the [operator handoff](plan.md).
 
 ## Canonical object and executing root
@@ -133,9 +133,13 @@ classification is made.
 
 ## The historical fixed-shard representation
 
-The executing representation is the growable flat/spill `Table` in `src/table.rs`: one `Table` with
-two concrete storage faces (`Stored<K>`, `Regen<C>`), a flat certified-coordinate resident area and
-grouped spill regions, keyed by `(Sigma, K)`. Its boundary, theorem set and extraction status are in
+The executing **map-face** representation is the growable flat/spill `Table` in `src/table.rs`: one
+`Table` with two concrete storage faces (`Stored<K>`, `Regen<C>`), a flat certified-coordinate
+resident area and grouped spill regions, keyed by `(Sigma, K)`. "One `Table`" is the whole statement
+for the generic key/value face and is superseded **for the counting face only** by the
+[counting-face boundary](#counting-face-representation-boundary-apeiron-reorient), which retains this
+`Table` unchanged and adds one single-region container refining the same canonical object. Its
+boundary, theorem set and extraction status are in
 the [extraction-shaped representation boundary](#extraction-shaped-representation-boundary-astra-apeiron-extract-rep)
 below. The fixed-shard paragraphs here describe the earlier extracted layout; its proofs remain
 revision-bound historical evidence, not proofs of the executing layout.
@@ -145,7 +149,11 @@ aliases or wrapper containers. `src/map.rs`, `src/safe_table.rs` and `src/set.rs
 including `Map`,
 `Words`, `Exposed`, `ExposedWords`, `SafeTable`, `TableFull`, `Set`, `WordSet`, `ExposedSet` and the
 map entry/iterator/storage-policy types. The former `CountTable`, regions, scanner and worker code
-are removed from `src/table.rs`, not retained under a second name. Algebra modules remain.
+are removed from `src/table.rs`, not retained under a second name. Algebra modules remain. The
+counting face is a distinct production type, not an alias, a wrapper or this `Table` renamed, and the
+removed `CountTable` is not its predecessor: it is specified by the
+[counting-container contract](epics/storage-refinement.md#coordinate-keyed-counting-container-contract)
+and bounded by the [counting-face boundary](#counting-face-representation-boundary-apeiron-reorient).
 
 Storage is an inline `[Option<[Option<(K, V)>; N]>; 256]`: 256 fixed shards, each an optional
 length-`N` array. An outer `None` denotes an untouched empty shard; it does not defer a heap
@@ -208,7 +216,10 @@ callbacks need explicit denotation and termination contracts; Rust trait names a
 ## Shared canonical map vs physical representation
 
 The canonical corpus defines `HMap K V := K → V` and the total `get`/`insertWith`/`build`. The
-physical representation is the fixed-capacity sharded array with the private invariant `Rep`. These
+physical representation described here is the fixed-capacity sharded array with the private invariant
+`Rep`; for the counting face a second physical representation of the same canonical object carries
+its own boundary and `Rep`-free admission contract under the
+[counting-face boundary](#counting-face-representation-boundary-apeiron-reorient). These
 are distinct. `HMap` is the shared semantic object; `Rep` is the physical invariant under which a
 particular table state denotes it. `Rep` is not the public contract and is not exposed; the public
 contract is the four methods and their refusal semantics.
@@ -391,7 +402,9 @@ the dispatch order is in the [plan](epics/storage-refinement.md#rework-dispatch-
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected as the production
 result and reworked in place. The bounded fixed-shard `Table<K,V,H,N>` is not restored as production
 and the benchmark-only candidate `examples/reg1/candidate.rs` is not promoted. One growable
-representation is kept.
+representation is kept for the generic key/value face; the counting face selected by
+`APEIRON-REORIENT` is the qualified exception recorded in [the counting-face
+boundary](#counting-face-representation-boundary-apeiron-reorient).
 
 **Measured red (supplied).** The strict current run has 126 failures among 160 strata cells. These
 are serial-incumbent failures: the `occ16` strata incumbent is serial `hashtrinity::Table` at
@@ -494,7 +507,9 @@ or measurement claim. This section supersedes the `KeyRep`/`Held` carrier and al
 flat-resident contract above where they differ. The fixed-shard `Table` is revision-bound historical
 evidence; the growable flat/spill `Table` executes. REG-1/G1 stays **OPEN**.
 
-**One `Table`, two concrete storage faces, one executing kernel (decision (b)).** The fifth type
+**One `Table`, two concrete storage faces, one executing kernel (decision (b))** — for the generic
+key/value face; the counting face selected by `APEIRON-REORIENT` is the qualified exception in [the
+counting-face boundary](#counting-face-representation-boundary-apeiron-reorient). The fifth type
 parameter is the stored carrier itself, not a zero-sized policy with an associated `Held`:
 
 ```text
@@ -1011,6 +1026,73 @@ witnesses and noncommutative controls. A counterexample or surviving mutation tr
 correctness repair/adjudication rather than waiting for performance; it does not authorize weakening
 a premise or claiming W7 closed. Existing core freshness/build/audit/control regressions continue
 after every production change. The eventual required theorem set and end-to-end criterion are intact.
+
+## Counting-face representation boundary (`APEIRON-REORIENT`)
+
+Owner reorientation decision; grade `anchor` — architecture and scheduling, with no source, proof,
+extraction or measurement claim. It is recorded in
+[direction](direction.md#five-barrier-execution-sequence-apeiron-reorient) and specified by [the
+counting-container contract](epics/storage-refinement.md#coordinate-keyed-counting-container-contract).
+This section adds the selected counting face beside the generic growable `Table` and qualifies,
+**for that face only**, the local-authority sentence at the head of this file, the "executing
+**map-face** representation is … one `Table`" and "no aliases or wrapper containers" sentences under
+*The historical fixed-shard representation*, and the "physical representation described here" wording
+under *Shared canonical map vs physical representation*. Each holds in full for the generic key/value
+face, which remains the selected representation there, and each remains revision-bound historical
+evidence there. The counting face is not a coherence layer, a cache, a benchmark-only structure, or a
+wrapper that restates a formula, and no existing proof admits it.
+
+**Representation.** One single region of open-addressed slots holding the coordinate word, `Sigma`
+and the count, with tags as the sole occupancy authority, a growth policy, and no locator and no
+256-region directory. The generic growable `Table<K, V, H, N, R>` in `src/table.rs` is retained
+unchanged as the map face. It is production code with real counting consumers, not a reference or
+test-only structure.
+
+**Canonical denotation.** The admitted domain is the packed `u32` coordinate word already certified by
+the resident area; a coordinate outside it is refused, not truncated. The logical key is exactly
+`(Sigma, coordinate)` and the value is the `Int64` count, so a counting read is the canonical
+`Apeiron.Table.get` of a canonical `Apeiron.Table.build` under the additive merge with default `0`:
+`get a = |{i · addresses[i] = a}|` is `build (fun new old => new + old) 0 (addresses.map (·, 1))`. The
+refinement targets are exactly `Apeiron.Table.HMap`, total-by-default `Apeiron.Table.get`, new-first
+`Apeiron.Table.insertWith` and ordered `Apeiron.Table.build` — the same canonical object the generic
+`Table` refines, with the per-key value-subsequence equation supplying
+`build_eq_of_key_streams_eq`. A second representation of that one object is added; no second
+semantic object, canonical theorem or attribution is introduced or changed.
+
+**Existing proofs do not extend to it.** The `TableRefinement` headlines and every `Growable/*`
+module refine the fixed-shard and growable generic bodies only. They do **not** establish this
+container: its constructor, insertion, growth, batch build, read/readback and refusal links are
+unproved until the barrier-4 extraction and refinement land. Historical `CountTable`/`Map` results
+are archival measurement inputs and carry no checked Lean refinement.
+
+**Extraction perimeter.** Candidate roots are the sequential bodies — checked sizing, reservation and
+initialization, the bounded probe, insertion, the ordered batch build and the serial read —
+included from the real source and called, never restated by a wrapper. The parallel
+`count_par`/`get_each` bodies and their scheduling sit behind the same unextracted `std::thread::scope`
+orchestration boundary recorded above, and the pinned `JoinBoundary` and `try_reserve_exact`
+translation limits recorded there apply to the counting roots unchanged. Every added root is its own
+extraction task, registered in `proof/corpus/AxiomAudit.lean` inside
+`{propext, Classical.choice, Quot.sound}` and never inside `Slang.*`.
+
+**Resource and refusal semantics.** The ratified option (b) contract above applies unchanged: checked
+sizing, reserve-all ordering, initialization, one transaction point, and a `Result` whose `Err` leaves
+the container unchanged with no partial result. The denials are the resource ones — overflow and
+allocation failure — not `ShardFull` and not positive-`N` `BuildAdmissibleN`, which stay retired from
+production. An absent key is a successful read of the default, never a refusal, and the canonical
+`Apeiron.Table` object stays total.
+
+**Trust exclusions.** Allocator success/failure correspondence and `try_reserve_exact` itself, thread
+memory semantics, exclusive-borrow realization, spawn/join failure, panic propagation, liveness,
+`rustc`/LLVM codegen, the kernel ABI, GPU/SPIR-V and the `unsafe` container are excluded exactly as
+above, and the Slang chain keeps its empty cone. In addition, coordinate/codec injectivity on this
+face is **unproved**: the codec must be total, stable, equality-respecting and satisfy
+`decode(s, encode(s, c)) = c` on the admitted domain, and that law has no canonical link yet.
+HashDOS resistance is required, not established. A verified speed an adversary can collapse does not
+pass.
+
+The five barriers in [the plan](plan.md#subsumption-execution-sequence-apeiron-subsum) sequence
+this face; implementation stays blocked until the contract names an executable gate and that gate's
+rejecting control is established.
 
 ## Trust inventory
 

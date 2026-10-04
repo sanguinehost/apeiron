@@ -36,6 +36,18 @@ injection = []
 [dependencies]
 apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
 
+# REG-1 load-bearing incumbent on the **library** build path: `hashtrinity::FreqMap` is the measured
+# counting structure (the NB face), fetched from the local fold Git object at a committed revision.
+# A `file://` clone reads committed objects only, so a dirty fold working tree cannot leak in. The
+# crate's unconditional `crypto` module imports its `hex` and `base64` masquerade modules, so those
+# two are the minimum set that compiles; the default `rustls-provider`/`webauthn`/`syncfold`
+# features stay off.
+[dependencies.hashtrinity]
+git = "file:///home/socol/Workspace/fold"
+rev = "4cc14471ae24f3f204fb0b0e91736ef75c909358"
+default-features = false
+features = ["hex", "base64"]
+
 # Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`); already in the lock via
 # the dev-dependencies.
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -5,7 +5,10 @@ all older Kani gates and dispatch requirements in this handoff and linked plans.
 receipts remain historical. Current acceptance uses Rust tests/clippy/fmt, real-source mutation
 controls, extraction freshness and the bounded Lean builds/audits; open proof premises remain open.
 Current dispatch is [the bounded read/search proof plan](epics/read-proof.md); it supersedes the
-older execution tables below without erasing their revision-bound receipts or obligations.
+older execution tables below without erasing their revision-bound receipts or obligations. The
+[five-barrier sequence](#subsumption-execution-sequence-apeiron-subsum) supersedes the immediate
+tuning dispatch and the Intent/Song development scheduling below; it retains their requirements,
+gates, controls and obligations.
 
 This file owns Apeiron execution detail: order, gates and stop points for Apeiron work. The
 programme thesis, ownership and outcomes are in the [programme direction](direction.md); local
@@ -458,18 +461,123 @@ state. T3 keeps the all-pair interval ceiling `selected/incumbent <= 1.0`, autho
 factoring and then measured read-path specialization, and retains every named incumbent, the coverage
 gaps, the HashDOS requirement, the controls, both axiom cones and the realization exclusions.
 
-**Performance workstream order.** Consume the fresh full-profile receipt before changing timed
-source or harness. Then, in order: (1) comparison coverage repaired — `APEIRON-REANCHOR-W1-T1`
-made the five named hashers (`xxHash` XXH3/XXH64, `wyhash`, `ahash`, `fnv`) load-bearing in
-`examples/reg1/acceptance.rs` with rejecting omission/demotion controls and recorded the combined
-`get_each` arm as `concurrency_unmatched`; (2) size-only factoring of `src/table.rs` before hot-path
-changes; (3) reduce serial direct-path overhead; (4) restore spatial partition/build/probe recovery
-on disjoint paths; (5) publish a matched before/after full-profile receipt. The
-[roadmap dispatch table](roadmap.md#performance-re-anchor-and-bounded-dispatch) owns
-the task IDs, files and gates. No aggregate, std-only win, historical envelope, reduced matrix or
-trusted-boundary grade closes G1. `APEIRON-STRATEGY-DECISION-T3` keeps that order: size-only factoring
-of `src/table.rs` first, then read-path specialization on the covered workload, with the spatial recovery prepared on
-disjoint paths.
+### Subsumption execution sequence (`APEIRON-SUBSUME`)
+
+Owner reorientation decision; grade `anchor` — architecture and scheduling. It establishes no new
+performance, test or proof result. All lifecycle milestones keep **no due date**; G1 is "in flight —
+completion horizon unestablished". A stage counts only when its gate and its negative control pass.
+G1/REG-1 stays **OPEN**, `full_acceptance=false` on every recorded tally.
+
+**First principle.** Empiricism and formalism are two sides of one coin: **subsume the empirically
+best known solution first, and formalize the subsumption**; never iterate from an obviously inferior
+primitive. The empirical side selects the base — the measured winner becomes the working artifact, on
+the measured path from step one; the formal side certifies that same artifact. **The base is
+`../fold/hashtrinity`** (pinned `Cargo.toml:76-80`, rev `4cc14471`). The generic growable `Table` is
+the inferior primitive and is not a valid base for a count-face optimization. The prior five-barrier
+derivation sequence is **superseded for the count face**: its obligations are retained, its base is
+corrected, and its from-scratch container path is parked (below).
+
+**Targets — two faces, both validated.**
+- **Count face** (packed `(i21,i21,i21)`; the registered `hashtrinity_*` arms). INITIAL TARGET = **parity**
+  (`selected/incumbent <= 1.0`), reached by the literal subsumption — **landed: 3.985 -> 0.921**. FINAL
+  TARGET = **0.50** on the three hashtrinity arms, reached on the axis the winner did not optimize.
+- **Map face** (stored key; the serial/`current-strata` arms). `hashbrown_fxhash` beats `hashtrinity_table`
+  by **27.5%** on this face (`B-LEARN`, 13/18 runs; wins 100% of absent-miss cells). The map face must
+  **beat `hashbrown_fxhash`** — `selected/hashbrown_fxhash <= 1.0` — and the technique is extracted, not
+  invented: the **16-lane fingerprint glance over a 1 B/slot ctrl array** (apeiron's spill tail: 176
+  insns / 48 branches / 16 loads per group against hashbrown's **6 SIMD insns / 0 branches / 1 load**) plus
+  **fxhash's hash choice on a fixed table**. Note the falsifier: hashbrown's serial `get` is **4.7× longer
+  in instructions** (47 vs 10) and still 27.5% faster, so the win is latency/cache, not instruction count.
+- **Both faces formally validated.** The refinement of the selected production body to the canonical
+  object, the closed axiom cone, real-source extraction and mutation controls apply to the map face as
+  they do to the count face. The HashDOS vulnerability is formalized with the chain and patched after
+  (deferred obligation, below), not before.
+- **Horizon.** Under 24 hours to the acceptance point. Space Bunny (free) is the dispatch default and is
+  used at width — many small bounded lanes, disjoint paths, serialized only on shared files.
+
+
+
+| stage | work, hardest contribution first | gate that opens the next stage |
+|---|---|---|
+| **1. Subsume** | bring the empirical winner's counting code onto Apeiron's production path **unmodified** — the exact crate at the pin, or in-tree vendored with no logic change; wire it to the timed path (`examples/reg1/adapters/spatial.rs:674-681`); name the removable differential | `cargo build --locked` on the winner's code path; the selected counting arms wired; the counting gate green |
+| **2. Measure the subsumption** | the **INITIAL TARGET**: the ratio the subsumption reaches, per arm, ≥5 paired runs, mean and spread | `selected/incumbent <= 1.0` on the three hashtrinity arms, outside the unchanged-code spread |
+| **3. Beat it** | the axis the winner did not optimize — exactness/identity without a duplicate key column (`pack` is injective; address == key); the fused liveness+identity+hit decision; mask-for-divide (`& (2^k−1)`); the 16-slot group glance; the enumerated waste. Each a bounded change with its gate and control | measured pairs move outside spread toward `0.50` |
+| **4. Formalize the subsumption** | extract the **selected production body**; constructor, preservation, read, build and refusal links; joint reachable witnesses; every headline in `proof/corpus/AxiomAudit.lean` under the closed cone; mutation control on the real source | fresh `proof/regen.sh --check`; bounded builds in `proof/` and `proof/corpus/`; required headlines, audits, joint witnesses and semantic controls green |
+| **5. Joint acceptance** | run the unchanged full registered population under the owner target scope, with the identity and HashDOS requirements, the coverage census and the shared integration gates | strict full-profile acceptance exits 0 with `full_acceptance=true`; every required Rust and proof gate and control green on one source/tool identity. Only then does downstream development reopen |
+
+**Owner target scope.** The harness applies `REG1_TARGET_RATIO=half` to the three hashtrinity arms —
+`hashtrinity::Table`, `hashtrinity::CoordMap` and `hashtrinity::FreqMap`, serial and packed-parallel —
+so `selected/incumbent <= 0.5` there, and `selected/incumbent <= 1.0` on every other named incumbent:
+
+```sh
+REG1_TARGET_RATIO=half cargo run --release --locked --example reg1 -- --check performance --profile full --accept --controls
+```
+
+Neither "<= 0.5 everywhere" nor a default 1.0 acceptance describes this owner target. The unchanged
+all-pair interval ceiling and every named incumbent, coverage gap, HashDOS requirement and control
+below stay in force.
+
+**Historical tuning routes: closed experiments, not active recovery tasks.** Items (2) and (3) of
+the superseded performance workstream order — size-only factoring of `src/table.rs`, then serial
+direct-path overhead reduction — are **closed experiments** on their recorded source identities: each
+was tried, and neither closed the applicable-pair gap, so neither is an active recovery task and
+neither is re-dispatched under the barriers. Item (1), comparison coverage under
+`APEIRON-REANCHOR-W1-T1`, landed and is retained; items (4) and (5) are absorbed by barriers 2–3 and
+barrier 5. The [roadmap dispatch table](roadmap.md#performance-re-anchor-and-bounded-dispatch) keeps
+their historical task IDs, files and gates. Their receipts stand as history and establish no rate. No
+aggregate, std-only win, historical envelope, reduced matrix or trusted-boundary grade closes G1.
+
+**Task IDs and dependencies, recorded here before any board row is created.** The authoritative task
+list, its owned files, gates, negative controls and budgets is the contract's plan in [the storage
+epic](epics/storage-refinement.md); a board row is created from an entry there and never precedes it.
+The stage order and dependencies:
+
+| stage | tasks | dependency that opens it |
+|---|---|---|
+| 1 | `APEIRON-SUBSUME-HT`, `APEIRON-SUBSUME-PROBE`, `APEIRON-SUBSUME-COST`, `APEIRON-P-P1`…`P7`, `APEIRON-B-B10` | the subsumption decision; `P1`–`P3` land the winner's code (`cargo build --locked` exit 0), `P4`–`P6` wire the selected arms, `P7` measures parity |
+| 2 | `APEIRON-SUBSUME-PARITY` | stage 1 wired and the counting gate green |
+| 3 | `APEIRON-B-B1`…`APEIRON-B-DIV` (identity without a duplicate column, group glance, fused decision, the enumerated waste, the arms, packing, mask-for-divide) | stage 2 measured at parity |
+| 4 | `APEIRON-V-V1`…`V5` | stage 3's selected body frozen |
+| 5 | `APEIRON-A-A1`, plus HashDOS, the coverage census and the oracle | all of the above |
+
+**Deferred obligation (owner direction).** The **HashDOS requirement is deferred until the speed target is
+met across the board** — it is not waived. Order: speed first; then **formalize the entire chain,
+including the vulnerability**; then **patch the vulnerability** as hashtrinity already does, this time
+with the formal understanding on record. Rationale: the vulnerable quadratic is understood intimately,
+which is the evidence a written account needs, and the patch is then a known action applied to a known,
+formalized object rather than a bolt-on. Measured today: the spill read path is exactly quadratic
+(`n²` probe slots) because growth triggers on exhaustion, not load, so a region sits at load `1.0` at
+every power-of-two population. The adversarial-population test and its receipt live outside the tracked
+tree for now (`/home/socol/oc-tmp/escalation/HASHDOS.md`); landing the test is part of the patch stage.
+
+**Parked (retained, not waived).** The prior derivation path — the from-scratch counting container
+`APEIRON-COUNT-W2-T1`/`W2-T2`/`W2-T3`, `APEIRON-R1-W1-T1`, the `W2-T1b-DOMAIN`/`FULLWIDTH` splits,
+`RESIDENT-GROWTH`, `SPILL-PROVISION`, `COUNT-READBACK` — is parked: obligations and evidence retained,
+the base corrected to the subsumed structure. It may be reopened only where the subsumed path leaves an
+obligation it alone discharges, and then with its own contract.
+
+No task opens before its dependency closes, every task owns at most three files with one gate and one
+negative control under an enforced budget below 600 s, and no file has two owners.
+
+**Parking rule (`APEIRON-REORIENT`).** New Intent and Song development is parked behind joint G1
+acceptance. Reopen when `full_acceptance=true` and the required real-source end-to-end refinement
+both hold on the accepted identity. Requirements are **retained, not waived**: the [E5
+Apeiron–Intent engine](#e5--apeironintent-engine) waves, the Song A0–A6/B6 rows under
+[Other owners](#other-owners), the sustained-width campaign below and the cross-repo correspondence
+keep every obligation, gate and control. They change status, not requirement. Already-dispatched
+returns integrate only under their existing gates and ownership, and parking authorizes no new
+implementation. Projects stay retained, not cancelled or archived, and Done rows keep their evidence.
+This is a scheduling decision: `AGENTS.md` §3a freezes Penglai and webfold behind the same condition
+and does not, on its own, freeze every Intent and Song row.
+
+**Superseded performance workstream order (historical).** The order it replaced was: consume the
+fresh full-profile receipt before changing timed source or harness; then (1) repair comparison
+coverage, which landed under `APEIRON-REANCHOR-W1-T1` (the five named hashers are load-bearing in
+`examples/reg1/acceptance.rs` with rejecting omission/demotion controls, and the combined
+`get_each` arm is recorded as `concurrency_unmatched`); (2) size-only factoring; (3) serial
+direct-path overhead; (4) spatial partition/build/probe recovery on disjoint paths; (5) a matched
+before/after full-profile receipt. Items (2) and (3) are the closed experiments above; items (4) and
+(5) are barrier work.
 
 **Revised representation boundary (Astra verdict).** The selected structure becomes a table-level
 flat resident area (shard-major `256 x L`, admission `direct_word = Some(w) ∧ lane < L`, checked
@@ -482,9 +590,10 @@ schedule, grouped probe and key-dropping count/dedup; proof, extraction, registr
 measurement work follows on the same source identity. This is a recorded plan, not a built,
 extracted or measured result, and no speed recovery is claimed.
 
-1. **The immediate task:** reduce the measured serial direct-path overhead, then restore the spatial
-   partition/build/probe recovery, per the performance workstream order above (comparison coverage is
-   repaired under T1). The per-entry relocation roots for both carriers are bound and their flat
+1. **The immediate task:** the five barriers above. The superseded tuning dispatch — serial
+   direct-path overhead reduction, then spatial partition/build/probe recovery on disjoint paths — is
+   a closed experiment recorded above, not an active recovery task. The per-entry relocation roots
+   for both carriers are bound and their flat
    and spill headlines are proved; the prepared-resource and search-decision/apply roots remain bound
    at their audited scopes, but the W7 composition that would close them is frozen under
    `W7-SearchCommitBoundary` until its reopening condition is met. The fixed-shard table is not
@@ -529,7 +638,9 @@ dispatch-ready task. `deepseek-flash` is the paid escalation taken only on a man
 anything beyond that escalates manually to the owner. `gemini-flash` is a non-default lane, not
 spent on ordinary work.
 
-**Sustained width is a requirement on Intent, not only on this host.** Observed at ~35–50
+**Sustained width is a requirement on Intent, not only on this host.** It is **parked**, not
+cancelled, under the [parking rule](#parking-rule-apeiron-reorient): the requirement is retained and
+no sustained-width campaign lane opens before joint G1 acceptance. Observed at ~35–50
 concurrent Space Bunny workers through this harness: tool calls slow, sessions restart mid-task and
 resume without their conversation. That is a statement about the current router and is **not** a
 reason to reduce the width — the target is that Intent carries ~50 concurrent agents seamlessly.
@@ -541,8 +652,9 @@ Intent-side obligation is that those cover fleet coordination as they cover eval
 Until then a restarted session re-derives its state from the tree and the fleet-state file, never
 from conversation.
 
-**Sustained width is testable, and the first measurement is due within 48 hours** (owner direction,
-2026-10-02). The claim is not accepted on architecture alone: Intent must run a harness that
+**Sustained width is testable, and its first measurement was due within 48 hours** (owner direction,
+2026-10-02); that scheduling is superseded by the parking rule above and the obligation is retained,
+not waived. The claim is not accepted on architecture alone: Intent must run a harness that
 dispatches **50 concurrent workers** and reports, from its own instrumentation, that every worker
 carried its own identity, that no dispatch was lost when one worker was killed and re-leased, and
 that a receipt exists per worker. The harness is a gate: it has a reachable failure (dispatch fewer
@@ -623,7 +735,9 @@ wasted. The wave table is the check, and `gate docs check` automates it once wir
 `E4.W1 → E4.W3 → E4.W4` gates any new extraction. `E1.W2 → E1.W4` gates dispatch wiring.
 `E1.W5 → E1.W6` gates the script deletion. `E5.W2 → E5.W7` gates an accepted cycle. `E3` and `E2`
 run in parallel with all of these: they are cargo- and document-bound, not Lean-bound, so they use
-lanes the Lean waves leave free.
+lanes the Lean waves leave free. For the G1 goal the governing critical path is now the
+[five barriers](#subsumption-execution-sequence-apeiron-subsum); the E-waves below it are
+retained dependencies of barrier 4 and of the shared integration gates, not an alternative order.
 
 ### Questions for review
 

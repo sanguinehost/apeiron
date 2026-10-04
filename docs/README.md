@@ -53,7 +53,7 @@ from [`templates/epic.md`](templates/epic.md).
 | [resource-security-continuation](epics/resource-security-continuation.md) | plan |
 | [security-algebra-rebase](epics/security-algebra-rebase.md) | attribution review active |
 | [spinor](epics/spinor.md) | partly proved at the canonical gate |
-| [storage-refinement](epics/storage-refinement.md) | approved |
+| [storage-refinement](epics/storage-refinement.md) | approved; coordinate-keyed counting-container contract recorded (`anchor`, `APEIRON-COUNT-W1-T1`) for the counting face, generic growable `Table` retained as the map face; implementation blocked until the contract names an executable gate and its rejecting control |
 | [subquadratic-decode](epics/subquadratic-decode.md) | in progress |
 | [qwen35-hybrid](epics/qwen35-hybrid.md) | exact path = llama.cpp ids; speed next |
 | [one-executor](epics/one-executor.md) | S1–S3 landed: Qwen2.5, Bonsai, Qwen3.5 on one executor |
@@ -61,6 +61,25 @@ from [`templates/epic.md`](templates/epic.md).
 | [unified-quant-kernel](epics/unified-quant-kernel.md) | dispatched (byte-identical unification): one accumulation kernel parameterized by a block decoder |
 
 The policy-engine epic's prior-art study is [`study/policy-engines.md`](study/policy-engines.md).
+
+## Counting face — non-claims
+
+The coordinate-keyed counting face ([contract](epics/storage-refinement.md#coordinate-keyed-counting-container-contract),
+[boundary](kernel-boundary.md#counting-face-representation-boundary-apeiron-reorient),
+[supersession](direction.md#five-barrier-execution-sequence-apeiron-reorient)) is a recorded
+architecture decision at grade `anchor` and carries no result:
+
+- no source, extraction, proof, test or measurement result; G1/REG-1 stays **OPEN**,
+  `report_complete=false`;
+- the generic growable `Table` is retained unchanged as the map face, and its `TableRefinement` and
+  `Growable/*` headlines discharge no counting-face obligation;
+- **MISSING** and therefore blocking: the codec name with its sentinel and boundary values, the
+  default value, the count carrier and the overflow policy, the real production consumers, the
+  reachable joint witnesses, and the executable gate with its rejecting control;
+- the coordinate/codec injectivity law has no canonical link; HashDOS resistance is required, not
+  established;
+- the supersession covers the one-`Table` restriction and the "a new container" non-goal **for the
+  counting face only**; every other non-goal, obligation and acceptance criterion stands.
 
 ## Gate-read contracts (`contracts/`) — moved verbatim, content unchanged
 

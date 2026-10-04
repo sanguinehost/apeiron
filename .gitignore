@@ -16,3 +16,6 @@ __pycache__/
 # tools/gate is a standalone crate; its build products are never tracked.
 tools/gate/target/
 proof/extract/target/
+
+# local secrets (owner-provided); never tracked
+.env
