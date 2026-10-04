@@ -1,7 +1,8 @@
 /-
   `CarrierSigma32.lean` — AR-68's residual R1: the `zxor3` composition of the six SHA-2 amount
   wires on the **Boolean carrier** `BoolRing 32`, and the packing equalities that tie it to
-  `BitVec 32` and to the corpus's own `Apeiron.Crypto.Sha2.{sigma0,sigma1}` declarations.
+  `BitVec 32` and to the corpus's own `Apeiron.Crypto.Sha2.{sigma0,sigma1}` declarations; §7 adds
+  the same treatment for §4.1.3's `Apeiron.Crypto.Sha2.{Sigma0,Sigma1}` composites.
 
   AR-68 (`work/proofs/AlgebraSigma32.md` §6, R1) read the composite on `RingCell (ZMod (2^32))`
   with the forced bit-halves pairing, where the `⊕` layer is a residual costing two exclusive-ors
@@ -305,6 +306,168 @@ theorem zxor3_eq_zero_iff (a b c : BoolR32) :
     funext i
     exact h i
 
+/-! ## §7 · The `Σ₀`/`Σ₁` composites on the same carrier
+
+FIPS 180-4 §4.1.3's two round-function composites are `Σ₀ = ROTR 2 ⊕ ROTR 13 ⊕ ROTR 22` and
+`Σ₁ = ROTR 6 ⊕ ROTR 11 ⊕ ROTR 25`: three rotations each, no shift. They are read on the same
+carrier and through the same `zxor3` layer as §1–§6's `σ₀`/`σ₁`, so every statement below has the
+same shape as its `σ` counterpart: the wire equalities, the first-axis/second-axis cell reading,
+the packing equalities, and the link to the corpus's own `Apeiron.Crypto.Sha2.{Sigma0,Sigma1}`.
+No cost figure, no hardware measurement, no security, performance or mining claim is made here. -/
+
+/-- **FIPS 180-4 §4.1.3 `Σ₀ = ROTR^2 ⊕ ROTR^13 ⊕ ROTR^22` on the Boolean carrier**, as `zxor3` of
+the three amount wires at width 32. -/
+def Sigma0Bool32 (x : BitVec 32) : BoolR32 := zxor3 (rotR32 2 x) (rotR32 13 x) (rotR32 22 x)
+
+/-- **FIPS 180-4 §4.1.3 `Σ₁ = ROTR^6 ⊕ ROTR^11 ⊕ ROTR^25` on the Boolean carrier**, as `zxor3` of
+the three amount wires at width 32. -/
+def Sigma1Bool32 (x : BitVec 32) : BoolR32 := zxor3 (rotR32 6 x) (rotR32 11 x) (rotR32 25 x)
+
+/-- **`Σ₀` as a two-slot cell operation**: the sum of the three first-axis cells of its terms, on the
+same first-axis reading as `σ₀`'s cell. -/
+def Sigma0Cell32 (x : BitVec 32) : BoolC32 :=
+  bCell (rotR32 2 x) + bCell (rotR32 13 x) + bCell (rotR32 22 x)
+
+/-- **`Σ₁` as a two-slot cell operation**: the sum of the three first-axis cells of its terms. -/
+def Sigma1Cell32 (x : BitVec 32) : BoolC32 :=
+  bCell (rotR32 6 x) + bCell (rotR32 11 x) + bCell (rotR32 25 x)
+
+/-! ### §7.1 · The six wires at the `Σ` amounts -/
+
+/-- **`Σ₀`'s ROTR-2 wire** at width 32. -/
+theorem rotR32_2 (x : BitVec 32) : rotR32 2 x = unpack (x.rotateRight 2) :=
+  rotR32_eq_unpack_rotateRight 2 (by norm_num) x
+
+/-- **`Σ₀`'s ROTR-13 wire** at width 32. -/
+theorem rotR32_13 (x : BitVec 32) : rotR32 13 x = unpack (x.rotateRight 13) :=
+  rotR32_eq_unpack_rotateRight 13 (by norm_num) x
+
+/-- **`Σ₀`'s ROTR-22 wire** at width 32. -/
+theorem rotR32_22 (x : BitVec 32) : rotR32 22 x = unpack (x.rotateRight 22) :=
+  rotR32_eq_unpack_rotateRight 22 (by norm_num) x
+
+/-- **`Σ₁`'s ROTR-6 wire** at width 32. -/
+theorem rotR32_6 (x : BitVec 32) : rotR32 6 x = unpack (x.rotateRight 6) :=
+  rotR32_eq_unpack_rotateRight 6 (by norm_num) x
+
+/-- **`Σ₁`'s ROTR-11 wire** at width 32. -/
+theorem rotR32_11 (x : BitVec 32) : rotR32 11 x = unpack (x.rotateRight 11) :=
+  rotR32_eq_unpack_rotateRight 11 (by norm_num) x
+
+/-- **`Σ₁`'s ROTR-25 wire** at width 32. -/
+theorem rotR32_25 (x : BitVec 32) : rotR32 25 x = unpack (x.rotateRight 25) :=
+  rotR32_eq_unpack_rotateRight 25 (by norm_num) x
+
+/-! ### §7.2 · The two-slot reading of the `Σ` composites -/
+
+/-- **The first axis of `Σ₀`'s cell is `Σ₀` on the carrier.** -/
+theorem Sigma0Cell32_fst (x : BitVec 32) :
+    (Sigma0Cell32 x).1 = Sigma0Bool32 x := by
+  unfold Sigma0Cell32 Sigma0Bool32
+  rw [bCell_add, bCell_add, bCell_fst]
+  rfl
+
+/-- **The second axis of `Σ₀`'s cell is zero**: the `⊕` layer is addition, so `Σ₀` generates no
+second-slot residual either. -/
+theorem Sigma0Cell32_snd (x : BitVec 32) : (Sigma0Cell32 x).2 = 0 := by
+  unfold Sigma0Cell32
+  simp only [bCell_add, bCell_snd]
+
+/-- **The first axis of `Σ₁`'s cell is `Σ₁` on the carrier.** -/
+theorem Sigma1Cell32_fst (x : BitVec 32) :
+    (Sigma1Cell32 x).1 = Sigma1Bool32 x := by
+  unfold Sigma1Cell32 Sigma1Bool32
+  rw [bCell_add, bCell_add, bCell_fst]
+  rfl
+
+/-- **The second axis of `Σ₁`'s cell is zero.** -/
+theorem Sigma1Cell32_snd (x : BitVec 32) : (Sigma1Cell32 x).2 = 0 := by
+  unfold Sigma1Cell32
+  simp only [bCell_add, bCell_snd]
+
+/-! ### §7.3 · The packing equalities for the `Σ` composites -/
+
+/-- **`Σ₀` on the Boolean carrier is the packing of the `BitVec 32` word
+`ROTR 2 ⊕ ROTR 13 ⊕ ROTR 22`** — the width-32 `zxor3` composition of the three amount wires,
+through the same `zxor3_unpack` as `σ₀`. -/
+theorem Sigma0Bool32_eq_unpack (x : BitVec 32) :
+    Sigma0Bool32 x =
+      unpack ((x.rotateRight 2 ^^^ x.rotateRight 13) ^^^ x.rotateRight 22) := by
+  unfold Sigma0Bool32
+  rw [rotR32_2, rotR32_13, rotR32_22]
+  exact zxor3_unpack _ _ _
+
+/-- **`Σ₁` on the Boolean carrier is the packing of the `BitVec 32` word
+`ROTR 6 ⊕ ROTR 11 ⊕ ROTR 25`.** -/
+theorem Sigma1Bool32_eq_unpack (x : BitVec 32) :
+    Sigma1Bool32 x =
+      unpack ((x.rotateRight 6 ^^^ x.rotateRight 11) ^^^ x.rotateRight 25) := by
+  unfold Sigma1Bool32
+  rw [rotR32_6, rotR32_11, rotR32_25]
+  exact zxor3_unpack _ _ _
+
+/-- **`Σ₀`'s cell is the first-axis cell of the packed word.** -/
+theorem Sigma0Cell32_eq (x : BitVec 32) :
+    Sigma0Cell32 x = bCell (Sigma0Bool32 x) := by
+  unfold Sigma0Cell32
+  rw [bCell_add, bCell_add]
+  unfold Sigma0Bool32 zxor3 bCell
+  rfl
+
+/-- **`Σ₁`'s cell is the first-axis cell of the packed word.** -/
+theorem Sigma1Cell32_eq (x : BitVec 32) :
+    Sigma1Cell32 x = bCell (Sigma1Bool32 x) := by
+  unfold Sigma1Cell32
+  rw [bCell_add, bCell_add]
+  unfold Sigma1Bool32 zxor3 bCell
+  rfl
+
+/-- **`Σ₀`'s cell, read, is the packing of the `BitVec 32` word
+`ROTR 2 ⊕ ROTR 13 ⊕ ROTR 22`.** -/
+theorem Sigma0Cell32_read_eq_unpack (x : BitVec 32) :
+    (Sigma0Cell32 x).1 =
+      unpack ((x.rotateRight 2 ^^^ x.rotateRight 13) ^^^ x.rotateRight 22) := by
+  rw [Sigma0Cell32_fst, Sigma0Bool32_eq_unpack]
+
+/-- **`Σ₁`'s cell, read, is the packing of the `BitVec 32` word
+`ROTR 6 ⊕ ROTR 11 ⊕ ROTR 25`.** -/
+theorem Sigma1Cell32_read_eq_unpack (x : BitVec 32) :
+    (Sigma1Cell32 x).1 =
+      unpack ((x.rotateRight 6 ^^^ x.rotateRight 11) ^^^ x.rotateRight 25) := by
+  rw [Sigma1Cell32_fst, Sigma1Bool32_eq_unpack]
+
+/-! ### §7.4 · The corpus's own `Σ` declarations -/
+
+/-- **`Σ₀` on the Boolean carrier at width 32 is the packing of the corpus's own
+`Sha2.Sigma0`.** -/
+theorem Sigma0Bool32_eq_sha2 (x : BitVec 32) :
+    Sigma0Bool32 x = unpack (Apeiron.Crypto.Sha2.Sigma0 x) := by
+  rw [Sigma0Bool32_eq_unpack, Apeiron.Crypto.Sha2.Sigma0]
+  have h2 := sha2_rotr_eq_rotateRight x 2 (by norm_num) (by norm_num)
+  have h13 := sha2_rotr_eq_rotateRight x 13 (by norm_num) (by norm_num)
+  have h22 := sha2_rotr_eq_rotateRight x 22 (by norm_num) (by norm_num)
+  rw [h2, h13, h22, BitVec.xor_assoc]
+
+/-- **`Σ₁` on the Boolean carrier at width 32 is the packing of the corpus's own
+`Sha2.Sigma1`.** -/
+theorem Sigma1Bool32_eq_sha2 (x : BitVec 32) :
+    Sigma1Bool32 x = unpack (Apeiron.Crypto.Sha2.Sigma1 x) := by
+  rw [Sigma1Bool32_eq_unpack, Apeiron.Crypto.Sha2.Sigma1]
+  have h6 := sha2_rotr_eq_rotateRight x 6 (by norm_num) (by norm_num)
+  have h11 := sha2_rotr_eq_rotateRight x 11 (by norm_num) (by norm_num)
+  have h25 := sha2_rotr_eq_rotateRight x 25 (by norm_num) (by norm_num)
+  rw [h6, h11, h25, BitVec.xor_assoc]
+
+/-- **`Σ₀`'s cell at width 32 is the first-axis cell of the packing of `Sha2.Sigma0`.** -/
+theorem Sigma0Cell32_eq_sha2 (x : BitVec 32) :
+    Sigma0Cell32 x = bCell (unpack (Apeiron.Crypto.Sha2.Sigma0 x)) := by
+  rw [Sigma0Cell32_eq, Sigma0Bool32_eq_sha2]
+
+/-- **`Σ₁`'s cell at width 32 is the first-axis cell of the packing of `Sha2.Sigma1`.** -/
+theorem Sigma1Cell32_eq_sha2 (x : BitVec 32) :
+    Sigma1Cell32 x = bCell (unpack (Apeiron.Crypto.Sha2.Sigma1 x)) := by
+  rw [Sigma1Cell32_eq, Sigma1Bool32_eq_sha2]
+
 #audit IcarusSha256CarrierSigma32.BoolR32
 #audit IcarusSha256CarrierSigma32.BoolC32
 #audit IcarusSha256CarrierSigma32.rotR32
@@ -342,5 +505,29 @@ theorem zxor3_eq_zero_iff (a b c : BoolR32) :
 #audit IcarusSha256CarrierSigma32.zxor3_is_addition
 #audit IcarusSha256CarrierSigma32.zxor3_apply
 #audit IcarusSha256CarrierSigma32.zxor3_eq_zero_iff
+#audit IcarusSha256CarrierSigma32.Sigma0Bool32
+#audit IcarusSha256CarrierSigma32.Sigma1Bool32
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32
+#audit IcarusSha256CarrierSigma32.rotR32_2
+#audit IcarusSha256CarrierSigma32.rotR32_13
+#audit IcarusSha256CarrierSigma32.rotR32_22
+#audit IcarusSha256CarrierSigma32.rotR32_6
+#audit IcarusSha256CarrierSigma32.rotR32_11
+#audit IcarusSha256CarrierSigma32.rotR32_25
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32_fst
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32_snd
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32_fst
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32_snd
+#audit IcarusSha256CarrierSigma32.Sigma0Bool32_eq_unpack
+#audit IcarusSha256CarrierSigma32.Sigma1Bool32_eq_unpack
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32_eq
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32_eq
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32_read_eq_unpack
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32_read_eq_unpack
+#audit IcarusSha256CarrierSigma32.Sigma0Bool32_eq_sha2
+#audit IcarusSha256CarrierSigma32.Sigma1Bool32_eq_sha2
+#audit IcarusSha256CarrierSigma32.Sigma0Cell32_eq_sha2
+#audit IcarusSha256CarrierSigma32.Sigma1Cell32_eq_sha2
 
 end IcarusSha256CarrierSigma32
