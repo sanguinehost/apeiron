@@ -5,7 +5,11 @@
 //! open-addressed array: the probe is bounded linear probing over one cycle, the zero tag
 //! terminates it, and a completed cycle with no vacancy is the growth signal.
 
-use super::{matches, valid_n, KeyRep, Region, Sigma, SpillSite, TableAddress, COORD_EMPTY};
+use super::{matches, valid_n, KeyRep, Merge, Region, Sigma, SpillSite, TableAddress, COORD_EMPTY};
+
+/// The contiguous-prefix width of the fused update walk: eight `u64` coordinates, one 64-byte
+/// cache line. The value is the incumbent's `LINEAR_G` (`fold hashtrinity/src/lib.rs:304`).
+const LINEAR_G: usize = 8;
 
 /// Walks one bounded linear-probe cycle and classifies the query.
 ///
@@ -339,6 +343,143 @@ fn spill_read_tail<K, H, R: KeyRep<K, H>, V>(
     #[cfg(feature = "read-stats")]
     read_stats::record_absence(false);
     None
+}
+
+/// The outcome of the fused spill found-update walk [`spill_update_found`].
+///
+/// `Updated` has consumed the pending value into the in-place merge; `Vacant` and `Grow` return
+/// the pending value unconsumed so the caller can reserve the reverse-link slot and either publish
+/// the fresh representative or grow the region. Temporal `O(1)`; spatial `O(1)`.
+pub(super) enum SpillUpdate<V> {
+    /// The pending value merged into an existing full `(Sigma,K)` representative.
+    Updated,
+    /// The first vacancy at or after the query home, with the pending value unconsumed.
+    Vacant(usize, V),
+    /// A completed probe cycle visited every slot with no match, with the pending value unconsumed.
+    Grow(V),
+}
+
+/// Walks the routed region once and applies the pending merge in place on the first full
+/// `(Sigma,K)` match, so the found-update path builds no `SearchDecision` and indexes the region a
+/// single time.
+///
+/// The walk is exactly [`spill_locate`]'s: step `k` visits `(home + k) & (bound - 1)`, a zero
+/// coordinate ends the walk at the first vacancy, a coordinate equal to the query runs the full
+/// `(Sigma,K)` compare, and a completed cycle with no vacancy is the growth signal. A match before
+/// any vacancy merges in place; a vacancy or exhaustion returns the pending value unconsumed.
+///
+/// Temporal `O(capacity)` slot visits counted in coordinate compares plus the full-key compares of
+/// the lanes whose coordinate matches; spatial `O(1)`.
+pub(super) fn spill_update_found<K, H, R: KeyRep<K, H>, V: Clone, F: Merge<V>>(
+    r: &mut Region<R, V>,
+    merge: &F,
+    sigma: Sigma,
+    address: &TableAddress,
+    key: &K,
+    value: V,
+    n: usize,
+) -> SpillUpdate<V> {
+    if !valid_n(n) || r.bound() == 0 {
+        return SpillUpdate::Grow(value);
+    }
+    let bound = r.bound();
+    let home = r.home(address.place);
+    let wanted = Region::<R, V>::coord_of(address.place);
+    // The home lane is the straight-line case: an existing update of a key placed at its home
+    // resolves here with one coordinate load, mirroring the resident read's home hit. A collision
+    // chain or a miss runs the out-of-line tail.
+    let found = r.coords[home];
+    if found == COORD_EMPTY {
+        return SpillUpdate::Vacant(home, value);
+    }
+    if found == wanted && matches::<K, H, R, V>(&r.slots[home], sigma, key, address) {
+        let old = r.slots[home].value.clone();
+        r.slots[home].value = merge.merge(value, old);
+        return SpillUpdate::Updated;
+    }
+    spill_update_tail::<K, H, R, V, F>(r, merge, sigma, address, key, value, home, wanted, bound)
+}
+
+/// The collision tail of [`spill_update_found`], from the slot after the home to the end of one
+/// cycle. `#[cold]` and out of line, so the home hit is the straight-line one load and one compare.
+///
+/// When the home has at least `LINEAR_G` lanes to the region end, the first `LINEAR_G` steps are
+/// contiguous and are filtered in one branchless mask pass over the coordinate window — the
+/// incumbent's contiguous-prefix glance. A coordinate equal to the query is a candidate that still
+/// runs the full `(Sigma,K)` confirm; a zero coordinate is the first vacancy that ends the walk. The
+/// remaining cycle runs the scalar step-per-slot walk, and the wrap case (fewer than `LINEAR_G`
+/// lanes to the end) runs the scalar walk from step 1.
+#[cold]
+#[inline(never)]
+fn spill_update_tail<K, H, R: KeyRep<K, H>, V: Clone, F: Merge<V>>(
+    r: &mut Region<R, V>,
+    merge: &F,
+    sigma: Sigma,
+    address: &TableAddress,
+    key: &K,
+    value: V,
+    home: usize,
+    wanted: u64,
+    bound: usize,
+) -> SpillUpdate<V> {
+    let mask = bound - 1;
+    let mut step = 1;
+    if home + LINEAR_G <= bound {
+        let mut hits: u32 = 0;
+        let mut empties: u32 = 0;
+        let mut k = 0;
+        while k < LINEAR_G {
+            let c = r.coords[home + k];
+            if c == wanted {
+                hits |= 1 << k;
+            }
+            if c == COORD_EMPTY {
+                empties |= 1 << k;
+            }
+            k += 1;
+        }
+        loop {
+            let first_empty = if empties == 0 {
+                u32::MAX
+            } else {
+                empties.trailing_zeros()
+            };
+            let first_hit = if hits == 0 {
+                u32::MAX
+            } else {
+                hits.trailing_zeros()
+            };
+            if first_hit == u32::MAX && first_empty == u32::MAX {
+                step = LINEAR_G;
+                break;
+            }
+            if first_hit < first_empty {
+                let slot = home + first_hit as usize;
+                if matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
+                    let old = r.slots[slot].value.clone();
+                    r.slots[slot].value = merge.merge(value, old);
+                    return SpillUpdate::Updated;
+                }
+                hits &= !(1 << first_hit);
+            } else {
+                return SpillUpdate::Vacant(home + first_empty as usize, value);
+            }
+        }
+    }
+    while step < bound {
+        let slot = (home + step) & mask;
+        let found = r.coords[slot];
+        if found == COORD_EMPTY {
+            return SpillUpdate::Vacant(slot, value);
+        }
+        if found == wanted && matches::<K, H, R, V>(&r.slots[slot], sigma, key, address) {
+            let old = r.slots[slot].value.clone();
+            r.slots[slot].value = merge.merge(value, old);
+            return SpillUpdate::Updated;
+        }
+        step += 1;
+    }
+    SpillUpdate::Grow(value)
 }
 
 /// Finite regression fixtures for the real `spill_read`, `spill_locate` and `spill_locate_held`
