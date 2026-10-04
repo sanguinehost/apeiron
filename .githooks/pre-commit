@@ -7,6 +7,12 @@
 #   2. board checkpoint    python3 tools/board/checkpoint.py check
 #   3. formatting          cargo fmt --all -- --check
 #   4. citation resolution python3 tools/check-claims.py
+#   5. digest recompute    python3 tools/rooting/digest_recheck.py
+#                          --registry docs/contracts/artifacts.toml
+#                          --registry docs/evidence/ledger.jsonl
+#                          --registry examples/reg1/coverage.json
+#   6. coverage census     cargo build --release --locked --example reg1, then
+#                          target/release/examples/reg1 --check coverage --controls
 #
 # Step 1 checks a declaration the *staged change* carries; git does not give a
 # pre-commit hook the message (COMMIT_EDITMSG still holds the previous commit's
@@ -33,10 +39,51 @@
 # per commit. The per-commit requirement is the declaration: a dispatch names
 # its row (`board: <row-id>`) or declares `board: none -- housekeeping`.
 #
-# Budgets: APEIRON_HOOKS_PRECOMMIT_BUDGET (total, default 180s),
-# APEIRON_HOOKS_STEP_BUDGET (per step, default 90s). A step that reaches its
-# budget fails the commit and is reported: a timed-out gate is a failure of the
-# run, never a pass (AGENTS.md §10).
+# Step 5 is the digest recompute. The defect it closes was measured three times in
+# one night: a registry records a digest, nothing recomputes it, the registry
+# drifts, and every gate that trusts the row stays green. `docs/contracts/
+# artifacts.toml` carried `037dbd65…` for `tools/gate/` while the tree was already
+# at `dfd61f1c…` (`gate docs check` reports 7 mismatches); `docs/evidence/
+# ledger.jsonl` row 71 recorded a digest a later edit invalidated. Each of those
+# had a gate that *could* recompute it, but `gate docs check` and
+# `tools/rooting/index_check.py` ran from no hook, so nothing recomputed them per
+# commit. This step is the uniform recheck: for every registry it is handed it
+# recomputes each recorded digest from the bytes on disk and refuses the drift,
+# naming the registry, the row and both values. It recomputes `examples/reg1/
+# coverage.json` too, so a fourth registry costs one `--registry` line.
+#
+# A registry that is absent is a named refusal, never a silent pass — the same
+# shape as the checkpoint tool's absence above. The one exception is declared, not
+# inferred: `examples/reg1/coverage.json` is bound to the presence of
+# `examples/reg1/`, exactly as the census step below binds its inputs, so a tree
+# that carries no census at all (the shape of the throwaway control repo in
+# `tools/board/checkpoint.py`) prints SKIP with the reason instead of refusing. A
+# tree that *has* `examples/reg1/` but no `coverage.json` is a refusal. The other
+# two registries have no such exemption.
+#
+# Step 6 is the coverage census. `examples/reg1/coverage.rs` records a sha256 for
+# every source carrying a theorem or test attribution and recomputes each one at
+# gate time; `docs/plan.md:506,541` register it as a joint-acceptance gate and it
+# ran from no hook at all, so it stayed red. Two properties bind where it runs:
+# `manifest_path` reads `env!("CARGO_MANIFEST_DIR")` and `REGISTRY` is
+# `include_str!`, so the binary validates the tree it was *compiled in*, not the
+# cwd. The step therefore builds here, in this checkout, and refuses a
+# CARGO_TARGET_DIR outside it rather than read a sibling worktree's bytes. It
+# skips, visibly and with the reason, only in a tree that carries no census at
+# all (no `examples/reg1`), which is the shape of the throwaway control repo in
+# `tools/board/checkpoint.py`; every other missing input is a named refusal.
+#
+# Budgets: APEIRON_HOOKS_PRECOMMIT_BUDGET (total, default 600s),
+# APEIRON_HOOKS_STEP_BUDGET (per step, default 90s),
+# APEIRON_HOOKS_DIGEST_BUDGET (step 5, default 120s: it hashes ~4 MB across three
+#   registries, measured at 0.06 s wall and 25.6 MB peak RSS, so the budget is
+#   headroom for a far larger registry, not a prediction of the present cost),
+# APEIRON_HOOKS_DIGEST_MEM (step 5's memory cap, default 1G: 40x the measured
+#   peak; the step runs under the AGENTS.md section 6 bound like every other),
+# APEIRON_HOOKS_CENSUS_BUDGET (step 6's own build and run, default 540s: it
+# compiles the reg1 example, so it carries the per-invocation cap the lane bounds
+# use). A step that reaches its budget fails the commit and is reported: a
+# timed-out gate is a failure of the run, never a pass (AGENTS.md §10).
 #
 # Nothing here is bypassable by an environment variable. `git commit
 # --no-verify` skips the hook, as it skips every hook; the wave barrier is the
@@ -50,17 +97,23 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 cd "$root" || exit 1
 
-total_budget=${APEIRON_HOOKS_PRECOMMIT_BUDGET:-180}
+total_budget=${APEIRON_HOOKS_PRECOMMIT_BUDGET:-600}
 step_budget=${APEIRON_HOOKS_STEP_BUDGET:-90}
+digest_budget=${APEIRON_HOOKS_DIGEST_BUDGET:-120}
+digest_mem=${APEIRON_HOOKS_DIGEST_MEM:-1G}
+census_budget=${APEIRON_HOOKS_CENSUS_BUDGET:-540}
 started=$(date +%s)
 status=0
 
 run_step() {
-  # run_step <name> <command...>
-  local name=$1
-  shift
+  # run_step <name> <budget> <command...>
+  # One command per step, under that step's budget: the same shape
+  # `.githooks/pre-push` uses. A step that must build and then run carries both
+  # in one `bash -c`, so the pair shares one deadline. A step that reaches its
+  # budget fails the commit; a timeout is a failure, never a pass.
+  local name=$1 budget=$2
+  shift 2
   local remaining=$((total_budget - ( $(date +%s) - started )))
-  local budget=$step_budget
   if (( remaining <= 0 )); then
     echo "pre-commit: $name: FAIL budget exhausted before the step ran (total ${total_budget}s)" >&2
     status=1
@@ -85,19 +138,106 @@ run_step() {
   echo "pre-commit: $name: PASS $((t1 - t0))s (budget ${budget}s)"
 }
 
-run_step board-declaration python3 -B tools/hooks/lane.py staged
+run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # The checkpoint step is named here and its tool must exist: a missing driver is
 # a refusal with a diagnostic, not a step that quietly passes (the gate.sh
 # control "the board driver missing: named, not a traceback").
 if [ -f tools/board/checkpoint.py ]; then
-  run_step checkpoint python3 -B tools/board/checkpoint.py check
+  run_step checkpoint "$step_budget" python3 -B tools/board/checkpoint.py check
 else
   echo "pre-commit: checkpoint: FAIL board-checkpoint-tool-missing: tools/board/checkpoint.py is absent, so the per-cycle board check-in cannot be verified for a staged src/ or examples/reg1/ change" >&2
   echo "pre-commit: checkpoint: fix: python3 tools/board/checkpoint.py self-test" >&2
   status=1
 fi
-run_step cargo-fmt cargo fmt --all -- --check
-run_step check-claims python3 -B tools/check-claims.py
+run_step cargo-fmt "$step_budget" cargo fmt --all -- --check
+run_step check-claims "$step_budget" python3 -B tools/check-claims.py
+
+# The digest-recompute step, with its absence refusals named before anything runs.
+# Each entry is "<registry>:<surface that, if present, makes the registry required>":
+# a registry inside a present surface that is itself absent is a refusal; a surface
+# that is wholly absent is a printed SKIP with its reason. Only the coverage census
+# carries that exemption, because the census step below binds to the same surface.
+digest_gate=tools/rooting/digest_recheck.py
+digest_specs=(
+  "docs/contracts/artifacts.toml:docs/contracts"
+  "docs/evidence/ledger.jsonl:docs/evidence"
+  "examples/reg1/coverage.json:examples/reg1"
+)
+digest_regs=()
+digest_present=0
+digest_refused=0
+digest_skipped=()
+if [ ! -f "$digest_gate" ]; then
+  echo "pre-commit: digest-recompute: FAIL digest-gate-missing: $digest_gate is absent, so no registry's recorded digest can be recomputed per commit" >&2
+  echo "pre-commit: digest-recompute: fix: python3 tools/rooting/digest_recheck.py --self-test" >&2
+  status=1
+else
+  for spec in "${digest_specs[@]}"; do
+    reg=${spec%%:*}
+    surface=${spec#*:}
+    if [ -f "$reg" ]; then
+      digest_regs+=(--registry "$reg")
+      digest_present=$((digest_present + 1))
+    elif [ -e "$surface" ]; then
+      echo "pre-commit: digest-recompute: FAIL registry-absent: $reg is absent while $surface is present, so its recorded digests are no longer recomputed by anything on this path" >&2
+      echo "pre-commit: digest-recompute: fix: restore $reg, or remove the row from \$digest_specs in .githooks/pre-commit and record the exclusion" >&2
+      status=1
+      digest_refused=1
+    else
+      digest_skipped+=("$reg (no $surface in this tree)")
+    fi
+  done
+  if (( ${#digest_skipped[@]} > 0 )); then
+    echo "pre-commit: digest-recompute: SKIP (${digest_skipped[*]})"
+  fi
+  if (( digest_present > 0 )); then
+    # One `bash -c`, so the gate's own reads share the step's single budget, and under the
+    # AGENTS.md §6 memory bound like every other step: the cap is APEIRON_HOOKS_DIGEST_MEM.
+    # Each token is escaped once, and the whole inner line once more for the outer
+    # `sh -c`, so a path with a space still reaches the gate as one argument.
+    printf -v digest_inner '%q ' python3 -B "$digest_gate" --root "$root"
+    for a in "${digest_regs[@]}"; do printf -v digest_inner '%s%q ' "$digest_inner" "$a"; done
+    printf -v digest_run 'systemd-run --user --scope -q -p MemoryMax=%s -p MemorySwapMax=0 -- /bin/sh -c %q' \
+      "$digest_mem" "$digest_inner"
+    run_step digest-recompute "$digest_budget" bash -c "$digest_run"
+    # run_step reports the gate's own exit, which covers only the registries that were
+    # present. When this step already refused an absent registry, that PASS is not this
+    # step's verdict, so the last word on the step is its real one.
+    if (( digest_refused )); then
+      echo "pre-commit: digest-recompute: FAIL (not green: a registry above was refused as absent; the gate's own exit covers only the registries that were present)" >&2
+      status=1
+    fi
+  elif (( ${#digest_skipped[@]} == ${#digest_specs[@]} )); then
+    echo "pre-commit: digest-recompute: SKIP (this tree carries none of the three registry surfaces)"
+  fi
+fi
+
+# Step 6, the coverage census, with its three refusals named before anything is built.
+census_target=${CARGO_TARGET_DIR:-$root/target}
+case "$census_target" in
+  /*) ;;
+  *) census_target=$root/$census_target ;;
+esac
+if [ ! -d examples/reg1 ]; then
+  echo "pre-commit: coverage-census: SKIP (this tree has no examples/reg1, so it carries no coverage census)"
+elif [ ! -f examples/reg1/coverage.rs ] || [ ! -f examples/reg1/coverage.json ] || [ ! -f proof/regen.sh ]; then
+  echo "pre-commit: coverage-census: FAIL census-input-missing: examples/reg1/coverage.rs, examples/reg1/coverage.json and proof/regen.sh are the census's compiled-in inputs and one is absent from this checkout" >&2
+  echo "pre-commit: coverage-census: fix: restore the file, then cargo build --release --locked --example reg1" >&2
+  status=1
+elif [ "${census_target#"$root"/}" = "$census_target" ]; then
+  echo "pre-commit: coverage-census: FAIL build-tree-unbound: CARGO_TARGET_DIR=$census_target is outside this checkout, so cargo may hand back a binary compiled in a sibling worktree and the census would validate that tree's bytes instead of this one's" >&2
+  echo "pre-commit: coverage-census: fix: unset CARGO_TARGET_DIR, or point it at a directory inside $root" >&2
+  status=1
+else
+  # One `bash -c`, so the build and the census share the step's single budget. The whole step
+  # runs under the AGENTS.md §6 bound: this step compiles the reg1 example, and an uncapped
+  # build is not admitted and its result is not evidence.
+  printf -v census_inner 'cargo build --release --locked --example reg1 && exec %q --check coverage --controls' \
+    "$census_target/release/examples/reg1"
+  printf -v census_run 'systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=0 -- /bin/sh -c %q' \
+    "$census_inner"
+  run_step coverage-census "$census_budget" bash -c "$census_run"
+fi
 
 if (( status != 0 )); then
   echo "pre-commit: REFUSED; the commit was not created" >&2

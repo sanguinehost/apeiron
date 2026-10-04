@@ -118,6 +118,16 @@ row against the bytes on disk, so an edited receipt left unregistered makes `E5`
 written with `json.dumps(row, sort_keys=True)`, the format all 70 pre-existing rows round-trip
 through.
 
+**Row-71 refresh.** This receipt gained text after its ledger row was written, so row 71's
+`bytes`/`sha256` stopped describing the file. `python3 -B tools/rooting/digest_recheck.py --all`
+refused both by name (exit 1, `134 rows; 134 digests recomputed; 126 matched; 9 violation(s)` over
+three registries), and `python3 tools/rooting/index_check.py --check` refused the same two fields
+as `E5=2` beside `E1=8`, the eight unindexed receipts other lanes materialized. Both values are
+recomputed from the bytes on disk at `apeiron_head=06b75ab804ea45bb019c7e5f96638adeccb0bef2` (this
+file clean in the working tree), not copied from the stale row; after the refresh
+`index_check.py --check` reports `E1=8, E5=0`, `rows=71 files=79`, the eight `E1` rows unchanged by
+it.
+
 Identities: Python 3.14.7; no tool revision beyond the gate file is named because no other tool
 runs in this gate.
 
