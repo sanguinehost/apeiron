@@ -690,8 +690,13 @@ acceptance/performance control child exits 2.
 
 | artifact | sha256 | lines |
 |---|---|---|
-| `docs/evidence/perf-global-baseline.log` (stdout) | `92badfedd7f756d903119bce389a926fab1fa7fea27f4af4f843705c2277d62d` | 492 |
-| `docs/evidence/perf-global-baseline.stderr.log` (stderr) | `9f7a6ec3d036a2947145c25408b67ab133740e4b9c741bc17102bd6b8e91e43d` | 8 |
+| `docs/evidence/perf-global-baseline.log` (stdout), removed by consolidation, replacement: `docs/evidence/perf-ledger.md` | `92badfedd7f756d903119bce389a926fab1fa7fea27f4af4f843705c2277d62d` | 492 |
+| `docs/evidence/perf-global-baseline.stderr.log` (stderr), removed by consolidation, replacement: `docs/evidence/perf-ledger.md` | `9f7a6ec3d036a2947145c25408b67ab133740e4b9c741bc17102bd6b8e91e43d` | 8 |
+
+The two raw logs were deleted by the evidence consolidation (`docs/moved.tsv`
+rows 6 and 8); the digests and line counts above are the only surviving record of
+that run's raw output, so the rows stay with the removal marked rather than the
+digests being dropped with the files.
 
 ### 9 · Scope and exclusions
 

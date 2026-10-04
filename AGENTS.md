@@ -84,16 +84,18 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §7 — `//@` metadata | **MISSING** — no local gate reads an annotation | n/a |
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
+| §10 — a registered documentation removal names a resolvable successor, its removed path is absent, and no live document names it | [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py) over `docs/moved.tsv` | `python3 tools/rooting/doc_reach.py --check` (`--self-test`: 18 rejection / 4 accept fixtures; `--controls`; `--inventory PATH`) |
 | §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
 | §3 the dispatch loop — Sol ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
 | §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
 | §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
 
-Enforcers that are MISSING and named so that prose cannot stand in for them: a Rust gate driver
-(`tools/gate`) replacing the per-task `*_gate.py` scripts, and a documentation-removal reachability
-gate for the documentation consolidations (the evidence-receipt half now runs as
-[`tools/rooting/index_check.py`](tools/rooting/index_check.py)). Both are tracked in
-[`docs/plan.md`](docs/plan.md).
+Enforcer that is MISSING and named so that prose cannot stand in for it: a Rust gate driver
+(`tools/gate`) replacing the per-task `*_gate.py` scripts. It is tracked in
+[`docs/plan.md`](docs/plan.md). The documentation-removal reachability gate for the documentation
+consolidations is not missing: it is [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py), the
+row above, with its [discharge receipt](docs/evidence/documentation-removal-reachability.md); the
+evidence-receipt half runs as [`tools/rooting/index_check.py`](tools/rooting/index_check.py).
 
 ## 2 · Lifecycle
 
@@ -419,9 +421,11 @@ A build is not exempt because it is short.
 box; a ninth waits on `flock /tmp/opencode/apeiron-lane.lock` or on a finished lane's return, and the
 sum of the declared caps stays under half of RAM. Twelve to twenty concurrent workspace builds is the
 ceiling being exceeded, not a width being achieved — a fan-out wider than the file-disjoint set pays
-contention, not throughput, and it is what crashed the terminals. **Measurements never run against a
-live fan-out:** quiesce the build lanes, or run the campaign alone. A contended number is not a
-measurement, and the fan-out is what makes it unmeasurable.
+contention, not throughput, and it is what crashed the terminals. **A measurement is averaged, never
+refused for a busy box.** A contended run is a valid measurement when it is repeated: run at least
+five paired runs and report the per-pair mean with the observed spread. Contention is answered with
+more runs, not with a quiet window, a refusal, or a guard override that prints a single contended
+sample as a result. Do not hold an accepted campaign behind a quiesced box.
 
 ## 7 · Metadata policy
 
@@ -657,7 +661,7 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | Claims outran their theorem or domain: real-ring classification was attributed to wrapping words; cited theorems did not carry their claims; vacuity and false-positive checks missed cases | `apeiron` `f89b18b`; `sanguine-apeiron` `b6296b4a`, `688238aa` | Inspect the exact declaration, scalar domain and premises; require a checked implementation link and joint reachable witnesses. Neither an unrelated theorem nor an unreachable antecedent establishes the claimed result. | Evidence grades (§5); exact refinement naming; `AxiomAudit` axiom-cone checks. | Non-vacuity, premise correctness, constructor reachability and prose-to-theorem correspondence. |
 | Measurement instrument defects: BEST-of-3 hid a fusion; a 105–144x gap was a convention mix; a 0.00 instruction count measured nothing | `fold` `77d87dc1`, `c3a83f9e`; `apeiron` `71d2c45` | A measurement names command, machine, metric and interval, and ships the control that can see the effect. Validate the instrument before the result. | Obligation 10 measurement definition. | Named per-instrument controls and protocol/source binding. |
 | Representation defect before timing: signed-grid collisions reached 49% | `fold` `4e8534ca` | Full-key identity and oracle validation precede timing; a collision rate is a correctness fact, not an instrument note. | Historical collision fix in `fold`; not revalidated here. | Current full-key oracle coverage and required collision-population evidence. |
-| Consolidation lost files: a 25→12 crate merge dropped files a second commit restored; a ~1M-line WIP reconciliation; `target/` tracked then untracked | `fold` `d84bda37`+`24ed7451`, `d697cd0b`; `apeiron` `d371b5a` | A removal is a migration or an authorized retirement: name the replacement or the retained obligation, inventory affected consumers, and gate reachability. Commits stay reviewable; build products are never tracked. | None. | A generic reachability gate for removals; every removal requires its consumer inventory and its task-specific reachability gate now. |
+| Consolidation lost files: a 25→12 crate merge dropped files a second commit restored; a ~1M-line WIP reconciliation; `target/` tracked then untracked | `fold` `d84bda37`+`24ed7451`, `d697cd0b`; `apeiron` `d371b5a` | A removal is a migration or an authorized retirement: name the replacement or the retained obligation, inventory affected consumers, and gate reachability. Commits stay reviewable; build products are never tracked. | `python3 tools/rooting/doc_reach.py --check` refuses a registered documentation removal (`docs/moved.tsv`) whose successor does not resolve, whose removed path is still on disk, or that a live document still names; [receipt](docs/evidence/documentation-removal-reachability.md). | Unregistered removals are invisible without a previous-tree baseline: a documentation removal with no `docs/moved.tsv` row is seen by no gate (`docs/extraction-requirements.md`, `docs/apeiron-intent-escalation.md`); every removal requires its consumer inventory and its task-specific reachability gate now. |
 | Gates ran against the wrong object: `GIT_DIR` beat `-C` and one gate ate the repository index; `lake env lean` selected a stale olean tree; a validation flag was never committed; a chained command at the repository root polluted a receipt; a whole-repo `rsync` left an orphan lock holder | `sanguine-apeiron` `97d28533`, `b6296b4a`; `docs/archive/autonomous-run-log.md` R12, R17; `proof/controls/relocation.sh` | Pin repo, cwd and environment per gate; name the artifact path and freshness per audit; bound copies and inherit the lane lock. | Runner-local hardening in `proof/controls/relocation.sh`: cwd selection, bounded copies, locking, cleanup, preflight. | Complete identity, environment and freshness enforcement for every gate; whole-invocation budgeting. |
 | Dispatch assumptions failed on contact: provider config not hot-reloaded, insufficient balance, `bool::then` emitted as an unsupported external | `docs/archive/autonomous-run-log.md` D5, R18 | Verify the run environment before evidence; prefer source forms the extraction fragment supports. | Relocation `preflight()` covers its own runner inputs. | No complete dispatch preflight established by review; provider state and extraction-fragment fitness uncovered. |
 | Documents drifted from source: a front page claimed a face the compiler disproves; a header said open after the proof landed; a governing file taught a grammar no file uses | `apeiron` `0857035`; `sanguine-apeiron` `b39aa6a9`; `song` `0d2fd6ad` | Source and gates determine implemented behavior; correct descriptive drift within declared ownership, or sequence a document correction before closure. They grant no permission to weaken an approved contract; escalate normative disagreement. | Structural artifact-resolution checker (`tools/check-claims.py`); limited coverage, excludes `AGENTS.md`. | Prose-to-source correspondence and uncovered documents and claims. |
