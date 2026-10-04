@@ -175,9 +175,11 @@ import route, pin citation, red/restore control; `APEIRON_LAKE=1` set so the cor
 
 ### Remaining
 
-| item | owner | next gate |
+| item | owner | state / next gate |
 |---|---|---|
-| Owner rebase of the 20 local commits | owner | push |
-| Regen window for `word_sha256d` | extraction owner | `regen.sh --check` + the `rfl` discharge check of manifest §2 |
-| Public write-up of the rooting results | lead | separate bound claim with its own gate |
-| `AlgebraCost.lean` and `AlgebraCostKeccak.lean` not in the tree, though W4 planned them | lead | port decision; 48 of 71 and 82 of 123 staging declaration names respectively are absent from `proof/corpus/Icarus/`, so the W4 line as written is not discharged |
+| Rebase + push of the port | — | **done** 2026-10-04: `origin/main` `dc1c114` (rebased onto `688f041`, post-rebase barrier 3348 jobs); both checkouts synced |
+| `AlgebraCost.lean` / `AlgebraCostKeccak.lean` | — | **done** 2026-10-04: both ported, gated, controlled and bound (`sol15-*`, `sol16-*`); library at 44 modules |
+| Regen window for `word_sha256d` | extraction owner | open — one exclusive `regen.sh` run + `regen.sh --check` with the `rfl` discharge check (manifest §2); then `word_sha256d_denotes` composes the corpus conditional with itself; the parent obligation stays `WordSha256Denotes` |
+| Certificate arcs O11–O15 | certificate owner | open — wave-1 dispatch 2026-10-04 (schedule totality, pad tail + length write, loading-loop invariant, compression fold, store-loop value link) |
+| Public write-up of the rooting results | lead | open — `work/algebra-rooting/final-report-draft.md` + `mining-analysis.md`; needs its own bound claim with a gate |
+| Gate-tool hygiene | lead | open — promote `work/cost_bridge_gate.py` to `tools/` per the plan; the `w-pin` fixture-seeding guard gap; the audit's fresh-elaboration residual |
