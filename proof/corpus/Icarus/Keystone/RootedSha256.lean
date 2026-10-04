@@ -18,17 +18,14 @@
     `Icarus.AlgebraFaceCompositionSwitch` — `one_face_serves_the_round`, the dial's first-slot-only
     appearance, the elliptic no-hom-out verdict.
   * AR-36 `Icarus.AlgebraRotBridge32` — no equivariant multiplier repairs the halves pairing at
-    width 32. [NOT YET IN THE CORPUS — see the residual in the receipt.]
+    width 32. [ported: AR-36, commit 6d53961.]
   * AR-23 `Icarus.AlgebraShrExact` — no ring polynomial reads either FIPS shift amount.
   * AR-26 `Icarus.AlgebraSigmaHalves` — a rotation split serves exactly its own amount.
-  * AR-33 `Icarus.RingModelWeb` — no member of the two-slot read family reads a rotation. [NOT YET IN
-    THE CORPUS.]
+  * AR-33 `Icarus.RingModelWeb` — no member of the two-slot read family reads a rotation. [ported: AR-33, commit 5b643d0.]
   * AR-14 `Icarus.Composition.AlgebraSha256d` — every `+`/`ringMul` expression preserves the bit-1
     congruence; ROTR, SHR and both big Σ do not.
   * AR-41 `Icarus.Cost.AlgebraCostSource` — the source-bound one-round field figure.
-  * AR-58 `Icarus.Cost.AlgebraCostBridge` — the `CostAlgebra.Cost` image of the round plan. [NOT YET
-    IN THE CORPUS; it also depends on the sibling `proof/resource` `CostAlgebra` module, which is
-    not a root of any corpus `lean_lib`.]
+  * AR-58 `Icarus.Cost.AlgebraCostBridge` — the `CostAlgebra.Cost` image of the round plan. [ported: AR-58, commit dd2bd71; CostAlgebra vendored at Icarus/Cost/CostAlgebra.lean.]
 
   `sha256_round_rooted` is one conjunction of nine named clauses; the clause table is in
   `AlgebraRootedSha256.md`. Not in scope, named exactly: the message-schedule injection, the
