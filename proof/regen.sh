@@ -18,6 +18,14 @@ EXTRACT_DIR="$PROOF_DIR/extract"
 AENEAS_HOME=${AENEAS_HOME:-"$REPO_DIR/target/aeneas"}
 LINK="$REPO_DIR/target/aeneas"
 if [ "$AENEAS_HOME" != "$LINK" ]; then
+    # A stale link is removed and recreated. `-e` follows the link, so a self-referential
+    # `target/aeneas -> .../target/aeneas` reads as absent and the `ln` below then aborts the run
+    # with `File exists` before any tool runs; `-L` tests the link itself. A real directory is left
+    # alone: `-e` sees it, so no `ln` is attempted, and `rm -f` on a directory is not this guard's
+    # call to make.
+    if [ -L "$LINK" ]; then
+        rm -f "$LINK"
+    fi
     if [ ! -e "$LINK" ]; then
         ln -s "$AENEAS_HOME" "$LINK"
     fi
