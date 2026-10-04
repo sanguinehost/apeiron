@@ -44,8 +44,26 @@ Modes
              ``in_progress``), ordered by milestone then id, printed with its full
              id, gate and sources so a session can start from it.
 ``check``    reconcile mode; nonzero when the board cannot drive or has drifted.
+             Prints the ``In progress`` predicate as a count (advisory).
 ``post``     write the reconciliation record as a project check-in, read-confirmed.
 ``set-status``  move one task's status, read-confirmed. Dry-run without ``--apply``.
+``upsert``   the only creation path: resolve a normalized **creation key** against
+             the whole board and create the row only if absent. The claim is taken
+             before the board is read, so this is a lookup-or-create and not a
+             check followed by a create. ``--apply`` to write; dry-run otherwise.
+``lease``    the ``In progress`` predicate: a row is supported only by a live lane
+             lease or a cycle-stamped artifact change. Advisory; ``--strict`` arms it.
+
+Creation key
+============
+
+Identity is the key, never the title: a row's id is immutable and its name is a
+display field. The key is ``--key``, else the first ``UPPER-hyphenated`` token in
+the name, else the normalized name; a created row carries it as ``Key:`` in its
+description, so a rename does not orphan it and a re-run resolves to it. Keys are
+scoped per project. ``upsert --live`` resolves the key and refuses the create leg:
+no create endpoint is verified on this instance, so the create runs through MCP
+``operately.create_task`` with the claim taken by ``upsert`` first.
 
 Sources of truth
 ================
@@ -72,6 +90,9 @@ Usage
     python3 tools/board/board.py --check --live --project apeiron-ExNAtv3hObMmq01Ab20DfA
     python3 tools/board/board.py post --live --project apeiron --apply
     python3 tools/board/board.py set-status <id>=Done --live --apply
+    python3 tools/board/board.py upsert --source board.json --key APEIRON-BOARD-W1-T9 \
+        --name 'Board driver wave 1 task 9' --description-file row.md --apply
+    python3 tools/board/board.py lease --live --project apeiron
     python3 tools/board/board.py --rules
     python3 -m unittest discover -s tools/board -p 'test_*.py'
 
@@ -230,7 +251,29 @@ from board_check import (  # noqa: F401 - re-exported: the entry's public surfac
     verify_status_offline,
 )
 from board_controls import (  # noqa: F401 - re-exported: the entry's public surface
+    CREATION_CONTROLS,
     run_controls,
+)
+from board_rows import (  # noqa: F401 - re-exported: the entry's public surface
+    CREATION_RULES,
+    RULE_CLOSED_ROW_IMMUTABLE,
+    RULE_CREATE_UNKNOWN,
+    RULE_DUPLICATE_KEY,
+    RULE_KEY_CLAIM_HELD,
+    ClaimStore,
+    FileBoardTransport,
+    RestTransport,
+    cleanup,
+    creation_key,
+    default_state_dir,
+    lease_audit,
+    lookup_or_create,
+    render_lease_audit,
+    render_outcome,
+    row_identities,
+    row_key,
+    scope_of,
+    scratch_dir,
 )
 
 
@@ -349,6 +392,60 @@ def run_set_status(args: argparse.Namespace, doc: dict[str, Any]) -> int:
     )
 
 
+def run_upsert(args: argparse.Namespace) -> int:
+    """The only creation path: resolve a key against the whole board, create it once.
+
+    The claim is taken before the board is read (see ``board_rows``), so this is a
+    lookup-or-create and not a check followed by a create.
+    """
+    if not args.source and not args.live:
+        raise TransportError("upsert needs --source PATH (a JSON board) or --live")
+    name = args.name or args.key
+    if not name:
+        raise TransportError("upsert needs --name NAME or --key KEY")
+    description = args.description or ""
+    if args.description_file:
+        try:
+            with open(args.description_file, encoding="utf-8") as handle:
+                description = handle.read()
+        except OSError as exc:
+            raise TransportError(f"description file: {exc}") from None
+    store = ClaimStore(args.state)
+    if args.live:
+        transport = RestTransport(space_id=args.space_id)
+    else:
+        transport = FileBoardTransport(args.source)
+    outcome = lookup_or_create(
+        transport,
+        store,
+        project=args.project or "",
+        name=name,
+        description=description,
+        explicit_key=args.key or "",
+        milestone_id=args.milestone,
+        apply=args.apply,
+        successes=args.successes or (),
+        lease_s=args.lease_s,
+        holder=args.holder or f"board.py:{os.getpid()}",
+    )
+    print(render_outcome(outcome))
+    return 1 if outcome["action"] in ("duplicate", "refused") else 0
+
+
+def run_lease(args: argparse.Namespace, doc: dict[str, Any]) -> int:
+    """The ``In progress`` predicate: a live lane lease or a cycle-stamped change.
+
+    Advisory by default (exit 0), because arming it on the live board would stamp
+    every existing row at once; ``--strict`` reddens on an unsupported row.
+    """
+    store = ClaimStore(args.state) if args.state else None
+    rows = lease_audit(doc, store, repo_root=args.repo_root)
+    print(render_lease_audit(rows, advisory=not args.strict))
+    if args.strict:
+        return 1 if any(not row["supported"] for row in rows) else 0
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="board.py", description="Operately board driver for the Sanguine stream."
@@ -357,8 +454,8 @@ def build_parser() -> argparse.ArgumentParser:
         "mode",
         nargs="?",
         default="list",
-        choices=("list", "next", "check", "post", "set-status"),
-        help="list | next | check | post | set-status",
+        choices=("list", "next", "check", "post", "set-status", "upsert", "lease"),
+        help="list | next | check | post | set-status | upsert | lease",
     )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--source", metavar="PATH", help="normalized board document (schema 1)")
@@ -381,6 +478,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkin-status", help="operately check-in status (default red on drift)")
     parser.add_argument("--apply", action="store_true", help="allow the write (default is dry-run)")
     parser.add_argument("--rules", action="store_true", help="print the rule set and exit")
+    # upsert: the creation key and the claim store
+    parser.add_argument("--key", metavar="KEY", help="creation key (normalized identity token)")
+    parser.add_argument("--name", metavar="NAME", help="row title; a display field, never identity")
+    parser.add_argument("--description", metavar="TEXT", help="row description for a created row")
+    parser.add_argument("--description-file", metavar="PATH", help="read the description from a file")
+    parser.add_argument("--milestone", metavar="ID", help="milestone id for a created row")
+    parser.add_argument(
+        "--successes",
+        action="append",
+        metavar="ID",
+        help="closed row this row succeeds; required before a closed row's key is reused",
+    )
+    parser.add_argument("--state", metavar="DIR", help=f"claim/lease store (default {default_state_dir()})")
+    parser.add_argument("--holder", metavar="TEXT", help="who holds the claim, for the audit trail")
+    parser.add_argument("--lease-s", type=int, default=300, help="claim lease in seconds")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="lease: redden on an unsupported In progress row (advisory without it)",
+    )
     return parser
 
 
@@ -407,6 +524,9 @@ def main(argv: list[str] | None = None) -> int:
         print("extension rules (same failure class: the board cannot drive):")
         for rule in EXTENSION_RULES:
             print(f"  {rule}")
+        print("creation rules (identity is the key; creation is lookup-or-create):")
+        for rule in CREATION_RULES:
+            print(f"  {rule}")
         print("exit status: 0 clean, 1 finding, 2 usage/transport/control, 3 no actionable task")
         return 0
     if args.controls:
@@ -415,12 +535,20 @@ def main(argv: list[str] | None = None) -> int:
             return code
         if not (args.check or args.mode == "check"):
             return 0
+    if args.mode == "upsert":
+        try:
+            return run_upsert(args)
+        except TransportError as exc:
+            print(f"board.py: {exc}", file=sys.stderr)
+            return 2
     try:
         doc = load_document(args)
     except TransportError as exc:
         print(f"board.py: {exc}", file=sys.stderr)
         return 2
     args.project = resolve_project(doc, args.project)
+    if args.mode == "lease":
+        return run_lease(args, doc)
     if args.mode == "set-status" or args.assignment is not None:
         try:
             return run_set_status(args, doc)
@@ -456,6 +584,17 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                 )
         render_check(doc, findings, classifications, plan, args.summary_only)
+        # The In-progress predicate is reported, not enforced: it is advisory
+        # unless --state names a claim store and --strict arms it. A count only,
+        # so the check's own findings stay the red.
+        print(
+            render_lease_audit(
+                lease_audit(
+                    doc, ClaimStore(args.state) if args.state else None, repo_root=args.repo_root
+                ),
+                detail=False,
+            )
+        )
         return exit_code_for(findings)
     tasks = select_tasks(doc, args.project, include_canceled=args.include_canceled)
     if args.mode == "next":
