@@ -18,6 +18,26 @@ const ASSUMED_SLOT_BYTES: usize = 32;
 /// `cmp $0xffffffffffffffff`).
 const COORD_EMPTY: u64 = u64::MAX;
 
+/// The odd spread multiplier [`Region::home`] mixes a coordinate by, before the top `bits` of the
+/// product choose the home lane.
+///
+/// fxhash 0.2.1's `SEED64` (`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/
+/// fxhash-0.2.1/lib.rs:46`, sha256 `885b72a1c977dc1c3ff4e0652719e62b6d8c3e713403e571afd581283f72df7b`),
+/// the multiplier the `hashbrown` `fxhash` arm this face is measured against multiplies by. It is
+/// the seed alone: fxhash's own chain rotates and xors before the multiply, and this constant does
+/// neither — the measured arm is the multiply, and the reduction end is the top `bits`, as in the
+/// incumbent's Fibonacci form.
+///
+/// It is odd, so the multiply-shift loses no key: equality of the top `bits` of `c1 * HOME_SPREAD`
+/// and `c2 * HOME_SPREAD` makes `HOME_SPREAD * (c1 - c2)` vanish modulo `2^(64 - bits)`, and an odd
+/// multiplier is invertible on `Z/2^(64 - bits)`, so `c1` and `c2` agree modulo `2^(64 - bits)`.
+/// Distinct coordinates below that modulus therefore never share a home lane.
+///
+/// Distinct from [`TAG_SPREAD`], which stays `crate::coord::PHI` for the tag fingerprint: the tag
+/// reads seven bits of `place * TAG_SPREAD` and the home reads `bits` bits of `coord * HOME_SPREAD`
+/// of a different operand, and each constant's stated separation property is its own.
+const HOME_SPREAD: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
 /// Test-only record of the spill publication steps, so the contract order can be checked on the
 /// real write path. Inert outside `cfg(test)`; it is not a production or reference path.
 #[cfg(test)]
@@ -46,6 +66,217 @@ mod publication_trace {
     /// Returns the steps recorded on this thread since the last [`clear`].
     pub(super) fn events() -> Vec<u8> {
         EVENTS.with(|events| events.borrow().clone())
+    }
+}
+
+/// Test-only census of the multiply-shift branch of [`Region::home`]: first-fit slot visits per key
+/// over a natural and a congruence-controlled coordinate population.
+///
+/// `home` has two branches. This census is on the multiply-shift branch, entered when
+/// `coord >= coords.len()`; the other branch is `coord as usize` with no constant. The registered map
+/// population takes the multiply-shift branch on 99.9998% of `home` calls, so the constant is read
+/// here and nowhere else on that face.
+///
+/// **The mirror is differentially controlled.** [`high`] and [`low`] below restate `home`'s
+/// expression with the spread as a parameter so both candidate constants can be run in one process;
+/// `home_mirror_agrees_with_the_region` runs the real [`Region::home`] on a real [`Region`] and
+/// asserts the landed mirror equals it on every key of both populations. A census figure is then the
+/// real method's cost, not the mirror's.
+///
+/// **The control is the congruence population.** [`controlled`] clears each coordinate's low
+/// `bits` bits, so every key in the region is congruent modulo the region width. That is the
+/// population on which a *low*-window reduction of any odd spread collapses to one lane — every
+/// product has `bits` trailing zero bits — and it is the arm
+/// `home_fxhash_high_survives_the_congruence_control` uses to separate a real improvement from a
+/// relabeling: the low-window arm must fail here, or the control cannot see anything.
+#[cfg(test)]
+mod home_census {
+    use super::{Region, HOME_SPREAD, SHARD_BITS};
+    use crate::cell::Sigma;
+    use crate::coord::PHI;
+
+    /// fxhash 0.2.1's `SEED64`, transcribed at [`super::HOME_SPREAD`]. Held separately from the
+    /// landed constant so the census can run the incumbent and the candidate side by side.
+    const FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+    /// The region capacities the census reports, each a power of two so the probe mask is
+    /// `capacity - 1` and the load factor is the `1/2` `slots_for` holds.
+    const CAPACITIES: [usize; 2] = [1 << 8, 1 << 12];
+
+    /// `home`'s multiply-shift expression with `spread` as a parameter, top window: the structure
+    /// [`Region::home`] ships.
+    fn high(c: u64, spread: u64, bits: u32, bound: usize) -> usize {
+        ((c.wrapping_mul(spread) >> (64 - bits)) as usize) & (bound - 1)
+    }
+
+    /// The same product read from the *low* `bits` bits, which is how `hashbrown` reduces its
+    /// `h1`. The negative arm: under [`controlled`] every product has `bits` trailing zero bits, so
+    /// this returns one lane for the whole population.
+    fn low(c: u64, spread: u64, bound: usize) -> usize {
+        (c.wrapping_mul(spread) as usize) & (bound - 1)
+    }
+
+    /// `load` distinct coordinates spread over the whole addressable word by one fixed odd multiply.
+    ///
+    /// The coordinate is the *wide* half of a place word, so it is masked to `64 - SHARD_BITS` bits:
+    /// `Region::coord_of` recovers `place >> SHARD_BITS` and nothing narrower survives a shift, so a
+    /// coordinate with bits above `64 - SHARD_BITS` set has no place word and could not reach `home`
+    /// at all. Every coordinate is at or above `capacity`, so all of them take the multiply-shift
+    /// branch rather than the direct index.
+    fn natural(load: usize) -> Vec<u64> {
+        let wide = u64::MAX >> SHARD_BITS;
+        (0..load)
+            .map(|j| PHI.wrapping_mul(j as u64 + 1) & wide)
+            .collect()
+    }
+
+    /// The congruence control: each coordinate of [`natural`] with its low `bits` bits cleared, so
+    /// every key is congruent modulo `2^bits`, the region width.
+    ///
+    /// The coordinates stay distinct: equality of two masked `PHI * (j + 1)` values modulo `2^bits`
+    /// forces `j1 = j2` for `j < load <= capacity <= 2^bits`, because `PHI` is invertible on
+    /// `Z/2^bits`. So the control removes the low window only, and every key must still find its own
+    /// lane through the high window.
+    fn controlled(coords: &[u64], bits: u32) -> Vec<u64> {
+        let keep = u64::MAX << bits;
+        coords.iter().map(|c| c & keep).collect()
+    }
+
+    /// First-fit slot visits per key: the mean number of lanes walked from the home lane to the
+    /// first vacancy, inserting `coords` in order into an empty `bound`-lane region at load factor
+    /// `1/2`. `bound` is a power of two and `coords.len() == bound / 2`, so a cycle always finds a
+    /// vacancy within the region's own bound.
+    fn first_fit_probes_per_key(home_of: impl Fn(u64) -> usize, coords: &[u64], bound: usize) -> f64 {
+        let mask = bound - 1;
+        let mut occupied = vec![false; bound];
+        // The count is accumulated in `f64` and the divisor is taken through `u32`, so no `usize` is
+        // narrowed into a float: a region this census builds holds at most `1 << 12` keys, and the
+        // mean of exact integers below `2^53` is exact in `f64` to the four decimals printed.
+        let mut visits = 0.0f64;
+        for &c in coords {
+            let mut step = 0usize;
+            loop {
+                let slot = (home_of(c) + step) & mask;
+                visits += 1.0;
+                if !occupied[slot] {
+                    occupied[slot] = true;
+                    break;
+                }
+                step += 1;
+            }
+        }
+        visits / f64::from(coords.len() as u32)
+    }
+
+    /// The landed mirror equals the real [`Region::home`] on every key of both populations.
+    ///
+    /// The rejection: a mirror that read a different operand, a different reduction end or a stale
+    /// constant diverges from the region here, before any census figure is read.
+    #[test]
+    fn home_mirror_agrees_with_the_region() {
+        for &bound in &CAPACITIES {
+            let bits = bound.trailing_zeros();
+            let mut region = Region::<u64, u64>::reserve_empty(bound).expect("one census region");
+            region.initialize(Sigma::Parabolic, &0, &0);
+            assert_eq!(region.slots.len(), bound, "the census region's lane count");
+            assert_eq!(region.bits, bits, "the census region's shift width");
+
+            let coords = natural(bound / 2);
+            let held = controlled(&coords, bits);
+            let population = coords.iter().chain(held.iter());
+            for c in population {
+                assert_eq!(
+                    region.home(c << SHARD_BITS),
+                    high(*c, HOME_SPREAD, bits, bound),
+                    "landed mirror against home at bound {bound}, coord {c}"
+                );
+            }
+        }
+    }
+
+    /// The landed reduction is the top window, and the top window survives the congruence control.
+    ///
+    /// Three arms per capacity and per population: the incumbent's `PHI` and the landed
+    /// `HOME_SPREAD` in the top window [`Region::home`] ships, and `FX_SEED` in the low window as the
+    /// negative arm. Under [`controlled`] every product has `bits` trailing zero bits, so the low
+    /// window returns one lane for the whole population and its first-fit cost is the linear pile-up
+    /// `(load + 1) / 2`; the assertions below are that this collapse is real and that the landed arm
+    /// is nowhere near it. That is the control's own rejection, and it is the property that separates
+    /// a reduction end from a relabeling.
+    ///
+    /// The natural-population figures are **printed, not asserted**. That population is one
+    /// deterministic key set, `PHI * (j + 1)`, and at these loads the gap between the two top
+    /// windows is a handful of collisions — a single sample of which constant happens to spread one
+    /// fixed set better, not a distribution, and not the registered population. A direction asserted
+    /// on it would be a sample asserted as a result. The registered-population ratio is the
+    /// campaign's number, not this one's.
+    #[test]
+    fn home_fxhash_high_survives_the_congruence_control() {
+        println!("census: first-fit slot visits per key");
+        for &bound in &CAPACITIES {
+            let bits = bound.trailing_zeros();
+            let coords = natural(bound / 2);
+            let load = bound / 2;
+            // The landed arm runs through the shipped `Region::home` on a real `Region`, not through
+            // the mirror, so a figure in this table is the executing method's cost. The mirror is
+            // differentially pinned to it by `home_mirror_agrees_with_the_region`, and it is here
+            // only because the other two arms need a different constant or a different window.
+            let mut region = Region::<u64, u64>::reserve_empty(bound).expect("one census region");
+            region.initialize(Sigma::Parabolic, &0, &0);
+            let populations = [
+                ("natural", coords.clone()),
+                ("congruence-control", controlled(&coords, bits)),
+            ];
+            for (name, population) in populations {
+                let incumbent =
+                    first_fit_probes_per_key(|c| high(c, PHI, bits, bound), &population, bound);
+                let landed = first_fit_probes_per_key(
+                    |c| region.home(c << SHARD_BITS),
+                    &population,
+                    bound,
+                );
+                let low_window =
+                    first_fit_probes_per_key(|c| low(c, FX_SEED, bound), &population, bound);
+                let pile_up = f64::midpoint(f64::from(load as u32), 1.0);
+                println!(
+                    "census: bound={bound} load={load} population={name} \
+                     phi-high={incumbent:.4} fxhash-high={landed:.4} fxhash-low={low_window:.4} \
+                     collapsed-floor={pile_up:.4}"
+                );
+
+                // The landed arm is the shipped method: it must agree with the mirror on every key,
+                // here as well as in the differential test.
+                for &c in &population {
+                    assert_eq!(
+                        region.home(c << SHARD_BITS),
+                        high(c, HOME_SPREAD, bits, bound),
+                        "bound {bound}: the landed arm and the mirror disagree at coord {c}"
+                    );
+                }
+
+                if name != "congruence-control" {
+                    continue;
+                }
+                // The control's own rejection: the low window collapses to one lane.
+                assert!(
+                    low_window >= pile_up - 0.5,
+                    "bound {bound}: the low-window negative arm must collapse under the control, \
+                     observed {low_window:.4} against the pile-up floor {pile_up:.4}"
+                );
+                // The claim: the landed arm does not collapse. Under a one-lane home every key pays
+                // the pile-up cost; a top window does not, and must stay near the ideal of one visit.
+                assert!(
+                    landed < pile_up / 4.0,
+                    "bound {bound}: fxhash-high {landed:.4} collapses toward the low-window \
+                     pile-up {pile_up:.4}"
+                );
+                assert!(
+                    low_window > landed * 4.0,
+                    "bound {bound}: the control must separate the arms, low-window {low_window:.4} \
+                     against landed {landed:.4}"
+                );
+            }
+        }
     }
 }
 
@@ -161,10 +392,10 @@ impl<R, V> Region<R, V> {
     /// The home slot of `place`: the incumbent's home, `fold hashtrinity/src/lib.rs:565-572`.
     ///
     /// A coordinate below the region capacity indexes directly, with no hash; a larger one takes the
-    /// top `bits` of `coord · PHI`, the Fibonacci multiply-shift whose multiply is on the
-    /// fall-through branch in `full.asm` `probe_get` (`1822b`/`18235`) while the direct index is the
-    /// taken branch (`18225`/`18229`). `PHI` is odd, so the multiply-shift is a bijection on the
-    /// word and loses no key. Both branches are reduced through the cycle mask `bound - 1`, so the
+    /// top `bits` of `coord · HOME_SPREAD`, the multiply-shift whose multiply is on the fall-through
+    /// branch in `full.asm` `probe_get` (`1822b`/`18235`) while the direct index is the taken branch
+    /// (`18225`/`18229`). [`HOME_SPREAD`] is odd, so the multiply-shift is a bijection on the word
+    /// and loses no key. Both branches are reduced through the cycle mask `bound - 1`, so the
     /// returned index is always in `[0, bound)`: it is the probe cycle's step-0 lane and is safe to
     /// read directly. `O(1)`; spatial `O(1)`.
     #[allow(
@@ -194,7 +425,7 @@ impl<R, V> Region<R, V> {
         if c < len as u64 {
             (c as usize) & mask
         } else {
-            ((c.wrapping_mul(TAG_SPREAD) >> (64 - self.bits)) as usize) & mask
+            ((c.wrapping_mul(HOME_SPREAD) >> (64 - self.bits)) as usize) & mask
         }
     }
 
