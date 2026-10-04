@@ -1,6 +1,6 @@
 # `Icarus` — SHA-256 / SHA-256d rooting library
 
-42 tracked Lean modules ported from the `icarus` staging campaign
+44 tracked Lean modules ported from the `icarus` staging campaign
 (`/home/lucas/Workspace/icarus/work/proofs/`) into the apeiron corpus. The goal is a *rooted* reading
 of SHA-256: the round step realised over the trichotomy carrier `R[x]/(x² − σ)`, at declared widths
 and faces, with the algebraic obstructions proved rather than assumed.
@@ -59,8 +59,8 @@ job count, the in-cone `#print axioms` row count and `sorryAx 0`.
 * The keystone module's header still marks AR-36, AR-33 and AR-58 `[NOT YET IN THE CORPUS]`. That is
   **stale**: `AlgebraRotBridge32`, `RingModelWeb` and `Cost/AlgebraCostBridge` all landed in
   `6d53961`, `5b643d0` and `dd2bd71`. The import list at the top of the file is the authority.
-* Two further modules, `Cost/AlgebraCost.lean` and `Cost/AlgebraCostKeccak.lean`, are present on
-  disk but **untracked**; they are not indexed here.
+* `Cost/AlgebraCost.lean` and `Cost/AlgebraCostKeccak.lean` landed 2026-10-04 (the W4 gap
+  DOC-1 found; both tracked and indexed in the Cost group).
 
 ## Modules
 
@@ -179,7 +179,7 @@ specification web: `padB_length`, `zeroFill_boundary_55`/`_56`, `rate_sha3_256_e
 
 > The last two are carried specification context, **not** inputs to `sha256_round_rooted`.
 
-### 4 · Cost (9)
+### 4 · Cost (11)
 
 `Cost/CostAlgebra.lean` — **the cost model.** The vendored `CostAlgebra.Cost` record (seven
 resources: `ops`, `pack`, `alloc`, `xfer`, `dispatch`, `peak`, `path`) with componentwise dominance
@@ -196,6 +196,12 @@ clause): `roundCost_fields`, `loadCost_fields`, `compressionCost_eq`, `blockAdds
 
 `Cost/AlgebraCostRound.lean` — the per-round chain cost: `roundCost_fields`, `roundChainCost_eq`,
 `blockCost_split`, `roundCost_faceBlind`, `rotationReading_needs_no_root`.
+
+`Cost/AlgebraCost.lean` — the round cost core: `ringUpperCost`, `ringNormFormCost`,
+`rotationCost_fields`, `chainMulCost_fields` (W4-gap port, 2026-10-04).
+
+`Cost/AlgebraCostKeccak.lean` — the Keccak cross-primitive counts: `columnCost_fields`,
+`thetaCost_fields`, `keccak_round_face_blind` (W4-gap port, 2026-10-04).
 
 `Cost/AlgebraCostCompletePart1.lean` — part 1 of the complete-cost split: `roundCost_fields`,
 `roundChain64`, `roundChainCost_rep`, `blockCost_eq`, `roundCostTwoSlot_fields`.
