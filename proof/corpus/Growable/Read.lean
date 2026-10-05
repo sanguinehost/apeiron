@@ -1,4 +1,8 @@
--- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI`. Discharges the dispatched obligation; 13 -> 11 error sites.
+-- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI`. Green: this module now
+-- builds with no `sorryAx` and a closed cone. It discharges the dispatched `entry.tag` obligation and
+-- the rest of the module's error sites (12 -> 0); the `AxiomAudit` blocker moves to
+-- `Growable.ReadComposition`, which is a separate task. Serves the P0 READLOOP goal
+-- (`proof/corpus` green so `AxiomAudit.olean` exists and its rows evaluate).
 import Growable.ReadLoop
 import Lean
 
@@ -55,20 +59,18 @@ here as **explicit named premises** and neither asserted anywhere in this module
    direction is what a tag-driven live-entry enumeration consumes and is required at completed
    operation boundaries, not on the read path. Authorised as a premise by the escalation
    `READ-SYNC-AND-ROUTE2`, Q1.
-2. the occupied-coordinate readback `hcoord` at the hit slot. The generated body *does* read
-   `region.coords[slot]` at a hit (`Growable.ReadLoop.StoredProbeVisit`), but the ported `ReadLoop`
-   headline projects only the payload lane, so the readback is a premise here rather than a
-   derived fact. **Residual, one conjunct:** it is discharged by adding
-   `∃ coord, region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY` to
-   `Growable.ReadLoop.spill_read_some_implies_full_match`, whose two cases already carry it
-   (`_hcoord` from `generated_spill_read_some_run` and `StoredProbeHit`'s `StoredProbeVisit`). That
-   edit is in `Growable.ReadLoop.lean`, outside this task's declared files, and is not made here.
+2. the occupied-coordinate readback at the hit slot. The generated body reads
+   `region.coords[slot]` at a hit (`Growable.ReadLoop.StoredProbeVisit`), and the ported `ReadLoop`
+   headline `spill_read_some_implies_full_match` now *concludes* it (READLOOP-HCOORD), so on the
+   read path it is derived from the run rather than a premise. Both cases of that theorem already
+   carry it (`_hcoord` from `generated_spill_read_some_run` and `StoredProbeHit`'s
+   `StoredProbeVisit`); `spill_read_some_tagged_full_match` obtains it from the run.
 
-Neither premise is discharged at the writers. `src/table/state.rs:439-447` publishes the payload
-store, then a nonzero tag, then the coordinate, and `Region::empty`, `reserve_empty`,
-`initialize`, `apply_prepared_shard_placed`, `grow_spill`, `relocate_entry`, `relocate_all`,
-`apply_pending_and_commit` and `spill_update_found` are the bodies that must preserve it. That
-discharge, at both carriers and for both directions, is a separate task.
+Only `hsync` is carried as an explicit premise. It is not discharged at the writers.
+`src/table/state.rs:439-447` publishes the payload store, then a nonzero tag, then the coordinate,
+and `Region::empty`, `reserve_empty`, `initialize`, `apply_prepared_shard_placed`, `grow_spill`,
+`relocate_entry`, `relocate_all`, `apply_pending_and_commit` and `spill_update_found` are the bodies
+that must preserve it. That discharge, at both carriers and for both directions, is a separate task.
 -/
 
 namespace Apeiron.GrowableRead
@@ -176,14 +178,24 @@ theorem word_stored_table_get_at_direct_hit
   rw [hget]
   simp only [word_stored_table_get_at]
   unfold table.Table.get_at
-  simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddress,
-    hword, hflat]
+  have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
   have hindex : alloc.vec.Vec.index
       (core.slice.index.SliceIndexUsizeSlice (table.FlatSlot StoredI64 I64))
       state.resident.slots index = ok flat := by
     simpa [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot] using
       (rfl : (ok flat : Result (table.FlatSlot StoredI64 I64)) = ok flat)
-  simp_all
+  simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr,
+    hword, hflat]
+  have hsigmaEq' : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq sigma sigma = ok true := by
+    simpa [hsigma] using hsigmaEq
+  have hraw' : (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+      I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
+      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma).matches
+      sigma flat.held key address = ok true :=
+    hraw
+  simp [table.Table.resident_exact, alloc.vec.Vec.index_usize, alloc.vec.Vec.index_slice_index,
+    hword, hflat, hindex, hslot, hlive, hsigma, hsigmaEq']
+  simp_all only [hraw', bind_tc_ok, ↓reduceIte]
 
 /-- Partition 1 (direct hit), Regen carrier: the generated public read returns the flat slot
 value at a full generated matcher hit on a reachable held key, and that value is the canonical
@@ -231,14 +243,26 @@ theorem word_regen_table_get_at_direct_hit
   rw [hget]
   simp only [word_regen_table_get_at]
   unfold table.Table.get_at
-  simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddress,
-    hword, hflat]
+  have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
   have hindex : alloc.vec.Vec.index
       (core.slice.index.SliceIndexUsizeSlice (table.FlatSlot RegenI64 I64))
       state.resident.slots index = ok flat := by
     simpa [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot] using
       (rfl : (ok flat : Result (table.FlatSlot RegenI64 I64)) = ok flat)
-  simp_all
+  simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr,
+    hword, hflat]
+  have hsigmaEq' : cell.Sigma.Insts.CoreCmpPartialEqSigma.eq sigma sigma = ok true := by
+    simpa [hsigma] using hsigmaEq
+  have hraw' : (table.keyrep.Regen.Insts.Apeiron_wordTableKeyrepKeyRep
+      I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple
+      table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+      (table.keyrep.I64WordCodec.Insts.Apeiron_wordTableKeyrepExactCodecI64HU64TupleClause0_Clause0_Clause0_Faces
+        table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)).matches
+      sigma flat.held key address = ok true :=
+    hraw
+  simp [table.Table.resident_exact, alloc.vec.Vec.index_usize, alloc.vec.Vec.index_slice_index,
+    hword, hflat, hindex, hslot, hlive, hsigma, hsigmaEq']
+  simp_all only [hraw', bind_tc_ok, ↓reduceIte]
 
 /-!
 ## Localization and absence helpers for the read partitions
@@ -344,16 +368,34 @@ theorem flat_index_none_pin {R V : Type} (self : table.Flat R V) (word : U32)
     rw [hval, hsb, Nat.shiftRight_eq_div_pow]
   unfold table.Flat.index
   simp only [hi, bind_tc_ok, lift]
-  have hlanesLt : self.lanes.val < 2 ^ 64 := by
-    cases System.Platform.numBits_eq <;> scalar_tac
-  have hcast : (UScalar.cast .U64 self.lanes).val = self.lanes.val := by
+  have hshards_spec : table.partition.SHARDS ⦃ r => r = 256#usize ⦄ := by
+    unfold table.partition.SHARDS table.partition.SHARD_BITS
+    step
+    all_goals (cases System.Platform.numBits_eq <;> simp_all)
+    all_goals (apply UScalar.eq_of_val_eq; rw [r_post]; simp_all [Usize.size, Usize.numBits])
+  have hshards_eq : table.partition.SHARDS = ok 256#usize := by
+    obtain ⟨r, hr, hv⟩ := WP.spec_imp_exists hshards_spec
+    rw [hr, hv]
+  have hmask_spec : table.SHARD_MASK ⦃ r => r = 255#usize ⦄ := by
+    unfold table.SHARD_MASK table.partition.SHARD_MASK
+    rw [hshards_eq]
+    step
+    all_goals (cases System.Platform.numBits_eq <;> simp_all)
+    all_goals (apply UScalar.eq_of_val_eq; rw [i_post]; simp_all)
+  have hmask : table.SHARD_MASK = ok 255#usize := by
+    obtain ⟨r, hr, hv⟩ := WP.spec_imp_exists hmask_spec
+    rw [hr, hv]
+  unfold table.flat_index
+  rw [hmask]
+  simp only [bind_tc_ok]
+  have hcast : (UScalar.cast .Usize i).val = i.val := by
     rw [UScalar.cast_val_eq]
-    exact Nat.mod_eq_of_lt hlanesLt
-  have hle : (UScalar.cast .U64 self.lanes : U64).val ≤ (core.convert.num.FromU64U32.from i).val := by
-    rw [core.convert.num.FromU64U32.from_val_eq, hival, hcast]
+    exact Nat.mod_eq_of_lt (by scalar_tac)
+  have hcond : UScalar.cast .Usize i ≥ self.lanes := by
+    show self.lanes.val ≤ (UScalar.cast .Usize i).val
+    rw [hcast, hival]
     exact hge
-  have hcond : (UScalar.cast .U64 self.lanes : U64) ≤ core.convert.num.FromU64U32.from i := hle
-  simp only [ge_iff_le, hcond, ↓reduceIte]
+  rw [if_pos hcond]
 
 /-- Every successful generated flat index requires the direct word lane to be within resident lanes. -/
 theorem flat_index_some_pin {R V : Type} (self : table.Flat R V) (word : U32)
@@ -377,14 +419,11 @@ theorem flat_index_compute {R V : Type} (self : table.Flat R V) (word : U32) :
 query key. This is the tag-carrying readback of the ported
 `Growable.ReadLoop.spill_read_some_implies_full_match` over the single `SpillSlot` vector.
 
-Two named premises carry the lane agreement the extracted body does not provide:
-
-* `hcoord` — the hit slot's coordinate word is a non-empty coordinate. The generated body reads it
-  (`StoredProbeHit`'s `StoredProbeVisit`), but the ported `ReadLoop` headline projects only the
-  payload lane, so it is a premise here; see the module header for the one-conjunct discharge.
-* `hsync` — `SpillCoordPayloadSync`, whose **forward** direction turns the occupied coordinate into
-  a nonzero tag. Only `.mp` of that biconditional is used; the reverse direction is not needed on
-  the read path.
+One named premise carries the lane agreement the extracted body does not provide: `hsync` —
+`SpillCoordPayloadSync`, whose **forward** direction turns the occupied coordinate into a nonzero
+tag. Only `.mp` of that biconditional is used; the reverse direction is not needed on the read path.
+The occupied-coordinate conjunct is no longer a premise: `spill_read_some_implies_full_match`
+concludes it (`Growable.ReadLoop`, READLOOP-HCOORD), so it is obtained from the run here.
 
 The run itself witnesses each executed step, so no readiness premise is needed. -/
 theorem spill_read_some_tagged_full_match
@@ -393,8 +432,6 @@ theorem spill_read_some_tagged_full_match
     (n slot : Usize)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
       key n = ok (some slot))
-    (hcoord : ∃ (coord : U64),
-      region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY)
     (hsync : SpillCoordPayloadSync region) :
     slot.val < region.slots.length ∧
     ∃ (entry : table.SpillSlot StoredI64 I64) (tag : U8),
@@ -402,10 +439,10 @@ theorem spill_read_some_tagged_full_match
       entry.tag = tag ∧
       tag ≠ 0#u8 ∧
       Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) := by
-  obtain ⟨hinBounds, entry, hslot, hlogical⟩ :=
+  obtain ⟨hinBounds, entry, hslot, hlogical, hcoordThm⟩ :=
     Apeiron.GrowableReadLoop.spill_read_some_implies_full_match region sigma address key n slot
       hresult
-  obtain ⟨coord, hcoordRead, hcoordNe⟩ := hcoord
+  obtain ⟨coord, hcoordRead, hcoordNe⟩ := hcoordThm
   have hoccupied : region.coords.val[slot.val]? ≠ some table.COORD_EMPTY := by
     intro heq
     exact hcoordNe (Option.some.inj (heq.symm.trans hcoordRead)).symm
@@ -419,8 +456,8 @@ theorem spill_read_some_tagged_full_match
 /-- Deliverable 1: a generated `spill_read` hit returns an in-bounds slot entry which reads back
 through `entryAt` with the exact query and whose payload field is the returned value. `entryAt`
 tests the payload tag (`GrowableSearch.entryAt`), so the lane agreement enters here through
-`hsync : SpillCoordPayloadSync region` and the occupied-coordinate readback `hcoord`; both are
-forwarded to `spill_read_some_tagged_full_match` and neither is discharged in this module. -/
+`hsync : SpillCoordPayloadSync region`; the occupied-coordinate readback is obtained inside
+`spill_read_some_tagged_full_match` from the run. `hsync` is not discharged in this module. -/
 theorem spill_read_some_entryAt
     (state : WordTable StoredI64)
     (shard : Usize) (region : table.Region StoredI64 I64)
@@ -429,8 +466,6 @@ theorem spill_read_some_entryAt
     (n slot : Usize)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
       key n = ok (some slot))
-    (hcoord : ∃ (coord : U64),
-      region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY)
     (hsync : SpillCoordPayloadSync region) :
     ∃ entry : table.SpillSlot StoredI64 I64,
       alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
@@ -440,7 +475,7 @@ theorem spill_read_some_entryAt
       Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
         (.spill shard slot) = some ((sigma, key), entry.value) := by
   obtain ⟨_hinBounds, entry, tag, hslot, htag, htagNonzero, hlogical⟩ :=
-    spill_read_some_tagged_full_match region sigma address key n slot hresult hcoord hsync
+    spill_read_some_tagged_full_match region sigma address key n slot hresult hsync
   have hsigma : entry.sigma = sigma := by
     have hp : (entry.sigma, entry.held.key) = (sigma, key) := hlogical
     exact congrArg Prod.fst hp
@@ -549,15 +584,29 @@ theorem word_stored_table_get_at_direct_none
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflat hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
-    simp only [word_stored_table_get_at]
-    unfold table.Table.get_at
-    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
-    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword, hshard]
     have hvec : alloc.vec.Vec.index
         (core.slice.index.SliceIndexUsizeSlice (table.Region StoredI64 I64))
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
-    simp only [hvec, bind_tc_ok, hmiss]
+    simp only [word_stored_table_get_at]
+    unfold table.Table.get_at
+    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
+    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok,
+      haddr, hword]
+    simp only [table.Table.resident_exact, hword, bind_tc_ok]
+    have hshard' : table.shard { place := address.place, direct_word := none } = ok shardAt := by
+      rw [← hword]; exact hshard
+    have hmiss' : table.probe.spill_read
+        (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+          I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
+          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+        region sigma { place := address.place, direct_word := none } key 16#usize = ok none := by
+      rw [← hword]; exact hmiss
+    simp [table.Table.get_spill, table.Table.get_exact_spill,
+      alloc.vec.Vec.index_usize, alloc.vec.Vec.index_slice_index,
+      core.option.Option.Insts.CoreOpsTry_traitTry.branch,
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual,
+      hshard', hregion, hvec, hmiss']
   rw [hrun, hdefault]
 
 /-- Partition 2 (direct empty, shape B: flat index miss), Stored carrier: the generated public
@@ -611,15 +660,28 @@ theorem word_stored_table_get_at_flat_none
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflatExcl hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
-    simp only [word_stored_table_get_at]
-    unfold table.Table.get_at
-    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
-    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword, hflat, hshard]
     have hvec : alloc.vec.Vec.index
         (core.slice.index.SliceIndexUsizeSlice (table.Region StoredI64 I64))
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
-    simp only [hvec, bind_tc_ok, hmiss]
+    simp only [word_stored_table_get_at]
+    unfold table.Table.get_at
+    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
+    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword]
+    simp only [table.Table.resident_exact, hword, hflat, bind_tc_ok]
+    have hshard' : table.shard { place := address.place, direct_word := some word } = ok shardAt := by
+      rw [← hword]; exact hshard
+    have hmiss' : table.probe.spill_read
+        (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+          I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
+          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+        region sigma { place := address.place, direct_word := some word } key 16#usize = ok none := by
+      rw [← hword]; exact hmiss
+    simp [table.Table.get_spill, table.Table.get_exact_spill,
+      alloc.vec.Vec.index_usize, alloc.vec.Vec.index_slice_index,
+      core.option.Option.Insts.CoreOpsTry_traitTry.branch,
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual,
+      hshard', hregion, hvec, hmiss']
   rw [hrun, hdefault]
 
 /-- A vacant flat slot holds no entry for any full key. -/
@@ -695,16 +757,16 @@ theorem word_stored_table_get_at_flat_vacant
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflatExcl hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
-    simp only [word_stored_table_get_at]
-    unfold table.Table.get_at
-    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
-    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword, hflat]
     have hidx : alloc.vec.Vec.index
         (core.slice.index.SliceIndexUsizeSlice (table.FlatSlot StoredI64 I64))
         state.resident.slots index = ok flat := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot]
-    simp only [hidx, bind_tc_ok, hlive]
-    rfl
+    simp only [word_stored_table_get_at]
+    unfold table.Table.get_at
+    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
+    simp only [table.Table.resident_exact,
+      cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, haddr, hword, hflat,
+      hidx, hslot, hlive, Bool.false_eq_true, ↓reduceIte, bind_tc_ok]
   rw [hrun, hdefault]
 
 /-- When a flat slot is occupied (`flat.live = true`) but does not match the query (either by
@@ -865,34 +927,53 @@ theorem word_stored_table_get_at_flat_occupied_miss
   have habsent := absent_of_exclusions hreach sigma key address haddress shardAt hshard hflatExcl hspillExcl
   have hdefault := default_of_absent hreach (sigma, key) habsent
   have hrun : word_stored_table_get_at state sigma key = ok state.default := by
-    simp only [word_stored_table_get_at]
-    unfold table.Table.get_at
-    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
-    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword, hflat]
     have hidx : alloc.vec.Vec.index
         (core.slice.index.SliceIndexUsizeSlice (table.FlatSlot StoredI64 I64))
         state.resident.slots index = ok flat := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hslot]
-    simp only [hidx, bind_tc_ok, hlive]
     have hvec : alloc.vec.Vec.index
         (core.slice.index.SliceIndexUsizeSlice (table.Region StoredI64 I64))
         state.shards shardAt = ok region := by
       simp [alloc.vec.Vec.index_slice_index, alloc.vec.Vec.index_usize, hregion]
-    rcases hmismatch with hsigma | ⟨hsigma, hkey⟩
-    · simp only [hsigma, bind_tc_ok, hshard, hvec, hmiss, ↓reduceIte]
-      rfl
-    · simp only [hsigma, bind_tc_ok, hshard, hvec, hmiss, ↓reduceIte]
-      have hkey' : table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches
+    have hres : table.Table.resident_exact
+        table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma
+        (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
           I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
-          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma flat.held key address = ok false := hkey
-      rw [hkey']
-      simp only [bind_tc_ok]
-      rfl
+          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+        state sigma address key = ok table.ResidentRead.Miss := by
+      rcases hmismatch with hσ | ⟨hσ, hk⟩
+      · simp only [table.Table.resident_exact, hword, hflat, hidx, hlive, hσ, Bool.false_eq_true, ↓reduceIte, bind_tc_ok]
+      · have hk' : table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep.matches
+            I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
+            table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma flat.held key address = ok false := hk
+        simp only [table.Table.resident_exact, hword, hflat, hidx, hlive, hσ,
+          Bool.false_eq_true, ↓reduceIte, bind_tc_ok]
+        rw [hk']
+        simp only [bind_tc_ok, Bool.false_eq_true, ↓reduceIte]
+    simp only [word_stored_table_get_at]
+    unfold table.Table.get_at
+    have haddr : table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma.address state.home sigma key = ok address := haddress
+    simp only [cell.Sigma.Insts.Apeiron_wordCoordAddressFaceDomain.sigma, bind_tc_ok, haddr, hword, hres]
+    have hshard' : table.shard { place := address.place, direct_word := some word } = ok shardAt := by
+      rw [← hword]; exact hshard
+    have hmiss' : table.probe.spill_read
+        (table.keyrep.Stored.Insts.Apeiron_wordTableKeyrepKeyRep
+          I64.Insts.Apeiron_wordCoordLocatorLocator_coreExactIdentityU64Tuple core.clone.CloneI64
+          table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)
+        region sigma { place := address.place, direct_word := some word } key 16#usize = ok none := by
+      rw [← hword]; exact hmiss
+    simp [table.Table.get_spill, table.Table.get_exact_spill,
+      alloc.vec.Vec.index_usize, alloc.vec.Vec.index_slice_index,
+      core.option.Option.Insts.CoreOpsTry_traitTry.branch,
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual,
+      hshard', hregion, hvec, hmiss']
   rw [hrun, hdefault]
 
 
 def emptyControlRegion : table.Region (table.keyrep.Stored Std.I64) Std.I64 := {
   slots := alloc.vec.Vec.new _,
+  coords := alloc.vec.Vec.new _,
+  bits := 0#u32,
   live := 0#usize
 }
 
@@ -900,7 +981,7 @@ def emptyControlRegion : table.Region (table.keyrep.Stored Std.I64) Std.I64 := {
 def controlFixture : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored Std.I64) 16#usize := {
   default := 0#i64,
   home := (),
-  resident := { lanes := 0#usize, slots := alloc.vec.Vec.new _ },
+  resident := { lanes := 0#usize, lane_bits := 0#u32, slots := alloc.vec.Vec.new _ },
   shards := alloc.vec.Vec.from (List.replicate 256 emptyControlRegion) (by scalar_tac),
   len := 0#usize,
   key := (),
@@ -908,6 +989,7 @@ def controlFixture : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.St
     profile := none,
     directory := none,
     links := alloc.vec.Vec.new _,
+    admitted := 0#usize,
     staged := none
   }
 }
