@@ -1,4 +1,4 @@
-// Row: `inf-decode-subsume-C9XByuwivyxA4RMxX5KVlG` (INF-DECODE-SUBSUME-W2): fold `bedrock/src/serve/gpu.rs:1-483` at `d497161f`.
+// Row: `inf-decode-subsume-C9XByuwivyxA4RMxX5KVlG` (INF-DECODE-SUBSUME-W2..W4): fold `bedrock/src/serve/gpu.rs` at `d497161f`.
 //! GPU decode serving primitives ported from fold `bedrock/src/serve/gpu.rs`.
 #![allow(
     clippy::all,
@@ -13,7 +13,12 @@ use crate::simt::{gemv_bytes, Carrier};
 use crate::simt_nn::*;
 use std::sync::OnceLock;
 
+pub mod layer;
+pub mod model;
 pub mod pack;
+pub mod state;
+pub mod upload;
+pub use model::GpuDecode;
 pub use pack::*;
 
 static LOCAL_CELL: OnceLock<u32> = OnceLock::new();
