@@ -1241,3 +1241,37 @@ pub fn word_hashtrinity_insert(
     state.insert_merge_last_write(key, value);
     state
 }
+
+// The count face's sequential helpers (`hashtrinity::FreqMap::count_*`), `K = u64`. Each wrapper
+// fixes the key type and calls the real body; the thread fan-out of `count_par` stays outside.
+
+/// Real `FreqMap::<u64, i64>::count_home`.
+pub fn word_count_home(c: u64) -> usize {
+    hashtrinity::FreqMap::<u64, i64>::count_home(c)
+}
+
+/// Real `FreqMap::<u64, i64>::count_admit`.
+pub fn word_count_admit(n: usize, count_max: u64) -> bool {
+    hashtrinity::FreqMap::<u64, i64>::count_admit(n, count_max)
+}
+
+/// Real `FreqMap::<u64, i64>::count_histogram`.
+pub fn word_count_histogram(keys: &[u64], homes: &mut [u8], hist: &mut [u32]) -> bool {
+    hashtrinity::FreqMap::<u64, i64>::count_histogram(keys, homes, hist)
+}
+
+/// Real `FreqMap::<u64, i64>::count_offsets`.
+pub fn word_count_offsets(
+    counts: &[u32],
+    w: usize,
+    n: usize,
+    bstart: &mut [usize],
+    woff: &mut [usize],
+) -> bool {
+    hashtrinity::FreqMap::<u64, i64>::count_offsets(counts, w, n, bstart, woff)
+}
+
+/// Real `FreqMap::<u64, i64>::count_slot`.
+pub fn word_count_slot(off: &mut [usize], h: u8) -> usize {
+    hashtrinity::FreqMap::<u64, i64>::count_slot(off, h)
+}

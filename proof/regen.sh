@@ -1,4 +1,5 @@
 #!/bin/sh
+# Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (COUNT-BODY step 2a): the five word_count_* roots below.
 # Regenerate and check the Aeneas extraction of the Apeiron word kernels.
 #
 #   proof/regen.sh            regenerate ApeironWord.lean and build the Lean package
@@ -281,6 +282,11 @@ run_extract() {
         --start-from crate::word_chacha20poly1305_decrypt \
         --start-from crate::word_aes128_encrypt_block \
         --start-from crate::word_aes128_decrypt_block \
+        --start-from crate::word_count_home \
+        --start-from crate::word_count_admit \
+        --start-from crate::word_count_histogram \
+        --start-from crate::word_count_offsets \
+        --start-from crate::word_count_slot \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

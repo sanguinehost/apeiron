@@ -17183,6 +17183,285 @@ def packing.Packing.decode_block
       (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
       residual
 
+/-- Trait declaration: [apeiron_word::hashtrinity::algebra::Coord]
+    Source: '../../src/hashtrinity/algebra.rs', lines 44:0-47:1
+    Visibility: public -/
+structure hashtrinity.algebra.Coord (Self : Type) where
+  coord : Self → Result Std.U64
+
+/-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}::coord]:
+    Source: '../../src/hashtrinity/algebra.rs', lines 51:18-51:57
+    Visibility: public -/
+def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
+  (self : Std.U64) : Result Std.U64 := do
+  ok self
+
+/-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}]
+    Source: '../../src/hashtrinity/algebra.rs', lines 50:24-52:5 -/
+@[reducible]
+def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord : hashtrinity.algebra.Coord
+  Std.U64 := {
+  coord := U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
+}
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BBITS]
+    Source: '../../src/hashtrinity/freq.rs', lines 24:4-24:35
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BBITS {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Std.U32 :=
+  8#u32
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKETS]
+    Source: '../../src/hashtrinity/freq.rs', lines 26:4-26:60
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Result Std.Usize :=
+  1#usize <<< (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+
+/-- [apeiron_word::hashtrinity::PHI]
+    Source: '../../src/hashtrinity/mod.rs', lines 218:0-218:43
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.PHI : Std.U64 := 11400714819323198485#u64
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_home]:
+    Source: '../../src/hashtrinity/freq.rs', lines 32:4-34:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_home
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (c : Std.U64) :
+  Result Std.Usize
+  := do
+  let i ← lift (core.num.U64.wrapping_mul c hashtrinity.PHI)
+  let i1 ←
+    64#u32 - (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+  let i2 ← i >>> i1
+  let i3 ← lift (UScalar.cast .Usize i2)
+  let i4 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+  let i5 ← i4 - 1#usize
+  ok (i3 &&& i5)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_admit]:
+    Source: '../../src/hashtrinity/freq.rs', lines 38:4-40:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_admit
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (n : Std.Usize)
+  (count_max : Std.U64) :
+  Result Bool
+  := do
+  let i ← lift (UScalar.cast .U64 n)
+  ok (i <= count_max)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 51:8-59:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_histogram_loop.body
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (n : Std.Usize) (homes : Slice Std.U8) (hist : Slice Std.U32) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × (Slice Std.U32) × Bool × Std.Usize)
+    (Bool × (Slice Std.U8) × (Slice Std.U32)))
+  := do
+  if ok1
+  then
+    if i < n
+    then
+      let t ← Slice.index_usize keys i
+      let i1 ← algebraCoordInst.coord t
+      let h ← hashtrinity.freq.FreqMapKI64.count_home algebraCoordInst i1
+      let (_, index_mut_back) ← Slice.index_mut_usize homes i
+      let i2 ← lift (UScalar.cast .U8 h)
+      let i3 ← Slice.index_usize hist h
+      let o ← lift (U32.checked_add i3 1#u32)
+      match o with
+      | none =>
+        let i4 ← i + 1#usize
+        let s := index_mut_back i2
+        ok (cont (s, hist, false, i4))
+      | some v =>
+        let s ← Slice.update hist h v
+        let i4 ← i + 1#usize
+        let s1 := index_mut_back i2
+        ok (cont (s1, s, true, i4))
+    else ok (done (true, homes, hist))
+  else ok (done (false, homes, hist))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 51:8-59:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_histogram_loop
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (homes : Slice Std.U8) (hist : Slice Std.U32) (n : Std.Usize) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
+  := do
+  loop
+    (fun (homes1, hist1, ok2, i1) =>
+      hashtrinity.freq.FreqMapKI64.count_histogram_loop.body algebraCoordInst
+      keys n homes1 hist1 ok2 i1)
+    (homes, hist, ok1, i)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]:
+    Source: '../../src/hashtrinity/freq.rs', lines 47:4-61:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_histogram
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (homes : Slice Std.U8) (hist : Slice Std.U32) :
+  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
+  := do
+  let n := Slice.len keys
+  let i := Slice.len homes
+  let ok1 ←
+    if i = n
+    then
+      do
+      let i1 := Slice.len hist
+      let i2 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+      ok (i1 = i2)
+    else ok false
+  hashtrinity.freq.FreqMapKI64.count_histogram_loop algebraCoordInst keys homes
+    hist n ok1 0#usize
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 1:
+    Source: '../../src/hashtrinity/freq.rs', lines 87:12-94:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body
+  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize) (j : Std.Usize)
+  (woff : Slice Std.Usize) (ok1 : Bool) (acc : Std.Usize) (t : Std.Usize) :
+  Result (ControlFlow ((Slice Std.Usize) × Bool × Std.Usize × Std.Usize)
+    ((Slice Std.Usize) × Bool × Std.Usize))
+  := do
+  if ok1
+  then
+    if t < w
+    then
+      let i ← t * b
+      let i1 ← i + j
+      let s ← Slice.update woff i1 acc
+      let i2 ← i + j
+      let i3 ← Slice.index_usize counts i2
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let o ← lift (Usize.checked_add acc i4)
+      let (ok2, acc1) ←
+        match o with
+        | none => ok (false, acc)
+        | some v => ok (true, v)
+      let t1 ← t + 1#usize
+      ok (cont (s, ok2, acc1, t1))
+    else ok (done (woff, true, acc))
+  else ok (done (woff, false, acc))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 1:
+    Source: '../../src/hashtrinity/freq.rs', lines 87:12-94:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0
+  (counts : Slice Std.U32) (w : Std.Usize) (woff : Slice Std.Usize)
+  (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize) (j : Std.Usize)
+  (t : Std.Usize) :
+  Result ((Slice Std.Usize) × Bool × Std.Usize)
+  := do
+  loop
+    (fun (woff1, ok2, acc1, t1) =>
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body counts w b j
+      woff1 ok2 acc1 t1)
+    (woff, ok1, acc, t)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 84:8-96:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body
+  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize)
+  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) (ok1 : Bool)
+  (acc : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
+    Std.Usize × Std.Usize) ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
+    Std.Usize))
+  := do
+  if ok1
+  then
+    if j < b
+    then
+      let s ← Slice.update bstart j acc
+      let (woff1, ok2, acc1) ←
+        hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0 counts w woff b
+          true acc j 0#usize
+      let j1 ← j + 1#usize
+      ok (cont (s, woff1, ok2, acc1, j1))
+    else ok (done (bstart, woff, true, acc))
+  else ok (done (bstart, woff, false, acc))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 84:8-96:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0
+  (counts : Slice Std.U32) (w : Std.Usize) (bstart : Slice Std.Usize)
+  (woff : Slice Std.Usize) (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize)
+  (j : Std.Usize) :
+  Result ((Slice Std.Usize) × (Slice Std.Usize) × Bool × Std.Usize)
+  := do
+  loop
+    (fun (bstart1, woff1, ok2, acc1, j1) =>
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body counts w b bstart1
+      woff1 ok2 acc1 j1)
+    (bstart, woff, ok1, acc, j)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]:
+    Source: '../../src/hashtrinity/freq.rs', lines 69:4-101:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_offsets
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
+  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) :
+  Result (Bool × (Slice Std.Usize) × (Slice Std.Usize))
+  := do
+  let b ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+  let o ← lift (Usize.checked_mul w b)
+  match o with
+  | none => ok (false, bstart, woff)
+  | some x =>
+    let i := Slice.len counts
+    let ok1 ←
+      if i = x
+      then
+        let i1 := Slice.len woff
+        if i1 = x
+        then do
+             let i2 := Slice.len bstart
+             let i3 ← b + 1#usize
+             ok (i2 = i3)
+        else ok false
+      else ok false
+    let (bstart1, woff1, ok2, acc) ←
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0 counts w bstart woff b
+        ok1 0#usize 0#usize
+    let bstart2 ← if ok2
+                    then Slice.update bstart1 b acc
+                    else ok bstart1
+    if ok2
+    then ok (acc = n, bstart2, woff1)
+    else ok (false, bstart2, woff1)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_slot]:
+    Source: '../../src/hashtrinity/freq.rs', lines 108:4-113:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_slot
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (off : Slice Std.Usize) (h : Std.U8) :
+  Result (Std.Usize × (Slice Std.Usize))
+  := do
+  let j ← lift (core.convert.num.FromUsizeU8.from h)
+  let s ← Slice.index_usize off j
+  let i ← s + 1#usize
+  let off1 ← Slice.update off j i
+  ok (s, off1)
+
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
@@ -27536,5 +27815,50 @@ def word_aes128_decrypt_block
   Result (Array Std.U8 16#usize)
   := do
   aes.aes128_decrypt_block key block
+
+/-- [apeiron_word::word_count_home]:
+    Source: 'lib.rs', lines 1249:0-1251:1
+    Visibility: public -/
+def word_count_home (c : Std.U64) : Result Std.Usize := do
+  hashtrinity.freq.FreqMapKI64.count_home
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord c
+
+/-- [apeiron_word::word_count_admit]:
+    Source: 'lib.rs', lines 1254:0-1256:1
+    Visibility: public -/
+def word_count_admit (n : Std.Usize) (count_max : Std.U64) : Result Bool := do
+  hashtrinity.freq.FreqMapKI64.count_admit
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord n count_max
+
+/-- [apeiron_word::word_count_histogram]:
+    Source: 'lib.rs', lines 1259:0-1261:1
+    Visibility: public -/
+def word_count_histogram
+  (keys : Slice Std.U64) (homes : Slice Std.U8) (hist : Slice Std.U32) :
+  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
+  := do
+  hashtrinity.freq.FreqMapKI64.count_histogram
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord keys homes hist
+
+/-- [apeiron_word::word_count_offsets]:
+    Source: 'lib.rs', lines 1264:0-1272:1
+    Visibility: public -/
+def word_count_offsets
+  (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
+  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) :
+  Result (Bool × (Slice Std.Usize) × (Slice Std.Usize))
+  := do
+  hashtrinity.freq.FreqMapKI64.count_offsets
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord counts w n bstart woff
+
+/-- [apeiron_word::word_count_slot]:
+    Source: 'lib.rs', lines 1275:0-1277:1
+    Visibility: public -/
+def word_count_slot
+  (off : Slice Std.Usize) (h : Std.U8) :
+  Result (Std.Usize × (Slice Std.Usize))
+  := do
+  hashtrinity.freq.FreqMapKI64.count_slot
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
 
 end apeiron_word
