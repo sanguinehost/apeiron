@@ -5,6 +5,7 @@ import Count.Helpers
 import Count.FreqRep
 import Count.FreqAdd
 import Count.Aggregate
+import Map.PrefixMasks
 
 -- Discrete flux (docs/epics/magnetic-flux.md): the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -58,6 +59,27 @@ import Count.Aggregate
 #audit Apeiron.CountAggregate.movemask_spec
 #audit Apeiron.CountAggregate.with_capacity_rep
 #audit Apeiron.CountAggregate.freq_spec
+
+-- Map face `prefix_masks` (Map/PrefixMasks.lean): the AVX2 branch equals the scalar branch.
+#audit Apeiron.PrefixMasks.u64_ne_u8
+#audit Apeiron.PrefixMasks.as_ptr_u64
+#audit Apeiron.PrefixMasks.ofLeBytes_flat
+#audit Apeiron.PrefixMasks.loop_pc
+#audit Apeiron.PrefixMasks.tail_spec
+#audit Apeiron.PrefixMasks.avx2_spec
+#audit Apeiron.PrefixMasks.avx2_fail
+#audit Apeiron.PrefixMasks.avxBranch_spec
+#audit Apeiron.PrefixMasks.avxBranch_fail
+#audit Apeiron.PrefixMasks.body_inv
+#audit Apeiron.PrefixMasks.body_ex
+#audit Apeiron.PrefixMasks.body_done
+#audit Apeiron.PrefixMasks.loop_total
+#audit Apeiron.PrefixMasks.scalar_pc
+#audit Apeiron.PrefixMasks.scalar_ex
+#audit Apeiron.PrefixMasks.spec_unique
+#audit Apeiron.PrefixMasks.prefix_masks_branches_agree
+#audit Apeiron.PrefixMasks.prefix_masks_probe_independent
+#audit Apeiron.PrefixMasks.prefix_masks_spec
 
 #audit apeiron_word.word_f16_split_nonfinite
 #audit apeiron_word.word_f16_split_exact
