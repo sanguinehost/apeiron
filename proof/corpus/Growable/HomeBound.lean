@@ -71,7 +71,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
           let i1 ← lift (UScalar.cast .Usize c)
           ok (i1 &&& mask)
         else
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -91,7 +91,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
           let i1 ← lift (UScalar.cast .Usize c)
           ok (i1 &&& mask)
         else
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -110,7 +110,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
         (do let i1 ← lift (UScalar.cast .Usize c); ok (i1 &&& mask))
       else
         (do
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -124,7 +124,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
       exact lt_of_le_of_lt (and_val_le i1 mask) (by omega)
     · rw [if_neg hci] at hhome
       obtain ⟨w, hw, hhome⟩ := bind_ok_inv
-        (lift (core.num.U64.wrapping_mul c table.TAG_SPREAD))
+        (lift (core.num.U64.wrapping_mul c table.HOME_SPREAD))
         (fun w => do
           let i2 ← 64#u32 - r.bits
           let i3 ← w >>> i2

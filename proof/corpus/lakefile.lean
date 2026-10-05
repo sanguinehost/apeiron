@@ -48,6 +48,9 @@ lean_lib ApeironWordBridge where
     -- `Growable.BuildRefine` was on no build path (roots carries no `.submodules` glob, and its
     -- only importer, `Growable/GaplessRead.lean`, is unreachable). Registered + gated.
     -- Row: `apeiron-roots-schedule-GLorJM9lzcN49Cr1tCCT0s`.
+    -- `GaplessRead`/`HomeBound` were also on no build path: registered, so their headlines are
+    -- checked by a scoped `lake build` rather than by an ad-hoc `lake lean`.
+    `Growable.GaplessRead, `Growable.HomeBound,
     `Growable.InsertRefine, `Growable.Schedule, `Growable.BuildRefine, `Growable.CostModel,
     `Map.Rep, `Map.Read, `Map.Selected,
     `Count.Rep, `Count.Read,

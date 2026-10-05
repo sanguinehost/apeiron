@@ -40,6 +40,91 @@ first-fit discipline — that a live slot never sits past a vacancy in probe ord
 module does not prove.  That is the remaining residual named in the receipt.
 -/
 
+open Aeneas Aeneas.Std Result
+open apeiron_word
+
+set_option linter.apeiron.notation false
+set_option linter.apeiron.citation false
+
+namespace Apeiron
+namespace GrowableRepresentation
+
+/-- **Destination readback of a generated publication.**  The slot read back at the destination
+index carries the published triple's `sigma`, `held` and `value`.  The generated
+`Apeiron.GrowableRepresentation.publish_live_slots_exact` already gives the whole destination slot;
+this exposes the index readback and the payload equations the coordinate lane consumes.  The
+in-bounds obligation is not a premise: a successful publication implies the destination `index_mut`
+succeeded, hence the bound. -/
+theorem publish_live_slot_readback {R V : Type} (before after : table.Region R V) (index : Usize)
+    (sigma : cell.Sigma) (held : R) (value : V) (place : U64)
+    (hpub : table.Region.publish_live before index (sigma, held, value) place = ok after) :
+    ∃ slot, after.slots.val[index.val]? = some slot ∧
+      slot.sigma = sigma ∧ slot.held = held ∧ slot.value = value := by
+  obtain ⟨tag, _htag, _htagNe, hslots⟩ :=
+    Apeiron.GrowableRepresentation.publish_live_slots_exact before after index
+      (sigma, held, value) place hpub
+  have hbound : index.val < before.slots.val.length := by
+    unfold table.Region.publish_live at hpub
+    rw [alloc.vec.Vec.index_mut_slice_index] at hpub
+    cases h1 : alloc.vec.Vec.index_mut_usize before.slots index with
+    | vis eff k => simp [h1] at hpub
+    | div => simp [h1] at hpub
+    | ret r1 =>
+        rcases r1 with ⟨_ss, _back1⟩
+        simp only [h1, bind_tc_ok] at hpub
+        cases hget : before.slots.val[index.val]? with
+        | none => simp [alloc.vec.Vec.index_mut_usize, alloc.vec.Vec.index_usize, hget] at h1
+        | some _old => exact (List.getElem?_eq_some_iff.mp hget).1
+  refine ⟨⟨tag, sigma, held, value⟩, ?_, rfl, rfl, rfl⟩
+  rw [hslots]
+  simpa using List.getElem?_set_self hbound
+
+end GrowableRepresentation
+
+namespace GrowableScan
+
+/-- **The bounded cycle is surjective on the slots.**  For a power-of-two capacity the bounded
+cycle `step ↦ (home + step) &&& (bound - 1)` visits every slot below the capacity.  This is the
+arithmetic the `none` half of `GaplessRead` enumerates the probe over; it carries no generated-body
+premise beyond the power-of-two bound. -/
+theorem spill_cycle_covers {bound home j k : Nat} (hp : bound = 2 ^ k) (hj : j < bound) :
+    ∃ step, step < bound ∧ (home + step) &&& (bound - 1) = j := by
+  subst hp
+  have hk : 0 < 2 ^ k := Nat.pow_pos (by decide)
+  set step : Nat := (j + 2 ^ k - home % 2 ^ k) % 2 ^ k with hstepDef
+  have hstepLt : step < 2 ^ k := by rw [hstepDef]; exact Nat.mod_lt _ hk
+  have happ : (home + step) % 2 ^ k = (home % 2 ^ k + step) % 2 ^ k := by
+    have hmod : step % 2 ^ k = step := Nat.mod_eq_of_lt hstepLt
+    rw [Nat.add_mod, hmod]
+  refine ⟨step, hstepLt, ?_⟩
+  rw [Nat.and_two_pow_sub_one_eq_mod, happ]
+  by_cases hle : home % 2 ^ k ≤ j
+  · have hstepEq : step = j - home % 2 ^ k := by
+      have hdiff : j - home % 2 ^ k < 2 ^ k :=
+        lt_of_le_of_lt (Nat.sub_le j (home % 2 ^ k)) hj
+      have hform : j + 2 ^ k - home % 2 ^ k = (j - home % 2 ^ k) + 2 ^ k := by omega
+      rw [hstepDef, hform, Nat.add_mod_right, Nat.mod_eq_of_lt hdiff]
+    rw [hstepEq]
+    have hsum : home % 2 ^ k + (j - home % 2 ^ k) = j := Nat.add_sub_of_le hle
+    rw [hsum]
+    exact Nat.mod_eq_of_lt hj
+  · have hlt : j < home % 2 ^ k := Nat.lt_of_not_ge hle
+    have hstepEq : step = j + 2 ^ k - home % 2 ^ k := by
+      rw [hstepDef]
+      rw [Nat.mod_eq_of_lt (by omega)]
+    rw [hstepEq]
+    have hsum : home % 2 ^ k + (j + 2 ^ k - home % 2 ^ k) = j + 2 ^ k := by
+      have h1 : 2 ^ k - home % 2 ^ k + home % 2 ^ k = 2 ^ k := by omega
+      omega
+    rw [hsum]
+    have hmod : (j + 2 ^ k) % 2 ^ k = j := by
+      rw [Nat.add_mod, Nat.mod_eq_of_lt hj, Nat.mod_self, Nat.add_zero,
+        Nat.mod_eq_of_lt hj]
+    exact hmod
+
+end GrowableScan
+end Apeiron
+
 namespace Apeiron.GrowableGaplessRead
 
 open Aeneas Aeneas.Std Result
@@ -1083,8 +1168,8 @@ theorem stored_live_coord_address_publish_spill
       exact ⟨c, address, hcoordPub, hcNe, haddress, hshard, hc⟩
     · have hslotBefore : region.slots.val[readIndex.val]? =
           some { tag := readTag, sigma := readSigma, held := readHeld, value := readValue } :=
-        (Apeiron.GrowableRepresentation.publish_live_frame region published index readIndex sigma
-          held value address.place hpublish hsameIndex).symm.trans hreadSlot
+        (Apeiron.GrowableRepresentation.publish_live_slot_frame region published index readIndex
+          (sigma, held, value) address.place hpublish hsameIndex).symm.trans hreadSlot
       obtain ⟨coord, addr, hcoord, hcNe, haddr, hsh, hcf⟩ :=
         hstate shard readIndex region readTag readSigma readHeld readValue
           hregion hslotBefore hreadTagNonzero
@@ -1589,7 +1674,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
           let i1 ← lift (UScalar.cast .Usize c)
           ok (i1 &&& mask)
         else
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -1609,7 +1694,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
           let i1 ← lift (UScalar.cast .Usize c)
           ok (i1 &&& mask)
         else
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -1628,7 +1713,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
         (do let i1 ← lift (UScalar.cast .Usize c); ok (i1 &&& mask))
       else
         (do
-          let i1 ← lift (core.num.U64.wrapping_mul c table.TAG_SPREAD)
+          let i1 ← lift (core.num.U64.wrapping_mul c table.HOME_SPREAD)
           let i2 ← 64#u32 - r.bits
           let i3 ← i1 >>> i2
           let i4 ← lift (UScalar.cast .Usize i3)
@@ -1642,7 +1727,7 @@ theorem home_lt_bound {R V : Type} (r : table.Region R V) (place : Std.U64)
       exact lt_of_le_of_lt (and_val_le i1 mask) (by omega)
     · rw [if_neg hci] at hhome
       obtain ⟨w, _hw, hhome⟩ := bind_ret_inv
-        (lift (core.num.U64.wrapping_mul c table.TAG_SPREAD))
+        (lift (core.num.U64.wrapping_mul c table.HOME_SPREAD))
         (fun w => do
           let i2 ← 64#u32 - r.bits
           let i3 ← w >>> i2
