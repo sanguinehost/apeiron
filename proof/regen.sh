@@ -176,10 +176,7 @@ $REPO_DIR/src/hashtrinity/seed.rs
 $REPO_DIR/src/hashtrinity/tregex.rs
 $REPO_DIR/src/hashtrinity/par.rs
 $REPO_DIR/src/hashtrinity/face.rs
-$REPO_DIR/src/hashtrinity/dense.rs
-$REPO_DIR/src/hashtrinity/ctrl_proto.rs
 $REPO_DIR/src/hashtrinity/crypto.rs
-$REPO_DIR/src/hashtrinity/secret.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs

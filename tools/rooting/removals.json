@@ -513,6 +513,62 @@
         }
       ],
       "receipt": "docs/plan.md"
+    },
+    {
+      "id": "hashtrinity-vendor-purge",
+      "kind": "retirement",
+      "note": "Owner direction (2026-10-06): fold/hashtrinity is deprecated, its table is rebased onto the R[x]/(x^2-sigma) basis, and vendored src/hashtrinity modules no retained consumer reaches are deleted (docs/plan.md, APEIRON-VENDOR-PURGE). The kept set is the table core (mod.rs, algebra, freq, par, face, seed, dense, ctrl_proto), src/freq.rs's re-exports, the extraction sources proof/regen.sh --check binds (hex, base64, secret sit in that SOURCE_FILES list and so stay), and the webfold rebase names tregex/codec/crypto. Deleted: 18 files, 22559 lines.",
+      "removed": [
+        "src/hashtrinity/base32.rs",
+        "src/hashtrinity/bitflags.rs",
+        "src/hashtrinity/bin/swalk.rs",
+        "src/hashtrinity/bin/syncfold.rs",
+        "src/hashtrinity/error.rs",
+        "src/hashtrinity/itertools.rs",
+        "src/hashtrinity/openapi.rs",
+        "src/hashtrinity/proc_masq.rs",
+        "src/hashtrinity/reactor/iouring_driver.rs",
+        "src/hashtrinity/reactor/mod.rs",
+        "src/hashtrinity/runtime.rs",
+        "src/hashtrinity/rustls.rs",
+        "src/hashtrinity/sync.rs",
+        "src/hashtrinity/sync/main.rs",
+        "src/hashtrinity/sync/tls.rs",
+        "src/hashtrinity/sync/tls/rsa_kat.rs",
+        "src/hashtrinity/validate.rs",
+        "src/hashtrinity/webauthn.rs",
+        "src/hashtrinity/dense.rs",
+        "src/hashtrinity/ctrl_proto.rs",
+        "src/hashtrinity/secret.rs"
+      ],
+      "replacement": [],
+      "retained_obligation": "Webfold's rebase (REBASE-ONTO-APEIRON) still needs Table, CoordMap, Coord, tregex, codec and crypto; those stay in src/hashtrinity/. The removed modules are not replaced: no consumer in this tree reaches them, and the external fold/hashtrinity git dependency remains absent from Cargo.toml.",
+      "consumers": [
+        "src/freq.rs",
+        "proof/extract/lib.rs",
+        "Cargo.toml",
+        "proof/regen.sh"
+      ],
+      "reachability": [
+        {
+          "cwd": ".",
+          "argv": [
+            "cargo",
+            "build",
+            "--workspace",
+            "--all-features",
+            "--locked"
+          ]
+        },
+        {
+          "cwd": ".",
+          "argv": [
+            "proof/regen.sh",
+            "--check"
+          ]
+        }
+      ],
+      "receipt": "docs/plan.md"
     }
   ],
   "self_test": {
