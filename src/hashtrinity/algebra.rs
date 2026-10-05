@@ -7,6 +7,36 @@
 use crate::hashtrinity::{is_live, Table, EMPTY, PHI};
 use std::mem::MaybeUninit;
 
+/// `n` uninitialized [`MaybeUninit<T>`] slots as a boxed slice — RESERVE, never initialize.
+///
+/// The table's slot arrays are allocated full-length and left unwritten: liveness lives in the
+/// coordinate line, so a build writes a slot only when it stores into it. That is the property
+/// Row: `apeiron-residual4-collect-FjhX5JGjudteNjKz7TVJkU` (APEIRON-RESIDUAL4-COLLECT).
+/// `../sanguine/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact` charges a `capacity`-scaled per-slot tax for; an
+/// element-wise fill would move `capacity` writes into the build and forfeit it.
+///
+/// One allocation of `n` elements, zero per-slot writes: O(n) bytes allocated, 0 element writes,
+/// 0 element reads, 1 allocation call. The loop is absent, so nothing scales with a write count.
+///
+/// The equivalent `repeat_with(MaybeUninit::uninit).take(n).collect()` allocates identically but
+/// states the same property through `Iterator::collect`, which the extraction's pinned model does
+/// not carry; this form is the reserve itself, spelled as the two operations it performs.
+///
+/// # Safety of the `set_len`
+///
+/// `Vec::with_capacity(n)` reserves at least `n` elements, and an uninitialized `MaybeUninit<T>`
+/// is not a value of `T`, so exposing the length neither reads a slot nor claims a drop
+/// obligation: the drop glue for `MaybeUninit<T>` is a no-op. `T` is therefore never dropped
+/// uninitialized and never read before [`KeyStore::set`] writes it.
+#[inline]
+pub fn alloc_uninit_boxed<T>(n: usize) -> Box<[MaybeUninit<T>]> {
+    let mut v: Vec<MaybeUninit<T>> = Vec::with_capacity(n);
+    // SAFETY: the capacity above is ≥ n and `MaybeUninit<T>` carries no drop obligation, so a
+    // length of n over the reserved-but-unwritten storage is sound.
+    unsafe { v.set_len(n) };
+    v.into_boxed_slice()
+}
+
 // ── Coord: the key's 64-bit address. ─────────────────────────────────────────────────────────
 
 /// A key's 64-bit address. Integers are their own coordinate (a direct, collision-free index);
@@ -98,7 +128,7 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
 /// No `Option`, no per-slot clearing: the key store rides the SAME invariant as the value array —
 /// **`keys[i]` is initialized iff `coords[i]` is live** (neither `EMPTY` nor a tombstone) — so
 /// allocation writes nothing
-/// (`OpaqueBuildDecomposition.slot_tax_exact`: per-slot clearing is a named, removable build
+/// (`../sanguine/proof/Closures/Engineering/ConcreteProbeCost.lean:607` `slot_tax_exact`: per-slot clearing is a named, removable build
 /// cost; this is the move that removed the `Option<V>` discriminant, applied to `K`). Liveness
 /// lives in the coordinate line, so `clone_live`/`drop_live` take it from the caller.
 ///
@@ -118,12 +148,7 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
     #[inline]
     fn alloc(n: usize) -> Self {
         // like `vals`: reserve, never initialize — no per-slot write at build time
-        Stored(
-            std::iter::repeat_with(MaybeUninit::uninit)
-                .take(n)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )
+        Stored(alloc_uninit_boxed(n))
     }
     #[inline]
     fn set(&mut self, i: usize, k: K) {
@@ -471,9 +496,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// The map face's merge tag. (Named `FACE_SET`, not `FACE`, to avoid clashing with the per-`V` faces.)
     pub const FACE_SET: Face = Face::Set; // not `FACE`: would clash with the per-V faces below
     /// Insert or overwrite (last write wins).
+    ///
+    /// Routed through [`Table::insert_merge_last_write`](crate::hashtrinity::Table::insert_merge_last_write),
+    /// the merge-free concrete face, so the body the extraction roots IS the executed map face and
+    /// not a parallel path. It is the same `set(new, old) = new` merge `insert_with(k, v, set)`
+    /// would apply, inlined: `insert_core` moves `old` out and blanks the slot either way, and
+    /// both forms drop `old`, store `new`, and re-occupy with the same coordinate.
     #[inline]
     pub fn put(&mut self, k: K, v: V) {
-        self.insert_with(k, v, set);
+        self.insert_merge_last_write(k, v);
     }
 }
 
