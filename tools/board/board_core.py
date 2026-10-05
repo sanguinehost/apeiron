@@ -94,6 +94,13 @@ GATE_HEADS = frozenset(
         # `cd proof/corpus && lake build <target>` (AGENTS.md section 6); without
         # it every such gate line was read as no gate at all.
         "cd",
+        # `test`, `git` and `gh` are gate heads because the release rows' gates are
+        # shell tests and remote checks (`test -s LICENSE`, `git ls-remote …`,
+        # `gh run list …`); without them those rows read as no gate at all.
+        # Row: `apeiron-board-gatehead-GRf8pkvLC4wbhMkFuiTGaf`.
+        "test",
+        "git",
+        "gh",
         "cargo",
         "lake",
         "lean",

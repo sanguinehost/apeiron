@@ -234,6 +234,19 @@ class DescriptionTests(unittest.TestCase):
             ["cd proof/corpus && lake build Growable.Read"],
         )
 
+    def test_shell_test_is_a_gate(self) -> None:
+        self.assertEqual(board.gates_of("Gate: `test -s LICENSE`."), ["test -s LICENSE"])
+        self.assertEqual(
+            board.gates_of("`test -f LICENSE-MIT -a -f LICENSE-APACHE`"),
+            ["test -f LICENSE-MIT -a -f LICENSE-APACHE"],
+        )
+
+    def test_git_and_gh_invocations_are_gates(self) -> None:
+        self.assertEqual(
+            board.gates_of("Gate: `git ls-remote origin main`."), ["git ls-remote origin main"]
+        )
+        self.assertEqual(board.gates_of("Gate: `gh run list --limit 1`."), ["gh run list --limit 1"])
+
     def test_a_bare_script_path_is_not_a_gate(self) -> None:
         """A path is not a runnable command: no arguments, no mode."""
         self.assertEqual(board.gates_of("see `tools/rooting/check.py`"), [])
