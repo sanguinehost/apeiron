@@ -1,3 +1,4 @@
+-- Row: `p0-count-body-get-the-a-EF9n3OLyqnX2ouQQWL8w9C` (APEIRON-COUNT-FACE-BODY). Comment-only: 18 dangling/stale citations corrected.
 import Count.Rep
 import Growable.Search
 
@@ -5,7 +6,7 @@ import Growable.Search
 # The count face's read refinement and aggregate
 
 The extracted read body of the count face is `apeiron_word::word_stored_apply_get`
-(`proof/ApeironWord.lean:26959-26968`, source `proof/extract/lib.rs:450-452`), which calls the real
+(`proof/ApeironWord.lean:26978-26988`, source `proof/extract/lib.rs:450-452`), which calls the real
 `table.Table.apply_get`.  It is a function of an already-computed `table.SearchDecision`; the decision
 itself is not extracted here, so its bridge contract is a premise.
 
@@ -43,7 +44,8 @@ the count face's aggregate over it:
 ## The residual: the executed body is not the extracted body
 
 The count face's **executed** body is `crate::hashtrinity::FreqMap::count_par`
-(`src/hashtrinity/freq.rs:30`), followed by `FreqMap::get_each`.  Neither is extracted:
+(`src/hashtrinity/freq.rs:21`), followed by `FreqMap::get_each` (`src/hashtrinity/mod.rs:785`).  Neither is
+extracted:
 `proof/ApeironWord.lean` carries no `FreqMap`, `count_par` or `get_each` symbol, `proof/extract/lib.rs`
 names no `freq` module, and `count_par` drives an OS thread pool over raw-pointer writes and closures,
 which the extraction fragment does not model.  So no `word_count_get` exists and none is invented here;
@@ -58,9 +60,10 @@ named, not assumed.
 ## `build`: subject, and what is claimed
 
 The count face **does** have a `build` subject: the extraction carries the generated builders
-`table.Table.build_at` (`proof/ApeironWord.lean:26578`), `table.Table.build_at_sequential` and their
-loops, and the count face's parallel arm calls the real `Table::build_at` (`SpatialTable::build_at_parallel_phased`,
-`spatial.rs:770-771`, whose short-input branch is `build_at_sequential`).  `Growable/BuildRefine.foldList_logical`
+`table.Table.build_at` (`proof/ApeironWord.lean:26597`), `table.Table.build_at_sequential` (`:26178`)
+and their loops, and the count face's parallel arm calls the real `Table::build_at`
+(`SpatialTable::build_at_parallel_phased`, `examples/reg1/adapters/spatial.rs:772` at `c9a2d0c^`, whose
+short-input branch is `build_at_sequential`).  `Growable/BuildRefine.foldList_logical`
 carries the generated fold to `Apeiron.Table.build`, modulo the per-step `hstep` premise that is never
 discharged.  No theorem here claims the extracted `build_at` loop produces `countAggregate`; the
 aggregate theorems are statements about the canonical object at the abstraction the crate exposes, and
@@ -94,7 +97,8 @@ def countStream (keys : List CountKey) : List (CountKey × CountValue) :=
 
 /-- **The count face's aggregate over an arbitrary value stream.**  `Apeiron.Table.build` at the count
 merge and the zero default.  The selected serial arm builds the count one `insert_with(&merge, k, 1)` at
-a time (`spatial.rs:595-597`) and the parallel arm builds the same stream at once (`spatial.rs:757-771`);
+a time (`examples/reg1/adapters/spatial.rs:594-596` at `c9a2d0c^`) and the parallel arm builds the same
+stream at once (`examples/reg1/adapters/spatial.rs:761-772` at `c9a2d0c^`);
 this is the canonical object that stream denotes, stated over an arbitrary stream so the merge algebra
 below applies to it.  `noncomputable` because `Apeiron.Table.insertWith` compares keys through this
 package's `DecidableEq CountKey`, which is `Classical.decEq`. -/
@@ -117,7 +121,7 @@ theorem countMerge_is_generated (new old : CountValue) :
   simpa [CountMerge] using Apeiron.GrowableSearch.wordMerge_newFirst new old
 
 /-- **Reading a built map is the merge fold over exactly that key's occurrences.**  `Apeiron.Table.get_build_acc`
-(`Apeiron/Table/Basic.lean:139`) at the constant default: reading
+(`Apeiron/Table/Basic.lean:134`) at the constant default: reading
 `Apeiron.Table.build f d (countStream keys)` at `k` folds `f` new-first over the values of `keys` at `k`,
 which for the count stream are the `1`s of its multiplicity. -/
 theorem count_get_build (f : CountValue → CountValue → CountValue) (d : CountValue)
@@ -160,7 +164,7 @@ theorem canonicalCount_eq_of_perm {keys₁ keys₂ : List CountKey} (h : keys₁
   simpa only [canonicalCount, countAggregate] using count_build_perm (f := CountMerge) 0#i64 h
 
 /-- **Reading the count aggregate at a key is the additive fold of that key's increments.**  Exactly
-`Apeiron.Table.get_build_acc` (`Apeiron/Table/Basic.lean:139`) at the count face's merge and zero
+`Apeiron.Table.get_build_acc` (`Apeiron/Table/Basic.lean:134`) at the count face's merge and zero
 default over an **arbitrary** value stream: everything written at other keys is invisible at `key`, and
 the merge fold over the key's own values is the count.  This is the reading law of the count face against
 the canonical object; `count_get_build` is the same law restated at the count stream with the merge and
@@ -237,7 +241,7 @@ the contract admits, at every face and every key,
     word_stored_apply_get state decision = ok (Apeiron.Table.get count query)
 
 where `count` is the canonical map the extracted state represents under `CountRep`.  The extracted body is
-`proof/ApeironWord.lean:26959-26968` over the real `table.Table.apply_get`, and the canonical object is
+`proof/ApeironWord.lean:26978-26988` over the real `table.Table.apply_get`, and the canonical object is
 `Apeiron.Table.get` at `Apeiron/Table/Basic.lean:71`.  The proof uses
 `Apeiron.GrowableSearch.word_stored_search_decision_simulates` at the contract
 `searchDecisionCorrect_of_countRep` builds from the representation, whose two canonical-`get` fields come
