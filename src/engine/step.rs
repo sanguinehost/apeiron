@@ -1376,6 +1376,31 @@ impl Engine {
         out.pop().ok_or(StepError::BadConfig("empty column block"))
     }
 
+    /// The output-normed trunk state of one decode step: embedding, the first `config.n_layer`
+    /// blocks and the output norm, before the head.
+    ///
+    /// [`Engine::step_logits_state`]'s trunk without its head; the check surface for a device
+    /// that executes the trunk (a caller that lowers `config.n_layer` reads a partial trunk).
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::step_state`].
+    pub fn step_trunk_state(
+        &self,
+        st: &mut DecodeState,
+        token_id: u32,
+        mode: KernelMode,
+    ) -> Result<Vec<i64>, StepError> {
+        self.compose_final(
+            &mut st.kv,
+            st.affine.as_mut(),
+            token_id,
+            Sched::Resident,
+            mode,
+            mode == KernelMode::Q8Act,
+        )
+    }
+
     /// The pre-change sequential reference for the bit-identity test: [`Engine::step_logits`]'s
     /// composition with owned `read_range` payloads and one unchunked [`matvec_fixed`] per
     /// projection. Test-only; the executing path is [`Engine::step_logits`].
