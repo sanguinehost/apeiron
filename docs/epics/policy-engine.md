@@ -207,7 +207,7 @@ precedent when it is worth it: tokenizer and parser are proved under the empty c
 
 **D4 · First consumer.** In-repo first: `docs/epics/frontier-consumer.md` R1 memory write/forget,
 once Track B's Table-backed store exists; then the same seam for R2 (Penglai world actions), R4 (tool
-calls) and R5 (actuators). Cross-repo first: intent's dispatch seam (W16), now linkable under MPL-2.0.
+calls) and R5 (actuators). Cross-repo first: intent's dispatch seam (W16), now linkable under Apache-2.0.
 
 **D5 · Host.** This repository (`src/policy/`, `proof/corpus/Policy/`, `tools/policy-oracle/`), the
 `spirv` precedent, under the shared-file protocol with the AI-stack lead. The canonical definition is

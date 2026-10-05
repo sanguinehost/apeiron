@@ -3,7 +3,7 @@ name = "policy-oracle"
 version = "0.0.0"
 edition = "2021"
 description = "Cedar differential oracle over the real apeiron::policy::decide (APEIRON-POLICY-W2-T2)."
-license = "MPL-2.0"
+license = "Apache-2.0"
 publish = false
 
 # This tool lives inside the apeiron repository tree but is deliberately its own workspace root
