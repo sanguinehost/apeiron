@@ -1,4 +1,5 @@
 import ApeironWord
+import Apeiron.AuditClosed
 
 /-!
 # The cost model of the hot read path
@@ -797,5 +798,21 @@ theorem absentHomeCost_reading :
     absentHomeCost.allocations = 0 ∧ absentHomeCost.bytesCopied = 0 ∧
     absentHomeCost.lines = 1 := by
   decide
+
+/-! ## Headline audit rows
+
+-- Row: `p1-audit-rows-61-audit-cQNd0kLME75aiSVIlDWYv`.
+Each row is the closed-cone gate of `Apeiron.AuditClosed`: `#audit` collects the declaration's
+transitive axiom dependencies and fails the build on anything outside
+`{propext, Classical.choice, Quot.sound}`, so a `sorryAx` anywhere in the cone is a build failure
+rather than a line in a log.  The five rows are exactly the headline table of §6, i.e. the read-loop
+bound headline(s); they sit in this module so they run in the scoped build of `Growable.CostModel`
+itself rather than in `AxiomAudit/Core.lean`. -/
+
+#audit Apeiron.GrowableCost.tail_loop_measure_decreases
+#audit Apeiron.GrowableCost.spill_read_tail_cost
+#audit Apeiron.GrowableCost.spill_read_absent_home_cost
+#audit Apeiron.GrowableCost.loopRun_of_run
+#audit Apeiron.GrowableCost.spill_read_tail_loopRun_bound
 
 end Apeiron.GrowableCost
