@@ -976,8 +976,13 @@ const MATRIX_JSON: &str = include_str!("matrix.json");
 pub(crate) const REGISTERED_STRATA_WORKLOAD: &str = "reg1-current-strata";
 /// The deterministic strata workload seed the registration must name.
 pub(crate) const REGISTERED_STRATA_SEED: &str = "0x5eed1234abcd0001";
-/// The actual executing selected implementation symbol under measurement.
-pub(crate) const EXECUTING_SELECTED_SYMBOL: &str = "apeiron::Table<StrataKey,i64,StrataHome,16>";
+/// The actual executing selected implementation symbol under measurement: the incumbent's own map
+/// body vendored into this crate at `src/hashtrinity/` (rev `4cc14471`) and reached as
+/// `apeiron::freq::Table`. Its compiler name begins with `apeiron::hashtrinity::Table<`.
+pub(crate) const EXECUTING_SELECTED_SYMBOL: &str = "apeiron::hashtrinity::Table<StrataKey,i64>";
+/// The registered identity of that same selected implementation. Distinct from the incumbent arm's
+/// `hashtrinity_table`, because the two differ only in which crate owns the type.
+pub(crate) const EXECUTING_SELECTED_ID: &str = "apeiron_hashtrinity_map";
 /// The actual executing baseline symbol under measurement.
 pub(crate) const EXECUTING_BASELINE_SYMBOL: &str = "hashtrinity::Table<StrataKey,i64>";
 /// The current source revision the registration binds to (`matrix.json` `pins.current`).
@@ -1183,11 +1188,11 @@ fn compare_cell(
             reg.id, reg.status
         ));
     }
-    if reg.impl_id != "apeiron_table" || reg.implementation != EXECUTING_SELECTED_SYMBOL {
+    if reg.impl_id != EXECUTING_SELECTED_ID || reg.implementation != EXECUTING_SELECTED_SYMBOL {
         return Err(format!(
             "registered current cell {} selected implementation {} ({}) is not the executing \
-             symbol {EXECUTING_SELECTED_SYMBOL}",
-            reg.id, reg.impl_id, reg.implementation
+             implementation {} ({EXECUTING_SELECTED_SYMBOL})",
+            reg.id, reg.impl_id, reg.implementation, EXECUTING_SELECTED_ID
         ));
     }
     if reg.baseline != EXECUTING_BASELINE_SYMBOL {
@@ -1346,7 +1351,7 @@ fn validate_retired_receipts_rejected(
             hit_ratio: format!("{:.3}", cell.hit_ratio),
             ops: old.ops.clone(),
             oracle_digest: old.oracle_digest.clone(),
-            impl_id: "apeiron_table".to_string(),
+            impl_id: EXECUTING_SELECTED_ID.to_string(),
             implementation: EXECUTING_SELECTED_SYMBOL.to_string(),
             baseline: EXECUTING_BASELINE_SYMBOL.to_string(),
             revision: REGISTERED_CURRENT_REVISION.to_string(),
@@ -1402,7 +1407,7 @@ fn validate_fabricated_cell_rejected(
         hit_ratio: format!("{:.3}", cell.hit_ratio),
         ops: cell.ops.to_string(),
         oracle_digest: format!("{:016x}", cell.oracle_digest),
-        impl_id: "apeiron_table".to_string(),
+        impl_id: EXECUTING_SELECTED_ID.to_string(),
         implementation: EXECUTING_SELECTED_SYMBOL.to_string(),
         baseline: EXECUTING_BASELINE_SYMBOL.to_string(),
         revision: REGISTERED_CURRENT_REVISION.to_string(),

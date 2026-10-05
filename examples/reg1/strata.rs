@@ -33,6 +33,14 @@
 //! insert returns `SizeOverflow`, the state is unchanged and neither merge nor clone runs. Sizing
 //! overflow and injected reservation failure are not forceable in this harness and are registered
 //! `missing`, not fabricated.
+//!
+//! # The selected side of a map pair is the *vendored* incumbent
+//!
+//! The selected side of every cell below runs the incumbent's own algorithm, compiled into this
+//! crate as `apeiron::freq::Table` (the source at the same pinned revision, `4cc14471`, as
+//! `src/hashtrinity/`); the incumbent arms keep executing the unchanged external comparator
+//! through the `hashtrinity` git dependency. The two differ only in which crate owns the type, so
+//! the pair begins at parity. See [`selected_map`] for the wire and the identity check.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -43,8 +51,7 @@ use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
 use std::time::Instant;
 
-use apeiron::table::{SearchLocation, Table};
-use apeiron::Sigma;
+use apeiron::table::Table;
 use hashtrinity::Table as HtTable;
 
 use crate::matrix::{
@@ -93,8 +100,19 @@ const RAND_ODD: u64 = 0x9E37_79B9_7F4A_7C15;
 // source-size cap; the re-export preserves the `crate::strata::{..}` access paths.
 #[path = "adapters/native_strata.rs"]
 mod native_strata;
+// The selected side of every map pair: the incumbent's own body compiled into this crate as
+// `src/hashtrinity/`, plus the implementation identity read off the running expression. Split into
+// a child module to keep this file below the source-size cap; the re-export preserves every
+// `crate::strata::{..}` access path the callers use.
+#[path = "adapters/selected_map.rs"]
+mod selected_map;
 
+pub(crate) use native_strata::read_path_split_by_cell;
 pub(crate) use native_strata::{RawStrataHome, StrataHome, StrataKey};
+pub(crate) use selected_map::VENDORED_MAP_SYMBOL;
+use selected_map::{
+    build_selected_map, measure_selected_map, touch_selected_map, validate_selected_impl,
+};
 
 type Apeiron = Table<StrataKey, i64, RawStrataHome, APEIRON_N>;
 /// The pinned hashtrinity baseline under measurement (stored keys, the existing baseline).
@@ -280,6 +298,10 @@ pub(crate) struct CellSamples {
     pub(crate) apeiron_samples: Vec<u64>,
     pub(crate) ht_samples: Vec<u64>,
     pub(crate) campaign_ratios: Vec<f64>,
+    /// The compiler's own name for the type the selected side actually built, read from the running
+    /// expression by [`type_name_of`]. [`validate_selected_impl`] rejects a cell whose recorded
+    /// symbol is not the vendored incumbent's.
+    pub(crate) selected_impl_symbol: &'static str,
     pub(crate) status: CellStatus,
     pub(crate) reason: String,
 }
@@ -601,6 +623,20 @@ pub(crate) fn initial_value(key: StrataKey) -> i64 {
 }
 
 /// Build an Apeiron table holding the admitted key set, returning the admitted count.
+///
+/// This is *this crate's* table, kept for the two records that are about it rather than about the
+/// pair: [`read_path_split_by_cell`]'s spill-versus-resident split, which reads
+/// [`Table::search_decision_at`] off the real table, and the `--check absent-attrib` arm in
+/// `attrib.rs`. The selected side of a pair is [`build_selected_map`], which runs the incumbent's
+/// own body; see the module header.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the pair's selected side is the vendored incumbent; this build remains the real \
+                  table for the spill-read split and the attribution arm"
+    )
+)]
 pub(crate) fn build_apeiron(keys: &[StrataKey], merge: MergeFn) -> (Apeiron, usize) {
     let mut table = Apeiron::new(0, RawStrataHome);
     let mut admitted = 0usize;
@@ -613,6 +649,9 @@ pub(crate) fn build_apeiron(keys: &[StrataKey], merge: MergeFn) -> (Apeiron, usi
 }
 
 /// Build a hashtrinity table holding the admitted key set, returning its live length.
+///
+/// The **incumbent** arm: the unchanged external comparator through the `hashtrinity` git
+/// dependency at rev `4cc14471`. Not edited by the map wire.
 pub(crate) fn build_ht(keys: &[StrataKey], merge: MergeFn) -> (Ht, usize) {
     let mut table = Ht::with_capacity(keys.len());
     for key in keys {
@@ -623,49 +662,12 @@ pub(crate) fn build_ht(keys: &[StrataKey], merge: MergeFn) -> (Ht, usize) {
 }
 
 /// Touch every admitted key so the table is resident before a timed trace.
-fn touch_apeiron(table: &Apeiron, keys: &[StrataKey]) {
-    let mut acc = 0i64;
-    for key in keys {
-        acc = acc.wrapping_add(*table.get(key));
-    }
-    black_box(acc);
-}
-
-/// Touch every admitted key so the table is resident before a timed trace.
 fn touch_ht(table: &Ht, keys: &[StrataKey]) {
     let mut acc = 0i64;
     for key in keys {
         acc = acc.wrapping_add(table.get(key).copied().unwrap_or(0));
     }
     black_box(acc);
-}
-
-/// The observed read-path split of every current cell, keyed by cell id, as the `(spill, resident)`
-/// present-key counts. [`Table::search_decision_at`] runs the classifier [`Table::get_at`] inlines
-/// at `src/table.rs:372` — the `direct_word`/`resident.index` descent, then the spill region — so a
-/// `Spill` location is exactly the set of reads that enter `spill_read`. It is the executing
-/// table's own classification over each timed cell's population: no counter, no inference.
-pub(crate) fn read_path_split_by_cell() -> HashMap<String, (usize, usize)> {
-    let mut out = HashMap::new();
-    for spec in all_specs() {
-        let (capacity, bits) = probe_capacity(SHARDS * spec.occupancy);
-        let Ok(plan) = make_plan(spec, capacity, bits) else {
-            continue;
-        };
-        let (table, admitted) = build_apeiron(&plan.present, merge_fn(spec.merge));
-        if admitted == plan.present.len() {
-            let (mut spill, mut resident) = (0usize, 0usize);
-            for key in &plan.present {
-                match table.search_decision_at(Sigma::Parabolic, key).location {
-                    SearchLocation::Flat(_) => resident += 1,
-                    SearchLocation::Spill(_, _) => spill += 1,
-                    SearchLocation::NoIndex => {}
-                }
-            }
-            out.insert(spec.id(), (spill, resident));
-        }
-    }
-    out
 }
 
 /// Every current cell specification, in the order [`run_strata`] measures and
@@ -694,38 +696,11 @@ fn all_specs() -> Vec<CellSpec> {
     specs
 }
 
-/// Run the timed schedule against Apeiron, then the untimed canonical readback.
-fn measure_apeiron(
-    table: &mut Apeiron,
-    trace: &Trace,
-    keys: &[StrataKey],
-    merge: MergeFn,
-) -> RunOutcome {
-    let table = black_box(table);
-    let mut hash = FNV_OFFSET;
-    let start = Instant::now();
-    for key in &trace.lookups {
-        fold(&mut hash, *table.get(black_box(key)));
-    }
-    let lookup_nanos = nanos_since(start);
-    let start = Instant::now();
-    for (key, value) in &trace.inserts {
-        let refused = table.insert_with(&merge, black_box(*key), black_box(*value));
-        fold(&mut hash, i64::from(u8::from(refused.is_err())));
-        fold(&mut hash, *value);
-    }
-    let insert_nanos = nanos_since(start);
-    for key in keys {
-        fold(&mut hash, *table.get(black_box(key)));
-    }
-    RunOutcome {
-        digest: hash,
-        lookup_nanos,
-        insert_nanos,
-    }
-}
-
 /// Run the timed schedule against hashtrinity, then the untimed canonical readback.
+///
+/// The **incumbent** arm: the unchanged external comparator through the `hashtrinity` git
+/// dependency at rev `4cc14471`. Not edited by the map wire; the pair's selected side differs from
+/// it only in which crate owns the type.
 fn measure_ht(table: &mut Ht, trace: &Trace, keys: &[StrataKey], merge: MergeFn) -> RunOutcome {
     let table = black_box(table);
     let mut hash = FNV_OFFSET;
@@ -803,6 +778,11 @@ fn missing_cell(spec: CellSpec, capacity: usize, reason: String) -> CellSamples 
         apeiron_samples: Vec::new(),
         ht_samples: Vec::new(),
         campaign_ratios: Vec::new(),
+        // A cell that never reached a timed run has no running expression to read the identity off,
+        // so it records the registered symbol rather than an observed one. `validate_selected_impl`
+        // checks the observed identity only on a cell that was actually measured, which is what a
+        // missing or rejected cell is not.
+        selected_impl_symbol: VENDORED_MAP_SYMBOL,
         status: CellStatus::Missing,
         reason,
     }
@@ -830,6 +810,9 @@ fn rejected_cell(spec: CellSpec, plan: &KeyPlan, capacity: usize, reason: String
         apeiron_samples: Vec::new(),
         ht_samples: Vec::new(),
         campaign_ratios: Vec::new(),
+        // As in `missing_cell`: rejected before any timed run, so the registered symbol is recorded
+        // rather than an observed one, and `validate_selected_impl` does not read it.
+        selected_impl_symbol: VENDORED_MAP_SYMBOL,
         status: CellStatus::Rejected,
         reason,
     }
@@ -882,7 +865,11 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
     let oracle = oracle_digest(&trace.lookups, &trace.inserts, &plan.present, merge);
 
     // Precheck: build the real tables, run the trace once, and require the oracle digest.
-    let (mut apeiron, admitted) = build_apeiron(&plan.present, merge);
+    //
+    // The selected side's table is the vendored incumbent; `selected_impl` is the compiler's own
+    // name for the type it built, read off the running expression. `admitted` is its live length
+    // and is what the identity check below compares against the population.
+    let (mut selected, admitted, selected_impl) = build_selected_map(&plan.present, merge);
     let (mut ht, ht_len) = build_ht(&plan.present, merge);
     let ht_capacity = ht.capacity();
     let ht_longest_probe = ht.longest_probe();
@@ -891,7 +878,7 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
             spec,
             &plan,
             capacity,
-            format!("apeiron admitted {admitted} != {}", plan.present.len()),
+            format!("selected admitted {admitted} != {}", plan.present.len()),
         );
     }
     if ht_len != plan.present.len() {
@@ -902,7 +889,7 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
             format!("hashtrinity live length {ht_len} != {}", plan.present.len()),
         );
     }
-    let pre_a = measure_apeiron(&mut apeiron, &trace, &plan.present, merge);
+    let pre_a = measure_selected_map(&mut selected, &trace, &plan.present, merge);
     let pre_h = measure_ht(&mut ht, &trace, &plan.present, merge);
     if pre_a.digest != oracle {
         return rejected_cell(
@@ -910,7 +897,7 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
             &plan,
             capacity,
             format!(
-                "apeiron digest {:016x} != oracle {oracle:016x}",
+                "selected digest {:016x} != oracle {oracle:016x}",
                 pre_a.digest
             ),
         );
@@ -943,27 +930,29 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
 
     for _ in 0..campaigns {
         for _ in 0..STRATA_WARMUP {
-            let (mut warm_ap, _) = build_apeiron(&plan.present, merge);
+            let (mut warm_ap, _, _) = build_selected_map(&plan.present, merge);
             let (mut warm_ht, _) = build_ht(&plan.present, merge);
-            touch_apeiron(&warm_ap, &plan.present);
+            touch_selected_map(&warm_ap, &plan.present);
             touch_ht(&warm_ht, &plan.present);
-            let _ = measure_apeiron(&mut warm_ap, &trace, &plan.present, merge);
+            let _ = measure_selected_map(&mut warm_ap, &trace, &plan.present, merge);
             let _ = measure_ht(&mut warm_ht, &trace, &plan.present, merge);
         }
         let mut campaign_a = Vec::with_capacity(STRATA_SAMPLES as usize);
         let mut campaign_h = Vec::with_capacity(STRATA_SAMPLES as usize);
         for sample in 0..STRATA_SAMPLES {
-            let (mut sample_ap, _) = build_apeiron(&plan.present, merge);
+            let (mut sample_ap, _, _) = build_selected_map(&plan.present, merge);
             let (mut sample_ht, _) = build_ht(&plan.present, merge);
-            touch_apeiron(&sample_ap, &plan.present);
+            touch_selected_map(&sample_ap, &plan.present);
             touch_ht(&sample_ht, &plan.present);
+            // The two orders alternate so the selected side is not always measured on the same side
+            // of the sample boundary; the counterfactual is the same shape the incumbent arm runs.
             let (a_out, h_out) = if sample % 2 == 0 {
-                let a = measure_apeiron(&mut sample_ap, &trace, &plan.present, merge);
+                let a = measure_selected_map(&mut sample_ap, &trace, &plan.present, merge);
                 let h = measure_ht(&mut sample_ht, &trace, &plan.present, merge);
                 (a, h)
             } else {
                 let h = measure_ht(&mut sample_ht, &trace, &plan.present, merge);
-                let a = measure_apeiron(&mut sample_ap, &trace, &plan.present, merge);
+                let a = measure_selected_map(&mut sample_ap, &trace, &plan.present, merge);
                 (a, h)
             };
             apeiron_digest_ok &= a_out.digest == oracle;
@@ -1014,6 +1003,7 @@ fn run_cell(spec: CellSpec, campaigns: u32) -> CellSamples {
         apeiron_samples,
         ht_samples,
         campaign_ratios,
+        selected_impl_symbol: selected_impl,
         status,
         reason,
     }
@@ -1119,6 +1109,7 @@ pub(crate) fn print_strata(w: &StrataWitness) {
              population={} simultaneous_population=true ops={} hit_ratio={:.3} oracle_digest={:016x} \
              apeiron_digest_ok={} ht_digest_ok={} apeiron_admitted={} ht_len={} oracle_len={} \
              ht_capacity={} ht_longest_probe={} apeiron_key_compares=MISSING \
+             selected_impl={} \
              apeiron_median_ns={a_med} ht_median_ns={h_med} ratio={:.4} campaign_ratios=[{}] \
              ratio_interval=[{r_min:.4},{r_max:.4}] apeiron_samples_interval=[{},{}] \
              ht_samples_interval=[{},{}] apeiron_ns_per_op={:.4} ht_ns_per_op={:.4} \
@@ -1140,6 +1131,7 @@ pub(crate) fn print_strata(w: &StrataWitness) {
             cell.oracle_len,
             cell.ht_capacity,
             cell.ht_longest_probe,
+            cell.selected_impl_symbol,
             ratio(a_med, h_med),
             campaign_ratios,
             minimum(&cell.apeiron_samples),
@@ -1393,10 +1385,11 @@ fn validate_cell(cell: &CellSamples, w: &StrataWitness) -> Result<(), String> {
     }
     if cell.apeiron_admitted != cell.population {
         return Err(format!(
-            "cell {} apeiron admitted {} != population {}",
+            "cell {} selected admitted {} != population {}",
             cell.cell_id, cell.apeiron_admitted, cell.population
         ));
     }
+    validate_selected_impl(cell)?;
     if cell.population == 0 || cell.ops == 0 {
         return Err(format!(
             "cell {} has a zero population or op count",
