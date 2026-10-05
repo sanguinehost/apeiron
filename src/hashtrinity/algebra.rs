@@ -4,7 +4,7 @@
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
 //! how two VALUES merge (`Face`/`Species`/the four merges/`Monoid`/`FoldExt`).
 
-use crate::hashtrinity::{is_live, is_sentinel, Locate, Table, EMPTY, PHI};
+use crate::hashtrinity::{is_live, is_sentinel, Capped, Locate, Overflow, Table, EMPTY, PHI};
 use std::mem::MaybeUninit;
 
 /// `n` uninitialized [`MaybeUninit<T>`] slots as a boxed slice — RESERVE, never initialize.
@@ -121,6 +121,14 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
         K: 'a;
     /// The key at slot `i` — borrowed if stored, regenerated from `coord` if not.
     fn key(&self, i: usize, coord: u64) -> Self::Key<'_>;
+    /// The readout of an already-materialized key `k` — the [`Overflow`](crate::hashtrinity::Overflow)
+    /// tree stores keys inline rather than in the index-addressed store, so its iteration and
+    /// `encircle_floor` project a key they hold directly. `&K` when stored; regenerated from the key's
+    /// coordinate when not (exact: a `Regen` coordinate round-trips).
+    fn key_of<'a>(&'a self, k: &'a K) -> Self::Key<'a>
+    where
+        Self: 'a,
+        K: 'a;
     /// Whether the key at slot `i` is exactly the key a borrowed [`Locate`] view names. The borrowed
     /// faces' full-key confirmation — the twin of [`KeyStore::matches`], which takes an owned `&K`.
     fn matches_locate<Q>(&self, i: usize, coord: u64, q: &Q) -> bool
@@ -221,6 +229,14 @@ impl<K: Coord + Eq> KeyReadout<K> for Stored<K> {
         unsafe { self.0.get_unchecked(i).assume_init_ref() }
     }
     #[inline]
+    fn key_of<'a>(&'a self, k: &'a K) -> &'a K
+    where
+        Self: 'a,
+        K: 'a,
+    {
+        k
+    }
+    #[inline]
     fn matches_locate<Q: Locate<K>>(&self, i: usize, coord: u64, q: &Q) -> bool {
         q.same(self.key(i, coord))
     }
@@ -268,6 +284,15 @@ impl<K: CoordInv + Eq> KeyReadout<K> for Regen<K> {
     #[inline]
     fn key(&self, _i: usize, coord: u64) -> K {
         K::from_coord(coord)
+    }
+    #[inline]
+    fn key_of<'a>(&'a self, k: &'a K) -> K
+    where
+        Self: 'a,
+        K: 'a,
+    {
+        // The coordinate round-trips by `CoordInv`, so regenerating from it is the same key.
+        K::from_coord(k.coord())
     }
     #[inline]
     fn matches_locate<Q: Locate<K>>(&self, _i: usize, coord: u64, q: &Q) -> bool {
@@ -570,15 +595,22 @@ impl<K: Eq + Coord, KS: KeyStore<K>> Table<K, i64, KS> {
             };
             self.resize(new_bits);
         }
-        let (i, found) = self.probe_keyed(coord, &k);
-        if found {
-            // SAFETY: found ⇒ value initialized; i64 add in place — no move, no panic, no drop.
-            *unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() } += v; // entry().or_insert() += v
-        } else {
-            unsafe { *self.coords.get_unchecked_mut(i) = coord };
-            unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
-            self.keys.set(i, k);
-            self.len += 1;
+        match self.probe_capped_keyed(coord, &k) {
+            Capped::Hit(i) => {
+                // SAFETY: found ⇒ value initialized; i64 add in place — no move, no panic, no drop.
+                *unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() } += v; // entry().or_insert() += v
+            }
+            Capped::Vacant(i) => {
+                unsafe { *self.coords.get_unchecked_mut(i) = coord };
+                unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
+                self.keys.set(i, k);
+                self.len += 1;
+            }
+            Capped::Blocked => {
+                self.overflow
+                    .get_or_insert_with(Overflow::new)
+                    .upsert(coord, k, v, count::<i64>);
+            }
         }
     }
 
@@ -775,6 +807,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         while let Some(last) = other.side.coords.len().checked_sub(1) {
             let (_c, k, v) = other.side.take_entry(last);
             self.insert_with(k, v, &mut f);
+        }
+        // Its overflow entries as well — a `fuse` that walked the primary and side stores only would
+        // drop the blocked keys' counts.
+        if let Some(ov) = other.overflow.take() {
+            for (_c, k, v) in ov.into_entries() {
+                self.insert_with(k, v, &mut f);
+            }
         }
     }
 }
