@@ -154,6 +154,16 @@ pub mod read_stats {
         pub summary_misses: u64,
         /// Probe steps of the bounded linear cycle.
         pub sweep_steps: u64,
+        /// 64-byte cache-line boundaries the coordinate walk of [`Self::sweep_steps`] crossed.
+        ///
+        /// `sweep_steps` counts lanes; a resident read's cost is dominated by the *lines* those
+        /// lanes occupy. `coords` is one `u64` per slot, so eight consecutive lanes share one line
+        /// and the walk crosses a boundary exactly when the slot index leaves its group of eight.
+        /// **This is a line-boundary crossing count, not a set cardinality**: a walk that wraps the
+        /// array end and re-enters a line it already crossed counts that line twice. For a
+        /// wrap-free walk — every cell whose probe terminates before `home + bound` does, which is
+        /// every read except the rare full-cycle certificate — crossings equal distinct lines.
+        pub sweep_lines: u64,
         /// Tag lanes equal to the query fingerprint.
         pub tag_matches: u64,
         /// Full `(Sigma, K)` compares reached through a fingerprint match.
@@ -166,10 +176,14 @@ pub mod read_stats {
             summary_hits: 0,
             summary_misses: 0,
             sweep_steps: 0,
+            sweep_lines: 0,
             tag_matches: 0,
             full_compares: 0,
         }) };
     }
+
+    /// The lanes of `coords` per 64-byte cache line: `size_of::<u64>()` lanes, one line per eight.
+    pub(super) const LANES_PER_LINE: usize = 64 / core::mem::size_of::<u64>();
 
     /// Clears the counters on this thread.
     pub fn clear() {
@@ -205,6 +219,27 @@ pub mod read_stats {
         STATS.with(|stats| {
             let mut s = stats.get();
             s.sweep_steps += 1;
+            stats.set(s);
+        });
+    }
+
+    /// Records that the walk left the 64-byte line of the lane it read last.
+    pub(super) fn record_line_crossing() {
+        STATS.with(|stats| {
+            let mut s = stats.get();
+            s.sweep_lines += 1;
+            stats.set(s);
+        });
+    }
+
+    /// Records the opening line of one read's walk.
+    ///
+    /// The home lane is read unconditionally, so the line holding it is always opened; the count
+    /// of *distinct* lines is one per read plus one per [`Self::record_line_crossing`].
+    pub(super) fn record_home_line() {
+        STATS.with(|stats| {
+            let mut s = stats.get();
+            s.sweep_lines += 1;
             stats.set(s);
         });
     }
@@ -271,7 +306,10 @@ pub(super) fn spill_read<K, H, R: KeyRep<K, H>, V>(
         #[cfg(test)]
         read_trace::record_sweep_step();
         #[cfg(feature = "read-stats")]
-        read_stats::record_step();
+        {
+            read_stats::record_step();
+            read_stats::record_home_line();
+        }
         let found = r.coords[home];
         if found == COORD_EMPTY {
             #[cfg(test)]
@@ -321,6 +359,10 @@ fn spill_read_tail<K, H, R: KeyRep<K, H>, V>(
         #[cfg(feature = "read-stats")]
         read_stats::record_step();
         let slot = (home + step) & mask;
+        #[cfg(feature = "read-stats")]
+        if slot / read_stats::LANES_PER_LINE != (home + step - 1) / read_stats::LANES_PER_LINE {
+            read_stats::record_line_crossing();
+        }
         let found = r.coords[slot];
         if found == COORD_EMPTY {
             #[cfg(test)]
@@ -397,7 +439,29 @@ pub(super) fn spill_update_found<K, H, R: KeyRep<K, H>, V: Clone, F: Merge<V>>(
         r.slots[home].value = merge.merge(value, old);
         return SpillUpdate::Updated;
     }
-    spill_update_tail::<K, H, R, V, F>(r, merge, sigma, address, key, value, home, wanted, bound)
+    spill_update_tail::<K, H, R, V, F>(
+        r,
+        merge,
+        sigma,
+        address,
+        key,
+        value,
+        SpillRoute {
+            home,
+            wanted,
+            bound,
+        },
+    )
+}
+
+/// The three values a spill walk starts from, derived together from the region and the query's
+/// placement: the query's home slot, the coordinate the query publishes, and the bound of the one
+/// cycle a walk visits. Carried as one value, so a walk takes one argument where it took three.
+#[derive(Clone, Copy)]
+struct SpillRoute {
+    home: usize,
+    wanted: u64,
+    bound: usize,
 }
 
 /// The collision tail of [`spill_update_found`], from the slot after the home to the end of one
@@ -418,10 +482,13 @@ fn spill_update_tail<K, H, R: KeyRep<K, H>, V: Clone, F: Merge<V>>(
     address: &TableAddress,
     key: &K,
     value: V,
-    home: usize,
-    wanted: u64,
-    bound: usize,
+    route: SpillRoute,
 ) -> SpillUpdate<V> {
+    let SpillRoute {
+        home,
+        wanted,
+        bound,
+    } = route;
     let mask = bound - 1;
     let mut step = 1;
     if home + LINEAR_G <= bound {

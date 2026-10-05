@@ -55,6 +55,7 @@
 //! extraction, refinement and executed Rust tests. REG-1/G1 stays OPEN.
 
 mod acceptance;
+mod attrib;
 mod correctness;
 mod coverage;
 mod history;
@@ -622,13 +623,15 @@ fn run(args: &[String]) -> i32 {
             guard.release();
             code
         }
+        Some("absent-attrib") => attrib::run(args),
         Some("coverage") => coverage::run_coverage(controls),
         Some("history") => history::run_history(controls),
         _ => {
             eprintln!(
                 "usage: reg1 --check bootstrap [--controls] | --check correctness --profile smoke \
                  [--controls] | --check performance --profile smoke|full [--accept] [--controls] \
-                 [--json] | --check coverage [--controls] | --check history [--controls]"
+                 [--json] | --check absent-attrib --cell <id> --arm apeiron|ht [--reps N] \
+                 [--window CTL:ACK] [--window-group SPEC] | --check coverage [--controls] | --check history [--controls]"
             );
             64
         }

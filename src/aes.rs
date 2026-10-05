@@ -8,7 +8,8 @@
 //!
 //! The state is 16 bytes in column-major order: index `4 * c + r` holds row `r` of column `c`,
 //! matching the FIPS 197 state layout. Every loop here is a `while` over an explicit index, with no
-//! iterators, so the control flow is directly readable in the extraction fragment.
+//! iterators, so the control flow is directly readable in the extraction fragment; the one
+//! exception is `build_inv_sbox`, whose index is a `u8` so its store needs no truncating cast.
 
 /// Length in bytes of an AES-128 key.
 pub const KEY_LEN: usize = 16;
@@ -48,11 +49,16 @@ const INV_SBOX: [u8; 256] = build_inv_sbox();
 /// Build the inverse permutation of the S-box at compile time.
 ///
 /// Cost: 256 table writes over a fixed bound, `O(1)` at runtime; it runs only in const evaluation.
+/// The index is a `u8` running `0 ..= u8::MAX`, so it names all 256 outputs and the store is in
+/// range by the counter's own type; `SBOX` is a permutation, so the 256 stores fill `inv` once each.
 const fn build_inv_sbox() -> [u8; 256] {
     let mut inv = [0u8; 256];
-    let mut i = 0usize;
-    while i < 256 {
-        inv[SBOX[i] as usize] = i as u8;
+    let mut i = 0u8;
+    loop {
+        inv[SBOX[i as usize] as usize] = i;
+        if i == u8::MAX {
+            break;
+        }
         i += 1;
     }
     inv
@@ -91,27 +97,27 @@ const fn gf_mul(mut a: u8, mut b: u8) -> u8 {
 /// round-key assemblies of 16 bytes; `O(1)` in any external input. Spatial cost is the 44-word
 /// expansion schedule and 11 round keys, 700 bytes on the stack.
 fn expand_key(key: &[u8; KEY_LEN]) -> [[u8; BLOCK_LEN]; ROUNDS + 1] {
-    // Word `i` occupies bytes `4*i .. 4*i+4` and is one column of the state.
-    let mut w = [[0u8; 4]; 4 * (ROUNDS + 1)];
-    let mut i = 0usize;
-    while i < 4 {
-        let o = 4 * i;
-        w[i][0] = key[o];
-        w[i][1] = key[o + 1];
-        w[i][2] = key[o + 2];
-        w[i][3] = key[o + 3];
-        i += 1;
+    // Word `word` occupies bytes `4*word .. 4*word+4` and is one column of the state.
+    let mut words = [[0u8; 4]; 4 * (ROUNDS + 1)];
+    let mut word = 0usize;
+    while word < 4 {
+        let off = 4 * word;
+        words[word][0] = key[off];
+        words[word][1] = key[off + 1];
+        words[word][2] = key[off + 2];
+        words[word][3] = key[off + 3];
+        word += 1;
     }
-    let mut i = 4usize;
-    while i < 4 * (ROUNDS + 1) {
-        // Read the previous word and the word four back into scalars before writing `w[i]`, so no
-        // projection of `w` is held across a write to `w` (Aeneas rejects that shape).
-        let mut t0 = w[i - 1][0];
-        let mut t1 = w[i - 1][1];
-        let mut t2 = w[i - 1][2];
-        let mut t3 = w[i - 1][3];
-        if i % 4 == 0 {
-            let s0 = SBOX[t1 as usize] ^ RCON[i / 4 - 1];
+    let mut word = 4usize;
+    while word < 4 * (ROUNDS + 1) {
+        // Read the previous word and the word four back into scalars before writing `words[word]`,
+        // so no projection of `words` is held across a write to `words` (Aeneas rejects that shape).
+        let mut t0 = words[word - 1][0];
+        let mut t1 = words[word - 1][1];
+        let mut t2 = words[word - 1][2];
+        let mut t3 = words[word - 1][3];
+        if word.is_multiple_of(4) {
+            let s0 = SBOX[t1 as usize] ^ RCON[word / 4 - 1];
             let s1 = SBOX[t2 as usize];
             let s2 = SBOX[t3 as usize];
             let s3 = SBOX[t0 as usize];
@@ -120,30 +126,30 @@ fn expand_key(key: &[u8; KEY_LEN]) -> [[u8; BLOCK_LEN]; ROUNDS + 1] {
             t2 = s2;
             t3 = s3;
         }
-        let p0 = w[i - 4][0];
-        let p1 = w[i - 4][1];
-        let p2 = w[i - 4][2];
-        let p3 = w[i - 4][3];
-        w[i][0] = p0 ^ t0;
-        w[i][1] = p1 ^ t1;
-        w[i][2] = p2 ^ t2;
-        w[i][3] = p3 ^ t3;
-        i += 1;
+        let p0 = words[word - 4][0];
+        let p1 = words[word - 4][1];
+        let p2 = words[word - 4][2];
+        let p3 = words[word - 4][3];
+        words[word][0] = p0 ^ t0;
+        words[word][1] = p1 ^ t1;
+        words[word][2] = p2 ^ t2;
+        words[word][3] = p3 ^ t3;
+        word += 1;
     }
 
     let mut round_keys = [[0u8; BLOCK_LEN]; ROUNDS + 1];
-    let mut r = 0usize;
-    while r < ROUNDS + 1 {
-        let mut c = 0usize;
-        while c < 4 {
-            let o = 4 * c;
-            round_keys[r][o] = w[4 * r + c][0];
-            round_keys[r][o + 1] = w[4 * r + c][1];
-            round_keys[r][o + 2] = w[4 * r + c][2];
-            round_keys[r][o + 3] = w[4 * r + c][3];
-            c += 1;
+    let mut round = 0usize;
+    while round < ROUNDS + 1 {
+        let mut col = 0usize;
+        while col < 4 {
+            let off = 4 * col;
+            round_keys[round][off] = words[4 * round + col][0];
+            round_keys[round][off + 1] = words[4 * round + col][1];
+            round_keys[round][off + 2] = words[4 * round + col][2];
+            round_keys[round][off + 3] = words[4 * round + col][3];
+            col += 1;
         }
-        r += 1;
+        round += 1;
     }
     round_keys
 }
@@ -159,7 +165,7 @@ fn add_round_key(state: &mut [u8; BLOCK_LEN], rk: &[u8; BLOCK_LEN]) {
     }
 }
 
-/// Apply SubBytes to all 16 state bytes with the S-box `sbox`.
+/// Apply `SubBytes` to all 16 state bytes with the S-box `sbox`.
 ///
 /// Cost: 16 table lookups and 16 writes, `O(1)`.
 fn sub_bytes(state: &mut [u8; BLOCK_LEN], sbox: &[u8; 256]) {
@@ -170,7 +176,7 @@ fn sub_bytes(state: &mut [u8; BLOCK_LEN], sbox: &[u8; 256]) {
     }
 }
 
-/// Apply ShiftRows: row `r` rotates left by `r` (FIPS 197 section 6.1.2).
+/// Apply `ShiftRows`: row `r` rotates left by `r` (FIPS 197 section 6.1.2).
 ///
 /// Cost: three rows of four byte reads and four writes, 12 of each, `O(1)`.
 fn shift_rows(state: &mut [u8; BLOCK_LEN]) {
@@ -206,7 +212,7 @@ fn shift_rows(state: &mut [u8; BLOCK_LEN]) {
     }
 }
 
-/// Apply InvShiftRows: row `r` rotates right by `r` (FIPS 197 section 6.2.2).
+/// Apply `InvShiftRows`: row `r` rotates right by `r` (FIPS 197 section 6.2.2).
 ///
 /// Cost: three rows of four byte reads and four writes, 12 of each, `O(1)`.
 fn inv_shift_rows(state: &mut [u8; BLOCK_LEN]) {
@@ -242,7 +248,7 @@ fn inv_shift_rows(state: &mut [u8; BLOCK_LEN]) {
     }
 }
 
-/// Apply MixColumns to the column `a` (FIPS 197 section 6.1.3).
+/// Apply `MixColumns` to the column `a` (FIPS 197 section 6.1.3).
 ///
 /// Cost: 16 GF(2^8) products by the fixed constants 2 and 3, so 16 `gf_mul` calls, `O(1)`.
 fn mix_column(a: &mut [u8]) {
@@ -256,7 +262,7 @@ fn mix_column(a: &mut [u8]) {
     a[3] = gf_mul(a0, 3) ^ a1 ^ a2 ^ gf_mul(a3, 2);
 }
 
-/// Apply InvMixColumns to the column `a` (FIPS 197 section 6.3.2).
+/// Apply `InvMixColumns` to the column `a` (FIPS 197 section 6.3.2).
 ///
 /// Cost: 16 GF(2^8) products by the fixed constants 9, 11, 13 and 14, so 16 `gf_mul` calls,
 /// `O(1)`.
@@ -277,9 +283,9 @@ fn inv_mix_column(a: &mut [u8]) {
 /// no failure case.
 ///
 /// Cost: one key expansion (11 round keys), then 10 rounds of 16 S-box lookups, 12 row rotations
-/// and one MixColumns (16 GF(2^8) products) per round except the last, plus 11 AddRoundKey passes;
-/// `O(1)` in any external input. Spatial cost is the 176-byte state plus the 700-byte expansion
-/// schedule.
+/// and one `MixColumns` (16 GF(2^8) products) per round except the last, plus 11 `AddRoundKey`
+/// passes; `O(1)` in any external input. Spatial cost is the 176-byte state plus the 700-byte
+/// expansion schedule.
 #[must_use]
 pub fn aes128_encrypt_block(key: &[u8; KEY_LEN], block: &[u8; BLOCK_LEN]) -> [u8; BLOCK_LEN] {
     let rk = expand_key(key);
@@ -310,10 +316,10 @@ pub fn aes128_encrypt_block(key: &[u8; KEY_LEN], block: &[u8; BLOCK_LEN]) -> [u8
 ///
 /// Total and infallible, with the same domain as [`aes128_encrypt_block`].
 ///
-/// Cost: one key expansion (11 round keys), then 9 rounds of InvShiftRows, 16 inverse S-box
-/// lookups, AddRoundKey and one InvMixColumns (16 GF(2^8) products), plus the final
-/// InvShiftRows/InvSubBytes/AddRoundKey pass; `O(1)` in any external input. Spatial cost is the
-/// 176-byte state plus the 700-byte expansion schedule.
+/// Cost: one key expansion (11 round keys), then 9 rounds of `InvShiftRows`, 16 inverse S-box
+/// lookups, `AddRoundKey` and one `InvMixColumns` (16 GF(2^8) products), plus the final
+/// `InvShiftRows`/`InvSubBytes`/`AddRoundKey` pass; `O(1)` in any external input. Spatial cost is
+/// the 176-byte state plus the 700-byte expansion schedule.
 #[must_use]
 pub fn aes128_decrypt_block(key: &[u8; KEY_LEN], block: &[u8; BLOCK_LEN]) -> [u8; BLOCK_LEN] {
     let rk = expand_key(key);
