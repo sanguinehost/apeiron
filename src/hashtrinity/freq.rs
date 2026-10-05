@@ -4,6 +4,196 @@
 
 use crate::hashtrinity::{bits_for_slots, par, Coord, CoordInv, Regen, Table, EMPTY, PHI};
 use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// THE COUNT FACE — sequential helpers (the refinable steps) and the parallel fan-out around them.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/// The sequential steps of the parallel count. Each is a plain loop over slices with its values
+/// carried (no early `return` in a loop, no iterator adapter, no closure, no raw pointer, no
+/// `unsafe`), so the Aeneas fragment can extract it. `count_par` calls exactly these; the thread
+/// fan-out around them (disjoint windows, one barrier per phase) is the only code that is not
+/// sequential, and stays a named premise. Composed single-threaded they compute the group-by count
+/// `Apeiron.Table.build (+) 0` over the keys' coordinates.
+///
+/// Refusal (`false` / `None`) replaces every overflow: a `u32` histogram entry, a `usize` offset
+/// and an `i64` count each fail closed.
+impl<K: Coord> FreqMap<K, i64> {
+    /// Home buckets are the top `COUNT_BBITS` bits of `c·PHI`.
+    pub const COUNT_BBITS: u32 = 8;
+    /// `2^COUNT_BBITS` home buckets.
+    pub const COUNT_BUCKETS: usize = 1 << Self::COUNT_BBITS;
+
+    /// The home bucket of coordinate `c` (`home_balanced` spread). BOUND: `(c·PHI) >> (64 - BBITS)`
+    /// lies in `[0, 2^BBITS)`; the mask is the identity there and states the bound to the optimiser.
+    /// O(1).
+    #[inline]
+    pub fn count_home(c: u64) -> usize {
+        (c.wrapping_mul(PHI) >> (64 - Self::COUNT_BBITS)) as usize & (Self::COUNT_BUCKETS - 1)
+    }
+
+    /// Admission of an `n`-key count: every per-key count is at most `n`, so `n <= count_max`
+    /// (production: `i64::MAX`) keeps every `i64` total in range. O(1).
+    pub fn count_admit(n: usize, count_max: u64) -> bool {
+        (n as u64) <= count_max
+    }
+
+    /// Phase 1, one shard: `homes[i] = home(keys[i])` and `hist[h] += 1`, with every `u32` entry
+    /// incremented by `checked_add`. `false` (refusal) if the lengths are wrong
+    /// (`homes.len() != keys.len()` or `hist.len() != COUNT_BUCKETS`) or an entry would exceed
+    /// `u32::MAX`; the loop stops at the first refusal. Time `Θ(keys.len())` key reads and
+    /// increments, space `O(1)` beyond the slices: one pass, one iteration per key.
+    pub fn count_histogram(keys: &[K], homes: &mut [u8], hist: &mut [u32]) -> bool {
+        let n = keys.len();
+        let mut ok = homes.len() == n && hist.len() == Self::COUNT_BUCKETS;
+        let mut i = 0usize;
+        while ok && i < n {
+            let h = Self::count_home(keys[i].coord());
+            homes[i] = h as u8;
+            match hist[h].checked_add(1) {
+                Some(v) => hist[h] = v,
+                None => ok = false,
+            }
+            i += 1;
+        }
+        ok
+    }
+
+    /// Checked prefix sums over the `w × b` histogram (`counts[t*b + j]`, `b = COUNT_BUCKETS`):
+    /// `bstart[j]` is the first routed slot of bucket `j` (`bstart[b] = total`) and `woff[t*b + j]`
+    /// the first slot worker `t` writes in bucket `j`, ordered by `t`. `false` (refusal) if a
+    /// length is wrong, a `usize` sum overflows, or `total != n` (the routed buffer is only fully
+    /// written when the entries sum to `n`). Time `Θ(w·b)` additions, space `O(1)` beyond the
+    /// outputs: one pass over the `b` buckets × `w` workers.
+    pub fn count_offsets(
+        counts: &[u32],
+        w: usize,
+        n: usize,
+        bstart: &mut [usize],
+        woff: &mut [usize],
+    ) -> bool {
+        let b = Self::COUNT_BUCKETS;
+        let wb = match w.checked_mul(b) {
+            Some(x) => x,
+            None => return false,
+        };
+        let mut ok = counts.len() == wb && woff.len() == wb && bstart.len() == b + 1;
+        let mut acc = 0usize;
+        let mut j = 0usize;
+        while ok && j < b {
+            bstart[j] = acc;
+            let mut t = 0usize;
+            while ok && t < w {
+                woff[t * b + j] = acc;
+                match acc.checked_add(counts[t * b + j] as usize) {
+                    Some(v) => acc = v,
+                    None => ok = false,
+                }
+                t += 1;
+            }
+            j += 1;
+        }
+        if ok {
+            bstart[b] = acc;
+        }
+        ok && acc == n
+    }
+
+    /// Phase 2, one key: the destination slot of a key of home `h` for the shard whose write cursors
+    /// are `off`, and the cursor advance. The shard's loop applies it to every key in order
+    /// (`routed[count_slot(off, homes[i])] = keys[i]`); the cursors are the `woff` row of that shard,
+    /// so slots are disjoint across shards and within a shard. O(1).
+    #[inline]
+    pub fn count_slot(off: &mut [usize], h: u8) -> usize {
+        let j = usize::from(h);
+        let s = off[j];
+        off[j] = s + 1;
+        s
+    }
+
+    /// Phase 3, one bucket: the count map of `routed[lo..hi]` (`m.add(k, 1)` per key; `Build (+) 0`
+    /// over the bucket). A range outside `routed` is clipped to it. Time `Θ(hi - lo)` map
+    /// insertions (each amortised O(1) at the group probe's bounded probe length — a hypothesis,
+    /// `AggregationBound`), space `Θ(hi - lo)` slots.
+    pub fn count_aggregate(routed: &[K], lo: usize, hi: usize) -> Self {
+        let mut m = Self::with_capacity(hi.saturating_sub(lo));
+        let mut i = lo;
+        while i < hi && i < routed.len() {
+            m.add(&routed[i], 1);
+            i += 1;
+        }
+        m
+    }
+}
+
+/// Phases 1–2 of the count: partition `keys` by home bucket across the pool. Returns the keys
+/// grouped by bucket and the bucket starts (`b + 1` entries), or `None` if admission refuses.
+/// Each task passes only its own disjoint window to the sequential helpers; the raw pointers
+/// are the fan-out premise.
+fn count_route<K: Coord + Copy + Sync>(
+    pool: &par::Pool,
+    keys: &[K],
+) -> Option<(Vec<K>, Vec<usize>)> {
+    type F<K> = FreqMap<K, i64>;
+    let w = pool.width();
+    let n = keys.len();
+    let b = F::<K>::COUNT_BUCKETS;
+    let chunk = n / w + usize::from(n % w != 0);
+    let refused = AtomicBool::new(false);
+
+    // R1: phase 1 folds every key once and phase 2 reads the bucket back instead of refolding it
+    // (`COUNT_BBITS <= 8`, so one byte carries `home` exactly).
+    const _: () = assert!(FreqMap::<u64, i64>::COUNT_BBITS <= 8);
+    let mut homes: Vec<u8> = vec![0u8; n];
+    let hptr = par::SendPtr(homes.as_mut_ptr());
+    let mut counts = vec![0u32; w * b];
+    let cptr = par::SendPtr(counts.as_mut_ptr());
+    pool.dispatch(w, |t| {
+        let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
+        let (lo, hi) = (lo.min(hi), hi);
+        // SAFETY: task t's windows `homes[lo..hi]` and `counts[t*b..t*b+b]` are disjoint across t
+        // and in bounds (`hi <= n`, `t < w`); the barrier orders the writes before the reads below.
+        let (hw, cw) = unsafe {
+            (
+                std::slice::from_raw_parts_mut(hptr.add(lo), hi - lo),
+                std::slice::from_raw_parts_mut(cptr.add(t * b), b),
+            )
+        };
+        if !F::<K>::count_histogram(&keys[lo..hi], hw, cw) {
+            refused.store(true, Ordering::Relaxed);
+        }
+    });
+    if refused.load(Ordering::Relaxed) {
+        return None;
+    }
+    let mut bstart = vec![0usize; b + 1];
+    let mut woff = vec![0usize; w * b];
+    if !F::<K>::count_offsets(&counts, w, n, &mut bstart, &mut woff) {
+        return None;
+    }
+
+    // Phase 2 — scatter into `routed` grouped by bucket (disjoint offset ranges ⇒ no contention).
+    // `K: Copy`, so writing uninitialised slots by pointer then `set_len` is sound.
+    let mut routed: Vec<K> = Vec::with_capacity(n);
+    let rptr = par::SendPtr(routed.as_mut_ptr());
+    let woff_ref = &woff;
+    let homes_ref = &homes;
+    pool.dispatch(w, |t| {
+        let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
+        let lo = lo.min(hi);
+        let mut off: Vec<usize> = woff_ref[t * b..t * b + b].to_vec();
+        for (&h, &k) in homes_ref[lo..hi].iter().zip(&keys[lo..hi]) {
+            let s = F::<K>::count_slot(&mut off, h);
+            // SAFETY: `count_offsets` verified the cursors tile `[0, n)` and phase 1 counted exactly
+            // this shard's keys per bucket, so `s < n` and each slot is written once across all tasks.
+            unsafe { *rptr.add(s) = k };
+        }
+    });
+    // SAFETY: every slot 0..n was written exactly once by phase 2 (Σ counts = n, checked).
+    unsafe { routed.set_len(n) };
+    Some((routed, bstart))
+}
 
 impl<K: Coord + Eq + Copy + Sync> FreqMap<K, i64> {
     /// **The parallel two-level GROUP BY count**, on the group-probe (NB) engine (`GroupProbe.lean`:
@@ -17,106 +207,37 @@ impl<K: Coord + Eq + Copy + Sync> FreqMap<K, i64> {
     /// `GatherCrossover`) it falls back to one serial aggregation. Cost is linear in `n` GIVEN a
     /// per-probe bound (`AggregationBound.build_linear_of_bounded_probes`, where that bound is a
     /// hypothesis, refuted worst-case); `2^-64` fold-collision fp (the join/count use case).
+    ///
+    /// Panics on admission refusal ([`try_count_par`](Self::try_count_par) returns `None`
+    /// instead): a `u32` histogram entry, a `usize` offset or an `i64` count overflowing.
     #[must_use]
     pub fn count_par(keys: &[K]) -> Vec<Self> {
+        Self::try_count_par(keys).expect(
+            "count_par admission: a u32 histogram entry, usize offset or i64 count would overflow",
+        )
+    }
+
+    /// [`count_par`](Self::count_par) with admission refusal as `None` instead of a panic. The
+    /// sequential steps are the `count_*` helpers; the pool fan-out is outside them.
+    #[must_use]
+    pub fn try_count_par(keys: &[K]) -> Option<Vec<Self>> {
         let pool = par::Pool::global();
         let w = pool.width();
         let n = keys.len();
+        if !Self::count_admit(n, i64::MAX as u64) {
+            return None;
+        }
         // Serial fallback below the crossover: one map, no partition cost.
         if w <= 1 || n < (1 << 15) {
-            let mut m = Self::with_capacity(n);
-            for &k in keys {
-                m.add(&k, 1);
-            }
-            return vec![m];
+            return Some(vec![Self::count_aggregate(keys, 0, n)]);
         }
-        const BBITS: u32 = 8; // 256 home buckets
-        let b = 1usize << BBITS;
-        let chunk = n.div_ceil(w);
-        // Bucket = the TOP BBITS of the Fibonacci-spread coord (`c·PHI`) — `home_balanced` spread
-        // (raw `coord()` is the identity for integers, top bits 0 ⇒ all in bucket 0; the `·PHI` fixes it).
-        #[inline]
-        // R5: the trailing mask is the identity on this expression's range and is what lets the
-        // compiler discharge the two index bounds checks. BOUND: for any `c`, `c·PHI` is a 64-bit
-        // word, so `(c·PHI) >> (64 - BBITS)` is its top `BBITS` bits and lies in `[0, 2^BBITS)` =
-        // `[0, b)`; masking by `2^BBITS - 1` therefore leaves the value unchanged, while stating
-        // `idx < b = local.len() = off.len()` to the optimiser, which removes one `cmp`+`jae` from
-        // each of the two partition loops (2 branches/key). Not an approximation: same index.
-        fn home(c: u64) -> usize {
-            (c.wrapping_mul(PHI) >> (64 - BBITS)) as usize & ((1 << BBITS) - 1)
-        }
-
-        // R1: phase 1 folds every key once and phase 2 needs the *same* bucket of the *same* key, so
-        // phase 2 reads the bucket back instead of refolding it. `BBITS = 8` gives `home ∈ [0, 2^8)
-        // = [0, b)`, so one byte per key carries it exactly; the two phases walk the same `[lo, hi)`
-        // per worker, so the absolute index is the correspondence. Cost: one `n`-byte scratch
-        // allocation, written once in phase 1 and read once in phase 2.
-        const _: () = assert!(BBITS <= 8);
-        let mut homes: Vec<u8> = vec![0u8; n];
-        let hptr = par::SendPtr(homes.as_mut_ptr());
-
-        // Phase 1 — per-worker per-bucket histogram (row t = counts[t*b .. t*b+b]).
-        let mut counts = vec![0u32; w * b];
-        let cptr = par::SendPtr(counts.as_mut_ptr());
-        pool.dispatch(w, |t| {
-            let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
-            let mut local = vec![0u32; b];
-            for (i, &k) in keys[lo..hi].iter().enumerate() {
-                let h = home(k.coord());
-                // SAFETY: task t writes homes[lo+i]; disjoint by t; the barrier orders it before
-                // phase 2's read.
-                unsafe { *hptr.add(lo + i) = h as u8 };
-                local[h] += 1;
-            }
-            for (j, &c) in local.iter().enumerate() {
-                // SAFETY: task t owns row t (disjoint by t); barrier orders before the read below.
-                unsafe { *cptr.add(t * b + j) = c };
-            }
-        });
-        // Prefix sums (serial, w*b work): contiguous bucket ranges + each (worker,bucket) write offset.
-        let mut bstart = vec![0usize; b + 1];
-        for j in 0..b {
-            let s: usize = (0..w).map(|t| counts[t * b + j] as usize).sum();
-            bstart[j + 1] = bstart[j] + s;
-        }
-        let mut woff = vec![0usize; w * b];
-        for j in 0..b {
-            let mut acc = bstart[j];
-            for t in 0..w {
-                woff[t * b + j] = acc;
-                acc += counts[t * b + j] as usize;
-            }
-        }
-
-        // Phase 2 — parallel scatter into `routed`, grouped by bucket (disjoint offset ranges ⇒ no
-        // contention). `K: Copy`, so writing uninitialised slots by pointer then `set_len` is sound.
-        let mut routed: Vec<K> = Vec::with_capacity(n);
-        let rptr = par::SendPtr(routed.as_mut_ptr());
-        let woff_ref = &woff;
-        pool.dispatch(w, |t| {
-            let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
-            let mut off: Vec<usize> = (0..b).map(|j| woff_ref[t * b + j]).collect();
-            // The zip over two equal-length slices is what keeps R1 free of a per-key bounds
-            // branch: `keys[lo..hi]` and `homes[lo..hi]` are sliced once, so the range check is
-            // per loop, not per key. `enumerate` + `homes[lo + i]` costs one `cmp`/`jae` per key.
-            for (&h, &k) in homes[lo..hi].iter().zip(&keys[lo..hi]) {
-                let j = usize::from(h); // R1: carried, not refolded
-                // SAFETY: prefix-summed offsets are disjoint across (t,j); each slot written once.
-                unsafe { *rptr.add(off[j]) = k };
-                off[j] += 1;
-            }
-        });
-        // SAFETY: every slot 0..n was written exactly once by phase 2 (Σ counts = n).
-        unsafe { routed.set_len(n) };
+        let (routed, bstart) = count_route(pool, keys)?;
+        let b = Self::COUNT_BUCKETS;
 
         // Phase 3 — aggregate each bucket into its own group-probe map, in parallel (disjoint keys
         // ⇒ no merge; schedule-free, `Web.preduceAt_schedule_free`). Static bucket chunks per worker.
-        // R4: the placeholder vector existed only so phase 3 could write through a raw pointer, and
-        // every one of its `b` maps was built by `with_capacity(0)` → `with_bits(3)` forced to
-        // `max(4)` = 16 slots, i.e. 2 allocations each, then overwritten and dropped: `2b` = 512
-        // allocations and 512 frees per call for nothing. `Vec<Option<Self>>` is the same shape of
-        // out-parameter with a `None` that allocates nothing, so phase 3 writes `Some(m)` and the
-        // unwrap at the end is one `Vec<Self>` allocation instead of 512.
+        // R4: `Vec<Option<Self>>` allocates nothing for the `None` placeholders (a vector of
+        // pre-built maps cost `2b` allocations per call); the unwrap is one `Vec<Self>` allocation.
         let mut maps: Vec<Option<Self>> = (0..b).map(|_| None).collect();
         let mptr = par::SendPtr(maps.as_mut_ptr());
         let bstart_ref = &bstart;
@@ -124,17 +245,13 @@ impl<K: Coord + Eq + Copy + Sync> FreqMap<K, i64> {
         let bchunk = b.div_ceil(w);
         pool.dispatch(w, |t| {
             for j in (t * bchunk)..((t + 1) * bchunk).min(b) {
-                let (lo, hi) = (bstart_ref[j], bstart_ref[j + 1]);
-                let mut m = Self::with_capacity(hi - lo);
-                for &k in &routed_ref[lo..hi] {
-                    m.add(&k, 1);
-                }
+                let m = Self::count_aggregate(routed_ref, bstart_ref[j], bstart_ref[j + 1]);
                 // SAFETY: task t owns bucket range [t*bchunk,..); disjoint j ⇒ disjoint maps[j].
                 unsafe { *mptr.add(j) = Some(m) }
             }
         });
         // Every slot is written: the `w` dispatches partition `[0, b)` by `bchunk` with no gap.
-        maps.into_iter().map(|slot| slot.expect("phase 3 wrote every bucket")).collect()
+        Some(maps.into_iter().map(|slot| slot.expect("phase 3 wrote every bucket")).collect())
     }
 }
 
@@ -150,11 +267,16 @@ impl<K: CoordInv + Eq + Copy + Sync> Table<K, i64, Regen<K>> {
     /// `GatherCrossover`) it falls back to one serial aggregation. Cost is linear in `n` GIVEN a
     /// per-probe bound (`AggregationBound.build_linear_of_bounded_probes`, where that bound is a
     /// hypothesis, refuted worst-case); `2^-64` fold-collision fp (the join/count use case).
+    /// Phases 1–2 are the shared `FreqMap` count helpers; panics on admission refusal.
     #[must_use]
     pub fn count_par(keys: &[K]) -> Vec<Self> {
         let pool = par::Pool::global();
         let w = pool.width();
         let n = keys.len();
+        assert!(
+            FreqMap::<K, i64>::count_admit(n, i64::MAX as u64),
+            "count_par admission: i64 count would overflow"
+        );
         // Serial fallback below the crossover: one map, no partition cost.
         if w <= 1 || n < (1 << 15) {
             let mut m = Self::coordinate_with_capacity(n);
@@ -163,62 +285,10 @@ impl<K: CoordInv + Eq + Copy + Sync> Table<K, i64, Regen<K>> {
             }
             return vec![m];
         }
-        const BBITS: u32 = 8; // 256 home buckets
-        let b = 1usize << BBITS;
-        let chunk = n.div_ceil(w);
-        // Bucket = the TOP BBITS of the Fibonacci-spread coord (`c·PHI`) — `home_balanced` spread
-        // (raw `coord()` is the identity for integers, top bits 0 ⇒ all in bucket 0; the `·PHI` fixes it).
-        #[inline]
-        fn home(c: u64) -> usize {
-            (c.wrapping_mul(PHI) >> (64 - BBITS)) as usize
-        }
-
-        // Phase 1 — per-worker per-bucket histogram (row t = counts[t*b .. t*b+b]).
-        let mut counts = vec![0u32; w * b];
-        let cptr = par::SendPtr(counts.as_mut_ptr());
-        pool.dispatch(w, |t| {
-            let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
-            let mut local = vec![0u32; b];
-            for &k in &keys[lo..hi] {
-                local[home(k.coord())] += 1;
-            }
-            for (j, &c) in local.iter().enumerate() {
-                // SAFETY: task t owns row t (disjoint by t); barrier orders before the read below.
-                unsafe { *cptr.add(t * b + j) = c };
-            }
-        });
-        // Prefix sums (serial, w*b work): contiguous bucket ranges + each (worker,bucket) write offset.
-        let mut bstart = vec![0usize; b + 1];
-        for j in 0..b {
-            let s: usize = (0..w).map(|t| counts[t * b + j] as usize).sum();
-            bstart[j + 1] = bstart[j] + s;
-        }
-        let mut woff = vec![0usize; w * b];
-        for j in 0..b {
-            let mut acc = bstart[j];
-            for t in 0..w {
-                woff[t * b + j] = acc;
-                acc += counts[t * b + j] as usize;
-            }
-        }
-
-        // Phase 2 — parallel scatter into `routed`, grouped by bucket (disjoint offset ranges ⇒ no
-        // contention). `K: Copy`, so writing uninitialised slots by pointer then `set_len` is sound.
-        let mut routed: Vec<K> = Vec::with_capacity(n);
-        let rptr = par::SendPtr(routed.as_mut_ptr());
-        let woff_ref = &woff;
-        pool.dispatch(w, |t| {
-            let (lo, hi) = (t * chunk, ((t + 1) * chunk).min(n));
-            let mut off: Vec<usize> = (0..b).map(|j| woff_ref[t * b + j]).collect();
-            for &k in &keys[lo..hi] {
-                let j = home(k.coord());
-                // SAFETY: prefix-summed offsets are disjoint across (t,j); each slot written once.
-                unsafe { *rptr.add(off[j]) = k };
-                off[j] += 1;
-            }
-        });
-        // SAFETY: every slot 0..n was written exactly once by phase 2 (Σ counts = n).
-        unsafe { routed.set_len(n) };
+        let (routed, bstart) = count_route(pool, keys).expect(
+            "count_par admission: a u32 histogram entry, usize offset or i64 count would overflow",
+        );
+        let b = FreqMap::<K, i64>::COUNT_BUCKETS;
 
         // Phase 3 — aggregate each bucket into its own group-probe map, in parallel (disjoint keys
         // ⇒ no merge; schedule-free, `Web.preduceAt_schedule_free`). Static bucket chunks per worker.
@@ -1016,5 +1086,35 @@ mod freqline_flood {
         // top 16 bits zero; the low 48 bits are a PHI-scrambled counter (distinct, dense).
         let keys: Vec<u64> = (0..12_000u64).map(|i| i.wrapping_mul(PHI) >> 16).collect();
         assert_bounded(&keys, "pinned-home");
+    }
+}
+
+#[cfg(test)]
+mod count_par_regen {
+    use super::{FreqMap, Regen, Table};
+    use std::collections::HashMap;
+
+    /// The Regen face's `count_par` (shared phases 1-2) agrees with a `HashMap` oracle and with the
+    /// `FreqMap` face on a key set above the crossover.
+    #[test]
+    fn regen_count_par_matches_oracle() {
+        let mut x = 0x1234_5678_9abc_def0u64;
+        let keys: Vec<u64> = (0..200_000)
+            .map(|_| {
+                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                (x >> 33) % 50_000
+            })
+            .collect();
+        let mut oracle: HashMap<u64, i64> = HashMap::new();
+        for &k in &keys {
+            *oracle.entry(k).or_insert(0) += 1;
+        }
+        let maps = Table::<u64, i64, Regen<u64>>::count_par(&keys);
+        let fmaps = FreqMap::<u64, i64>::count_par(&keys);
+        for (&k, &c) in &oracle {
+            let r: i64 = maps.iter().filter_map(|m| m.get(&k).copied()).sum();
+            let f: i64 = fmaps.iter().filter_map(|m| m.get(&k).copied()).sum();
+            assert_eq!((r, f), (c, c), "key {k}");
+        }
     }
 }
