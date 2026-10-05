@@ -1,3 +1,4 @@
+// Row: `apeiron-prefix-slice-land-C5JZtM621wcM1G8Mz7VsIF` (/ ).
 //! The trait vocabulary `Table<K, V, KS>` is parameterized by — split out of `lib.rs`, re-exported
 //! from it, so every path is unchanged. Two halves: how a KEY becomes a 64-bit address
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
@@ -40,24 +41,22 @@ int_coord_inv!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 // ── KeyStore: how a key's identity is held, or regenerated. ────────────────────────────────────
 
 /// How a table holds each key's identity. Opaque keys are stored ([`Stored`]); coordinate keys
-/// regenerate from the address and store nothing ([`Regen`]). `Key<'a>` is a borrow when stored, an
-/// owned key when regenerated.
+/// regenerate from the address and store nothing ([`Regen`]).
+///
+/// This trait is deliberately **generic-associated-type-free**: the borrowed/owned readback
+/// (`Key<'a>`, [`key`](KeyReadout::key)) lives on the extension trait [`KeyReadout`]. Aeneas's
+/// `translate_fwd_ty` refuses a nonempty-generic `TTraitType`, so a `type Key<'a>` here keeps the
+/// whole storage trait — and therefore every `Table` body bounded by it — out of the extraction.
+/// Storage, probe and mutation need only this trait; readback takes [`KeyReadout`].
 pub trait KeyStore<K: Coord>: Sized {
     /// True when keys regenerate from the address ([`Regen`]) instead of being stored ([`Stored`]).
     /// Selects key *storage* only — never the read algorithm (there is one probe). `get_exact`
     /// uses it to skip the redundant key compare (`CoordinateReadout.exact_read_is_read`).
     const REGEN: bool = false;
-    /// The key as read back — `&K` when stored, `K` (regenerated) when not.
-    type Key<'a>
-    where
-        Self: 'a,
-        K: 'a;
     /// Allocate a store for `n` slots.
     fn alloc(n: usize) -> Self;
     /// Record slot `i`'s key (Stored: keep it; Regen: a no-op — the address carries it).
     fn set(&mut self, i: usize, k: K);
-    /// The key at slot `i` — borrowed if stored, regenerated from `coord` if not.
-    fn key(&self, i: usize, coord: u64) -> Self::Key<'_>;
     /// Whether slot `i` holds key `q` (an exact compare; trivially true on the Regen path).
     fn matches(&self, i: usize, coord: u64, q: &K) -> bool;
     /// Move slot `i`'s key into slot `j` of `dst` (used while growing).
@@ -74,6 +73,24 @@ pub trait KeyStore<K: Coord>: Sized {
     /// Drop the LIVE keys. Called by `Table`'s `Drop`; a no-op when `K` has no destructor or
     /// nothing is stored.
     fn drop_live(&mut self, coords: &[u64]);
+}
+
+/// Key readback — the borrowed/owned key projection, split off [`KeyStore`] so the storage trait
+/// carries no generic associated type. `Key<'a>` is a borrow when stored, an owned key when
+/// regenerated.
+///
+/// The split is the route-1 extraction adaptation: the executing `new`/`with_capacity`/`get`/
+/// `insert_with`/growth bodies never read a key back, so they need only [`KeyStore`] and translate
+/// once the GAT is out of that trait. Only the readback faces (`Table::iter`, `Table::encircle_floor`
+/// and the `face`/`ctrl_proto` iteration surfaces) require this extension trait.
+pub trait KeyReadout<K: Coord>: KeyStore<K> {
+    /// The key as read back — `&K` when stored, `K` (regenerated) when not.
+    type Key<'a>
+    where
+        Self: 'a,
+        K: 'a;
+    /// The key at slot `i` — borrowed if stored, regenerated from `coord` if not.
+    fn key(&self, i: usize, coord: u64) -> Self::Key<'_>;
 }
 
 /// Stores each key in a bare `MaybeUninit<K>` slot — for opaque keys whose fold has no inverse.
@@ -98,10 +115,6 @@ impl<K> std::fmt::Debug for Stored<K> {
 }
 
 impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
-    type Key<'a>
-        = &'a K
-    where
-        K: 'a;
     #[inline]
     fn alloc(n: usize) -> Self {
         // like `vals`: reserve, never initialize — no per-slot write at build time
@@ -116,11 +129,6 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
     fn set(&mut self, i: usize, k: K) {
         // only ever called on a previously-EMPTY slot — nothing to drop
         unsafe { *self.0.get_unchecked_mut(i) = MaybeUninit::new(k) };
-    }
-    #[inline]
-    fn key(&self, i: usize, _coord: u64) -> &K {
-        // SAFETY: only called on an occupied slot — the invariant says initialized.
-        unsafe { self.0.get_unchecked(i).assume_init_ref() }
     }
     #[inline]
     fn matches(&self, i: usize, _coord: u64, q: &K) -> bool {
@@ -171,6 +179,18 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
     }
 }
 
+impl<K: Coord + Eq> KeyReadout<K> for Stored<K> {
+    type Key<'a>
+        = &'a K
+    where
+        K: 'a;
+    #[inline]
+    fn key(&self, i: usize, _coord: u64) -> &K {
+        // SAFETY: only called on an occupied slot — the invariant says initialized.
+        unsafe { self.0.get_unchecked(i).assume_init_ref() }
+    }
+}
+
 /// Stores nothing: the key is `from_coord` of the slot's coordinate. For integer keys the address
 /// *is* the key, so build writes one array instead of two and the table is smaller.
 #[derive(Clone, Debug, Default)]
@@ -178,20 +198,12 @@ pub struct Regen<K>(std::marker::PhantomData<K>);
 
 impl<K: CoordInv + Eq> KeyStore<K> for Regen<K> {
     const REGEN: bool = true; // coordinate keys: the address round-trips, nothing stored
-    type Key<'a>
-        = K
-    where
-        K: 'a;
     #[inline]
     fn alloc(_n: usize) -> Self {
         Regen(std::marker::PhantomData)
     }
     #[inline]
     fn set(&mut self, _i: usize, _k: K) {} // the address is the key — nothing to store
-    #[inline]
-    fn key(&self, _i: usize, coord: u64) -> K {
-        K::from_coord(coord)
-    }
     #[inline]
     fn matches(&self, _i: usize, coord: u64, q: &K) -> bool {
         K::from_coord(coord) == *q
@@ -211,6 +223,17 @@ impl<K: CoordInv + Eq> KeyStore<K> for Regen<K> {
     }
     #[inline]
     fn drop_live(&mut self, _coords: &[u64]) {} // nothing stored, nothing to drop
+}
+
+impl<K: CoordInv + Eq> KeyReadout<K> for Regen<K> {
+    type Key<'a>
+        = K
+    where
+        K: 'a;
+    #[inline]
+    fn key(&self, _i: usize, coord: u64) -> K {
+        K::from_coord(coord)
+    }
 }
 impl Coord for u128 {
     #[inline]

@@ -39,7 +39,9 @@
 // reference would put a second indirection on the hot probe.
 #![allow(clippy::needless_pass_by_value)]
 
-use crate::hashtrinity::{bits_for, is_live, Coord, KeyStore, Stored, Table, EMPTY, PHI, TOMB};
+use crate::hashtrinity::{
+    bits_for, is_live, Coord, KeyReadout, KeyStore, Stored, Table, EMPTY, PHI, TOMB,
+};
 use std::mem::MaybeUninit;
 
 // ── Locate / Absorb: a borrowed key that addresses the same slot as the owned one. ─────────────
@@ -195,7 +197,10 @@ pub struct VacantEntry<'a, K: Coord + Eq, V, KS: KeyStore<K>> {
 impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> OccupiedEntry<'a, K, V, KS> {
     /// This slot's key — borrowed when stored, regenerated from the address when not.
     #[inline]
-    pub fn key(&self) -> KS::Key<'_> {
+    pub fn key(&self) -> KS::Key<'_>
+    where
+        KS: KeyReadout<K>,
+    {
         self.t.keys.key(self.slot, self.coord)
     }
     /// The value in the slot.
@@ -500,7 +505,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
 
     /// The stored key and its value. `Regen` regenerates the key from the address.
     #[inline]
-    pub fn get_key_value(&self, k: &K) -> Option<(KS::Key<'_>, &V)> {
+    pub fn get_key_value(&self, k: &K) -> Option<(KS::Key<'_>, &V)>
+    where
+        KS: KeyReadout<K>,
+    {
         let coord = Self::coord_of(k);
         let (i, found) = self.probe(coord);
         if !found {
@@ -530,12 +538,18 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     }
 
     /// Iterate the live keys.
-    pub fn keys(&self) -> impl Iterator<Item = KS::Key<'_>> {
+    pub fn keys(&self) -> impl Iterator<Item = KS::Key<'_>>
+    where
+        KS: KeyReadout<K>,
+    {
         Iter::new(self).map(|(k, _)| k)
     }
 
     /// Iterate the live values.
-    pub fn values(&self) -> impl Iterator<Item = &V> {
+    pub fn values(&self) -> impl Iterator<Item = &V>
+    where
+        KS: KeyReadout<K>,
+    {
         Iter::new(self).map(|(_, v)| v)
     }
 
@@ -553,7 +567,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Iterate the live `(key, &mut value)` pairs.
     pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = (KS::Key<'a>, &'a mut V)>
     where
-        KS: 'a,
+        KS: KeyReadout<K> + 'a,
         K: 'a,
     {
         let (coords, keys) = (&self.coords, &self.keys);
@@ -566,7 +580,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     }
 
     /// Keep only the entries `keep` returns true for. Tombstones the rest — one pass, no rebuild.
-    pub fn retain(&mut self, mut keep: impl FnMut(KS::Key<'_>, &mut V) -> bool) {
+    pub fn retain(&mut self, mut keep: impl FnMut(KS::Key<'_>, &mut V) -> bool)
+    where
+        KS: KeyReadout<K>,
+    {
         for i in 0..self.coords.len() {
             let c = self.coords[i];
             if !is_live(c) {
@@ -800,7 +817,7 @@ impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> Iter<'a, K, V, KS> {
     }
 }
 
-impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> Iterator for Iter<'a, K, V, KS>
+impl<'a, K: Coord + Eq, V, KS: KeyReadout<K>> Iterator for Iter<'a, K, V, KS>
 where
     KS: 'a,
     K: 'a,
@@ -824,9 +841,9 @@ where
     }
 }
 
-impl<K: Coord + Eq, V, KS: KeyStore<K>> ExactSizeIterator for Iter<'_, K, V, KS> {}
+impl<K: Coord + Eq, V, KS: KeyReadout<K>> ExactSizeIterator for Iter<'_, K, V, KS> {}
 
-impl<'a, K: Coord + Eq, V, KS: KeyStore<K> + 'a> IntoIterator for &'a Table<K, V, KS>
+impl<'a, K: Coord + Eq, V, KS: KeyReadout<K> + 'a> IntoIterator for &'a Table<K, V, KS>
 where
     K: 'a,
 {

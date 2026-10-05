@@ -345,36 +345,37 @@ const LINEAR_G: u32 = 8;
 // prefix width ever changes, the scan must change with it, so pin the coupling at compile time.
 const _: () = assert!(LINEAR_G == 8, "prefix_masks scans exactly 8 lanes");
 
-/// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates at `base` against `coord`
-/// (a hit) and against `EMPTY` (a chain terminator) in one branchless pass, returning `(hits, empties)`
-/// as lane-bit masks. This is the read-side analogue of [`group_tag_mask`], but on the coordinates
-/// *themselves* — the coordinate is identity (`coord_of` is injective into the live space), so a lane
-/// match is a definite hit with no key deref and no confirm. No second structure: the tag line THE CUT
-/// removed is not reintroduced; the collision tail's own contiguous cache line is filtered in place,
-/// turning the mispredict-prone scalar walk into one movemask. The hot home hit never calls this.
+/// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates `coords[home + k]` against
+/// `coord` (a hit) and against `EMPTY` (a chain terminator) in one branchless pass, returning
+/// `(hits, empties)` as lane-bit masks. This is the read-side analogue of [`group_tag_mask`], but on the
+/// coordinates *themselves* — the coordinate is identity (`coord_of` is injective into the live space),
+/// so a lane match is a definite hit with no key deref and no confirm. No second structure: the tag line
+/// THE CUT removed is not reintroduced; the collision tail's own contiguous cache line is filtered in
+/// place, turning the mispredict-prone scalar walk into one movemask. The hot home hit never calls this.
 ///
-/// SAFETY: `base` must be readable for `LINEAR_G` `u64`s (caller ensures `home + LINEAR_G ≤ len`).
+/// The prefix is addressed as a range of the coordinate slice (`home + k`), not as a raw pointer: the
+/// scalar tail reads an in-bounds element, so the fallback needs no `unsafe` and the extraction sees no
+/// raw-pointer dereference. The caller ensures `home + LINEAR_G ≤ coords.len()`.
 #[inline]
-unsafe fn prefix_masks(base: *const u64, coord: u64) -> (u32, u32) {
+fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
     // The shipping target is x86-64-v3, which mandates AVX2 (see `.cargo/config.toml`), so the common
     // build resolves the glance at *compile* time — a bare inlined `_mm256` pair on the hot read, no
     // per-call feature probe. Only a portable (sub-v3) build pays the runtime check, then falls back
     // to a branchless scalar loop the compiler still autovectorizes.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    // SAFETY: caller guarantees `LINEAR_G` readable lanes; AVX2 is statically enabled here.
-    return unsafe { prefix_masks_avx2(base, coord) };
+    // SAFETY: caller guarantees `home + LINEAR_G ≤ len`; AVX2 is statically enabled here.
+    return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
 
     #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
     {
         #[cfg(target_arch = "x86_64")]
         if std::is_x86_feature_detected!("avx2") {
             // SAFETY: caller's read-length contract is exactly the two 4-lane loads avx2 does.
-            return unsafe { prefix_masks_avx2(base, coord) };
+            return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
         }
         let (mut hits, mut empties) = (0u32, 0u32);
         for k in 0..LINEAR_G as usize {
-            // SAFETY: caller guarantees `LINEAR_G` readable lanes at `base`.
-            let sc = unsafe { *base.add(k) };
+            let sc = coords[home + k];
             hits |= u32::from(sc == coord) << k;
             empties |= u32::from(sc == EMPTY) << k;
         }
@@ -734,8 +735,8 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     fn get_coord_cold(&self, coord: u64, home: usize) -> Option<&V> {
         let len = self.coords.len();
         if home + LINEAR_G as usize <= len {
-            // SAFETY: home + LINEAR_G ≤ len ⇒ the LINEAR_G-lane read stays in bounds.
-            let (hits, empties) = unsafe { prefix_masks(self.coords.as_ptr().add(home), coord) };
+            // `home + LINEAR_G ≤ len`, so the `LINEAR_G`-lane read stays in bounds.
+            let (hits, empties) = prefix_masks(&self.coords, home, coord);
             if hits != 0 {
                 let slot = home + hits.trailing_zeros() as usize;
                 // SAFETY: slot < home + LINEAR_G ≤ len; a coord match ⇒ value initialized.
@@ -973,6 +974,12 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         partials.into_iter().fold(id, &combine)
     }
 
+}
+
+/// The key-readback faces — the only operations that project [`KeyReadout::Key`], so the only ones
+/// that require the extension trait. Storage, probe, insert and growth above stay on the GAT-free
+/// [`KeyStore`], which is what lets Aeneas translate those executing bodies.
+impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
     /// Like [`encircle`](Self::encircle), but return *where* the minimum is: the entry with the
     /// smallest `residual`, and its key. Ties break toward the lower slot, so the result is
     /// deterministic. `None` for an empty table.
@@ -1032,7 +1039,9 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             })
         })
     }
+}
 
+impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Remove `k` and return its value, or `None` if absent. The bijection face — inverse of `put`.
     ///
     /// A removed slot becomes a **tombstone** (`TOMB`), not `EMPTY`: because the probe re-addresses by
@@ -1134,6 +1143,11 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     pub fn capacity(&self) -> usize {
         self.coords.len()
     }
+}
+
+/// The key-readback face of iteration — projects [`KeyReadout::Key`], so it requires the extension
+/// trait; the storage and probe bodies stay on [`KeyStore`].
+impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
     /// Iterate the live `(key, &value)` pairs in arbitrary order.
     pub fn iter(&self) -> impl Iterator<Item = (KS::Key<'_>, &V)> {
         self.coords.iter().enumerate().filter_map(|(i, c)| {
@@ -1148,6 +1162,9 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         })
     }
 
+}
+
+impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Bit-exact read — never returns a wrong value. Plain [`get`](Self::get) trusts the 64-bit
     /// coordinate as identity (a 2⁻⁶⁴ chance of a wrong hit); this also compares the stored key, so a
     /// coordinate collision returns `None` instead of someone else's value. Pay the key compare only
