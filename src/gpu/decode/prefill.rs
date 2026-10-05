@@ -1,0 +1,669 @@
+// Row: `inf-resident-prefill-GEB633UfORCK7XSmzJifHd` (INF-RESIDENT-PREFILL W1): fold `GpuPrefillStack` (gpu.rs:4448-5991).
+//! `PrefillStack`: whole-prompt prefill on the device, ported from fold
+//! `bedrock/src/serve/gpu.rs:4448-5991` (`GpuPrefillStack`) onto [`super::model::GpuDecode`]'s
+//! resident weights and KV cache, with the batched-projection tile rule of `3886-4130`
+//! (`prefill_tile`).
+//!
+//! One command buffer per call: batched embed gather -> per layer {RMSNorm+quantize, qkv GEMM,
+//! RoPE+KV append, causal attention (`attn_prefill_tiled`), KV re-layout into the decode cache,
+//! quantize, o GEMM, RMSNorm+residual+quantize, gate/up GEMM, SwiGLU, quantize, down GEMM} ->
+//! final norm -> last-row gather -> one-tile LM head -> two-stage argmax -> DMA of
+//! `[logits row | hidden row | argmax]`. The residual stream, activations and KV never leave the
+//! device; the decode cache is left holding positions `0..n` for [`super::model::GpuDecode::step`].
+//!
+//! Restrictions (each a refusal in [`PrefillStack::build`], not a silent reduction): dense softmax
+//! attention, no QK-norm, full rotary (`rope_dims == hd`), `hd` a power of two `<= 256`, prompt
+//! starts at position 0 (no chunk continuation), `n <= maxb`, `n <= tmax`; per-projection carriers
+//! as `GpuDecode` packs them (each consumer gets its own activation-chart word order); only the last
+//! position's logits are produced (fold's `LogitRows::Last`); V reaches the decode cache as
+//! `f16(int8 code * scale)` (fold's `seed_kv`), where token-by-token decode stores f16(V) directly.
+//! Not ported: the superblock face, `PhysicalStorageBuffer` GEMM, `LogitRows::All`, the host KV
+//! mirrors and `CpuState` fold, `profile`, KV seed from host.
+#![allow(
+    clippy::all,
+    clippy::pedantic,
+    clippy::allow_attributes_without_reason,
+    missing_docs,
+    reason = "faithful port of fold's bedrock/src/serve/gpu.rs; lint profile is fold's, not apeiron's"
+)]
+
+use super::state::{LayerCfg, LayerW};
+use super::*;
+use crate::simt::gemv_dp4a_batch_rt_bytes;
+
+/// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
+/// node's `ceil(n/bt)*bt` rows stay inside zeroed memory (fold `PREFILL_BT_MAX`).
+pub const PREFILL_BT_MAX: usize = 32;
+/// Workgroup shared-memory budget used to refuse an attention tile (fold `WG_SHARED_MAX`).
+const WG_SHARED_MAX: u32 = 49_152;
+
+/// fold `gpu.rs:4026-4051` (`prefill_tile`): the 2-D (batch tile, row tile) for one GEMM shape.
+/// `rt*bt <= 64`; `bt = 32` when the chart exceeds 32 MB (no longer L2-resident), else 8; `rt` as
+/// large as that allows with at least two row slabs and at most 50 % tail waste.
+pub fn prefill_tile(m: u32, k: u32, carrier: Carrier, local: u32) -> (u32, u32) {
+    let chart_bytes = (k / carrier.pack()) as u64 * m as u64 * 4 + (k / 32) as u64 * m as u64 * 4;
+    let bt = match std::env::var("DEC_PREFILL_BT") {
+        Ok(v) => v.parse().unwrap_or(8u32).max(1).min(PREFILL_BT_MAX as u32),
+        Err(_) if chart_bytes > 32 << 20 => 32,
+        Err(_) => 8,
+    };
+    if let Some(rt) = std::env::var("DEC_PREFILL_RT")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+    {
+        return (bt, rt.max(1));
+    }
+    let mut rt = (64 / bt).max(1);
+    while rt > 1 {
+        let slabs = m.div_ceil(local * rt);
+        let waste = slabs * local * rt - m;
+        if slabs >= 2 && waste * 2 <= m {
+            break;
+        }
+        rt /= 2;
+    }
+    (bt, rt)
+}
+
+/// The attention query tile (`rows`, `rts`, `ct`, `fuse`); `DEC_ATTN_TILE=0|off` pins the untiled
+/// kernel, `rows:rts:ct[:fuse]` pins a tile (fold `attn_tile`, `gpu.rs:4466-4483`).
+fn attn_tile() -> Option<(u32, u32, u32, bool)> {
+    let d = (ATTN_TILE_ROWS, ATTN_TILE_RTS, ATTN_TILE_CT, ATTN_TILE_FUSE);
+    match std::env::var("DEC_ATTN_TILE") {
+        Err(_) => Some(d),
+        Ok(v) if v == "0" || v == "off" => None,
+        Ok(v) => {
+            let p: Vec<u32> = v.split(':').filter_map(|s| s.parse().ok()).collect();
+            Some((
+                *p.first().unwrap_or(&d.0),
+                *p.get(1).unwrap_or(&d.1),
+                *p.get(2).unwrap_or(&d.2),
+                p.get(3).map_or(d.3, |&f| f != 0),
+            ))
+        }
+    }
+}
+
+/// The workgroup y-extent of a planned dispatch.
+#[derive(Clone, Copy)]
+enum Gy {
+    /// one workgroup column per position
+    Batch,
+    /// one column per batch tile of `bt` positions
+    Tiles(u32),
+    /// exactly one column (the last-row tail)
+    One,
+}
+
+struct PNode {
+    name: String,
+    pipe: Handle,
+    layout: Handle,
+    dset: Handle,
+    gx: u32,
+    gy: Gy,
+}
+
+/// Pipelines are compiled once per kernel key and shared by every layer's node (the descriptor
+/// layouts are identically defined, hence compatible).
+struct Planner<'a, 'b> {
+    g: &'a GpuCtx<'b>,
+    cache: Vec<(String, Handle, Handle)>,
+}
+
+impl Planner<'_, '_> {
+    unsafe fn node(
+        &mut self,
+        key: String,
+        code: impl FnOnce() -> Vec<u8>,
+        bufs: &[Handle],
+        gx: u32,
+        gy: Gy,
+    ) -> PNode {
+        let (layout1, dset) = self.g.vk.ssbo_set(bufs);
+        let (pipe, layout) = match self.cache.iter().find(|e| e.0 == key) {
+            Some(e) => (e.1, e.2),
+            None => {
+                let p = self.g.vk.pipeline(&code(), layout1);
+                self.cache.push((key.clone(), p, layout1));
+                (p, layout1)
+            }
+        };
+        PNode {
+            name: key,
+            pipe,
+            layout,
+            dset,
+            gx,
+            gy,
+        }
+    }
+}
+
+/// The whole-prompt prefill context (device handles only; owned by `GpuDecode`).
+pub struct PrefillStack {
+    cb: CommandBuffer,
+    plan: Vec<PNode>,
+    tail: Vec<PNode>,
+    params_map: *mut u32,
+    toks_map: *mut u32,
+    rb_map: *mut f32,
+    rb: Handle,
+    hout: Handle,
+    logits1: Handle,
+    amax_out: Handle,
+    pub maxb: usize,
+    tmax: u32,
+    hidden: usize,
+    vocab: usize,
+    /// Dispatches in a full-chunk command buffer.
+    pub n_disp: usize,
+}
+
+impl PrefillStack {
+    /// Build the plan for chunks of up to `maxb` positions over `layers`' resident weights.
+    ///
+    /// # Safety
+    /// Vulkan buffer, pipeline and descriptor creation over caller-owned handles.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn build(
+        g: &GpuCtx,
+        c: &LayerCfg,
+        vocab: u32,
+        layers: &[LayerW],
+        embed: (Handle, Handle),
+        lm: (Handle, Handle),
+        final_norm: Handle,
+        maxb: usize,
+    ) -> Result<PrefillStack, String> {
+        let vk = g.vk;
+        let (hidden, dff, nh, nkv, hd, tmax) = (c.hidden, c.dff, c.nh, c.nkv, c.hd, c.tmax);
+        let (qn, qkvm) = (c.qn() as usize, c.qkv_m());
+        if !hd.is_power_of_two() || hd > 256 || nh % nkv != 0 {
+            return Err(format!(
+                "PrefillStack: head shape nh={nh} nkv={nkv} hd={hd} outside this cut"
+            ));
+        }
+        if c.rope_dims != hd {
+            return Err("PrefillStack: partial rotary is not ported".into());
+        }
+        if maxb == 0 || maxb > tmax as usize {
+            return Err(format!(
+                "PrefillStack: maxb {maxb} must be in 1..=tmax {tmax}"
+            ));
+        }
+        let bias = layers[0].qkv_b.is_some();
+        if layers.iter().any(|l| l.qkv_b.is_some() != bias) {
+            return Err("PrefillStack: bias not uniform across layers".into());
+        }
+        let lw = local_wg();
+        let hc = c.head_carrier();
+        let bp = maxb.div_ceil(PREFILL_BT_MAX) * PREFILL_BT_MAX;
+        let (hidden_u, dff_u, nkv_u, hd_u, tmax_u) = (
+            hidden as usize,
+            dff as usize,
+            nkv as usize,
+            hd as usize,
+            tmax as usize,
+        );
+        let kmax = hidden_u.max(qn).max(dff_u);
+
+        // ── scratch, zero-initialised, padded to `bp` rows ─────────────────────────────────────
+        let z = |elems: usize| g.dev_zeroed(elems * 4);
+        let x_dev = z(bp * hidden_u);
+        let hbuf = z(bp * hidden_u);
+        let proj_h = z(bp * hidden_u);
+        let qkv_buf = z(bp * qkvm as usize);
+        let att_buf = z(bp * qn);
+        let gu_buf = z(bp * 2 * dff_u);
+        let acts_buf = z(bp * dff_u);
+        // power-of-two chart capacities: the last-row gather closes its source index with one `and`
+        let qcap = (bp * kmax / 4).next_power_of_two();
+        let bcap = (bp * kmax / 32).next_power_of_two();
+        let (xq, xsc, xsm) = (z(qcap), z(bcap), z(bcap));
+        let dummy = g.up_f32(&[0f32]);
+        let (kc_p, ks_p, vc_p, vs_p) = (
+            z(nkv_u * hd_u * tmax_u),
+            z(tmax_u * nkv_u),
+            z(nkv_u * tmax_u * hd_u),
+            z(tmax_u * nkv_u),
+        );
+        let (kout, ksout, vout, vsout) = (
+            z(maxb * nkv_u * hd_u),
+            z(maxb * nkv_u),
+            z(maxb * nkv_u * hd_u),
+            z(maxb * nkv_u),
+        );
+        let (params, params_mem) = vk
+            .buffer(
+                16,
+                BUFFER_USAGE_STORAGE,
+                MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT,
+            )
+            .ok_or("prefill params alloc failed")?;
+        let params_map = vk.map(params_mem).cast::<u32>();
+        let (toks, toks_mem) = vk
+            .buffer(
+                (maxb * 4) as u64,
+                BUFFER_USAGE_STORAGE,
+                MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT,
+            )
+            .ok_or("prefill toks alloc failed")?;
+        let toks_map = vk.map(toks_mem).cast::<u32>();
+        let src_dev = |bytes: usize| -> Result<Handle, String> {
+            Ok(vk
+                .buffer(
+                    bytes.max(4) as u64,
+                    BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_SRC | BUFFER_USAGE_TRANSFER_DST,
+                    MEMORY_DEVICE_LOCAL,
+                )
+                .ok_or("prefill device buffer alloc failed")?
+                .0)
+        };
+        let hout = src_dev(bp * hidden_u * 4)?;
+
+        // ── the LM-head tail's scratch ─────────────────────────────────────────────────────────
+        let (bt_lm, rt_lm) = prefill_tile(vocab, hidden, hc, lw);
+        let qrow = hidden_u / 4;
+        let brow = hidden_u / 32;
+        let xq1 = z(bt_lm as usize * qrow);
+        let xsc1 = z(bt_lm as usize * brow);
+        let xsm1 = z(bt_lm as usize * brow);
+        let logits1 = src_dev(bt_lm as usize * vocab as usize * 4)?;
+        let amaxp = g.dev(2 * AMAX_P as usize * 4);
+        let amax_out = src_dev(8)?;
+
+        // ── the plan ───────────────────────────────────────────────────────────────────────────
+        let mut pl = Planner {
+            g,
+            cache: Vec::new(),
+        };
+        let dpw = |cr: Carrier| cr.pack() / 4;
+        let scale = c.scale();
+        let tile = attn_tile().filter(|&(rows, rts, ct, _)| {
+            let (tsz, shared) = attn_tile_shape(hd, rows, rts, ct);
+            let ok = rows as usize <= PREFILL_BT_MAX
+                && rows % rts == 0
+                && hd % ct == 0
+                && rows.is_power_of_two()
+                && tsz % hd == 0
+                && rows % (tsz / hd) == 0
+                && (tsz / hd) > 0
+                && hd % (tsz / hd) == 0
+                && tsz <= 1024
+                && shared <= WG_SHARED_MAX;
+            if !ok {
+                eprintln!("PrefillStack: attn tile {rows}:{rts}:{ct} outside this cut at hd={hd}; untiled kernel");
+            }
+            ok
+        });
+        let attn_gy = match tile {
+            Some((rows, _, _, _)) => Gy::Tiles(rows),
+            None => Gy::Batch,
+        };
+        let attn_key = match tile {
+            Some((r, s, t, f)) => format!("attn_tiled_{r}_{s}_{t}_{f}"),
+            None => "attn_untiled".to_string(),
+        };
+        let gemm_gx = |m: u32, k: u32, cr: Carrier| -> (u32, u32) {
+            let (bt, rt) = prefill_tile(m, k, cr, lw);
+            (bt, m.div_ceil(lw * rt))
+        };
+
+        let mut plan: Vec<PNode> = Vec::with_capacity(layers.len() * 12 + 4);
+        plan.push(pl.node(
+            format!("embed_batch_{:?}", hc),
+            || embed_chart_batch_bytes(hidden, vocab, lw, hc),
+            &[embed.0, embed.1, toks, x_dev],
+            hidden.div_ceil(lw),
+            Gy::Batch,
+        ));
+        for (li, l) in layers.iter().enumerate() {
+            // norm1 (+ the previous layer's down output as residual from layer 1)
+            let dq = dpw(l.qkv_c);
+            if li == 0 {
+                plan.push(pl.node(
+                    format!("rms0_{dq}"),
+                    || rmsnorm_batch_q_bytes(hidden, c.eps, dq, false),
+                    &[x_dev, l.ln1, x_dev, xq, xsc, xsm, hbuf],
+                    1,
+                    Gy::Batch,
+                ));
+            } else {
+                plan.push(pl.node(
+                    format!("rms_{dq}"),
+                    || rmsnorm_batch_q_bytes(hidden, c.eps, dq, true),
+                    &[x_dev, l.ln1, proj_h, xq, xsc, xsm, hbuf],
+                    1,
+                    Gy::Batch,
+                ));
+            }
+            let (bt, gx) = gemm_gx(qkvm, hidden, l.qkv_c);
+            let (rtq, ltl) = (prefill_tile(qkvm, hidden, l.qkv_c, lw), lw);
+            plan.push(pl.node(
+                format!("gemm_{qkvm}_{hidden}_{:?}_{}_{}", l.qkv_c, rtq.0, rtq.1),
+                || gemv_dp4a_batch_rt_bytes(qkvm, hidden, ltl, l.qkv_c, rtq.0, rtq.1),
+                &[l.qkv_w, xq, qkv_buf, l.qkv_dm, xsm, xsc],
+                gx,
+                Gy::Tiles(bt),
+            ));
+            plan.push(pl.node(
+                format!("rope_{bias}"),
+                || qkv_rope_batch_bytes(nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false),
+                &[
+                    qkv_buf,
+                    l.qkv_b.unwrap_or(dummy),
+                    dummy,
+                    dummy,
+                    kc_p,
+                    ks_p,
+                    vc_p,
+                    vs_p,
+                    params,
+                    kout,
+                    ksout,
+                    vout,
+                    vsout,
+                ],
+                nh + 2 * nkv,
+                Gy::Batch,
+            ));
+            plan.push(pl.node(
+                "kv_seed".to_string(),
+                || kv_seed_bytes(nkv, hd, tmax),
+                &[kc_p, ks_p, vc_p, vs_p, params, l.kcq, l.sk, l.vc],
+                nkv,
+                Gy::Batch,
+            ));
+            plan.push(pl.node(
+                attn_key.clone(),
+                || match tile {
+                    Some((rows, rts, ct, fuse)) => attn_prefill_tiled_bytes(
+                        nh, nkv, hd, qkvm, tmax, scale, rows, rts, ct, fuse,
+                    ),
+                    None => attn_prefill_bytes(nh, nkv, hd, qkvm, tmax, scale),
+                },
+                &[qkv_buf, kc_p, ks_p, vc_p, vs_p, att_buf, params],
+                nh,
+                attn_gy,
+            ));
+            let dqo = dpw(l.o_c);
+            plan.push(pl.node(
+                format!("quant_{qn}_{dqo}"),
+                || quantize_batch_bytes(qn as u32, dqo),
+                &[att_buf, xq, xsc, xsm],
+                1,
+                Gy::Batch,
+            ));
+            let (bt, gx) = gemm_gx(hidden, qn as u32, l.o_c);
+            let t = prefill_tile(hidden, qn as u32, l.o_c, lw);
+            plan.push(pl.node(
+                format!("gemm_{hidden}_{qn}_{:?}_{}_{}", l.o_c, t.0, t.1),
+                || gemv_dp4a_batch_rt_bytes(hidden, qn as u32, lw, l.o_c, t.0, t.1),
+                &[l.o_w, xq, proj_h, l.o_dm, xsm, xsc],
+                gx,
+                Gy::Tiles(bt),
+            ));
+            // norm2: residual (+= o) then the gate/up activation chart
+            let dqg = dpw(l.gu_c);
+            plan.push(pl.node(
+                format!("rms_{dqg}"),
+                || rmsnorm_batch_q_bytes(hidden, c.eps, dqg, true),
+                &[x_dev, l.ln2, proj_h, xq, xsc, xsm, hbuf],
+                1,
+                Gy::Batch,
+            ));
+            let (bt, gx) = gemm_gx(2 * dff, hidden, l.gu_c);
+            let t = prefill_tile(2 * dff, hidden, l.gu_c, lw);
+            plan.push(pl.node(
+                format!("gemm_{}_{hidden}_{:?}_{}_{}", 2 * dff, l.gu_c, t.0, t.1),
+                || gemv_dp4a_batch_rt_bytes(2 * dff, hidden, lw, l.gu_c, t.0, t.1),
+                &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc],
+                gx,
+                Gy::Tiles(bt),
+            ));
+            plan.push(pl.node(
+                "swiglu".to_string(),
+                || swiglu_batch_bytes(dff),
+                &[gu_buf, acts_buf],
+                1,
+                Gy::Batch,
+            ));
+            let dqd = dpw(l.dn_c);
+            plan.push(pl.node(
+                format!("quant_{dff}_{dqd}"),
+                || quantize_batch_bytes(dff, dqd),
+                &[acts_buf, xq, xsc, xsm],
+                1,
+                Gy::Batch,
+            ));
+            let (bt, gx) = gemm_gx(hidden, dff, l.dn_c);
+            let t = prefill_tile(hidden, dff, l.dn_c, lw);
+            plan.push(pl.node(
+                format!("gemm_{hidden}_{dff}_{:?}_{}_{}", l.dn_c, t.0, t.1),
+                || gemv_dp4a_batch_rt_bytes(hidden, dff, lw, l.dn_c, t.0, t.1),
+                &[l.dn_w, xq, proj_h, l.dn_dm, xsm, xsc],
+                gx,
+                Gy::Tiles(bt),
+            ));
+        }
+        // final norm: folds the last down output, emits the head's activation chart and f32 hidden
+        let dh = dpw(hc);
+        plan.push(pl.node(
+            format!("rms_{dh}"),
+            || rmsnorm_batch_q_bytes(hidden, c.eps, dh, true),
+            &[x_dev, final_norm, proj_h, xq, xsc, xsm, hout],
+            1,
+            Gy::Batch,
+        ));
+        // tail: gather the last row, the same lm GEMM over one tile, argmax
+        let lm_gx = vocab.div_ceil(lw * rt_lm);
+        let tail = vec![
+            pl.node(
+                "gather".to_string(),
+                || {
+                    last_row_gather_bytes(
+                        qrow as u32,
+                        brow as u32,
+                        (qcap - 1) as u32,
+                        (bcap - 1) as u32,
+                    )
+                },
+                &[xq, xsc, xsm, xq1, xsc1, xsm1, params],
+                1,
+                Gy::One,
+            ),
+            pl.node(
+                format!("gemm_{vocab}_{hidden}_{:?}_{bt_lm}_{rt_lm}", hc),
+                || gemv_dp4a_batch_rt_bytes(vocab, hidden, lw, hc, bt_lm, rt_lm),
+                &[lm.0, xq1, logits1, lm.1, xsm1, xsc1],
+                lm_gx,
+                Gy::One,
+            ),
+            pl.node(
+                "argmax_partial".to_string(),
+                || argmax_partial_bytes(vocab, AMAX_P, 256),
+                &[logits1, amaxp],
+                1,
+                Gy::One,
+            ),
+            pl.node(
+                "argmax_finish".to_string(),
+                || argmax_finish_bytes(AMAX_P),
+                &[amaxp, amax_out],
+                1,
+                Gy::One,
+            ),
+        ];
+
+        // `[vocab logits row | hidden row | argmax]` in one HOST_CACHED window
+        let rbytes = (vocab as usize + hidden_u + 1) as u64 * 4;
+        let cached = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT | MEMORY_HOST_CACHED;
+        let plain = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+        let (rb, rb_mem) = match vk.buffer(rbytes, BUFFER_USAGE_TRANSFER_DST, cached) {
+            Some(x) => x,
+            None => vk
+                .buffer(rbytes, BUFFER_USAGE_TRANSFER_DST, plain)
+                .ok_or("prefill readback alloc failed")?,
+        };
+        let rb_map = vk.map(rb_mem).cast::<f32>();
+        let n_disp = plan.len() + tail.len();
+        Ok(PrefillStack {
+            cb: vk.reusable_command_buffer(),
+            plan,
+            tail,
+            params_map,
+            toks_map,
+            rb_map,
+            rb,
+            hout,
+            logits1,
+            amax_out,
+            maxb,
+            tmax,
+            hidden: hidden_u,
+            vocab: vocab as usize,
+            n_disp,
+        })
+    }
+
+    /// Prefill `toks` at positions `0..n`: fills the decode KV cache for those positions and the
+    /// last position's `[logits | hidden | argmax]` window.
+    ///
+    /// Cost: one submit; GEMM work `n*(sum of projection params) + n^2*hd*nh/2` (attention) MACs.
+    pub fn run(&mut self, vk: &Vk, toks: &[usize]) -> Result<(), String> {
+        let n = toks.len();
+        if n == 0 || n > self.maxb || n > self.tmax as usize {
+            return Err(format!(
+                "PrefillStack: n={n} outside 1..=min(maxb {}, tmax {})",
+                self.maxb, self.tmax
+            ));
+        }
+        unsafe {
+            for (i, &t) in toks.iter().enumerate() {
+                self.toks_map.add(i).write_volatile(t as u32);
+            }
+            self.params_map.write_volatile(0);
+            self.params_map.add(1).write_volatile(n as u32);
+            let cb = self.cb;
+            vk.reset_cb(cb);
+            vk.begin(cb);
+            for p in self.plan.iter().chain(self.tail.iter()) {
+                let gy = match p.gy {
+                    Gy::Batch => n as u32,
+                    Gy::Tiles(bt) => (n as u32).div_ceil(bt),
+                    Gy::One => 1,
+                };
+                (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, p.pipe);
+                (vk.bind_sets)(
+                    cb,
+                    PIPELINE_BIND_POINT_COMPUTE,
+                    p.layout,
+                    0,
+                    1,
+                    &p.dset,
+                    0,
+                    std::ptr::null(),
+                );
+                (vk.dispatch)(cb, p.gx, gy, 1);
+                step_barrier(vk, cb);
+            }
+            vk.barrier(
+                cb,
+                STAGE_COMPUTE,
+                STAGE_TRANSFER,
+                ACCESS_SHADER_WRITE,
+                ACCESS_TRANSFER_READ,
+            );
+            let v4 = self.vocab as u64 * 4;
+            let h4 = self.hidden as u64 * 4;
+            let copy = |src: Handle, so: u64, dst_off: u64, size: u64| {
+                let r = BufferCopy {
+                    src_offset: so,
+                    dst_offset: dst_off,
+                    size,
+                };
+                (vk.copy_buffer)(cb, src, self.rb, 1, &r);
+            };
+            copy(self.logits1, 0, 0, v4);
+            copy(self.hout, (n as u64 - 1) * h4, v4, h4);
+            copy(self.amax_out, 4, v4 + h4, 4);
+            vk.barrier(
+                cb,
+                STAGE_TRANSFER,
+                STAGE_HOST,
+                ACCESS_TRANSFER_WRITE,
+                ACCESS_HOST_READ,
+            );
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+        }
+        Ok(())
+    }
+
+    /// GPU-active microseconds per node name for the chunk of `n` tokens last written by
+    /// [`PrefillStack::run`] (timestamps between consecutive dispatches of one command buffer; the
+    /// inter-node barrier is included in the node it precedes). Names are summed over layers.
+    pub fn profile(&mut self, vk: &Vk, n: usize) -> Vec<(String, f64)> {
+        unsafe {
+            let nodes = self.plan.len() + self.tail.len();
+            let pool = vk.timestamp_pool(nodes as u32 + 1);
+            let cb = self.cb;
+            vk.reset_cb(cb);
+            vk.begin(cb);
+            vk.cmd_reset_timestamps(cb, &pool);
+            for (i, p) in self.plan.iter().chain(self.tail.iter()).enumerate() {
+                vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, i as u32);
+                let gy = match p.gy {
+                    Gy::Batch => n as u32,
+                    Gy::Tiles(bt) => (n as u32).div_ceil(bt),
+                    Gy::One => 1,
+                };
+                (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, p.pipe);
+                (vk.bind_sets)(
+                    cb,
+                    PIPELINE_BIND_POINT_COMPUTE,
+                    p.layout,
+                    0,
+                    1,
+                    &p.dset,
+                    0,
+                    std::ptr::null(),
+                );
+                (vk.dispatch)(cb, p.gx, gy, 1);
+                step_barrier(vk, cb);
+            }
+            vk.cmd_write_timestamp(cb, &pool, STAGE_ALL_COMMANDS, nodes as u32);
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+            let ts = vk.read_timestamps(&pool);
+            let mut acc: Vec<(String, f64)> = Vec::new();
+            for (i, p) in self.plan.iter().chain(self.tail.iter()).enumerate() {
+                let us = ts[i + 1].wrapping_sub(ts[i]) as f64 * vk.timestamp_period as f64 / 1000.0;
+                match acc.iter_mut().find(|e| e.0 == p.name) {
+                    Some(e) => e.1 += us,
+                    None => acc.push((p.name.clone(), us)),
+                }
+            }
+            acc
+        }
+    }
+
+    /// The last position's logit row of the call just run.
+    pub fn logits(&self) -> &[f32] {
+        unsafe { std::slice::from_raw_parts(self.rb_map, self.vocab) }
+    }
+    /// The last position's final-normed hidden of the call just run.
+    pub fn hidden(&self) -> &[f32] {
+        unsafe { std::slice::from_raw_parts(self.rb_map.add(self.vocab), self.hidden) }
+    }
+    /// The device greedy token of the call just run.
+    pub fn argmax(&self) -> usize {
+        unsafe {
+            self.rb_map
+                .add(self.vocab + self.hidden)
+                .cast::<u32>()
+                .read() as usize
+        }
+    }
+}

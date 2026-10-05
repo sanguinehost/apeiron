@@ -8,6 +8,12 @@
 //! same steps compares the device argmax with a host scan of the full logit row (fold's cross-check).
 //!
 //!   cargo run --release --locked --features gpu --example gpu_decode_bench -- <gguf> --gen 128 --reps 5 --carrier q4
+//!
+//! `--prefill N` times whole-prompt prefill (`GpuDecode::prefill`) of N pseudo-random tokens
+//! (llama-bench `-p N` feeds random ids too), `--reps` repetitions after one warm-up, and cross-checks
+//! the first reps's argmax and hidden against the token-by-token path (untimed):
+//!
+//!   cargo run --release --locked --features gpu --example gpu_decode_bench -- <gguf> --prefill 512 --reps 5 --carrier q4
 #![allow(
     clippy::pedantic,
     clippy::allow_attributes_without_reason,
@@ -54,6 +60,9 @@ fn main() {
 
     let gguf = Gguf::open(path).expect("gguf open");
     let engine = Engine::open(path).expect("engine open");
+    if let Some(np) = flag("--prefill").and_then(|v| v.parse::<usize>().ok()) {
+        prefill_bench(&gguf, &engine, np, reps, carrier, &carrier_s);
+    }
     let bpe = Bpe::from_tokenizer_json(&tok_path).expect("tokenizer");
     let ids = bpe.encode(PROMPT).expect("encode");
     assert!(ids.len() + WARM + gen_n < tmax as usize, "tmax too small");
@@ -157,4 +166,87 @@ fn main() {
     }
     // SAFETY: `_exit` terminates the process immediately; stdout is flushed above.
     unsafe { _exit(i32::from(mismatches != 0)) }
+}
+
+/// pp`n`: `reps` timed whole-prompt prefills of `n` pseudo-random token ids, then an untimed
+/// cross-check against the token-by-token path over the same ids.
+fn prefill_bench(
+    gguf: &Gguf,
+    engine: &Engine,
+    n: usize,
+    reps: usize,
+    carrier: Carrier,
+    carrier_s: &str,
+) -> ! {
+    let vocab = engine.config.vocab_size as u64;
+    let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+    let toks: Vec<usize> = (0..n)
+        .map(|_| {
+            x = x
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            1 + ((x >> 33) % (vocab - 1)) as usize
+        })
+        .collect();
+    let tmax = (n + 16) as u32;
+    let t0 = Instant::now();
+    let mut gpu = GpuDecode::new_with_prefill(gguf, &engine.config, tmax, carrier, n)
+        .unwrap_or_else(|e| {
+            eprintln!("GpuDecode::new_with_prefill: {e}");
+            exit(2);
+        });
+    println!(
+        "[GPU-PREFILL] carrier {carrier_s} | construct {:.2} s | pp{n} tmax {tmax}",
+        t0.elapsed().as_secs_f64()
+    );
+    gpu.prefill(&toks).expect("warm-up prefill");
+    let first = gpu.last_argmax();
+    let mut rates = Vec::with_capacity(reps);
+    let mut stable = true;
+    for _ in 0..reps {
+        let t = Instant::now();
+        gpu.prefill(&toks).expect("prefill");
+        rates.push(n as f64 / t.elapsed().as_secs_f64());
+        stable &= gpu.last_argmax() == first;
+    }
+    let pf_hidden: Vec<f64> = gpu.last_hidden().to_vec();
+    if std::env::var_os("PREFILL_PROFILE").is_some() {
+        let mut tot = 0f64;
+        let prof = gpu.prefill_profile(&toks).expect("profile");
+        for (name, us) in &prof {
+            tot += us;
+            println!("  PROF {name:<40} {us:>9.1} us");
+        }
+        println!("  PROF total {tot:.1} us (GPU-active, timestamped)");
+    }
+    for (pos, &t) in toks.iter().enumerate() {
+        gpu.step(pos, t);
+    }
+    let tbt_first = gpu.last_argmax();
+    let refmax = gpu.last_hidden().iter().fold(0f64, |m, v| m.max(v.abs()));
+    let dmax = gpu
+        .last_hidden()
+        .iter()
+        .zip(&pf_hidden)
+        .fold(0f64, |m, (a, b)| m.max((a - b).abs()));
+    println!(
+        "  argmax prefill {first} token-by-token {tbt_first} match {}; repeat-stable {stable}; hidden max rel err {:.3e}",
+        first == tbt_first,
+        dmax / refmax
+    );
+    let mean = rates.iter().sum::<f64>() / rates.len() as f64;
+    let lo = rates.iter().copied().fold(f64::MAX, f64::min);
+    let hi = rates.iter().copied().fold(0f64, f64::max);
+    let rs: Vec<String> = rates.iter().map(|r| format!("{r:.1}")).collect();
+    println!("  reps in temporal order: [{}]", rs.join(", "));
+    println!(
+        "  BENCH carrier={carrier_s} pp{n}: mean {mean:.1} tok/s min {lo:.1} max {hi:.1} over {reps} reps"
+    );
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    extern "C" {
+        fn _exit(code: i32) -> !;
+    }
+    // SAFETY: `_exit` terminates the process immediately; stdout is flushed above.
+    unsafe { _exit(i32::from(first != tbt_first || !stable)) }
 }

@@ -58,6 +58,7 @@ mod moe;
 mod norm;
 mod pool;
 mod prefill;
+mod prefill_glue;
 mod sparse;
 mod spec;
 #[cfg(test)]
@@ -72,6 +73,7 @@ pub use moe::*;
 pub use norm::*;
 pub use pool::*;
 pub use prefill::*;
+pub use prefill_glue::*;
 pub use sparse::*;
 pub use spec::*;
 

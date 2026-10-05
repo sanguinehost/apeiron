@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 pub mod layer;
 pub mod model;
 pub mod pack;
+pub mod prefill;
 pub mod state;
 pub mod upload;
 pub use model::GpuDecode;
