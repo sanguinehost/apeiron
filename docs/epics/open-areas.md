@@ -1,5 +1,7 @@
 # Open-area parallel dispatch
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 User authorizes work across all local open areas, including all seven assurance size breaches.
 This expands the earlier read-only continuation boundary; canonical source migration, installed
 tool mutation and cross-repository implementation still require their own concrete contracts/gates.

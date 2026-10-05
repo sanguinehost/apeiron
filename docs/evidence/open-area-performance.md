@@ -1,5 +1,7 @@
 # Full-profile REG-1 bounded measurement
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 **Decision: G1 remains open.** The unchanged full-profile gate reached its 600-second
 bound and exited **124**, before printing a pair table or acceptance headline. This is
 an inconclusive run, not a completed ratio-failure result. Current passing/failing pair

@@ -1,5 +1,7 @@
 # Apeiron Local Boundary: Representation And Trust
 
+> **Correction (repository state).** The REG-1 comparison harness (`examples/reg1`, `examples/smhasher`, `examples/fold`, `examples/support`) and its comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash) were removed from the tree in `c9a2d0c`. Every `cargo run ... --example reg1` (and any other removed-harness example) below is a historical command that cannot run on this tree; the live Rust gates are `cargo test`/`cargo clippy`/`cargo fmt` from `AGENTS.md` §6, and the live performance entry point is whatever the current harness names. Registered-incumbent and acceptance-registry claims below describe the removed harness.
+
 Kani is retired from all current gates; the
 [retirement contract](epics/kani-retirement.md) supersedes earlier Kani requirements.
 Historical bounded-check receipts are not current coverage. Rust regression tests and semantic
@@ -401,7 +403,7 @@ the dispatch order is in the [plan](epics/storage-refinement.md#rework-dispatch-
 **First cut rejected.** The first growable `Table` at `src/table.rs` sha256
 `c34ddf17ef2ed7a81fd4b3e16447479b55d737af8f5253b99dd397414d9b1dc1` is rejected as the production
 result and reworked in place. The bounded fixed-shard `Table<K,V,H,N>` is not restored as production
-and the benchmark-only candidate `examples/reg1/candidate.rs` is not promoted. One growable
+and the benchmark-only candidate `examples/reg1/candidate.rs` (removed in `c9a2d0c`) is not promoted. One growable
 representation is kept for the generic key/value face; the counting face selected by
 `APEIRON-REORIENT` is the qualified exception recorded in [the counting-face
 boundary](#counting-face-representation-boundary-apeiron-reorient).
@@ -420,7 +422,7 @@ hashed group and steps linearly instead of descending first-fit. (d) growth roun
 power of two, which is wrong for general `N` because `N` must divide the slot count. (e)
 `min_len = N.max(1) * 2` and `next_power_of_two` are unchecked. (f) the growth-complexity note
 overstates: re-placement is linear in the region, not `O(1)` per key. (g) `examples/reg1/strata.rs`
-still models `ShardFull`. (h) the performance command reports slow cells correctly but exits 0, so
+(removed in `c9a2d0c`) still models `ShardFull`. (h) the performance command reports slow cells correctly but exits 0, so
 exit 0 is not the per-cell gate.
 
 **Representation, probe and routing.** One generic `Table` has the optional coordinate-bearing

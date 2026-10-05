@@ -1,5 +1,7 @@
 # Algebra-native addressing evidence (rolled up)
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 Rolled up from: `evidence/anative-admission-ledger.md`, `evidence/anative-extraction-preset-probe.md`, `evidence/anative-w4-e-i7-extraction.md`.
 
 ## Evidence — algebra-native addressing admission and retirement ledger

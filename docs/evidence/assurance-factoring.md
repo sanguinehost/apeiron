@@ -1,5 +1,7 @@
 # Assurance factoring evidence
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 All seven original size breaches pass the unchanged assurance checker. All eleven generated-table
 shard gates and controls pass; extraction refresh and integrated proof gates are recorded below. Limits and owned populations
 are unchanged. Base is `262bb0a94eff2cc7d5655122a954f44d74de96b6` plus accepted dirty source.

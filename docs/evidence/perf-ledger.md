@@ -1,5 +1,7 @@
 # Performance ledger (rolled up per-run receipts)
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 Rolled up from: `evidence/perf-global-baseline.log`, `evidence/perf-global-baseline.md`, `evidence/perf-global-baseline.stderr.log`, `evidence/perf-micro-spatial-2026-09-19.md`, `evidence/perf-remeasure-2026-09-19-post-correctness.md`, `evidence/perf-remeasure-2026-09-19-post-mask.md`, `evidence/perf-remeasure-2026-09-19-post-scatter.md`, `evidence/perf-remeasure-2026-09-19-post-spill.md`, `evidence/perf-remeasure-2026-09-19.md`, `evidence/perf-rework-first-cut-baseline.md`.
 
 apeiron_head=c450c222905c050f793a23332708c230c658f82c dirty=yes

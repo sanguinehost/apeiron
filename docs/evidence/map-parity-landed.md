@@ -1,5 +1,7 @@
 # Subsumed map face — landing receipt
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 Row: `apeiron-map-parity-wire-EhXlkMtFhAOPAkVDTSGtyQ` (APEIRON-MAP-PARITY).
 Related: `apeiron-map-register-the-GWgtrZKctFxA8re9qryHse` (APEIRON-MAP-REGISTER).
 

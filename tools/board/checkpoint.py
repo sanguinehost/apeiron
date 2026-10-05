@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Row: `apeiron-docs-repoint-Hhlc7OjTttFQLPuENEoekh` (APEIRON-DOCS-REPOINT).
 """The per-cycle board checkpoint: measure -> check-in -> row moves -> marker.
 
 ``AGENTS.md`` §3 step 5 makes the board update a field of a checkpoint lane's own
@@ -15,8 +16,9 @@ The mechanism
 
 One command, three outputs:
 
-1. **measure** -- read a ``reg1`` acceptance stream (the ``key=value`` lines
-   ``examples/reg1`` prints) and reduce it to the headline: each
+1. **measure** -- read a measurement acceptance stream (the ``key=value`` lines a
+   comparison harness prints; the ``examples/reg1`` harness was removed in
+   ``c9a2d0c``) and reduce it to the headline: each
    ``hashtrinity_*`` incumbent's ratio mean over its decided pairs, the worst
    cell, the digest fails, and the run's own ``acceptance_summary`` tally.
 2. **check-in and rows** -- ``--dry-run`` prints the exact check-in text and the
@@ -31,11 +33,12 @@ One command, three outputs:
    landed.
 3. **marker** -- ``.apeiron/checkpoint.json`` (override with ``--marker``): the
    check-in id or the dry-run digest, the sha256 of the measurement file, the
-   **source digest of the staged and the working tree** over ``src/`` and
-   ``examples/reg1/``, the row moves with their read-backs, and the time.
+   **source digest of the staged and the working tree** over the source prefixes
+   (``src/``; ``examples/reg1/`` was removed in ``c9a2d0c``), the row moves with
+   their read-backs, and the time.
 
 ``.githooks/pre-commit`` then asks one question -- ``checkpoint.py check`` -- and
-refuses a commit that stages a path under ``src/`` or ``examples/reg1/`` unless
+refuses a commit that stages a path under ``src/`` (formerly also ``examples/reg1/``) unless
 the marker's staged digest equals the digest of the tree being committed. A
 checkpoint that was skipped therefore fails the commit; ``--no-verify`` skips
 every hook by design and the wave barrier is the authority on that.
@@ -102,10 +105,11 @@ else:
 
 SCHEMA = 1
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# The two prefixes whose content the acceptance numbers are measured on: a
-# commit that changes either changes the number, so a commit that changes either
-# is what the checkpoint obligation is anchored to.
-SOURCE_PREFIXES = ("src/", "examples/reg1/")
+# The prefixes whose content the acceptance numbers are measured on: a commit
+# that changes one changes the number, so a commit that changes one is what the
+# checkpoint obligation is anchored to. `examples/reg1/` was removed in
+# `c9a2d0c` and is no longer a source prefix.
+SOURCE_PREFIXES = ("src/",)
 # The three hashtrinity incumbents the programme reports. `hashtrinity_table` is
 # the load-bearing serial table; `hashtrinity_count_par` and
 # `hashtrinity_get_each` are the two parallel faces.
@@ -440,7 +444,7 @@ def worktree_digest(repo_root: str) -> tuple[str, int, list[str]]:
 
     A symlink under a prefix is hashed by its target's content here and by its
     link text in the index, so the two digests would differ while the commit is
-    unchanged; none exists (``git ls-files -s -- src examples/reg1`` has no mode
+    unchanged; none exists (``git ls-files -s -- src`` has no mode
     ``120000`` entry, measured).
     """
     listed = _git(

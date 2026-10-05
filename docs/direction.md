@@ -1,5 +1,7 @@
 # Apeiron Programme Direction
 
+> **Correction (repository state).** The REG-1 comparison harness (`examples/reg1`, `examples/smhasher`, `examples/fold`, `examples/support`) and its comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash) were removed from the tree in `c9a2d0c`. Every `cargo run ... --example reg1` (and any other removed-harness example) below is a historical command that cannot run on this tree; the live Rust gates are `cargo test`/`cargo clippy`/`cargo fmt` from `AGENTS.md` §6, and the live performance entry point is whatever the current harness names. Registered-incumbent and acceptance-registry claims below describe the removed harness.
+
 Kani is retired from development and acceptance by user direction;
 [the retirement contract](epics/kani-retirement.md) supersedes earlier Kani requirements.
 Rust tests, source mutation controls, extraction and Lean refinement retain their distinct scopes.
@@ -294,7 +296,9 @@ rewriting the historical RFC: recording a failing ratio as a boundary is evidenc
   `hashtrinity::{Table,CoordMap,FreqMap}` in serial and packed-parallel forms
   (`count_par`/`get_each`), `hashbrown+foldhash`, `hashbrown+fxhash`, `hashbrown+rayon`, `std`
   SipHash, `foldhash`/`fxhash` par16, and — per the [hash comparison](hash-comparison.md) registry —
-  `xxHash` XXH3/XXH64, `wyhash`, `ahash` and `fnv`. This supersedes the RFC elapsed-median floor
+  `xxHash` XXH3/XXH64, `wyhash`, `ahash` and `fnv`. **Correction (c9a2d0c):** the REG-1 acceptance
+  harness and these comparison dev-dependencies were removed from the tree; this incumbent list
+  records the removed harness, not a registry a reader can run now. This supersedes the RFC elapsed-median floor
   `selected/hashtrinity <= 1.25` and replaces the historical-envelope question: there is no
   separate envelope tolerance and no family-wide exemption. An inconclusive or failed required cell
   keeps G1 open.
@@ -685,7 +689,9 @@ choose mechanisms from fresh per-operation evidence, not the old ratios alone.
 `examples/reg1/acceptance.rs` and the [hash comparison](hash-comparison.md) registry now classify
 XXH3/XXH64, wyhash, ahash and FNV as load-bearing on the opaque-key exact map face; each is the same
 `hashbrown::HashMap` surface with a different `BuildHasher`, so each is subject to
-`selected/incumbent <= 1.0`. `blake3` and `sha256` remain informational cryptographic comparators
+`selected/incumbent <= 1.0`. **Correction (c9a2d0c):** `examples/reg1/acceptance.rs` and the
+comparison dev-dependencies were removed from the tree; this classification belongs to the removed
+harness. `blake3` and `sha256` remain informational cryptographic comparators
 with no named authentication/integrity contract. Missing adapters or semantic/API applicability
 decisions still block complete acceptance. Independently check coverage of hashtrinity `Table`,
 `CoordMap`, `FreqMap` and the historical serial/spatial surfaces. Do not turn mismatched concurrency

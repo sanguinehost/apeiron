@@ -4,14 +4,15 @@
 
 Why this gate exists
 ====================
-Three registries in this tree record a sha256 per row, and each was measured
+Three registries recorded a sha256 per row, and each was measured
 drifting on the same night (``docs/contracts/artifacts.toml`` — 7 mismatches
-under ``gate docs check``; ``examples/reg1/coverage.json`` — 18 fields; and the
+under ``gate docs check``; the former ``examples/reg1/coverage.json`` — 18 fields,
+removed in ``c9a2d0c``; and the
 ``documentation-removal-reachability`` row of ``docs/evidence/ledger.jsonl``,
 whose recorded digest a later edit invalidated). The defect is the same each
 time: **a registry records a digest, and nothing recomputes it, so the registry
 drifts and every gate that trusts the row stays green.** Where an existing gate
-recomputes (``gate docs check``, ``index_check.py --check``, the ``reg1``
+recomputes (``gate docs check``, ``index_check.py --check``, the former ``reg1``
 census) it recomputes for *its own* registry; this gate is the uniform,
 registry-agnostic recheck that runs from one place over *every* registry it is
 handed, so a second and third registry cannot drift unnoticed just because no
@@ -45,8 +46,8 @@ Adapters
 ``ledger-jsonl``   ``docs/evidence/ledger.jsonl`` — one JSON object per line;
   recompute ``sha256`` and ``bytes`` over ``path``. Fields consulted:
   ``sha256``, ``bytes``.
-``coverage-json``  ``examples/reg1/coverage.json`` — the coverage census;
-  recompute ``sources[].sha256`` over ``sources[].path`` and
+``coverage-json``  a coverage census (formerly ``examples/reg1/coverage.json``,
+  removed in ``c9a2d0c``); recompute ``sources[].sha256`` over ``sources[].path`` and
   ``rows[].source_sha256`` over ``rows[].source_path``. Fields deliberately
   *not* recomputed, each for a named reason: ``sources[].pin_sha256`` is a pin
   transcribed from another document (``pin_origin``, e.g. ``proof/README.md``)
@@ -98,8 +99,7 @@ Usage
     python3 tools/rooting/digest_recheck.py --registry docs/contracts/artifacts.toml
     python3 tools/rooting/digest_recheck.py \\
         --registry docs/contracts/artifacts.toml \\
-        --registry docs/evidence/ledger.jsonl \\
-        --registry examples/reg1/coverage.json
+        --registry docs/evidence/ledger.jsonl
     python3 tools/rooting/digest_recheck.py --self-test
     python3 tools/rooting/digest_recheck.py --controls
     python3 tools/rooting/digest_recheck.py --all
@@ -457,13 +457,14 @@ ADAPTERS: list[tuple[str, str, Callable[[str, str], Registry]]] = [
     ("coverage-json", ".json", load_coverage_json),
 ]
 
-# The three in-tree registries this gate recomputes by default. A registry
-# absent from a tree is a named refusal from the caller (the hook), never a
-# silent pass; `--all` refuses one that is missing.
+# The two in-tree registries this gate recomputes by default. A registry absent
+# from a tree is a named refusal from the caller (the hook), never a silent pass;
+# `--all` refuses one that is missing. `examples/reg1/coverage.json` was removed
+# in `c9a2d0c`, so it is not an in-tree registry; the `coverage-json` adapter
+# stays for any `.json` census handed in explicitly with `--registry`.
 ALL = [
     "docs/contracts/artifacts.toml",
     "docs/evidence/ledger.jsonl",
-    "examples/reg1/coverage.json",
 ]
 
 # Surfaces in which a repeated `path` is itself a defect, so R6 checks it there.

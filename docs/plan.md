@@ -1,5 +1,7 @@
 # Apeiron execution plan
 
+> **Correction (repository state).** The REG-1 comparison harness (`examples/reg1`, `examples/smhasher`, `examples/fold`, `examples/support`) and its comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash) were removed from the tree in `c9a2d0c`. Every `cargo run ... --example reg1` (and any other removed-harness example) below is a historical command that cannot run on this tree; the live Rust gates are `cargo test`/`cargo clippy`/`cargo fmt` from `AGENTS.md` §6, and the live performance entry point is whatever the current harness names. Registered-incumbent and acceptance-registry claims below describe the removed harness.
+
 Kani is retired by user direction. The [retirement contract](epics/kani-retirement.md) supersedes
 all older Kani gates and dispatch requirements in this handoff and linked plans. Historical
 receipts remain historical. Current acceptance uses Rust tests/clippy/fmt, real-source mutation
@@ -261,8 +263,9 @@ canonical `Apeiron.Table.insertWith`; it is not asserted here, and the freeze is
 | Extraction freshness, landed at the recorded revision | `proof/regen.sh --check` fresh on `src/table.rs` sha256 `2a60a19dae103fbd6981824c11ca7b436ef344071cd979905746c9ec531d5856`; `proof/ApeironWord.lean` sha256 `c8de66e3b760c45b8dd12aa4eaa74841c4cb9b7eb2656af5d4999bb9e5548fe2`, `lake build` 1708 jobs, generated audit clean, all six `relocate_entry`/`relocate_all`/`apply_pending_and_commit` roots present for both carriers. The fresh standalone control receipt `docs/evidence/relocation-controls.md` records the same baseline green and restored freshness green (exit 0). The earlier red was source-line comment drift, not semantic drift. |
 
 No production `src/` changes belong to the supplied measurement session. Preserve uncommitted
-`examples/reg1/` evidence and unrelated spinor work. The existing performance entry point is
-`cargo run --release --locked --example reg1 -- --check performance --profile full --controls`;
+`examples/reg1/` evidence and unrelated spinor work. The performance entry point recorded here is
+`cargo run --release --locked --example reg1 -- --check performance --profile full --controls`
+(the `examples/reg1` harness was removed in `c9a2d0c`, so this command no longer runs on the tree);
 its exit 0 validates a boundary report, not G1. Offset and historical rerun command/log/digest
 receipts and full machine/sample attribution remain **MISSING** from the durable register; bind
 them before promoting these supplied figures to acceptance. See the

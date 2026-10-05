@@ -1,5 +1,7 @@
 # Locator reserve quadratic and REG-1 budget discharge
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 The parallel build's locator reservation walked every identity node per reserved key, so the quadratic
 grew with the table and the full REG-1 campaign never completed inside its budget. The fix is in
 `src/table/locator.rs` and `src/coord/locator_core.rs`: `observe_locator_receipt` reads

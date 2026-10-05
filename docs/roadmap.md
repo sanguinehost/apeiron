@@ -1,5 +1,7 @@
 # Programme roadmap
 
+> **Correction (repository state).** The REG-1 comparison harness (`examples/reg1`, `examples/smhasher`, `examples/fold`, `examples/support`) and its comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash) were removed from the tree in `c9a2d0c`. Every `cargo run ... --example reg1` (and any other removed-harness example) below is a historical command that cannot run on this tree; the live Rust gates are `cargo test`/`cargo clippy`/`cargo fmt` from `AGENTS.md` §6, and the live performance entry point is whatever the current harness names. Registered-incumbent and acceptance-registry claims below describe the removed harness.
+
 > **Kani retirement.** The [user-directed retirement](epics/kani-retirement.md) supersedes
 > every Kani run, preservation task and barrier requirement below. Historical receipts remain
 > revision-bound evidence; current work uses ordinary Rust gates and semantic mutation controls.

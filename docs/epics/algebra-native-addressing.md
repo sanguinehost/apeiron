@@ -1,5 +1,7 @@
 # Algebra-native addressing and channel decomposition
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. References below record that harness as it then stood; the named paths are absent and no command naming them runs now.
+
 Merged epic record: `intent/algebra-native-addressing.md`, `spec/algebra-native-addressing.md`, `plan/algebra-native-addressing.md` (one file per epic; see `docs/README.md`).
 
 ## Intent — Algebra-native addressing and channel decomposition

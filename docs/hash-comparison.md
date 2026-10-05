@@ -1,5 +1,7 @@
 # Hashing and table comparison for apeiron
 
+> (historical; the harness was removed in c9a2d0c) The `examples/reg1`, `examples/smhasher`, `examples/fold` and `examples/support` harnesses, and the comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, twox-hash, wyhash, ahash, rustc-hash), were removed from the tree in `c9a2d0c`. The survey below, its registry and its per-face applicability columns describe that removed harness; the named paths are absent and no command naming them runs now.
+
 Comparison plan and property matrix for the hashing/table landscape apEIRON is measured against. It
 grounds the acceptance family of the R0 G1/REG-1 matrix and the "good enough for the roadmap"
 reading. The programme authority is [`direction.md`](direction.md); the boundary is
@@ -74,7 +76,12 @@ and is corrected under a separate owner.
 | Serial map/lookup baseline | std `HashMap` (SipHash-1-3); hashbrown + foldhash | non-map hasher microbenchmarks | registered: `std_siphash` (correctness/determinism), `hashbrown_foldhash`/`hashbrown_fxhash` (speed), `hashtrinity_table` [S8] | `selected/incumbent <= 1.0` on every applicable cell [S8] |
 | Keyed PRF / cryptographic face | SipHash-1-3/2-4; BLAKE3 keyed/MAC; BLAKE2b/s keyed; SHA-256 + HMAC | non-crypto hashers for authentication | none in-repo; the claim must name its own security contract | a named contract, not a speed cell |
 
-### Acceptance registry (`examples/reg1/acceptance.rs`, read)
+### Acceptance registry (`examples/reg1/acceptance.rs`, read — historical; the harness was removed in c9a2d0c)
+
+The registry below records the removed harness. `examples/reg1/acceptance.rs` and
+`examples/reg1/acceptance/registry_tests.rs` are absent from the tree, so the classes, the
+applicability reasons and the `selected/incumbent <= 1.0` bound describe that harness, not a
+registry a reader can open now.
 
 The actual per-cell class is the registry below, not a recommendation; it corrects the
 design-intent "load-bearing incumbent" column in "Fair comparisons by face" above. A pair is
