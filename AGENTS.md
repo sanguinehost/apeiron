@@ -514,6 +514,11 @@ disk are historical records.
 
 ### Mandatory inference optimization admission
 
+**Waived until 2026-10-31 (owner, 2026-10-06).** Inference-optimization workers may run without
+`tools/dispatch/admit.py` admission until the October release. Each such lane still closes on a
+correctness gate (first-token agreement and perplexity against llama.cpp on the same model) and a
+measured, interleaved receipt; admission contracts are backfilled after the release.
+
 Before starting an inference optimization implementation worker, the lead must invoke
 `python3 tools/dispatch/admit.py --launch <proposal.json>` in its task worktree. This rule applies
 to every provider and native-agent route; a route that cannot execute its bound worker through
