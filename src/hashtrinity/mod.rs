@@ -1,4 +1,5 @@
 // Row: `apeiron-extract-insert-4-7NjO1ZbPTGkqjZ3afaKeu`.
+// Row: `apeiron-vendor-purge-B7P4Q0hmPKDkYftLsbxHIm`: only the table core, its extraction reach and webfold's three names remain.
 //! hashtrinity — a `K → V` table where the key is its own address.
 //!
 //! Not a wrapper over `std::HashMap`. One flat power-of-two array, one insert, and four merge
@@ -6,17 +7,18 @@
 //!
 //! ## Feature flags
 //!
-//! As a *module* of apeiron these names resolve against apeiron's own feature table, so all 18
-//! are renamed with an `ht-` prefix (`derive` → `ht-derive`); they are declared as expected cfg
+//! As a *module* of apeiron these names resolve against apeiron's own feature table, so the
+//! upstream feature names are renamed with an `ht-` prefix; they are declared as expected cfg
 //! values in `Cargo.toml`, not as features, because as features `--all-features` would switch the
-//! whole vendored surface on. None of the 18 is wired; the table below documents upstream's names.
+//! whole vendored surface on. Only the retained `codec` module (with its `compress`/`syntax`
+//! submodules and its `hex` syntax bridge) still carries such a gate; the table below documents
+//! upstream's names.
 //!
 //! | Feature | Deps | What it adds |
 //! |---------|------|-------------|
 //! | `codec` | — | Zero-copy wire format ([`codec::web`]), universal Term, integer column codec |
 //! | `compress` | — | Context-mixing entropy coder ([`codec::cm`]) — subsumes gzip -9 |
 //! | `syntax` | — | Collapsed syntax AST ([`codec::syntax`]) — JSON/BAML/CSV/TOON/POML/YAML surfaces |
-//! | `derive` | hashtrinity_derive | `#[derive(Collapse)]` proc-macro for columnar zero-copy serialization |
 //!
 //! # One structure, four merges
 //!
@@ -160,38 +162,6 @@ use std::mem::MaybeUninit;
 #[allow(missing_docs)]
 pub mod codec;
 
-/// `#[derive(Collapse)]` — hashtrinity's columnar (de)serialization, re-exported so consumers write
-/// `use hashtrinity::Collapse;` without naming the proc-macro crate.
-#[cfg(feature = "ht-derive")]
-pub use hashtrinity_derive::Collapse;
-
-/// `#[derive(Term)]` — struct <-> `SyntaxTerm` (JSON/BAML/CSV/TOON/POML/YAML), the serde-derive analog for
-/// the universal term (`codec::syntax`). Re-exported the same way `Collapse` is.
-#[cfg(feature = "ht-derive")]
-pub use hashtrinity_derive::Term;
-
-/// The `thiserror`/`anyhow` masquerade — zero-dependency replacements for both, sharing one flat
-/// root: `Error` here is the **type** (anyhow's boxed dynamic error + context chain, [`error`]),
-/// `Error` from `hashtrinity_derive` below is the **derive macro** (thiserror's `#[error("...")]`
-/// subset). Different namespaces (macro vs. type), same identifier, zero conflict — see
-/// [`error`]'s module doc for why a single crate can masquerade as both at once.
-#[cfg(feature = "ht-error")]
-pub mod error;
-#[cfg(feature = "ht-error")]
-pub use error::{Context, Error, Result};
-
-/// `#[derive(Error)]` — the `thiserror` masquerade (`#[error("...")]`/`#[from]`/`#[source]`,
-/// same attribute syntax). Available under either `derive` (bundled with `Collapse`/`Term`) or
-/// `error` (bundled with the `anyhow` masquerade above) — same underlying macro either way.
-#[cfg(any(feature = "ht-derive", feature = "ht-error"))]
-pub use hashtrinity_derive::Error;
-
-/// The `bitflags` masquerade — `bitflags!` generates the same public API as the real crate.
-/// Zero dependencies; see the module doc for what's ported.
-#[cfg(feature = "ht-bitflags")]
-#[allow(missing_docs)]
-pub mod bitflags;
-
 /// The `hex` masquerade — encode/decode hex strings, the same public API as the real crate.
 /// Zero dependencies; see the module doc for what's ported.
 #[allow(missing_docs)]
@@ -201,66 +171,6 @@ pub mod hex;
 /// module doc for what's ported.
 #[allow(missing_docs)]
 pub mod base64;
-
-/// RFC 4648 base32 + Zooko's z-base32. Zero dependencies; see the module doc. Sits beside
-/// `base64`/`hex` because it is the same shape of thing: a 5-bit window over an alphabet.
-#[cfg(feature = "ht-base32")]
-#[allow(missing_docs)]
-pub mod base32;
-
-/// The `itertools` masquerade — the `Itertools` trait extending every `Iterator`, plus its
-/// supporting types. Zero dependencies; see the module doc for what's ported.
-#[cfg(feature = "ht-itertools")]
-#[allow(missing_docs)]
-pub mod itertools;
-
-/// The `validator` masquerade — `#[derive(Validate)]` + `#[validate(...)]` field attributes.
-/// Zero dependencies; see the module doc for what's ported.
-#[cfg(feature = "ht-validate")]
-pub mod validate;
-
-/// `#[derive(Validate)]` — the `validator` masquerade, re-exported so consumers write
-/// `use hashtrinity::Validate;` without naming the proc-macro crate. The real `validator` crate's
-/// own `Validate` is BOTH a derive macro and the trait it implements, one name, one import; this
-/// re-exports both under the same identifier the same way `Error` already does above (macro
-/// namespace vs. type namespace, zero conflict) — a caller writing `use hashtrinity::Validate;`
-/// gets the derive AND `.validate()` from one line, matching the real crate's ergonomics exactly.
-#[cfg(feature = "ht-validate")]
-pub use hashtrinity_derive::Validate;
-#[cfg(feature = "ht-validate")]
-pub use validate::{Validate, ValidationError, ValidationErrors};
-
-/// The `utoipa` masquerade — `#[derive(ToSchema)]`/`#[derive(IntoParams)]`/
-/// `#[utoipa::path(...)]`/`#[derive(OpenApi)]`, built on `codec::syntax`'s existing
-/// `SyntaxTerm`/`render_surface` (no new type system). Zero dependencies; see the module doc.
-#[cfg(feature = "ht-openapi")]
-pub mod openapi;
-
-/// `#[derive(ToSchema)]`/`#[derive(IntoParams)]` — re-exported so consumers write
-/// `use hashtrinity::{ToSchema, IntoParams};` without naming the proc-macro crate. Each name is
-/// BOTH the derive macro and the trait it implements, same identifier from two different paths,
-/// zero conflict (macro namespace vs. type namespace — the same trick `Validate` uses above).
-#[cfg(feature = "ht-openapi")]
-pub use hashtrinity_derive::{IntoParams, ToSchema};
-
-// proc-macro/reactor/runtime are secondary, non-default features; their own doc/style pass is
-// deferred, same precedent as codec above.
-#[cfg(feature = "ht-proc-macro")]
-#[allow(
-    missing_docs,
-    clippy::pedantic,
-    clippy::should_implement_trait,
-    clippy::redundant_closure
-)]
-pub mod proc_masq;
-
-#[cfg(feature = "ht-reactor")]
-#[allow(missing_docs, clippy::pedantic, clippy::should_implement_trait)]
-pub mod reactor;
-
-#[cfg(feature = "ht-runtime")]
-#[allow(missing_docs, clippy::pedantic)]
-pub mod runtime;
 
 pub mod seed;
 pub mod tregex;
@@ -278,40 +188,17 @@ pub mod par;
 pub mod face;
 pub use face::{Absorb, Entry, IntoIter, Iter, Locate, OccupiedEntry, VacantEntry};
 
-/// The Count face at the **identity address function** — [`Dense`], the table whose key *is* its
-/// address, with no coordinate column and no probe. The limit case of "the key is its own address";
-/// see [`dense`] for when it beats [`CoordMap`] and when it does not.
-pub mod dense;
-pub use dense::{Dense, Group};
-
-/// **PROTOTYPE, NOT ADOPTED** — two alternative slot layouts ([`ctrl_proto::TableB`], a 1-bit
-/// occupancy bitmap; [`ctrl_proto::TableC`], a SwissTable control byte) built only so the shipped
-/// layout can be priced against them in one binary. Nothing in the crate uses them; the default
-/// layout is unchanged. `#[doc(hidden)]` because they are a measurement instrument, not API.
-#[doc(hidden)]
-pub mod ctrl_proto;
-
 // ═══════════════════════════════════════════════════════════════════
-// SUBSUMED — the four sibling crates are now modules of the one crate:
+// SUBSUMED — hashtrinity-crypto is now a module of the one crate:
 //   hashtrinity-crypto   → crypto    (the standard hashes as the fold)
-//   hashtrinity-rustls   → rustls    (TLS 1.3 CryptoProvider, ring-free)
-//   hashtrinity-webauthn → webauthn  (native passkeys, Level 2)
-//   syncfold             → sync      (the set-difference file sync)
 pub mod crypto;
-pub mod secret;
-#[cfg(feature = "ht-rustls-provider")]
-pub mod rustls;
-#[cfg(feature = "ht-syncfold")]
-pub mod sync;
-#[cfg(feature = "ht-webauthn")]
-pub mod webauthn;
 
 // ── The two files this root was split into. ────────────────────────────────────────────────────
 //
 // PRIVATE modules, glob-re-exported, so every path stays exactly where it was: `Coord`, `Monoid`,
 // `FreqMap` and friends are `hashtrinity::Coord`/`Monoid`/`FreqMap` as before, and no NEW public
 // module path (`hashtrinity::algebra::…`) is created. `Table` itself, the sentinels, `is_live`,
-// `prefix_masks` and `bits_for` stay HERE: `face`/`ctrl_proto` reach them as `crate::hashtrinity::is_live` etc.,
+// `prefix_masks` and `bits_for` stay HERE: `face` reaches them as `crate::hashtrinity::is_live` etc.,
 // which is legal only because they are private items of the crate ROOT and those modules are its
 // descendants. Moving them down one level would force `pub(crate)` on all of them.
 //

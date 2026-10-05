@@ -112,7 +112,7 @@ pub trait KeyStore<K: Coord>: Sized {
 /// The split is the route-1 extraction adaptation: the executing `new`/`with_capacity`/`get`/
 /// `insert_with`/growth bodies never read a key back, so they need only [`KeyStore`] and translate
 /// once the GAT is out of that trait. Only the readback faces (`Table::iter`, `Table::encircle_floor`
-/// and the `face`/`ctrl_proto` iteration surfaces) require this extension trait.
+/// and the `face` iteration surfaces) require this extension trait.
 pub trait KeyReadout<K: Coord>: KeyStore<K> {
     /// The key as read back — `&K` when stored, `K` (regenerated) when not.
     type Key<'a>

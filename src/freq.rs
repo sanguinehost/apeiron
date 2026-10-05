@@ -2,7 +2,9 @@
 //!
 //! `src/hashtrinity/` is `hashtrinity` at rev `4cc14471ae24f3f204fb0b0e91736ef75c909358`,
 //! copied from the fold Git object at that revision and compiled here as this crate's own module.
-//! The whole crate comes across, not just `freq.rs`, because:
+//! The table core comes across (`mod.rs`, `algebra`, `freq`, `par`, `face`, `seed`), together with
+//! the `tregex`, `codec` and `crypto` modules webfold still imports from the vendored tree, not
+//! just `freq.rs`, because:
 //!
 //! - `E0603`: `bits_for_slots` (defined `hashtrinity/src/lib.rs:501`) and `EMPTY` (defined
 //!   `hashtrinity/src/lib.rs:298`) are private, so `freq.rs:5` cannot import them from outside the
@@ -12,12 +14,11 @@
 //!   `crate::hashtrinity::Table`, defined in the same crate.
 //!
 //! So the two refusals that made a bare file copy impossible are answered by vendoring the crate,
-//! not by rewriting its logic. The only changes to the copied tree are path lines: 66 `crate::`
+//! not by rewriting its logic. The changes to the copied tree are path lines — 66 `crate::`
 //! references rewritten to `crate::hashtrinity::`, the `hex`/`base64` module gates removed (this
-//! crate has no `hex`/`base64` feature and `crypto.rs` is unconditional), and `lib.rs` renamed
-//! `mod.rs`. The pinned git dependency of the same revision stays in `Cargo.toml` as the
-//! reference side; `hashtrinity::FreqMap` and `hashtrinity::Table` remain the incumbents on the
-//! registered counting and map arms.
+//! crate has no `hex`/`base64` feature and `crypto.rs` is unconditional), `lib.rs` renamed
+//! `mod.rs` — and the removal of every module no retained consumer reaches. This in-tree tree is
+//! the only copy; the external `hashtrinity` git dependency is gone.
 //!
 //! Both faces are re-exported here under one private path so the vendored and the external
 //! comparator are two spellings of the same contract that a reader can name side by side:
