@@ -44,13 +44,19 @@ Board source, in precedence order:
 
 1. the live board over REST, when ``OPERATELY_API_KEY`` is in the environment.
    The live board is **enumerated**, never sampled: every route that lists rows is
-   read to exhaustion, two enumerations must agree on the row count and the row
-   id set, and the routes must agree with each other. An under-read is refused,
-   not resolved against. A missing key is a named refusal.
+   read to exhaustion, two *consecutive* enumerations must agree on the row count
+   and the row id set, and the routes must agree with each other. Because lanes
+   file rows while other lanes commit, the fetch re-enumerates until two
+   consecutive reads agree, bounded by ``APEIRON_HOOKS_COMMITMSG_BUDGET``
+   (default 90 s); if the budget expires while the board keeps moving it refuses
+   with ``board-fetch-count-unstable`` and the observed counts -- never by taking
+   the later read. An under-read is refused, not resolved against. A missing key
+   is a named refusal.
 2. ``APEIRON_HOOKS_BOARD_SOURCE`` -- a *stamped* capture (see ``lane.py
-   capture``). Accepted only as a capture, never as a bare document: it must
-   carry ``fetch.fetched_at`` and ``fetch.task_count``, it must be no older than
-   the staged change, and when the key is present its row count must equal a
+   capture``). This is the deterministic path for a board that will not quiesce
+   inside the budget. Accepted only as a capture, never as a bare document: it
+   must carry ``fetch.fetched_at`` and ``fetch.task_count``, it must be no older
+   than the staged change, and when the key is present its row count must equal a
    fresh enumeration. A snapshot that under-read the board is therefore refused
    rather than authoritative.
 3. nothing: a commit that names a row cannot be checked, so it is refused by
@@ -89,6 +95,8 @@ from lane_core import (  # noqa: F401 - re-exported: the entry's public surface
     CODE_FILES,
     CODE_PREFIXES,
     COMMIT_LANES,
+    COMMITMSG_BUDGET_ENV,
+    COMMITMSG_BUDGET_DEFAULT,
     DECLARATION_HINT,
     DOC_FILES,
     DOC_PREFIXES,

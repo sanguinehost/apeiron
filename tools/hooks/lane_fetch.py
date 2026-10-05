@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Row: `apeiron-harness-lane-land-CnFUhFHaC4TnQIA1dG3yRF` (APEIRON-HARNESS-LANE-FETCH-INSTALL).
 """lane_fetch: exhaustive enumeration of the live board.
 
 Read to exhaustion, never sampled: every route that lists rows is
@@ -10,9 +11,12 @@ against. Part of ``tools/hooks/lane.py``.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 from typing import Iterable
 from lane_core import (
+    COMMITMSG_BUDGET_ENV,
+    QUORUM_HEADROOM,
     FetchError,
     RULE_FETCH_DISAGREE,
     RULE_FETCH_KEY,
@@ -21,6 +25,7 @@ from lane_core import (
     RULE_FETCH_UNAVAILABLE,
     RULE_FETCH_UNSTABLE,
     board,
+    commitmsg_budget,
 )
 
 # ---------------------------------------------------------------------------
@@ -367,44 +372,87 @@ def exhaustive_document(
     return normalized, {"routes": routes, "task_count": len(normalized["tasks"])}
 
 
+def _unstable_after_budget(
+    reads: list[tuple[int, frozenset[str]]], budget: float
+) -> FetchError:
+    """The named refusal for a board that never quiesced inside the budget.
+
+    The refusal is the same one the two-read comparison always raised: the board
+    was written under the fetch and no single read can be authority. It is not
+    degraded to the later read -- that is the whole defect this rule exists to
+    refuse.
+    """
+    counts = sorted({count for count, _ in reads})
+    if len(counts) > 12:
+        counts_text = ", ".join(str(count) for count in counts[:8]) + f", ... +{len(counts) - 8} more"
+    else:
+        counts_text = ", ".join(str(count) for count in counts)
+    if len(counts) > 1:
+        what = f"different row counts ({counts_text})"
+    else:
+        first, second = reads[-2][1], reads[-1][1]
+        what = (
+            f"the same row count ({counts[0]}) but different row id sets "
+            f"(+{len(second - first)}/-{len(first - second)} between the last two reads)"
+        )
+    headroom = min(QUORUM_HEADROOM, budget / 2.0)
+    return FetchError(
+        RULE_FETCH_UNSTABLE,
+        f"{len(reads)} enumerations over a {budget:g}s budget returned {what}; the board is "
+        "being written under the fetch and no single read can be authority. The budget "
+        f"({COMMITMSG_BUDGET_ENV}={budget:g}s less {headroom:g}s headroom) expired while the "
+        "board kept moving, so the fetch refuses and never accepts the later read. For a "
+        "board that will not quiesce, write a stamped capture "
+        "(`python3 tools/hooks/lane.py capture --out PATH`) and set APEIRON_HOOKS_BOARD_SOURCE",
+    )
+
+
 def enumerated_board(
     client: Any,
     space_id: str = board.DEFAULT_SPACE_ID,
     projects: Iterable[str] = board.DEFAULT_PROJECTS,
     repeats: int = 2,
+    budget: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The board enumerated twice, with the two id sets and counts compared.
+    """The board enumerated to quiescence: two *consecutive* reads must agree.
 
-    Two independent reads are the stability signal: a count that changes between
-    them, or an id set that differs, is refused. A single read is never accepted
-    as a closed enumeration.
+    The board is never resolved against a partially-read snapshot. A single read
+    is never accepted. Two consecutive enumerations that return the same row
+    count and the same row id set are the closure signal; while a writer is
+    mid-flight the first read may see fewer rows than the next, so the fetch
+    re-enumerates until two consecutive reads agree. This is bounded by a
+    declared wall-clock budget -- ``budget`` (seconds), or
+    ``APEIRON_HOOKS_COMMITMSG_BUDGET`` (default 90 s) when it is ``None``. If the
+    budget expires while the board keeps moving, the fetch raises
+    ``board-fetch-count-unstable`` with the observed counts; it does not degrade
+    to "take the later read". A busy board therefore has a deterministic path:
+    ``python3 tools/hooks/lane.py capture --out PATH`` writes a stamped capture
+    and ``APEIRON_HOOKS_BOARD_SOURCE`` makes it the source.
+
+    ``repeats`` is the minimum number of reads; it must be at least 2, so a
+    single-read call is still refused.
     """
     if repeats < 2:
         raise FetchError(
             RULE_FETCH_UNSTABLE, f"enumeration requires at least 2 reads, asked for {repeats}"
         )
+    if budget is None:
+        budget = commitmsg_budget()
+    deadline = time.monotonic() + max(budget - QUORUM_HEADROOM, budget / 2.0)
+    reads: list[tuple[int, frozenset[str]]] = []
     document: dict[str, Any] | None = None
     report: dict[str, Any] = {}
-    seen: list[tuple[int, frozenset[str]]] = []
-    for attempt in range(repeats):
+    while True:
         document, report = exhaustive_document(client, space_id, projects)
-        seen.append((len(document["tasks"]), frozenset(t["id"] for t in document["tasks"])))
-    counts = {count for count, _ in seen}
-    if len(counts) != 1:
-        raise FetchError(
-            RULE_FETCH_UNSTABLE,
-            f"{repeats} enumerations returned different row counts ({sorted(counts)}); the "
-            "board is being written under the fetch and no single read can be authority",
-        )
-    if len({ids for _, ids in seen}) != 1:
-        first, second = seen[0][1], seen[1][1]
-        raise FetchError(
-            RULE_FETCH_UNSTABLE,
-            f"{repeats} enumerations returned different row id sets "
-            f"(+{len(second - first)}/-{len(first - second)} between reads); the board moved "
-            "under the fetch",
-        )
-    report = {**report, "reads": repeats, "task_count": seen[0][0]}
+        reads.append((len(document["tasks"]), frozenset(t["id"] for t in document["tasks"])))
+        # The budget is checked only once the two-read quorum exists: a board
+        # with a tiny test budget must still get its second read to decide
+        # agreement, or an agreeing board would be refused unread.
+        if len(reads) >= repeats and reads[-1] == reads[-2]:
+            break
+        if len(reads) >= repeats and time.monotonic() >= deadline:
+            raise _unstable_after_budget(reads, budget)
+    report = {**report, "reads": len(reads), "task_count": reads[-1][0]}
     assert document is not None
     return document, report
 

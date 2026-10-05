@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -68,6 +69,18 @@ RULE_SNAPSHOT_STALE = "board-snapshot-stale"
 # commit could serve, and the commit must carry its own association.
 RULE_ROW_CLOSED = "board-row-closed"
 RULE_ROW_NOT_IN_COMMIT = "board-row-not-in-commit"
+
+# The commit hook's wall-clock budget, shared by .githooks/commit-msg (which
+# wraps lane.py in `timeout "$APEIRON_HOOKS_COMMITMSG_BUDGET"`) and the
+# enumeration quorum in lane_fetch. A busy board is re-enumerated until two
+# *consecutive* reads agree; when the internal deadline passes the fetch refuses
+# by name rather than resolving against a partial read. ``QUORUM_HEADROOM`` is
+# reserved inside that budget so the named refusal is printed before the hook's
+# own ``timeout`` sends SIGTERM -- a SIGTERM would report exit 124 and lose the
+# rule, turning a named refusal into an unexplained budget failure.
+COMMITMSG_BUDGET_ENV = "APEIRON_HOOKS_COMMITMSG_BUDGET"
+COMMITMSG_BUDGET_DEFAULT = 90.0
+QUORUM_HEADROOM = 5.0
 
 # A staged path under one of these is code: it compiles, extracts, or is a crate
 # manifest, so the change is attributable work and needs a board row. The
@@ -260,6 +273,24 @@ def parse_epoch(stamp: str) -> float:
 
 def now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def commitmsg_budget() -> float:
+    """The enumeration quorum's wall-clock budget, in seconds.
+
+    Read from ``APEIRON_HOOKS_COMMITMSG_BUDGET`` (default 90 s). A value that is
+    absent, unparseable or non-positive yields the default: a zero budget would
+    refuse every board -- including the quiesced one this retry exists to
+    accept -- which is the failure mode, not a stronger gate.
+    """
+    raw = os.environ.get(COMMITMSG_BUDGET_ENV, "").strip()
+    if not raw:
+        return COMMITMSG_BUDGET_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        return COMMITMSG_BUDGET_DEFAULT
+    return value if value > 0 else COMMITMSG_BUDGET_DEFAULT
 
 
 def staged_change_epoch(root: Path | None = None) -> float:

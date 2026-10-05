@@ -210,16 +210,42 @@ def stub_task(task_id: str, milestone: str | None = None, **extra: Any) -> dict[
     }
 
 
+class ChurnClient(StubClient):
+    """A client whose row count grows on every read: no two reads agree.
+
+    This is the test double for the quorum budget. The fetch must re-enumerate
+    until the budget expires and then refuse ``board-fetch-count-unstable`` --
+    the fix must not have turned a board that never quiesces into an accepted
+    later read. The count grows by one row per ``tasks/list`` call, so
+    ``read[n] != read[n-1]`` forever.
+    """
+
+    def __init__(self) -> None:
+        super().__init__({})
+
+    def call(self, path: str, **params: Any) -> dict[str, Any]:
+        self.calls.append(path)
+        if path == "projects/list":
+            return {"projects": [{"id": "p-apeiron", "name": "apeiron"}]}
+        if path == "projects/list_milestones":
+            return {"milestones": []}
+        if path == "tasks/list":
+            count = self.calls.count("tasks/list")
+            return {"tasks": [stub_task(f"row-{i:05d}") for i in range(count)]}
+        return {}
+
+
 def fetch_case(
     name: str,
     client: StubClient,
     expect: str,
     repeats: int = 2,
     projects: Iterable[str] = ("apeiron",),
+    budget: float | None = None,
 ) -> tuple[bool, str]:
     """Run one enumeration case; return (passes, verdict)."""
     try:
-        document, report = enumerated_board(client, "sanguine-test", projects, repeats)
+        document, report = enumerated_board(client, "sanguine-test", projects, repeats, budget)
         observed = f"ok tasks={len(document['tasks'])} reads={report['reads']}"
     except FetchError as exc:
         observed = exc.rule
@@ -659,9 +685,9 @@ def run_controls() -> int:
             RULE_FETCH_DISAGREE,
         ),
         (
-            "refused: a count that changes between two enumerations",
+            "accepted: a count that changes once, then quiesces, is retried to agreement",
             unstable,
-            RULE_FETCH_UNSTABLE,
+            "ok tasks=3",
         ),
     ]
     for name, client, expect in fetch_cases:
@@ -673,6 +699,20 @@ def run_controls() -> int:
     ok, verdict = fetch_case("refused: a single read", agreeing, RULE_FETCH_UNSTABLE, repeats=1)
     failures += 0 if ok else 1
     print(f"  {'ok  ' if ok else 'FAIL'}  refused: a single enumeration is not a closed population")
+    print(f"        {verdict}")
+
+    # The negative control the quiesce retry must not remove: a board that never
+    # has two consecutive agreeing reads is still refused, after the budget,
+    # with board-fetch-count-unstable. The budget is a fraction of a second so
+    # the control is hermetic and instant.
+    ok, verdict = fetch_case(
+        "refused: a board that never quiesces expires the budget",
+        ChurnClient(),
+        RULE_FETCH_UNSTABLE,
+        budget=0.05,
+    )
+    failures += 0 if ok else 1
+    print(f"  {'ok  ' if ok else 'FAIL'}  refused: a board that never quiesces still refuses by name")
     print(f"        {verdict}")
 
     # An unavailable auxiliary route is recorded, not fatal: the project routes
@@ -765,6 +805,6 @@ def run_controls() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
         print(f"        {verdict}")
 
-    total = len(cases) + 15
+    total = len(cases) + 16
     print(f"lane-declaration controls: {total - failures}/{total} passed")
     return 0 if failures == 0 else 2
