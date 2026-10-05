@@ -52,6 +52,9 @@ pub mod sha256;
 /// The ported SIMT (GPU) substrate: the 12-op alphabet encoded to SPIR-V, the carrier-dial GEMV
 /// fold and the integer-dot (DP4A) chart GEMV. Faithful port of fold's `modelfold::simt`.
 pub mod simt;
+/// The ported SIMT neural network glue kernels: RMSNorm, RoPE, attention, SwiGLU, argmax,
+/// prefill tiles. Faithful port of fold's `modelfold::simt_nn`.
+pub mod simt_nn;
 pub mod spirv;
 pub mod table;
 
