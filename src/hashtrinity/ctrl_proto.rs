@@ -41,7 +41,9 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::hashtrinity::face::Locate;
-use crate::hashtrinity::{bits_for, is_live, Coord, CoordInv, KeyStore, Regen, Stored, EMPTY, PHI, TOMB};
+use crate::hashtrinity::{
+    bits_for, is_live, Coord, CoordInv, KeyReadout, KeyStore, Regen, Stored, EMPTY, PHI, TOMB,
+};
 use std::mem::MaybeUninit;
 
 /// Bytes the key store really allocates for `n` slots: `Stored` keeps one `K` per slot, `Regen`
@@ -244,7 +246,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> TableB<K, V, KS> {
                 return None;
             }
             let (hits, empties) =
-                unsafe { crate::hashtrinity::prefix_masks(self.coords.as_ptr().add(home), coord) };
+                crate::hashtrinity::prefix_masks(&self.coords, home, coord);
             if hits != 0 {
                 let slot = home + hits.trailing_zeros() as usize;
                 return Some(unsafe { self.vals.get_unchecked(slot).assume_init_ref() });
@@ -393,7 +395,7 @@ pub struct IterB<'a, K: Coord, V, KS: KeyStore<K>> {
     wi: usize,
 }
 
-impl<'a, K: Coord, V, KS: KeyStore<K>> Iterator for IterB<'a, K, V, KS> {
+impl<'a, K: Coord, V, KS: KeyReadout<K>> Iterator for IterB<'a, K, V, KS> {
     type Item = (KS::Key<'a>, &'a V);
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -753,7 +755,7 @@ pub struct IterC<'a, K: Coord, V, KS: KeyStore<K>> {
     ng: usize,
 }
 
-impl<'a, K: Coord, V, KS: KeyStore<K>> Iterator for IterC<'a, K, V, KS> {
+impl<'a, K: Coord, V, KS: KeyReadout<K>> Iterator for IterC<'a, K, V, KS> {
     type Item = (KS::Key<'a>, &'a V);
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -1053,7 +1055,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> TableZ<K, V, KS> {
     }
 
     /// Correctness only — a plain scalar scan, NOT the shipped glance. Do not time this.
-    pub fn iter(&self) -> impl Iterator<Item = (KS::Key<'_>, &V)> {
+    pub fn iter(&self) -> impl Iterator<Item = (KS::Key<'_>, &V)>
+    where
+        KS: KeyReadout<K>,
+    {
         self.coords
             .iter()
             .enumerate()
