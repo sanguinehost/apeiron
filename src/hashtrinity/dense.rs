@@ -31,8 +31,8 @@
 //! call site is the whole point of the type — a hand-rolled `checked_sub` loop is where a group
 //! inverse silently stops being one.
 //!
-//! ```
-//! use hashtrinity::Dense;
+//! ```ignore
+//! use apeiron::hashtrinity::Dense;
 //! let mut a = Dense::<u32>::zeros(4);
 //! a.add(1, 5);
 //! a.add(3, 2);

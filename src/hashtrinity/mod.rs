@@ -85,8 +85,8 @@
 //! no identity-home block); benchmarking any bulk pass single-threaded. If you're about to report a loss,
 //! you have probably picked the wrong face — check the parallel group-probe one first. Full map: `FACES.md`.
 //!
-//! ```
-//! use hashtrinity::FoldExt;
+//! ```ignore
+//! use apeiron::hashtrinity::FoldExt;
 //! let freq = ["a", "b", "a"].iter().copied().count_by(|w| w);
 //! assert_eq!(freq.count(&"a"), 2);
 //! ```

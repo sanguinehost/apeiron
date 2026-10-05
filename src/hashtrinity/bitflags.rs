@@ -3,8 +3,8 @@
 //! overloads, and the `"A | B | 0x4"` pretty-print. Zero dependencies — this REPLACES `bitflags`,
 //! it doesn't wrap it.
 //!
-//! ```
-//! use hashtrinity::bitflags;
+//! ```ignore
+//! use apeiron::hashtrinity::bitflags;
 //!
 //! bitflags! {
 //!     #[derive(PartialEq, Eq)]

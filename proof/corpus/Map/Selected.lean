@@ -6,10 +6,10 @@ import Map.Read
 `Map/Rep.lean` and `Map/Read.lean` refine the **extracted** body `apeiron_word::word_stored_apply_get`
 (`proof/ApeironWord.lean:26959`), which reads the growable flat/spill `table.Table` rooted at
 `apeiron::Table` (`proof/extract/lib.rs:450`).  `main` at `b519047` **executes** a different body:
-`examples/reg1/adapters/selected_map.rs` constructs `apeiron::hashtrinity::Table<StrataKey, i64>`
-(reached as `apeiron::freq::Table`, `src/freq.rs:29`) and the selected map arm calls its `get` and
-`insert_with`.  This module states the executed face's representation and reduces its `get` to the
-canonical `Apeiron.Table.get`.
+the selected map arm constructs `apeiron::hashtrinity::Table<StrataKey, i64>`
+(`src/hashtrinity/mod.rs`, reached as `apeiron::freq::Table`, `src/freq.rs:29`) and calls its `get`
+and `insert_with`.  This module states the executed face's representation and reduces its `get` to
+the canonical `Apeiron.Table.get`.
 
 The executed body is `hashtrinity` at rev `4cc14471ae24f3f204fb0b0e91736ef75c909358`, vendored at
 `src/hashtrinity/`:

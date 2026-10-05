@@ -11,8 +11,8 @@
 //! `galvanize-template/filters.rs`'s standalone encode-only `b64encode`) — the exact   CITATION-EXEMPT: `galvanize-template`, a tree outside `fold`
 //! multiple-independent-reimplementation pattern a masquerade exists to close.
 //!
-//! ```
-//! use hashtrinity::base64::{engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}, Engine};
+//! ```ignore
+//! use apeiron::hashtrinity::base64::{engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}, Engine};
 //!
 //! assert_eq!(STANDARD.encode(b"foobar"), "Zm9vYmFy");
 //! assert_eq!(STANDARD.decode("Zm9vYmFy").unwrap(), b"foobar");

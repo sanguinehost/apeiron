@@ -32,8 +32,9 @@ pub mod freq;
 // subtree stubbed to an empty file, 0 diffs here -- but a misordered `mod` added next to this one
 // would no longer be reported.
 /// The incumbent, vendored: `hashtrinity` at rev `4cc14471` as this crate's own module.
-/// Private, because `freq` is its public face and the incumbent git dependency stays the
-/// reference side of every registered comparison.
+/// Private, because `freq` is its public face. The external `hashtrinity` git dependency is
+/// removed (owner direction, 2026-10-05), so the doctests in the submodules are marked `ignore`:
+/// they document the upstream crate's API, and this crate's public path for the port is `freq`.
 #[rustfmt::skip]
 mod hashtrinity;
 /// The sovereign GPU runtime (dlopen Vulkan device + dispatch) over the ported `simt`

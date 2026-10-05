@@ -25,8 +25,8 @@
 //! allocation. It extends the crate's existing tuple fold (`c ← c·PHI ⊕ xᵢ`) rather than adding a
 //! second scheme — see [`Locate`] for the identity that makes that exact.
 //!
-//! ```
-//! use hashtrinity::Table;
+//! ```ignore
+//! use apeiron::hashtrinity::Table;
 //! let mut t: Table<(String, String), i64> = Table::new();
 //! t.put(("lo".into(), "hi".into()), 7);
 //! assert_eq!(t.get_at(("lo", "hi")), Some(&7)); // no String materialized
