@@ -375,10 +375,15 @@ fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
             return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
         }
         let (mut hits, mut empties) = (0u32, 0u32);
-        for k in 0..LINEAR_G as usize {
+        // A `while`, not `for k in 0..LINEAR_G`: a range loop monomorphizes `Range<usize>::next`,
+        // which resolves the `core::iter::range::Step` trait, and the extraction's pinned model
+        // carries no `Step::forward_overflowing`. Bound, order, indexing and body are unchanged.
+        let mut k = 0usize;
+        while k < LINEAR_G as usize {
             let sc = coords[home + k];
             hits |= u32::from(sc == coord) << k;
             empties |= u32::from(sc == EMPTY) << k;
+            k += 1;
         }
         (hits, empties)
     }
@@ -573,10 +578,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         let n = 1usize << bits;
         Table {
             coords: vec![EMPTY; n].into_boxed_slice(),
-            vals: std::iter::repeat_with(MaybeUninit::uninit)
-                .take(n)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            vals: alloc_uninit_boxed(n),
             keys: KS::alloc(n),
             bits,
             len: 0,
