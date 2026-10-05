@@ -26,8 +26,108 @@
 //! array; `Regen` keys, whose coordinate round-trips, have at most one entry per node).
 
 use super::{
-    is_sentinel, prefix_masks, Capped, Coord, KeyStore, Locate, Table, EMPTY, LINEAR_G, PROBE_CAP,
+    is_sentinel, Capped, Coord, KeyStore, Locate, Table, EMPTY, LINEAR_G, PROBE_CAP,
 };
+
+/// Whether primary slot `i` holds the probed identity, once its coordinate matched. A trait with two
+/// first-order implementors instead of a closure argument: the extraction does not translate arrow
+/// types, and the capped probe stays one body.
+pub(super) trait Confirm<K: Coord, KS: KeyStore<K>> {
+    fn confirm(&self, keys: &KS, i: usize) -> bool;
+}
+
+/// Confirmation against an owned-key query: [`KeyStore::matches`].
+pub(super) struct ByKey<'a, K> {
+    pub(super) coord: u64,
+    pub(super) k: &'a K,
+}
+
+impl<'a, K: Eq + Coord, KS: KeyStore<K>> Confirm<K, KS> for ByKey<'a, K> {
+    #[inline]
+    fn confirm(&self, keys: &KS, i: usize) -> bool {
+        keys.matches(i, self.coord, self.k)
+    }
+}
+
+/// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates `coords[home + k]` against
+/// `coord` (a candidate hit) and against `EMPTY` (a chain terminator) in one branchless pass,
+/// returning `(hits, empties)` as lane-bit masks. This is the read-side analogue of
+/// [`group_tag_mask`], but on the coordinates *themselves*. The coordinate is identity over the live
+/// space ([`coord_of`] is the raw coordinate; the reserved markers live in the [`SideStore`]), but two
+/// distinct keys may share a coordinate, so a lane match is confirmed against the stored key (free on
+/// `Regen`) before it is a hit. No second structure: the tag line THE CUT removed is not reintroduced;
+/// the collision tail's own contiguous cache line is filtered in place, turning the mispredict-prone
+/// scalar walk into one movemask. The hot home hit never calls this.
+///
+/// The prefix is addressed as a range of the coordinate slice (`home + k`), not as a raw pointer: the
+/// scalar tail reads an in-bounds element, so the fallback needs no `unsafe` and the extraction sees no
+/// raw-pointer dereference. The caller ensures `home + LINEAR_G ≤ coords.len()`.
+#[inline]
+fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
+    // Compiled for AVX2 (`-C target-feature=+avx2`, e.g. `-C target-cpu=x86-64-v3`) the glance
+    // resolves at *compile* time — the `_mm256` pair on the hot read with no per-call feature probe.
+    // This repository ships no `.cargo/config.toml`, so the default build is portable (sub-v3) and
+    // pays one `is_x86_feature_detected!` per collision read into the out-of-line AVX2 body, then
+    // falls back to a branchless scalar loop the compiler still autovectorizes.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    // SAFETY: caller guarantees `home + LINEAR_G ≤ len`; AVX2 is statically enabled here.
+    return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        #[cfg(target_arch = "x86_64")]
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: caller's read-length contract is exactly the two 4-lane loads avx2 does.
+            return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
+        }
+        let (mut hits, mut empties) = (0u32, 0u32);
+        // A `while`, not `for k in 0..LINEAR_G`: a range loop monomorphizes `Range<usize>::next`,
+        // which resolves the `core::iter::range::Step` trait, and the extraction's pinned model
+        // carries no `Step::forward_overflowing`. Bound, order, indexing and body are unchanged.
+        let mut k = 0usize;
+        while k < LINEAR_G as usize {
+            let sc = coords[home + k];
+            hits |= u32::from(sc == coord) << k;
+            empties |= u32::from(sc == EMPTY) << k;
+            k += 1;
+        }
+        (hits, empties)
+    }
+}
+
+/// AVX2 body of [`prefix_masks`]: two `_mm256_cmpeq_epi64` + `_mm256_movemask_pd` pairs give one bit
+/// per 64-bit lane, so the eight coordinates fold to two 4-bit masks each.
+///
+/// `#[inline]` is what makes the `#[cfg(target_feature = "avx2")]` arm of [`prefix_masks`] actually
+/// inline: a `#[target_feature(enable = "avx2")]` callee can be inlined only into a caller that also
+/// has AVX2, so on an AVX2 build this folds into the hot read, while on the portable default build
+/// the runtime-checked call correctly stays out of line. (`#[inline(always)]` is rejected on a
+/// `#[target_feature]` callee.)
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn prefix_masks_avx2(base: *const u64, coord: u64) -> (u32, u32) {
+    use std::arch::x86_64::{
+        __m256i, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_loadu_si256, _mm256_movemask_pd,
+        _mm256_set1_epi64x,
+    };
+    // SAFETY: caller guarantees 8 readable lanes; the two loads cover lanes 0..4 and 4..8.
+    let (lo, hi) = unsafe {
+        (
+            _mm256_loadu_si256(base.cast::<__m256i>()),
+            _mm256_loadu_si256(base.add(4).cast::<__m256i>()),
+        )
+    };
+    let key = _mm256_set1_epi64x(coord as i64);
+    let emp = _mm256_set1_epi64x(EMPTY as i64);
+    let hits_lo = _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(lo, key))) as u32;
+    let hits_hi = _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(hi, key))) as u32;
+    let empties_lo = _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(lo, emp))) as u32;
+    let empties_hi = _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(hi, emp))) as u32;
+    let hits = hits_lo | (hits_hi << 4);
+    let empties = empties_lo | (empties_hi << 4);
+    (hits, empties)
+}
 
 /// The `NIL` child index — no node. `u32::MAX` is not a valid arena index (the arena would need
 /// `2^32` live nodes).
@@ -44,7 +144,7 @@ pub(super) struct Node<K, V> {
     pub(super) left: u32,
     pub(super) right: u32,
     /// Subtree height: `0` for `NIL`, `1` for a leaf.
-    pub(super) height: i32,
+    pub(super) height: u32,
     /// Whether this arena slot currently holds a tree node (a freed slot is reused).
     pub(super) alive: bool,
 }
@@ -83,10 +183,10 @@ impl<K: Coord, V> Overflow<K, V> {
 
     /// The tree height: `0` empty, `1` a single node. `O(log len)` by the AVL invariant.
     pub(super) fn height(&self) -> u32 {
-        self.h(self.root).max(0) as u32
+        self.h(self.root)
     }
 
-    fn h(&self, i: u32) -> i32 {
+    fn h(&self, i: u32) -> u32 {
         if i == NIL {
             0
         } else {
@@ -99,7 +199,9 @@ impl<K: Coord, V> Overflow<K, V> {
         let r = self.nodes[i as usize].right;
         let hl = self.h(l);
         let hr = self.h(r);
-        self.nodes[i as usize].height = 1 + hl.max(hr);
+        let taller = if hl >= hr { hl } else { hr };
+        let height = taller + 1;
+        self.nodes[i as usize].height = height;
     }
 
     fn rotate_right(&mut self, y: u32) -> u32 {
@@ -128,8 +230,11 @@ impl<K: Coord, V> Overflow<K, V> {
         self.update(i);
         let l = self.nodes[i as usize].left;
         let r = self.nodes[i as usize].right;
-        let bf = self.h(l) - self.h(r);
-        if bf > 1 {
+        let hl = self.h(l);
+        let hr = self.h(r);
+        // The balance factor `hl - hr` as two comparisons: heights are unsigned, so the signed
+        // difference (`bf > 1`, `bf < -1`) is never formed.
+        if hl > hr + 1 {
             let lr = self.nodes[l as usize].right;
             if self.h(lr) > self.h(self.nodes[l as usize].left) {
                 let nl = self.rotate_left(l);
@@ -137,7 +242,7 @@ impl<K: Coord, V> Overflow<K, V> {
             }
             return self.rotate_right(i);
         }
-        if bf < -1 {
+        if hr > hl + 1 {
             let rl = self.nodes[r as usize].left;
             if self.h(rl) > self.h(self.nodes[r as usize].right) {
                 let nr = self.rotate_right(r);
@@ -151,7 +256,9 @@ impl<K: Coord, V> Overflow<K, V> {
     /// Rebalance a root-to-deepest path bottom-up, re-linking each parent to the rotated subtree
     /// root. `chain[0]` is the tree root (its new root is written to `self.root`).
     fn rebalance_chain(&mut self, chain: &[u32]) {
-        for idx in (0..chain.len()).rev() {
+        let mut idx = chain.len();
+        while idx > 0 {
+            idx -= 1; // visits chain.len()-1 down to 0
             let n = chain[idx];
             let newroot = self.rebalance(n);
             if idx == 0 {
@@ -221,11 +328,15 @@ impl<K: Coord, V> Overflow<K, V> {
         if n == NIL {
             return None;
         }
-        self.nodes[n as usize]
-            .entries
-            .iter()
-            .position(|(ek, _)| ek == k)
-            .map(|e| (n, e as u32))
+        let entries = &self.nodes[n as usize].entries;
+        let mut e = 0;
+        while e < entries.len() {
+            if entries[e].0 == *k {
+                return Some((n, e as u32));
+            }
+            e += 1;
+        }
+        None
     }
 
     /// The entry a borrowed view `q` names (coordinate plus the view's own compare).
@@ -263,6 +374,13 @@ impl<K: Coord, V> Overflow<K, V> {
     /// Insert a genuinely new entry (the caller has established absence). Returns a borrow of the
     /// stored value.
     pub(super) fn insert_new(&mut self, coord: u64, k: K, v: V) -> &mut V {
+        let (node, e) = self.insert_new_at(coord, k, v);
+        self.nodes[node as usize].entries[e].1.as_mut().unwrap()
+    }
+
+    /// [`insert_new`](Self::insert_new) without the borrow: returns the `(node, entry)` index the
+    /// value landed at. The callers that discard the borrow use this form, which is first-order.
+    pub(super) fn insert_new_at(&mut self, coord: u64, k: K, v: V) -> (u32, usize) {
         self.len += 1;
         let n = self.find_node(coord);
         let node = if n == NIL {
@@ -274,7 +392,7 @@ impl<K: Coord, V> Overflow<K, V> {
             n
         };
         let e = self.nodes[node as usize].entries.len() - 1;
-        self.nodes[node as usize].entries[e].1.as_mut().unwrap()
+        (node, e)
     }
 
     /// Upsert: merge `new` into the running value at `(coord, k)` when present, else insert.
@@ -361,7 +479,8 @@ impl<K: Coord, V> Overflow<K, V> {
         for n in order {
             let node = &mut self.nodes[n as usize];
             let key = node.key;
-            for (k, v) in node.entries.drain(..) {
+            let entries = std::mem::take(&mut node.entries);
+            for (k, v) in entries {
                 if let Some(v) = v {
                     out.push((key, k, v));
                 }
@@ -523,13 +642,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         coord: u64,
         mut j: u32,
         limit: u32,
-        confirm: &impl Fn(usize) -> bool,
+        confirm: &impl Confirm<K, KS>,
     ) -> Capped {
         while j < limit {
             let i = self.descend(coord, j);
             // SAFETY: i ∈ [0, len) — descend() masks to the power-of-two array.
             let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord && confirm(i) {
+            if sc == coord && confirm.confirm(&self.keys, i) {
                 return Capped::Hit(i);
             }
             if sc == EMPTY {
@@ -551,7 +670,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         &self,
         coord: u64,
         home: usize,
-        confirm: &impl Fn(usize) -> bool,
+        confirm: &impl Confirm<K, KS>,
     ) -> Capped {
         let limit = self.probe_limit();
         let len = self.coords.len();
@@ -562,7 +681,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             let (mut hits, empties) = prefix_masks(&self.coords, home, coord);
             while hits != 0 {
                 let slot = home + hits.trailing_zeros() as usize;
-                if confirm(slot) {
+                if confirm.confirm(&self.keys, slot) {
                     return Capped::Hit(slot);
                 }
                 hits &= hits - 1;
@@ -597,7 +716,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return Capped::Vacant(home);
         }
-        self.probe_capped_with(coord, home, &|i| self.keys.matches(i, coord, k))
+        self.probe_capped_with(coord, home, &ByKey { coord, k })
     }
 
     /// Whether this table holds `value` at `coord`, by coordinate: a live primary slot with

@@ -276,85 +276,6 @@ enum Store {
     Overflow,
 }
 
-/// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates `coords[home + k]` against
-/// `coord` (a candidate hit) and against `EMPTY` (a chain terminator) in one branchless pass,
-/// returning `(hits, empties)` as lane-bit masks. This is the read-side analogue of
-/// [`group_tag_mask`], but on the coordinates *themselves*. The coordinate is identity over the live
-/// space ([`coord_of`] is the raw coordinate; the reserved markers live in the [`SideStore`]), but two
-/// distinct keys may share a coordinate, so a lane match is confirmed against the stored key (free on
-/// `Regen`) before it is a hit. No second structure: the tag line THE CUT removed is not reintroduced;
-/// the collision tail's own contiguous cache line is filtered in place, turning the mispredict-prone
-/// scalar walk into one movemask. The hot home hit never calls this.
-///
-/// The prefix is addressed as a range of the coordinate slice (`home + k`), not as a raw pointer: the
-/// scalar tail reads an in-bounds element, so the fallback needs no `unsafe` and the extraction sees no
-/// raw-pointer dereference. The caller ensures `home + LINEAR_G ≤ coords.len()`.
-#[inline]
-fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
-    // Compiled for AVX2 (`-C target-feature=+avx2`, e.g. `-C target-cpu=x86-64-v3`) the glance
-    // resolves at *compile* time — the `_mm256` pair on the hot read with no per-call feature probe.
-    // This repository ships no `.cargo/config.toml`, so the default build is portable (sub-v3) and
-    // pays one `is_x86_feature_detected!` per collision read into the out-of-line AVX2 body, then
-    // falls back to a branchless scalar loop the compiler still autovectorizes.
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    // SAFETY: caller guarantees `home + LINEAR_G ≤ len`; AVX2 is statically enabled here.
-    return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
-
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-    {
-        #[cfg(target_arch = "x86_64")]
-        if std::is_x86_feature_detected!("avx2") {
-            // SAFETY: caller's read-length contract is exactly the two 4-lane loads avx2 does.
-            return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
-        }
-        let (mut hits, mut empties) = (0u32, 0u32);
-        // A `while`, not `for k in 0..LINEAR_G`: a range loop monomorphizes `Range<usize>::next`,
-        // which resolves the `core::iter::range::Step` trait, and the extraction's pinned model
-        // carries no `Step::forward_overflowing`. Bound, order, indexing and body are unchanged.
-        let mut k = 0usize;
-        while k < LINEAR_G as usize {
-            let sc = coords[home + k];
-            hits |= u32::from(sc == coord) << k;
-            empties |= u32::from(sc == EMPTY) << k;
-            k += 1;
-        }
-        (hits, empties)
-    }
-}
-
-/// AVX2 body of [`prefix_masks`]: two `_mm256_cmpeq_epi64` + `_mm256_movemask_pd` pairs give one bit
-/// per 64-bit lane, so the eight coordinates fold to two 4-bit masks each.
-///
-/// `#[inline]` is what makes the `#[cfg(target_feature = "avx2")]` arm of [`prefix_masks`] actually
-/// inline: a `#[target_feature(enable = "avx2")]` callee can be inlined only into a caller that also
-/// has AVX2, so on an AVX2 build this folds into the hot read, while on the portable default build
-/// the runtime-checked call correctly stays out of line. (`#[inline(always)]` is rejected on a
-/// `#[target_feature]` callee.)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-unsafe fn prefix_masks_avx2(base: *const u64, coord: u64) -> (u32, u32) {
-    use std::arch::x86_64::{
-        __m256i, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_loadu_si256, _mm256_movemask_pd,
-        _mm256_set1_epi64x,
-    };
-    // SAFETY: caller guarantees 8 readable lanes; the two loads cover lanes 0..4 and 4..8.
-    let (lo, hi) = unsafe {
-        (
-            _mm256_loadu_si256(base.cast::<__m256i>()),
-            _mm256_loadu_si256(base.add(4).cast::<__m256i>()),
-        )
-    };
-    let key = _mm256_set1_epi64x(coord as i64);
-    let emp = _mm256_set1_epi64x(EMPTY as i64);
-    let mask = |v: __m256i, k: __m256i| -> u32 {
-        _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(v, k))) as u32
-    };
-    let hits = mask(lo, key) | (mask(hi, key) << 4);
-    let empties = mask(lo, emp) | (mask(hi, emp) << 4);
-    (hits, empties)
-}
-
 /// Deleted-slot marker (a tombstone), distinct from `EMPTY`. A removed slot's coordinate is set to
 /// `TOMB`: it is not a live coordinate (a key whose own coordinate is `EMPTY` or `TOMB` is held out
 /// of band in the [`SideStore`]) and not `EMPTY`, so every probe walks *through* it (chains stay
@@ -436,11 +357,13 @@ where
 impl<K: Coord, V, KS: KeyStore<K>> Drop for Table<K, V, KS> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<V>() {
-            for (c, v) in self.coords.iter().zip(self.vals.iter_mut()) {
-                if is_live(*c) {
+            let mut i = 0;
+            while i < self.coords.len() {
+                if is_live(self.coords[i]) {
                     // SAFETY: the invariant — live coord ⇒ value initialized.
-                    unsafe { v.assume_init_drop() };
+                    unsafe { self.vals[i].assume_init_drop() };
                 }
+                i += 1;
             }
         }
         // the key store rides the same invariant; internally gated on needs_drop::<K>
@@ -449,16 +372,20 @@ impl<K: Coord, V, KS: KeyStore<K>> Drop for Table<K, V, KS> {
         // Side entries: `coords` holds reserved markers (never `is_live`), so their keys are moved
         // out and dropped one by one, and only the `live` values are dropped.
         if std::mem::needs_drop::<V>() {
-            for (v, live) in self.side.vals.iter_mut().zip(self.side.live.iter()) {
-                if *live {
+            let mut i = 0;
+            while i < self.side.vals.len() {
+                if self.side.live[i] {
                     // SAFETY: `live[i]` ⇒ value initialized.
-                    unsafe { v.assume_init_drop() };
+                    unsafe { self.side.vals[i].assume_init_drop() };
                 }
+                i += 1;
             }
         }
-        for i in 0..self.side.coords.len() {
+        let mut i = 0;
+        while i < self.side.coords.len() {
             let c = self.side.coords[i];
             drop(self.side.keys.take_key(i, c));
+            i += 1;
         }
     }
 }
@@ -711,10 +638,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         // Collision tail, capped at `PROBE_CAP`: a hit in the prefix is found; an EMPTY lane
         // terminates; an exhausted prefix consults the overflow (a key whose capped prefix was full
         // when it was placed lives there, and a miss here is absent).
-        match self.probe_capped_with(coord, home, &|i| self.keys.matches(i, coord, k)) {
+        match self.probe_capped_with(coord, home, &overflow::ByKey { coord, k }) {
             Capped::Hit(i) => Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() }),
             Capped::Vacant(_) => None,
-            Capped::Blocked => self.overflow.as_ref().and_then(|o| o.get(coord, k)),
+            Capped::Blocked => match self.overflow.as_ref() {
+                Some(o) => o.get(coord, k),
+                None => None,
+            },
         }
     }
 
@@ -1193,24 +1123,29 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             Capped::Blocked => {
                 // The capped prefix was full: the key lives here or it is new here. A present entry
                 // is blanked (value moved out) for the duration of the caller's merge, panic-safe.
-                let ov = self.overflow.get_or_insert_with(Overflow::new);
-                match ov.find_entry(coord, &k) {
-                    Some((node, entry)) => {
-                        let old = ov.take_value(node, entry);
-                        Some(InsertHit {
-                            slot: 0,
-                            node,
-                            entry,
-                            coord,
-                            store: Store::Overflow,
-                            new,
-                            old,
-                        })
-                    }
-                    None => {
-                        ov.insert_new(coord, k, new);
-                        None
-                    }
+                if self.overflow.is_none() {
+                    self.overflow = Some(Overflow::new());
+                }
+                match self.overflow.as_mut() {
+                    Some(ov) => match ov.find_entry(coord, &k) {
+                        Some((node, entry)) => {
+                            let old = ov.take_value(node, entry);
+                            Some(InsertHit {
+                                slot: 0,
+                                node,
+                                entry,
+                                coord,
+                                store: Store::Overflow,
+                                new,
+                                old,
+                            })
+                        }
+                        None => {
+                            ov.insert_new_at(coord, k, new);
+                            None
+                        }
+                    },
+                    None => unreachable!(), // ensured `Some` just above
                 }
             }
         }
@@ -1239,10 +1174,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 Store::Overflow => {
                     // SAFETY by construction: `insert_core` blanked the overflow entry; the key is
                     // untouched and lives as long as the tree.
-                    self.overflow
-                        .as_mut()
-                        .expect("overflow hit ⇒ store present")
-                        .write_back(hit.node, hit.entry, merged);
+                    match self.overflow.as_mut() {
+                        Some(o) => o.write_back(hit.node, hit.entry, merged),
+                        None => unreachable!(), // overflow hit => store present
+                    }
                 }
             }
         }
@@ -1276,10 +1211,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                     unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
                 }
                 Store::Overflow => {
-                    self.overflow
-                        .as_mut()
-                        .expect("overflow hit ⇒ store present")
-                        .write_back(hit.node, hit.entry, hit.new);
+                    match self.overflow.as_mut() {
+                        Some(o) => o.write_back(hit.node, hit.entry, hit.new),
+                        None => unreachable!(), // overflow hit => store present
+                    }
                 }
             }
         }
@@ -1305,9 +1240,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 self.len += 1;
             }
             Capped::Blocked => {
-                self.overflow
-                    .get_or_insert_with(Overflow::new)
-                    .insert_new(coord, k, v);
+                if self.overflow.is_none() {
+                    self.overflow = Some(Overflow::new());
+                }
+                match self.overflow.as_mut() {
+                    Some(ov) => {
+                        ov.insert_new_at(coord, k, v);
+                    }
+                    None => unreachable!(), // ensured `Some` just above
+                }
             }
         }
     }
@@ -1321,7 +1262,8 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     #[cold]
     fn resize(&mut self, new_bits: u32) {
         let mut bigger = Self::with_bits(new_bits);
-        for i in 0..self.coords.len() {
+        let mut i = 0;
+        while i < self.coords.len() {
             let c = self.coords[i];
             if is_live(c) {
                 // Move the key out first so the keyed probe can confirm it: two distinct keys with
@@ -1333,6 +1275,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 self.coords[i] = EMPTY;
                 bigger.place_capped(c, key, v);
             }
+            i += 1;
         }
         // Carry the side store over; the rebuilt table is fresh (empty side store).
         bigger.side = std::mem::replace(&mut self.side, SideStore::empty());
@@ -1426,10 +1369,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return None;
         }
-        match self.probe_capped_with(coord, home, &|i| self.keys.matches(i, coord, k)) {
+        match self.probe_capped_with(coord, home, &overflow::ByKey { coord, k }) {
             Capped::Hit(i) => Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() }),
             Capped::Vacant(_) => None,
-            Capped::Blocked => self.overflow.as_ref().and_then(|o| o.get(coord, k)),
+            Capped::Blocked => match self.overflow.as_ref() {
+                Some(o) => o.get(coord, k),
+                None => None,
+            },
         }
     }
 }

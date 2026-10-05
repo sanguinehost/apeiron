@@ -1235,3 +1235,30 @@ that is wrong is a wrong premise, not an axiom the audit sees.
 Not covered: that LLVM emits the SSE2 sequence the model describes, cache and alignment behaviour,
 and that `unsafe` reads in the source stay inside the window (the model makes that a proof
 obligation by failing, it does not discharge it).
+
+### Map-face externals (`hashtrinity::Table` / `CoordMap` roots)
+Row: `apeiron-ht-extract-DjjuLApKg3g7zaM9kRUkUE` (APEIRON-HT-EXTRACT).
+
+Roots: `word_hashtrinity_{new,with_capacity,get,insert}` (`Stored<u64>`) and
+`word_coordmap_{coordinate_with_capacity,get,insert}` (`Regen<u64>`); `insert` is
+`insert_merge_last_write`. Added models, same trust statement as above:
+
+| external | Lean definition | domain statement |
+|---|---|---|
+| `__m256i`, `__m256d` | four `U64` lanes | lane `k` is the little-endian `u64` at byte `8k` |
+| `_mm256_loadu_si256` | 32-byte read, fails past the window | Rust: undefined behaviour there |
+| `_mm256_set1_epi64x`, `_mm256_cmpeq_epi64`, `_mm256_castsi256_pd`, `_mm256_movemask_pd` | lane-wise definitions | bit `k` of the mask is bit 63 of lane `k` |
+| `Slice::as_ptr` (`u64`), `ptr.add` | byte window; `add` scales by `ptrElemSize` | only `u8` and `u64` slices have a window |
+| `is_x86_feature_detected!("avx2")` | `opaque avx2_probe : Bool` | unconstrained: the extracted `prefix_masks` keeps both branches; neither is picked |
+| `Vec::set_len` | extends with `UninitElem.uninit` (`none`, `MaybeUninit` only), fails past capacity | Rust: undefined behaviour past capacity |
+| `Vec::pop`, `Vec::default`, `Box<[T]>::default`, `mem::take`, `mem::drop`, `Option::as_mut`, `MaybeUninit::assume_init_ref`, `u32::trailing_zeros` | direct definitions | `assume_init_ref` fails on `none` |
+
+Backend axiom still present: `target/aeneas-model/lean/Aeneas/Std/Slice.lean:631` declares
+`axiom core.slice.Slice.get_unchecked_SliceIndexUsizeSlice_spec` (an `@[step]` spec over the now-defined
+`get_unchecked`). It is not in the extracted file, so `audit-extraction.py` does not see it; a corpus theorem whose
+proof reaches it through `step` fails `AxiomAudit` (closed cone only). No audited theorem reaches it at this
+revision; the residual is to replace it with a proved lemma in the model patch.
+
+Open: the AVX2 and scalar branches of `prefix_masks` are not yet proved equal. LLVM codegen of the
+intrinsics, `unsafe` window containment and the opacity of `avx2_probe` as the CPU's answer are not
+covered.
