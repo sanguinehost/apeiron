@@ -40,10 +40,12 @@ impl<K: Coord, V, KS: KeyStore<K>> SideStore<K, V, KS> {
         if need > self.cap {
             let new_cap = (self.cap * 2).max(4).max(need);
             let mut grown = KS::alloc(new_cap);
-            for i in 0..self.coords.len() {
+            let mut i = 0;
+            while i < self.coords.len() {
                 let c = self.coords[i];
                 let key = self.keys.take_key(i, c);
                 grown.set(i, key);
+                i += 1;
             }
             self.keys = grown;
             self.cap = new_cap;

@@ -282,6 +282,13 @@ run_extract() {
         --start-from crate::word_chacha20poly1305_decrypt \
         --start-from crate::word_aes128_encrypt_block \
         --start-from crate::word_aes128_decrypt_block \
+        --start-from crate::word_hashtrinity_new \
+        --start-from crate::word_hashtrinity_with_capacity \
+        --start-from crate::word_hashtrinity_get \
+        --start-from crate::word_hashtrinity_insert \
+        --start-from crate::word_coordmap_coordinate_with_capacity \
+        --start-from crate::word_coordmap_get \
+        --start-from crate::word_coordmap_insert \
         --start-from crate::word_count_home \
         --start-from crate::word_count_admit \
         --start-from crate::word_count_histogram \

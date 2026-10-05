@@ -1242,6 +1242,29 @@ pub fn word_hashtrinity_insert(
     state
 }
 
+/// Real `CoordMap::<u64, i64>::coordinate_with_capacity` — the `Regen` constructor.
+pub fn word_coordmap_coordinate_with_capacity(cap: usize) -> hashtrinity::CoordMap<u64, i64> {
+    hashtrinity::CoordMap::coordinate_with_capacity(cap)
+}
+
+/// Real `CoordMap::get` (`Regen` carrier).
+pub fn word_coordmap_get(state: &hashtrinity::CoordMap<u64, i64>, key: u64) -> Option<i64> {
+    match state.get(&key) {
+        Some(v) => Some(*v),
+        None => None,
+    }
+}
+
+/// Real `CoordMap::insert_merge_last_write` (`Regen` carrier).
+pub fn word_coordmap_insert(
+    mut state: hashtrinity::CoordMap<u64, i64>,
+    key: u64,
+    value: i64,
+) -> hashtrinity::CoordMap<u64, i64> {
+    state.insert_merge_last_write(key, value);
+    state
+}
+
 // The count face's sequential helpers (`hashtrinity::FreqMap::count_*`), `K = u64`. Each wrapper
 // fixes the key type and calls the real body; the thread fan-out of `count_par` stays outside.
 

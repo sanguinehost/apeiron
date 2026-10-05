@@ -1110,7 +1110,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return Capped::Vacant(home);
         }
-        self.probe_capped_with(coord, home, &|i| self.keys.matches_locate(i, coord, q))
+        self.probe_capped_with(coord, home, &ByLocate { coord, q })
     }
 }
 
@@ -1466,5 +1466,20 @@ impl<Q: Locate<K>, K: Coord + Eq, V, KS: KeyReadout<K>> std::ops::Index<Q> for T
     /// If the key is absent — std `HashMap`'s `Index` contract.
     fn index(&self, q: Q) -> &V {
         self.get_at(q).expect("no entry found for key")
+    }
+}
+
+/// Confirmation against a borrowed [`Locate`] view: [`KeyReadout::matches_locate`].
+struct ByLocate<'a, Q> {
+    coord: u64,
+    q: &'a Q,
+}
+
+impl<'a, K: Eq + Coord, KS: KeyReadout<K>, Q: Locate<K>> super::overflow::Confirm<K, KS>
+    for ByLocate<'a, Q>
+{
+    #[inline]
+    fn confirm(&self, keys: &KS, i: usize) -> bool {
+        keys.matches_locate(i, self.coord, self.q)
     }
 }
