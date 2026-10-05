@@ -9,9 +9,12 @@ Run it the way the gate is run::
 Both are the same suite (``run_controls``); this module exists so ``unittest``
 discovers it with the rest of ``tools/board`` and so the exit status is a test
 runner's, not a bare script's. The controls are the mechanism's negative case
-under the harness that runs it: ``.githooks/pre-commit`` in a throwaway git work
-tree, never the live tree. See ``tools/board/checkpoint.py`` for the mechanism
-and ``/home/socol/oc-tmp/escalation/CHECKPOINT-MECHANISM.md`` for the design.
+under the harness that runs it: ``checkpoint.py check`` itself, in a throwaway git
+work tree, never the live tree. The per-cycle checkpoint step of
+``.githooks/pre-commit`` was retired with the acceptance harness in ``c9a2d0c``, so
+no hook runs that query and a control cannot assert on a commit's output. See
+``tools/board/checkpoint.py`` for the mechanism and
+``/home/socol/oc-tmp/escalation/CHECKPOINT-MECHANISM.md`` for the design.
 """
 
 from __future__ import annotations

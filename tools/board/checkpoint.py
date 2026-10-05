@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Row: `apeiron-checkpoint-re-the-FVDhqA987JrTcG3bUGFRP9` (APEIRON-CHECKPOINT-CONTROLS).
 # Row: `apeiron-docs-repoint-Hhlc7OjTttFQLPuENEoekh` (APEIRON-DOCS-REPOINT).
 """The per-cycle board checkpoint: measure -> check-in -> row moves -> marker.
 
@@ -37,11 +38,17 @@ One command, three outputs:
    (``src/``; ``examples/reg1/`` was removed in ``c9a2d0c``), the row moves with
    their read-backs, and the time.
 
-``.githooks/pre-commit`` then asks one question -- ``checkpoint.py check`` -- and
-refuses a commit that stages a path under ``src/`` (formerly also ``examples/reg1/``) unless
-the marker's staged digest equals the digest of the tree being committed. A
-checkpoint that was skipped therefore fails the commit; ``--no-verify`` skips
-every hook by design and the wave barrier is the authority on that.
+``checkpoint.py check`` then asks one question of the staged tree: does the marker's
+staged digest equal the digest of the tree a commit would create? It refuses when
+a path under ``src/`` (formerly also ``examples/reg1/``) is staged against a
+marker that does not cover it, so a checkpoint that was skipped fails the query.
+
+No hook runs that query. The per-cycle checkpoint step of
+``.githooks/pre-commit`` was retired with the acceptance harness in ``c9a2d0c``
+(owner direction 2026-10-05): it read a reg1 acceptance stream, and with
+``examples/reg1`` removed there is none. The query is a standalone command a
+checkpoint lane runs against its own staged tree, and the wave barrier remains
+the authority on a commit that skipped it.
 
 Trust boundary
 ==============
@@ -63,7 +70,7 @@ Usage
     python3 tools/board/checkpoint.py measure --measure PATH
     python3 tools/board/checkpoint.py dry-run --measure PATH --row ID=STATUS
     python3 tools/board/checkpoint.py post --measure PATH --row ID=STATUS
-    python3 tools/board/checkpoint.py check          # what the pre-commit hook runs
+    python3 tools/board/checkpoint.py check          # the staged-tree query; no hook runs it
     python3 tools/board/checkpoint.py self-test
     python3 -m unittest discover -s tools/board -p 'test_checkpoint.py'
 
@@ -83,6 +90,7 @@ from __future__ import annotations
 import argparse
 import glob
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -538,7 +546,7 @@ def checkin_text(
         "Gate: `cargo test --workspace --all-features --locked`; the acceptance number is the "
         "reg1 full profile, whose stream this check-in names."
     )
-    lines.append("Checkpoint: `python3 tools/board/checkpoint.py check` (`.githooks/pre-commit`).")
+    lines.append("Checkpoint: `python3 tools/board/checkpoint.py check` (no hook runs it).")
     return "\n".join(lines)
 
 
@@ -611,7 +619,7 @@ def build_marker(
 
 
 # ---------------------------------------------------------------------------
-# The hook's query
+# The staged-tree query
 # ---------------------------------------------------------------------------
 
 
@@ -630,7 +638,12 @@ def staged_paths(repo_root: str) -> list[str]:
 
 
 def run_check(args: argparse.Namespace) -> int:
-    """What ``.githooks/pre-commit`` runs. Refuse, with the fix named."""
+    """The staged-tree query. Refuse, with the fix named.
+
+    Run as ``python3 -B tools/board/checkpoint.py check --repo-root ROOT``. No
+    hook step runs it (retired with the acceptance harness in ``c9a2d0c``), so
+    this command is the whole harness the rule is exercised under.
+    """
     repo_root = os.path.abspath(args.repo_root)
     changed = staged_paths(repo_root)
     marker = marker_path(repo_root, args.marker)
@@ -1024,14 +1037,80 @@ def scratch_root() -> str:
     return os.environ.get("APEIRON_CHECKPOINT_SCRATCH") or "/home/socol/oc-tmp"
 
 
+HOOK = ".githooks/pre-commit"
+# Every tool path the hook names, in either form it uses: a ``run_step`` line's
+# ``python3 -B PATH``, or the variable the digest step assigns. Scoped to
+# ``tools/`` and ``proof/`` so a ``python3`` elsewhere in the hook's prose (a fix
+# line, a comment) cannot inject a path.
+HOOK_TOOL = re.compile(
+    r"(?:python3[ \t]+-B[ \t]+|^digest_gate=)((?:tools|proof)/[\w./-]+\.py)", re.M
+)
+
+
+def hook_tools(live: str) -> list[str]:
+    """The tools ``.githooks/pre-commit`` runs, read out of the hook.
+
+    The hook is the authority on what a commit runs, so the scaffold's tool set
+    is read from it rather than restated here. A restated list rots *silently*:
+    the scaffold still builds and the control still fails, and the diagnostic
+    names a step the control never exercised. That is exactly the failure this
+    replaces -- the copy list had lost ``tools/rooting/digest_recheck.py`` and
+    ``tools/board/board_rows.py``, which the hook and the driver both need.
+    """
+    with open(os.path.join(live, HOOK), encoding="utf-8") as handle:
+        return sorted(set(HOOK_TOOL.findall(handle.read())))
+
+
+def tool_modules(live: str, tool: str) -> list[str]:
+    """``tool`` and every sibling module beside it, as repo-relative paths.
+
+    A Python tool in this repository is a directory's worth of modules imported
+    by name (``lane.py`` over ``lane_core``/``lane_fetch``/``lane_modes``/
+    ``lane_controls``/``lane_bundle``/``lane_inventory``; ``board.py`` over
+    ``board_core``/``board_rows``/...), so copying one file is a partial copy:
+    it fails at *import* time and surfaces as a ``None`` module with an
+    ``AttributeError`` far from the omission, not as a missing path. Copying the
+    directory means a new sibling cannot rot the list again.
+    """
+    prefix = os.path.dirname(tool)
+    pattern = os.path.join(live, prefix, "*.py") if prefix else os.path.join(live, "*.py")
+    return sorted(os.path.relpath(path, live) for path in glob.glob(pattern))
+
+
+def governing_documents(live: str) -> dict[str, tuple[str, ...]]:
+    """The stub documents ``tools/check-claims.py`` requires, from the checker.
+
+    The checker owns the set and the headings it covers; the stubs are written
+    from its own declarations, so a document or a covered heading added there is
+    present in the scaffold without a second name maintained here. Each stub
+    carries its covered heading and no prose, so the checker finds the section it
+    requires and extracts no claim from it.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "apeiron_check_claims", os.path.join(live, "tools", "check-claims.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {
+        name: tuple(module.COVERED_SECTIONS.get(name, ())) for name in module.GOVERNING_DOCUMENTS
+    }
+
+
 def build_control_repo(root: str) -> str:
     """A throwaway git work tree carrying the real hook and the real driver.
 
-    Minimal but faithful: the same ``.githooks/pre-commit``, the same
-    ``tools/hooks/lane.py`` and ``tools/board/*.py``, and the smallest crate,
-    document set and board snapshot each *other* step needs, so the checkpoint
-    step is exercised under the harness that runs it rather than by hand. The
-    live tree is never touched: every path is written under ``root``.
+    Minimal but faithful: the same ``.githooks/pre-commit``, the same tool set
+    the hook names (each with its whole module directory), the same
+    ``tools/board/*.py`` this file lives in, and the smallest crate, document set
+    and board snapshot each *other* step needs. The live tree is never touched:
+    every path is written under ``root``.
+
+    The hook and its tools stay in the scaffold -- they are what a commit runs,
+    and the set is derived from the hook so it cannot rot -- but the controls
+    here do not run it: the checkpoint step it used to carry was retired in
+    ``c9a2d0c``, so ``checkpoint.py check`` is exercised as the command it is
+    (see ``check``). The board snapshot is carried for the same reason: the hook's
+    ``lane.py staged`` rule is its only consumer.
     """
     repo = os.path.join(root, "control-repo")
     if os.path.isdir(repo):
@@ -1040,24 +1119,15 @@ def build_control_repo(root: str) -> str:
         os.makedirs(os.path.join(repo, sub), exist_ok=True)
     here = os.path.dirname(os.path.abspath(__file__))
     live = REPO_ROOT
-    for relative in (
-        ".githooks/pre-commit",
-        ".githooks/commit-msg",
-        "tools/hooks/lane.py",
-        "tools/hooks/lane_core.py",
-        "tools/hooks/lane_fetch.py",
-        "tools/hooks/lane_modes.py",
-        "tools/hooks/lane_controls.py",
-        "tools/board/board.py",
-        "tools/board/board_core.py",
-        "tools/board/board_model.py",
-        "tools/board/board_rest.py",
-        "tools/board/board_fixtures.py",
-        "tools/board/board_check.py",
-        "tools/board/board_controls.py",
-        "tools/board/checkpoint.py",
-        "tools/check-claims.py",
-    ):
+    # Derived from the live tree, never restated: the hook names the tools a
+    # commit runs, each tool brings its module directory, and `tools/board` is
+    # both this file's own directory and the driver's, which
+    # `tools/hooks/lane_core.py` imports as the `board:` rule's authority.
+    relatives = {".githooks/pre-commit", ".githooks/commit-msg"}
+    for tool in hook_tools(live):
+        relatives.update(tool_modules(live, tool))
+    relatives.update(tool_modules(live, os.path.relpath(os.path.join(here, "board.py"), live)))
+    for relative in sorted(relatives):
         source = os.path.join(live, relative)
         target = os.path.join(repo, relative)
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -1065,16 +1135,20 @@ def build_control_repo(root: str) -> str:
             dst.write(src.read())
         if relative.startswith(".githooks"):
             os.chmod(target, 0o755)
-    # The other three pre-commit steps, satisfied minimally and honestly:
-    # a formatted one-function crate, the five governing documents
-    # `tools/check-claims.py` requires (empty, so it finds no claim), and one
-    # Lean declaration so its "no declarations" structural failure does not fire.
+    # The other pre-commit steps, satisfied minimally and honestly:
+    # a formatted one-function crate, the governing documents
+    # `tools/check-claims.py` requires (read from the checker, empty of prose so
+    # it finds no claim), and one Lean declaration so its "no declarations"
+    # structural failure does not fire.
     with open(os.path.join(repo, "Cargo.toml"), "w", encoding="utf-8") as handle:
         handle.write('[package]\nname = "control"\nversion = "0.1.0"\nedition = "2021"\n')
     with open(os.path.join(repo, "src", "lib.rs"), "w", encoding="utf-8") as handle:
         handle.write("pub fn probe() -> i32 {\n    42\n}\n")
-    for name in ("docs/direction.md", "docs/kernel-boundary.md", "docs/plan.md", "README.md", "proof/README.md"):
-        open(os.path.join(repo, name), "w", encoding="utf-8").close()
+    for name, headings in governing_documents(live).items():
+        target = os.path.join(repo, name)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("".join(f"{heading}\n" for heading in headings))
     with open(os.path.join(repo, "proof", "Control.lean"), "w", encoding="utf-8") as handle:
         handle.write("theorem control_kernel_cone : True := trivial\n")
     measure = write_fixture(os.path.join(repo, "measure.json"))
@@ -1082,6 +1156,17 @@ def build_control_repo(root: str) -> str:
     # document: `lane.py` re-normalizes a snapshot through `board.load_document`,
     # and a normalized task carries no `description`, so its plan ids and its
     # `board:` field would be gone and no declared row could resolve.
+    #
+    # Nothing here consumes it: no control runs the hook (see the docstring
+    # above). Its one rule, `board-snapshot-stale`, is `tools/hooks/lane_core.py`'s
+    # and it is unsatisfiable from a capture written before the commit it would
+    # resolve -- measured on this scaffold while the controls still committed:
+    # `git commit` writes the index at its own start, so the index advanced past
+    # the stamp by 0.5 ms on an immediate commit and by 1.2 s on one started
+    # 1.2 s after `git add`, while a no-op commit left it untouched. A control
+    # asserting it would have been a vacuous pass either way, so it is recorded
+    # here instead. Clearing it for a real lane means comparing whole seconds or
+    # capturing from inside the commit; both are the live hook's decision.
     snapshot = os.path.join(repo, "board-snapshot.json")
     with open(snapshot, "w", encoding="utf-8") as handle:
         json.dump(board.FIXTURE_BASELINE, handle)
@@ -1109,25 +1194,50 @@ def build_control_repo(root: str) -> str:
     return repo
 
 
-def commit(repo: str, env: dict[str, str], message: str) -> subprocess.CompletedProcess:
+def check(repo: str, env: dict[str, str]) -> subprocess.CompletedProcess:
+    """``checkpoint.py check`` over the scaffold, under the harness that runs it.
+
+    The query has no hook step: the per-cycle checkpoint step of
+    ``.githooks/pre-commit`` was retired with the acceptance harness in
+    ``c9a2d0c`` (owner direction 2026-10-05), so no commit output carries
+    ``checkpoint: OK`` or ``checkpoint: FAIL`` and asserting on one asserts on a
+    step that no longer runs. The harness that still runs is the command itself,
+    so a control invokes the scaffold's copy -- this file, byte-identical -- in
+    its own process with the scaffold as ``--repo-root``, which is exactly what a
+    checkpoint lane runs against its own staged tree.
+
+    The ``git add`` that precedes each call is kept: ``check`` reads the index,
+    not the working tree, so a staged ``src/`` path is the input the rule is
+    about. Both streams are captured because ``run_check`` prints its pass to
+    stdout and its refusals to stderr. Temporal cost: one process per call,
+    dominated by ``git diff --cached`` over the source prefixes.
+    """
     return subprocess.run(
-        ["git", "commit", "-q", "-F", "-"],
+        [
+            sys.executable,
+            "-B",
+            os.path.join(repo, "tools", "board", "checkpoint.py"),
+            "check",
+            "--repo-root",
+            repo,
+        ],
         cwd=repo,
         env=env,
-        input=message,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=120,
     )
 
 
 def run_controls(stream=None) -> int:
     """Every control green, each seeded defect red by name, restored green.
 
-    Temporal cost: the three git controls each run ``.githooks/pre-commit``
-    (``cargo fmt`` on a one-function crate, ``check-claims`` over five empty
-    documents, the declaration parse and the checkpoint query), so the suite is
-    O(3) hook invocations; measured under 20s.
+    Temporal cost: four controls each spawn one ``checkpoint.py check`` over the
+    scaffold and one runs ``dry-run``; each reads the git index once, so the suite
+    is O(5E) in the staged entry count E (``git diff --cached`` plus a tree
+    digest, both linear in E). Measured wall clock: 0.55-0.62 s over five runs,
+    and 20.5 s once on a box already running other lanes, so the figure is a floor
+    and not a ceiling.
     """
     stream = stream or sys.stdout
     failures = 0
@@ -1213,7 +1323,12 @@ def run_controls(stream=None) -> int:
             f"CONTROL FAIL newest-readable: chose {chosen}, skipped {skipped}", file=stream
         )
 
-    # -- controls 4-7: the hook, under the harness that runs it ---------------
+    # -- controls 5-8: the query, under the harness that runs it ----------------
+    # The harness is `checkpoint.py check` itself, not a commit: the hook step
+    # that used to carry it was retired with the acceptance harness in
+    # `c9a2d0c`, so a commit's output cannot carry `checkpoint: OK`/`FAIL` and
+    # asserting on one asserts on a step that does not run. Each control keeps
+    # its `git add`, because the rule is about the *staged* tree.
     try:
         repo = build_control_repo(root)
     except (OSError, subprocess.SubprocessError, AssertionError) as exc:
@@ -1221,20 +1336,16 @@ def run_controls(stream=None) -> int:
         print(f"CONTROL FAIL control-repo: {type(exc).__name__}: {exc}", file=stream)
         repo = ""
     if repo:
-        snapshot = os.path.join(repo, "board-snapshot.json")
         env = dict(os.environ)
-        env["APEIRON_HOOKS_BOARD_SOURCE"] = snapshot
-        env["APEIRON_HOOKS_PRECOMMIT_BUDGET"] = "120"
         lib = os.path.join(repo, "src", "lib.rs")
-        message = "control: staged src change\n\nboard: W2-T2\n"
         marker = os.path.join(repo, ".apeiron", "checkpoint.json")
 
-        # (3) a staged src/ change with no marker at all must refuse, and the
+        # (5) a staged src/ change with no marker at all must refuse, and the
         #     refusal must name the marker and the command that writes it.
         with open(lib, "a", encoding="utf-8") as handle:
             handle.write("\npub fn seeded() -> i32 {\n    43\n}\n")
         subprocess.run(["git", "add", "src/lib.rs"], cwd=repo, check=True, timeout=60)
-        result = commit(repo, env, message)
+        result = check(repo, env)
         output = result.stdout + result.stderr
         if (
             result.returncode != 0
@@ -1255,8 +1366,9 @@ def run_controls(stream=None) -> int:
                 file=stream,
             )
 
-        # (4) a marker written for a *different* staged tree must refuse, naming
-        #     both digests. Written before the src edit, so it is stale.
+        # (6) a marker written for a *different* staged tree must refuse, naming
+        #     both digests. Written from this module's own repository, so it
+        #     records a digest the scaffold's index cannot match.
         write_marker(
             marker,
             build_marker(
@@ -1270,7 +1382,7 @@ def run_controls(stream=None) -> int:
                 "",
             ),
         )
-        result = commit(repo, env, message)
+        result = check(repo, env)
         output = result.stdout + result.stderr
         # The refusal must name the rule, the marker it read (by the digest of
         # the check-in text it carries) and the digest it compared against.
@@ -1291,7 +1403,9 @@ def run_controls(stream=None) -> int:
             failures += 1
             print(f"CONTROL FAIL stale-marker-refuses: exit {result.returncode}\n{output}", file=stream)
 
-        # (5) with a marker written for *this* staged tree the same commit passes.
+        # (7) with a marker written for *this* staged tree the same query passes.
+        # `pre-commit: OK` is dropped: it belonged to the hook's own summary,
+        # and no hook step runs this query any more.
         os.remove(marker)
         dry = subprocess.run(
             [
@@ -1310,33 +1424,28 @@ def run_controls(stream=None) -> int:
             text=True,
             timeout=300,
         )
-        result = commit(repo, env, message)
+        result = check(repo, env)
         output = result.stdout + result.stderr
-        if (
-            dry.returncode == 0
-            and result.returncode == 0
-            and "pre-commit: OK" in output
-            and "checkpoint: OK" in output
-        ):
+        if dry.returncode == 0 and result.returncode == 0 and "checkpoint: OK" in output:
             print(
-                f"CONTROL pass fresh-marker-passes: dry-run exit {dry.returncode}, commit exit "
+                f"CONTROL pass fresh-marker-passes: dry-run exit {dry.returncode}, check exit "
                 f"{result.returncode} with `checkpoint: OK`",
                 file=stream,
             )
         else:
             failures += 1
             print(
-                f"CONTROL FAIL fresh-marker-passes: dry-run exit {dry.returncode}, commit exit "
+                f"CONTROL FAIL fresh-marker-passes: dry-run exit {dry.returncode}, check exit "
                 f"{result.returncode}\n{dry.stdout}\n{dry.stderr}\n{output}",
                 file=stream,
             )
 
-        # (6) restore: the marker is now stale for the *next* src edit, so the
+        # (8) restore: the marker is now stale for the *next* src edit, so the
         #     refusal returns -- the check is not a one-shot pass.
         with open(lib, "a", encoding="utf-8") as handle:
             handle.write("\npub fn restored() -> i32 {\n    44\n}\n")
         subprocess.run(["git", "add", "src/lib.rs"], cwd=repo, check=True, timeout=60)
-        result = commit(repo, env, message)
+        result = check(repo, env)
         output = result.stdout + result.stderr
         if result.returncode != 0 and RULE_STALE_MARKER in output:
             print(
