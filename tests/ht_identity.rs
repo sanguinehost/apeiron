@@ -201,6 +201,32 @@ fn fuse_sums_reserved_coordinate_counts() {
     assert_eq!(a.len(), 4);
 }
 
+/// Last-write on an existing **main slot** leaves the new value. `put` is the map face and its body
+/// is `insert_merge_last_write`, whose hit path overwrites the value in place instead of blanking
+/// and re-occupying the coordinate; this pins the value the probe leaves behind after a second write
+/// to the same key. Keys `0..8` are smaller than the slot count, so `home(c) = c` addresses a main
+/// slot directly (not a collision, the side store, or the overflow).
+// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (lane 4): the in-place last-write overwrite.
+#[test]
+fn put_overwrites_an_existing_main_slot() {
+    let mut t: Table<u64, i64> = Table::with_capacity(16);
+    assert!(t.capacity() >= 8, "keys 0..8 must address main slots");
+    for k in 0..8u64 {
+        t.put(k, 10 + i64::try_from(k).unwrap());
+    }
+    for k in 0..8u64 {
+        t.put(k, 100 + i64::try_from(k).unwrap());
+    }
+    for k in 0..8u64 {
+        assert_eq!(
+            t.get(&k),
+            Some(&(100 + i64::try_from(k).unwrap())),
+            "put must overwrite main slot {k}"
+        );
+    }
+    assert_eq!(t.len(), 8);
+}
+
 /// Two tables differing only in a reserved-coordinate entry compare unequal; equal ones compare
 /// equal. `PartialEq` used to compare side entries only through `len()`.
 #[test]

@@ -1114,8 +1114,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// for its duration, so the unwinding `old` is dropped once and `Drop` skips the slot — no
     /// double free, no chain break. A key whose coordinate is a reserved marker (`EMPTY`/`TOMB`) is
     /// inserted into the side store instead of the slot arrays.
+    ///
+    /// `last_write` selects the caller's merge without duplicating the probe. For the general merge
+    /// (`false`) a main-store hit must blank the slot and hand the caller `(new, old)`. For
+    /// `set(new, old) = new` (`true`) there is nothing to merge: the old value is read out, the slot
+    /// is overwritten in place, the old value is dropped, and `None` is returned — the caller has
+    /// nothing to do, exactly as on a fresh insert. The slot's coord and identity are left untouched,
+    /// so no blank/restore pair is paid on the update path.
     #[inline]
-    fn insert_core(&mut self, k: K, new: V) -> Option<InsertHit<V>> {
+    fn insert_core(&mut self, k: K, new: V, last_write: bool) -> Option<InsertHit<V>> {
         let coord = Self::coord_of(&k);
         if is_sentinel(coord) {
             if let Some(i) = self.side.find(coord, &k) {
@@ -1152,10 +1159,18 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
         match self.probe_capped_keyed(coord, &k) {
             Capped::Hit(i) => {
-                // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
-                // logically empty for the duration of the merge, so if the merge panics the value is
-                // dropped once (by the unwinding `old`) and `Drop` skips this slot — no double free.
+                // SAFETY: found ⇒ value initialized. Read it out, then (general merge) blank the
+                // coord: the slot is logically empty for the duration of the merge, so if the merge
+                // panics the value is dropped once (by the unwinding `old`) and `Drop` skips this
+                // slot — no double free.
                 let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                if last_write {
+                    // `set(new, old) = new`: the slot's identity is unchanged, so nothing blanks and
+                    // nothing is handed back. The slot holds `new` before `old`'s destructor runs.
+                    unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
+                    drop(old);
+                    return None;
+                }
                 unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
                 Some(InsertHit {
                     slot: i,
@@ -1205,7 +1220,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// `f(new, identity) = new`. Every table face is just this with a different `f`.
     #[inline]
     pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
-        if let Some(hit) = self.insert_core(k, new) {
+        if let Some(hit) = self.insert_core(k, new, false) {
             let merged = f(hit.new, hit.old);
             match hit.store {
                 Store::Side => {
@@ -1240,9 +1255,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Merge-free by construction, not by duplication: it is [`insert_core`](Self::insert_core) plus
     /// the merge `set(new, old) = new`, which consumes `old` and keeps `new`. A first-order translator
     /// cannot take an arrow-typed merge argument, so the concrete face is what the extraction roots.
+    /// The one specialization is `insert_core(k, new, LAST_WRITE)`'s main-store hit: a key already
+    /// in a primary slot overwrites its value in place, without the coord blank/restore that the
+    /// caller of the *general* merge needs (blanking exists only so a panicking merge cannot leave a
+    /// live slot whose value was moved out — last-write has no merge to run). The probe still runs
+    /// once, in the shared core, so nothing is duplicated.
     #[inline]
     pub fn insert_merge_last_write(&mut self, k: K, new: V) {
-        if let Some(hit) = self.insert_core(k, new) {
+        if let Some(hit) = self.insert_core(k, new, true) {
             drop(hit.old); // `set(new, old) = new` ignores `old`; this is where it is dropped.
             match hit.store {
                 Store::Side => {
