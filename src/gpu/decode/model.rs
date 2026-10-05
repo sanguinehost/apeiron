@@ -20,6 +20,7 @@
 )]
 
 use super::layer::{embed_step, final_norm_step, rec_nodes, record_layer};
+use super::prefill::PrefillStack;
 use super::state::{LayerW, Scratch, Stream};
 use super::upload::{layer_cfg, upload_embed, upload_final_norm, upload_lm_head};
 use super::*;
@@ -42,6 +43,9 @@ pub struct GpuDecode {
     pub tmax: u32,
     /// Dispatches recorded into the replayed command buffer.
     pub n_disp: u32,
+    prefill: Option<PrefillStack>,
+    /// Greedy token of the last [`GpuDecode::prefill`] until the next [`GpuDecode::step`].
+    pf_argmax: Option<usize>,
 }
 
 // SAFETY: `GpuDecode` owns its Vulkan context and its mapped host-visible buffers exclusively; the
@@ -57,11 +61,23 @@ impl GpuDecode {
         tmax: u32,
         carrier: Carrier,
     ) -> Result<GpuDecode, String> {
+        Self::new_with_prefill(gguf, ec, tmax, carrier, 0)
+    }
+
+    /// [`GpuDecode::new`] plus a whole-prompt prefill plan for prompts of up to `maxb` positions
+    /// (`maxb == 0`: no prefill plan).
+    pub fn new_with_prefill(
+        gguf: &Gguf,
+        ec: &EngineConfig,
+        tmax: u32,
+        carrier: Carrier,
+        maxb: usize,
+    ) -> Result<GpuDecode, String> {
         unsafe {
             let vk = Vk::load()?;
             let c = layer_cfg(gguf, ec, tmax, carrier)?;
             let (hidden, vocab) = (c.hidden, ec.vocab_size as u32);
-            let ((n_disp, logits_map, params_map), cb) = {
+            let (((n_disp, logits_map, params_map), prefill), cb) = {
                 let (g, _stage) = GpuCtx::new(&vk)?;
                 let sc = Scratch::new(&g, &c)?;
                 let embed = upload_embed(&g, gguf, &c, ec.vocab_size)?;
@@ -90,10 +106,19 @@ impl GpuDecode {
                 let embed_node = embed_step(&g, &c, vocab, embed.0, embed.1, &sc);
                 let mut st = Stream::new(&sc, &c);
                 let mut layers: Vec<Vec<Node>> = Vec::with_capacity(ec.n_layer);
+                let mut weights: Vec<LayerW> = Vec::with_capacity(ec.n_layer);
                 for li in 0..ec.n_layer {
                     let lw = LayerW::load(&g, gguf, li, &c)?;
                     layers.push(record_layer(&g, &c, &lw, &sc, li, &mut st));
+                    weights.push(lw);
                 }
+                let prefill = if maxb > 0 {
+                    Some(PrefillStack::build(
+                        &g, &c, vocab, &weights, embed, lm, final_norm, maxb,
+                    )?)
+                } else {
+                    None
+                };
                 let dpw_lm = c.head_carrier().pack() / 4;
                 let final_rms = make_step_named(
                     &g,
@@ -189,7 +214,7 @@ impl GpuDecode {
                     ACCESS_HOST_READ,
                 );
                 check((vk.end_cb)(cb), "vkEndCommandBuffer");
-                ((n_disp, logits_map, sc.params_map), cb)
+                (((n_disp, logits_map, sc.params_map), prefill), cb)
             };
             let hidden_map = logits_map.add(ec.vocab_size);
             let argmax_map = logits_map
@@ -207,6 +232,8 @@ impl GpuDecode {
                 hout: vec![0f64; hidden as usize],
                 tmax,
                 n_disp,
+                prefill,
+                pf_argmax: None,
             })
         }
     }
@@ -219,6 +246,7 @@ impl GpuDecode {
             "gpu decode: pos {pos} exceeds tmax {}",
             self.tmax
         );
+        self.pf_argmax = None;
         unsafe {
             self.params_map.write_volatile(pos as u32);
             self.params_map.add(1).write_volatile(tok as u32);
@@ -237,7 +265,37 @@ impl GpuDecode {
 
     /// The greedy token of the step just run, computed on the device (lowest-index tie-break).
     pub fn last_argmax(&self) -> usize {
-        unsafe { self.argmax_map.read() as usize }
+        match self.pf_argmax {
+            Some(t) => t,
+            None => unsafe { self.argmax_map.read() as usize },
+        }
+    }
+
+    /// Per-node GPU-active microseconds of one prefill of `toks` (see [`PrefillStack::profile`]).
+    pub fn prefill_profile(&mut self, toks: &[usize]) -> Result<Vec<(String, f64)>, String> {
+        let pf = self
+            .prefill
+            .as_mut()
+            .ok_or("GpuDecode: built without a prefill plan")?;
+        pf.run(&self.vk, toks)?;
+        Ok(pf.profile(&self.vk, toks.len()))
+    }
+
+    /// Prefill `toks` at positions `0..n` in one device submit (requires a plan from
+    /// [`GpuDecode::new_with_prefill`]). The decode KV cache then holds `0..n`, so
+    /// `step(n, token)` continues. Returns the last position's logit row; [`GpuDecode::last_argmax`]
+    /// and [`GpuDecode::last_hidden`] then describe the last prompt position.
+    pub fn prefill(&mut self, toks: &[usize]) -> Result<&[f32], String> {
+        let pf = self
+            .prefill
+            .as_mut()
+            .ok_or("GpuDecode: built without a prefill plan")?;
+        pf.run(&self.vk, toks)?;
+        self.pf_argmax = Some(pf.argmax());
+        for (o, &v) in self.hout.iter_mut().zip(pf.hidden()) {
+            *o = v as f64;
+        }
+        Ok(pf.logits())
     }
 
     /// The final normed hidden of the step just run.
