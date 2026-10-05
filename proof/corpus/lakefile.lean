@@ -30,6 +30,14 @@ lean_lib ApeironWordBridge where
     `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,
     `Growable.Relocation, `Growable.Refinement, `Growable.Resources, `Growable.Representation,
     `Growable.Rebuild,
+    -- Added with the executed-body verification wave. `ApeironWordBridge` sets `roots` without
+    -- `.submodules` globs, so an import of a root is built only when it is itself a root.
+    -- `Growable.InsertRefine` was imported by `Growable.GaplessRead`/`Growable.BuildRefine`,
+    -- neither reachable, so it was ungated.
+    -- Row: `apeiron-verify-wave-land-nFsIRO8H9pKb1njJApKly` (APEIRON-VERIFY-WAVE).
+    `Growable.InsertRefine, `Growable.CostModel,
+    `Map.Rep, `Map.Read, `Map.Selected,
+    `Count.Rep, `Count.Read,
     `AxiomAudit, `Joint.WordBridge,
     `Slang.Audit.Empty,
     `Slang.Syntax, `Slang.Decode,
