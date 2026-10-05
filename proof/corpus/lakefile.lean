@@ -24,6 +24,10 @@ lean_lib ApeironWordBridge where
   -- revision-bound fixed-shard layout. They remain on disk as historical evidence but are not
   -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
   roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
+    -- `Native.HashtrinityBasis` was committed in 637e093 on no build path (roots carries no
+    -- `.submodules` glob). Registered with its 15 in-module `#audit` rows.
+    -- Row: `apeiron-native-gate-DbKpTzo95pI4CWY7PekAxE`.
+    `Native.HashtrinityBasis,
     `Security.InterpretationWitnesses,
     -- Added with the HashDOS verification lane. Two transcription hypotheses (the multiplier
     -- constant identity and the slot arithmetic) are now discharged against the generated
