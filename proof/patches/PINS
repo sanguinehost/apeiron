@@ -18,8 +18,14 @@
 # rebase is caught rather than silently changing the translator.
 # AENEAS_TRANSLATOR_SHA256 is the `dune build` product of the pinned Aeneas sources with
 # `aeneas-array-repeat.patch` applied: src/_build/default/main.exe, copied verbatim to
-# `$AENEAS_HOME/aeneas`. It is the identity that translates this repository's `src/`; a rebuild
-# that does not reproduce it has not reproduced the translator.
+# `$AENEAS_HOME/aeneas`. It is the identity that translates this repository's `src/`, and
+# `regen.sh` now asserts it (fail-closed) rather than only printing it.
+# REPINNED 2026-10-05: the previous value 84f9c1d2… is a lost build (its closure and build path
+# are not recoverable on this box; four digests name one artefact). 6fde1a4d… is the reproducible
+# `dune build` of the same pinned source (OCaml 5.2.1 / dune 3.24.2) at
+# ~/aeneas-build/aeneas; a rebuild of the same source at another path yields a
+# different digest, so the reproduction is not vacuous. Receipt:
+# the aeneas-tool-identity note.
 
 CHARON_COMMIT=b104e24fea7d721b71e6c39fd70f26ff20bc0980
 CHARON_TREE=784a177101bbfd956047ac2ee1b7335d4c057b7b
@@ -37,4 +43,4 @@ AENEAS_BASE_SHA256="fb2f04f57b99b85cf6963912f0e0ee07ff47711d3b89757e6fcd514bc2ec
 a9006c2f3c7a4ac222a49d5d5c5828a5cccc5af0e6612f3fbce857b4ea5a1d70 src/interp/InterpStatements.ml
 ef66c299ccf1a87ae15af712484f86955b9d957a188f62c263fec752276b3fd7 src/llbc/FunsAnalysis.ml"
 AENEAS_PATCH_SHA256="35bc103b490d7f38609c70e202eed365ab4a67a31634c14aa06186032ea1fcb1 aeneas-array-repeat.patch"
-AENEAS_TRANSLATOR_SHA256=84f9c1d2e54d866ffc1b0c41091a47cc4ae189cc8671e9f1a3991c5b2610fcd1
+AENEAS_TRANSLATOR_SHA256=6fde1a4dc7708d2f71d66da782bc9c21cfa6193a1d16900fddabfb59240d19de

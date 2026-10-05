@@ -82,6 +82,24 @@ if [ -e "$CHARON_DRIVER" ]; then
 fi
 tool_sha256 "$AENEAS"
 
+# Fail-closed tool identity (added 2026-10-05). The block above PRINTS the tool digests; this
+# asserts the selected translator is the pinned one. Before this, an ambient `AENEAS_HOME` (see the
+# header) could select a different translator and change the evidence's tool identity with no
+# refusal — the script only printed the digest. A repin is deliberate: edit `proof/patches/PINS`.
+PINNED_TRANSLATOR_SHA256=$(sed -n 's/^AENEAS_TRANSLATOR_SHA256=//p' "$PROOF_DIR/patches/PINS")
+if [ -z "$PINNED_TRANSLATOR_SHA256" ]; then
+    echo "tool-identity: FAIL proof/patches/PINS has no AENEAS_TRANSLATOR_SHA256" >&2
+    exit 2
+fi
+SELECTED_TRANSLATOR_SHA256=$(sha256sum "$AENEAS" | cut -d' ' -f1)
+if [ "$SELECTED_TRANSLATOR_SHA256" != "$PINNED_TRANSLATOR_SHA256" ]; then
+    echo "tool-identity: FAIL selected translator sha256=$SELECTED_TRANSLATOR_SHA256 != pinned $PINNED_TRANSLATOR_SHA256 (AENEAS_HOME=$AENEAS_HOME)" >&2
+    echo "tool-identity: a rebuild that does not reproduce the pinned translator has not reproduced the translator; set AENEAS_HOME to the pinned install, or repin deliberately in proof/patches/PINS" >&2
+    exit 1
+fi
+echo "tool-identity: OK translator $SELECTED_TRANSLATOR_SHA256 == pinned"
+# Row: `p0-tool-identity-pin-to-a-Gtnw7HF7pOv26R2cBoI3wu` (P0 · TOOL-IDENTITY).
+
 echo "== source =="
 # Every listed source must exist: a missing live source fails the digest stage instead of being
 # skipped, so a stale path (for example a deleted module) cannot pass silently.
