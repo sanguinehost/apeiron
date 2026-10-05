@@ -17185,23 +17185,37 @@ def packing.Packing.decode_block
       residual
 
 /-- Trait declaration: [apeiron_word::hashtrinity::algebra::Coord]
-    Source: '../../src/hashtrinity/algebra.rs', lines 44:0-47:1
+    Source: '../../src/hashtrinity/algebra.rs', lines 46:0-60:1
     Visibility: public -/
 structure hashtrinity.algebra.Coord (Self : Type) where
+  INJECTIVE : Result Bool
   coord : Self → Result Std.U64
 
+/-- [apeiron_word::hashtrinity::algebra::Coord::INJECTIVE]
+    Source: '../../src/hashtrinity/algebra.rs', lines 57:4-57:34
+    Visibility: public -/
+@[global_simps, irreducible, trait_default]
+def hashtrinity.algebra.Coord.INJECTIVE.default (Self : Type) : Bool := false
+
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}::coord]:
-    Source: '../../src/hashtrinity/algebra.rs', lines 51:18-51:57
+    Source: '../../src/hashtrinity/algebra.rs', lines 65:18-65:57
     Visibility: public -/
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
   (self : Std.U64) : Result Std.U64 := do
   ok self
 
+/-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}::INJECTIVE]
+    Source: '../../src/hashtrinity/algebra.rs', lines 64:8-64:37
+    Visibility: public -/
+@[global_simps, irreducible]
+def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.INJECTIVE : Bool := true
+
 /-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for u64}]
-    Source: '../../src/hashtrinity/algebra.rs', lines 50:24-52:5 -/
+    Source: '../../src/hashtrinity/algebra.rs', lines 63:24-66:5 -/
 @[reducible]
 def U64.Insts.Apeiron_wordHashtrinityAlgebraCoord : hashtrinity.algebra.Coord
   Std.U64 := {
+  INJECTIVE := ok U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.INJECTIVE
   coord := U64.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
 }
 

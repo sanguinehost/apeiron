@@ -4,7 +4,9 @@
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
 //! how two VALUES merge (`Face`/`Species`/the four merges/`Monoid`/`FoldExt`).
 
-use crate::hashtrinity::{is_live, is_sentinel, Capped, Locate, Overflow, Table, EMPTY, PHI};
+use crate::hashtrinity::{
+    is_live, is_sentinel, Capped, Locate, Overflow, Table, EMPTY, LOAD_DEN, LOAD_NUM, PHI,
+};
 use std::mem::MaybeUninit;
 
 /// `n` uninitialized [`MaybeUninit<T>`] slots as a boxed slice — RESERVE, never initialize.
@@ -42,12 +44,24 @@ pub fn alloc_uninit_boxed<T>(n: usize) -> Box<[MaybeUninit<T>]> {
 /// A key's 64-bit address. Integers are their own coordinate (a direct, collision-free index);
 /// byte/opaque keys fold to one. This is the only thing the table needs to place a key.
 pub trait Coord {
+    /// Whether `coord` is injective on `Self`: `a.coord() == b.coord()` implies `a == b`. `true`
+    /// only for the impls whose coordinate IS the key (the sign/zero-extending integer casts, and
+    /// the delegating reference); `false` (the default) for every lossy fold. When it holds, a
+    /// coordinate match at a slot already implies key equality, so [`Stored`] can skip the stored
+    /// key compare on the hot read (`CoordinateReadout.exact_read_is_read`).
+    ///
+    /// # Soundness
+    ///
+    /// Overriding this to `true` for a lossy coordinate is unsound: two distinct keys with equal
+    /// coordinates would then alias, and the table would return one's value for the other.
+    const INJECTIVE: bool = false;
     /// This key's 64-bit address.
     fn coord(&self) -> u64;
 }
 
 macro_rules! int_coord {
     ($($t:ty),*) => {$( impl Coord for $t {
+        const INJECTIVE: bool = true; // `*self as u64` is a bijection onto its image
         #[inline] fn coord(&self) -> u64 { *self as u64 } // an integer is already its own address
     } )*};
 }
@@ -171,6 +185,12 @@ impl<K: Coord + Eq> KeyStore<K> for Stored<K> {
     }
     #[inline]
     fn matches(&self, i: usize, _coord: u64, q: &K) -> bool {
+        // When `coord` is injective, `coords[i] == q.coord()` (the caller's precondition) already
+        // implies `self.0[i] == q`, so the stored-key load is redundant and is skipped. The branch
+        // is on a const, so it folds away per `K` — no cost on the opaque-key path.
+        if K::INJECTIVE {
+            return true;
+        }
         // SAFETY: only called on an occupied slot (after a successful probe).
         unsafe { self.0.get_unchecked(i).assume_init_ref() == q }
     }
@@ -312,12 +332,14 @@ impl Coord for i128 {
     }
 }
 impl Coord for char {
+    const INJECTIVE: bool = true; // codepoints are distinct
     #[inline]
     fn coord(&self) -> u64 {
         *self as u64 // a codepoint is already an address
     }
 }
 impl Coord for bool {
+    const INJECTIVE: bool = true; // two keys, two coordinates
     #[inline]
     fn coord(&self) -> u64 {
         *self as u64
@@ -431,6 +453,7 @@ impl Coord for [u8] {
     }
 }
 impl<T: Coord + ?Sized> Coord for &T {
+    const INJECTIVE: bool = T::INJECTIVE; // the reference is transparent: it delegates `coord`
     #[inline]
     fn coord(&self) -> u64 {
         (**self).coord()
@@ -587,8 +610,8 @@ impl<K: Eq + Coord, KS: KeyStore<K>> Table<K, i64, KS> {
             self.insert_with(k, v, count::<i64>);
             return;
         }
-        if (self.len + self.tombs + 1) * 8 >= self.coords.len() * 7 {
-            let new_bits = if (self.len + 1) * 8 >= self.coords.len() * 7 {
+        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
+            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
                 self.bits + 1
             } else {
                 self.bits
