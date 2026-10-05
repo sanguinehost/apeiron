@@ -1,3 +1,8 @@
+-- STATUS: OFF the build path (no `roots` entry; nothing imports it) and NOT COMPLETE:
+-- `lake env lean TableRefinement/EncircleFold.lean` exits 1 with `unsolved goals`. Committed
+-- 439fcf0 as preserved untracked work, not as a finished proof. It evaluates no `#audit` row
+-- until registered, and it must not be registered until the goal closes.
+-- Row: `apeiron-untracked-corpus-D95BAcvaduxXKnnKfkKPyO`.
 import Apeiron.Linter.Notation
 import Apeiron.Linter.Citation
 import Apeiron.Trichotomy.AnyRing
