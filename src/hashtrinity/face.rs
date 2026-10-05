@@ -1,3 +1,4 @@
+// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O` (lane 1): growth at load LOAD_NUM/LOAD_DEN = 3/4.
 //! The std-shaped faces of [`Table`] — the surface a *mechanical* `HashMap` port lands on.
 //!
 //! [`Table::insert_with`] is the whole algebra: one probe, one merge, four faces. That is the right
@@ -41,7 +42,7 @@
 
 use crate::hashtrinity::{
     bits_for, is_live, is_sentinel, Capped, Coord, KeyReadout, KeyStore, Overflow, SideStore,
-    Store, Stored, Table, EMPTY, PHI, TOMB,
+    Store, Stored, Table, EMPTY, LOAD_DEN, LOAD_NUM, PHI, TOMB,
 };
 use std::mem::MaybeUninit;
 
@@ -421,8 +422,8 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// probes — which is what makes the vacant fill a zero-probe operation instead of a re-probe.
     #[inline]
     fn grow_for_one(&mut self) {
-        if (self.len + self.tombs + 1) * 8 >= self.coords.len() * 7 {
-            let new_bits = if (self.len + 1) * 8 >= self.coords.len() * 7 {
+        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
+            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
                 self.bits + 1
             } else {
                 self.bits // merely crowded by tombstones: a same-size rebuild reclaims them

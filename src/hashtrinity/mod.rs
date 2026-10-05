@@ -245,6 +245,13 @@ const _: () = assert!(LINEAR_G == 8, "prefix_masks scans exactly 8 lanes");
 /// One named constant so the bench can tune it.
 pub const PROBE_CAP: u32 = 16;
 
+/// Growth threshold as a fraction `LOAD_NUM / LOAD_DEN`: an insert grows (or, with tombstones,
+/// compacts) when `(len + tombs + 1) · LOAD_DEN ≥ capacity · LOAD_NUM`, and
+/// [`bits_for`] sizes a `with_capacity(n)` table so `n` keys stay under the same threshold. Named
+/// so the load factor is one edit and the bench can sweep it.
+const LOAD_NUM: usize = 3;
+const LOAD_DEN: usize = 4;
+
 /// The capped primary probe's verdict — the three outcomes a probe can have without walking the
 /// whole slot space.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -526,15 +533,17 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Default for Table<K, V, KS> {
     }
 }
 
-/// THE one sizing: the grow law (7/8 headroom) applied at construction — the next power of two
-/// holding `cap` keys under the grow threshold. No extra doubling, no second load factor:
-/// `LoadFactorFrontier` proves there is no magic load factor, and the measured frontier
+/// THE one sizing: the grow law (`LOAD_NUM / LOAD_DEN` headroom) applied at construction — the next
+/// power of two holding `cap` keys under the grow threshold. No extra doubling, no second load
+/// factor: `LoadFactorFrontier` proves there is no magic load factor. The measured frontier
 /// (BENCHMARK.md §Discharged inequalities) showed the old `+1` doubling losing the 1M build AND
 /// the 1M hit stream (footprint beats probe length out of cache, `CoordinateReadout.footprint_mono`)
-/// while winning only sub-millisecond in-cache hits. One law, stated once, same for both key species.
+/// while winning only sub-millisecond in-cache hits; the current 3/4 is the measured choice of the
+/// 2026-10-06 random-key sweep (7/8 vs 3/4 vs 5/8 at n = 1e5, 1e6 — 3/4 smallest on every random
+/// cell outside spread). One law, stated once, same for both key species.
 #[inline]
 fn bits_for(cap: usize) -> u32 {
-    let need = cap.saturating_mul(8) / 7 + 1;
+    let need = cap.saturating_mul(LOAD_DEN) / LOAD_NUM + 1;
     (usize::BITS - need.max(8).next_power_of_two().leading_zeros() - 1).max(3)
 }
 
@@ -1123,10 +1132,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         // under the load limit — otherwise a churn workload could fill the table with tombstones and a
         // not-found probe would never reach an `EMPTY`. With no deletions `tombs == 0`, so this is the
         // original trigger unchanged.
-        if (self.len + self.tombs + 1) * 8 >= self.coords.len() * 7 {
+        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
             // Genuinely full of live keys ⇒ grow; merely crowded by tombstones ⇒ same-size rebuild
             // clears them (reclaims the space without doubling).
-            let new_bits = if (self.len + 1) * 8 >= self.coords.len() * 7 {
+            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
                 self.bits + 1
             } else {
                 self.bits
