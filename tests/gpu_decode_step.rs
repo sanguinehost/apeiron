@@ -64,7 +64,18 @@ fn gpu_generate(d: &mut GpuDecode, ids: &[u32], n: usize) -> Vec<u32> {
 
 #[test]
 #[ignore = "whole-model decode with a CPU reference: run in release, `cargo test --release --features gpu --test gpu_decode_step -- --ignored`"]
-fn test_gpu_decode_step() {
+fn test_gpu_decode_step_q8() {
+    run(Carrier::Q8);
+}
+
+/// `Carrier::Q4`: Q4_K projections stay Q4_K (lossless), every other projection is Q8.
+#[test]
+#[ignore = "whole-model decode with a CPU reference: run in release, `cargo test --release --features gpu --test gpu_decode_step -- --ignored`"]
+fn test_gpu_decode_step_q4() {
+    run(Carrier::Q4);
+}
+
+fn run(carrier: Carrier) {
     if unsafe { Vk::load() }.is_err() {
         println!("SKIP: No Vulkan device present");
         return;
@@ -83,9 +94,9 @@ fn test_gpu_decode_step() {
         .unwrap_or(1)
         .clamp(1, N_GEN);
     let t0 = Instant::now();
-    let mut gpu = GpuDecode::new(&gguf, &engine.config, TMAX, Carrier::Q8).expect("GpuDecode::new");
+    let mut gpu = GpuDecode::new(&gguf, &engine.config, TMAX, carrier).expect("GpuDecode::new");
     println!(
-        "GpuDecode::new {:.2} s, {} dispatches per token",
+        "carrier {carrier:?}: GpuDecode::new {:.2} s, {} dispatches per token",
         t0.elapsed().as_secs_f64(),
         gpu.n_disp
     );

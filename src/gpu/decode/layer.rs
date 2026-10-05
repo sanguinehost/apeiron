@@ -306,7 +306,6 @@ pub unsafe fn record_layer(
     li: usize,
     st: &mut Stream,
 ) -> Vec<Node> {
-    let carrier = c.carrier;
     let (hidden, dff, nh, nkv, hd, tmax) = (c.hidden, c.dff, c.nh, c.nkv, c.hd, c.tmax);
     let (qn, qkv_m) = (c.qn(), c.qkv_m());
     let (s_qkv, nsplit) = (c.s_qkv(), c.nsplit());
@@ -316,7 +315,7 @@ pub unsafe fn record_layer(
     if li == 0 {
         let mut gm = make_fused_gemv(
             g,
-            carrier,
+            l.qkv_c,
             l.qkv_w,
             l.qkv_dm,
             l.ln1,
@@ -337,7 +336,7 @@ pub unsafe fn record_layer(
     } else {
         let mut gm = make_fused_gemv(
             g,
-            carrier,
+            l.qkv_c,
             l.qkv_w,
             l.qkv_dm,
             l.ln1,
@@ -405,7 +404,7 @@ pub unsafe fn record_layer(
     // the split-K attention merge IS the o-projection's activation
     nodes.push(Node::Gemv(make_actq_gemv(
         g,
-        carrier,
+        l.o_c,
         l.o_w,
         l.o_dm,
         sc.part_o,
@@ -419,7 +418,7 @@ pub unsafe fn record_layer(
     // residual + FFN RMSNorm ride the gate/up projection's transport
     nodes.push(Node::Gemv(make_fused_gemv(
         g,
-        carrier,
+        l.gu_c,
         l.gu_w,
         l.gu_dm,
         l.ln2,
@@ -438,7 +437,7 @@ pub unsafe fn record_layer(
     std::mem::swap(&mut st.cur, &mut st.alt);
     nodes.push(Node::Gemv(make_actq_gemv(
         g,
-        carrier,
+        l.dn_c,
         l.dn_w,
         l.dn_dm,
         sc.gu,
@@ -468,7 +467,7 @@ pub unsafe fn embed_step(
 ) -> Step {
     make_step_named(
         g,
-        &embed_chart_bytes(c.hidden, vocab, local_wg(), c.carrier),
+        &embed_chart_bytes(c.hidden, vocab, local_wg(), c.head_carrier()),
         &[embed_w, embed_dm, sc.params, sc.x],
         c.hidden.div_ceil(local_wg()),
         1,

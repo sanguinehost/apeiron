@@ -106,7 +106,7 @@ unsafe fn upload_rows(
     vocab: usize,
 ) -> Result<(Handle, Handle), String> {
     let rows = dequant_rows(gguf, name, 0, vocab)?;
-    let p = pack_proj_f32(c.carrier, &[&rows], c.hidden as usize, false);
+    let p = pack_proj_f32(c.head_carrier(), &[&rows], c.hidden as usize, false);
     Ok((g.up_u32(&p.words), g.up_u32(&p.dm)))
 }
 
