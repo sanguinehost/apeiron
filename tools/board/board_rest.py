@@ -1,3 +1,4 @@
+# Row: `apeiron-board-write-shape-FLHWsvrO3iZPMhoOtZ5r3t` (APEIRON-BOARD-WRITE-SHAPE).
 #!/usr/bin/env python3
 """board_rest: the external v1 REST transport.
 
@@ -30,6 +31,37 @@ from board_model import (
     attribute_projects,
     normalize_document,
 )
+
+# ---------------------------------------------------------------------------
+# Rich content
+# ---------------------------------------------------------------------------
+
+
+def rich_content(text: str) -> str:
+    """A ProseMirror document, one paragraph per line, as a JSON string.
+
+    ``projects/create_check_in`` and ``comments/create`` take rich content; a
+    plain string is rejected with HTTP 500 and does **not** land (measured on
+    the live instance). O(lines) over the input.
+    """
+    content: list[dict[str, Any]] = []
+    for line in text.split("\n"):
+        if line:
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": line}]})
+        else:
+            content.append({"type": "paragraph"})
+    return json.dumps({"type": "doc", "content": content})
+
+
+def resolve_status(statuses: list[dict[str, Any]], wanted: str) -> dict[str, Any] | None:
+    """Match a status object by value, label or id, case-insensitively."""
+    lowered = wanted.strip().lower()
+    for status in statuses:
+        for field in ("value", "label", "id"):
+            if str(status.get(field) or "").lower() == lowered:
+                return status
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Transport
@@ -126,31 +158,60 @@ class RestClient:
 
     # -- writer ------------------------------------------------------------
 
+    def task_statuses(self, task_id: str) -> list[dict[str, Any]]:
+        payload = self.call("tasks/list_task_statuses", task_id=task_id)
+        return list(payload.get("task_statuses") or [])
+
     def update_status(self, task_id: str, status: str) -> str:
         """Apply a status. Returns ``landed`` or ``refused``.
 
+        ``tasks/update_status`` takes the STATUS OBJECT, not its value: this
+        instance answers ``400 Unknown input field`` for ``value=<str>`` and a
+        silently non-landing ``500`` for ``status=<str>``. The object comes from
+        ``tasks/list_task_statuses``, which also requires the task's ``type``.
         This instance answers a 500 for a mutation that landed, so a transport
         error is *not* evidence of refusal: the caller must read back. This method
         never decides; ``verify_status`` does.
         """
         try:
-            self.call("tasks/update_status", method="POST", task_id=task_id, value=status)
+            type_ = (self.task(task_id).get("type")) or ""
+            target = resolve_status(self.task_statuses(task_id), status)
+            if not type_ or target is None:
+                return "refused"
+            self.call(
+                "tasks/update_status",
+                method="POST",
+                task_id=task_id,
+                type=type_,
+                status=target,
+            )
             return "landed"
         except TransportError:
             return "refused"
 
-    def create_check_in(self, project_id: str, status: str, description: str) -> str:
+    def post_check_in(self, project_id: str, status: str, description: str) -> tuple[str, str]:
+        """POST a check-in with rich content. Returns ``(transport, error)``.
+
+        A plain-string description is rejected with HTTP 500 and does NOT land
+        (measured on the live instance), so ``rich_content`` encodes it here.
+        The transport is *not* the verdict — this instance 500s on a mutation
+        that landed; the caller reads the check-in back.
+        """
         try:
             self.call(
                 "projects/create_check_in",
                 method="POST",
                 project_id=project_id,
                 status=status,
-                description=description,
+                description=rich_content(description),
             )
-            return "landed"
-        except TransportError:
-            return "refused"
+            return "landed", ""
+        except TransportError as exc:
+            return "reported-error", str(exc)
+
+    def create_check_in(self, project_id: str, status: str, description: str) -> str:
+        transport, _ = self.post_check_in(project_id, status, description)
+        return "landed" if transport == "landed" else "refused"
 
     def verify_status(self, task_id: str, target: str) -> tuple[bool, str]:
         observed = ((self.task(task_id).get("status") or {}).get("value")) or ""

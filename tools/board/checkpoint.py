@@ -739,17 +739,11 @@ def post_check_in(
     load_env(repo_root)
     client = board.RestClient(base_url=base_url)
     response: dict[str, Any] = {}
-    transport = "landed"
-    transport_error = ""
-    try:
-        response = client.call(
-            CHECK_IN_ENDPOINT, method="POST", project_id=project_id, status=status, description=text
-        )
-    except board.TransportError as exc:
-        # This instance answers HTTP 500 for a mutation that landed, so a
-        # transport error is not a refusal: the read-back below is the verdict.
-        transport = "reported-error"
-        transport_error = str(exc)
+    # The write is the shared one: `RestClient.post_check_in` encodes the
+    # description as rich content (a plain string answers HTTP 500 and does not
+    # land on this instance). Its transport is not the verdict — the read-back
+    # below is, and this instance 500s on a mutation that landed.
+    transport, transport_error = client.post_check_in(project_id, status, text)
     stamp = text.splitlines()[0]
     confirmed = False
     read_ids: list[str] = []

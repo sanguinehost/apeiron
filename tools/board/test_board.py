@@ -49,10 +49,12 @@ class StubOpener:
     def __init__(self, routes: dict[str, object]) -> None:
         self.routes = routes
         self.calls: list[str] = []
+        self.bodies: list[bytes] = []
 
     def open(self, request, timeout=None):  # noqa: ANN001 - stub
         url = request.get_full_url()
         self.calls.append(url)
+        self.bodies.append(request.data or b"")
         path = urllib.parse.urlparse(url).path
         for key, payload in self.routes.items():
             if "?" in key:
@@ -61,6 +63,62 @@ class StubOpener:
             elif path.endswith("/" + key):
                 return StubResponse(payload)
         raise board.TransportError(f"stub has no route for {url}")
+
+
+class WriteShapeTests(unittest.TestCase):
+    """The write endpoints take rich content and the status OBJECT.
+
+    Each control reproduces the shape the live instance REJECTS, so the check
+    can fail: a plain-string description answers HTTP 500 and does not land, and
+    ``tasks/update_status`` answers ``400 Unknown input field`` for
+    ``value=<str>`` (only the object lands).
+    """
+
+    def test_check_in_description_is_a_prosemirror_document(self) -> None:
+        opener = StubOpener({"projects/create_check_in": {"id": "ci-1"}})
+        client = board.RestClient(key="k", opener=opener)
+        transport, error = client.post_check_in("p-1", "caution", "line one\nline two")
+        self.assertEqual(transport, "landed")
+        self.assertEqual(error, "")
+        body = json.loads(opener.bodies[-1])
+        self.assertIsInstance(body["description"], str)
+        self.assertNotEqual(body["description"], "line one\nline two", "plain string must not be sent")
+        doc = json.loads(body["description"])
+        self.assertEqual(doc["type"], "doc")
+        texts = [p["content"][0]["text"] for p in doc["content"] if p.get("content")]
+        self.assertEqual(texts, ["line one", "line two"])
+
+    def test_update_status_sends_the_status_object_not_its_value(self) -> None:
+        routes = {
+            "tasks/get": {
+                "task": {"id": "t-1", "type": "project", "status": {"value": "pending"}},
+            },
+            "tasks/list_task_statuses": {
+                "task_statuses": [
+                    {"id": "s-1", "value": "pending", "label": "Not started"},
+                    {"id": "s-2", "value": "in_progress", "label": "In progress"},
+                ]
+            },
+            "tasks/update_status": {"ok": True},
+        }
+        opener = StubOpener(routes)
+        client = board.RestClient(key="k", opener=opener)
+        self.assertEqual(client.update_status("t-1", "In progress"), "landed")
+        body = json.loads(opener.bodies[-1])
+        self.assertEqual(body["type"], "project")
+        self.assertEqual(
+            body["status"], {"id": "s-2", "value": "in_progress", "label": "In progress"}
+        )
+        self.assertNotIn("value", body, "the rejected `value=` shape must not be sent")
+
+    def test_update_status_refuses_an_unavailable_status(self) -> None:
+        routes = {
+            "tasks/get": {"task": {"id": "t-1", "type": "project", "status": {"value": "pending"}}},
+            "tasks/list_task_statuses": {"task_statuses": [{"id": "s-1", "value": "pending"}]},
+        }
+        opener = StubOpener(routes)
+        client = board.RestClient(key="k", opener=opener)
+        self.assertEqual(client.update_status("t-1", "not-a-status"), "refused")
 
 
 class DescriptionTests(unittest.TestCase):
@@ -599,10 +657,21 @@ class WriteReadBackTests(unittest.TestCase):
 
         class FlakyOpener:
             def open(self, request, timeout=None):  # noqa: ANN001 - stub
-                if "update_status" in request.get_full_url():
+                url = request.get_full_url()
+                if "update_status" in url:
                     state["value"] = "in_progress"
                     raise board.TransportError("stub: HTTP 500")
-                return StubResponse({"task": {"id": "t1", "status": {"value": state["value"]}}})
+                if "list_task_statuses" in url:
+                    return StubResponse(
+                        {
+                            "task_statuses": [
+                                {"id": "s2", "value": "in_progress", "label": "In progress"}
+                            ]
+                        }
+                    )
+                return StubResponse(
+                    {"task": {"id": "t1", "type": "project", "status": {"value": state["value"]}}}
+                )
 
         client = board.RestClient(key="test-key", opener=FlakyOpener())
         transport = client.update_status("t1", "in_progress")
