@@ -1,3 +1,4 @@
+-- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI`. Discharges the dispatched obligation; 13 -> 11 error sites.
 import Growable.ReadLoop
 import Lean
 
@@ -41,6 +42,33 @@ stays explicit on the generic miss lemma `spill_read_none_entryAt_ne` and is dis
 `valid_n_16` at the fixed `n = 16#usize` call sites. The hit direction needs no readiness premise:
 the run-anchored `generated_probe_run_some` certificate reads each executed step's admission off the
 run itself.
+
+**The lane-agreement premise of the hit direction.** The extracted probe decides occupancy over
+`Region.coords` (`proof/ApeironWord.lean:20470`) while `Apeiron.GrowableSearch.entryAt` enumerates
+live entries over `Region.slots[·].tag`. `Growable.ReadLoop.spill_read_some_implies_full_match`
+projects only the payload lane, so the hit-to-`entryAt` path needs two further facts, both carried
+here as **explicit named premises** and neither asserted anywhere in this module:
+
+1. `SpillCoordPayloadSync region` — the two lanes agree on which indexes are occupied (same length;
+   `coords[i] ≠ COORD_EMPTY ↔ slots[i].tag ≠ 0` for every `i < slots.length`). Its forward
+   direction (non-empty coordinate ⟹ nonzero tag) is all the hit path consumes; the reverse
+   direction is what a tag-driven live-entry enumeration consumes and is required at completed
+   operation boundaries, not on the read path. Authorised as a premise by the escalation
+   `READ-SYNC-AND-ROUTE2`, Q1.
+2. the occupied-coordinate readback `hcoord` at the hit slot. The generated body *does* read
+   `region.coords[slot]` at a hit (`Growable.ReadLoop.StoredProbeVisit`), but the ported `ReadLoop`
+   headline projects only the payload lane, so the readback is a premise here rather than a
+   derived fact. **Residual, one conjunct:** it is discharged by adding
+   `∃ coord, region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY` to
+   `Growable.ReadLoop.spill_read_some_implies_full_match`, whose two cases already carry it
+   (`_hcoord` from `generated_spill_read_some_run` and `StoredProbeHit`'s `StoredProbeVisit`). That
+   edit is in `Growable.ReadLoop.lean`, outside this task's declared files, and is not made here.
+
+Neither premise is discharged at the writers. `src/table/state.rs:439-447` publishes the payload
+store, then a nonzero tag, then the coordinate, and `Region::empty`, `reserve_empty`,
+`initialize`, `apply_prepared_shard_placed`, `grow_spill`, `relocate_entry`, `relocate_all`,
+`apply_pending_and_commit` and `spill_update_found` are the bodies that must preserve it. That
+discharge, at both carriers and for both directions, is a separate task.
 -/
 
 namespace Apeiron.GrowableRead
@@ -76,6 +104,32 @@ def ConstructorReachableRepR {R : Type} (state : WordTable R)
 theorem valid_n_16 : table.valid_n 16#usize = ok true := by
   unfold table.valid_n table.MAX_GROUP core.num.Usize.is_power_of_two
   rfl
+
+/--
+The named coordinate/payload lane synchronization premise. The generated spill probe reads
+`Region.coords` and terminates or hits on a coordinate word (`proof/ApeironWord.lean:20470`,
+`src/table/probe.rs:313-327`), while `Apeiron.GrowableSearch.entryAt` enumerates live spill entries
+by the payload tag `Region.slots[·].tag`. This proposition says the two executing lanes identify
+the same occupied indexes of a region:
+
+* the coordinate vector and the payload vector have the same length, and
+* below that length, the coordinate word is a non-empty coordinate exactly when the payload slot at
+  the same index carries a nonzero tag.
+
+It is an explicit proposition argument of the conditional read theorems, not an axiom and not an
+instance asserting its truth; no declaration in this repository asserts it. The forward direction
+(`coords[i] ≠ COORD_EMPTY ⟹ slots[i].tag ≠ 0`) is the one the hit-to-`entryAt` path consumes. The
+reverse direction is the one a tag-based live-entry enumeration consumes and is required at
+completed, search-visible operation boundaries: at such a boundary the coordinate-driven search and
+the tag-driven enumeration must select the same occupied indexes. Payload/address agreement and
+probe-chain safety are separate obligations (`StoredLiveTagAddress`, `StoredProbeChainSafe`) and are
+not folded in here. The growable table has no spill deletion (`src/table/state.rs:322-326`), so no
+tombstone direction appears in this statement. -/
+def SpillCoordPayloadSync {R V : Type} (region : table.Region R V) : Prop :=
+  region.coords.length = region.slots.length ∧
+    ∀ (i : Nat), i < region.slots.length →
+      (region.coords.val[i]? ≠ some table.COORD_EMPTY ↔
+        ∃ (entry : table.SpillSlot R V), region.slots.val[i]? = some entry ∧ entry.tag ≠ 0#u8)
 
 /-- Partition 1 (direct hit), Stored carrier: the generated public read returns the flat slot
 value at a full generated matcher hit, and that value is the canonical `Apeiron.Table.get`.
@@ -321,27 +375,52 @@ theorem flat_index_compute {R V : Type} (self : table.Flat R V) (word : U32) :
 
 /-- A generated `spill_read` hit returns an in-bounds slot carrying a nonzero tag and the full
 query key. This is the tag-carrying readback of the ported
-`Growable.ReadLoop.spill_read_some_implies_full_match` over the single `SpillSlot` vector; the run
-itself witnesses each executed step, so no readiness premise is needed. -/
+`Growable.ReadLoop.spill_read_some_implies_full_match` over the single `SpillSlot` vector.
+
+Two named premises carry the lane agreement the extracted body does not provide:
+
+* `hcoord` — the hit slot's coordinate word is a non-empty coordinate. The generated body reads it
+  (`StoredProbeHit`'s `StoredProbeVisit`), but the ported `ReadLoop` headline projects only the
+  payload lane, so it is a premise here; see the module header for the one-conjunct discharge.
+* `hsync` — `SpillCoordPayloadSync`, whose **forward** direction turns the occupied coordinate into
+  a nonzero tag. Only `.mp` of that biconditional is used; the reverse direction is not needed on
+  the read path.
+
+The run itself witnesses each executed step, so no readiness premise is needed. -/
 theorem spill_read_some_tagged_full_match
     (region : table.Region StoredI64 I64)
     (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
     (n slot : Usize)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok (some slot)) :
+      key n = ok (some slot))
+    (hcoord : ∃ (coord : U64),
+      region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY)
+    (hsync : SpillCoordPayloadSync region) :
     slot.val < region.slots.length ∧
     ∃ (entry : table.SpillSlot StoredI64 I64) (tag : U8),
       region.slots.val[slot.val]? = some entry ∧
       entry.tag = tag ∧
       tag ≠ 0#u8 ∧
       Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) := by
-  obtain ⟨hinBounds, entry, hslot, htagNonzero, hlogical⟩ :=
+  obtain ⟨hinBounds, entry, hslot, hlogical⟩ :=
     Apeiron.GrowableReadLoop.spill_read_some_implies_full_match region sigma address key n slot
       hresult
+  obtain ⟨coord, hcoordRead, hcoordNe⟩ := hcoord
+  have hoccupied : region.coords.val[slot.val]? ≠ some table.COORD_EMPTY := by
+    intro heq
+    exact hcoordNe (Option.some.inj (heq.symm.trans hcoordRead)).symm
+  obtain ⟨_hlen, hperIndex⟩ := hsync
+  obtain ⟨tagged, htagged, htagNonzero⟩ :=
+    (hperIndex slot.val (List.getElem?_eq_some_iff.mp hslot).1).mp hoccupied
+  have htaggedEq : tagged = entry := Option.some.inj (htagged.symm.trans hslot)
+  rw [htaggedEq] at htagNonzero
   exact ⟨hinBounds, entry, entry.tag, hslot, rfl, htagNonzero, hlogical⟩
 
 /-- Deliverable 1: a generated `spill_read` hit returns an in-bounds slot entry which reads back
-through `entryAt` with the exact query and whose payload field is the returned value. -/
+through `entryAt` with the exact query and whose payload field is the returned value. `entryAt`
+tests the payload tag (`GrowableSearch.entryAt`), so the lane agreement enters here through
+`hsync : SpillCoordPayloadSync region` and the occupied-coordinate readback `hcoord`; both are
+forwarded to `spill_read_some_tagged_full_match` and neither is discharged in this module. -/
 theorem spill_read_some_entryAt
     (state : WordTable StoredI64)
     (shard : Usize) (region : table.Region StoredI64 I64)
@@ -349,7 +428,10 @@ theorem spill_read_some_entryAt
     (sigma : cell.Sigma) (address : table.TableAddress) (key : I64)
     (n slot : Usize)
     (hresult : table.probe.spill_read Apeiron.GrowableIdentity.storedKeyRep region sigma address
-      key n = ok (some slot)) :
+      key n = ok (some slot))
+    (hcoord : ∃ (coord : U64),
+      region.coords.val[slot.val]? = some coord ∧ coord ≠ table.COORD_EMPTY)
+    (hsync : SpillCoordPayloadSync region) :
     ∃ entry : table.SpillSlot StoredI64 I64,
       alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
         (table.SpillSlot StoredI64 I64)) region.slots slot = ok entry ∧
@@ -358,7 +440,7 @@ theorem spill_read_some_entryAt
       Apeiron.GrowableSearch.entryAt state Apeiron.GrowableSearch.decodeStoredOption
         (.spill shard slot) = some ((sigma, key), entry.value) := by
   obtain ⟨_hinBounds, entry, tag, hslot, htag, htagNonzero, hlogical⟩ :=
-    spill_read_some_tagged_full_match region sigma address key n slot hresult
+    spill_read_some_tagged_full_match region sigma address key n slot hresult hcoord hsync
   have hsigma : entry.sigma = sigma := by
     have hp : (entry.sigma, entry.held.key) = (sigma, key) := hlogical
     exact congrArg Prod.fst hp
@@ -844,6 +926,7 @@ run_cmd do
     ``Apeiron.GrowableIdentity.regen_hold_decodes,
     ``Apeiron.GrowableRepresentation.RepR]
   let localNames : Array Lean.Name := #[`ConstructorReachableRepR, `valid_n_16,
+    `SpillCoordPayloadSync,
     `word_stored_table_get_at_direct_hit, `word_regen_table_get_at_direct_hit,
     `query_rep, `absent_of_exclusions, `default_of_absent,
     `flat_index_none_pin, `flat_index_some_pin, `flat_index_compute,
@@ -856,11 +939,16 @@ run_cmd do
     `spill_read_some_tagged_full_match,
     `spill_read_some_entryAt,
     `spill_read_none_entryAt_ne]
+  let mut violations : Array (Lean.Name × Array Lean.Name) := #[]
   for decl in external ++ localNames.map (Lean.Name.append `Apeiron.GrowableRead) do
     let axioms ← liftTermElabM <| Lean.collectAxioms decl
     let bad := axioms.filter (fun ax => !allowed.contains ax)
     unless bad.isEmpty do
-      throwError m!"'{decl}' depends on axioms outside the closed cone: {bad.toList}"
+      violations := violations.push (decl, bad)
     logInfo m!"'{decl}' depends on axioms: {axioms.toList}"
+  -- Collected, not thrown on the first row: the diagnostic names every offending declaration, so a
+  -- single `sorryAx` from one broken consumer does not hide the cone of the rest.
+  unless violations.isEmpty do
+    throwError m!"declarations depend on axioms outside the closed cone: {violations.toList}"
 
 end Apeiron.GrowableRead
