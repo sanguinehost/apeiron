@@ -1275,3 +1275,8 @@ pub fn word_count_offsets(
 pub fn word_count_slot(off: &mut [usize], h: u8) -> usize {
     hashtrinity::FreqMap::<u64, i64>::count_slot(off, h)
 }
+
+/// Real `FreqMap::<u64, i64>::count_aggregate`.
+pub fn word_count_aggregate(routed: &[u64], lo: usize, hi: usize) -> hashtrinity::FreqMap<u64, i64> {
+    hashtrinity::FreqMap::<u64, i64>::count_aggregate(routed, lo, hi)
+}

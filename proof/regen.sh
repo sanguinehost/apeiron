@@ -287,6 +287,7 @@ run_extract() {
         --start-from crate::word_count_histogram \
         --start-from crate::word_count_offsets \
         --start-from crate::word_count_slot \
+        --start-from crate::word_count_aggregate \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

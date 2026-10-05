@@ -434,12 +434,15 @@ impl<V> FreqLine<V> {
         let bits = bits.max(4); // at least one full 16-lane group
         let n = 1usize << bits;
         let gbits = bits - 4; // groups = 2^gbits
+        let mut slots = Vec::with_capacity(n);
+        let mut i = 0;
+        while i < n {
+            slots.push((EMPTY, MaybeUninit::uninit()));
+            i += 1;
+        }
         FreqLine {
             ctrl: vec![EMPTY_CTRL; n].into_boxed_slice(),
-            slots: std::iter::repeat_with(|| (EMPTY, MaybeUninit::uninit()))
-                .take(n)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            slots: slots.into_boxed_slice(),
             gshift: if gbits == 0 { 0 } else { 64 - gbits },
             gmask: (n / GROUP) - 1,
             bits,
@@ -551,28 +554,41 @@ impl<V> FreqLine<V> {
         let tag = (p & 0x7F) as u8; // = tag(f), reusing p
         let mut g = self.home_group(p); // j = 0, the common case: one shift + and
         let mut j = 0u32;
-        loop {
+        let mut done = false;
+        let mut found = false;
+        let mut slot = 0usize;
+        while !done {
             let base = g * GROUP;
             let mut matches = self.match_tag(g, tag); // the hit path: one movemask, no empty scan
             while matches != 0 {
                 let i = base + matches.trailing_zeros() as usize;
                 // SAFETY: base + lane < ctrl.len() = slots.len().
                 if unsafe { self.slots.get_unchecked(i).0 } == f {
-                    return (i, true, tag);
+                    slot = i;
+                    found = true;
+                    done = true;
+                    matches = 0;
+                } else {
+                    matches &= matches - 1;
                 }
-                matches &= matches - 1;
             }
-            // No tag candidate here — only NOW read the empty mask (the stop): an empty lane means
-            // the key, had it been inserted, would sit at or before this group ⇒ absent, and the
-            // first empty lane is the insert point. The group's line is already resident from the
-            // tag load, so this reload is an L1 hit; the hit path above never runs it.
-            let empties = self.match_empty(g);
-            if empties != 0 {
-                return (base + empties.trailing_zeros() as usize, false, tag);
+            if !done {
+                // No tag candidate here — only NOW read the empty mask (the stop): an empty lane means
+                // the key, had it been inserted, would sit at or before this group ⇒ absent, and the
+                // first empty lane is the insert point. The group's line is already resident from the
+                // tag load, so this reload is an L1 hit; the hit path above never runs it.
+                let empties = self.match_empty(g);
+                if empties != 0 {
+                    slot = base + empties.trailing_zeros() as usize;
+                    found = false;
+                    done = true;
+                } else {
+                    j += 1;
+                    g = self.descend_group(p, j);
+                }
             }
-            j += 1;
-            g = self.descend_group(p, j);
         }
+        (slot, found, tag)
     }
 
     /// [`probe_tagged`](Self::probe_tagged) without the tag.
@@ -698,7 +714,9 @@ impl<V> FreqLine<V> {
     #[cold]
     fn grow(&mut self) {
         let mut bigger = Self::with_bits(self.bits + 1);
-        for i in 0..self.slots.len() {
+        let mut i = 0;
+        let n = self.slots.len();
+        while i < n {
             let c = self.slots[i].0;
             if c != EMPTY {
                 let (j, _) = bigger.probe(c); // re-place along the same probe sequence
@@ -710,6 +728,7 @@ impl<V> FreqLine<V> {
                 bigger.set_lane(j, Self::tag(c));
                 bigger.len += 1;
             }
+            i += 1;
         }
         *self = bigger;
     }

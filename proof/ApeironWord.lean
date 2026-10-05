@@ -20,6 +20,11 @@ noncomputable section
 
 namespace apeiron_word
 
+
+
+
+
+
 /-- Trait implementation: [core::cmp::impls::{impl core::cmp::Eq for ()}]
     Source: '/rustc/library/core/src/cmp.rs', lines 2182:12-2182:32
     Name pattern: [core::cmp::Eq<()>] -/
@@ -39,12 +44,26 @@ def Tuple.Insts.CoreCmpEq : core.cmp.Eq Unit := {
 @[reducible, rust_type "core::marker::PhantomData"]
 def core.marker.PhantomData (T : Type) := Unit
 
+
+
+
+
+
+
 /-- [core::f32::{f32}::is_finite]:
     Source: '/rustc/library/core/src/num/f32.rs', lines 747:4-747:40
     Name pattern: [core::f32::{f32}::is_finite]
     Visibility: public -/
 @[rust_fun "core::f32::{f32}::is_finite"]
 axiom core.f32.F32.is_finite : F32 → Result Bool
+
+
+
+
+
+
+
+
 
 
 
@@ -17477,6 +17496,637 @@ def hashtrinity.freq.FreqMapKI64.count_slot
   let off1 ← Slice.update off j i
   ok (s, off1)
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
+    Source: '../../src/hashtrinity/freq.rs', lines 1053:43-1053:63 -/
+@[reducible]
+def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
+    Source: '../../src/hashtrinity/freq.rs', lines 1053:43-1053:63 -/
+def
+  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (c : hashtrinity.freq.FreqMapKI64.add.closure K)
+  (tupled_args : (Std.I64 × Std.I64)) :
+  Result Std.I64
+  := do
+  let (new, old) := tupled_args
+  new + old
+
+/-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
+    Source: '../../src/hashtrinity/freq.rs', lines 1053:43-1053:63 -/
+@[reducible]
+def
+  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) :
+  core.ops.function.FnOnce (hashtrinity.freq.FreqMapKI64.add.closure K)
+  (Std.I64 × Std.I64) Std.I64 := {
+  call_once :=
+    hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+    algebraCoordInst
+}
+
+/-- [apeiron_word::hashtrinity::EMPTY]
+    Source: '../../src/hashtrinity/mod.rs', lines 229:0-229:28 -/
+@[global_simps, irreducible]
+def hashtrinity.EMPTY : Std.U64 := core.num.U64.MAX
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::freq]:
+    Source: '../../src/hashtrinity/freq.rs', lines 868:4-870:5 -/
+def hashtrinity.freq.FreqMap.freq
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (k : K) :
+  Result Std.U64
+  := do
+  let i ← algebraCoordInst.coord k
+  let i1 ← hashtrinity.EMPTY - 2#u64
+  core.cmp.Ord.min.trait_default core.cmp.OrdU64 i i1
+
+/-- [apeiron_word::hashtrinity::freq::FreqLine]
+    Source: '../../src/hashtrinity/freq.rs', lines 370:0-385:1 -/
+structure hashtrinity.freq.FreqLine (V : Type) where
+  ctrl : Slice Std.U8
+  slots : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))
+  gshift : Std.U32
+  gmask : Std.Usize
+  bits : Std.U32
+  len : Std.Usize
+
+/-- [apeiron_word::hashtrinity::freq::FreqMap]
+    Source: '../../src/hashtrinity/freq.rs', lines 841:0-844:1
+    Visibility: public -/
+structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
+  inner : hashtrinity.freq.FreqLine V
+  _k : core.marker.PhantomData K
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::descend_group]:
+    Source: '../../src/hashtrinity/freq.rs', lines 526:4-538:5 -/
+def hashtrinity.freq.FreqLine.descend_group
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (p : Std.U64) (j : Std.U32) :
+  Result Std.Usize
+  := do
+  let gbits ← self.bits - 4#u32
+  if gbits = 0#u32
+  then ok 0#usize
+  else
+    let i ← j + 1#u32
+    let used ← gbits * i
+    if used <= 64#u32
+    then
+      let i1 ← 64#u32 - used
+      let i2 ← p >>> i1
+      let i3 ← lift (UScalar.cast .Usize i2)
+      ok (i3 &&& self.gmask)
+    else
+      let full ← 64#u32 / gbits
+      let i1 ← gbits * full
+      let i2 ← 64#u32 - i1
+      let i3 ← p >>> i2
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let i5 ← j - full
+      let i6 ← lift (UScalar.cast .Usize i5)
+      let i7 ← i4 + i6
+      let i8 ← i7 + 1#usize
+      ok (i8 &&& self.gmask)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::home_group]:
+    Source: '../../src/hashtrinity/freq.rs', lines 511:4-513:5 -/
+def hashtrinity.freq.FreqLine.home_group
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (p : Std.U64) :
+  Result Std.Usize
+  := do
+  let i ← p >>> self.gshift
+  let i1 ← lift (UScalar.cast .Usize i)
+  ok (i1 &&& self.gmask)
+
+/-- [apeiron_word::hashtrinity::freq::GROUP]
+    Source: '../../src/hashtrinity/freq.rs', lines 390:0-390:35 -/
+@[global_simps, irreducible] def hashtrinity.freq.GROUP : Std.Usize := 16#usize
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::match_empty]:
+    Source: '../../src/hashtrinity/freq.rs', lines 486:4-506:5 -/
+def hashtrinity.freq.FreqLine.match_empty
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (g : Std.Usize) :
+  Result Std.U16
+  := do
+  let base ← g * hashtrinity.freq.GROUP
+  let p ← core.slice.Slice.as_ptr self.ctrl
+  let ptr ← core.ptr.const_ptr.RawPtrConstT.add p base
+  let p1 ←
+    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m128i ptr
+  let mi ← core.core_arch.x86.sse2._mm_loadu_si128 p1
+  let i ← core.core_arch.x86.sse2._mm_movemask_epi8 mi
+  ok (IScalar.hcast .U16 i)
+
+/-- [apeiron_word::hashtrinity::freq::group_tag_mask]:
+    Source: '../../src/hashtrinity/freq.rs', lines 399:0-419:1 -/
+def hashtrinity.freq.group_tag_mask
+  (ctrl : Slice Std.U8) (base : Std.Usize) (tag : Std.U8) :
+  Result Std.U16
+  := do
+  let i ← base + hashtrinity.freq.GROUP
+  let i1 := Slice.len ctrl
+  massert (i <= i1)
+  let p ← core.slice.Slice.as_ptr ctrl
+  let ptr ← core.ptr.const_ptr.RawPtrConstT.add p base
+  let p1 ←
+    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m128i ptr
+  let mi ← core.core_arch.x86.sse2._mm_loadu_si128 p1
+  let i2 ← lift (UScalar.hcast .I8 tag)
+  let mi1 ← core.core_arch.x86.sse2._mm_set1_epi8 i2
+  let mi2 ← core.core_arch.x86.sse2._mm_cmpeq_epi8 mi mi1
+  let i3 ← core.core_arch.x86.sse2._mm_movemask_epi8 mi2
+  ok (IScalar.hcast .U16 i3)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::match_tag]:
+    Source: '../../src/hashtrinity/freq.rs', lines 476:4-479:5 -/
+def hashtrinity.freq.FreqLine.match_tag
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (g : Std.Usize)
+  (tag : Std.U8) :
+  Result Std.U16
+  := do
+  let i ← g * hashtrinity.freq.GROUP
+  hashtrinity.freq.group_tag_mask self.ctrl i tag
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop body 1:
+    Source: '../../src/hashtrinity/freq.rs', lines 563:12-574:13 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0.body
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64)
+  (base : Std.Usize) (done1 : Bool) (found : Bool) (slot : Std.Usize)
+  («matches» : Std.U16) :
+  Result (ControlFlow (Bool × Bool × Std.Usize × Std.U16)
+    ((hashtrinity.freq.FreqLine V) × Bool × Bool × Std.Usize))
+  := do
+  if «matches» != 0#u16
+  then
+    let i ← core.num.U16.trailing_zeros «matches»
+    let i1 ← lift (UScalar.cast .Usize i)
+    let i2 ← base + i1
+    let (i3, _) ←
+      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+        (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) self.slots i2
+    if i3 = f
+    then ok (cont (true, true, i2, 0#u16))
+    else
+      let i4 ← «matches» - 1#u16
+      let matches1 ← lift («matches» &&& i4)
+      ok (cont (done1, found, slot, matches1))
+  else ok (done (self, done1, found, slot))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop 1:
+    Source: '../../src/hashtrinity/freq.rs', lines 563:12-574:13 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (done1 : Bool)
+  (found : Bool) (slot : Std.Usize) (base : Std.Usize) («matches» : Std.U16)
+  :
+  Result ((hashtrinity.freq.FreqLine V) × Bool × Bool × Std.Usize)
+  := do
+  loop
+    (fun (done2, found1, slot1, matches1) =>
+      hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0.body self f base done2
+      found1 slot1 matches1)
+    (done1, found, slot, «matches»)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 560:8-590:9 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.probe_tagged_loop0.body
+  {V : Type} (f : Std.U64) (p : Std.U64) (tag : Std.U8)
+  (self : hashtrinity.freq.FreqLine V) (g : Std.Usize) (j : Std.U32)
+  (done1 : Bool) (found : Bool) (slot : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.freq.FreqLine V) × Std.Usize × Std.U32 ×
+    Bool × Bool × Std.Usize) (Bool × Std.Usize))
+  := do
+  if done1
+  then ok (done (found, slot))
+  else
+    let base ← g * hashtrinity.freq.GROUP
+    let «matches» ← hashtrinity.freq.FreqLine.match_tag self g tag
+    let (self1, done2, found1, slot1) ←
+      hashtrinity.freq.FreqLine.probe_tagged_loop0_loop0 self f false found
+        slot base «matches»
+    if done2
+    then ok (cont (self1, g, j, true, found1, slot1))
+    else
+      let empties ← hashtrinity.freq.FreqLine.match_empty self1 g
+      if empties != 0#u16
+      then
+        let i ← core.num.U16.trailing_zeros empties
+        let i1 ← lift (UScalar.cast .Usize i)
+        let slot2 ← base + i1
+        ok (cont (self1, g, j, true, false, slot2))
+      else
+        let j1 ← j + 1#u32
+        let g1 ← hashtrinity.freq.FreqLine.descend_group self1 p j1
+        ok (cont (self1, g1, j1, false, found1, slot1))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 560:8-590:9 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.probe_tagged_loop0
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (p : Std.U64)
+  (tag : Std.U8) (g : Std.Usize) (j : Std.U32) (done1 : Bool) (found : Bool)
+  (slot : Std.Usize) :
+  Result (Bool × Std.Usize)
+  := do
+  loop
+    (fun (self1, g1, j1, done2, found1, slot1) =>
+      hashtrinity.freq.FreqLine.probe_tagged_loop0.body f p tag self1 g1 j1
+      done2 found1 slot1)
+    (self, g, j, done1, found, slot)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_tagged]:
+    Source: '../../src/hashtrinity/freq.rs', lines 552:4-592:5 -/
+def hashtrinity.freq.FreqLine.probe_tagged
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) :
+  Result (Std.Usize × Bool × Std.U8)
+  := do
+  let p ← lift (core.num.U64.wrapping_mul f hashtrinity.PHI)
+  let i ← lift (p &&& 127#u64)
+  let tag ← lift (UScalar.cast .U8 i)
+  let g ← hashtrinity.freq.FreqLine.home_group self p
+  let (found, slot) ←
+    hashtrinity.freq.FreqLine.probe_tagged_loop0 self f p tag g 0#u32 false
+      false 0#usize
+  ok (slot, found, tag)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe]:
+    Source: '../../src/hashtrinity/freq.rs', lines 596:4-599:5 -/
+def hashtrinity.freq.FreqLine.probe
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) :
+  Result (Std.Usize × Bool)
+  := do
+  let (i, found, _) ← hashtrinity.freq.FreqLine.probe_tagged self f
+  ok (i, found)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::set_lane]:
+    Source: '../../src/hashtrinity/freq.rs', lines 464:4-467:5 -/
+def hashtrinity.freq.FreqLine.set_lane
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (i : Std.Usize) (s : Std.U8)
+  :
+  Result (hashtrinity.freq.FreqLine V)
+  := do
+  let (_, get_unchecked_mut_back) ←
+    core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+      Std.U8) self.ctrl i
+  let s1 := get_unchecked_mut_back s
+  ok { self with ctrl := s1 }
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::tag]:
+    Source: '../../src/hashtrinity/freq.rs', lines 459:4-461:5 -/
+def hashtrinity.freq.FreqLine.tag
+  (V : Type) (f : Std.U64) : Result Std.U8 := do
+  let i ← lift (core.num.U64.wrapping_mul f hashtrinity.PHI)
+  let i1 ← lift (i &&& 127#u64)
+  ok (UScalar.cast .U8 i1)
+
+/-- [apeiron_word::hashtrinity::freq::EMPTY_CTRL]
+    Source: '../../src/hashtrinity/freq.rs', lines 427:0-427:28 -/
+@[global_simps, irreducible] def hashtrinity.freq.EMPTY_CTRL : Std.U8 := 128#u8
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 439:8-442:9 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.with_bits_loop.body
+  {V : Type} (n : Std.Usize)
+  (slots : alloc.vec.Vec (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.U64 ×
+    (core.mem.maybe_uninit.MaybeUninit V))) × Std.Usize) (alloc.vec.Vec
+    (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))))
+  := do
+  if i < n
+  then
+    let mu ← core.mem.maybe_uninit.MaybeUninit.uninit V
+    let slots1 ← alloc.vec.Vec.push slots (hashtrinity.EMPTY, mu)
+    let i1 ← i + 1#usize
+    ok (cont (slots1, i1))
+  else ok (done slots)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 439:8-442:9 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.with_bits_loop
+  {V : Type} (n : Std.Usize)
+  (slots : alloc.vec.Vec (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
+  := do
+  loop
+    (fun (slots1, i1) => hashtrinity.freq.FreqLine.with_bits_loop.body n slots1
+      i1)
+    (slots, i)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::with_bits]:
+    Source: '../../src/hashtrinity/freq.rs', lines 433:4-451:5 -/
+def hashtrinity.freq.FreqLine.with_bits
+  (V : Type) (bits : Std.U32) : Result (hashtrinity.freq.FreqLine V) := do
+  let bits1 ← core.cmp.Ord.max.default core.cmp.OrdU32 bits 4#u32
+  let n ← 1#usize <<< bits1
+  let gbits ← bits1 - 4#u32
+  let slots :=
+    alloc.vec.Vec.with_capacity (Std.U64 × (core.mem.maybe_uninit.MaybeUninit
+      V)) n
+  let slots1 ← hashtrinity.freq.FreqLine.with_bits_loop n slots 0#usize
+  let v ←
+    alloc.vec.from_elem core.clone.CloneU8 hashtrinity.freq.EMPTY_CTRL n
+  let s ← alloc.vec.Vec.into_boxed_slice Global v
+  let s1 ← alloc.vec.Vec.into_boxed_slice Global slots1
+  let i ← if gbits = 0#u32
+            then ok 0#u32
+            else 64#u32 - gbits
+  let i1 ← n / hashtrinity.freq.GROUP
+  let i2 ← i1 - 1#usize
+  ok
+    {
+      ctrl := s,
+      slots := s1,
+      gshift := i,
+      gmask := i2,
+      bits := bits1,
+      len := 0#usize
+    }
+
+/-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 783:12-788:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body
+  {V : Type}
+  (iter : core.slice.iter.IterMut (Std.U64 ×
+  (core.mem.maybe_uninit.MaybeUninit V)))
+  (back : core.slice.iter.IterMut (Std.U64 ×
+  (core.mem.maybe_uninit.MaybeUninit V)) → core.slice.iter.IterMut (Std.U64
+  × (core.mem.maybe_uninit.MaybeUninit V))) :
+  Result (ControlFlow ((core.slice.iter.IterMut (Std.U64 ×
+    (core.mem.maybe_uninit.MaybeUninit V))) × (core.slice.iter.IterMut
+    (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)) →
+    core.slice.iter.IterMut (Std.U64 × (core.mem.maybe_uninit.MaybeUninit
+    V)))) (core.slice.iter.IterMut (Std.U64 ×
+    (core.mem.maybe_uninit.MaybeUninit V))))
+  := do
+  let (o, iter1, next_back) ← core.slice.iter.IteratorIterMut.next iter
+  match o with
+  | none => ok (done (let im := next_back iter1 none
+                      back im))
+  | some p =>
+    let (c, v) := p
+    if c != hashtrinity.EMPTY
+    then
+      let v1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop v
+      ok (cont (iter1,
+        fun im => let im1 := next_back im (some (c, v1))
+                  back im1))
+    else ok (cont (iter1, fun im => let im1 := next_back im o
+                                    back im1))
+
+/-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 783:12-788:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop
+  {V : Type}
+  (iter : core.slice.iter.IterMut (Std.U64 ×
+  (core.mem.maybe_uninit.MaybeUninit V)))
+  (back : core.slice.iter.IterMut (Std.U64 ×
+  (core.mem.maybe_uninit.MaybeUninit V)) → core.slice.iter.IterMut (Std.U64
+  × (core.mem.maybe_uninit.MaybeUninit V))) :
+  Result (core.slice.iter.IterMut (Std.U64 ×
+    (core.mem.maybe_uninit.MaybeUninit V)))
+  := do
+  loop
+    (fun (iter1, back1) =>
+      hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body iter1
+      back1)
+    (iter, back)
+
+/-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]:
+    Source: '../../src/hashtrinity/freq.rs', lines 781:4-790:5
+    Visibility: public -/
+def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop
+  {V : Type} (self : hashtrinity.freq.FreqLine V) :
+  Result (hashtrinity.freq.FreqLine V)
+  := do
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    let (iter, iter_mut_back) ← core.slice.Slice.iter_mut self.slots
+    let back ←
+      hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop iter
+        (fun im => im)
+    let s := iter_mut_back back
+    ok { self with slots := s }
+  else ok self
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 719:8-732:9 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.grow_loop.body
+  {V : Type} (n : Std.Usize)
+  (s : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
+  (bigger : hashtrinity.freq.FreqLine V) (i : Std.Usize) :
+  Result (ControlFlow ((Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit
+    V))) × (hashtrinity.freq.FreqLine V) × Std.Usize)
+    (hashtrinity.freq.FreqLine V))
+  := do
+  if i < n
+  then
+    let (c, _) ← Slice.index_usize s i
+    if c != hashtrinity.EMPTY
+    then
+      let (j, _) ← hashtrinity.freq.FreqLine.probe bigger c
+      let ((i1, mu), get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice (Std.U64 ×
+          (core.mem.maybe_uninit.MaybeUninit V))) s i
+      let v ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+      let s1 := get_unchecked_mut_back (i1, mu)
+      let ((_, mu1), index_mut_back) ← Slice.index_mut_usize s1 i
+      let ((_, _), get_unchecked_mut_back1) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice (Std.U64 ×
+          (core.mem.maybe_uninit.MaybeUninit V))) bigger.slots j
+      let mu2 ← core.mem.maybe_uninit.MaybeUninit.new v
+      let s2 := get_unchecked_mut_back1 (c, mu2)
+      let i2 ← hashtrinity.freq.FreqLine.tag V c
+      let bigger1 ←
+        hashtrinity.freq.FreqLine.set_lane { bigger with slots := s2 } j i2
+      let i3 ← bigger1.len + 1#usize
+      let i4 ← i + 1#usize
+      let s3 := index_mut_back (hashtrinity.EMPTY, mu1)
+      ok (cont (s3, { bigger1 with len := i3 }, i4))
+    else let i1 ← i + 1#usize
+         ok (cont (s, bigger, i1))
+  else ok (done bigger)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 719:8-732:9 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.grow_loop
+  {V : Type} (s : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
+  (bigger : hashtrinity.freq.FreqLine V) (i : Std.Usize) (n : Std.Usize) :
+  Result (hashtrinity.freq.FreqLine V)
+  := do
+  loop
+    (fun (s1, bigger1, i1) => hashtrinity.freq.FreqLine.grow_loop.body n s1
+      bigger1 i1)
+    (s, bigger, i)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]:
+    Source: '../../src/hashtrinity/freq.rs', lines 715:4-734:5 -/
+def hashtrinity.freq.FreqLine.grow
+  {V : Type} (self : hashtrinity.freq.FreqLine V) :
+  Result (hashtrinity.freq.FreqLine V)
+  := do
+  let i ← self.bits + 1#u32
+  let bigger ← hashtrinity.freq.FreqLine.with_bits V i
+  let n := Slice.len self.slots
+  hashtrinity.freq.FreqLine.grow_loop self.slots bigger 0#usize n
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::insert_with]:
+    Source: '../../src/hashtrinity/freq.rs', lines 679:4-712:5 -/
+def hashtrinity.freq.FreqLine.insert_with
+  {V : Type} {T1 : Type} (coreopsfunctionFnOnceT1PairVInst :
+  core.ops.function.FnOnce T1 (V × V) V) (self : hashtrinity.freq.FreqLine V)
+  (f : Std.U64) (new : V) (merge : T1) :
+  Result (hashtrinity.freq.FreqLine V)
+  := do
+  let i ← self.len + 1#usize
+  let i1 ← i * 8#usize
+  let i2 := Slice.len self.slots
+  let i3 ← i2 * 7#usize
+  let self1 ←
+    if i1 >= i3
+    then hashtrinity.freq.FreqLine.grow self
+    else ok self
+  let (i4, found, tag) ← hashtrinity.freq.FreqLine.probe_tagged self1 f
+  if found
+  then
+    let ((i5, mu), get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) self1.slots i4
+    let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+    let b ← core.mem.needs_drop V
+    if b
+    then
+      let merged ←
+        coreopsfunctionFnOnceT1PairVInst.call_once merge (new, old)
+      let s := get_unchecked_mut_back (hashtrinity.EMPTY, mu)
+      let (_, get_unchecked_mut_back1) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice (Std.U64 ×
+          (core.mem.maybe_uninit.MaybeUninit V))) s i4
+      let mu1 ← core.mem.maybe_uninit.MaybeUninit.new merged
+      let s1 := get_unchecked_mut_back1 (f, mu1)
+      ok { self1 with slots := s1 }
+    else
+      let t ← coreopsfunctionFnOnceT1PairVInst.call_once merge (new, old)
+      let mu1 ← core.mem.maybe_uninit.MaybeUninit.new t
+      let s := get_unchecked_mut_back (i5, mu1)
+      ok { self1 with slots := s }
+  else
+    let ((_, _), get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) self1.slots i4
+    let mu ← core.mem.maybe_uninit.MaybeUninit.new new
+    let s := get_unchecked_mut_back (f, mu)
+    let self2 ←
+      hashtrinity.freq.FreqLine.set_lane { self1 with slots := s } i4 tag
+    let i5 ← self2.len + 1#usize
+    ok { self2 with len := i5 }
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add]:
+    Source: '../../src/hashtrinity/freq.rs', lines 1051:4-1054:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.add
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.freq.FreqMap K Std.I64) (k : K) (v : Std.I64) :
+  Result (hashtrinity.freq.FreqMap K Std.I64)
+  := do
+  let i ← hashtrinity.freq.FreqMap.freq Std.I64 algebraCoordInst k
+  let fl ←
+    hashtrinity.freq.FreqLine.insert_with
+      (hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
+      algebraCoordInst) self.inner i v ()
+  ok { self with inner := fl }
+
+/-- [apeiron_word::hashtrinity::bits_for_slots]:
+    Source: '../../src/hashtrinity/mod.rs', lines 561:0-563:1 -/
+def hashtrinity.bits_for_slots (slots : Std.Usize) : Result Std.U32 := do
+  let i ← core.cmp.Ord.max.default core.cmp.OrdUsize slots 8#usize
+  let i1 ← core.num.Usize.next_power_of_two i
+  let i2 ← lift (core.num.Usize.leading_zeros i1)
+  let i3 ← core.num.Usize.BITS - i2
+  let i4 ← i3 - 1#u32
+  core.cmp.Ord.max.default core.cmp.OrdU32 i4 3#u32
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::with_capacity]:
+    Source: '../../src/hashtrinity/freq.rs', lines 882:4-887:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.with_capacity
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (cap : Std.Usize) :
+  Result (hashtrinity.freq.FreqMap K V)
+  := do
+  let i ← core.num.Usize.saturating_mul cap 3#usize
+  let i1 ← i / 2#usize
+  let i2 ← hashtrinity.bits_for_slots i1
+  let fl ← hashtrinity.freq.FreqLine.with_bits V i2
+  ok { inner := fl, _k := () }
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]: loop body 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 122:8-125:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (routed : Slice K) (hi : Std.Usize) (m : hashtrinity.freq.FreqMap K Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.freq.FreqMap K Std.I64) × Std.Usize)
+    (hashtrinity.freq.FreqMap K Std.I64))
+  := do
+  if i < hi
+  then
+    let i1 := Slice.len routed
+    if i < i1
+    then
+      let t ← Slice.index_usize routed i
+      let m1 ← hashtrinity.freq.FreqMapKI64.add algebraCoordInst m t 1#i64
+      let i2 ← i + 1#usize
+      ok (cont (m1, i2))
+    else ok (done m)
+  else ok (done m)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]: loop 0:
+    Source: '../../src/hashtrinity/freq.rs', lines 122:8-125:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_aggregate_loop
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (routed : Slice K) (hi : Std.Usize) (m : hashtrinity.freq.FreqMap K Std.I64)
+  (i : Std.Usize) :
+  Result (hashtrinity.freq.FreqMap K Std.I64)
+  := do
+  loop
+    (fun (m1, i1) => hashtrinity.freq.FreqMapKI64.count_aggregate_loop.body
+      algebraCoordInst routed hi m1 i1)
+    (m, i)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate]:
+    Source: '../../src/hashtrinity/freq.rs', lines 119:4-127:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_aggregate
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (routed : Slice K) (lo : Std.Usize) (hi : Std.Usize) :
+  Result (hashtrinity.freq.FreqMap K Std.I64)
+  := do
+  let i ← lift (core.num.Usize.saturating_sub hi lo)
+  let m ← hashtrinity.freq.FreqMap.with_capacity Std.I64 algebraCoordInst i
+  hashtrinity.freq.FreqMapKI64.count_aggregate_loop algebraCoordInst routed hi
+    m lo
+
 /-- [apeiron_word::policy::decide::Op]
     Source: '../../src/policy/decide.rs', lines 18:0-29:1
     Visibility: public -/
@@ -27875,5 +28525,15 @@ def word_count_slot
   := do
   hashtrinity.freq.FreqMapKI64.count_slot
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
+
+/-- [apeiron_word::word_count_aggregate]:
+    Source: 'lib.rs', lines 1280:0-1282:1
+    Visibility: public -/
+def word_count_aggregate
+  (routed : Slice Std.U64) (lo : Std.Usize) (hi : Std.Usize) :
+  Result (hashtrinity.freq.FreqMap Std.U64 Std.I64)
+  := do
+  hashtrinity.freq.FreqMapKI64.count_aggregate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
 
 end apeiron_word

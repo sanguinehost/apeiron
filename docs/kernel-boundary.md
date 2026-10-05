@@ -1205,3 +1205,33 @@ refinement.
 
 The floor is the kernel. Above it, pick the smallest layer that must be right, prove it, and let
 everything else be an adapter.
+
+## Executed-body externals: Lean model definitions, not axioms
+Row: `apeiron-aeneas-models-BI50FpQ87zv78YqXuReDz1` (APEIRON-AENEAS-MODELS).
+
+
+`proof/patches/aeneas-lean-model.patch` defines, in the Aeneas Lean backend, the externals the
+`FreqLine` bodies reach: `__m128i` (sixteen `U8` lanes) with `_mm_set1_epi8`, `_mm_loadu_si128`,
+`_mm_cmpeq_epi8`, `_mm_movemask_epi8`; `RawPtr` as a byte-buffer window with `Slice::as_ptr`,
+`<*const T>::{add,cast}`; `MaybeUninit` as `Option`; `needs_drop`; `u16::trailing_zeros`;
+`usize::{saturating_mul,next_power_of_two}`; `Vec::into_boxed_slice`;
+`<[T]>::{get_unchecked,get_unchecked_mut}`. The extracted file declares no axiom for them
+(`strip-modeled-axioms.py` drops each stub; `audit-extraction.py` reports 0 unlisted axioms).
+
+Trusted, not proved: each model is a definition read against the Rust/Intel semantics. A model
+that is wrong is a wrong premise, not an axiom the audit sees.
+
+| external | Lean definition | domain statement |
+|---|---|---|
+| `get_unchecked{,_mut}` | checked `index{,_mut}` | out-of-bounds fails; a refinement on the defined (in-bounds) domain |
+| `ptr.add` | fails when the offset passes one-past-end | Rust: undefined behaviour there |
+| `_mm_loadu_si128` | fails unless 16 bytes remain in the window | Rust: undefined behaviour there |
+| `Slice::as_ptr` | window over the bytes when `T = u8`, else an empty buffer (every read fails) | only the `u8` control plane is modelled; `slots.as_ptr()` has no model |
+| `MaybeUninit::{assume_init_read,assume_init_drop}` | fail on `none` | Rust: undefined behaviour on uninitialised memory |
+| `needs_drop` | `false` for scalars, `bool`, `()`; `true` otherwise (classical decision) | conservative for other types |
+| `next_power_of_two` | overflow fails (`integerOverflow`) | Rust debug panics; release wraps to 0; a no-fail proof covers both |
+| `_mm_prefetch` | not modelled | outside the extracted fragment |
+
+Not covered: that LLVM emits the SSE2 sequence the model describes, cache and alignment behaviour,
+and that `unsafe` reads in the source stay inside the window (the model makes that a proof
+obligation by failing, it does not discharge it).
