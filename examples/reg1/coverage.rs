@@ -36,6 +36,14 @@ const AXIOM_AUDIT: &str = include_str!("../../proof/corpus/AxiomAudit.lean");
 const EXTRACT_RS: &str = include_str!("../../proof/extract/lib.rs");
 /// The extraction command, used as the authority for the selected public roots.
 const REGEN_SH: &str = include_str!("../../proof/regen.sh");
+// The reviewed set is the `--start-from` selection of proof/regen.sh at the revision this
+// registry was last reconciled against: `dbc1bc8` for 43, `1d9f5c1` for 77. It grew additively
+// (43 -> 68 at `4cc0ede`, 68 -> 77 at `1d9f5c1`, nothing removed), and all 77 selected roots
+// carry their generated declaration in proof/ApeironWord.lean. This count is a tripwire on the
+// extraction surface having changed without a census re-review; it asserts no freshness. That
+// is carried separately by each row's `freshness` and by the `unrun-proof-command` exclusion,
+// so reconciling the count leaves `fresh`, `extracted_refined` and `reg1_pass` unchanged.
+const REVIEWED_ROOT_SET: usize = 77;
 /// The executing table source, checked for every implementation declaration a row names.
 const TABLE_RS: &str = include_str!("../../src/table.rs");
 
@@ -601,14 +609,6 @@ fn validate_implementation(row: &Row) -> Result<(), String> {
         .filter_map(|line| line.trim().strip_prefix("--start-from crate::"))
         .filter_map(|rest| rest.strip_suffix(" \\"))
         .collect();
-    // The reviewed set is the `--start-from` selection of proof/regen.sh at the revision this
-    // registry was last reconciled against: `dbc1bc8` for 43, `1d9f5c1` for 77. It grew additively
-    // (43 -> 68 at `4cc0ede`, 68 -> 77 at `1d9f5c1`, nothing removed), and all 77 selected roots
-    // carry their generated declaration in proof/ApeironWord.lean. This count is a tripwire on the
-    // extraction surface having changed without a census re-review; it asserts no freshness. That
-    // is carried separately by each row's `freshness` and by the `unrun-proof-command` exclusion,
-    // so reconciling the count leaves `fresh`, `extracted_refined` and `reg1_pass` unchanged.
-    const REVIEWED_ROOT_SET: usize = 77;
     if selected_roots.len() != REVIEWED_ROOT_SET {
         return Err(format!(
             "proof/regen.sh selects {} roots, expected the reviewed set of {REVIEWED_ROOT_SET}",

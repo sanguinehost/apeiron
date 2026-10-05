@@ -601,7 +601,7 @@ pub(crate) fn initial_value(key: StrataKey) -> i64 {
 }
 
 /// Build an Apeiron table holding the admitted key set, returning the admitted count.
-fn build_apeiron(keys: &[StrataKey], merge: MergeFn) -> (Apeiron, usize) {
+pub(crate) fn build_apeiron(keys: &[StrataKey], merge: MergeFn) -> (Apeiron, usize) {
     let mut table = Apeiron::new(0, RawStrataHome);
     let mut admitted = 0usize;
     for key in keys {
@@ -613,7 +613,7 @@ fn build_apeiron(keys: &[StrataKey], merge: MergeFn) -> (Apeiron, usize) {
 }
 
 /// Build a hashtrinity table holding the admitted key set, returning its live length.
-fn build_ht(keys: &[StrataKey], merge: MergeFn) -> (Ht, usize) {
+pub(crate) fn build_ht(keys: &[StrataKey], merge: MergeFn) -> (Ht, usize) {
     let mut table = Ht::with_capacity(keys.len());
     for key in keys {
         table.insert_with(*key, initial_value(*key), merge);
