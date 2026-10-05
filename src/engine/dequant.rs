@@ -90,7 +90,13 @@ fn push_prefix(out: &mut Vec<i64>, vals: &[i64; QK_K], take: usize) {
 /// and the integer code multiplies it, with no intermediate shift and no rounding. Supported:
 /// `F16`, `Q8_0`, `Q5_0`, `Q4_K`, `Q6_K`, `Q2_K`, `Q3_K`, `Q1_0`, `Q2_0`, `PQ2_0`, `TQ2_0`,
 /// `TQ1_0`, `PTQ1_0`.
-pub(super) fn dequant_row_fixed(
+///
+/// # Errors
+///
+/// Returns [`EngineError::UnknownQuantType`] if `ggml_type` is unsupported,
+/// [`EngineError::Quant`] if `raw` is truncated, or [`EngineError::FixedOverflow`]
+/// if an arithmetic product overflows.
+pub fn dequant_row_fixed(
     ggml_type: u32,
     raw: &[u8],
     n_elems: usize,
