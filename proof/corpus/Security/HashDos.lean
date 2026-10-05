@@ -1,4 +1,5 @@
 import Closures.Engineering.RadixDescent
+import ApeironWord
 import Mathlib.Tactic
 
 /-!
@@ -47,12 +48,13 @@ of `ZMod (2^W)` (odd). What that buys, and what it does not, is below.
 * **Where the extraction does not reach.** `addr`/`homeSlot`/`seqLin`/`plen` are the hand-transcribed
   model of `Table::home`/`Table::descend` (`src/hashtrinity/mod.rs`); no refinement theorem binds them
   to the Rust. The generated body `table.Region.home` (`proof/ApeironWord.lean`, from
-  `src/table/state.rs`) is reached by exactly one proved fact in this corpus —
-  `Growable.HomeBound.home_lt_bound` proves it returns a real lane index in `[0, bound)` — and the
-  signed-extraction constants differ: the committed extraction multiplies by `table.TAG_SPREAD
-  (= coord.PHI)` where the current source multiplies by `HOME_SPREAD`. Every theorem below is stated
-  for an arbitrary odd multiplier, so it holds for either constant; the *link* from the model to the
-  generated body, and the constant drift, are open, named at the end.
+  `src/table/state.rs`) reads the same multiplier this model does — `table.HOME_SPREAD` equals
+  `homeSpread` (§0b) — and the generated `table.Region.home` spread arithmetic is the model's
+  `homeSlot` at `bits = b`, `bound = 2^b` (§0b). What stays open is the input plumbing: `Region::home`
+  folds `coord_of place` (not the key) and casts the top window through `Usize`, and the extraction
+  carries no `descend` body at all, so `seqLin`/`plen` have nothing to bind to. The *link* from the
+  model to the generated body is therefore partial: constants and slot arithmetic discharged, input
+  and probe blocked, named at the end.
 
 No `sorry`, no `axiom`, no `maxHeartbeats`: every headline carries an in-module `#print axioms` row.
 -/
@@ -94,6 +96,62 @@ answer: the face is **unkeyed**, so an adversary who knows the source knows the 
 theorem shipped_multipliers_are_fixed :
     phiSpread = 0x9E37_79B9_7F4A_7C15 ∧ homeSpread = 0x51_7C_C1_B7_27_22_0A_95 :=
   ⟨rfl, rfl⟩
+
+-- ═══════════════════════════════════════════════════════════════════
+-- §0b · THE EXECUTED CONSTANTS AND THE EXECUTED SPREAD ARITHMETIC
+-- ═══════════════════════════════════════════════════════════════════
+-- Discharged from the generated body, not from a reading of the Rust.
+--
+-- The generated addressing carries the multipliers as its own definitions: `Region::home`'s spread
+-- branch multiplies by `table.HOME_SPREAD` (`src/table/state.rs:39`, body `proof/ApeironWord.lean`,
+-- `table.Region.home`), and `table.tag` multiplies by `table.TAG_SPREAD := coord.PHI`
+-- (`src/table.rs:95`). The two constants are §0's literals. What closes here is the transcription's
+-- CONSTANT and SLOT-ARITHMETIC hypotheses: the model's `homeSlot` is the body's
+-- `((c * HOME_SPREAD) >>> (64 - bits)) &&& mask` value at `bits = b` and `bound = 2^b`. What does
+-- NOT close here is the input plumbing — `Region::home` folds `coord_of place`, not the key, and
+-- casts the top window through `Usize` — which the model link still owes (§6(a)).
+
+section ExecutedConstants
+
+open Aeneas Aeneas.Std
+
+/-- The generated `table.HOME_SPREAD` constant is the model's `homeSpread` — the multiplier the
+    `Region::home` spread branch reads. -/
+theorem generated_HOME_SPREAD_val : (apeiron_word.table.HOME_SPREAD : U64).val = homeSpread := by
+  rw [apeiron_word.table.HOME_SPREAD]; rfl
+
+/-- The generated `table.TAG_SPREAD` constant is `coord.PHI`, the model's `phiSpread` — the
+    fingerprint multiplier `table.tag` reads. -/
+theorem generated_TAG_SPREAD_val : (apeiron_word.table.TAG_SPREAD : U64).val = phiSpread := by
+  rw [apeiron_word.table.TAG_SPREAD, apeiron_word.coord.PHI]; rfl
+
+/-- The model's `homeSpreadUnit`, as an element of `ZMod (2^64)`, is the generated multiplier. -/
+theorem homeSpreadUnit_val : ((homeSpreadUnit : ZMod (2 ^ 64))).val = homeSpread := by
+  rw [homeSpreadUnit, ZMod.coe_unitOfCoprime, ZMod.val_natCast_of_lt (by decide)]
+
+/-- **The executed spread arithmetic is the model's `homeSlot`.** At slot count `2^b` (the body's
+    `mask = bound - 1 = 2^b - 1`) and window width `b`, the value the generated spread branch
+    computes from a coordinate `c` — `((c * HOME_SPREAD) >>> (64 - b)) &&& mask` — is exactly the
+    model's top-window address `homeSlot b homeSpreadUnit c`, over the generated constant. The `&&&`
+    drops out because the top `b` bits are already `< 2^b`; the model's `/ 2^(64-b)` is the body's
+    `>>> (64-b)`; `homeSpreadUnit`'s value is `table.HOME_SPREAD`'s. -/
+theorem region_home_spread_arithmetic (c : U64) (b : ℕ) (hb : 0 < b) (hb64 : b ≤ 64) :
+    ((c.val * (apeiron_word.table.HOME_SPREAD : U64).val) % 2 ^ 64 / 2 ^ (64 - b))
+        &&& (2 ^ b - 1)
+      = homeSlot b homeSpreadUnit (c.val : ZMod (2 ^ 64)) := by
+  have hc : c.val < 2 ^ 64 := by
+    simpa [UScalar.size, UScalarTy.numBits] using c.hBounds
+  have hlt : (c.val * (apeiron_word.table.HOME_SPREAD : U64).val) % 2 ^ 64 / 2 ^ (64 - b)
+      < 2 ^ b := by
+    rw [Nat.div_lt_iff_lt_mul (by positivity)]
+    calc (c.val * (apeiron_word.table.HOME_SPREAD : U64).val) % 2 ^ 64 < 2 ^ 64 :=
+          Nat.mod_lt _ (by positivity)
+      _ = 2 ^ b * 2 ^ (64 - b) := by rw [← pow_add]; congr 1; omega
+  rw [Nat.and_two_pow_sub_one_of_lt_two_pow hlt, generated_HOME_SPREAD_val]
+  unfold homeSlot
+  rw [ZMod.val_mul, homeSpreadUnit_val, ZMod.val_natCast_of_lt hc]
+
+end ExecutedConstants
 
 -- ═══════════════════════════════════════════════════════════════════
 -- §1 · THE MEASURES — lane occupancy, probe length, build cost
@@ -447,19 +505,28 @@ theorem hashdos_invulnerability_and_its_limit {b D W : ℕ} (hb : 0 < b) (hD : 2
 -- ═══════════════════════════════════════════════════════════════════
 -- §6 · THE RESIDUAL — where the extraction does not reach
 -- ═══════════════════════════════════════════════════════════════════
--- (a) MODEL LINK, OPEN. `addr`/`homeSlot`/`seqLin`/`plen` are a hand transcription of
+-- (a) MODEL LINK, PARTIAL. `addr`/`homeSlot`/`seqLin`/`plen` are a hand transcription of
 --     `src/hashtrinity/mod.rs` (`Table::home` at `:602-610`, `Table::descend` at `:626-654`); no
---     Aeneas refinement theorem binds them to the Rust, and none binds them to the apeiron
---     `table.Region.home` generated body. The one bound proved ON the generated body is
---     `Apeiron.GrowableHomeBound.home_lt_bound` (`proof/corpus/Growable/HomeBound.lean`), over
---     `table.Region.home` in `proof/ApeironWord.lean` — it returns a lane in `[0, bound)`. No
---     generated-body separation, balance or probe-length theorem is proved here or anywhere in tree.
--- (b) CONSTANT DRIFT, OPEN. The committed extraction's `table.Region.home` fold branch is
---     `(c * table.TAG_SPREAD) >>> (64 - bits) & mask` with `table.TAG_SPREAD := coord.PHI`
---     (`proof/ApeironWord.lean`), while the current source `Region::home` (`src/table/state.rs:428`)
---     multiplies by `HOME_SPREAD`. The two constants differ. Every theorem above is for an arbitrary
---     odd multiplier, so it holds for either; the source/extraction identity is not re-established
---     here and `proof/regen.sh --check` would report the drift.
+--     Aeneas refinement theorem binds them to the Rust. §0b discharges the CONSTANT and SLOT
+--     ARITHMETIC: `table.HOME_SPREAD` equals `homeSpread` and `Region::home`'s spread value is
+--     `homeSlot` at `bits = b`, `bound = 2^b`. Still OPEN and precisely blocked:
+--       · `homeSlot`'s INPUT: the generated body folds `table.Region.coord_of R V place`
+--         (`result.result` — `place >>> SHARD_BITS`), not the key `k` the model folds. Discharging
+--         the remainder needs the `Result` do-block inversion of `table.Region.home`
+--         (`proof/ApeironWord.lean`, `table.Region.home`), including its `UScalar.cast .Usize` of
+--         the top window (platform-`Usize`-width) and its `c < len` / `len = 0` branches.
+--       · `seqLin`/`plen`: the extraction carries NO `Table::descend` body, so these have no
+--         generated definition to bind to. Blocked on a `descend` extraction, not on a lemma.
+--     The `home_lt_bound` fact the earlier note cited lives in `Growable/HomeBound.lean`, which is
+--     NOT a `lakefile.lean` root and still inverts `table.Region.home` against `table.TAG_SPREAD`
+--     (lines 74/94/113/127) — the body now reads `table.HOME_SPREAD`, so that historical file no
+--     longer matches the current extraction (reading, not a run gate; a sibling lane owns it).
+--     No generated-body separation, balance or probe-length theorem is proved here or anywhere in tree.
+-- (b) CONSTANT DRIFT, CLOSED. The current extraction's `table.Region.home` spread branch multiplies
+--     by `table.HOME_SPREAD` (`5871781006564002453#u64`) and `table.tag` by
+--     `table.TAG_SPREAD := coord.PHI`; §0b proves both equal the model's `homeSpread`/`phiSpread`.
+--     The source/extraction identity is still established only by `proof/regen.sh --check`, which is
+--     a regeneration gate, not this file.
 -- (c) SHIPPED SWEEP, NOT CARRIED. The shipped `Table::descend` falls back to a terminal sweep past
 --     the `D` windows; its termination theorem (`GroupProbe.seqSweep_terminates`) and the aggregate
 --     `build_bounded_by_sweep` live only in `../sanguine`, not in this corpus. §4's
@@ -482,3 +549,7 @@ end Apeiron
 #print axioms Apeiron.Security.HashDos.hashdos_structure
 #print axioms Apeiron.Security.HashDos.worst_case_probe_is_not_bounded
 #print axioms Apeiron.Security.HashDos.hashdos_invulnerability_and_its_limit
+#print axioms Apeiron.Security.HashDos.generated_HOME_SPREAD_val
+#print axioms Apeiron.Security.HashDos.generated_TAG_SPREAD_val
+#print axioms Apeiron.Security.HashDos.homeSpreadUnit_val
+#print axioms Apeiron.Security.HashDos.region_home_spread_arithmetic

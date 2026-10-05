@@ -25,6 +25,12 @@ lean_lib ApeironWordBridge where
   -- roots of the executing growable bridge because the current extraction has no fixed-shard API.
   roots := #[`WordRefinement, `Native.HyperbolicBase, `Native.LocatorSpec,
     `Security.InterpretationWitnesses,
+    -- Added with the HashDOS verification lane. Two transcription hypotheses (the multiplier
+    -- constant identity and the slot arithmetic) are now discharged against the generated
+    -- `table.Region.home`; the input inversion, the power-of-two bound and the `descend` binding
+    -- stay blocked (no `Table::descend` body exists in the extraction).
+    -- Row: `p1-hashdos-formalise-the-CuQBvGaIws0dH6rzQYsl7j`.
+    `Security.HashDos,
     `Growable.Geometry, `Growable.Identity, `Growable.Scan,
     `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
     `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,
