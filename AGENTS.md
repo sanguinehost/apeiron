@@ -512,6 +512,26 @@ disk are historical records.
   fresh-session verification that meet a trigger. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
   pushes unless the user delegates that authority. A missing required verdict keeps the task open.
 
+### Pacing and estimates (owner, 2026-10-06)
+
+The Claude subscription has a rolling session limit as well as a weekly cap, and two lead sessions share it
+(apeiron and intent). The target is to spend the weekly cap fully without stopping on the session limit
+(a 10–20 minute wait is acceptable; a two-hour stop is not).
+
+- **Claude concurrency cap:** at most **one Opus** and **one Sonnet** subagent at a time per lead session, beside
+  the lead itself. A Claude lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a
+  worker's cycle cap, contract or architecture decisions. Everything bounded goes to DeepSeek Flash (≤ 3
+  concurrent opencode workers) and agy (≤ 2).
+- **Claude lanes keep context lean:** they pipe output through `tail`/`rg`, never `cat` a log, and spawn no
+  subagents.
+- **Every dispatch carries an estimate**, wall-clock minutes and, for Claude lanes, tokens, recorded in
+  `/home/socol/oc-tmp/escalation/dispatch-ledger.tsv` at dispatch. The return records the actual. An estimate off
+  by more than 50% gets a one-line cause in the same row. The ledger is data for calibrating estimates, not a
+  report to the owner.
+- **Baseline:** `/home/socol/oc-tmp/pacing/baseline.py` derives median/p80 wall-clock and tokens per worker
+  class from the OpenCode DB, the Claude Code transcripts, Operately and the lane outputs. Re-run it to recalibrate
+  the estimate table.
+
 ### Mandatory inference optimization admission
 
 **Waived until 2026-10-31 (owner, 2026-10-06).** Inference-optimization workers may run without
