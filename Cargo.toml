@@ -5,7 +5,7 @@ edition = "2021"
 description = "The two-slot algebra R[x]/(x^2 - sigma), and the table that falls out of it."
 readme = "README.md"
 authors = ["Lucas 'Paperboy' Rose-Winters"]
-license = "MPL-2.0"
+license = "Apache-2.0"
 keywords = ["hashmap", "hash", "algebra", "deterministic", "hashdos"]
 categories = ["data-structures", "algorithms", "concurrency"]
 # 1.87 is where `i32::cast_unsigned` and its siblings stabilised (`integer_sign_cast`). `coord`

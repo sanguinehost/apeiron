@@ -3,7 +3,7 @@ name = "apeiron-fold-abi"
 version = "0.0.0"
 publish = false
 edition = "2021"
-license = "MPL-2.0"
+license = "Apache-2.0"
 
 # A staticlib so SMHasher can link the fold directly. Not part of apeiron's public surface: this
 # exists to submit `fold::fold_bytes_with` to a statistical battery it has never faced.

@@ -1,0 +1,15 @@
+apeiron
+Copyright 2026 Lucas Rose-Winters (Sanguine Host)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+It is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied. Section 6 of the License does not grant
+permission to use the trade names, trademarks, service marks, or product names
+of the Licensor.
+
+Vendored code
+-------------
+The module `src/hashtrinity/` is a port, by the author, of the author's own
+`hashtrinity` crate (the naive predecessor of this one). It is relicensed here
+under the terms of this repository. No third-party copyrighted code is vendored.
+
