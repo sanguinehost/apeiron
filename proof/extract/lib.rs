@@ -1188,3 +1188,56 @@ pub fn word_shake128(msg: &[u8], out: &mut [u8]) {
 pub fn word_shake256(msg: &[u8], out: &mut [u8]) {
     crypto::shake256(msg, out)
 }
+
+// ── The selected map face: the vendored incumbent, reached by `#[path]` ─────────────────────────
+//
+// `src/hashtrinity/` is the executed body of the registered selected map arm
+// (`examples/reg1/adapters/selected_map.rs`), so it is reached here by `#[path]` — the extracted
+// object and the executed object are the same source. The wrappers below fix only the key type
+// (`u64`, which `hashtrinity/algebra.rs` implements `Coord` for) and the table's default key store;
+// they do not restate the probe, the descent, the resize or the merge.
+//
+// Route 1 (`KeyReadout`): `hashtrinity::KeyStore` is GAT-free, so these storage/probe/insert bodies
+// carry no generic associated type and Aeneas's `translate_fwd_ty` does not refuse them. The
+// readback faces (`iter`, `encircle_floor`, the `face`/`ctrl_proto` iterators) need the
+// `KeyReadout` extension trait and are not on this path.
+//
+// The mutator root is merge-free: it calls `insert_merge_last_write`, the Map face's
+// `insert_with(k, v, set)` specialised to its own body. `insert_with` is the same core plus a
+// caller-supplied `impl FnOnce(V, V) -> V` merge, and a `fn` item passed into it is an arrow type —
+// `Arrow types are not supported yet` at the wrapper, which is the first-order/higher-order
+// boundary, not a missing rule. The concrete face carries the same semantics and translates.
+//
+// The module is declared last, as `crypto`/`sha256`/`chacha`/`aes` are, so no earlier extracted
+// item's source span moves.
+#[path = "../../src/hashtrinity/mod.rs"]
+pub mod hashtrinity;
+
+/// Real `hashtrinity::Table::<u64, i64>::new` — the stored-key constructor (`with_bits(3)`).
+pub fn word_hashtrinity_new() -> hashtrinity::Table<u64, i64> {
+    hashtrinity::Table::new()
+}
+
+/// Real `hashtrinity::Table::with_capacity`, the constructor `build_selected_map` uses.
+pub fn word_hashtrinity_with_capacity(cap: usize) -> hashtrinity::Table<u64, i64> {
+    hashtrinity::Table::with_capacity(cap)
+}
+
+/// Real `hashtrinity::Table::get`, the coordinate read, returning the stored value by read.
+pub fn word_hashtrinity_get(state: &hashtrinity::Table<u64, i64>, key: u64) -> Option<i64> {
+    match state.get(&key) {
+        Some(v) => Some(*v),
+        None => None,
+    }
+}
+
+/// Real `hashtrinity::Table::insert_merge_last_write` — the Map face's mutator (`put`/`last write`)
+/// over the real `insert_core`, with the merge in its own body instead of an arrow-typed argument.
+pub fn word_hashtrinity_insert(
+    mut state: hashtrinity::Table<u64, i64>,
+    key: u64,
+    value: i64,
+) -> hashtrinity::Table<u64, i64> {
+    state.insert_merge_last_write(key, value);
+    state
+}
