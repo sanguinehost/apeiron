@@ -276,8 +276,14 @@ impl<K: CoordInv + Eq> KeyStore<K> for Regen<K> {
     #[inline]
     fn set(&mut self, _i: usize, _k: K) {} // the address is the key — nothing to store
     #[inline]
-    fn matches(&self, _i: usize, coord: u64, q: &K) -> bool {
-        K::from_coord(coord) == *q
+    fn matches(&self, _i: usize, _coord: u64, _q: &K) -> bool {
+        // `CoordInv` round-trips (`from_coord(k.coord()) == k`), so whenever this runs with
+        // `coords[i] == coord` and `q.coord() == coord` — every caller's precondition — the key at
+        // slot `i` IS `q`, and the compare is redundant. This is the same redundancy [`Stored`] skips
+        // under `K::INJECTIVE`, exact unconditionally here; it removes one compare per confirmed hit.
+        // The soundness rests on `set` being a no-op: `coords[i]` is written from `k.coord()` and the
+        // key is regenerated as `from_coord(coords[i])`.
+        true
     }
     #[inline]
     fn migrate(&mut self, _i: usize, _dst: &mut Self, _j: usize) {} // regenerated in the new table

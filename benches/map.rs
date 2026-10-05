@@ -1,4 +1,7 @@
 // Row: `apeiron-bench-restore-EaEUYoDjUS4nFW9F4W7iUP`: the L3 instrument.
+// Row: `apeiron-beat-Bu3jZusxHvuMEJ8FOQ3C9O`: both apeiron faces measured side by side.
+// The stored-key `Table` and the keyless `CoordMap` are two faces of one table; the bench prints both,
+// and the acceptance `--check` reads the `CoordMap` (the recommended face for injective coordinates).
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -13,10 +16,19 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use apeiron::freq::Table as ApeironTable;
+use apeiron::freq::{CoordMap, Table};
 use hashbrown::HashMap;
 use rustc_hash::FxBuildHasher;
 use sha2::Digest;
+
+/// The stored-key apeiron face: keys live in the map (`Stored`).
+type ApTable = Table<u64, i64>;
+/// The keyless apeiron face: keys regenerate from the slot (`Regen`), recommended for injective coordinates.
+type ApCoord = CoordMap<u64, i64>;
+/// The `FxHash` comparator arm.
+type HbFx = HashMap<u64, i64, FxBuildHasher>;
+/// The `XxHash3` comparator arm.
+type HbXxh3 = HashMap<u64, i64, Xxh3BuildHasher>;
 
 #[derive(Clone, Copy, Default)]
 pub struct Xxh3BuildHasher;
@@ -67,6 +79,128 @@ impl core::hash::BuildHasher for Xxh3BuildHasher {
     #[inline]
     fn build_hasher(&self) -> Self::Hasher {
         Xxh3Hasher::default()
+    }
+}
+
+/// The operations the oracle and the timer drive on the four measured arms. One impl per arm lets a
+/// single generic body measure all four side by side, so the type under measurement is never swapped.
+trait FaceOps {
+    fn face_insert(&mut self, k: u64, v: i64);
+    fn face_get(&self, k: u64) -> Option<&i64>;
+    fn face_remove(&mut self, k: u64) -> Option<i64>;
+    fn face_len(&self) -> usize;
+}
+
+impl FaceOps for ApTable {
+    fn face_insert(&mut self, k: u64, v: i64) {
+        self.insert_merge_last_write(k, v);
+    }
+    fn face_get(&self, k: u64) -> Option<&i64> {
+        self.get(&k)
+    }
+    fn face_remove(&mut self, k: u64) -> Option<i64> {
+        self.remove(&k)
+    }
+    fn face_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl FaceOps for ApCoord {
+    fn face_insert(&mut self, k: u64, v: i64) {
+        self.insert_merge_last_write(k, v);
+    }
+    fn face_get(&self, k: u64) -> Option<&i64> {
+        self.get(&k)
+    }
+    fn face_remove(&mut self, k: u64) -> Option<i64> {
+        self.remove(&k)
+    }
+    fn face_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl FaceOps for HbFx {
+    fn face_insert(&mut self, k: u64, v: i64) {
+        self.insert(k, v);
+    }
+    fn face_get(&self, k: u64) -> Option<&i64> {
+        self.get(&k)
+    }
+    fn face_remove(&mut self, k: u64) -> Option<i64> {
+        self.remove(&k)
+    }
+    fn face_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl FaceOps for HbXxh3 {
+    fn face_insert(&mut self, k: u64, v: i64) {
+        self.insert(k, v);
+    }
+    fn face_get(&self, k: u64) -> Option<&i64> {
+        self.get(&k)
+    }
+    fn face_remove(&mut self, k: u64) -> Option<i64> {
+        self.remove(&k)
+    }
+    fn face_len(&self) -> usize {
+        self.len()
+    }
+}
+
+// Concrete constructors: `sized(n)` presizes for `n` keys, `empty()` is the grow-as-needed build.
+fn ap_table_sized(n: usize) -> ApTable {
+    ApTable::with_capacity(n)
+}
+fn ap_table_empty() -> ApTable {
+    ApTable::new()
+}
+fn ap_coord_sized(n: usize) -> ApCoord {
+    ApCoord::coordinate_with_capacity(n)
+}
+fn ap_coord_empty() -> ApCoord {
+    ApCoord::coordinate()
+}
+fn hb_fx_sized(n: usize) -> HbFx {
+    HashMap::with_capacity_and_hasher(n, FxBuildHasher)
+}
+fn hb_fx_empty() -> HbFx {
+    HashMap::with_hasher(FxBuildHasher)
+}
+fn hb_xxh3_sized(n: usize) -> HbXxh3 {
+    HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher)
+}
+fn hb_xxh3_empty() -> HbXxh3 {
+    HashMap::with_hasher(Xxh3BuildHasher)
+}
+
+/// The four measured arms, in the base order the per-round rotation starts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Arm {
+    ApTable,
+    ApCoord,
+    HbFx,
+    HbXxh3,
+}
+
+const AP_TABLE: usize = 0;
+const AP_COORD: usize = 1;
+const HB_FX: usize = 2;
+const HB_XXH3: usize = 3;
+
+impl Arm {
+    const ALL: [Self; 4] = [Self::ApTable, Self::ApCoord, Self::HbFx, Self::HbXxh3];
+
+    fn index(self) -> usize {
+        match self {
+            Self::ApTable => AP_TABLE,
+            Self::ApCoord => AP_COORD,
+            Self::HbFx => HB_FX,
+            Self::HbXxh3 => HB_XXH3,
+        }
     }
 }
 
@@ -189,339 +323,181 @@ struct ObservableResult {
     final_len: usize,
 }
 
-fn oracle_apeiron(
+fn oracle_face<T: FaceOps>(
+    col: Column,
+    present_keys: &[u64],
+    absent_keys: &[u64],
+    initial_vals: &[i64],
+    update_vals: &[i64],
+    sized: fn(usize) -> T,
+    empty: fn() -> T,
+) -> ObservableResult {
+    let n = present_keys.len();
+    match col {
+        Column::PresentHit => {
+            let mut face = sized(n);
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            let mut sum_values = 0i64;
+            let mut hit_count = 0usize;
+            for &k in present_keys {
+                if let Some(&v) = face.face_get(k) {
+                    hit_count += 1;
+                    sum_values = sum_values.wrapping_add(v);
+                }
+            }
+            ObservableResult {
+                sum_values,
+                hit_count,
+                final_len: face.face_len(),
+            }
+        }
+        Column::AbsentMiss => {
+            let mut face = sized(n);
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            let mut sum_values = 0i64;
+            let mut hit_count = 0usize;
+            for &k in absent_keys {
+                if let Some(&v) = face.face_get(k) {
+                    hit_count += 1;
+                    sum_values = sum_values.wrapping_add(v);
+                }
+            }
+            ObservableResult {
+                sum_values,
+                hit_count,
+                final_len: face.face_len(),
+            }
+        }
+        Column::InsertFresh => {
+            let mut face = sized(n);
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            ObservableResult {
+                sum_values: 0,
+                hit_count: 0,
+                final_len: face.face_len(),
+            }
+        }
+        Column::Build => {
+            let mut face = empty();
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            ObservableResult {
+                sum_values: 0,
+                hit_count: 0,
+                final_len: face.face_len(),
+            }
+        }
+        Column::Update => {
+            let mut face = sized(n);
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            ObservableResult {
+                sum_values: 0,
+                hit_count: 0,
+                final_len: face.face_len(),
+            }
+        }
+        Column::RemovePresent => {
+            let mut face = sized(n);
+            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
+                face.face_insert(k, v);
+            }
+            let mut sum_values = 0i64;
+            let mut hit_count = 0usize;
+            for &k in present_keys {
+                if let Some(v) = face.face_remove(k) {
+                    hit_count += 1;
+                    sum_values = sum_values.wrapping_add(v);
+                }
+            }
+            ObservableResult {
+                sum_values,
+                hit_count,
+                final_len: face.face_len(),
+            }
+        }
+    }
+}
+
+fn oracle_arm(
+    arm: Arm,
     col: Column,
     present_keys: &[u64],
     absent_keys: &[u64],
     initial_vals: &[i64],
     update_vals: &[i64],
 ) -> ObservableResult {
-    let n = present_keys.len();
-    match col {
-        Column::PresentHit => {
-            let mut table = ApeironTable::with_capacity(n);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(&v) = table.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: table.len(),
-            }
-        }
-        Column::AbsentMiss => {
-            let mut table = ApeironTable::with_capacity(n);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in absent_keys {
-                if let Some(&v) = table.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: table.len(),
-            }
-        }
-        Column::InsertFresh => {
-            let mut table = ApeironTable::with_capacity(n);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: table.len(),
-            }
-        }
-        Column::Build => {
-            let mut table = ApeironTable::new();
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: table.len(),
-            }
-        }
-        Column::Update => {
-            let mut table = ApeironTable::with_capacity(n);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: table.len(),
-            }
-        }
-        Column::RemovePresent => {
-            let mut table = ApeironTable::with_capacity(n);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(v) = table.remove(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: table.len(),
-            }
-        }
+    match arm {
+        Arm::ApTable => oracle_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            ap_table_sized,
+            ap_table_empty,
+        ),
+        Arm::ApCoord => oracle_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            ap_coord_sized,
+            ap_coord_empty,
+        ),
+        Arm::HbFx => oracle_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            hb_fx_sized,
+            hb_fx_empty,
+        ),
+        Arm::HbXxh3 => oracle_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            hb_xxh3_sized,
+            hb_xxh3_empty,
+        ),
     }
 }
 
-fn oracle_hb_fx(
+fn time_face<T: FaceOps>(
     col: Column,
     present_keys: &[u64],
     absent_keys: &[u64],
     initial_vals: &[i64],
     update_vals: &[i64],
-) -> ObservableResult {
-    let n = present_keys.len();
-    match col {
-        Column::PresentHit => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(&v) = map.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-        Column::AbsentMiss => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in absent_keys {
-                if let Some(&v) = map.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-        Column::InsertFresh => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::Build => {
-            let mut map = HashMap::with_hasher(FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::Update => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::RemovePresent => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.remove(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-    }
-}
-
-fn oracle_hb_xxh3(
-    col: Column,
-    present_keys: &[u64],
-    absent_keys: &[u64],
-    initial_vals: &[i64],
-    update_vals: &[i64],
-) -> ObservableResult {
-    let n = present_keys.len();
-    match col {
-        Column::PresentHit => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(&v) = map.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-        Column::AbsentMiss => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in absent_keys {
-                if let Some(&v) = map.get(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-        Column::InsertFresh => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::Build => {
-            let mut map = HashMap::with_hasher(Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::Update => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                map.insert(k, v);
-            }
-            ObservableResult {
-                sum_values: 0,
-                hit_count: 0,
-                final_len: map.len(),
-            }
-        }
-        Column::RemovePresent => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let mut sum_values = 0i64;
-            let mut hit_count = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.remove(&k) {
-                    hit_count += 1;
-                    sum_values = sum_values.wrapping_add(v);
-                }
-            }
-            ObservableResult {
-                sum_values,
-                hit_count,
-                final_len: map.len(),
-            }
-        }
-    }
-}
-
-fn time_apeiron(
-    col: Column,
-    present_keys: &[u64],
-    absent_keys: &[u64],
-    initial_vals: &[i64],
-    update_vals: &[i64],
+    sized: fn(usize) -> T,
+    empty: fn() -> T,
 ) -> std::time::Duration {
     let n = present_keys.len();
     match col {
         Column::PresentHit => {
-            let mut table = ApeironTable::with_capacity(n);
+            let mut face = sized(n);
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let start = Instant::now();
             let mut hits = 0usize;
             for &k in present_keys {
-                if let Some(v) = table.get(&k) {
+                if let Some(v) = face.face_get(k) {
                     black_box(v);
                     hits += 1;
                 }
@@ -531,14 +507,14 @@ fn time_apeiron(
             dur
         }
         Column::AbsentMiss => {
-            let mut table = ApeironTable::with_capacity(n);
+            let mut face = sized(n);
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let start = Instant::now();
             let mut misses = 0usize;
             for &k in absent_keys {
-                if let Some(v) = table.get(&k) {
+                if let Some(v) = face.face_get(k) {
                     black_box(v);
                 } else {
                     misses += 1;
@@ -549,47 +525,47 @@ fn time_apeiron(
             dur
         }
         Column::InsertFresh => {
-            let mut table = ApeironTable::with_capacity(n);
+            let mut face = sized(n);
             let start = Instant::now();
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let dur = start.elapsed();
-            black_box(table.len());
+            black_box(face.face_len());
             dur
         }
         Column::Build => {
-            let mut table = ApeironTable::new();
+            let mut face = empty();
             let start = Instant::now();
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let dur = start.elapsed();
-            black_box(table.len());
+            black_box(face.face_len());
             dur
         }
         Column::Update => {
-            let mut table = ApeironTable::with_capacity(n);
+            let mut face = sized(n);
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let start = Instant::now();
             for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let dur = start.elapsed();
-            black_box(table.len());
+            black_box(face.face_len());
             dur
         }
         Column::RemovePresent => {
-            let mut table = ApeironTable::with_capacity(n);
+            let mut face = sized(n);
             for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                table.insert_merge_last_write(k, v);
+                face.face_insert(k, v);
             }
             let start = Instant::now();
             let mut count = 0usize;
             for &k in present_keys {
-                if let Some(v) = table.remove(&k) {
+                if let Some(v) = face.face_remove(k) {
                     black_box(v);
                     count += 1;
                 }
@@ -601,197 +577,51 @@ fn time_apeiron(
     }
 }
 
-fn time_hb_fx(
+fn time_arm(
+    arm: Arm,
     col: Column,
     present_keys: &[u64],
     absent_keys: &[u64],
     initial_vals: &[i64],
     update_vals: &[i64],
 ) -> std::time::Duration {
-    let n = present_keys.len();
-    match col {
-        Column::PresentHit => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut hits = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.get(&k) {
-                    black_box(v);
-                    hits += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(hits);
-            dur
-        }
-        Column::AbsentMiss => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut misses = 0usize;
-            for &k in absent_keys {
-                if let Some(v) = map.get(&k) {
-                    black_box(v);
-                } else {
-                    misses += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(misses);
-            dur
-        }
-        Column::InsertFresh => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::Build => {
-            let mut map = HashMap::with_hasher(FxBuildHasher);
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::Update => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::RemovePresent => {
-            let mut map = HashMap::with_capacity_and_hasher(n, FxBuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut count = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.remove(&k) {
-                    black_box(v);
-                    count += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(count);
-            dur
-        }
-    }
-}
-
-fn time_hb_xxh3(
-    col: Column,
-    present_keys: &[u64],
-    absent_keys: &[u64],
-    initial_vals: &[i64],
-    update_vals: &[i64],
-) -> std::time::Duration {
-    let n = present_keys.len();
-    match col {
-        Column::PresentHit => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut hits = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.get(&k) {
-                    black_box(v);
-                    hits += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(hits);
-            dur
-        }
-        Column::AbsentMiss => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut misses = 0usize;
-            for &k in absent_keys {
-                if let Some(v) = map.get(&k) {
-                    black_box(v);
-                } else {
-                    misses += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(misses);
-            dur
-        }
-        Column::InsertFresh => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::Build => {
-            let mut map = HashMap::with_hasher(Xxh3BuildHasher);
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::Update => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            for (&k, &v) in present_keys.iter().zip(update_vals.iter()) {
-                map.insert(k, v);
-            }
-            let dur = start.elapsed();
-            black_box(map.len());
-            dur
-        }
-        Column::RemovePresent => {
-            let mut map = HashMap::with_capacity_and_hasher(n, Xxh3BuildHasher);
-            for (&k, &v) in present_keys.iter().zip(initial_vals.iter()) {
-                map.insert(k, v);
-            }
-            let start = Instant::now();
-            let mut count = 0usize;
-            for &k in present_keys {
-                if let Some(v) = map.remove(&k) {
-                    black_box(v);
-                    count += 1;
-                }
-            }
-            let dur = start.elapsed();
-            black_box(count);
-            dur
-        }
+    match arm {
+        Arm::ApTable => time_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            ap_table_sized,
+            ap_table_empty,
+        ),
+        Arm::ApCoord => time_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            ap_coord_sized,
+            ap_coord_empty,
+        ),
+        Arm::HbFx => time_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            hb_fx_sized,
+            hb_fx_empty,
+        ),
+        Arm::HbXxh3 => time_face(
+            col,
+            present_keys,
+            absent_keys,
+            initial_vals,
+            update_vals,
+            hb_xxh3_sized,
+            hb_xxh3_empty,
+        ),
     }
 }
 
@@ -800,15 +630,33 @@ struct CellResult {
     column: &'static str,
     n: usize,
     distribution: &'static str,
-    apeiron_ns: f64,
+    ap_table_ns: f64,
+    ap_coord_ns: f64,
     hb_fx_ns: f64,
-    ratio_hb_fx: f64,
-    ratio_hb_fx_min: f64,
-    ratio_hb_fx_max: f64,
     hb_xxh3_ns: f64,
-    ratio_hb_xxh3: f64,
-    ratio_hb_xxh3_min: f64,
-    ratio_hb_xxh3_max: f64,
+    ratio_ap_coord_hb_fx: f64,
+    ratio_ap_coord_hb_fx_min: f64,
+    ratio_ap_coord_hb_fx_max: f64,
+    ratio_ap_coord_hb_xxh3: f64,
+    ratio_ap_coord_hb_xxh3_min: f64,
+    ratio_ap_coord_hb_xxh3_max: f64,
+    ratio_ap_table_hb_fx: f64,
+    ratio_ap_table_hb_fx_min: f64,
+    ratio_ap_table_hb_fx_max: f64,
+    ratio_ap_table_hb_xxh3: f64,
+    ratio_ap_table_hb_xxh3_min: f64,
+    ratio_ap_table_hb_xxh3_max: f64,
+}
+
+fn mean(values: &[f64]) -> f64 {
+    values.iter().sum::<f64>() / (values.len() as f64)
+}
+
+fn ratio_stats(values: &[f64]) -> (f64, f64, f64) {
+    let mean = mean(values);
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    (mean, min, max)
 }
 
 fn compute_file_sha256(path: &str) -> String {
@@ -865,8 +713,20 @@ fn get_header_line() -> String {
     )
 }
 
+/// The four face names, resolved from the types rather than restated.
+fn get_face_line() -> String {
+    format!(
+        "faces: ap_table={} (stored keys, with_capacity) | ap_coord={} (keyless, coordinate_with_capacity) | hb_fx={} | hb_xxh3={}",
+        std::any::type_name::<ApTable>(),
+        std::any::type_name::<ApCoord>(),
+        std::any::type_name::<HbFx>(),
+        std::any::type_name::<HbXxh3>(),
+    )
+}
+
 fn main() {
     let mut check = false;
+    let mut check_table = false;
     let mut quick = false;
     let mut json_path = None;
 
@@ -874,6 +734,7 @@ fn main() {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => check = true,
+            "--check-table" => check_table = true,
             "--quick" => quick = true,
             "--json" => {
                 if let Some(path) = args.next() {
@@ -912,24 +773,35 @@ fn main() {
                     .map(|&k| (k as i64).wrapping_add(1001))
                     .collect();
 
-                // 7. Correctness oracle: per cell, the three arms must return identical observable results
+                // Correctness oracle: per cell, all four arms must return identical observable results
                 // (sum of found values, count of hits, final len); a mismatch prints the cell and exits 2
                 // before any timing is used.
-                let res_apeiron = oracle_apeiron(
+                let res_ap_table = oracle_arm(
+                    Arm::ApTable,
                     col,
                     &present_keys,
                     &absent_keys,
                     &initial_vals,
                     &update_vals,
                 );
-                let res_hb_fx = oracle_hb_fx(
+                let res_ap_coord = oracle_arm(
+                    Arm::ApCoord,
                     col,
                     &present_keys,
                     &absent_keys,
                     &initial_vals,
                     &update_vals,
                 );
-                let res_hb_xxh3 = oracle_hb_xxh3(
+                let res_hb_fx = oracle_arm(
+                    Arm::HbFx,
+                    col,
+                    &present_keys,
+                    &absent_keys,
+                    &initial_vals,
+                    &update_vals,
+                );
+                let res_hb_xxh3 = oracle_arm(
+                    Arm::HbXxh3,
                     col,
                     &present_keys,
                     &absent_keys,
@@ -937,194 +809,142 @@ fn main() {
                     &update_vals,
                 );
 
-                if res_apeiron != res_hb_fx || res_apeiron != res_hb_xxh3 {
+                if res_ap_table != res_ap_coord
+                    || res_ap_table != res_hb_fx
+                    || res_ap_table != res_hb_xxh3
+                {
                     eprintln!(
-                        "CORRECTNESS MISMATCH in cell [column: {}, n: {}, distribution: {}]:\n  apeiron: {:?}\n  hb_fx:   {:?}\n  hb_xxh3: {:?}",
+                        "CORRECTNESS MISMATCH in cell [column: {}, n: {}, distribution: {}]:\n  ap_table: {:?}\n  ap_coord: {:?}\n  hb_fx:    {:?}\n  hb_xxh3:  {:?}",
                         col.name(),
                         n,
                         dist.name(),
-                        res_apeiron,
+                        res_ap_table,
+                        res_ap_coord,
                         res_hb_fx,
                         res_hb_xxh3
                     );
                     std::process::exit(2);
                 }
 
-                // 6. Protocol: R rounds per (column, n, distribution).
-                // In each round run the three arms once each, rotating their order per round (interleaved).
-                let mut ap_ns_rounds = Vec::with_capacity(rounds);
-                let mut fx_ns_rounds = Vec::with_capacity(rounds);
-                let mut xxh3_ns_rounds = Vec::with_capacity(rounds);
-                let mut ratio_fx_rounds = Vec::with_capacity(rounds);
-                let mut ratio_xxh3_rounds = Vec::with_capacity(rounds);
+                // Protocol: R rounds per (column, n, distribution). In each round run all four arms once
+                // each, rotating their order per round (interleaved), so no arm holds a fixed position.
+                let mut ns_rounds: [Vec<f64>; 4] =
+                    std::array::from_fn(|_| Vec::with_capacity(rounds));
+                let mut ratio_coord_fx = Vec::with_capacity(rounds);
+                let mut ratio_coord_xxh3 = Vec::with_capacity(rounds);
+                let mut ratio_table_fx = Vec::with_capacity(rounds);
+                let mut ratio_table_xxh3 = Vec::with_capacity(rounds);
 
                 for r in 0..rounds {
-                    let (ap_dur, fx_dur, xxh3_dur) = match r % 3 {
-                        0 => {
-                            let ap = time_apeiron(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let fx = time_hb_fx(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let xxh3 = time_hb_xxh3(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            (ap, fx, xxh3)
-                        }
-                        1 => {
-                            let fx = time_hb_fx(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let xxh3 = time_hb_xxh3(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let ap = time_apeiron(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            (ap, fx, xxh3)
-                        }
-                        _ => {
-                            let xxh3 = time_hb_xxh3(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let ap = time_apeiron(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            let fx = time_hb_fx(
-                                col,
-                                &present_keys,
-                                &absent_keys,
-                                &initial_vals,
-                                &update_vals,
-                            );
-                            (ap, fx, xxh3)
-                        }
-                    };
+                    let rotated: [Arm; 4] =
+                        std::array::from_fn(|i| Arm::ALL[(i + r) % Arm::ALL.len()]);
+                    let mut durs = [std::time::Duration::ZERO; 4];
+                    for arm in rotated {
+                        durs[arm.index()] = time_arm(
+                            arm,
+                            col,
+                            &present_keys,
+                            &absent_keys,
+                            &initial_vals,
+                            &update_vals,
+                        );
+                    }
 
-                    let ap_ns = ap_dur.as_nanos() as f64 / n as f64;
-                    let fx_ns = fx_dur.as_nanos() as f64 / n as f64;
-                    let xxh3_ns = xxh3_dur.as_nanos() as f64 / n as f64;
+                    let ns: [f64; 4] =
+                        std::array::from_fn(|i| durs[i].as_nanos() as f64 / n as f64);
+                    for (slot, value) in ns_rounds.iter_mut().zip(ns) {
+                        slot.push(value);
+                    }
 
-                    ap_ns_rounds.push(ap_ns);
-                    fx_ns_rounds.push(fx_ns);
-                    xxh3_ns_rounds.push(xxh3_ns);
-
-                    ratio_fx_rounds.push(ap_ns / fx_ns);
-                    ratio_xxh3_rounds.push(ap_ns / xxh3_ns);
+                    ratio_coord_fx.push(ns[AP_COORD] / ns[HB_FX]);
+                    ratio_coord_xxh3.push(ns[AP_COORD] / ns[HB_XXH3]);
+                    ratio_table_fx.push(ns[AP_TABLE] / ns[HB_FX]);
+                    ratio_table_xxh3.push(ns[AP_TABLE] / ns[HB_XXH3]);
                 }
 
-                let mean_ap = ap_ns_rounds.iter().sum::<f64>() / (rounds as f64);
-                let mean_fx = fx_ns_rounds.iter().sum::<f64>() / (rounds as f64);
-                let mean_xxh3 = xxh3_ns_rounds.iter().sum::<f64>() / (rounds as f64);
-
-                let mean_ratio_fx = ratio_fx_rounds.iter().sum::<f64>() / (rounds as f64);
-                let min_ratio_fx = ratio_fx_rounds
-                    .iter()
-                    .copied()
-                    .fold(f64::INFINITY, f64::min);
-                let max_ratio_fx = ratio_fx_rounds
-                    .iter()
-                    .copied()
-                    .fold(f64::NEG_INFINITY, f64::max);
-
-                let mean_ratio_xxh3 = ratio_xxh3_rounds.iter().sum::<f64>() / (rounds as f64);
-                let min_ratio_xxh3 = ratio_xxh3_rounds
-                    .iter()
-                    .copied()
-                    .fold(f64::INFINITY, f64::min);
-                let max_ratio_xxh3 = ratio_xxh3_rounds
-                    .iter()
-                    .copied()
-                    .fold(f64::NEG_INFINITY, f64::max);
+                let (mean_ratio_coord_fx, min_ratio_coord_fx, max_ratio_coord_fx) =
+                    ratio_stats(&ratio_coord_fx);
+                let (mean_ratio_coord_xxh3, min_ratio_coord_xxh3, max_ratio_coord_xxh3) =
+                    ratio_stats(&ratio_coord_xxh3);
+                let (mean_ratio_table_fx, min_ratio_table_fx, max_ratio_table_fx) =
+                    ratio_stats(&ratio_table_fx);
+                let (mean_ratio_table_xxh3, min_ratio_table_xxh3, max_ratio_table_xxh3) =
+                    ratio_stats(&ratio_table_xxh3);
 
                 results.push(CellResult {
                     column: col.name(),
                     n,
                     distribution: dist.name(),
-                    apeiron_ns: mean_ap,
-                    hb_fx_ns: mean_fx,
-                    ratio_hb_fx: mean_ratio_fx,
-                    ratio_hb_fx_min: min_ratio_fx,
-                    ratio_hb_fx_max: max_ratio_fx,
-                    hb_xxh3_ns: mean_xxh3,
-                    ratio_hb_xxh3: mean_ratio_xxh3,
-                    ratio_hb_xxh3_min: min_ratio_xxh3,
-                    ratio_hb_xxh3_max: max_ratio_xxh3,
+                    ap_table_ns: mean(&ns_rounds[AP_TABLE]),
+                    ap_coord_ns: mean(&ns_rounds[AP_COORD]),
+                    hb_fx_ns: mean(&ns_rounds[HB_FX]),
+                    hb_xxh3_ns: mean(&ns_rounds[HB_XXH3]),
+                    ratio_ap_coord_hb_fx: mean_ratio_coord_fx,
+                    ratio_ap_coord_hb_fx_min: min_ratio_coord_fx,
+                    ratio_ap_coord_hb_fx_max: max_ratio_coord_fx,
+                    ratio_ap_coord_hb_xxh3: mean_ratio_coord_xxh3,
+                    ratio_ap_coord_hb_xxh3_min: min_ratio_coord_xxh3,
+                    ratio_ap_coord_hb_xxh3_max: max_ratio_coord_xxh3,
+                    ratio_ap_table_hb_fx: mean_ratio_table_fx,
+                    ratio_ap_table_hb_fx_min: min_ratio_table_fx,
+                    ratio_ap_table_hb_fx_max: max_ratio_table_fx,
+                    ratio_ap_table_hb_xxh3: mean_ratio_table_xxh3,
+                    ratio_ap_table_hb_xxh3_min: min_ratio_table_xxh3,
+                    ratio_ap_table_hb_xxh3_max: max_ratio_table_xxh3,
                 });
             }
         }
     }
 
-    // 8. Header line before results: git rev-parse HEAD, dirty flag, sha256 of src/hashtrinity/mod.rs
+    // Header line before results: git rev-parse HEAD, dirty flag, sha256 of src/hashtrinity/mod.rs
     // and src/freq.rs, rustc -V, the CPU model from /proc/cpuinfo, and CARGO_TARGET_DIR (or default).
+    // The face line names the four measured types; the identity line above it is unchanged.
     let header = get_header_line();
     println!("{}", header);
+    println!("{}", get_face_line());
     println!();
 
     println!(
-        "| {:<14} | {:>7} | {:<9} | {:>10} | {:>10} | {:>22} | {:>10} | {:>22} |",
+        "| {:<14} | {:>7} | {:<9} | {:>12} | {:>12} | {:>12} | {:>12} | {:>24} | {:>24} | {:>24} | {:>24} |",
         "column",
         "n",
         "dist",
-        "apeiron ns",
+        "ap_table ns",
+        "ap_coord ns",
         "hb_fx ns",
-        "ap/fx [min, max]",
         "hb_xxh3 ns",
-        "ap/xxh3 [min, max]"
+        "ap_coord/hb_fx [min,max]",
+        "ap_coord/hb_xxh3 [min,max]",
+        "ap_table/hb_fx [min,max]",
+        "ap_table/hb_xxh3 [min,max]"
     );
     println!(
-        "|{:-<16}|{:-<9}|{:-<11}|{:-<12}|{:-<12}|{:-<24}|{:-<12}|{:-<24}|",
-        "", "", "", "", "", "", "", ""
+        "|{:-<16}|{:-<9}|{:-<11}|{:-<14}|{:-<14}|{:-<14}|{:-<14}|{:-<26}|{:-<26}|{:-<26}|{:-<26}|",
+        "", "", "", "", "", "", "", "", "", "", ""
     );
 
     for cell in &results {
         println!(
-            "| {:<14} | {:>7} | {:<9} | {:>10.2} | {:>10.2} | {:>6.3} [{:>5.3}, {:>5.3}] | {:>10.2} | {:>6.3} [{:>5.3}, {:>5.3}] |",
+            "| {:<14} | {:>7} | {:<9} | {:>12.2} | {:>12.2} | {:>12.2} | {:>12.2} | {:>7.3} [{:>6.3}, {:>6.3}] | {:>7.3} [{:>6.3}, {:>6.3}] | {:>7.3} [{:>6.3}, {:>6.3}] | {:>7.3} [{:>6.3}, {:>6.3}] |",
             cell.column,
             cell.n,
             cell.distribution,
-            cell.apeiron_ns,
+            cell.ap_table_ns,
+            cell.ap_coord_ns,
             cell.hb_fx_ns,
-            cell.ratio_hb_fx,
-            cell.ratio_hb_fx_min,
-            cell.ratio_hb_fx_max,
             cell.hb_xxh3_ns,
-            cell.ratio_hb_xxh3,
-            cell.ratio_hb_xxh3_min,
-            cell.ratio_hb_xxh3_max,
+            cell.ratio_ap_coord_hb_fx,
+            cell.ratio_ap_coord_hb_fx_min,
+            cell.ratio_ap_coord_hb_fx_max,
+            cell.ratio_ap_coord_hb_xxh3,
+            cell.ratio_ap_coord_hb_xxh3_min,
+            cell.ratio_ap_coord_hb_xxh3_max,
+            cell.ratio_ap_table_hb_fx,
+            cell.ratio_ap_table_hb_fx_min,
+            cell.ratio_ap_table_hb_fx_max,
+            cell.ratio_ap_table_hb_xxh3,
+            cell.ratio_ap_table_hb_xxh3_min,
+            cell.ratio_ap_table_hb_xxh3_max,
         );
     }
 
@@ -1135,19 +955,26 @@ fn main() {
         let mut json_lines = String::new();
         for cell in &results {
             json_lines.push_str(&format!(
-                "{{\"column\":\"{}\",\"n\":{},\"distribution\":\"{}\",\"apeiron_ns\":{:.3},\"hb_fx_ns\":{:.3},\"ratio_hb_fx\":{:.4},\"ratio_hb_fx_min\":{:.4},\"ratio_hb_fx_max\":{:.4},\"hb_xxh3_ns\":{:.3},\"ratio_hb_xxh3\":{:.4},\"ratio_hb_xxh3_min\":{:.4},\"ratio_hb_xxh3_max\":{:.4}}}\n",
+                "{{\"column\":\"{}\",\"n\":{},\"distribution\":\"{}\",\"ap_table_ns\":{:.3},\"ap_coord_ns\":{:.3},\"hb_fx_ns\":{:.3},\"hb_xxh3_ns\":{:.3},\"ratio_ap_coord_hb_fx\":{:.4},\"ratio_ap_coord_hb_fx_min\":{:.4},\"ratio_ap_coord_hb_fx_max\":{:.4},\"ratio_ap_coord_hb_xxh3\":{:.4},\"ratio_ap_coord_hb_xxh3_min\":{:.4},\"ratio_ap_coord_hb_xxh3_max\":{:.4},\"ratio_ap_table_hb_fx\":{:.4},\"ratio_ap_table_hb_fx_min\":{:.4},\"ratio_ap_table_hb_fx_max\":{:.4},\"ratio_ap_table_hb_xxh3\":{:.4},\"ratio_ap_table_hb_xxh3_min\":{:.4},\"ratio_ap_table_hb_xxh3_max\":{:.4}}}\n",
                 cell.column,
                 cell.n,
                 cell.distribution,
-                cell.apeiron_ns,
+                cell.ap_table_ns,
+                cell.ap_coord_ns,
                 cell.hb_fx_ns,
-                cell.ratio_hb_fx,
-                cell.ratio_hb_fx_min,
-                cell.ratio_hb_fx_max,
                 cell.hb_xxh3_ns,
-                cell.ratio_hb_xxh3,
-                cell.ratio_hb_xxh3_min,
-                cell.ratio_hb_xxh3_max,
+                cell.ratio_ap_coord_hb_fx,
+                cell.ratio_ap_coord_hb_fx_min,
+                cell.ratio_ap_coord_hb_fx_max,
+                cell.ratio_ap_coord_hb_xxh3,
+                cell.ratio_ap_coord_hb_xxh3_min,
+                cell.ratio_ap_coord_hb_xxh3_max,
+                cell.ratio_ap_table_hb_fx,
+                cell.ratio_ap_table_hb_fx_min,
+                cell.ratio_ap_table_hb_fx_max,
+                cell.ratio_ap_table_hb_xxh3,
+                cell.ratio_ap_table_hb_xxh3_min,
+                cell.ratio_ap_table_hb_xxh3_max,
             ));
         }
         if let Err(e) = std::fs::write(path, json_lines) {
@@ -1155,29 +982,47 @@ fn main() {
         }
     }
 
-    if check {
-        let mut failures = Vec::new();
+    if check || check_table {
+        let mut failures: Vec<String> = Vec::new();
         for cell in &results {
-            if cell.ratio_hb_fx > 1.0 {
-                failures.push(format!(
-                    "FAIL: {} n={} dist={}: ratio vs hb_fx = {:.3} > 1.0",
-                    cell.column, cell.n, cell.distribution, cell.ratio_hb_fx
-                ));
+            // The acceptance ratios: the keyless `ap_coord` face against each hashbrown comparator.
+            for (opponent, ratio) in [
+                ("hb_fx", cell.ratio_ap_coord_hb_fx),
+                ("hb_xxh3", cell.ratio_ap_coord_hb_xxh3),
+            ] {
+                if ratio > 1.0 {
+                    failures.push(format!(
+                        "FAIL(ap_coord): {} n={} dist={}: ratio vs {} = {:.3} > 1.0",
+                        cell.column, cell.n, cell.distribution, opponent, ratio
+                    ));
+                }
             }
-            if cell.ratio_hb_xxh3 > 1.0 {
-                failures.push(format!(
-                    "FAIL: {} n={} dist={}: ratio vs hb_xxh3 = {:.3} > 1.0",
-                    cell.column, cell.n, cell.distribution, cell.ratio_hb_xxh3
-                ));
+            // `--check-table` additionally reads the stored-key `ap_table` face.
+            if check_table {
+                for (opponent, ratio) in [
+                    ("hb_fx", cell.ratio_ap_table_hb_fx),
+                    ("hb_xxh3", cell.ratio_ap_table_hb_xxh3),
+                ] {
+                    if ratio > 1.0 {
+                        failures.push(format!(
+                            "FAIL(ap_table): {} n={} dist={}: ratio vs {} = {:.3} > 1.0",
+                            cell.column, cell.n, cell.distribution, opponent, ratio
+                        ));
+                    }
+                }
             }
         }
         if !failures.is_empty() {
+            println!();
+            for failure in &failures {
+                println!("{}", failure);
+            }
             eprintln!(
-                "\nCheck failed: {} cell-ratio thresholds exceeded:",
+                "\nCheck failed: {} cell-ratio threshold(s) exceeded:",
                 failures.len()
             );
-            for f in &failures {
-                eprintln!("  {}", f);
+            for failure in &failures {
+                eprintln!("  {}", failure);
             }
             std::process::exit(1);
         }

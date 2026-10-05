@@ -291,10 +291,11 @@ enum Store {
 /// raw-pointer dereference. The caller ensures `home + LINEAR_G ≤ coords.len()`.
 #[inline]
 fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
-    // The shipping target is x86-64-v3, which mandates AVX2 (see `.cargo/config.toml`), so the common
-    // build resolves the glance at *compile* time — a bare inlined `_mm256` pair on the hot read, no
-    // per-call feature probe. Only a portable (sub-v3) build pays the runtime check, then falls back
-    // to a branchless scalar loop the compiler still autovectorizes.
+    // Compiled for AVX2 (`-C target-feature=+avx2`, e.g. `-C target-cpu=x86-64-v3`) the glance
+    // resolves at *compile* time — the `_mm256` pair on the hot read with no per-call feature probe.
+    // This repository ships no `.cargo/config.toml`, so the default build is portable (sub-v3) and
+    // pays one `is_x86_feature_detected!` per collision read into the out-of-line AVX2 body, then
+    // falls back to a branchless scalar loop the compiler still autovectorizes.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     // SAFETY: caller guarantees `home + LINEAR_G ≤ len`; AVX2 is statically enabled here.
     return unsafe { prefix_masks_avx2(coords.as_ptr().add(home), coord) };
@@ -323,8 +324,15 @@ fn prefix_masks(coords: &[u64], home: usize, coord: u64) -> (u32, u32) {
 
 /// AVX2 body of [`prefix_masks`]: two `_mm256_cmpeq_epi64` + `_mm256_movemask_pd` pairs give one bit
 /// per 64-bit lane, so the eight coordinates fold to two 4-bit masks each.
+///
+/// `#[inline]` is what makes the `#[cfg(target_feature = "avx2")]` arm of [`prefix_masks`] actually
+/// inline: a `#[target_feature(enable = "avx2")]` callee can be inlined only into a caller that also
+/// has AVX2, so on an AVX2 build this folds into the hot read, while on the portable default build
+/// the runtime-checked call correctly stays out of line. (`#[inline(always)]` is rejected on a
+/// `#[target_feature]` callee.)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[inline]
 unsafe fn prefix_masks_avx2(base: *const u64, coord: u64) -> (u32, u32) {
     use std::arch::x86_64::{
         __m256i, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_loadu_si256, _mm256_movemask_pd,
