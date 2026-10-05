@@ -207,6 +207,8 @@ pub mod crypto;
 //   values merge (`Face`/`Species`/`keep`·`set`·`count`·`link`/`Monoid`/`FoldExt`).
 // freq — the NB face: `FreqMap` and its `FreqLine` group-probe engine, a whole separate structure
 //   (SwissTable control bytes, no key column) that shares nothing with `Table`'s probe.
+mod side;
+use side::SideStore;
 mod algebra;
 mod freq;
 pub use algebra::*;
@@ -219,8 +221,9 @@ pub const PHI: u64 = 0x9E37_79B9_7F4A_7C15;
 
 // ── The table: coordinates + values + (for opaque keys) a tag line and a key store. ────────────
 
-/// The empty-slot marker. A live coordinate never equals it: [`Table::coord_of`] maps the one
-/// colliding value aside, so `coord == EMPTY` unambiguously means "empty".
+/// The empty-slot marker. A live coordinate never equals it: a key whose own coordinate is `EMPTY`
+/// (or `TOMB`) is held out of band in the [`SideStore`], so `coord == EMPTY` unambiguously means
+/// "empty".
 const EMPTY: u64 = u64::MAX;
 
 /// Linear-prefix width of the probe ([`Table::descend`]): 8 `u64` coordinates = one 64-byte cache
@@ -234,12 +237,14 @@ const LINEAR_G: u32 = 8;
 const _: () = assert!(LINEAR_G == 8, "prefix_masks scans exactly 8 lanes");
 
 /// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates `coords[home + k]` against
-/// `coord` (a hit) and against `EMPTY` (a chain terminator) in one branchless pass, returning
-/// `(hits, empties)` as lane-bit masks. This is the read-side analogue of [`group_tag_mask`], but on the
-/// coordinates *themselves* — the coordinate is identity (`coord_of` is injective into the live space),
-/// so a lane match is a definite hit with no key deref and no confirm. No second structure: the tag line
-/// THE CUT removed is not reintroduced; the collision tail's own contiguous cache line is filtered in
-/// place, turning the mispredict-prone scalar walk into one movemask. The hot home hit never calls this.
+/// `coord` (a candidate hit) and against `EMPTY` (a chain terminator) in one branchless pass,
+/// returning `(hits, empties)` as lane-bit masks. This is the read-side analogue of
+/// [`group_tag_mask`], but on the coordinates *themselves*. The coordinate is identity over the live
+/// space ([`coord_of`] is the raw coordinate; the reserved markers live in the [`SideStore`]), but two
+/// distinct keys may share a coordinate, so a lane match is confirmed against the stored key (free on
+/// `Regen`) before it is a hit. No second structure: the tag line THE CUT removed is not reintroduced;
+/// the collision tail's own contiguous cache line is filtered in place, turning the mispredict-prone
+/// scalar walk into one movemask. The hot home hit never calls this.
 ///
 /// The prefix is addressed as a range of the coordinate slice (`home + k`), not as a raw pointer: the
 /// scalar tail reads an in-bounds element, so the fallback needs no `unsafe` and the extraction sees no
@@ -303,10 +308,11 @@ unsafe fn prefix_masks_avx2(base: *const u64, coord: u64) -> (u32, u32) {
 }
 
 /// Deleted-slot marker (a tombstone), distinct from `EMPTY`. A removed slot's coordinate is set to
-/// `TOMB`: it is neither a live coordinate (`coord_of` nudges those away) nor `EMPTY`, so every probe
-/// walks *through* it (chains stay intact — see `probe`) while a resize reclaims it. Its value is
-/// uninitialized, exactly like an `EMPTY` slot — the liveness invariant below excludes it. There is
-/// no tag line for a tombstone to mark (see [`Table`]'s doc): the coordinate alone carries it.
+/// `TOMB`: it is not a live coordinate (a key whose own coordinate is `EMPTY` or `TOMB` is held out
+/// of band in the [`SideStore`]) and not `EMPTY`, so every probe walks *through* it (chains stay
+/// intact — see `probe`) while a resize reclaims it. Its value is uninitialized, exactly like an
+/// `EMPTY` slot — the liveness invariant below excludes it. There is no tag line for a tombstone to
+/// mark (see [`Table`]'s doc): the coordinate alone carries it.
 const TOMB: u64 = EMPTY - 1;
 
 /// A slot holds an initialized value iff its coordinate is neither `EMPTY` nor `TOMB`. This is the one
@@ -314,6 +320,13 @@ const TOMB: u64 = EMPTY - 1;
 #[inline]
 fn is_live(c: u64) -> bool {
     c != EMPTY && c != TOMB
+}
+
+/// Whether `c` is one of the two coordinates reserved as occupancy markers. Such a coordinate is
+/// never written into [`Table`]'s `coords`; the key that owns it is held in the [`SideStore`].
+#[inline]
+fn is_sentinel(c: u64) -> bool {
+    c == EMPTY || c == TOMB
 }
 
 /// `K -> V`. The slot's coordinate is the identity, the filter, and the occupancy flag at once:
@@ -329,9 +342,12 @@ fn is_live(c: u64) -> bool {
 ///
 /// There is no tag line. The lossy 7-bit tag (SwissTable h2) is argued against by construction
 /// (`CoordinateReadout.readout_beats_compare_by_construction`: a non-injective fingerprint cannot
-/// confirm a hit; the full coordinate can, at zero key accesses) and its one measured win — the
-/// opaque-key miss stream — is not a workload the framework runs. The probe is the pure radix
-/// descent; its first two steps are the spinor readout (see [`Table::get`]).
+/// confirm a hit; the full coordinate can, confirmed by the stored key at one compare) and its one
+/// measured win — the opaque-key miss stream — is not a workload the framework runs. The probe is
+/// the pure radix descent; its first two steps are the spinor readout (see [`Table::get`]).
+///
+/// The reserved coordinates (`EMPTY`/`TOMB`) never appear in `coords`: keys that own them live in
+/// `side`, whose value is initialized iff `side.live[i]` (cleared only while a merge owns it).
 pub struct Table<K, V, KS = Stored<K>>
 where
     K: Coord,
@@ -340,6 +356,7 @@ where
     coords: Box<[u64]>, // identity + occupancy; coord == EMPTY ⇒ empty, value uninit
     vals: Box<[MaybeUninit<V>]>, // payloads; initialized exactly where coords[i] != EMPTY
     keys: KS,           // the identity store — a vector (Stored) or nothing (Regen)
+    side: SideStore<K, V, KS>, // keys whose coordinate is a reserved marker (EMPTY/TOMB)
     bits: u32,
     len: usize,   // live entries (excludes tombstones)
     tombs: usize, // deleted-but-not-yet-reclaimed slots; cleared on resize
@@ -361,6 +378,20 @@ impl<K: Coord, V, KS: KeyStore<K>> Drop for Table<K, V, KS> {
         // the key store rides the same invariant; internally gated on needs_drop::<K>
         let coords = std::mem::take(&mut self.coords);
         self.keys.drop_live(&coords);
+        // Side entries: `coords` holds reserved markers (never `is_live`), so their keys are moved
+        // out and dropped one by one, and only the `live` values are dropped.
+        if std::mem::needs_drop::<V>() {
+            for (v, live) in self.side.vals.iter_mut().zip(self.side.live.iter()) {
+                if *live {
+                    // SAFETY: `live[i]` ⇒ value initialized.
+                    unsafe { v.assume_init_drop() };
+                }
+            }
+        }
+        for i in 0..self.side.coords.len() {
+            let c = self.side.coords[i];
+            drop(self.side.keys.take_key(i, c));
+        }
     }
 }
 
@@ -382,10 +413,36 @@ impl<K: Coord + Clone, V: Clone, KS: KeyStore<K>> Clone for Table<K, V, KS> {
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
+        // Side entries: liveness rides `side.live` (their coordinates are reserved markers, so
+        // `clone_live` needs an all-live mask), and only live values are cloned.
+        let side_vals = self
+            .side
+            .vals
+            .iter()
+            .zip(self.side.live.iter())
+            .map(|(v, live)| {
+                if *live {
+                    // SAFETY: `live[i]` ⇒ value initialized.
+                    MaybeUninit::new(unsafe { v.assume_init_ref() }.clone())
+                } else {
+                    MaybeUninit::uninit()
+                }
+            })
+            .collect::<Vec<_>>();
+        let side_live_mask = vec![0u64; self.side.coords.len()]; // 0 is live (not EMPTY/TOMB)
+        let side = SideStore {
+            coords: self.side.coords.clone(),
+            vals: side_vals,
+            live: self.side.live.clone(),
+            keys: self.side.keys.clone_live(&side_live_mask),
+            cap: self.side.coords.len(),
+            _k: std::marker::PhantomData,
+        };
         Table {
             keys: self.keys.clone_live(&self.coords),
             coords,
             vals,
+            side,
             bits: self.bits,
             len: self.len,
             tombs: self.tombs,
@@ -467,6 +524,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             coords: vec![EMPTY; n].into_boxed_slice(),
             vals: alloc_uninit_boxed(n),
             keys: KS::alloc(n),
+            side: SideStore::empty(),
             bits,
             len: 0,
             tombs: 0,
@@ -474,18 +532,12 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
     }
 
-    /// A key's coordinate, with the two reserved values (`EMPTY`, `TOMB`) nudged aside, so a live
-    /// coordinate is never either sentinel. The nudge aliases the top of the range (`EMPTY`, `TOMB`,
-    /// `TOMB-1` all fold to `TOMB-1`) — the same 2⁻⁶⁴ identity risk the coordinate already trusts, and
-    /// unreachable for the small integer/opaque keys in practice.
+    /// A key's coordinate — the identity on every coordinate. The two values reserved as occupancy
+    /// markers (`EMPTY`, `TOMB`) are held out of band (see [`SideStore`]), so no non-reserved
+    /// coordinate is remapped and `coord_of(U64::MAX)` is not folded onto another key's coordinate.
     #[inline]
     fn coord_of(k: &K) -> u64 {
-        let c = k.coord();
-        if c == EMPTY || c == TOMB {
-            TOMB - 1
-        } else {
-            c
-        }
+        k.coord()
     }
 
     /// The home slot. A key that fits the array indexes directly (no hash); a larger key takes the
@@ -549,9 +601,18 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     ///
     /// Indexing is unchecked: `home`/`descend` both mask with `& (len - 1)` on a power-of-two array,
     /// so `i` is always in bounds by construction and the checks would be pure overhead.
+    ///
+    /// A reserved coordinate (`EMPTY`/`TOMB`) is never stored in `coords` — its key lives in the
+    /// [`SideStore`] — so a coordinate-only probe of one returns not-found at its home slot without
+    /// dereferencing a slot (a `TOMB` slot's value is uninitialized). The keyed [`probe_keyed`] is
+    /// the probe the storage faces use.
     #[inline]
     fn probe(&self, coord: u64) -> (usize, bool) {
-        let mut i = self.home(coord);
+        let i = self.home(coord);
+        if is_sentinel(coord) {
+            return (i, false);
+        }
+        let mut i = i;
         let mut j = 0;
         loop {
             // SAFETY: i ∈ [0, len) — home() and descend() mask to the array.
@@ -579,14 +640,48 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
     }
 
+    /// [`probe`](Self::probe) with full-key confirmation: a coordinate match is a hit only when the
+    /// stored key equals `k`. Two distinct keys with equal coordinates therefore take two slots, and
+    /// a mismatch keeps probing exactly as a different coordinate would. `Regen`'s `matches` is the
+    /// coordinate round-trip, so for a [`CoordMap`] this is the coordinate probe unchanged.
+    ///
+    /// Only ever called with a non-reserved `coord` (the sentinel keys are resolved in the
+    /// [`SideStore`]); a coordinate match on a live slot therefore implies an initialized key.
+    #[inline]
+    fn probe_keyed(&self, coord: u64, k: &K) -> (usize, bool) {
+        let mut i = self.home(coord);
+        let mut j = 0;
+        loop {
+            // SAFETY: i ∈ [0, len) — home()/descend() mask to the array; `coord` is non-reserved, so
+            // `sc == coord` names a live slot whose key is initialized (confirmed by `matches`).
+            let sc = unsafe { *self.coords.get_unchecked(i) };
+            if sc == coord && self.keys.matches(i, coord, k) {
+                return (i, true);
+            }
+            if sc == EMPTY {
+                return (i, false);
+            }
+            j += 1;
+            debug_assert!(
+                (j as usize) <= self.coords.len() + 256,
+                "PROBE NON-TERM: coord={coord:#x} bits={} home={} cap={} j={j}",
+                self.bits,
+                self.home(coord),
+                self.coords.len()
+            );
+            i = self.descend(coord, j);
+        }
+    }
+
     /// Read one key. `None` = absent. ONE algorithm for both key stores: the home coordinate, then
     /// (on a collision) the `seqLin` walk — a linear prefix in the home cache line, then radix windows
-    /// (`RadixDescent.linear_prefix_chain_separates`). The near-certain home hit reads one coordinate
-    /// and its value; a chain or miss stays in the home line. `KS` selects only key *storage*
-    /// (regenerated vs kept), never the algorithm.
+    /// (`RadixDescent.linear_prefix_chain_separates`). The near-certain home hit reads one coordinate,
+    /// confirms the stored key, and reads its value; a chain or miss stays in the home line. `KS`
+    /// selects only key *storage* (regenerated vs kept), never the algorithm.
     ///
-    /// This trusts the 64-bit coordinate as identity (a 2⁻⁶⁴ chance of a wrong hit); see
-    /// [`get_exact`](Self::get_exact) for the variant that also compares the key.
+    /// The stored key is confirmed on a coordinate match (free on `Regen`, where the coordinate
+    /// round-trips), so a coordinate collision returns `None` instead of another key's value;
+    /// [`get_exact`](Self::get_exact) is the same read under its historical name.
     #[inline]
     pub fn get(&self, k: &K) -> Option<&V> {
         self.get_coord(k)
@@ -596,64 +691,106 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// collision tail only on the rare miss. The scalar home probe is what keeps the *coordinate*-key
     /// path (CoordMap: near-certain home hit) free of the SIMD glance's overhead — the glance is paid
     /// only where it wins, in the collision tail that opaque hashed keys actually reach.
+    ///
+    /// A coordinate match is confirmed against the stored key (free on `Regen`), so two distinct keys
+    /// with equal coordinates are two entries; a reserved coordinate is resolved in the [`SideStore`].
     #[inline]
     fn get_coord(&self, k: &K) -> Option<&V> {
         let coord = Self::coord_of(k);
+        if is_sentinel(coord) {
+            let i = self.side.find(coord, k)?;
+            // SAFETY: `find` only returns an entry whose `live` marker is set.
+            return Some(unsafe { self.side.vals.get_unchecked(i).assume_init_ref() });
+        }
         let home = self.home(coord);
-        // SAFETY: home ∈ [0, len). The near-certain home hit reads one coord and then one value.
+        // SAFETY: home ∈ [0, len). The home hit reads one coord, confirms the key, then one value.
         let sc = unsafe { *self.coords.get_unchecked(home) };
-        if sc == coord {
+        if sc == coord && self.keys.matches(home, coord, k) {
             return Some(unsafe { self.vals.get_unchecked(home).assume_init_ref() });
         }
         if sc == EMPTY {
             return None;
         }
-        self.get_coord_cold(coord, home)
+        self.get_coord_cold_keyed(coord, home, k)
     }
 
-    /// Collision tail of [`get_coord`](Self::get_coord). The linear prefix (`home .. home + LINEAR_G`)
-    /// is one contiguous 64-byte cache line, so filter it in a single branchless glance
-    /// ([`prefix_masks`]) instead of the mispredict-prone scalar compare-per-slot: a lane match is a
-    /// *definite* hit (the coordinate is identity — no key deref, no confirm, no second structure; the
-    /// tag line THE CUT removed is not reintroduced), an EMPTY lane terminates the chain, and — since
-    /// linear probing fills gaplessly, so no EMPTY precedes a present key — the single hit lane is the
-    /// answer. All-occupied-no-match resumes at the radix windows. Only the last `LINEAR_G − 1` homes
-    /// wrap the array end → the scalar walk (which masks the wrap). Lane 0 is `home`, already known
-    /// occupied-non-matching by the caller.
+    /// Collision tail of [`get_coord`](Self::get_coord). The linear prefix
+    /// (`home .. home + LINEAR_G`) is one contiguous 64-byte cache line, so filter it in a single
+    /// branchless glance ([`prefix_masks`]) instead of the mispredict-prone scalar compare-per-slot:
+    /// an EMPTY lane terminates the chain, and — since a key is placed before any EMPTY in its own
+    /// probe sequence — a present key is at a matching lane before the first EMPTY. All-occupied-no-
+    /// match resumes at the radix windows. Only the last `LINEAR_G − 1` homes wrap the array end →
+    /// the scalar walk (which masks the wrap). Lane 0 is `home`, already probed by the caller.
+    ///
+    /// The keyed tail: every coordinate-match lane is confirmed against the stored key, so two
+    /// distinct keys with equal coordinates are not conflated (`Regen`'s `matches` is the coordinate
+    /// round-trip).
     #[cold]
     #[inline(never)]
-    fn get_coord_cold(&self, coord: u64, home: usize) -> Option<&V> {
+    fn get_coord_cold_keyed(&self, coord: u64, home: usize, k: &K) -> Option<&V> {
+        self.get_coord_cold_with(coord, home, |i| self.keys.matches(i, coord, k))
+    }
+
+    /// Shared body of the collision tail. `confirm(slot)` is the hit test on a lane whose coordinate
+    /// matched — the stored-key compare for the keyed caller.
+    #[cold]
+    #[inline(never)]
+    fn get_coord_cold_with(
+        &self,
+        coord: u64,
+        home: usize,
+        confirm: impl Fn(usize) -> bool,
+    ) -> Option<&V> {
         let len = self.coords.len();
         if home + LINEAR_G as usize <= len {
             // `home + LINEAR_G ≤ len`, so the `LINEAR_G`-lane read stays in bounds.
-            let (hits, empties) = prefix_masks(&self.coords, home, coord);
-            if hits != 0 {
+            let (mut hits, empties) = prefix_masks(&self.coords, home, coord);
+            while hits != 0 {
                 let slot = home + hits.trailing_zeros() as usize;
-                // SAFETY: slot < home + LINEAR_G ≤ len; a coord match ⇒ value initialized.
-                return Some(unsafe { self.vals.get_unchecked(slot).assume_init_ref() });
+                if confirm(slot) {
+                    // SAFETY: slot < home + LINEAR_G ≤ len; a confirmed match ⇒ value initialized.
+                    return Some(unsafe { self.vals.get_unchecked(slot).assume_init_ref() });
+                }
+                hits &= hits - 1;
             }
             if empties != 0 {
                 return None; // the chain terminated inside the prefix
             }
             // All LINEAR_G slots occupied, no match: resume at the first radix window.
-            return self.get_coord_walk(coord, LINEAR_G);
+            return self.get_coord_walk_with(coord, LINEAR_G, &confirm);
         }
         // Wrap tail (rare): the scalar walk from step 1 — `home` was already probed by the caller.
-        self.get_coord_walk(coord, 1)
+        self.get_coord_walk_with(coord, 1, &confirm)
     }
 
     /// Scalar continuation of [`get_coord_cold`](Self::get_coord_cold) from probe step `j`: the radix
     /// windows past the SIMD-scanned linear prefix (`j = LINEAR_G`), or the whole walk on the rare
-    /// array-end wrap (`j = 1`). One coordinate compare per step until the key or an EMPTY.
+    /// array-end wrap (`j = 1`). One coordinate compare (plus the confirmation) per step.
     #[cold]
     #[inline(never)]
-    fn get_coord_walk(&self, coord: u64, mut j: u32) -> Option<&V> {
+    fn get_coord_walk(&self, coord: u64, j: u32) -> Option<&V> {
+        self.get_coord_walk_with(coord, j, &|_| true)
+    }
+
+    /// Keyed scalar continuation — see [`get_coord_walk`](Self::get_coord_walk).
+    #[cold]
+    #[inline(never)]
+    fn get_coord_walk_keyed(&self, coord: u64, j: u32, k: &K) -> Option<&V> {
+        self.get_coord_walk_with(coord, j, &|i| self.keys.matches(i, coord, k))
+    }
+
+    fn get_coord_walk_with(
+        &self,
+        coord: u64,
+        mut j: u32,
+        confirm: &impl Fn(usize) -> bool,
+    ) -> Option<&V> {
         loop {
             let i = self.descend(coord, j);
             // SAFETY: i ∈ [0, len) — descend() masks to the array.
             let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord {
-                // SAFETY: coord matched ⇒ value initialized.
+            if sc == coord && confirm(i) {
+                // SAFETY: a confirmed coord match ⇒ value initialized.
                 return Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() });
             }
             if sc == EMPTY {
@@ -692,7 +829,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
         for i in 0..n {
             let c = coords[i & (P - 1)];
-            let v = self.get_with_coord(c);
+            let v = self.get_with_coord(c, &keys[i]);
             visit(&keys[i], v);
             let j = i + P;
             if j < n {
@@ -841,27 +978,39 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         };
         let n = self.coords.len();
         let pool = par::Pool::global();
-        if pool.width() <= 1 || n < 1 << 14 {
-            return fold_range(0, n); // no core to spread onto — one pass
-        }
-        // One partial per task; more tasks than executors so uneven live-density self-balances. The
-        // reduce is schedule-free (`Web.preduceAt_schedule_free`), so any task→executor assignment and
-        // any merge order give the same answer.
-        let tasks = (pool.width() * 4).min(n);
-        let chunk = n.div_ceil(tasks);
-        let mut partials: Vec<M> = (0..tasks).map(|_| id.clone()).collect();
-        let pptr = par::SendPtr(partials.as_mut_ptr());
-        pool.dispatch(tasks, |t| {
-            let start = t * chunk;
-            if start >= n {
-                return;
+        let main = if pool.width() <= 1 || n < 1 << 14 {
+            fold_range(0, n) // no core to spread onto — one pass
+        } else {
+            // One partial per task; more tasks than executors so uneven live-density self-balances. The
+            // reduce is schedule-free (`Web.preduceAt_schedule_free`), so any task→executor assignment and
+            // any merge order give the same answer.
+            let tasks = (pool.width() * 4).min(n);
+            let chunk = n.div_ceil(tasks);
+            let mut partials: Vec<M> = (0..tasks).map(|_| id.clone()).collect();
+            let pptr = par::SendPtr(partials.as_mut_ptr());
+            pool.dispatch(tasks, |t| {
+                let start = t * chunk;
+                if start >= n {
+                    return;
+                }
+                let end = (start + chunk).min(n);
+                // SAFETY: task `t` writes only `partials[t]`; distinct tasks ⇒ disjoint slots, and the
+                // dispatch barrier orders the write before the merge below.
+                unsafe { *pptr.add(t) = fold_range(start, end) };
+            });
+            partials.into_iter().fold(id, &combine)
+        };
+        // Side entries (the reserved-coordinate keys): O(1) on ordinary tables, folded onto the result.
+        let mut acc = main;
+        for (i, live) in self.side.live.iter().enumerate() {
+            if *live {
+                // SAFETY: `live[i]` ⇒ value initialized.
+                acc = combine(acc, residual(unsafe {
+                    self.side.vals.get_unchecked(i).assume_init_ref()
+                }));
             }
-            let end = (start + chunk).min(n);
-            // SAFETY: task `t` writes only `partials[t]`; distinct tasks ⇒ disjoint slots, and the
-            // dispatch barrier orders the write before the merge below.
-            unsafe { *pptr.add(t) = fold_range(start, end) };
-        });
-        partials.into_iter().fold(id, &combine)
+        }
+        acc
     }
 
 }
@@ -920,26 +1069,52 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
                 .flatten()
                 .min_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)))
         };
+        // Side entries: the same argmin at pseudo-slots `n + i` (past every main slot, so a main tie
+        // still wins; among side entries the lower index wins). O(1) on ordinary tables.
+        let mut floor = floor;
+        for (i, live) in self.side.live.iter().enumerate() {
+            if *live {
+                // SAFETY: `live[i]` ⇒ value initialized.
+                let m = residual(unsafe { self.side.vals.get_unchecked(i).assume_init_ref() });
+                let s = n + i;
+                if floor.map_or(true, |(bm, bs)| m < bm || (m == bm && s < bs)) {
+                    floor = Some((m, s));
+                }
+            }
+        }
         // a returned slot is occupied ⇒ value initialized; the key is read/regenerated.
-        floor.map(|(_, i)| {
-            let c = self.coords[i];
-            // SAFETY: the argmin ranged over occupied slots only ⇒ value initialized.
-            (self.keys.key(i, c), unsafe {
-                self.vals.get_unchecked(i).assume_init_ref()
-            })
+        floor.map(|(_, s)| {
+            if s < n {
+                let c = self.coords[s];
+                // SAFETY: the argmin ranged over occupied slots only ⇒ value initialized.
+                (self.keys.key(s, c), unsafe {
+                    self.vals.get_unchecked(s).assume_init_ref()
+                })
+            } else {
+                let i = s - n;
+                let c = self.side.coords[i];
+                // SAFETY: side entries are occupied ⇒ value initialized.
+                (self.side.keys.key(i, c), unsafe {
+                    self.side.vals.get_unchecked(i).assume_init_ref()
+                })
+            }
         })
     }
 }
 
-/// A landed insert: the slot is blank (`EMPTY`) and the caller owns the merge between `new` and the
-/// value `old` that was already there. Returned by [`Table::insert_core`] instead of writing, so
-/// every insert face shares one probe/reserve core and differs only in what it does with the two
-/// values. The caller MUST write `slot` back and re-occupy it with `coord`.
+/// A landed insert: the slot is blank and the caller owns the merge between `new` and the value
+/// `old` that was already there. Returned by [`Table::insert_core`] instead of writing, so every
+/// insert face shares one probe/reserve core and differs only in what it does with the two values.
+/// The caller MUST write `slot` back and re-occupy it with `coord`.
 struct InsertHit<V> {
     /// The probe's slot; in bounds by construction (`probe` masks to the power-of-two array).
     slot: usize,
     /// The slot's coordinate, to restore after the write — identity is unchanged by an overwrite.
+    /// Unused when `side` is set (the side entry's coordinate is fixed).
     coord: u64,
+    /// The hit is an entry of the [`SideStore`], not a main slot. The caller writes `side`'s arrays
+    /// and re-sets `side.live[slot]` instead of `coords[slot]`.
+    side: bool,
     /// The incoming value, handed back because a hit does not consume it.
     new: V,
     /// The value that was in the slot, moved out so exactly one of the two faces owns its drop.
@@ -949,14 +1124,22 @@ struct InsertHit<V> {
 impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Remove `k` and return its value, or `None` if absent. The bijection face — inverse of `put`.
     ///
-    /// A removed slot becomes a **tombstone** (`TOMB`), not `EMPTY`: because the probe re-addresses by
-    /// windows of `coord·PHI` (not a contiguous run), blanking a slot to `EMPTY` mid-chain would make
+    /// A removed main slot becomes a **tombstone** (`TOMB`), not `EMPTY`: because the probe re-addresses
+    /// by windows of `coord·PHI` (not a contiguous run), blanking a slot to `EMPTY` mid-chain would make
     /// every key that probed *past* it unreachable. A tombstone reads as occupied-but-non-matching, so
-    /// chains stay intact; the next `resize` (triggered on live + tombstone occupancy) reclaims it.
+    /// chains stay intact; the next `resize` (triggered on live + tombstone occupancy) reclaims it. A
+    /// reserved-coordinate key is removed from the [`SideStore`].
     #[inline]
     pub fn remove(&mut self, k: &K) -> Option<V> {
         let coord = Self::coord_of(k);
-        let (i, found) = self.probe(coord);
+        if is_sentinel(coord) {
+            let i = self.side.find(coord, k)?;
+            // SAFETY: `find` only returns an entry whose `live` marker is set.
+            let old = unsafe { self.side.vals.get_unchecked_mut(i).assume_init_read() };
+            self.side.remove_entry(i);
+            return Some(old);
+        }
+        let (i, found) = self.probe_keyed(coord, k);
         if found {
             // SAFETY: found ⇒ value initialized. Read it out and drop the key, then tombstone the
             // slot: its value is now uninitialized, and `TOMB` (like `EMPTY`) fails the liveness test,
@@ -980,9 +1163,28 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     ///
     /// Blanking before the merge is what keeps a panicking merge sound: the slot is logically empty
     /// for its duration, so the unwinding `old` is dropped once and `Drop` skips the slot — no
-    /// double free, no chain break.
+    /// double free, no chain break. A key whose coordinate is a reserved marker (`EMPTY`/`TOMB`) is
+    /// inserted into the side store instead of the slot arrays.
     #[inline]
     fn insert_core(&mut self, k: K, new: V) -> Option<InsertHit<V>> {
+        let coord = Self::coord_of(&k);
+        if is_sentinel(coord) {
+            if let Some(i) = self.side.find(coord, &k) {
+                // SAFETY: `find` only returns an entry whose `live` marker is set. Blank the `live`
+                // marker (keep the key) so a panicking merge drops the value once.
+                let old = unsafe { self.side.vals.get_unchecked_mut(i).assume_init_read() };
+                self.side.live[i] = false;
+                return Some(InsertHit {
+                    slot: i,
+                    coord,
+                    side: true,
+                    new,
+                    old,
+                });
+            }
+            self.side.push(coord, k, new);
+            return None;
+        }
         // Occupancy that bounds the probe (live + tombstones, since probe walks through both) must stay
         // under the load limit — otherwise a churn workload could fill the table with tombstones and a
         // not-found probe would never reach an `EMPTY`. With no deletions `tombs == 0`, so this is the
@@ -997,8 +1199,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             };
             self.resize(new_bits);
         }
-        let coord = Self::coord_of(&k);
-        let (i, found) = self.probe(coord);
+        let (i, found) = self.probe_keyed(coord, &k);
         // SAFETY: probe returns an in-bounds slot; coords, vals, and keys share the index space.
         if found {
             // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
@@ -1006,7 +1207,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             // dropped once (by the unwinding `old`) and `Drop` skips this slot — no double free.
             let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
             unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
-            Some(InsertHit { slot: i, coord, new, old })
+            Some(InsertHit {
+                slot: i,
+                coord,
+                side: false,
+                new,
+                old,
+            })
         } else {
             unsafe { *self.coords.get_unchecked_mut(i) = coord };
             unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
@@ -1022,11 +1229,18 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
         if let Some(hit) = self.insert_core(k, new) {
             let merged = f(hit.new, hit.old);
-            // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
-            // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores the
-            // invariant.
-            unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
-            unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // re-occupy — identity unchanged
+            if hit.side {
+                // SAFETY: `insert_core` cleared `side.live[slot]`, so the value is uninitialized;
+                // re-writing and re-marking restores the invariant. The entry's key is untouched.
+                unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
+                self.side.live[hit.slot] = true;
+            } else {
+                // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
+                // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores the
+                // invariant.
+                unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
+                unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // re-occupy — identity unchanged
+            }
         }
     }
 
@@ -1041,42 +1255,55 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     pub fn insert_merge_last_write(&mut self, k: K, new: V) {
         if let Some(hit) = self.insert_core(k, new) {
             drop(hit.old); // `set(new, old) = new` ignores `old`; this is where it is dropped.
-            // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
-            unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
-            unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
+            if hit.side {
+                // SAFETY: as in `insert_with` — `insert_core` cleared the side entry's `live` marker.
+                unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
+                self.side.live[hit.slot] = true;
+            } else {
+                // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
+                unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
+                unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
+            }
         }
     }
 
     /// Rebuild into a fresh table of `new_bits` slots, carrying only live entries — so tombstones
     /// vanish. `new_bits > bits` grows; `new_bits == bits` is an in-place compaction that reclaims
     /// tombstones without doubling. The old `grow` is `resize(bits + 1)` with no tombstones present.
+    /// The [`SideStore`] is carried over unchanged (it does not depend on `bits`).
     #[cold]
     fn resize(&mut self, new_bits: u32) {
         let mut bigger = Self::with_bits(new_bits);
         for i in 0..self.coords.len() {
             let c = self.coords[i];
             if is_live(c) {
-                let (j, _) = bigger.probe(c); // re-place along the same probe sequence
-                                              // SAFETY: live coord ⇒ value initialized; bigger.probe returns an in-bounds slot.
-                                              // Move the value out and blank the source coord so the old table's Drop skips it.
+                // Move the key out first so the keyed probe can confirm it: two distinct keys with
+                // equal coordinates must land on two slots of the rebuilt table, not one.
+                let key = self.keys.take_key(i, c);
+                let (j, _) = bigger.probe_keyed(c, &key); // re-place along the same probe sequence
+                                                          // SAFETY: live coord ⇒ value initialized; bigger.probe_keyed returns an
+                                                          // in-bounds slot. Move the value out and blank the source coord so the old
+                                                          // table's Drop skips it.
                 let v = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
                 self.coords[i] = EMPTY;
                 unsafe { *bigger.coords.get_unchecked_mut(j) = c };
                 unsafe { *bigger.vals.get_unchecked_mut(j) = MaybeUninit::new(v) };
-                self.keys.migrate(i, &mut bigger.keys, j); // Stored: move the key; Regen: no-op
+                bigger.keys.set(j, key); // Stored: write the key; Regen: no-op
                 bigger.len += 1;
             }
         }
+        // Carry the side store over; the rebuilt table is fresh (empty side store).
+        bigger.side = std::mem::replace(&mut self.side, SideStore::empty());
         *self = bigger; // tombstones dropped: bigger.tombs == 0
     }
 
-    /// The number of live keys.
+    /// The number of live keys, main slots plus side entries.
     pub fn len(&self) -> usize {
-        self.len
+        self.len + self.side.coords.len()
     }
     /// Whether the table holds no keys.
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len() == 0
     }
     #[inline]
     fn footprint_bytes(&self) -> usize {
@@ -1091,9 +1318,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
 /// The key-readback face of iteration — projects [`KeyReadout::Key`], so it requires the extension
 /// trait; the storage and probe bodies stay on [`KeyStore`].
 impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
-    /// Iterate the live `(key, &value)` pairs in arbitrary order.
+    /// Iterate the live `(key, &value)` pairs in arbitrary order — the main slots then the side
+    /// entries.
     pub fn iter(&self) -> impl Iterator<Item = (KS::Key<'_>, &V)> {
-        self.coords.iter().enumerate().filter_map(|(i, c)| {
+        let main = self.coords.iter().enumerate().filter_map(|(i, c)| {
             if is_live(*c) {
                 // SAFETY: live coord ⇒ value initialized.
                 Some((self.keys.key(i, *c), unsafe {
@@ -1102,31 +1330,34 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
             } else {
                 None
             }
-        })
+        });
+        let side = self
+            .side
+            .coords
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                if self.side.live[i] {
+                    // SAFETY: `live[i]` ⇒ value initialized.
+                    Some((self.side.keys.key(i, *c), unsafe {
+                        self.side.vals.get_unchecked(i).assume_init_ref()
+                    }))
+                } else {
+                    None
+                }
+            });
+        main.chain(side)
     }
-
 }
 
 impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
-    /// Bit-exact read — never returns a wrong value. Plain [`get`](Self::get) trusts the 64-bit
-    /// coordinate as identity (a 2⁻⁶⁴ chance of a wrong hit); this also compares the stored key, so a
-    /// coordinate collision returns `None` instead of someone else's value. Pay the key compare only
-    /// when you need the guarantee.
-    ///
-    /// On the [`Regen`] path the compare is skipped: `from_coord` round-trips, so the coordinate
-    /// confirm already IS the exact test (`CoordinateReadout.exact_read_is_read`) — except at the
-    /// one injectivity defect, the `EMPTY`/`TOMB` nudge (`coord_of` folds a key whose coordinate is
-    /// `EMPTY`, `TOMB`, or `TOMB − 1` onto `TOMB − 1`, where distinct keys can share the stored
-    /// word); the compare stays for exactly that coordinate.
+    /// Bit-exact read — never returns a wrong value. The stored key is compared on a coordinate
+    /// match (free on `Regen`, where the coordinate round-trips), so a coordinate collision returns
+    /// `None` instead of someone else's value; a reserved-coordinate key is resolved in the
+    /// [`SideStore`]. Same read as [`get`](Self::get).
     #[inline]
     pub fn get_exact(&self, k: &K) -> Option<&V> {
-        let coord = Self::coord_of(k);
-        let (i, found) = self.probe(coord);
-        if found && ((KS::REGEN && coord != TOMB - 1) || self.keys.matches(i, coord, k)) {
-            // SAFETY: found ⇒ value initialized.
-            return Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() });
-        }
-        None
+        self.get_coord(k)
     }
 
     /// Worst-case probe length, in steps. Coordinate keys: **1** (address = key, nothing to flood).
@@ -1176,36 +1407,77 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     }
 
     /// `get` from a pre-computed coordinate — the pipelined path computes the coordinate during
-    /// prefetch and resolves it here.
+    /// prefetch and resolves `k` here. A reserved coordinate is resolved in the [`SideStore`].
     #[inline]
-    fn get_with_coord(&self, coord: u64) -> Option<&V> {
+    fn get_with_coord(&self, coord: u64, k: &K) -> Option<&V> {
+        if is_sentinel(coord) {
+            let i = self.side.find(coord, k)?;
+            // SAFETY: `find` only returns an entry whose `live` marker is set.
+            return Some(unsafe { self.side.vals.get_unchecked(i).assume_init_ref() });
+        }
         // Same shape as `get_coord`: the near-certain home hit, then the shared SIMD collision tail.
         let home = self.home(coord);
         // SAFETY: home ∈ [0, len).
         let sc = unsafe { *self.coords.get_unchecked(home) };
-        if sc == coord {
+        if sc == coord && self.keys.matches(home, coord, k) {
             return Some(unsafe { self.vals.get_unchecked(home).assume_init_ref() });
         }
         if sc == EMPTY {
             return None;
         }
-        self.get_coord_cold(coord, home)
+        self.get_coord_cold_keyed(coord, home, k)
     }
 }
 
-/// Equal iff same entries, compared by coordinate — no key deref.
+/// Equal iff the same entries: main slots by coordinate, side entries by coordinate and value (the
+/// coordinate identity the main comparison has always used).
 impl<K: Eq + Coord, V: PartialEq, KS: KeyStore<K>> PartialEq for Table<K, V, KS> {
     fn eq(&self, other: &Self) -> bool {
-        self.len == other.len
-            && self.coords.iter().enumerate().all(|(i, c)| {
-                !is_live(*c) || {
-                    let (j, found) = other.probe(*c);
-                    // SAFETY: live coord ⇒ this value initialized; found ⇒ other's value initialized.
-                    found
-                        && unsafe { other.vals.get_unchecked(j).assume_init_ref() }
-                            == unsafe { self.vals.get_unchecked(i).assume_init_ref() }
+        if self.len() != other.len() {
+            return false;
+        }
+        for (i, c) in self.coords.iter().enumerate() {
+            if !is_live(*c) {
+                continue;
+            }
+            let (j, found) = other.probe(*c);
+            if !found {
+                return false;
+            }
+            // SAFETY: live coord ⇒ this value initialized; found ⇒ other's value initialized.
+            if unsafe { other.vals.get_unchecked(j).assume_init_ref() }
+                != unsafe { self.vals.get_unchecked(i).assume_init_ref() }
+            {
+                return false;
+            }
+        }
+        // Side entries participate by `(coordinate, value)`, not through `len()` alone: two tables
+        // differing only in a reserved-coordinate entry must compare unequal. O(s²) with `s` the
+        // side-entry count (0 on ordinary tables).
+        if self.side.coords.len() != other.side.coords.len() {
+            return false;
+        }
+        let mut matched = vec![false; other.side.coords.len()];
+        for i in 0..self.side.coords.len() {
+            let c = self.side.coords[i];
+            // SAFETY: side entries are occupied ⇒ values initialized.
+            let v = unsafe { self.side.vals.get_unchecked(i).assume_init_ref() };
+            let mut hit = false;
+            for j in 0..other.side.coords.len() {
+                if !matched[j]
+                    && other.side.coords[j] == c
+                    && unsafe { other.side.vals.get_unchecked(j).assume_init_ref() } == v
+                {
+                    matched[j] = true;
+                    hit = true;
+                    break;
                 }
-            })
+            }
+            if !hit {
+                return false;
+            }
+        }
+        true
     }
 }
 impl<K: Eq + Coord, V: Eq, KS: KeyStore<K>> Eq for Table<K, V, KS> {}

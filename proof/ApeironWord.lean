@@ -17221,7 +17221,7 @@ def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
   1#usize <<< (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
 
 /-- [apeiron_word::hashtrinity::PHI]
-    Source: '../../src/hashtrinity/mod.rs', lines 218:0-218:43
+    Source: '../../src/hashtrinity/mod.rs', lines 220:0-220:43
     Visibility: public -/
 @[global_simps, irreducible]
 def hashtrinity.PHI : Std.U64 := 11400714819323198485#u64
