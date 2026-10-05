@@ -86,7 +86,7 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
 | §10 — a registered documentation removal names a resolvable successor, its removed path is absent, and no live document names it | [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py) over `docs/moved.tsv` | `python3 tools/rooting/doc_reach.py --check` (`--self-test`: 18 rejection / 4 accept fixtures; `--controls`; `--inventory PATH`) |
 | §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
-| §3 the dispatch loop — Sol ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
+| §3 the dispatch loop — the lead ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
 | §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
 | §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
 
@@ -142,12 +142,12 @@ An epic without a written intent, spec and plan is still design. Do not allocate
 
 A red goal is worked by one loop, never by picking the easiest bounded task:
 
-1. **Sol ranks.** The lead asks Sol for the **highest-impact items** that move the goal, ordered by
-   contribution *and difficulty*, hardest first. The ranking is written under
+1. **The lead ranks.** The lead (Claude Code on Opus) writes the **highest-impact items** that move
+   the goal, ordered by contribution *and difficulty*, hardest first. The ranking is written under
    `/home/socol/oc-tmp/escalation/` and is the dispatch order.
 2. **One lane per item.** Each item gets **one** lane, and no more lanes than the item's
-   independent-file set: items that share a file (or a shared build product) **serialize** in Sol's
-   order, never run in parallel. Never open the easy, bounded, safe, verification, corpus,
+   independent-file set: items that share a file (or a shared build product) **serialize** in the
+   ranking's order, never run in parallel. Never open the easy, bounded, safe, verification, corpus,
    instrument or documentation task while the goal's number is red; use spare capacity for
    independent verification, not invented parallel work.
 3. **Each lane closes on its gate and control**, on the path the crate builds, in an isolated copy.
@@ -479,15 +479,11 @@ selected by the artifact at risk, not by a subjective difficulty estimate. A man
 Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
 control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
-architecture question that would otherwise wait on the owner goes to **Sol** on the owner's ChatGPT
-Pro subscription signed into OpenCode, model `openai/gpt-6.1-sol`
-(`/home/socol/oc-tmp/bin/sol.sh <prompt-file> [model]`): the lead records the
-answer under `/home/socol/oc-tmp/escalation/`, acts on it and reports the verdict. The lead does not
-idle waiting for the owner.
-
-**Escalation cost discipline.** Sol runs on the owner's ChatGPT Pro subscription (OpenCode model
-`openai/gpt-6.1-sol`), not a metered API key. Attach excerpts, never whole trees. Astra and Terra
-remain historical records.
+architecture question that would otherwise wait on the owner is decided by **the lead** (Claude
+Code on Opus, owner direction 2026-10-06; it replaces the earlier Sol route): the lead records the
+verdict under `/home/socol/oc-tmp/escalation/` and in `docs/plan.md`, acts on it, and lists it for the
+owner's review. The lead does not idle waiting for the owner. Sol, Astra and Terra answers already on
+disk are historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
