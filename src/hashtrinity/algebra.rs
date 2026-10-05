@@ -4,7 +4,7 @@
 //! (`Coord`/`CoordInv`/`KeyStore`/`Stored`/`Regen`, and the golden-128 byte fold underneath), and
 //! how two VALUES merge (`Face`/`Species`/the four merges/`Monoid`/`FoldExt`).
 
-use crate::hashtrinity::{is_live, Table, EMPTY, PHI};
+use crate::hashtrinity::{is_live, is_sentinel, Locate, Table, EMPTY, PHI};
 use std::mem::MaybeUninit;
 
 /// `n` uninitialized [`MaybeUninit<T>`] slots as a boxed slice — RESERVE, never initialize.
@@ -121,6 +121,12 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
         K: 'a;
     /// The key at slot `i` — borrowed if stored, regenerated from `coord` if not.
     fn key(&self, i: usize, coord: u64) -> Self::Key<'_>;
+    /// Whether the key at slot `i` is exactly the key a borrowed [`Locate`] view names. The borrowed
+    /// faces' full-key confirmation — the twin of [`KeyStore::matches`], which takes an owned `&K`.
+    fn matches_locate<Q>(&self, i: usize, coord: u64, q: &Q) -> bool
+    where
+        K: Eq,
+        Q: Locate<K>;
 }
 
 /// Stores each key in a bare `MaybeUninit<K>` slot — for opaque keys whose fold has no inverse.
@@ -214,6 +220,10 @@ impl<K: Coord + Eq> KeyReadout<K> for Stored<K> {
         // SAFETY: only called on an occupied slot — the invariant says initialized.
         unsafe { self.0.get_unchecked(i).assume_init_ref() }
     }
+    #[inline]
+    fn matches_locate<Q: Locate<K>>(&self, i: usize, coord: u64, q: &Q) -> bool {
+        q.same(self.key(i, coord))
+    }
 }
 
 /// Stores nothing: the key is `from_coord` of the slot's coordinate. For integer keys the address
@@ -258,6 +268,10 @@ impl<K: CoordInv + Eq> KeyReadout<K> for Regen<K> {
     #[inline]
     fn key(&self, _i: usize, coord: u64) -> K {
         K::from_coord(coord)
+    }
+    #[inline]
+    fn matches_locate<Q: Locate<K>>(&self, _i: usize, coord: u64, q: &Q) -> bool {
+        q.same(&self.key(_i, coord))
     }
 }
 impl Coord for u128 {
@@ -537,10 +551,17 @@ impl<K: Eq + Coord, KS: KeyStore<K>> Table<K, i64, KS> {
 
     /// [`add`](Self::add) with the coordinate precomputed — the pipelined build calls this so the
     /// `k·PHI` fold happens `P` keys ahead of the load it gates. `coord` is table-size-independent, so
-    /// it stays valid across a resize (`probe` re-homes it), which keeps [`count_each`](Self::count_each)
-    /// correct even if the batch grows the table.
+    /// it stays valid across a resize (`probe_keyed` re-homes it), which keeps
+    /// [`count_each`](Self::count_each) correct even if the batch grows the table.
     #[inline]
     fn add_with_coord(&mut self, coord: u64, k: K, v: i64) {
+        if is_sentinel(coord) {
+            // A reserved coordinate (`EMPTY`/`TOMB`) is held in the side store. Route it through the
+            // shared core: the old coordinate-only path wrote the marker into `coords`, where `probe`
+            // and every liveness test read it back as empty, silently dropping the key.
+            self.insert_with(k, v, count::<i64>);
+            return;
+        }
         if (self.len + self.tombs + 1) * 8 >= self.coords.len() * 7 {
             let new_bits = if (self.len + 1) * 8 >= self.coords.len() * 7 {
                 self.bits + 1
@@ -549,7 +570,7 @@ impl<K: Eq + Coord, KS: KeyStore<K>> Table<K, i64, KS> {
             };
             self.resize(new_bits);
         }
-        let (i, found) = self.probe(coord);
+        let (i, found) = self.probe_keyed(coord, &k);
         if found {
             // SAFETY: found ⇒ value initialized; i64 add in place — no move, no panic, no drop.
             *unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() } += v; // entry().or_insert() += v
@@ -748,6 +769,12 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 let k = other.keys.take_key(i, c); // Stored: move; Regen: regenerate
                 self.insert_with(k, v, &mut f);
             }
+        }
+        // The other table's reserved-coordinate keys live in its side store. Consume them too: a
+        // `fuse` that walked only `coords` would drop one side's counts on the floor.
+        while let Some(last) = other.side.coords.len().checked_sub(1) {
+            let (_c, k, v) = other.side.take_entry(last);
+            self.insert_with(k, v, &mut f);
         }
     }
 }
