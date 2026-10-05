@@ -45,8 +45,11 @@ architecture requirement, not a claim that the complete connecting theorem alrea
 
 Apeiron evolves from hashtrinity; `fold/hashtrinity` is the predecessor. The basis is
 `R[x]/(x^2 - sigma)`, `Cell<R>` with explicit `Sigma`, and face-correct `Coord` addressing.
-The executing [src/table.rs](../src/table.rs) is already growable: a flat certified-coordinate
-resident area plus grouped spill regions, keyed by `(Sigma,K)`, with `Stored`/`Regen` carriers.
+The selected map and count arms execute the vendored hashtrinity table (`src/hashtrinity/`,
+rev `4cc14471`, reached as `apeiron::freq`); that body is the refinement target, rebased onto this
+basis (`docs/plan.md`). The generic growable [src/table.rs](../src/table.rs) — a flat
+certified-coordinate resident area plus grouped spill regions, keyed by `(Sigma,K)`, with
+`Stored`/`Regen` carriers — is removed once the executed body is verified (`APEIRON-RETIRE-GENERIC`).
 `SizeOverflow` and `AllocationFailed` are resource outcomes; `ShardFull` is compatibility-only.
 Implementation presence does not close the extraction/refinement integration wave. The earlier
 fixed-shard layout and its bounded-admission proofs are historical, not proofs of this layout.
@@ -87,8 +90,10 @@ The owner sets one bar for the apeiron core. A face is done only when all four h
    `{propext, Classical.choice, Quot.sound}` for the Rust/Aeneas bridge, with an **empty** cone for
    the Slang source-refinement chain; and mutation controls on the real source or generated kernel
    that turn the named proof or test red and pass restored.
-2. **Competitive-or-SOTA speed.** The global acceptance contract under
-   [G1/REG-1](#required-r0-acceptance-g1--reg-1).
+2. **Faster than `hashbrown`+FxHasher and `hashbrown`+XXH3** on every workload column of the map
+   face: `apeiron / incumbent <= 1.0`, mean of ≥5 paired runs with spread; `<= 0.5` is aspirational
+   (owner, 2026-10-06; [plan](plan.md#outcome)). The all-incumbent G1/REG-1 contract below is the
+   historical record, not the bar.
 3. **Not HashDOS-vulnerable.** Adversarial key populations must not collapse the structure to
    quadratic behaviour; collision resistance is a required property, not an optional face.
 4. **Cryptographic strength not mandatory but achievable as a face.** A cryptographic-strength hash
@@ -248,6 +253,10 @@ references are historical receipts, not measurements or API descriptions of the 
 read in this review. Current acceptance requires rerunning its exact gate on the integrated identity.
 
 ## Required R0 acceptance: G1 / REG-1
+
+The bar is the owner definition of done above and [the plan's outcome](plan.md#outcome). This
+section is the REG-1 record; its harness (`examples/reg1`) was removed in `c9a2d0c`, and the section
+is removed by `APEIRON-DOCS-CONSOLIDATE`.
 
 <!-- APEIRON-STRATEGY-DECISION-T3-STATUS BEGIN -->
 **Current performance status.** Fresh full-profile REG-1 on the current source (`a2866eb`,
@@ -497,6 +506,9 @@ the same source identity. The flat/spill structure is present in executing Rust;
 these extraction, refinement and measurement obligations is separate. No speed recovery is claimed.
 
 ## Execution order
+
+The execution order is [the plan's ladder](plan.md#ladder). The subsections below are the record of
+earlier orders, not dispatch; they are removed by `APEIRON-DOCS-CONSOLIDATE`.
 
 <!-- APEIRON-REORIENT BEGIN -->
 ### Five-barrier execution sequence (`APEIRON-REORIENT`)

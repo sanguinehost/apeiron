@@ -206,11 +206,11 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   the governing outcome is an open quantitative gate; it is avoidance, and it is not a reason to
   open a lane.
 - Work each goal's written dependencies in order. A goal whose dependency is open gets no lane.
-  **Penglai and webfold are downstream of the apeiron core and are frozen until apeiron beats
-  hashtrinity *and* is formally verified** — i.e. G1 acceptance green (`full_acceptance=true`) and
-  the real-source extraction with its refinement proved under the closed axiom cone. No penglai or
-  webfold lane opens before that condition holds. Penglai's water frame rate and webfold's parser
-  both ride the apeiron core; working them first is the same avoidance as hygiene.
+  **Penglai is downstream of the apeiron core and is frozen until the core is verified on its
+  executed body and beats its speed target** (`docs/plan.md` rungs L1–L3). **Webfold** is not frozen
+  on its other track, but the lead opens no webfold lane until `REBASE-ONTO-APEIRON` (webfold onto
+  this crate in place of hashtrinity) is ready to run (owner, 2026-10-06). Penglai's water frame rate
+  rides the apeiron core; working it first is the same avoidance as hygiene.
 - When a goal's gap is a measured number — a failing ratio, a frame rate, a latency — the lane that
   attacks that number outranks every hygiene task, and its first task is to reproduce the number on
   the current source. A recorded number is stale until re-measured; a stale number is not a status.
@@ -230,9 +230,10 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
   optimization but a tax — name the base and its measured ratio first. **Enforcer: the
   dispatch-admission `subsume` field (MISSING until built; until then this rule is review-enforced
   only and is recorded as such, not as acceptance).** Worked example: the empirically best counting
-  structure is `../fold/hashtrinity` (pinned `Cargo.toml:76-80`, rev `4cc14471`); it must be
-  subsumed and proved, not re-derived, and the generic `Table` (`src/table.rs`) is the inferior
-  primitive — not a valid base for a count-face optimization.
+  structure is `../fold/hashtrinity` at rev `4cc14471`, vendored at `src/hashtrinity/`; it is
+  subsumed and proved, not re-derived. `fold/hashtrinity` itself is deprecated: its table is rebased
+  onto the `R[x]/(x²−σ)` basis here, and the generic `Table` (`src/table.rs`) is the inferior
+  primitive, removed once the executed body is verified (`docs/plan.md`, `APEIRON-RETIRE-GENERIC`).
 
 - **The incumbent's evidence is pinned, not regenerated.** Read `../fold/hashtrinity` at the G1
   revision `4cc14471` (`src/lib.rs` sha256 `f8c8fd12fc2b7a69…`; fold HEAD `d497161f`'s `lib.rs` is
@@ -469,17 +470,11 @@ descriptive only.
 
 ### 9.1 Default worker and trigger-selected escalation
 
-`space-bunny-alpha` (`openrouter/stealth/space-bunny-alpha`, OpenRouter) executes every
-dispatch-ready task by default. It is free and the fastest free route measured: 400 tokens in
-2.70 s wall, 147.9 tok/s, TTFT 1.19 s. The OpenCode Zen route to the same family
-(`opencode-go/space-bunny-free`, `opencode/space-bunny-free`) measured 6.95 s wall / 57.5 tok/s /
-TTFT 6.95 s on the same prompt — it is slower; use the OpenRouter route. **The free window ends
-2026-10-05**; until then dispatch Space Bunny on every bounded task and lead-verify each result. It
-is mid-tier (cloaked weights, MMLU-Pro ≈ 75%): adequate for bounded, gated, ≤3-file tasks, not a
-proof-search ceiling. `deepseek-flash` (`deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) is the paid escalation lane,
-taken only when a mandatory trigger holds or the free lane fails the same bounded task twice.
-Anything beyond that escalates manually to the owner. `gemini-flash` (Vertex prepaid) remains an
-available lane but is not the default, and its balance is not spent on ordinary work. Escalation is
+`deepseek-flash` (`deepseek/deepseek-flash`, the DeepSeek API through OpenCode — never the
+OpenRouter route) executes every dispatch-ready task by default. The second worker lane is `agy`
+(the Antigravity CLI, Gemini 3.8 Flash): comparable quality with less usage headroom. Use both
+heavily; the lead designs, dispatches and verifies, and does not do bounded work itself (owner,
+2026-10-06). The Space Bunny free window closed 2026-10-05; that route is retired. Escalation is
 selected by the artifact at risk, not by a subjective difficulty estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
 Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
@@ -496,9 +491,8 @@ remain historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
-| Space Bunny (`openrouter/stealth/space-bunny-alpha`) | **default bounded worker for every dispatch-ready task**, free, OpenRouter, until 2026-10-05 | task is ≤3 files, one task-specific gate, no escalation trigger holds, and the free window is open | edited artifact, exact gate output, measurement, decision |
-| DeepSeek Flash (`deepseek-flash`, `deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) | paid escalation worker, taken only when necessary | a mandatory escalation trigger holds, or the Space Bunny lane failed the same bounded task twice, within ≤3 files and one gate | edited artifact, exact gate output, measurement, decision |
-| Gemini Flash (`gemini-flash`) | non-default lane, not for ordinary work | the free window is closed, or the owner directs the lane | edited artifact, exact gate output, measurement, decision |
+| DeepSeek Flash (`deepseek-flash`, `deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) | **default bounded worker for every dispatch-ready task** | task is ≤3 files, one task-specific gate, no escalation trigger holds | edited artifact, exact gate output, measurement, decision |
+| `agy` (Antigravity CLI, Gemini 3.8 Flash) | second bounded worker, run in parallel with DeepSeek Flash | as DeepSeek Flash; also bulk reads that return a digest | edited artifact, exact gate output, measurement, decision |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
 
@@ -518,9 +512,8 @@ remain historical records.
 - The independent verifier returns a bounded decision or artifact. Execution returns to the default
   worker when that result restores a ≤3-file, one-gate task, unless a speed-lane condition holds;
   escalation does not transfer ordinary work.
-- Standing user authorization covers `openrouter/stealth/space-bunny-alpha` invocations and
-  fresh-session verification that meet a trigger, and `deepseek-flash` only where a mandatory trigger
-  holds. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
+- Standing user authorization covers `deepseek-flash` and `agy` worker invocations and
+  fresh-session verification that meet a trigger. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
   pushes unless the user delegates that authority. A missing required verdict keeps the task open.
 
 ### Mandatory inference optimization admission
