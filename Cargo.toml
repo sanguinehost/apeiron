@@ -36,139 +36,27 @@ injection = []
 [dependencies]
 apeiron-derive = { path = "derive", version = "0.1.0", optional = true }
 
-# REG-1 load-bearing incumbent on the **library** build path: `hashtrinity::FreqMap` is the measured
-# counting structure (the NB face), fetched from the local fold Git object at a committed revision.
-# A `file://` clone reads committed objects only, so a dirty fold working tree cannot leak in. The
-# crate's unconditional `crypto` module imports its `hex` and `base64` masquerade modules, so those
-# two are the minimum set that compiles; the default `rustls-provider`/`webauthn`/`syncfold`
-# features stay off.
-[dependencies.hashtrinity]
-git = "file:///home/socol/Workspace/fold"
-rev = "4cc14471ae24f3f204fb0b0e91736ef75c909358"
-default-features = false
-features = ["hex", "base64"]
+# The `hashtrinity` git dependency (the REG-1 incumbent) is removed. The count face's executed body
+# is the in-tree port (`src/hashtrinity/`, re-exported through `src/freq.rs`); the external crate was
+# the comparison baseline and nothing under `src/` imports it (owner direction, 2026-10-05: no
+# comparison to hashtrinity outside the HashDOS lane).
 
-# Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`); already in the lock via
-# the dev-dependencies.
+# Thread affinity for the Q8Act worker pool (`src/engine/chart/pool.rs`).
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-# REG-1 load-bearing incumbents. hashbrown's `default-hasher` is foldhash and its `rayon` feature
-# exposes `HashMap::par_iter`; the `fxhash` crate supplies `FxBuildHasher` (hashbrown 0.15 has no
-# fxhash feature). Exact `=` pins keep the comparison identity reproducible; `hashtrinity` is
-# pinned by revision below.
-hashbrown = { version = "0.15", features = ["default-hasher", "rayon"] }
-foldhash = "0.1"
-fxhash = "=0.2.1"
-rayon = "=1.12.0"
-rustc-hash = "2"
-# REG-1 informational comparators. `examples/reg1/acceptance.rs` registers each as
-# `PairClass::Informational`, so they are reported and excluded from the load-bearing pass. Exact
-# `=` pins keep the measured identity reproducible. `twox-hash` is the xxHash binding; the XXH3-64
-# and XXH64 `Hasher`s are behind the `xxhash3_64` and `xxhash64` features. Defaults are off to drop
-# the unused xxhash32/xxhash3_128/`random` surface.
-twox-hash = { version = "=2.1.4", default-features = false, features = ["xxhash3_64", "xxhash64"] }
-wyhash = "=0.6.0"
-ahash = "=0.8.12"
-fnv = "=1.0.7"
+# The REG-1 comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, rayon, rustc-hash,
+# twox-hash, wyhash, ahash, fnv), the harness-only `libc` (its consumer `examples/support/counter.rs`
+# is gone) and the `hashtrinity` baseline are removed with the comparison harness (owner direction,
+# 2026-10-05). `blake3`/`sha2` stay for the vendored crypto/sha bodies until those modules leave with
+# the port trim.
 blake3 = "=1.8.7"
 sha2 = "=0.10.9"
-# Harness-only: `perf_event_open` and `ioctl` for `examples/support/counter.rs`, so a benchmark
-# row carries its own instruction count instead of trusting a wall clock. A dev-dependency, so the
-# published crate still has zero dependencies.
-libc = "0.2"
-
-# Harness-only REG-1 baseline: the pinned historical `hashtrinity::Table`, fetched from the local
-# fold Git object at a committed revision. A `file://` clone reads committed objects only, so a
-# dirty fold working tree cannot leak in. The crate's unconditional `crypto` module imports its
-# `hex` and `base64` masquerade modules, so those two are the minimum set that compiles; the
-# default `rustls-provider`/`webauthn`/`syncfold` features stay off.
-[dev-dependencies.hashtrinity]
-git = "file:///home/socol/Workspace/fold"
-rev = "4cc14471ae24f3f204fb0b0e91736ef75c909358"
-default-features = false
-features = ["hex", "base64"]
 
 # Examples are grouped by kind under `examples/`, so their target paths are declared here rather
-# than auto-discovered from the directory root. Names are unchanged, so every `cargo run --example
-# <name>` invocation keeps working.
-[[example]]
-name = "avalanche"
-path = "examples/smhasher/avalanche.rs"
-
-[[example]]
-name = "avalanche_bias"
-path = "examples/smhasher/avalanche_bias.rs"
-
-[[example]]
-name = "collision_survey"
-path = "examples/smhasher/collision_survey.rs"
-
-[[example]]
-name = "diffdist"
-path = "examples/smhasher/diffdist.rs"
-
-[[example]]
-name = "lowbits_probe"
-path = "examples/smhasher/lowbits_probe.rs"
-
-[[example]]
-name = "moment_chi2"
-path = "examples/smhasher/moment_chi2.rs"
-
-[[example]]
-name = "perlin"
-path = "examples/smhasher/perlin.rs"
-
-[[example]]
-name = "sparse_keys"
-path = "examples/smhasher/sparse_keys.rs"
-
-[[example]]
-name = "top_bit"
-path = "examples/smhasher/top_bit.rs"
-
-[[example]]
-name = "addr_latency"
-path = "examples/fold/addr_latency.rs"
-
-[[example]]
-name = "context_keys"
-path = "examples/fold/context_keys.rs"
-
-[[example]]
-name = "hash_only"
-path = "examples/fold/hash_only.rs"
-
-[[example]]
-name = "length_sweep"
-path = "examples/fold/length_sweep.rs"
-
-[[example]]
-name = "rolling_key"
-path = "examples/fold/rolling_key.rs"
-
-[[example]]
-name = "why_slower"
-path = "examples/fold/why_slower.rs"
-
-[[example]]
-name = "table_cost_probe"
-path = "examples/table_cost_probe.rs"
-
-[[example]]
-name = "spill_read_probe"
-path = "examples/spill_read_probe.rs"
-
-[[example]]
-name = "counter_check"
-path = "examples/support/counter_check.rs"
-
-[[example]]
-name = "reg1"
-path = "examples/reg1/main.rs"
+# than auto-discovered from the directory root. The comparison examples (smhasher, fold, the cost
+# probes, support, reg1) are removed with the comparison harness (owner direction, 2026-10-05).
 
 # The ported SIMT kernels' GPU gates (need the `gpu` runtime feature).
 [[example]]

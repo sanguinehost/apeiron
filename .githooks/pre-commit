@@ -139,16 +139,12 @@ run_step() {
 }
 
 run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
-# The checkpoint step is named here and its tool must exist: a missing driver is
-# a refusal with a diagnostic, not a step that quietly passes (the gate.sh
-# control "the board driver missing: named, not a traceback").
-if [ -f tools/board/checkpoint.py ]; then
-  run_step checkpoint "$step_budget" python3 -B tools/board/checkpoint.py check
-else
-  echo "pre-commit: checkpoint: FAIL board-checkpoint-tool-missing: tools/board/checkpoint.py is absent, so the per-cycle board check-in cannot be verified for a staged src/ or examples/reg1/ change" >&2
-  echo "pre-commit: checkpoint: fix: python3 tools/board/checkpoint.py self-test" >&2
-  status=1
-fi
+# The per-cycle checkpoint step is retired with the acceptance harness: it read a reg1
+# acceptance stream from `examples/reg1`, and with the comparison removed there is no such
+# stream and no source the ratio is measured on (owner direction, 2026-10-05: no comparison to
+# hashtrinity outside the HashDOS lane). The board check-in continues via the operator pulse and
+# the per-commit row declaration in `.githooks/commit-msg`.
+# Row: `apeiron-purge-comparison-FHJYanehAPPFDz5O61a6P5` (APEIRON-PURGE-COMPARISON).
 run_step cargo-fmt "$step_budget" cargo fmt --all -- --check
 run_step check-claims "$step_budget" python3 -B tools/check-claims.py
 

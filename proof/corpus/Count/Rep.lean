@@ -48,9 +48,8 @@ type and one name; the synonym `CountTable` is dropped.
 
 ## What the count face is, and what it is not
 
-The count face's **executed** body is `hashtrinity::FreqMap::count_par` (`src/hashtrinity/freq.rs:30`;
-the selected arm `examples/reg1/adapters/spatial.rs:792` reaches the git dependency at rev `4cc14471`),
-followed by `FreqMap::get_each`.  Neither is extracted: `proof/ApeironWord.lean` carries no `FreqMap`,
+The count face's **executed** body is `crate::hashtrinity::FreqMap::count_par`
+(`src/hashtrinity/freq.rs:30`), followed by `FreqMap::get_each`.  Neither is extracted: `proof/ApeironWord.lean` carries no `FreqMap`,
 `count_par` or `get_each` symbol, `proof/extract/lib.rs` names no `freq` module, and `count_par` drives
 an OS thread pool over raw-pointer writes and closures, which the extraction fragment does not model.
 So no `word_count_get` body exists and none is invented here; that symbol was a fabricated precedent in

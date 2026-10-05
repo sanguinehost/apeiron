@@ -128,7 +128,7 @@ diff -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 diff -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
 --- a/Aeneas/Std/Scalar/Ops.lean	2026-10-02 15:35:35.494700736 +1000
 +++ b/Aeneas/Std/Scalar/Ops.lean	2026-10-02 15:35:35.512799794 +1000
-@@ -4,3 +4,19 @@
+@@ -4,3 +4,35 @@
  import Aeneas.Std.Scalar.Ops.Neg
  import Aeneas.Std.Scalar.Ops.Rem
  import Aeneas.Std.Scalar.Ops.Sub
@@ -146,6 +146,22 @@ diff -ruN a/Aeneas/Std/Scalar/Ops.lean b/Aeneas/Std/Scalar/Ops.lean
 +  let q ← UScalar.div x y
 +  let r ← UScalar.rem x y
 +  if r.val = 0 then ok q else UScalar.add q (UScalar.one : Usize)
++
++/-- SPIKE model: `usize::trailing_zeros`, the number of low zero bits of a word. A zero word has
++`w` trailing zeros, matching Rust's `trailing_zeros`, which returns the bit width for zero. The
++`Flat`/`Flat::reserve` lane count is a power of two, so this is the `log2` those bodies read.
++Aeneas emits an unmodeled scalar external as the monadic `Result` form, so the model returns
++`Result U32`, as `usize::div_ceil` above does. -/
++def BitVec.trailingZeros {w : Nat} (x : BitVec w) : Nat :=
++  go x w 0
++where
++  go {w : Nat} (x : BitVec w) : Nat → Nat → Nat
++    | 0, acc => acc
++    | fuel + 1, acc => if x.getLsbD acc then acc else go x fuel (acc + 1)
++
++@[rust_fun "core::num::{usize}::trailing_zeros"]
++def core.num.Usize.trailing_zeros (x : Usize) : Result U32 :=
++  ok ⟨ BitVec.trailingZeros x.bv ⟩
 +
 +end Aeneas.Std
 diff -ruN a/Aeneas/Std/Scalar/WrappingOps/Shl.lean b/Aeneas/Std/Scalar/WrappingOps/Shl.lean

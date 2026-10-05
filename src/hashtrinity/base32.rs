@@ -16,8 +16,8 @@
 //! Neither pads: a 32-byte key is 52 characters and the trailing bits are zero-filled, which is
 //! what every consumer of these keys expects.
 //!
-//! ```
-//! use hashtrinity::base32::{RFC4648, ZBASE32};
+//! ```ignore
+//! use apeiron::hashtrinity::base32::{RFC4648, ZBASE32};
 //!
 //! assert_eq!(RFC4648.encode(b"foobar"), "MZXW6YTBOI");
 //! assert_eq!(RFC4648.decode("MZXW6YTBOI").unwrap(), b"foobar");

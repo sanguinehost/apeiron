@@ -11,6 +11,8 @@ fail-closed audit to reject. This script therefore never weakens the audit — i
 the model now supplies.
 
 Usage: strip-modeled-axioms.py FILE
+
+Row: `p0-extract-green-the-to-FdNduPwnGpUEQBI5PAovaC` (P0 · EXTRACT-GREEN).
 """
 import re
 import sys
@@ -30,6 +32,7 @@ ALLOW = {
     "core.result.Result.ok",
     "core.num.I64.checked_shl",
     "core.num.Usize.div_ceil",
+    "core.num.Usize.trailing_zeros",
     "I64.Insts.CoreConvertFromU8.from",
     "I64.Insts.CoreConvertFromU16.from",
     "I32.Insts.CoreConvertFromU8.from",

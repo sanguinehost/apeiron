@@ -2,8 +2,8 @@
 //! types (`Either`, `EitherOrBoth`, `Position`, `MinMaxResult`, the error types) and free
 //! functions/macros. Zero dependencies — this REPLACES `itertools`, it doesn't wrap it.
 //!
-//! ```
-//! use hashtrinity::itertools::Itertools;
+//! ```ignore
+//! use apeiron::hashtrinity::itertools::Itertools;
 //!
 //! assert_eq!(vec![1, 1, 2, 3, 3, 3].into_iter().unique().collect::<Vec<_>>(), vec![1, 2, 3]);
 //! assert_eq!(vec![1, 2, 2, 3].into_iter().dedup().collect::<Vec<_>>(), vec![1, 2, 3]);

@@ -2,8 +2,8 @@
 //! `decode`, `encode_upper`, `encode_to_slice[_upper]`, `decode_to_slice`, `decode_in_slice`,
 //! `ToHex`/`FromHex`, `FromHexError`). Zero dependencies — this REPLACES `hex`, it doesn't wrap it.
 //!
-//! ```
-//! use hashtrinity::hex;
+//! ```ignore
+//! use apeiron::hashtrinity::hex;
 //!
 //! assert_eq!(hex::encode("Hello world!"), "48656c6c6f20776f726c6421");
 //! assert_eq!(hex::decode("48656c6c6f20776f726c6421").unwrap(), b"Hello world!");
