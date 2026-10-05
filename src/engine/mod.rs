@@ -217,7 +217,7 @@ mod tests;
 mod value;
 
 pub use self::attn::{AttnError, KvState};
-pub use self::dequant::f16_to_fixed;
+pub use self::dequant::{dequant_row_fixed, f16_to_fixed};
 pub use self::error::EngineError;
 pub use self::f32_convert::{f32_to_fixed, F32Error};
 pub use self::ffn::{ffn_fixed, silu_fixed, FfnError, ProjWeights};

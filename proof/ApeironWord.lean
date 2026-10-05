@@ -7579,7 +7579,7 @@ def quant.PTQ1_0_BLOCK_BYTES : Result Std.Usize := do
   i5 + 2#usize
 
 /-- [apeiron_word::dequant::read_scale]:
-    Source: '../../src/engine/dequant.rs', lines 118:0-120:1 -/
+    Source: '../../src/engine/dequant.rs', lines 124:0-126:1 -/
 def dequant.read_scale
   (raw : Slice Std.U8) (i : Std.Usize) :
   Result (core.result.Result Std.I64 error.EngineError)
@@ -9494,7 +9494,7 @@ def error.EngineError.Insts.CoreConvertFromQuantError : core.convert.From
 }
 
 /-- [apeiron_word::dequant::q6_k_block]:
-    Source: '../../src/engine/dequant.rs', lines 182:0-188:1 -/
+    Source: '../../src/engine/dequant.rs', lines 188:0-194:1 -/
 def dequant.q6_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 16#usize) × (Array
@@ -9544,7 +9544,7 @@ def dequant.q6_k_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 2:
-    Source: '../../src/engine/dequant.rs', lines 549:20-558:21 -/
+    Source: '../../src/engine/dequant.rs', lines 555:20-564:21 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0_loop0_loop0.body
   (codes : Array Std.I8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -9577,7 +9577,7 @@ def dequant.dequant_q6_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 2:
-    Source: '../../src/engine/dequant.rs', lines 549:20-558:21 -/
+    Source: '../../src/engine/dequant.rs', lines 555:20-564:21 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -9592,7 +9592,7 @@ def dequant.dequant_q6_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 539:16-560:17 -/
+    Source: '../../src/engine/dequant.rs', lines 545:16-566:17 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0_loop0.body
   (d : Std.I64) (scales : Array Std.I8 16#usize)
@@ -9623,7 +9623,7 @@ def dequant.dequant_q6_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 539:16-560:17 -/
+    Source: '../../src/engine/dequant.rs', lines 545:16-566:17 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64)
@@ -9638,7 +9638,7 @@ def dequant.dequant_q6_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 533:4-571:5 -/
+    Source: '../../src/engine/dequant.rs', lines 539:4-577:5 -/
 @[rust_loop_body]
 def dequant.dequant_q6_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -9676,7 +9676,7 @@ def dequant.dequant_q6_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 533:4-571:5 -/
+    Source: '../../src/engine/dequant.rs', lines 539:4-577:5 -/
 @[rust_loop]
 def dequant.dequant_q6_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -9690,7 +9690,7 @@ def dequant.dequant_q6_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q6_k_row]:
-    Source: '../../src/engine/dequant.rs', lines 528:0-576:1 -/
+    Source: '../../src/engine/dequant.rs', lines 534:0-582:1 -/
 def dequant.dequant_q6_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -9846,7 +9846,7 @@ def quant.q4_k_codes
       residual
 
 /-- [apeiron_word::dequant::q4_k_block]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 173:4-176:5 -/
+    Source: '../../src/engine/dequant.rs', lines 179:4-182:5 -/
 @[rust_loop_body]
 def dequant.q4_k_block_loop.body
   (blk : Slice Std.U8) (sc : Array Std.U8 12#usize) (k : Std.Usize) :
@@ -9863,7 +9863,7 @@ def dequant.q4_k_block_loop.body
   else ok (done sc)
 
 /-- [apeiron_word::dequant::q4_k_block]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 173:4-176:5 -/
+    Source: '../../src/engine/dequant.rs', lines 179:4-182:5 -/
 @[rust_loop]
 def dequant.q4_k_block_loop
   (blk : Slice Std.U8) (sc : Array Std.U8 12#usize) (k : Std.Usize) :
@@ -9874,7 +9874,7 @@ def dequant.q4_k_block_loop
     (sc, k)
 
 /-- [apeiron_word::dequant::q4_k_block]:
-    Source: '../../src/engine/dequant.rs', lines 164:0-179:1 -/
+    Source: '../../src/engine/dequant.rs', lines 170:0-185:1 -/
 def dequant.q4_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × Std.I64 × (Array Std.U8 12#usize) ×
@@ -9919,7 +9919,7 @@ def dequant.q4_k_block
       256#usize)) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 2:
-    Source: '../../src/engine/dequant.rs', lines 476:20-504:21 -/
+    Source: '../../src/engine/dequant.rs', lines 482:20-510:21 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0_loop0_loop0.body
   (codes : Array Std.U8 256#usize) (group : Std.Usize) (slope_lo : Std.I64)
@@ -9975,7 +9975,7 @@ def dequant.dequant_q4_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 2:
-    Source: '../../src/engine/dequant.rs', lines 476:20-504:21 -/
+    Source: '../../src/engine/dequant.rs', lines 482:20-510:21 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -9991,7 +9991,7 @@ def dequant.dequant_q4_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 440:16-506:17 -/
+    Source: '../../src/engine/dequant.rs', lines 446:16-512:17 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0_loop0.body
   (scale : Std.I64) (min_scale : Std.I64) (sc : Array Std.U8 12#usize)
@@ -10043,7 +10043,7 @@ def dequant.dequant_q4_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 440:16-506:17 -/
+    Source: '../../src/engine/dequant.rs', lines 446:16-512:17 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (scale : Std.I64)
@@ -10059,7 +10059,7 @@ def dequant.dequant_q4_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 434:4-517:5 -/
+    Source: '../../src/engine/dequant.rs', lines 440:4-523:5 -/
 @[rust_loop_body]
 def dequant.dequant_q4_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -10097,7 +10097,7 @@ def dequant.dequant_q4_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 434:4-517:5 -/
+    Source: '../../src/engine/dequant.rs', lines 440:4-523:5 -/
 @[rust_loop]
 def dequant.dequant_q4_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -10111,7 +10111,7 @@ def dequant.dequant_q4_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q4_k_row]:
-    Source: '../../src/engine/dequant.rs', lines 429:0-522:1 -/
+    Source: '../../src/engine/dequant.rs', lines 435:0-528:1 -/
 def dequant.dequant_q4_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -10482,7 +10482,7 @@ def quant.q3_k_scales
       (Array Std.I8 16#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q3_k_block]:
-    Source: '../../src/engine/dequant.rs', lines 148:0-154:1 -/
+    Source: '../../src/engine/dequant.rs', lines 154:0-160:1 -/
 def dequant.q3_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 16#usize) × (Array
@@ -10532,7 +10532,7 @@ def dequant.q3_k_block
       (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 2:
-    Source: '../../src/engine/dequant.rs', lines 390:20-399:21 -/
+    Source: '../../src/engine/dequant.rs', lines 396:20-405:21 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0_loop0_loop0.body
   (codes : Array Std.I8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -10565,7 +10565,7 @@ def dequant.dequant_q3_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 2:
-    Source: '../../src/engine/dequant.rs', lines 390:20-399:21 -/
+    Source: '../../src/engine/dequant.rs', lines 396:20-405:21 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -10580,7 +10580,7 @@ def dequant.dequant_q3_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 380:16-401:17 -/
+    Source: '../../src/engine/dequant.rs', lines 386:16-407:17 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0_loop0.body
   (d : Std.I64) (scales : Array Std.I8 16#usize)
@@ -10612,7 +10612,7 @@ def dequant.dequant_q3_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 380:16-401:17 -/
+    Source: '../../src/engine/dequant.rs', lines 386:16-407:17 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64)
@@ -10627,7 +10627,7 @@ def dequant.dequant_q3_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 374:4-412:5 -/
+    Source: '../../src/engine/dequant.rs', lines 380:4-418:5 -/
 @[rust_loop_body]
 def dequant.dequant_q3_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -10665,7 +10665,7 @@ def dequant.dequant_q3_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 374:4-412:5 -/
+    Source: '../../src/engine/dequant.rs', lines 380:4-418:5 -/
 @[rust_loop]
 def dequant.dequant_q3_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -10679,7 +10679,7 @@ def dequant.dequant_q3_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q3_k_row]:
-    Source: '../../src/engine/dequant.rs', lines 369:0-417:1 -/
+    Source: '../../src/engine/dequant.rs', lines 375:0-423:1 -/
 def dequant.dequant_q3_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -10939,7 +10939,7 @@ def quant.q2_k_scales
       (Array Std.U8 16#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q2_k_block]:
-    Source: '../../src/engine/dequant.rs', lines 138:0-145:1 -/
+    Source: '../../src/engine/dequant.rs', lines 144:0-151:1 -/
 def dequant.q2_k_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × Std.I64 × (Array Std.U8 16#usize) ×
@@ -11008,7 +11008,7 @@ def dequant.q2_k_block
       256#usize)) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 2:
-    Source: '../../src/engine/dequant.rs', lines 330:20-345:21 -/
+    Source: '../../src/engine/dequant.rs', lines 336:20-351:21 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0_loop0_loop0.body
   (codes : Array Std.U8 256#usize) (group : Std.Usize) (slope : Std.I64)
@@ -11045,7 +11045,7 @@ def dequant.dequant_q2_k_row_loop0_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 2:
-    Source: '../../src/engine/dequant.rs', lines 330:20-345:21 -/
+    Source: '../../src/engine/dequant.rs', lines 336:20-351:21 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError)
@@ -11061,7 +11061,7 @@ def dequant.dequant_q2_k_row_loop0_loop0_loop0
     (ok1, err, vals, lane)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 311:16-347:17 -/
+    Source: '../../src/engine/dequant.rs', lines 317:16-353:17 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0_loop0.body
   (d : Std.I64) (dmin : Std.I64) (scales : Array Std.U8 16#usize)
@@ -11099,7 +11099,7 @@ def dequant.dequant_q2_k_row_loop0_loop0.body
   else ok (done (ok1, err, vals))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 311:16-347:17 -/
+    Source: '../../src/engine/dequant.rs', lines 317:16-353:17 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0_loop0
   (ok1 : Bool) (err : Option error.EngineError) (d : Std.I64) (dmin : Std.I64)
@@ -11114,7 +11114,7 @@ def dequant.dequant_q2_k_row_loop0_loop0
     (ok1, err, vals, group)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 305:4-358:5 -/
+    Source: '../../src/engine/dequant.rs', lines 311:4-364:5 -/
 @[rust_loop_body]
 def dequant.dequant_q2_k_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -11152,7 +11152,7 @@ def dequant.dequant_q2_k_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 305:4-358:5 -/
+    Source: '../../src/engine/dequant.rs', lines 311:4-364:5 -/
 @[rust_loop]
 def dequant.dequant_q2_k_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -11166,7 +11166,7 @@ def dequant.dequant_q2_k_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q2_k_row]:
-    Source: '../../src/engine/dequant.rs', lines 300:0-363:1 -/
+    Source: '../../src/engine/dequant.rs', lines 306:0-369:1 -/
 def dequant.dequant_q2_k_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -11298,7 +11298,7 @@ def quant.q5_0_d
       Std.U16 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q5_0_block]:
-    Source: '../../src/engine/dequant.rs', lines 130:0-135:1 -/
+    Source: '../../src/engine/dequant.rs', lines 136:0-141:1 -/
 def dequant.q5_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 32#usize))
@@ -11340,7 +11340,7 @@ def dequant.q5_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 272:16-281:17 -/
+    Source: '../../src/engine/dequant.rs', lines 278:16-287:17 -/
 @[rust_loop_body]
 def dequant.dequant_q5_0_row_loop0_loop0.body
   (scale : Std.I64) (codes : Array Std.I8 32#usize) (take : Std.Usize)
@@ -11370,7 +11370,7 @@ def dequant.dequant_q5_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 272:16-281:17 -/
+    Source: '../../src/engine/dequant.rs', lines 278:16-287:17 -/
 @[rust_loop]
 def dequant.dequant_q5_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -11384,7 +11384,7 @@ def dequant.dequant_q5_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 267:4-289:5 -/
+    Source: '../../src/engine/dequant.rs', lines 273:4-295:5 -/
 @[rust_loop_body]
 def dequant.dequant_q5_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -11418,7 +11418,7 @@ def dequant.dequant_q5_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 267:4-289:5 -/
+    Source: '../../src/engine/dequant.rs', lines 273:4-295:5 -/
 @[rust_loop]
 def dequant.dequant_q5_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -11432,7 +11432,7 @@ def dequant.dequant_q5_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q5_0_row]:
-    Source: '../../src/engine/dequant.rs', lines 262:0-294:1 -/
+    Source: '../../src/engine/dequant.rs', lines 268:0-300:1 -/
 def dequant.dequant_q5_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -11515,7 +11515,7 @@ def quant.q8_0_codes
       (Array Std.I8 32#usize) (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::dequant::q8_0_block]:
-    Source: '../../src/engine/dequant.rs', lines 123:0-127:1 -/
+    Source: '../../src/engine/dequant.rs', lines 129:0-133:1 -/
 def dequant.q8_0_block
   (raw : Slice Std.U8) (block : Std.Usize) :
   Result (core.result.Result (Std.I64 × (Array Std.I8 32#usize))
@@ -11542,7 +11542,7 @@ def dequant.q8_0_block
       error.EngineError) residual
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop body 1:
-    Source: '../../src/engine/dequant.rs', lines 234:16-243:17 -/
+    Source: '../../src/engine/dequant.rs', lines 240:16-249:17 -/
 @[rust_loop_body]
 def dequant.dequant_q8_0_row_loop0_loop0.body
   (scale : Std.I64) (codes : Array Std.I8 32#usize) (take : Std.Usize)
@@ -11572,7 +11572,7 @@ def dequant.dequant_q8_0_row_loop0_loop0.body
   else ok (done (out, ok1, err))
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop 1:
-    Source: '../../src/engine/dequant.rs', lines 234:16-243:17 -/
+    Source: '../../src/engine/dequant.rs', lines 240:16-249:17 -/
 @[rust_loop]
 def dequant.dequant_q8_0_row_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (ok1 : Bool) (err : Option error.EngineError)
@@ -11586,7 +11586,7 @@ def dequant.dequant_q8_0_row_loop0_loop0
     (out, ok1, err, lane)
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 229:4-251:5 -/
+    Source: '../../src/engine/dequant.rs', lines 235:4-257:5 -/
 @[rust_loop_body]
 def dequant.dequant_q8_0_row_loop0.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (blocks : Std.Usize)
@@ -11620,7 +11620,7 @@ def dequant.dequant_q8_0_row_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 229:4-251:5 -/
+    Source: '../../src/engine/dequant.rs', lines 235:4-257:5 -/
 @[rust_loop]
 def dequant.dequant_q8_0_row_loop0
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -11634,7 +11634,7 @@ def dequant.dequant_q8_0_row_loop0
     (out, block, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_q8_0_row]:
-    Source: '../../src/engine/dequant.rs', lines 224:0-256:1 -/
+    Source: '../../src/engine/dequant.rs', lines 230:0-262:1 -/
 def dequant.dequant_q8_0_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -11648,7 +11648,7 @@ def dequant.dequant_q8_0_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::dequant::dequant_f16_row]: loop body 0:
-    Source: '../../src/engine/dequant.rs', lines 198:4-213:5 -/
+    Source: '../../src/engine/dequant.rs', lines 204:4-219:5 -/
 @[rust_loop_body]
 def dequant.dequant_f16_row_loop.body
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -11680,7 +11680,7 @@ def dequant.dequant_f16_row_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::dequant::dequant_f16_row]: loop 0:
-    Source: '../../src/engine/dequant.rs', lines 198:4-213:5 -/
+    Source: '../../src/engine/dequant.rs', lines 204:4-219:5 -/
 @[rust_loop]
 def dequant.dequant_f16_row_loop
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -11693,7 +11693,7 @@ def dequant.dequant_f16_row_loop
     (out, idx, ok1, err)
 
 /-- [apeiron_word::dequant::dequant_f16_row]:
-    Source: '../../src/engine/dequant.rs', lines 194:0-218:1 -/
+    Source: '../../src/engine/dequant.rs', lines 200:0-224:1 -/
 def dequant.dequant_f16_row
   (raw : Slice Std.U8) (n_elems : Std.Usize) (out : alloc.vec.Vec Std.I64) :
   Result ((core.result.Result Unit error.EngineError) × (alloc.vec.Vec
@@ -11706,7 +11706,8 @@ def dequant.dequant_f16_row
   | some e => ok (core.result.Result.Err e, out1)
 
 /-- [apeiron_word::dequant::dequant_row_fixed]:
-    Source: '../../src/engine/dequant.rs', lines 93:0-115:1 -/
+    Source: '../../src/engine/dequant.rs', lines 99:0-121:1
+    Visibility: public -/
 def dequant.dequant_row_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_elems : Std.Usize)
   (out : alloc.vec.Vec Std.I64) :

@@ -30,6 +30,7 @@
 //! gpu.run(&[Dispatch { pipe, dset: ds, groups: (m.div_ceil(256), segs) }]);
 //! ```
 
+pub mod decode;
 pub mod runtime;
 pub mod vulkan;
 
