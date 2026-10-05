@@ -40,8 +40,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use crate::hashtrinity::{
-    bits_for, is_live, is_sentinel, Coord, KeyReadout, KeyStore, SideStore, Stored, Table, EMPTY, PHI,
-    TOMB,
+    bits_for, is_live, is_sentinel, Capped, Coord, KeyReadout, KeyStore, Overflow, SideStore,
+    Store, Stored, Table, EMPTY, PHI, TOMB,
 };
 use std::mem::MaybeUninit;
 
@@ -169,13 +169,15 @@ pub enum Entry<'a, K: Coord + Eq, V, KS: KeyStore<K>> {
     Vacant(VacantEntry<'a, K, V, KS>),
 }
 
-/// A live slot, already located. Every method here is zero further probes. `side` selects the side
-/// store (a reserved-coordinate key) over the main slot arrays.
+/// A live entry, already located. Every method here is zero further probes. `store` selects the main
+/// slot array, the side store (a reserved-coordinate key), or the overflow tree (`node`/`entry`).
 pub struct OccupiedEntry<'a, K: Coord + Eq, V, KS: KeyStore<K>> {
     t: &'a mut Table<K, V, KS>,
     slot: usize,
+    node: u32,
+    entry: u32,
     coord: u64,
-    side: bool,
+    store: Store,
 }
 
 /// The slot an absent key would occupy, already located, holding the key that would go there.
@@ -184,84 +186,139 @@ pub struct VacantEntry<'a, K: Coord + Eq, V, KS: KeyStore<K>> {
     slot: usize,
     coord: u64,
     key: K,
-    side: bool,
+    store: Store,
+}
+
+/// Where [`locate_at`](Table::locate_at) found a borrowed view — the main array, the side store, or
+/// the overflow.
+enum Located {
+    Main(usize),
+    Side(usize),
+    Overflow(u32, u32),
 }
 
 impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> OccupiedEntry<'a, K, V, KS> {
-    /// This slot's key — borrowed when stored, regenerated from the address when not.
+    /// This entry's key — borrowed when stored, regenerated from the address when not.
     #[inline]
     pub fn key(&self) -> KS::Key<'_>
     where
         KS: KeyReadout<K>,
     {
-        if self.side {
-            self.t.side.keys.key(self.slot, self.coord)
-        } else {
-            self.t.keys.key(self.slot, self.coord)
+        match self.store {
+            Store::Side => self.t.side.keys.key(self.slot, self.coord),
+            Store::Main => self.t.keys.key(self.slot, self.coord),
+            Store::Overflow => {
+                let ov = self.t.overflow.as_ref().expect("overflow entry ⇒ store present");
+                self.t.keys.key_of(&ov.nodes[self.node as usize].entries[self.entry as usize].0)
+            }
         }
     }
-    /// The value in the slot.
+    /// The value at this entry.
     #[inline]
     pub fn get(&self) -> &V {
-        if self.side {
+        match self.store {
             // SAFETY: an occupied side entry ⇒ its value is initialized.
-            unsafe { self.t.side.vals.get_unchecked(self.slot).assume_init_ref() }
-        } else {
+            Store::Side => unsafe { self.t.side.vals.get_unchecked(self.slot).assume_init_ref() },
             // SAFETY: an occupied entry names a live slot ⇒ its value is initialized.
-            unsafe { self.t.vals.get_unchecked(self.slot).assume_init_ref() }
+            Store::Main => unsafe { self.t.vals.get_unchecked(self.slot).assume_init_ref() },
+            Store::Overflow => {
+                let ov = self.t.overflow.as_ref().expect("overflow entry ⇒ store present");
+                ov.nodes[self.node as usize].entries[self.entry as usize]
+                    .1
+                    .as_ref()
+                    .expect("overflow entry ⇒ live value")
+            }
         }
     }
-    /// The value in the slot, mutably.
+    /// The value at this entry, mutably.
     #[inline]
     pub fn get_mut(&mut self) -> &mut V {
-        if self.side {
+        match self.store {
             // SAFETY: an occupied side entry ⇒ its value is initialized.
-            unsafe { self.t.side.vals.get_unchecked_mut(self.slot).assume_init_mut() }
-        } else {
+            Store::Side => unsafe {
+                self.t.side.vals.get_unchecked_mut(self.slot).assume_init_mut()
+            },
             // SAFETY: an occupied entry names a live slot ⇒ its value is initialized.
-            unsafe { self.t.vals.get_unchecked_mut(self.slot).assume_init_mut() }
+            Store::Main => unsafe { self.t.vals.get_unchecked_mut(self.slot).assume_init_mut() },
+            Store::Overflow => {
+                let ov = self
+                    .t
+                    .overflow
+                    .as_mut()
+                    .expect("overflow entry ⇒ store present");
+                ov.nodes[self.node as usize].entries[self.entry as usize]
+                    .1
+                    .as_mut()
+                    .expect("overflow entry ⇒ live value")
+            }
         }
     }
-    /// The value in the slot, mutably, for as long as the table borrow lives.
+    /// The value at this entry, mutably, for as long as the table borrow lives.
     #[inline]
     pub fn into_mut(self) -> &'a mut V {
-        if self.side {
-            // SAFETY: an occupied side entry ⇒ its value is initialized.
-            unsafe { self.t.side.vals.get_unchecked_mut(self.slot).assume_init_mut() }
-        } else {
-            // SAFETY: an occupied entry names a live slot ⇒ its value is initialized.
-            unsafe { self.t.vals.get_unchecked_mut(self.slot).assume_init_mut() }
+        self.get_mut_owned()
+    }
+    fn get_mut_owned(self) -> &'a mut V {
+        // SAFETY: the entry is occupied, so the value is initialized; the borrow is the table's.
+        match self.store {
+            Store::Side => unsafe {
+                self.t.side.vals.get_unchecked_mut(self.slot).assume_init_mut()
+            },
+            Store::Main => unsafe { self.t.vals.get_unchecked_mut(self.slot).assume_init_mut() },
+            Store::Overflow => {
+                let ov = self
+                    .t
+                    .overflow
+                    .as_mut()
+                    .expect("overflow entry ⇒ store present");
+                ov.nodes[self.node as usize].entries[self.entry as usize]
+                    .1
+                    .as_mut()
+                    .expect("overflow entry ⇒ live value")
+            }
         }
     }
-    /// Overwrite the value and return the old one. The `Set` face, at a located slot.
+    /// Overwrite the value and return the old one. The `Set` face, at a located entry.
     #[inline]
     pub fn insert(&mut self, v: V) -> V {
         std::mem::replace(self.get_mut(), v)
     }
-    /// Take the value out, tombstoning the slot (see [`Table::remove`]).
+    /// Take the value out, tombstoning the slot / removing the overflow entry (see [`Table::remove`]).
     #[inline]
     pub fn remove(self) -> V {
         self.remove_entry().1
     }
-    /// Take the key and the value out, tombstoning the slot.
+    /// Take the key and the value out, tombstoning the slot / removing the overflow entry.
     #[inline]
     pub fn remove_entry(self) -> (K, V) {
         let (i, c) = (self.slot, self.coord);
-        if self.side {
-            // SAFETY: an occupied side entry ⇒ key and value initialized; `take_entry` moves both
-            // out and swap-removes the entry, so nothing double-drops.
-            let (_c, k, v) = self.t.side.take_entry(i);
-            return (k, v);
+        match self.store {
+            Store::Side => {
+                // SAFETY: an occupied side entry ⇒ key and value initialized; `take_entry` moves both
+                // out and swap-removes the entry, so nothing double-drops.
+                let (_c, k, v) = self.t.side.take_entry(i);
+                (k, v)
+            }
+            Store::Overflow => {
+                let ov = self
+                    .t
+                    .overflow
+                    .as_mut()
+                    .expect("overflow entry ⇒ store present");
+                ov.take_entry(self.node, self.entry)
+            }
+            Store::Main => {
+                // SAFETY: live slot ⇒ value initialized. Read it out and take the key, then tombstone:
+                // the slot's value is now uninitialized and `TOMB` fails the liveness test, so
+                // Drop/Clone/iter skip it — no double free, and the chain past it stays intact.
+                let v = unsafe { self.t.vals.get_unchecked_mut(i).assume_init_read() };
+                let k = self.t.keys.take_key(i, c);
+                unsafe { *self.t.coords.get_unchecked_mut(i) = TOMB };
+                self.t.len -= 1;
+                self.t.tombs += 1;
+                (k, v)
+            }
         }
-        // SAFETY: live slot ⇒ value initialized. Read it out and take the key, then tombstone: the
-        // slot's value is now uninitialized and `TOMB` fails the liveness test, so Drop/Clone/iter
-        // skip it — no double free, and the chain past it stays intact.
-        let v = unsafe { self.t.vals.get_unchecked_mut(i).assume_init_read() };
-        let k = self.t.keys.take_key(i, c);
-        unsafe { *self.t.coords.get_unchecked_mut(i) = TOMB };
-        self.t.len -= 1;
-        self.t.tombs += 1;
-        (k, v)
     }
 }
 
@@ -276,26 +333,36 @@ impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> VacantEntry<'a, K, V, KS> {
     pub fn into_key(self) -> K {
         self.key
     }
-    /// Fill the slot and hand back the value. The table was already sized for this by
+    /// Fill the entry and hand back the value. The table was already sized for this by
     /// [`Table::entry`], so the slot index is still the right one — no second probe.
     #[inline]
     pub fn insert(self, v: V) -> &'a mut V {
-        if self.side {
-            self.t.side.push(self.coord, self.key, v);
-            let i = self.t.side.vals.len() - 1;
-            // SAFETY: just pushed ⇒ initialized.
-            return unsafe { self.t.side.vals.get_unchecked_mut(i).assume_init_mut() };
+        match self.store {
+            Store::Side => {
+                self.t.side.push(self.coord, self.key, v);
+                let i = self.t.side.vals.len() - 1;
+                // SAFETY: just pushed ⇒ initialized.
+                unsafe { self.t.side.vals.get_unchecked_mut(i).assume_init_mut() }
+            }
+            Store::Overflow => {
+                let ov = self
+                    .t
+                    .overflow
+                    .get_or_insert_with(Overflow::new);
+                ov.insert_new(self.coord, self.key, v)
+            }
+            Store::Main => {
+                let (i, c) = (self.slot, self.coord);
+                // SAFETY: `entry` grew the table BEFORE probing, so `i` is a valid EMPTY slot in the
+                // current arrays; nothing between here and there can panic.
+                unsafe { *self.t.coords.get_unchecked_mut(i) = c };
+                unsafe { *self.t.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
+                self.t.keys.set(i, self.key); // Stored: write the key; Regen: no-op
+                self.t.len += 1;
+                // SAFETY: just written ⇒ initialized.
+                unsafe { self.t.vals.get_unchecked_mut(i).assume_init_mut() }
+            }
         }
-        let (i, c) = (self.slot, self.coord);
-        // SAFETY: `entry` grew the table BEFORE probing, so `i` is a valid EMPTY-or-TOMB slot in the
-        // current arrays; writing the coordinate last would be the panic-safe order, but nothing
-        // between here and there can panic.
-        unsafe { *self.t.coords.get_unchecked_mut(i) = c };
-        unsafe { *self.t.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
-        self.t.keys.set(i, self.key); // Stored: write the key; Regen: no-op
-        self.t.len += 1;
-        // SAFETY: just written ⇒ initialized.
-        unsafe { self.t.vals.get_unchecked_mut(i).assume_init_mut() }
     }
 }
 
@@ -378,8 +445,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 return Entry::Occupied(OccupiedEntry {
                     t: self,
                     slot,
+                    node: 0,
+                    entry: 0,
                     coord,
-                    side: true,
+                    store: Store::Side,
                 });
             }
             return Entry::Vacant(VacantEntry {
@@ -387,26 +456,49 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 slot: 0,
                 coord,
                 key: k,
-                side: true,
+                store: Store::Side,
             });
         }
         self.grow_for_one();
-        let (slot, found) = self.probe_keyed(coord, &k);
-        if found {
-            Entry::Occupied(OccupiedEntry {
+        match self.probe_capped_keyed(coord, &k) {
+            Capped::Hit(slot) => Entry::Occupied(OccupiedEntry {
                 t: self,
                 slot,
+                node: 0,
+                entry: 0,
                 coord,
-                side: false,
-            })
-        } else {
-            Entry::Vacant(VacantEntry {
+                store: Store::Main,
+            }),
+            Capped::Vacant(slot) => Entry::Vacant(VacantEntry {
                 t: self,
                 slot,
                 coord,
                 key: k,
-                side: false,
-            })
+                store: Store::Main,
+            }),
+            Capped::Blocked => {
+                let found = self
+                    .overflow
+                    .as_ref()
+                    .and_then(|o| o.find_entry(coord, &k));
+                match found {
+                    Some((node, entry)) => Entry::Occupied(OccupiedEntry {
+                        t: self,
+                        slot: 0,
+                        node,
+                        entry,
+                        coord,
+                        store: Store::Overflow,
+                    }),
+                    None => Entry::Vacant(VacantEntry {
+                        t: self,
+                        slot: 0,
+                        coord,
+                        key: k,
+                        store: Store::Overflow,
+                    }),
+                }
+            }
         }
     }
 
@@ -424,8 +516,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 return Entry::Occupied(OccupiedEntry {
                     t: self,
                     slot,
+                    node: 0,
+                    entry: 0,
                     coord,
-                    side: true,
+                    store: Store::Side,
                 });
             }
             return Entry::Vacant(VacantEntry {
@@ -433,26 +527,49 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 slot: 0,
                 coord,
                 key: q.absorb(), // the ONLY allocation, and only when the key is genuinely new
-                side: true,
+                store: Store::Side,
             });
         }
         self.grow_for_one();
-        let (slot, found) = self.probe_locate(coord, &q);
-        if found {
-            Entry::Occupied(OccupiedEntry {
+        match self.probe_capped_locate(coord, &q) {
+            Capped::Hit(slot) => Entry::Occupied(OccupiedEntry {
                 t: self,
                 slot,
+                node: 0,
+                entry: 0,
                 coord,
-                side: false,
-            })
-        } else {
-            Entry::Vacant(VacantEntry {
+                store: Store::Main,
+            }),
+            Capped::Vacant(slot) => Entry::Vacant(VacantEntry {
                 t: self,
                 slot,
                 coord,
                 key: q.absorb(), // the ONLY allocation, and only when the key is genuinely new
-                side: false,
-            })
+                store: Store::Main,
+            }),
+            Capped::Blocked => {
+                let found = self
+                    .overflow
+                    .as_ref()
+                    .and_then(|o| o.find_locate(coord, &q));
+                match found {
+                    Some((node, entry)) => Entry::Occupied(OccupiedEntry {
+                        t: self,
+                        slot: 0,
+                        node,
+                        entry,
+                        coord,
+                        store: Store::Overflow,
+                    }),
+                    None => Entry::Vacant(VacantEntry {
+                        t: self,
+                        slot: 0,
+                        coord,
+                        key: q.absorb(), // the ONLY allocation, and only when the key is genuinely new
+                        store: Store::Overflow,
+                    }),
+                }
+            }
         }
     }
 
@@ -465,9 +582,12 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             // SAFETY: `find` returns an occupied side entry ⇒ value initialized.
             return Some(unsafe { self.side.vals.get_unchecked_mut(i).assume_init_mut() });
         }
-        let (i, found) = self.probe_keyed(coord, k);
-        // SAFETY: found ⇒ value initialized.
-        found.then(|| unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() })
+        match self.probe_capped_keyed(coord, k) {
+            // SAFETY: found ⇒ value initialized.
+            Capped::Hit(i) => Some(unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() }),
+            Capped::Vacant(_) => None,
+            Capped::Blocked => self.overflow.as_mut().and_then(|o| o.get_mut(coord, k)),
+        }
     }
 
     /// [`get`](Table::get) from a borrowed key — `t.get_at("word")` on a `Table<String, _>`,
@@ -480,9 +600,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     where
         KS: KeyReadout<K>,
     {
-        let (i, side) = self.locate_at(&q)?;
-        // SAFETY: a located entry is occupied ⇒ value initialized.
-        Some(unsafe { self.value_ref(i, side).assume_init_ref() })
+        match self.locate_at(&q)? {
+            // SAFETY: a located entry is occupied ⇒ value initialized.
+            Located::Main(i) => Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() }),
+            Located::Side(i) => Some(unsafe { self.side.vals.get_unchecked(i).assume_init_ref() }),
+            Located::Overflow(n, e) => self
+                .overflow
+                .as_ref()
+                .and_then(|o| o.nodes[n as usize].entries[e as usize].1.as_ref()),
+        }
     }
 
     /// [`get_mut`](Self::get_mut) from a borrowed key.
@@ -491,9 +617,17 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     where
         KS: KeyReadout<K>,
     {
-        let (i, side) = self.locate_at(&q)?;
-        // SAFETY: a located entry is occupied ⇒ value initialized.
-        Some(unsafe { self.value_mut(i, side).assume_init_mut() })
+        match self.locate_at(&q)? {
+            // SAFETY: a located entry is occupied ⇒ value initialized.
+            Located::Main(i) => Some(unsafe { self.vals.get_unchecked_mut(i).assume_init_mut() }),
+            Located::Side(i) => {
+                Some(unsafe { self.side.vals.get_unchecked_mut(i).assume_init_mut() })
+            }
+            Located::Overflow(n, e) => self
+                .overflow
+                .as_mut()
+                .and_then(|o| o.nodes[n as usize].entries[e as usize].1.as_mut()),
+        }
     }
 
     /// Whether `k` is present. One probe, no value touched.
@@ -503,7 +637,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if is_sentinel(coord) {
             return self.side.find(coord, k).is_some();
         }
-        self.probe_keyed(coord, k).1
+        match self.probe_capped_keyed(coord, k) {
+            Capped::Hit(_) => true,
+            Capped::Vacant(_) => false,
+            Capped::Blocked => self
+                .overflow
+                .as_ref()
+                .is_some_and(|o| o.get(coord, k).is_some()),
+        }
     }
 
     /// Whether a borrowed key is present. One probe, no allocation, full-key confirmed.
@@ -570,26 +711,35 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             return unsafe { self.side.vals.get_unchecked(i).assume_init_ref() };
         }
         self.grow_for_one();
-        let (i, found) = self.probe_locate(coord, &q);
-        if found {
-            // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
-            // logically empty for the duration of `f`, so a panic in `f` drops the value once (by
-            // the unwinding `old`) and `Drop` skips this slot — the same order as `insert_slot`.
-            unsafe {
-                let old = self.vals.get_unchecked_mut(i).assume_init_read();
-                *self.coords.get_unchecked_mut(i) = EMPTY;
-                *self.vals.get_unchecked_mut(i) = MaybeUninit::new(f(new, old));
-                *self.coords.get_unchecked_mut(i) = coord;
+        match self.probe_capped_locate(coord, &q) {
+            Capped::Hit(i) => {
+                // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
+                // logically empty for the duration of `f`, so a panic in `f` drops the value once
+                // (by the unwinding `old`) and `Drop` skips this slot.
+                unsafe {
+                    let old = self.vals.get_unchecked_mut(i).assume_init_read();
+                    *self.coords.get_unchecked_mut(i) = EMPTY;
+                    *self.vals.get_unchecked_mut(i) = MaybeUninit::new(f(new, old));
+                    *self.coords.get_unchecked_mut(i) = coord;
+                }
+                // SAFETY: the slot is live again ⇒ its value is initialized.
+                unsafe { self.vals.get_unchecked(i).assume_init_ref() }
             }
-        } else {
-            // SAFETY: `grow_for_one` ran, so `i` is an EMPTY/TOMB slot in the current arrays.
-            unsafe { *self.coords.get_unchecked_mut(i) = coord };
-            unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
-            self.keys.set(i, q.absorb()); // the ONLY allocation, and only for a genuinely new key
-            self.len += 1;
+            Capped::Vacant(i) => {
+                // SAFETY: `grow_for_one` ran, so `i` is an EMPTY slot in the current arrays.
+                unsafe { *self.coords.get_unchecked_mut(i) = coord };
+                unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
+                self.keys.set(i, q.absorb()); // the ONLY allocation, and only for a genuinely new key
+                self.len += 1;
+                // SAFETY: just written ⇒ initialized.
+                unsafe { self.vals.get_unchecked(i).assume_init_ref() }
+            }
+            // The capped prefix was full: the entry lives in the overflow, upserted there.
+            Capped::Blocked => self
+                .overflow
+                .get_or_insert_with(Overflow::new)
+                .upsert(coord, q.absorb(), new, f),
         }
-        // SAFETY: the slot is live either way ⇒ its value is initialized.
-        unsafe { self.vals.get_unchecked(i).assume_init_ref() }
     }
 
     /// [`remove`](Self::remove) from a borrowed key.
@@ -599,21 +749,33 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         KS: KeyReadout<K>,
     {
         let coord = q.coord();
-        let (i, side) = self.locate_at(&q)?;
-        if side {
-            // SAFETY: a located side entry is occupied ⇒ key and value initialized; `take_entry`
-            // moves both out and swap-removes the entry (the `len()` total drops with the store).
-            let (_c, k, v) = self.side.take_entry(i);
-            drop(k);
-            return Some(v);
+        match self.locate_at(&q)? {
+            Located::Side(i) => {
+                // SAFETY: a located side entry is occupied ⇒ key and value initialized; `take_entry`
+                // moves both out and swap-removes the entry (the `len()` total drops with the store).
+                let (_c, k, v) = self.side.take_entry(i);
+                drop(k);
+                Some(v)
+            }
+            Located::Overflow(n, e) => {
+                let (_k, v) = self
+                    .overflow
+                    .as_mut()
+                    .expect("located overflow entry ⇒ store present")
+                    .take_entry(n, e);
+                drop(_k);
+                Some(v)
+            }
+            Located::Main(i) => {
+                // SAFETY: found ⇒ value initialized; see `Table::remove` for the tombstone argument.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                drop(self.keys.take_key(i, coord));
+                unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
+                self.len -= 1;
+                self.tombs += 1;
+                Some(old)
+            }
         }
-        // SAFETY: found ⇒ value initialized; see `Table::remove` for the tombstone argument.
-        let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
-        drop(self.keys.take_key(i, coord));
-        unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
-        self.len -= 1;
-        self.tombs += 1;
-        Some(old)
     }
 
     /// Remove `k` and return both the key and the value.
@@ -637,14 +799,27 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 unsafe { self.side.vals.get_unchecked(i).assume_init_ref() },
             ));
         }
-        let (i, found) = self.probe_keyed(coord, k);
-        if !found {
-            return None;
+        match self.probe_capped_keyed(coord, k) {
+            Capped::Hit(i) => {
+                // SAFETY: found ⇒ value initialized.
+                Some((self.keys.key(i, coord), unsafe {
+                    self.vals.get_unchecked(i).assume_init_ref()
+                }))
+            }
+            Capped::Vacant(_) => None,
+            Capped::Blocked => {
+                let (n, e) = self
+                    .overflow
+                    .as_ref()
+                    .and_then(|o| o.find_entry(coord, k))?;
+                let ov = self.overflow.as_ref().expect("found ⇒ store present");
+                let entry = &ov.nodes[n as usize].entries[e as usize];
+                Some((
+                    self.keys.key_of(&entry.0),
+                    entry.1.as_ref().expect("overflow entry ⇒ live value"),
+                ))
+            }
         }
-        // SAFETY: found ⇒ value initialized.
-        Some((self.keys.key(i, coord), unsafe {
-            self.vals.get_unchecked(i).assume_init_ref()
-        }))
     }
 
     /// The occupied entry for `k`, if present — the read side of [`entry`](Self::entry) that never
@@ -657,17 +832,37 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             return Some(OccupiedEntry {
                 t: self,
                 slot,
+                node: 0,
+                entry: 0,
                 coord,
-                side: true,
+                store: Store::Side,
             });
         }
-        let (slot, found) = self.probe_keyed(coord, k);
-        found.then_some(OccupiedEntry {
-            t: self,
-            slot,
-            coord,
-            side: false,
-        })
+        match self.probe_capped_keyed(coord, k) {
+            Capped::Hit(slot) => Some(OccupiedEntry {
+                t: self,
+                slot,
+                node: 0,
+                entry: 0,
+                coord,
+                store: Store::Main,
+            }),
+            Capped::Vacant(_) => None,
+            Capped::Blocked => {
+                let (node, entry) = self
+                    .overflow
+                    .as_ref()
+                    .and_then(|o| o.find_entry(coord, k))?;
+                Some(OccupiedEntry {
+                    t: self,
+                    slot: 0,
+                    node,
+                    entry,
+                    coord,
+                    store: Store::Overflow,
+                })
+            }
+        }
     }
 
     /// Iterate the live keys.
@@ -686,10 +881,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         Iter::new(self).map(|(_, v)| v)
     }
 
-    /// Iterate the live values mutably — main slots then side entries.
+    /// Iterate the live values mutably — main slots, side entries, then overflow entries.
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         let Table {
-            coords, vals, side, ..
+            coords,
+            vals,
+            side,
+            overflow,
+            ..
         } = self;
         let SideStore {
             vals: s_vals,
@@ -708,10 +907,17 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             .filter(|(_, live)| **live)
             // SAFETY: `live[i]` ⇒ value initialized.
             .map(|(v, _)| unsafe { v.assume_init_mut() });
-        main.chain(side_it)
+        let ov_it = overflow
+            .as_mut()
+            .into_iter()
+            .flat_map(|o| o.nodes.iter_mut())
+            .filter(|n| n.alive)
+            .flat_map(|n| n.entries.iter_mut())
+            .filter_map(|(_, v)| v.as_mut());
+        main.chain(side_it).chain(ov_it)
     }
 
-    /// Iterate the live `(key, &mut value)` pairs — main slots then side entries.
+    /// Iterate the live `(key, &mut value)` pairs — main slots, side entries, then overflow entries.
     pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = (KS::Key<'a>, &'a mut V)>
     where
         KS: KeyReadout<K> + 'a,
@@ -725,7 +931,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             &self.side.live,
             &self.side.keys,
         );
-        let (vals, s_vals) = (&mut self.vals, &mut self.side.vals);
+        let (vals, s_vals, overflow) = (&mut self.vals, &mut self.side.vals, &mut self.overflow);
         let main = vals.iter_mut().enumerate().filter_map(move |(i, v)| {
             if is_live(coords[i]) {
                 // SAFETY: live coord ⇒ value initialized.
@@ -742,7 +948,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 None
             }
         });
-        main.chain(side_it)
+        let ov_it = overflow
+            .as_mut()
+            .into_iter()
+            .flat_map(|o| o.nodes.iter_mut())
+            .filter(|n| n.alive)
+            .flat_map(|n| n.entries.iter_mut())
+            .filter_map(move |(k, v)| v.as_mut().map(|v| (keys.key_of(k), v)));
+        main.chain(side_it).chain(ov_it)
     }
 
     /// Keep only the entries `keep` returns true for. Tombstones the rest — one pass, no rebuild.
@@ -793,11 +1006,17 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 drop(v);
             }
         }
+        // Overflow entries: retained through the same keep, keyed as the store holds them.
+        let keys = &self.keys;
+        if let Some(o) = self.overflow.as_mut() {
+            o.retain(|k, v| keep(keys.key_of(k), v));
+        }
     }
 
     /// Drop every entry, keeping the allocation.
     pub fn clear(&mut self) {
-        if self.len == 0 && self.tombs == 0 && self.side.coords.is_empty() {
+        if self.len == 0 && self.tombs == 0 && self.side.coords.is_empty() && self.overflow.is_none()
+        {
             return;
         }
         if std::mem::needs_drop::<V>() {
@@ -816,6 +1035,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         self.len = 0;
         self.tombs = 0;
         self.side.clear();
+        self.overflow = None;
     }
 
     /// Make room for `additional` more keys without growing again. The same one sizing as
@@ -833,32 +1053,8 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         std::mem::replace(self, Self::with_bits(3)).into_iter()
     }
 
-    /// The value slot of a located entry, `side` selecting the side store.
-    #[inline]
-    fn value_ref(&self, i: usize, side: bool) -> &MaybeUninit<V> {
-        if side {
-            // SAFETY: a located side entry is in bounds.
-            unsafe { self.side.vals.get_unchecked(i) }
-        } else {
-            // SAFETY: a located main slot is in bounds.
-            unsafe { self.vals.get_unchecked(i) }
-        }
-    }
-
-    /// The mutable value slot of a located entry, `side` selecting the side store.
-    #[inline]
-    fn value_mut(&mut self, i: usize, side: bool) -> &mut MaybeUninit<V> {
-        if side {
-            // SAFETY: a located side entry is in bounds.
-            unsafe { self.side.vals.get_unchecked_mut(i) }
-        } else {
-            // SAFETY: a located main slot is in bounds.
-            unsafe { self.vals.get_unchecked_mut(i) }
-        }
-    }
-
-    /// The side-store twin of [`probe_locate`](Self::probe_locate): the entry whose reserved
-    /// coordinate is `coord` and whose stored key the view `q` names.
+    /// The side-store twin of [`probe_capped_locate`](Self::probe_capped_locate): the entry whose
+    /// reserved coordinate is `coord` and whose stored key the view `q` names.
     #[inline]
     fn side_find_locate<Q: Locate<K>>(&self, coord: u64, q: &Q) -> Option<usize>
     where
@@ -874,43 +1070,46 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         None
     }
 
-    /// Locate a borrowed view: the main keyed probe for a free coordinate, the side store for a
-    /// reserved one. Returns `(index, is_side)`; `None` when absent.
+    /// Locate a borrowed view: the capped keyed probe for a free coordinate, the side store for a
+    /// reserved one, the overflow for an exhausted prefix. `None` when absent.
     #[inline]
-    fn locate_at<Q: Locate<K>>(&self, q: &Q) -> Option<(usize, bool)>
+    fn locate_at<Q: Locate<K>>(&self, q: &Q) -> Option<Located>
     where
         KS: KeyReadout<K>,
     {
         let coord = q.coord();
         if is_sentinel(coord) {
-            return self.side_find_locate(coord, q).map(|i| (i, true));
+            return self.side_find_locate(coord, q).map(Located::Side);
         }
-        let (i, found) = self.probe_locate(coord, q);
-        found.then_some((i, false))
+        match self.probe_capped_locate(coord, q) {
+            Capped::Hit(i) => Some(Located::Main(i)),
+            Capped::Vacant(_) => None,
+            Capped::Blocked => self
+                .overflow
+                .as_ref()
+                .and_then(|o| o.find_locate(coord, q))
+                .map(|(n, e)| Located::Overflow(n, e)),
+        }
     }
 
-    /// [`probe_keyed`](Table::probe_keyed) over a borrowed view: a coordinate match is a hit only
-    /// when the stored key is the one the view names. Only called with a non-reserved `coord`.
+    /// [`probe_capped_keyed`](Table::probe_capped_keyed) over a borrowed view: a coordinate match is
+    /// a hit only when the stored key is the one the view names. Only called with a non-reserved
+    /// `coord`.
     #[inline]
-    fn probe_locate<Q: Locate<K>>(&self, coord: u64, q: &Q) -> (usize, bool)
+    fn probe_capped_locate<Q: Locate<K>>(&self, coord: u64, q: &Q) -> Capped
     where
         KS: KeyReadout<K>,
     {
-        let mut i = self.home(coord);
-        let mut j = 0u32;
-        loop {
-            // SAFETY: i ∈ [0, len) — home()/descend() mask to the array; a coordinate match names a
-            // live slot whose key is initialized and confirmed by `matches_locate`.
-            let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord && self.keys.matches_locate(i, coord, q) {
-                return (i, true);
-            }
-            if sc == EMPTY {
-                return (i, false);
-            }
-            j += 1;
-            i = self.descend(coord, j);
+        let home = self.home(coord);
+        // SAFETY: home ∈ [0, len).
+        let sc = unsafe { *self.coords.get_unchecked(home) };
+        if sc == coord && self.keys.matches_locate(home, coord, q) {
+            return Capped::Hit(home);
         }
+        if sc == EMPTY {
+            return Capped::Vacant(home);
+        }
+        self.probe_capped_with(coord, home, &|i| self.keys.matches_locate(i, coord, q))
     }
 }
 
@@ -1043,11 +1242,15 @@ impl Lanes {
 // ── Iteration: `for (k, v) in &t`, `for (k, v) in t`, `t.extend(..)`. ──────────────────────────
 
 /// `(key, &value)` over the live slots — the `IntoIterator` form of [`Table::iter`], on the
-/// eight-slot live-lane glance. The main slots come first, then the side entries.
+/// eight-slot live-lane glance. The main slots come first, then the side entries, then the overflow
+/// entries (the in-order node list is collected once at construction; empty when no key was blocked).
 pub struct Iter<'a, K: Coord + Eq, V, KS: KeyStore<K>> {
     t: &'a Table<K, V, KS>,
     lanes: Lanes,
     side: usize,
+    ov_nodes: Vec<u32>,
+    ov_node: usize,
+    ov_entry: usize,
     seen: usize,
 }
 
@@ -1055,10 +1258,17 @@ impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> Iter<'a, K, V, KS> {
     /// The walker for `t` — used by [`Table::iter`] itself.
     #[inline]
     pub(crate) fn new(t: &'a Table<K, V, KS>) -> Self {
+        let mut ov_nodes = Vec::new();
+        if let Some(o) = &t.overflow {
+            o.in_order(&mut ov_nodes);
+        }
         Iter {
             t,
             lanes: Lanes::START,
             side: 0,
+            ov_nodes,
+            ov_node: 0,
+            ov_entry: 0,
             seen: 0,
         }
     }
@@ -1094,6 +1304,20 @@ where
                 }));
             }
         }
+        let ov = t.overflow.as_ref()?;
+        while self.ov_node < self.ov_nodes.len() {
+            let node = &ov.nodes[self.ov_nodes[self.ov_node] as usize];
+            while self.ov_entry < node.entries.len() {
+                let e = self.ov_entry;
+                self.ov_entry += 1;
+                if let Some(v) = node.entries[e].1.as_ref() {
+                    self.seen += 1;
+                    return Some((t.keys.key_of(&node.entries[e].0), v));
+                }
+            }
+            self.ov_node += 1;
+            self.ov_entry = 0;
+        }
         None
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1115,14 +1339,16 @@ where
     }
 }
 
-/// Owned `(key, value)` pairs — [`Table::drain`] and `for (k, v) in table`. The side entries are
-/// moved out eagerly into `side` (a small store; ordinary tables have none).
+/// Owned `(key, value)` pairs — [`Table::drain`] and `for (k, v) in table`. The side entries and the
+/// overflow entries are moved out eagerly into `side`/`overflow` (small stores; ordinary tables have
+/// no overflow).
 pub struct IntoIter<K: Coord + Eq, V, KS: KeyStore<K>> {
     coords: Box<[u64]>,
     vals: Box<[MaybeUninit<V>]>,
     keys: KS,
     lanes: Lanes,
     side: std::vec::IntoIter<(K, V)>,
+    overflow: std::vec::IntoIter<(K, V)>,
     _k: std::marker::PhantomData<K>,
 }
 
@@ -1140,10 +1366,13 @@ impl<K: Coord + Eq, V, KS: KeyStore<K>> Iterator for IntoIter<K, V, KS> {
             self.coords[i] = EMPTY;
             return Some((k, v));
         }
-        self.side.next()
+        if let Some(kv) = self.side.next() {
+            return Some(kv);
+        }
+        self.overflow.next()
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = self.lanes.remaining(&self.coords) + self.side.len();
+        let left = self.lanes.remaining(&self.coords) + self.side.len() + self.overflow.len();
         (left, Some(left))
     }
 }
@@ -1160,7 +1389,8 @@ impl<K: Coord + Eq, V, KS: KeyStore<K>> Drop for IntoIter<K, V, KS> {
         }
         let coords = std::mem::take(&mut self.coords);
         self.keys.drop_live(&coords);
-        // `self.side` is a Vec iterator; its remaining `(K, V)` pairs drop themselves.
+        // `self.side` / `self.overflow` are Vec iterators; their remaining `(K, V)` pairs drop
+        // themselves.
     }
 }
 
@@ -1187,12 +1417,23 @@ impl<K: Coord + Eq, V, KS: KeyStore<K>> IntoIterator for Table<K, V, KS> {
             t.side.vals.pop();
             side.push((k, v));
         }
+        // Move the overflow entries out eagerly too. `t` is `ManuallyDrop`, so taking the option
+        // leaves nothing for `t`'s suppressed Drop; the iterator now owns the keys and values.
+        let overflow: Vec<(K, V)> = match t.overflow.take() {
+            Some(ov) => ov
+                .into_entries()
+                .into_iter()
+                .map(|(_c, k, v)| (k, v))
+                .collect(),
+            None => Vec::new(),
+        };
         IntoIter {
             coords,
             vals,
             keys,
             lanes: Lanes::START,
             side: side.into_iter(),
+            overflow: overflow.into_iter(),
             _k: std::marker::PhantomData,
         }
     }

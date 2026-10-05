@@ -25,4 +25,4 @@
 //! `apeiron::freq::Table` is the type `src/hashtrinity/` defines, `hashtrinity::Table` is the one
 //! the git dependency defines, and `std::any::type_name` tells them apart.
 
-pub use crate::hashtrinity::{par, Coord, FreqMap, Table, PHI};
+pub use crate::hashtrinity::{par, Coord, FreqMap, Table, PHI, PROBE_CAP};

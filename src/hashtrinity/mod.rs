@@ -209,6 +209,8 @@ pub mod crypto;
 //   (SwissTable control bytes, no key column) that shares nothing with `Table`'s probe.
 mod side;
 use side::SideStore;
+mod overflow;
+use overflow::Overflow;
 mod algebra;
 mod freq;
 pub use algebra::*;
@@ -235,6 +237,37 @@ const LINEAR_G: u32 = 8;
 // The AVX2 prefix scan below consumes the `LINEAR_G` lanes as two 256-bit (4×u64) loads; if the
 // prefix width ever changes, the scan must change with it, so pin the coupling at compile time.
 const _: () = assert!(LINEAR_G == 8, "prefix_masks scans exactly 8 lanes");
+
+/// The primary probe cap: a lookup, insert, update or remove examines at most this many primary
+/// slots (home, the linear prefix, then the fresh radix windows, in the order
+/// [`Table::descend`] gives). Anything unresolved — the whole capped prefix occupied with no
+/// identity — routes to the table-wide [`Overflow`] tree instead of the removed terminal sweep.
+/// One named constant so the bench can tune it.
+pub const PROBE_CAP: u32 = 16;
+
+/// The capped primary probe's verdict — the three outcomes a probe can have without walking the
+/// whole slot space.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Capped {
+    /// The key's coordinate matched at this slot and the caller's confirmation held.
+    Hit(usize),
+    /// An `EMPTY` slot was reached — the insertion point for an absent key.
+    Vacant(usize),
+    /// The whole capped prefix was occupied: the key may live in the [`Overflow`].
+    Blocked,
+}
+
+/// Which store an entry lives in — the primary slot array, the reserved-coordinate side store, or
+/// the overflow tree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Store {
+    /// A main `coords`/`vals` slot.
+    Main,
+    /// A [`SideStore`] entry (a key whose own coordinate is `EMPTY`/`TOMB`).
+    Side,
+    /// An [`Overflow`] entry, addressed by `(node, entry)`.
+    Overflow,
+}
 
 /// The linear-prefix glance: compare the `LINEAR_G` contiguous coordinates `coords[home + k]` against
 /// `coord` (a candidate hit) and against `EMPTY` (a chain terminator) in one branchless pass,
@@ -348,6 +381,25 @@ fn is_sentinel(c: u64) -> bool {
 ///
 /// The reserved coordinates (`EMPTY`/`TOMB`) never appear in `coords`: keys that own them live in
 /// `side`, whose value is initialized iff `side.live[i]` (cleared only while a merge owns it).
+///
+/// # The overflow invariant (HashDOS cap)
+///
+/// The primary probe is capped at [`PROBE_CAP`] slot examinations ([`Self::probe_limit`]); the
+/// terminal sweep is removed. A key whose capped prefix held no `EMPTY` and no identity is stored
+/// in `overflow`, a deterministic AVL tree keyed by coordinate. The invariant is: **a key is in the
+/// overflow only if, when it was placed, its `PROBE_CAP` primary slots held no `EMPTY` slot and no
+/// slot with its identity.** It is preserved because a primary slot only ever changes from `EMPTY`
+/// to occupied — `remove` leaves a `TOMB` (not `EMPTY`), and `resize` re-places every entry,
+/// primary and overflow alike, through this same capped placement — so the absence of an `EMPTY` in
+/// the prefix is stable. Therefore a lookup that finds an `EMPTY` in the capped prefix is absent
+/// without consulting the overflow; a hit in the prefix is found there; only an exhausted prefix
+/// consults `overflow`. `overflow` is `None` until the first blocked key, so a table that never
+/// overflows pays one `is_none()` branch on a capped miss and nothing on a hit.
+///
+/// The HashDOS claim covers keys whose coordinate is injective — `u64` and the other [`CoordInv`]
+/// types. For an arbitrary `Eq + Coord` key whose coordinate is not injective, the overflow still
+/// stores entries correctly (equal coordinates share a node, compared by full key), but the
+/// flood bound is a statement about the coordinate, not about the key.
 pub struct Table<K, V, KS = Stored<K>>
 where
     K: Coord,
@@ -357,8 +409,9 @@ where
     vals: Box<[MaybeUninit<V>]>, // payloads; initialized exactly where coords[i] != EMPTY
     keys: KS,           // the identity store — a vector (Stored) or nothing (Regen)
     side: SideStore<K, V, KS>, // keys whose coordinate is a reserved marker (EMPTY/TOMB)
+    overflow: Option<Overflow<K, V>>, // blocked keys, one table-wide AVL tree, lazily allocated
     bits: u32,
-    len: usize,   // live entries (excludes tombstones)
+    len: usize,   // live PRIMARY main-slot entries (excludes tombstones and the overflow)
     tombs: usize, // deleted-but-not-yet-reclaimed slots; cleared on resize
     _k: std::marker::PhantomData<K>,
 }
@@ -443,6 +496,7 @@ impl<K: Coord + Clone, V: Clone, KS: KeyStore<K>> Clone for Table<K, V, KS> {
             coords,
             vals,
             side,
+            overflow: self.overflow.clone(),
             bits: self.bits,
             len: self.len,
             tombs: self.tombs,
@@ -525,6 +579,7 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             vals: alloc_uninit_boxed(n),
             keys: KS::alloc(n),
             side: SideStore::empty(),
+            overflow: None,
             bits,
             len: 0,
             tombs: 0,
@@ -563,9 +618,11 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// are the proven walk re-indexed). That is ALIASING, not probe length: corrected 2026-08-06,
     /// this comment read "so flood immunity is preserved", and
     /// `AggregationBound.descent_can_be_wholly_blocked` refutes that step — `PHI⁻¹` aims one crafted
-    /// key at each slot a victim would try. The worst case here is the terminal sweep below, one
-    /// period of the slot space; the bounds in `tests/hashdos.rs` are measured. No tag line, no
-    /// extra array — only the probe *order* changes.
+    /// key at each slot a victim would try. The capped probe ([`Self::probe_limit`]) never takes the
+    /// last arm below (the terminal sweep): a key unresolved within [`PROBE_CAP`] window steps is
+    /// routed to the [`Overflow`] instead, so this function's index `j` always satisfies
+    /// `j < window_steps()`. The sweep arm remains for the negative control that restores it. No tag
+    /// line, no extra array — only the probe *order* changes.
     #[cold]
     fn descend(&self, coord: u64, j: u32) -> usize {
         let (bits, mask) = (self.bits, self.coords.len() - 1);
@@ -593,83 +650,6 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             // misses hit EMPTY at their own slot and never reach here.
             let full = 64 / bits; // radix windows per product
             ((p >> (64 - bits * full)) as usize + (jj - full) as usize + 1) & mask
-        }
-    }
-
-    /// Walk `coord`'s probe sequence; return its slot and whether it was found. Coordinate-only — the
-    /// key is never touched. `descend` is `#[cold]`, keeping the collision walk off the hot path.
-    ///
-    /// Indexing is unchecked: `home`/`descend` both mask with `& (len - 1)` on a power-of-two array,
-    /// so `i` is always in bounds by construction and the checks would be pure overhead.
-    ///
-    /// A reserved coordinate (`EMPTY`/`TOMB`) is never stored in `coords` — its key lives in the
-    /// [`SideStore`] — so a coordinate-only probe of one returns not-found at its home slot without
-    /// dereferencing a slot (a `TOMB` slot's value is uninitialized). The keyed [`probe_keyed`] is
-    /// the probe the storage faces use.
-    #[inline]
-    fn probe(&self, coord: u64) -> (usize, bool) {
-        let i = self.home(coord);
-        if is_sentinel(coord) {
-            return (i, false);
-        }
-        let mut i = i;
-        let mut j = 0;
-        loop {
-            // SAFETY: i ∈ [0, len) — home() and descend() mask to the array.
-            let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord {
-                return (i, true); // hit — the address is the key
-            }
-            if sc == EMPTY {
-                return (i, false); // empty — coord was never here, or the chain past it is empty
-            }
-            // occupied, non-matching: a live collision OR a tombstone (`TOMB`) — either way the
-            // chain continues, so a removed slot never breaks reachability for keys probed past it.
-            j += 1;
-            // Safety net: the double-hashing tail visits every slot within `cap` steps (odd stride on a
-            // 2^bits table), so a non-full table always terminates well under this. A blow-past is a
-            // real regression (a broken descent), not adversarial cost — cheap vs the miss it guards.
-            debug_assert!(
-                (j as usize) <= self.coords.len() + 256,
-                "PROBE NON-TERM: coord={coord:#x} bits={} home={} cap={} j={j}",
-                self.bits,
-                self.home(coord),
-                self.coords.len()
-            );
-            i = self.descend(coord, j);
-        }
-    }
-
-    /// [`probe`](Self::probe) with full-key confirmation: a coordinate match is a hit only when the
-    /// stored key equals `k`. Two distinct keys with equal coordinates therefore take two slots, and
-    /// a mismatch keeps probing exactly as a different coordinate would. `Regen`'s `matches` is the
-    /// coordinate round-trip, so for a [`CoordMap`] this is the coordinate probe unchanged.
-    ///
-    /// Only ever called with a non-reserved `coord` (the sentinel keys are resolved in the
-    /// [`SideStore`]); a coordinate match on a live slot therefore implies an initialized key.
-    #[inline]
-    fn probe_keyed(&self, coord: u64, k: &K) -> (usize, bool) {
-        let mut i = self.home(coord);
-        let mut j = 0;
-        loop {
-            // SAFETY: i ∈ [0, len) — home()/descend() mask to the array; `coord` is non-reserved, so
-            // `sc == coord` names a live slot whose key is initialized (confirmed by `matches`).
-            let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord && self.keys.matches(i, coord, k) {
-                return (i, true);
-            }
-            if sc == EMPTY {
-                return (i, false);
-            }
-            j += 1;
-            debug_assert!(
-                (j as usize) <= self.coords.len() + 256,
-                "PROBE NON-TERM: coord={coord:#x} bits={} home={} cap={} j={j}",
-                self.bits,
-                self.home(coord),
-                self.coords.len()
-            );
-            i = self.descend(coord, j);
         }
     }
 
@@ -711,92 +691,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return None;
         }
-        self.get_coord_cold_keyed(coord, home, k)
-    }
-
-    /// Collision tail of [`get_coord`](Self::get_coord). The linear prefix
-    /// (`home .. home + LINEAR_G`) is one contiguous 64-byte cache line, so filter it in a single
-    /// branchless glance ([`prefix_masks`]) instead of the mispredict-prone scalar compare-per-slot:
-    /// an EMPTY lane terminates the chain, and — since a key is placed before any EMPTY in its own
-    /// probe sequence — a present key is at a matching lane before the first EMPTY. All-occupied-no-
-    /// match resumes at the radix windows. Only the last `LINEAR_G − 1` homes wrap the array end →
-    /// the scalar walk (which masks the wrap). Lane 0 is `home`, already probed by the caller.
-    ///
-    /// The keyed tail: every coordinate-match lane is confirmed against the stored key, so two
-    /// distinct keys with equal coordinates are not conflated (`Regen`'s `matches` is the coordinate
-    /// round-trip).
-    #[cold]
-    #[inline(never)]
-    fn get_coord_cold_keyed(&self, coord: u64, home: usize, k: &K) -> Option<&V> {
-        self.get_coord_cold_with(coord, home, |i| self.keys.matches(i, coord, k))
-    }
-
-    /// Shared body of the collision tail. `confirm(slot)` is the hit test on a lane whose coordinate
-    /// matched — the stored-key compare for the keyed caller.
-    #[cold]
-    #[inline(never)]
-    fn get_coord_cold_with(
-        &self,
-        coord: u64,
-        home: usize,
-        confirm: impl Fn(usize) -> bool,
-    ) -> Option<&V> {
-        let len = self.coords.len();
-        if home + LINEAR_G as usize <= len {
-            // `home + LINEAR_G ≤ len`, so the `LINEAR_G`-lane read stays in bounds.
-            let (mut hits, empties) = prefix_masks(&self.coords, home, coord);
-            while hits != 0 {
-                let slot = home + hits.trailing_zeros() as usize;
-                if confirm(slot) {
-                    // SAFETY: slot < home + LINEAR_G ≤ len; a confirmed match ⇒ value initialized.
-                    return Some(unsafe { self.vals.get_unchecked(slot).assume_init_ref() });
-                }
-                hits &= hits - 1;
-            }
-            if empties != 0 {
-                return None; // the chain terminated inside the prefix
-            }
-            // All LINEAR_G slots occupied, no match: resume at the first radix window.
-            return self.get_coord_walk_with(coord, LINEAR_G, &confirm);
-        }
-        // Wrap tail (rare): the scalar walk from step 1 — `home` was already probed by the caller.
-        self.get_coord_walk_with(coord, 1, &confirm)
-    }
-
-    /// Scalar continuation of [`get_coord_cold`](Self::get_coord_cold) from probe step `j`: the radix
-    /// windows past the SIMD-scanned linear prefix (`j = LINEAR_G`), or the whole walk on the rare
-    /// array-end wrap (`j = 1`). One coordinate compare (plus the confirmation) per step.
-    #[cold]
-    #[inline(never)]
-    fn get_coord_walk(&self, coord: u64, j: u32) -> Option<&V> {
-        self.get_coord_walk_with(coord, j, &|_| true)
-    }
-
-    /// Keyed scalar continuation — see [`get_coord_walk`](Self::get_coord_walk).
-    #[cold]
-    #[inline(never)]
-    fn get_coord_walk_keyed(&self, coord: u64, j: u32, k: &K) -> Option<&V> {
-        self.get_coord_walk_with(coord, j, &|i| self.keys.matches(i, coord, k))
-    }
-
-    fn get_coord_walk_with(
-        &self,
-        coord: u64,
-        mut j: u32,
-        confirm: &impl Fn(usize) -> bool,
-    ) -> Option<&V> {
-        loop {
-            let i = self.descend(coord, j);
-            // SAFETY: i ∈ [0, len) — descend() masks to the array.
-            let sc = unsafe { *self.coords.get_unchecked(i) };
-            if sc == coord && confirm(i) {
-                // SAFETY: a confirmed coord match ⇒ value initialized.
-                return Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() });
-            }
-            if sc == EMPTY {
-                return None;
-            }
-            j += 1;
+        // Collision tail, capped at `PROBE_CAP`: a hit in the prefix is found; an EMPTY lane
+        // terminates; an exhausted prefix consults the overflow (a key whose capped prefix was full
+        // when it was placed lives there, and a miss here is absent).
+        match self.probe_capped_with(coord, home, &|i| self.keys.matches(i, coord, k)) {
+            Capped::Hit(i) => Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() }),
+            Capped::Vacant(_) => None,
+            Capped::Blocked => self.overflow.as_ref().and_then(|o| o.get(coord, k)),
         }
     }
 
@@ -1010,6 +911,12 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 }));
             }
         }
+        // Overflow entries: O(1) when no key was blocked, folded onto the result.
+        if let Some(o) = &self.overflow {
+            for (_c, _k, v) in o.iter() {
+                acc = combine(acc, residual(v));
+            }
+        }
         acc
     }
 
@@ -1082,6 +989,24 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
                 }
             }
         }
+        // Overflow entries: pseudo-slots past every main and side slot, so a tie favors the
+        // primary/side entry (deterministic); among overflow entries the in-order index wins.
+        let mut ov_floor: Option<(M, usize, &K, &V)> = None;
+        if let Some(o) = &self.overflow {
+            let base = n + self.side.coords.len();
+            for (idx, (_c, k, v)) in o.iter().enumerate() {
+                let m = residual(v);
+                let s = base + idx;
+                let wins = floor.map_or(true, |(bm, bs)| m < bm || (m == bm && s < bs))
+                    && ov_floor.map_or(true, |(bm, bs, _, _)| m < bm || (m == bm && s < bs));
+                if wins {
+                    ov_floor = Some((m, s, k, v));
+                }
+            }
+        }
+        if let Some((_, _, k, v)) = ov_floor {
+            return Some((self.keys.key_of(k), v));
+        }
         // a returned slot is occupied ⇒ value initialized; the key is read/regenerated.
         floor.map(|(_, s)| {
             if s < n {
@@ -1102,22 +1027,24 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
     }
 }
 
-/// A landed insert: the slot is blank and the caller owns the merge between `new` and the value
+/// A landed insert: the entry is blank and the caller owns the merge between `new` and the value
 /// `old` that was already there. Returned by [`Table::insert_core`] instead of writing, so every
 /// insert face shares one probe/reserve core and differs only in what it does with the two values.
-/// The caller MUST write `slot` back and re-occupy it with `coord`.
+/// The caller MUST write the merged value back to the store named by `store`.
 struct InsertHit<V> {
-    /// The probe's slot; in bounds by construction (`probe` masks to the power-of-two array).
+    /// The primary slot ([`Store::Main`]) or side entry ([`Store::Side`]); in bounds by construction.
     slot: usize,
+    /// The overflow node ([`Store::Overflow`]).
+    node: u32,
+    /// The overflow entry within `node` ([`Store::Overflow`]).
+    entry: u32,
     /// The slot's coordinate, to restore after the write — identity is unchanged by an overwrite.
-    /// Unused when `side` is set (the side entry's coordinate is fixed).
     coord: u64,
-    /// The hit is an entry of the [`SideStore`], not a main slot. The caller writes `side`'s arrays
-    /// and re-sets `side.live[slot]` instead of `coords[slot]`.
-    side: bool,
+    /// Which store the hit landed in.
+    store: Store,
     /// The incoming value, handed back because a hit does not consume it.
     new: V,
-    /// The value that was in the slot, moved out so exactly one of the two faces owns its drop.
+    /// The value that was in the entry, moved out so exactly one of the faces owns its drop.
     old: V,
 }
 
@@ -1139,19 +1066,24 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             self.side.remove_entry(i);
             return Some(old);
         }
-        let (i, found) = self.probe_keyed(coord, k);
-        if found {
-            // SAFETY: found ⇒ value initialized. Read it out and drop the key, then tombstone the
-            // slot: its value is now uninitialized, and `TOMB` (like `EMPTY`) fails the liveness test,
-            // so `Drop`/`Clone`/iteration skip it — no double free, no chain break.
-            let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
-            self.keys.take_key(i, coord);
-            unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
-            self.len -= 1;
-            self.tombs += 1;
-            Some(old)
-        } else {
-            None
+        match self.probe_capped_keyed(coord, k) {
+            Capped::Hit(i) => {
+                // SAFETY: found ⇒ value initialized. Read it out and drop the key, then tombstone the
+                // slot: its value is now uninitialized, and `TOMB` (like `EMPTY`) fails the liveness
+                // test, so `Drop`/`Clone`/iteration skip it — no double free, no chain break.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                self.keys.take_key(i, coord);
+                unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
+                self.len -= 1;
+                self.tombs += 1;
+                Some(old)
+            }
+            Capped::Vacant(_) => None,
+            // A key whose capped prefix is full lives in the overflow; a genuine miss there is absent.
+            Capped::Blocked => self
+                .overflow
+                .as_mut()
+                .and_then(|o| o.remove(coord, k)),
         }
     }
 
@@ -1176,8 +1108,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 self.side.live[i] = false;
                 return Some(InsertHit {
                     slot: i,
+                    node: 0,
+                    entry: 0,
                     coord,
-                    side: true,
+                    store: Store::Side,
                     new,
                     old,
                 });
@@ -1199,27 +1133,54 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             };
             self.resize(new_bits);
         }
-        let (i, found) = self.probe_keyed(coord, &k);
-        // SAFETY: probe returns an in-bounds slot; coords, vals, and keys share the index space.
-        if found {
-            // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
-            // logically empty for the duration of the merge, so if the merge panics the value is
-            // dropped once (by the unwinding `old`) and `Drop` skips this slot — no double free.
-            let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
-            unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
-            Some(InsertHit {
-                slot: i,
-                coord,
-                side: false,
-                new,
-                old,
-            })
-        } else {
-            unsafe { *self.coords.get_unchecked_mut(i) = coord };
-            unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
-            self.keys.set(i, k); // Stored: write the key; Regen: no-op
-            self.len += 1;
-            None
+        match self.probe_capped_keyed(coord, &k) {
+            Capped::Hit(i) => {
+                // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
+                // logically empty for the duration of the merge, so if the merge panics the value is
+                // dropped once (by the unwinding `old`) and `Drop` skips this slot — no double free.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
+                Some(InsertHit {
+                    slot: i,
+                    node: 0,
+                    entry: 0,
+                    coord,
+                    store: Store::Main,
+                    new,
+                    old,
+                })
+            }
+            Capped::Vacant(i) => {
+                // SAFETY: probe returns an in-bounds EMPTY slot; coords, vals, keys share the index.
+                unsafe { *self.coords.get_unchecked_mut(i) = coord };
+                unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
+                self.keys.set(i, k); // Stored: write the key; Regen: no-op
+                self.len += 1;
+                None
+            }
+            Capped::Blocked => {
+                // The capped prefix was full: the key lives here or it is new here. A present entry
+                // is blanked (value moved out) for the duration of the caller's merge, panic-safe.
+                let ov = self.overflow.get_or_insert_with(Overflow::new);
+                match ov.find_entry(coord, &k) {
+                    Some((node, entry)) => {
+                        let old = ov.take_value(node, entry);
+                        Some(InsertHit {
+                            slot: 0,
+                            node,
+                            entry,
+                            coord,
+                            store: Store::Overflow,
+                            new,
+                            old,
+                        })
+                    }
+                    None => {
+                        ov.insert_new(coord, k, new);
+                        None
+                    }
+                }
+            }
         }
     }
 
@@ -1229,17 +1190,28 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
         if let Some(hit) = self.insert_core(k, new) {
             let merged = f(hit.new, hit.old);
-            if hit.side {
-                // SAFETY: `insert_core` cleared `side.live[slot]`, so the value is uninitialized;
-                // re-writing and re-marking restores the invariant. The entry's key is untouched.
-                unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
-                self.side.live[hit.slot] = true;
-            } else {
-                // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
-                // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores the
-                // invariant.
-                unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
-                unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // re-occupy — identity unchanged
+            match hit.store {
+                Store::Side => {
+                    // SAFETY: `insert_core` cleared `side.live[slot]`, so the value is uninitialized;
+                    // re-writing and re-marking restores the invariant. The entry's key is untouched.
+                    unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
+                    self.side.live[hit.slot] = true;
+                }
+                Store::Main => {
+                    // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
+                    // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores
+                    // the invariant.
+                    unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
+                    unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // identity unchanged
+                }
+                Store::Overflow => {
+                    // SAFETY by construction: `insert_core` blanked the overflow entry; the key is
+                    // untouched and lives as long as the tree.
+                    self.overflow
+                        .as_mut()
+                        .expect("overflow hit ⇒ store present")
+                        .write_back(hit.node, hit.entry, merged);
+                }
             }
         }
     }
@@ -1255,14 +1227,50 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     pub fn insert_merge_last_write(&mut self, k: K, new: V) {
         if let Some(hit) = self.insert_core(k, new) {
             drop(hit.old); // `set(new, old) = new` ignores `old`; this is where it is dropped.
-            if hit.side {
-                // SAFETY: as in `insert_with` — `insert_core` cleared the side entry's `live` marker.
-                unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
-                self.side.live[hit.slot] = true;
-            } else {
-                // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
-                unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
-                unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
+            match hit.store {
+                Store::Side => {
+                    // SAFETY: as in `insert_with` — `insert_core` cleared the side live marker.
+                    unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
+                    self.side.live[hit.slot] = true;
+                }
+                Store::Main => {
+                    // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
+                    unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
+                    unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
+                }
+                Store::Overflow => {
+                    self.overflow
+                        .as_mut()
+                        .expect("overflow hit ⇒ store present")
+                        .write_back(hit.node, hit.entry, hit.new);
+                }
+            }
+        }
+    }
+
+    /// Re-place one carried entry through the same capped placement every insert uses: a primary
+    /// `EMPTY` within the cap, or the overflow. Used only by [`resize`](Self::resize), where keys are
+    /// distinct, so a `Hit` (an already-present identity) is impossible and handled defensively.
+    fn place_capped(&mut self, coord: u64, k: K, v: V) {
+        match self.probe_capped_keyed(coord, &k) {
+            Capped::Hit(i) => {
+                // Defensive: the rebuild carries distinct keys. Overwrite, dropping the old value.
+                // SAFETY: a live slot ⇒ value initialized; `assume_init_read` moves it out.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                drop(old);
+                unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
+            }
+            Capped::Vacant(i) => {
+                // SAFETY: probe returns an in-bounds EMPTY slot.
+                unsafe { *self.coords.get_unchecked_mut(i) = coord };
+                unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(v) };
+                self.keys.set(i, k); // Stored: write the key; Regen: no-op
+                self.len += 1;
+            }
+            Capped::Blocked => {
+                self.overflow
+                    .get_or_insert_with(Overflow::new)
+                    .insert_new(coord, k, v);
             }
         }
     }
@@ -1270,7 +1278,9 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Rebuild into a fresh table of `new_bits` slots, carrying only live entries — so tombstones
     /// vanish. `new_bits > bits` grows; `new_bits == bits` is an in-place compaction that reclaims
     /// tombstones without doubling. The old `grow` is `resize(bits + 1)` with no tombstones present.
-    /// The [`SideStore`] is carried over unchanged (it does not depend on `bits`).
+    /// Every entry — primary and overflow — is re-placed through the same capped placement
+    /// ([`place_capped`](Self::place_capped)); an uncapped probe is never called. The [`SideStore`]
+    /// is carried over unchanged (it does not depend on `bits`).
     #[cold]
     fn resize(&mut self, new_bits: u32) {
         let mut bigger = Self::with_bits(new_bits);
@@ -1280,26 +1290,28 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 // Move the key out first so the keyed probe can confirm it: two distinct keys with
                 // equal coordinates must land on two slots of the rebuilt table, not one.
                 let key = self.keys.take_key(i, c);
-                let (j, _) = bigger.probe_keyed(c, &key); // re-place along the same probe sequence
-                                                          // SAFETY: live coord ⇒ value initialized; bigger.probe_keyed returns an
-                                                          // in-bounds slot. Move the value out and blank the source coord so the old
-                                                          // table's Drop skips it.
+                // SAFETY: live coord ⇒ value initialized. Move the value out and blank the source
+                // coord so the old table's Drop skips it.
                 let v = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
                 self.coords[i] = EMPTY;
-                unsafe { *bigger.coords.get_unchecked_mut(j) = c };
-                unsafe { *bigger.vals.get_unchecked_mut(j) = MaybeUninit::new(v) };
-                bigger.keys.set(j, key); // Stored: write the key; Regen: no-op
-                bigger.len += 1;
+                bigger.place_capped(c, key, v);
             }
         }
         // Carry the side store over; the rebuilt table is fresh (empty side store).
         bigger.side = std::mem::replace(&mut self.side, SideStore::empty());
+        // Re-place every overflow entry through the capped placement too: a grown table may now hold
+        // it in the primary array, and the invariant is re-established for the new generation.
+        if let Some(ov) = self.overflow.take() {
+            for (c, k, v) in ov.into_entries() {
+                bigger.place_capped(c, k, v);
+            }
+        }
         *self = bigger; // tombstones dropped: bigger.tombs == 0
     }
 
-    /// The number of live keys, main slots plus side entries.
+    /// The number of live keys: primary slots, side entries and overflow entries.
     pub fn len(&self) -> usize {
-        self.len + self.side.coords.len()
+        self.len + self.side.coords.len() + self.overflow.as_ref().map_or(0, Overflow::len)
     }
     /// Whether the table holds no keys.
     pub fn is_empty(&self) -> bool {
@@ -1318,35 +1330,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
 /// The key-readback face of iteration — projects [`KeyReadout::Key`], so it requires the extension
 /// trait; the storage and probe bodies stay on [`KeyStore`].
 impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
-    /// Iterate the live `(key, &value)` pairs in arbitrary order — the main slots then the side
-    /// entries.
-    pub fn iter(&self) -> impl Iterator<Item = (KS::Key<'_>, &V)> {
-        let main = self.coords.iter().enumerate().filter_map(|(i, c)| {
-            if is_live(*c) {
-                // SAFETY: live coord ⇒ value initialized.
-                Some((self.keys.key(i, *c), unsafe {
-                    self.vals.get_unchecked(i).assume_init_ref()
-                }))
-            } else {
-                None
-            }
-        });
-        let side = self
-            .side
-            .coords
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| {
-                if self.side.live[i] {
-                    // SAFETY: `live[i]` ⇒ value initialized.
-                    Some((self.side.keys.key(i, *c), unsafe {
-                        self.side.vals.get_unchecked(i).assume_init_ref()
-                    }))
-                } else {
-                    None
-                }
-            });
-        main.chain(side)
+    /// Iterate the live `(key, &value)` pairs in arbitrary order — the main slots, then the side
+    /// entries, then the overflow entries (the walker [`Iter`], which includes all three stores).
+    pub fn iter(&self) -> Iter<'_, K, V, KS> {
+        Iter::new(self)
     }
 }
 
@@ -1358,29 +1345,6 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     #[inline]
     pub fn get_exact(&self, k: &K) -> Option<&V> {
         self.get_coord(k)
-    }
-
-    /// Worst-case probe length, in steps. Coordinate keys: **1** (address = key, nothing to flood).
-    /// Folded keys: collisions descend fresh windows, and `coord·PHI` is a bijection, so distinct
-    /// keys can't fully collide — a pinned home slot builds no pile of ALIASES. That is not a bound
-    /// on this number (`AggregationBound.descent_can_be_wholly_blocked`); past the `⌈64/bits⌉`
-    /// windows the ceiling is the terminal sweep, one period of the slot space. Read it as a
-    /// measurement. Diagnostic — not part of the stable surface.
-    #[doc(hidden)]
-    pub fn longest_probe(&self) -> usize {
-        let mut worst = 0;
-        for (slot, sc) in self.coords.iter().enumerate() {
-            if is_live(*sc) {
-                let mut i = self.home(*sc);
-                let mut j = 0u32;
-                while i != slot {
-                    j += 1;
-                    i = self.descend(*sc, j);
-                }
-                worst = worst.max(j as usize + 1);
-            }
-        }
-        worst
     }
 
     /// Prefetch (T0) the coordinate home line for the scalar pipeline. Issued for a key `P` steps
@@ -1425,7 +1389,11 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == EMPTY {
             return None;
         }
-        self.get_coord_cold_keyed(coord, home, k)
+        match self.probe_capped_with(coord, home, &|i| self.keys.matches(i, coord, k)) {
+            Capped::Hit(i) => Some(unsafe { self.vals.get_unchecked(i).assume_init_ref() }),
+            Capped::Vacant(_) => None,
+            Capped::Blocked => self.overflow.as_ref().and_then(|o| o.get(coord, k)),
+        }
     }
 }
 
@@ -1440,15 +1408,18 @@ impl<K: Eq + Coord, V: PartialEq, KS: KeyStore<K>> PartialEq for Table<K, V, KS>
             if !is_live(*c) {
                 continue;
             }
-            let (j, found) = other.probe(*c);
-            if !found {
+            // SAFETY: live coord ⇒ this value initialized; the match in `other` (primary or
+            // overflow) confirms an initialized value there.
+            if !other.holds_value_at(*c, unsafe { self.vals.get_unchecked(i).assume_init_ref() }) {
                 return false;
             }
-            // SAFETY: live coord ⇒ this value initialized; found ⇒ other's value initialized.
-            if unsafe { other.vals.get_unchecked(j).assume_init_ref() }
-                != unsafe { self.vals.get_unchecked(i).assume_init_ref() }
-            {
-                return false;
+        }
+        // Overflow entries participate the same way; `len()` already fixed the count.
+        if let Some(o) = &self.overflow {
+            for (c, _k, v) in o.iter() {
+                if !other.holds_value_at(c, v) {
+                    return false;
+                }
             }
         }
         // Side entries participate by `(coordinate, value)`, not through `len()` alone: two tables
