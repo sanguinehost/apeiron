@@ -2,6 +2,9 @@ import AxiomAudit.Remaining
 import Numeric.Pow2Refinement
 import Flux.Discrete
 import Count.Helpers
+import Count.FreqRep
+import Count.FreqAdd
+import Count.Aggregate
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -24,6 +27,37 @@ import Count.Helpers
 #audit Apeiron.CountHelpers.word_count_offsets_refuse_mul
 #audit Apeiron.CountHelpers.word_count_offsets_refuse_len
 #audit Apeiron.CountHelpers.word_count_offsets_spec
+
+-- Count aggregate (Count/Aggregate.lean): the count table's representation and `count_aggregate`'s refinement.
+#audit Apeiron.CountAggregate.pspec_admissible
+#audit Apeiron.CountAggregate.loop_pc
+#audit Apeiron.CountAggregate.probe_inner_spec
+#audit Apeiron.CountAggregate.probe_tagged_spec
+#audit Apeiron.CountAggregate.geom_insert
+#audit Apeiron.CountAggregate.with_bits_spec
+#audit Apeiron.CountAggregate.body_insert_fresh
+#audit Apeiron.CountAggregate.body_update
+#audit Apeiron.CountAggregate.grow_body_spec
+#audit Apeiron.CountAggregate.grow_loop_spec
+#audit Apeiron.CountAggregate.grow_spec
+#audit Apeiron.CountAggregate.insert_with_spec
+#audit Apeiron.CountAggregate.add_spec
+#audit Apeiron.CountAggregate.freqRep_empty
+#audit Apeiron.CountAggregate.add_preserves
+#audit Apeiron.CountAggregate.count_body_spec
+#audit Apeiron.CountAggregate.count_aggregate_refines_win
+#audit Apeiron.CountAggregate.count_aggregate_refines
+#audit Apeiron.CountAggregate.cntI_key
+#audit Apeiron.CountAggregate.build_count
+#audit Apeiron.CountAggregate.count_aggregate_canonical
+#audit Apeiron.CountAggregate.home_group_spec
+#audit Apeiron.CountAggregate.descend_group_spec
+#audit Apeiron.CountAggregate.match_tag_spec
+#audit Apeiron.CountAggregate.match_empty_spec
+#audit Apeiron.CountAggregate.group_tag_mask_spec
+#audit Apeiron.CountAggregate.movemask_spec
+#audit Apeiron.CountAggregate.with_capacity_rep
+#audit Apeiron.CountAggregate.freq_spec
 
 #audit apeiron_word.word_f16_split_nonfinite
 #audit apeiron_word.word_f16_split_exact
