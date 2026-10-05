@@ -1,3 +1,4 @@
+-- Row: `apeiron-vv-v1-c-the-entry-BhpTnZsIcBnlxn1BVXRCcI` (/ READLOOP-HCOORD): hcoord is a THEOREM here; Read.lean's :417 cites it.
 import Growable.Representation
 -- Row: `apeiron-bridge-close-on-CCc44JmAFbofK6aRQJbemn`.
 import Growable.ReadState
@@ -42,6 +43,13 @@ run: a `table.Region` whose `coords` word at `slot` is the query's while `slots[
 `spill_read_some_implies_full_match`. Re-establishing it needs a read-side coordinate/tag coherence
 premise, which is a contract question for this module's consumers (the headline's statement below is
 premise-free), not a fact derivable from the run.
+
+**The occupied-coordinate conjunct.** `spill_read_some_implies_full_match` *does* conclude that the hit
+slot's coordinate lane reads back a word other than `table.COORD_EMPTY`. Both cases of the run supply
+it with no premise: the resident case off `generated_spill_read_some_run`'s coordinate readback at the
+swept home slot, the tail case off `StoredProbeHit`'s `StoredProbeVisit`; in each the word is
+`table.Region.coord_of place`, which `coord_of_result_ne_empty` shows is never the vacant sentinel. So
+the conjunct is a theorem here, not a caller-supplied premise.
 -/
 
 namespace Apeiron.GrowableReadLoop
@@ -1205,11 +1213,13 @@ theorem generated_spill_read_none_run
 /-! ## The hit headline -/
 
 /-- A generated `spill_read` `ok (some slot)` result names a slot inside the region's spill
-vector whose payload holds the canonical `(Sigma, key)`. This is the coordinate-surface form of the
+vector whose payload holds the canonical `(Sigma, key)`, and the same slot's coordinate lane reads
+back a word that is not the vacant sentinel. This is the coordinate-surface form of the
 hit headline: the generated body observes `Region.coords`, so the hit is certified by the swept
 coordinate word equalling the query's `Region.coord_of address.place` and the real stored matcher
 accepting the payload. The payload tag is not observed by the body, so no nonzero-tag conjunct is
-stated (see the module header). -/
+stated (see the module header). The occupied-coordinate conjunct is read off the run in both cases;
+`coord_of_result_ne_empty` carries its non-emptiness. -/
 theorem spill_read_some_implies_full_match
     (region : table.Region Apeiron.GrowableIdentity.StoredI64 I64) (sigma : cell.Sigma)
     (address : table.TableAddress) (key : I64) (n : Usize) (slot : Usize)
@@ -1218,24 +1228,30 @@ theorem spill_read_some_implies_full_match
     slot.val < region.slots.length ∧
     ∃ entry : StoredSpillSlot,
       region.slots.val[slot.val]? = some entry ∧
-      Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) := by
+      Apeiron.GrowableIdentity.logicalStored entry.sigma entry.held = (sigma, key) ∧
+      (∃ coord : U64, region.coords.val[slot.val]? = some coord ∧
+        coord ≠ table.COORD_EMPTY) := by
   obtain ⟨hne, _hvalid, home, _hhome, hcases⟩ :=
     generated_spill_read_some_run region sigma address key n slot hresult
   rcases hcases with
-    ⟨_wantedR, entry, _hcoord, hhomeSlot, _hwantedR, hssList, hmatch⟩ | htail
+    ⟨wantedR, entry, hcoordR, hhomeSlot, hwantedR, hssList, hmatch⟩ | htail
   · subst hhomeSlot
-    exact ⟨(List.getElem?_eq_some_iff.mp hssList).1, entry, hssList,
-      (stored_matches_slot_iff entry sigma key address).mp hmatch⟩
-  · obtain ⟨bound, mask, wanted, _hbound, hboundVal, _hmask, _hwanted, _htailRun, hloop⟩ := htail
+    refine ⟨(List.getElem?_eq_some_iff.mp hssList).1, entry, hssList, ?_,
+      ⟨wantedR, hcoordR, coord_of_result_ne_empty address.place wantedR hwantedR⟩⟩
+    exact (stored_matches_slot_iff entry sigma key address).mp hmatch
+  · obtain ⟨bound, mask, wanted, _hbound, hboundVal, _hmask, hwanted, _htailRun, hloop⟩ := htail
     have hbound1 : 1 ≤ bound.val := by
       rw [hboundVal]
       omega
     obtain ⟨_, _, _, _, _, hhit⟩ :=
       generated_probe_run_some region sigma address.place address.direct_word key home mask bound
         wanted slot hbound1 hloop
-    obtain ⟨_hvisit, _hfoundWanted, entry, hssList, hmatch⟩ := hhit
-    exact ⟨(List.getElem?_eq_some_iff.mp hssList).1, entry, hssList,
-      (stored_matches_slot_iff entry sigma key address).mp hmatch⟩
+    obtain ⟨hvisit, hfoundWanted, entry, hssList, hmatch⟩ := hhit
+    obtain ⟨_, _, _, _, hcoordF⟩ := hvisit
+    refine ⟨(List.getElem?_eq_some_iff.mp hssList).1, entry, hssList, ?_,
+      ⟨wanted, hfoundWanted ▸ hcoordF,
+        coord_of_result_ne_empty address.place wanted hwanted⟩⟩
+    exact (stored_matches_slot_iff entry sigma key address).mp hmatch
 
 /-! ## The absence headline -/
 
