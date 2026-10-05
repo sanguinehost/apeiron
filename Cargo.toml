@@ -61,6 +61,10 @@ twox-hash = { version = "=2.1.4", default-features = false, features = ["xxhash3
 name = "map"
 harness = false
 
+[[bench]]
+name = "count"
+harness = false
+
 # Examples are grouped by kind under `examples/`, so their target paths are declared here rather
 # than auto-discovered from the directory root. The comparison examples (smhasher, fold, the cost
 # probes, support, reg1) are removed with the comparison harness (owner direction, 2026-10-05).
