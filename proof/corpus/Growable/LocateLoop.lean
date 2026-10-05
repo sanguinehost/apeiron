@@ -6,10 +6,13 @@ import Mathlib.Tactic
 # Locate-loop completion facts for `table.probe.spill_locate`
 
 The extracted locate probe is a single linear loop (`table.probe.spill_locate_loop`,
-`ApeironWord.lean`): for `step < bound` it reads `slot = (home + step) &&& (bound - 1)`,
-returns `Vacant slot` on an empty tag, returns `Found slot` when the tag equals `wanted` and
-`table.matches` succeeds, continues with `step + 1` otherwise, and returns `Grow` once the
-bound is reached. The mask/bit-scan scanner (`table.least_set_lane`), the grouped outer sweep
+`ApeironWord.lean:23837`): for `step < bound` it reads `slot = (home + step) &&& (bound - 1)`,
+then reads the coordinate word `r.coords[slot]`, returns `Vacant slot` when that word is
+`table.COORD_EMPTY`, returns `Found slot` when the word equals `wanted` and `table.matches`
+succeeds on the payload read at `slot`, continues with `step + 1` otherwise, and returns `Grow`
+once the bound is reached. `wanted` is the query's coordinate word `table.Region.coord_of`
+(`ApeironWord.lean:20402`), a `U64`; the probe observes the coordinate lane, not the payload tag
+lane. The mask/bit-scan scanner (`table.least_set_lane`), the grouped outer sweep
 (`table.WINDOWS`, `table.scan.match_tag`) and the summary admission (`summary_maybe`) are gone
 from the artifact; this module is rewritten against that single loop and no longer imports
 `Growable.ReadLoop` (its own `spill_read_loop0*` surface is stale and outside this file's
@@ -51,14 +54,16 @@ abbrev LocateSlotCertified {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
       r.slots slot = ok ss ∧
     table.matches keyRep ss sigma key { place := place, direct_word := direct } = ok true
 
-/-- A recorded vacancy: the executed step read an empty-tag spill slot at `slot`. -/
+/-- A recorded vacancy: the executed step read the coordinate word `table.COORD_EMPTY` at `slot`.
+The current body observes the coordinate lane (`Region.coords`), not the payload tag lane
+(`table.tag`), so the vacancy witness is stated over the coordinate read: the vacancy branch of
+`table.probe.spill_locate_loop.body` performs no `Vec.index` on `r.slots` at all. -/
 abbrev LocateVacantWitness {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (slot : Usize) : Prop :=
-  ∃ (ss : table.SpillSlot R V) (step : Usize),
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (table.SpillSlot R V))
-      r.slots slot = ok ss ∧
-    ss.tag = 0#u8 ∧
+    (key : K) (bound home : Usize) (wanted : U64) (slot : Usize) : Prop :=
+  ∃ (found : U64) (step : Usize),
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice U64) r.coords slot = ok found ∧
+    found = table.COORD_EMPTY ∧
     step.val < bound.val ∧
     table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home wanted step
       = ok (ControlFlow.done (table.SpillSite.Vacant slot))
@@ -66,7 +71,7 @@ abbrev LocateVacantWitness {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
 /-- One executed miss step: the body at `step` continues with `step + 1`. -/
 abbrev LocateOuterStepMiss {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step : Usize) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (step : Usize) : Prop :=
   step.val < bound.val ∧
   ∃ next : Usize,
     table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home wanted step
@@ -77,7 +82,7 @@ abbrev LocateOuterStepMiss {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
 comparison succeeded. -/
 abbrev LocateMatchWitness {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (slot : Usize) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (slot : Usize) : Prop :=
   ∃ step : Usize,
     step.val < bound.val ∧
     table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home wanted step
@@ -87,7 +92,7 @@ abbrev LocateMatchWitness {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
 /-- The body's per-step classification: continue, match, vacancy, or bound exhausted. -/
 abbrev LocateOuterStepReady {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step : Usize)
+    (key : K) (bound home : Usize) (wanted : U64) (step : Usize)
     (cf : ControlFlow Usize table.SpillSite) : Prop :=
   (∃ next : Usize, cf = ControlFlow.cont next ∧ step.val < bound.val ∧
     next.val = step.val + 1) ∨
@@ -142,7 +147,7 @@ The proof peels the generated binds and the tag/match tests; no mask or bit-scan
 appears because the extracted body has none. -/
 theorem locate_inner_body_shape {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step : Usize) (cf : ControlFlow Usize table.SpillSite)
     (hrun : table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home
       wanted step = ok cf) :
@@ -155,9 +160,9 @@ theorem locate_inner_body_shape {K H R V : Type}
     obtain ⟨i2, _hsub, hrun⟩ := bind_ret_inv _ _ _ hrun
     have hlift : lift (i1 &&& i2) = ok (i1 &&& i2) := rfl
     rw [hlift, bind_tc_ok] at hrun
-    obtain ⟨ss, hidx, hrun⟩ := bind_ret_inv _ _ _ hrun
-    by_cases htag0 : ss.tag = 0#u8
-    · rw [if_pos htag0] at hrun
+    obtain ⟨found, hidx, hrun⟩ := bind_ret_inv _ _ _ hrun
+    by_cases hempty : found = table.COORD_EMPTY
+    · rw [if_pos hempty] at hrun
       have hcf : cf = ControlFlow.done (table.SpillSite.Vacant (i1 &&& i2)) :=
         (Result.ok_injective hrun).symm
       have hbody : table.probe.spill_locate_loop.body keyRep r sigma place direct key bound
@@ -166,15 +171,16 @@ theorem locate_inner_body_shape {K H R V : Type}
         rw [hcf] at hrun0
         exact hrun0
       exact Or.inr (Or.inr (Or.inl ⟨i1 &&& i2, hcf, hlt,
-        ⟨ss, step, hidx, htag0, hlt, hbody⟩⟩))
-    · rw [if_neg htag0] at hrun
-      by_cases htagw : ss.tag = wanted
-      · rw [if_pos htagw] at hrun
+        ⟨found, step, hidx, hempty, hlt, hbody⟩⟩))
+    · rw [if_neg hempty] at hrun
+      by_cases hfound : found = wanted
+      · rw [if_pos hfound] at hrun
+        obtain ⟨ss, hidxss, hrun⟩ := bind_ret_inv _ _ _ hrun
         obtain ⟨b, hmatch, hrun⟩ := bind_ret_inv _ _ _ hrun
         by_cases hb : b = true
         · rw [if_pos hb] at hrun
           have hcert : LocateSlotCertified keyRep r sigma place direct key (i1 &&& i2) := by
-            refine ⟨ss, hidx, ?_⟩
+            refine ⟨ss, hidxss, ?_⟩
             rw [hmatch, hb]
           exact Or.inr (Or.inr (Or.inr
             ⟨i1 &&& i2, (Result.ok_injective hrun).symm, hlt, hcert⟩))
@@ -187,7 +193,7 @@ theorem locate_inner_body_shape {K H R V : Type}
             obtain ⟨_, hval, _⟩ := hadd
             simpa using hval
           exact Or.inl ⟨next, (Result.ok_injective hrun).symm, hlt, hval⟩
-      · rw [if_neg htagw] at hrun
+      · rw [if_neg hfound] at hrun
         obtain ⟨next, hnext, hrun⟩ := bind_ret_inv _ _ _ hrun
         have hval : next.val = step.val + 1 := by
           have hadd := UScalar.add_equiv (x := step) (y := 1#usize)
@@ -206,7 +212,7 @@ theorem locate_inner_body_shape {K H R V : Type}
 full-key comparison returned `true`. -/
 theorem generated_spill_locate_clears_selected {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step slot : Usize)
     (hrun : table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home
       wanted step = ok (ControlFlow.done (table.SpillSite.Found slot))) :
@@ -230,7 +236,7 @@ theorem generated_spill_locate_clears_selected {K H R V : Type}
 fall below `step0` and every executed step below it missed. -/
 abbrev LocateInnerInv {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step0 step : Usize) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (step0 step : Usize) : Prop :=
   step0.val ≤ step.val ∧
   ∀ s : Usize, step0.val ≤ s.val → s.val < step.val →
     LocateOuterStepMiss keyRep r sigma place direct key bound home wanted s
@@ -239,7 +245,7 @@ abbrev LocateInnerInv {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
 exhaustion of the bound with every step from `step0` on recorded as a miss. -/
 abbrev LocateInnerOutcome {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step0 : Usize) (result : table.SpillSite) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (step0 : Usize) (result : table.SpillSite) : Prop :=
   (∃ slot : Usize, result = table.SpillSite.Found slot ∧
     LocateMatchWitness keyRep r sigma place direct key bound home wanted slot) ∨
   (∃ slot : Usize, result = table.SpillSite.Vacant slot ∧
@@ -252,7 +258,7 @@ abbrev LocateInnerOutcome {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
 predicate as `LocateInnerInv` under the outer-loop name retained for the audit surface. -/
 abbrev LocateOuterInv {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step0 step : Usize) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (step0 step : Usize) : Prop :=
   LocateInnerInv keyRep r sigma place direct key bound home wanted step0 step
 
 /-- The two-level (inner/outer) naming collapses to the single live loop; this is the same
@@ -260,13 +266,13 @@ predicate as `LocateInnerOutcome` under the outer-loop name retained for the aud
 surface. -/
 abbrev LocateOuterOutcome {K H R V : Type} (keyRep : table.keyrep.KeyRep R K H)
     (r : table.Region R V) (sigma : cell.Sigma) (place : U64) (direct : Option U32)
-    (key : K) (bound home : Usize) (wanted : U8) (step0 : Usize) (result : table.SpillSite) : Prop :=
+    (key : K) (bound home : Usize) (wanted : U64) (step0 : Usize) (result : table.SpillSite) : Prop :=
   LocateInnerOutcome keyRep r sigma place direct key bound home wanted step0 result
 
 /-- One step of the prefix invariant: a miss at the cursor extends the sweep. -/
 theorem locate_inner_inv_snoc {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     {step0 step next : Usize}
     (hinv : LocateInnerInv keyRep r sigma place direct key bound home wanted step0 step)
     (hmiss : LocateOuterStepMiss keyRep r sigma place direct key bound home wanted step)
@@ -279,13 +285,14 @@ theorem locate_inner_inv_snoc {K H R V : Type}
   · exact hsweep s hs hlt'
   · have hseq : s = step := UScalar.eq_of_val_eq heq
     subst hseq
-    exact hmiss
+    rcases hmiss with ⟨hltmiss, next, hcf, hnextval⟩
+    refine ⟨hltmiss, next, hcf, hnextval⟩
   · exact (by omega : False).elim
 
 /-- The generated loop wrapper equals its `loop` presentation with a projection lambda. -/
 theorem wrapper_loop_form {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step : Usize) :
     table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted step =
       loop (fun step1 => table.probe.spill_locate_loop.body keyRep r sigma place direct key
@@ -296,7 +303,7 @@ theorem wrapper_loop_form {K H R V : Type}
 /-- The outer-loop name of `wrapper_loop_form`: the locate sweep is the one live loop. -/
 theorem outer_wrapper_loop_form {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step : Usize) :
     table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted step =
       loop (fun step1 => table.probe.spill_locate_loop.body keyRep r sigma place direct key
@@ -308,7 +315,7 @@ bounds geometry that the grouped sweep needed no longer appears, so this is
 `locate_inner_body_shape` under the retained readiness name. -/
 theorem locate_outer_step_ready_of_geometry {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step : Usize) (cf : ControlFlow Usize table.SpillSite)
     (hrun : table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home
       wanted step = ok cf) :
@@ -318,7 +325,7 @@ theorem locate_outer_step_ready_of_geometry {K H R V : Type}
 /-- The outer-loop name of `locate_inner_body_shape`: one live body. -/
 theorem locate_outer_body_shape {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step : Usize) (cf : ControlFlow Usize table.SpillSite)
     (hrun : table.probe.spill_locate_loop.body keyRep r sigma place direct key bound home
       wanted step = ok cf) :
@@ -333,7 +340,7 @@ supplies the per-step certificates, and the run itself is the readiness witness 
 unsatisfiable premise at a `Found` step). -/
 theorem generated_locate_inner_outcome {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step0 : Usize) (res : table.SpillSite)
     (hrun : table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted
       step0 = ok res) :
@@ -459,7 +466,7 @@ theorem generated_locate_inner_outcome {K H R V : Type}
 /-- The outer-loop name of `generated_locate_inner_outcome`. -/
 theorem generated_locate_outer_outcome {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step0 : Usize) (res : table.SpillSite)
     (hrun : table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted
       step0 = ok res) :
@@ -471,7 +478,7 @@ theorem generated_locate_outer_outcome {K H R V : Type}
 slot's full-key comparison. -/
 theorem generated_locate_inner_found {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (step0 : Usize) (slot : Usize)
     (hrun : table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted
       step0 = ok (table.SpillSite.Found slot)) :
@@ -490,7 +497,7 @@ theorem generated_locate_inner_found {K H R V : Type}
 /-- The outer-loop name of `generated_locate_inner_found` from the initial cursor. -/
 theorem generated_locate_outer_found {K H R V : Type}
     (keyRep : table.keyrep.KeyRep R K H) (r : table.Region R V) (sigma : cell.Sigma)
-    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U8)
+    (place : U64) (direct : Option U32) (key : K) (bound home : Usize) (wanted : U64)
     (slot : Usize)
     (hrun : table.probe.spill_locate_loop keyRep r sigma place direct key bound home wanted
       0#usize = ok (table.SpillSite.Found slot)) :
@@ -509,10 +516,10 @@ theorem generated_spill_locate_unfold {K H R V : Type}
     (key : K) (n : Usize) (index : Usize)
     (hresult : table.probe.spill_locate keyRep region sigma address key n =
       ok (table.SpillSite.Found index)) :
-    ∃ (bound home : Usize) (wanted : U8),
+    ∃ (bound home : Usize) (wanted : U64),
       table.Region.bound region = ok bound ∧
       table.Region.home region address.place = ok home ∧
-      table.tag address.place = ok wanted ∧
+      table.Region.coord_of R V address.place = ok wanted ∧
       table.probe.spill_locate_loop keyRep region sigma address.place address.direct_word
         key bound home wanted 0#usize = ok (table.SpillSite.Found index) ∧
       LocateSlotCertified keyRep region sigma address.place address.direct_word key index := by
@@ -543,10 +550,10 @@ theorem generated_spill_locate_unfold_run {K H R V : Type}
     (key : K) (n : Usize) (index : Usize)
     (hresult : table.probe.spill_locate keyRep region sigma address key n =
       ok (table.SpillSite.Found index)) :
-    ∃ (bound home : Usize) (wanted : U8),
+    ∃ (bound home : Usize) (wanted : U64),
       table.Region.bound region = ok bound ∧
       table.Region.home region address.place = ok home ∧
-      table.tag address.place = ok wanted ∧
+      table.Region.coord_of R V address.place = ok wanted ∧
       table.probe.spill_locate_loop keyRep region sigma address.place address.direct_word
         key bound home wanted 0#usize = ok (table.SpillSite.Found index) ∧
       LocateSlotCertified keyRep region sigma address.place address.direct_word key index :=
