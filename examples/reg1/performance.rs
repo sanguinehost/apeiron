@@ -333,6 +333,7 @@ fn synthetic_cell(id: &str, status: CellStatus, campaign_ratios: &[f64]) -> Cell
         apeiron_samples: vec![100; 15],
         ht_samples: vec![100; 15],
         campaign_ratios: campaign_ratios.to_vec(),
+        selected_impl_symbol: crate::strata::VENDORED_MAP_SYMBOL,
         status,
         reason: "synthetic strict-acceptance control cell".to_string(),
     }

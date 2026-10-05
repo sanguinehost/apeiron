@@ -21,9 +21,13 @@ use apeiron::coord::address::{
 };
 use apeiron::coord::locator::{ExactIdentity, Refusal};
 use apeiron::coord::{spread, Packed};
-use apeiron::table::{Home, TableAddress};
+use std::collections::HashMap;
+
+use apeiron::table::{Home, SearchLocation, TableAddress};
 use apeiron::Sigma;
 use hashtrinity::Coord;
+
+use super::{all_specs, build_apeiron, make_plan, merge_fn, probe_capacity, SHARDS};
 
 /// A REG-1 current-strata coordinate word. Equality is exactly equality on `tag`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,6 +36,20 @@ pub(crate) struct StrataKey {
 }
 
 impl Coord for StrataKey {
+    fn coord(&self) -> u64 {
+        self.tag
+    }
+}
+
+/// The same one-line coordinate address under the **vendored** incumbent's own `Coord`.
+///
+/// `hashtrinity::Coord` and `apeiron::freq::Coord` are two distinct traits over the same method, one
+/// per crate that owns the type: the selected side of a map pair instantiates
+/// `apeiron::freq::Table<StrataKey, i64>`, which needs the vendored trait, and the incumbent arms
+/// instantiate `hashtrinity::Table<StrataKey, i64>`, which needs the external one. Both impls return
+/// `self.tag`, so the two tables place a key at the same slot — which is the property the pair
+/// depends on when it claims the two sides differ only in which crate owns the type.
+impl apeiron::freq::Coord for StrataKey {
     fn coord(&self) -> u64 {
         self.tag
     }
@@ -173,6 +191,40 @@ impl FaceCoord<StrataKey> for RawStrataHome {
 }
 
 impl FaceHome<StrataKey> for RawStrataHome {}
+
+/// The observed read-path split of every current cell, keyed by cell id, as the `(spill, resident)`
+/// present-key counts. [`Table::search_decision_at`] runs the classifier [`Table::get_at`] inlines
+/// at `src/table.rs:372` — the `direct_word`/`resident.index` descent, then the spill region — so a
+/// `Spill` location is exactly the set of reads that enter `spill_read`. It is the executing
+/// table's own classification over each timed cell's population: no counter, no inference.
+///
+/// This observes *this crate's* table, which is what the spill-read registry records and is
+/// independent of which table the pair's selected side runs (see `selected_map`).
+///
+/// Temporal `O(cells x population)` and spatial `O(1)` beyond the one `HashMap` of cells: one
+/// `search_decision_at` per present key over every enumerated cell.
+pub(crate) fn read_path_split_by_cell() -> HashMap<String, (usize, usize)> {
+    let mut out = HashMap::new();
+    for spec in all_specs() {
+        let (capacity, bits) = probe_capacity(SHARDS * spec.occupancy);
+        let Ok(plan) = make_plan(spec, capacity, bits) else {
+            continue;
+        };
+        let (table, admitted) = build_apeiron(&plan.present, merge_fn(spec.merge));
+        if admitted == plan.present.len() {
+            let (mut spill, mut resident) = (0usize, 0usize);
+            for key in &plan.present {
+                match table.search_decision_at(Sigma::Parabolic, key).location {
+                    SearchLocation::Flat(_) => resident += 1,
+                    SearchLocation::Spill(_, _) => spill += 1,
+                    SearchLocation::NoIndex => {}
+                }
+            }
+            out.insert(spec.id(), (spill, resident));
+        }
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {

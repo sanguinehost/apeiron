@@ -190,7 +190,11 @@ impl RatioTarget {
     }
 }
 
-pub(crate) const SELECTED_IMPL: &str = "apeiron_table";
+/// The registered identity of the selected arm the acceptance pair table reports. The serial strata
+/// (map) pairs execute the incumbent's own body vendored into this crate at `src/hashtrinity/`
+/// (rev `4cc14471`, reached as `apeiron::freq::Table`), so the reported selected side is
+/// `apeiron_hashtrinity_map`, not the crate's own `apeiron::Table`.
+pub(crate) const SELECTED_IMPL: &str = "apeiron_hashtrinity_map";
 
 pub(crate) const SELECTED_WORKERS: usize = 1;
 

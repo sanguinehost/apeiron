@@ -202,3 +202,19 @@ exclude = ["fuzz"]
 # reports a wrong number because a cast lost precision is worse than one that does not compile.
 [lints.clippy]
 pedantic = "warn"
+
+# The vendored `src/hashtrinity/` tree is a *module* of this crate, so every `#[cfg(feature = …)]`
+# in it resolves against **this** package's feature table. Its 18 upstream feature names are
+# renamed to an `ht-` prefix in `src/hashtrinity/mod.rs` so none of them can collide with — or be
+# switched on by — one of ours (`derive` was the live collision: apeiron's own `derive` feature
+# turned upstream's `ht-derive` surface on, and its `hashtrinity_derive` import then failed).
+#
+# The `ht-*` names are declared here, and not as `[features]` entries on purpose: declaring them as
+# features would make `--all-features` turn the whole vendored surface **on**, pulling in external
+# crates this crate does not depend on. Declaring the *expected cfg values* keeps every one of the
+# 18 gates a real, off-by-default gate, and keeps `unexpected_cfgs` at `warn` (so `-D warnings`
+# still fails on any cfg name not listed here).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(feature, values("ht-base32", "ht-bitflags", "ht-codec", "ht-compress", "ht-derive", "ht-error", "ht-itertools", "ht-openapi", "ht-proc-macro", "ht-reactor", "ht-reactor-epoll", "ht-reactor-iouring", "ht-runtime", "ht-rustls-provider", "ht-syncfold", "ht-syntax", "ht-validate", "ht-webauthn"))',
+] }
