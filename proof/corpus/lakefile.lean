@@ -45,7 +45,10 @@ lean_lib ApeironWordBridge where
     -- `Growable.InsertRefine` was imported by `Growable.GaplessRead`/`Growable.BuildRefine`,
     -- neither reachable, so it was ungated.
     -- Row: `apeiron-verify-wave-land-nFsIRO8H9pKb1njJApKly`.
-    `Growable.InsertRefine, `Growable.CostModel,
+    -- `Growable.BuildRefine` was on no build path (roots carries no `.submodules` glob, and its
+    -- only importer, `Growable/GaplessRead.lean`, is unreachable). Registered + gated.
+    -- Row: `apeiron-roots-schedule-GLorJM9lzcN49Cr1tCCT0s`.
+    `Growable.InsertRefine, `Growable.Schedule, `Growable.BuildRefine, `Growable.CostModel,
     `Map.Rep, `Map.Read, `Map.Selected,
     `Count.Rep, `Count.Read,
     `AxiomAudit, `Joint.WordBridge,
