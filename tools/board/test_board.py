@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import board  # noqa: E402
 import board_check  # noqa: E402
 import board_core  # noqa: E402
+import board_rest  # noqa: E402
 
 
 class StubResponse:
@@ -120,6 +121,75 @@ class WriteShapeTests(unittest.TestCase):
         client = board.RestClient(key="k", opener=opener)
         self.assertEqual(client.update_status("t-1", "not-a-status"), "refused")
 
+    def test_check_in_status_is_translated_to_the_instance_enum(self) -> None:
+        """The instance accepts on_track / caution / off_track, not red / green.
+
+        Sending `red` verbatim answers `400 Invalid value for enum
+        project_check_in_status`, so the default post was rejected on every run
+        and the audit trail never landed.
+        """
+        for wanted, sent in (("red", "off_track"), ("green", "on_track"), ("caution", "caution")):
+            opener = StubOpener({"projects/create_check_in": {"id": "ci-1"}})
+            client = board.RestClient(key="k", opener=opener)
+            transport, error = client.post_check_in("p-1", wanted, "line")
+            self.assertEqual(transport, "landed", error)
+            self.assertEqual(json.loads(opener.bodies[-1])["status"], sent)
+
+    def test_verify_status_resolves_a_label_not_only_the_value(self) -> None:
+        """A landed move to `Done` must read as landed.
+
+        Comparing the read-back value `done` against the label `Done` raw
+        reported every such write as NOT landed.
+        """
+        routes = {
+            "tasks/get": {"task": {"id": "t-1", "type": "project", "status": {"value": "done"}}},
+            "tasks/list_task_statuses": {
+                "task_statuses": [{"id": "s3", "value": "done", "label": "Done"}]
+            },
+        }
+        client = board.RestClient(key="k", opener=StubOpener(routes))
+        landed, observed = client.verify_status("t-1", "Done")
+        self.assertTrue(landed)
+        self.assertEqual(observed, "done")
+
+
+class LiveAttributionTests(unittest.TestCase):
+    """A task enumerated under a project milestone belongs to that project."""
+
+    def test_fetch_live_attributes_a_milestone_task_to_its_project(self) -> None:
+        """The instance returns the task with `project: None` -- a present key.
+
+        A `setdefault("project", project)` no-ops on a present-but-None value, so
+        every milestone task read as unattributed and `unattributed-task`
+        fired on work that has a project.
+        """
+
+        class FakeClient:
+            def projects(self):  # noqa: ANN201 - stub
+                return [{"id": "p-1", "name": "apeiron"}]
+
+            def space_tasks(self, space_id):  # noqa: ANN001, ANN201 - stub
+                return []
+
+            def milestones(self, project_id):  # noqa: ANN001, ANN201 - stub
+                return [{"id": "m-1", "title": "Core", "status": "pending"}]
+
+            def milestone_tasks(self, milestone_id):  # noqa: ANN001, ANN201 - stub
+                return [
+                    {
+                        "id": "t-1",
+                        "name": "T",
+                        "status": {"value": "pending"},
+                        "description": "",
+                        "project": None,
+                        "milestone": None,
+                    }
+                ]
+
+        doc = board_rest.fetch_live(FakeClient(), space_id="s-1", projects=["apeiron"])
+        task = doc["tasks"][0]
+        self.assertEqual(task["project_name"], "apeiron")
+
 
 class DescriptionTests(unittest.TestCase):
     def test_prosemirror_doc_flattens_to_text(self) -> None:
@@ -155,6 +225,13 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(board.gates_of("`tools/gate`"), ["tools/gate"])
         self.assertEqual(
             board.gates_of("`tools/gate/target/debug/gate`"), ["tools/gate/target/debug/gate"]
+        )
+        # The repository's own gates are `cd proof/corpus && lake build <target>`
+        # (AGENTS.md section 6); `cd` is a gate head or every one of them reads as
+        # no gate at all.
+        self.assertEqual(
+            board.gates_of("`cd proof/corpus && lake build Growable.Read`"),
+            ["cd proof/corpus && lake build Growable.Read"],
         )
 
     def test_a_bare_script_path_is_not_a_gate(self) -> None:

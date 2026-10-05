@@ -1,4 +1,5 @@
 # Row: `apeiron-board-write-shape-FLHWsvrO3iZPMhoOtZ5r3t` (APEIRON-BOARD-WRITE-SHAPE).
+# Row: `apeiron-board-reconcile-s-CgdnzwtZvdUJxBWVAZ8l54` (APEIRON-BOARD-RECONCILE).
 #!/usr/bin/env python3
 """board_rest: the external v1 REST transport.
 
@@ -31,6 +32,24 @@ from board_model import (
     attribute_projects,
     normalize_document,
 )
+
+# ---------------------------------------------------------------------------
+# The instance's check-in status enum
+# ---------------------------------------------------------------------------
+
+# The tool's own vocabulary is red / green / caution -- the fixtures, the
+# dry-run print and the offline controls all speak it. The live instance accepts
+# only on_track / caution / off_track and answers `400 Invalid value for enum
+# project_check_in_status` for anything else, so the record is translated at the
+# transport boundary rather than in the caller's vocabulary. Before this, the
+# default post (status `red`, or `green` with no findings) was rejected on every
+# run.
+CHECK_IN_STATUS = {
+    "red": "off_track",
+    "green": "on_track",
+    "caution": "caution",
+}
+
 
 # ---------------------------------------------------------------------------
 # Rich content
@@ -202,7 +221,7 @@ class RestClient:
                 "projects/create_check_in",
                 method="POST",
                 project_id=project_id,
-                status=status,
+                status=CHECK_IN_STATUS.get(status.strip().lower(), status),
                 description=rich_content(description),
             )
             return "landed", ""
@@ -214,8 +233,18 @@ class RestClient:
         return "landed" if transport == "landed" else "refused"
 
     def verify_status(self, task_id: str, target: str) -> tuple[bool, str]:
+        """The read-back is the verdict, in the same vocabulary as the write.
+
+        The target may be a status value, a label or an id; the read-back is
+        always the status *value*. Comparing the two raw reported a landed write
+        as unlanded for every spelling that is not the exact value string
+        (``Done`` against ``done``), so the target is resolved through the task's
+        own status list first, exactly as ``update_status`` resolves the write.
+        """
         observed = ((self.task(task_id).get("status") or {}).get("value")) or ""
-        return observed == target, observed
+        resolved = resolve_status(self.task_statuses(task_id), target)
+        expected = (resolved or {}).get("value") or target
+        return observed.lower() == str(expected).strip().lower(), observed
 
 
 LIVE_COVERAGE_NOTES = (
@@ -254,9 +283,22 @@ def fetch_live(
                 }
             )
             for task in client.milestone_tasks(milestone["id"]):
-                task.setdefault("milestone", {"id": milestone.get("id")})
-                task.setdefault("project", project)
-                raw_tasks.setdefault(task["id"], task)
+                # The instance returns a task with `project: None` -- a present
+                # key -- even when the task is enumerated under a project's
+                # milestone, so `setdefault("project", project)` no-ops and
+                # every milestone task reads as unattributed. Fill an empty
+                # project or milestone; never overwrite a real one.
+                existing = raw_tasks.get(task["id"])
+                if existing is None:
+                    raw_tasks[task["id"]] = task
+                    existing = task
+                if not existing.get("project"):
+                    existing["project"] = project
+                if not existing.get("milestone"):
+                    existing["milestone"] = {
+                        "id": milestone.get("id"),
+                        "title": milestone.get("title"),
+                    }
     document = {
         "schema": SCHEMA,
         "origin": "live:operately",

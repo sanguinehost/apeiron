@@ -340,7 +340,13 @@ def run_post(args: argparse.Namespace, doc: dict[str, Any]) -> int:
     client = RestClient(base_url=args.base_url)
     transport = client.create_check_in(project_id, status, record)
     stamp = record.splitlines()[0]
-    confirmed = any(stamp in flatten_description(entry.get("content")) for entry in client.check_ins(project_id))
+    # The live check-in object carries its body under `description`; the offline
+    # fixtures use `content`. Reading only `content` made confirmation
+    # impossible, so every landed post reported `write-did-not-land`.
+    confirmed = any(
+        stamp in flatten_description(entry.get("description") or entry.get("content"))
+        for entry in client.check_ins(project_id)
+    )
     print(
         f"post project={project_name} transport={transport} read-back-confirmed={confirmed} "
         f"status={status}"

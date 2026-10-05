@@ -90,6 +90,10 @@ ALL_RULES = CONTRACT_RULES + PROTOCOL_RULES + RECONCILE_RULES + EXTENSION_RULES
 BACKTICK = re.compile(r"`([^`\n]+)`")
 GATE_HEADS = frozenset(
     {
+        # `cd` is a gate head because the repository's own gates are written
+        # `cd proof/corpus && lake build <target>` (AGENTS.md section 6); without
+        # it every such gate line was read as no gate at all.
+        "cd",
         "cargo",
         "lake",
         "lean",
