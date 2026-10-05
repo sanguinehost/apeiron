@@ -51,7 +51,14 @@ lean_lib ApeironWordBridge where
     -- `GaplessRead`/`HomeBound` were also on no build path: registered, so their headlines are
     -- checked by a scoped `lake build` rather than by an ad-hoc `lake lean`.
     `Growable.GaplessRead, `Growable.HomeBound,
+    -- Row: `apeiron-corpus-register-GPgkBfYXcWVRfHB3t9Mpwl`.
     `Growable.InsertRefine, `Growable.Schedule, `Growable.BuildRefine, `Growable.CostModel,
+    -- `Growable.Batched` was committed on no build path: `roots` carries no `.submodules` glob and
+    -- nothing imported it, so its 6 `#print axioms` rows were never evaluated. Registered.
+    `Growable.Batched,
+    -- `Growable.FaceBound` was committed on no build path: `roots` carries no `.submodules` glob and
+    -- nothing imported it, so its 6 `#audit` rows were never evaluated. Registered.
+    `Growable.FaceBound,
     `Map.Rep, `Map.Read, `Map.Selected,
     `Count.Rep, `Count.Read,
     `AxiomAudit, `Joint.WordBridge,
