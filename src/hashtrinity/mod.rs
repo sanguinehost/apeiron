@@ -1,3 +1,4 @@
+// Row: `apeiron-extract-insert-4-7NjO1ZbPTGkqjZ3afaKeu`.
 //! hashtrinity — a `K → V` table where the key is its own address.
 //!
 //! Not a wrapper over `std::HashMap`. One flat power-of-two array, one insert, and four merge
@@ -1041,6 +1042,21 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
     }
 }
 
+/// A landed insert: the slot is blank (`EMPTY`) and the caller owns the merge between `new` and the
+/// value `old` that was already there. Returned by [`Table::insert_core`] instead of writing, so
+/// every insert face shares one probe/reserve core and differs only in what it does with the two
+/// values. The caller MUST write `slot` back and re-occupy it with `coord`.
+struct InsertHit<V> {
+    /// The probe's slot; in bounds by construction (`probe` masks to the power-of-two array).
+    slot: usize,
+    /// The slot's coordinate, to restore after the write — identity is unchanged by an overwrite.
+    coord: u64,
+    /// The incoming value, handed back because a hit does not consume it.
+    new: V,
+    /// The value that was in the slot, moved out so exactly one of the two faces owns its drop.
+    old: V,
+}
+
 impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Remove `k` and return its value, or `None` if absent. The bijection face — inverse of `put`.
     ///
@@ -1067,10 +1083,17 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         }
     }
 
-    /// The one mutator: set `k` to `f(new, old)`. An absent key has no old value, so you get
-    /// `f(new, identity) = new`. Every table face is just this with a different `f`.
+    /// The reserve/probe/store core every insert face shares. On a miss `new` is stored and this
+    /// returns `None`. On a hit the old value is read out and the slot is blanked, and the caller
+    /// receives the [`InsertHit`] — so [`insert_with`](Self::insert_with) (merge applied by the
+    /// caller) and [`insert_merge_last_write`](Self::insert_merge_last_write) (merge specialised to
+    /// its own body) are the same probe over one body, not two copies of it.
+    ///
+    /// Blanking before the merge is what keeps a panicking merge sound: the slot is logically empty
+    /// for its duration, so the unwinding `old` is dropped once and `Drop` skips the slot — no
+    /// double free, no chain break.
     #[inline]
-    pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
+    fn insert_core(&mut self, k: K, new: V) -> Option<InsertHit<V>> {
         // Occupancy that bounds the probe (live + tombstones, since probe walks through both) must stay
         // under the load limit — otherwise a churn workload could fill the table with tombstones and a
         // not-found probe would never reach an `EMPTY`. With no deletions `tombs == 0`, so this is the
@@ -1090,17 +1113,48 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         // SAFETY: probe returns an in-bounds slot; coords, vals, and keys share the index space.
         if found {
             // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
-            // logically empty for the duration of `f`, so if `f` panics the value is dropped once
-            // (by the unwinding `old`) and `Drop` skips this slot — no double free.
+            // logically empty for the duration of the merge, so if the merge panics the value is
+            // dropped once (by the unwinding `old`) and `Drop` skips this slot — no double free.
             let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
             unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
-            unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(f(new, old)) };
-            unsafe { *self.coords.get_unchecked_mut(i) = coord }; // re-occupy — identity unchanged
+            Some(InsertHit { slot: i, coord, new, old })
         } else {
             unsafe { *self.coords.get_unchecked_mut(i) = coord };
             unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
             self.keys.set(i, k); // Stored: write the key; Regen: no-op
             self.len += 1;
+            None
+        }
+    }
+
+    /// The one mutator: set `k` to `f(new, old)`. An absent key has no old value, so you get
+    /// `f(new, identity) = new`. Every table face is just this with a different `f`.
+    #[inline]
+    pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
+        if let Some(hit) = self.insert_core(k, new) {
+            let merged = f(hit.new, hit.old);
+            // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
+            // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores the
+            // invariant.
+            unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
+            unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // re-occupy — identity unchanged
+        }
+    }
+
+    /// The Map face's merge, concretely: set `k` to `new`, overwriting whatever was there — the same
+    /// semantics as [`put`](Self::put) (`insert_with(k, v, set)`, with [`set`](crate::hashtrinity::set)
+    /// `= new`), specialised into its own body instead of taking the merge as a `fn` item.
+    ///
+    /// Merge-free by construction, not by duplication: it is [`insert_core`](Self::insert_core) plus
+    /// the merge `set(new, old) = new`, which consumes `old` and keeps `new`. A first-order translator
+    /// cannot take an arrow-typed merge argument, so the concrete face is what the extraction roots.
+    #[inline]
+    pub fn insert_merge_last_write(&mut self, k: K, new: V) {
+        if let Some(hit) = self.insert_core(k, new) {
+            drop(hit.old); // `set(new, old) = new` ignores `old`; this is where it is dropped.
+            // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
+            unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
+            unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
         }
     }
 
