@@ -486,7 +486,8 @@ def replaceFlatValue {R : Type} (state : table.Table I64 I64 table.WordHome R 16
     table.Table I64 I64 table.WordHome R 16#usize :=
   { default := state.default
     home := state.home
-    resident := { lanes := state.resident.lanes, slots := state.resident.slots.set index slot }
+    -- Row: `apeiron-corpus-lane-bits-CC1NL1DhaecluJcpT4LWln`.
+    resident := { lanes := state.resident.lanes, lane_bits := state.resident.lane_bits, slots := state.resident.slots.set index slot }
     shards := state.shards
     len := state.len
     key := state.key
