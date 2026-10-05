@@ -61,6 +61,10 @@ lean_lib ApeironWordBridge where
     `Growable.FaceBound,
     `Map.Rep, `Map.Read, `Map.Selected,
     `Count.Rep, `Count.Read,
+    -- `Flux.Discrete` is imported by the registered root `AxiomAudit` (`AxiomAudit.lean:3`) and
+    -- `#audit`-ed by it (`:6`), but no `lean_lib` globbed it, so `lake build AxiomAudit` failed
+    -- with `unknown module prefix 'Flux'` and that audit row was never evaluated. Registered.
+    `Flux.Discrete,
     `AxiomAudit, `Joint.WordBridge,
     `Slang.Audit.Empty,
     `Slang.Syntax, `Slang.Decode,
