@@ -1,3 +1,4 @@
+-- Row: `p1-primitive-refine-per-FfI4Rd4tkS5goRFZJVgsAR` (APEIRON-READ-PREMISE): the executed read's bridge premise, named and split.
 import Map.Read
 
 /-!
@@ -250,6 +251,188 @@ theorem selectedReadRep_of_mapRep
     SelectedReadRep F s live map state.default :=
   selectedReadRep_of_repR F s state direct live map hrep hbridge
 
+/-! ## The premise `hbridge`, named and characterised
+
+`selectedReadRep_of_repR` and `selectedReadRep_of_mapRep` each carry their last premise as an
+anonymous binder, written out twice.  This section names it, splits it into its two directions, and
+characterises it exactly, so the residual of the executed face's read refinement is a named
+declaration with a known content rather than an open `∀ key value`.
+
+**`SelectedReadBridge` is not a consequence of `Apeiron.GrowableRepresentation.RepR`.**  It quantifies
+over an arbitrary `F : SelectedFace State` and an arbitrary `s : State`; `HTCarrier` is a hand-written
+mirror of `hashtrinity::Table`'s fields (`src/hashtrinity/mod.rs:448-452`) and no clause in the tree
+relates it to the extracted `StoredTable`, whose own read body is
+`apeiron_word::word_stored_apply_get` (`proof/ApeironWord.lean:26956`).  The executed read
+`hashtrinity::Table::get` (`src/hashtrinity/mod.rs:702`) has no declaration in the extraction at all:
+`proof/extract/lib.rs:1227` stages the wrapper `word_hashtrinity_get`, and `proof/ApeironWord.lean`
+contains no `hashtrinity` declaration.  There are therefore **two** independent unreachable causes,
+and the wrappers landing discharge only the first:
+
+1. the executed body `word_hashtrinity_get` is not in the extraction, so nothing states what
+   `hashtrinity::Table::get` computes; and
+2. no carrier agreement relates `s : HTCarrier` to `state : StoredTable`, which the bridge premise
+   quantifies over side by side.
+
+`selectedReadRep_iff_bridge` below pins the premise's content exactly: under `RepR` it is
+*equivalent* to the executed face's read contract itself, so it is neither over- nor under-stated,
+and what remains is the pair (1) and (2). -/
+
+/-- **The executed read's entry agreement with the extracted table.**  `SelectedReadBridge F s state`
+is the premise of `selectedReadRep_of_repR`, named: at the executed carrier `s` under the executed
+read `F.read`, the keys answered `some` are exactly the live physical entries
+`Apeiron.GrowableSearch.entryAt` decodes in the extracted stored table `state`, with the value pinned.
+Its two directions are `SelectedReadSound` (from the extracted table) and `SelectedReadComplete`
+(from the executed read). -/
+structure SelectedReadBridge {State : Type} (F : SelectedFace State) (s : State)
+    (state : StoredTable) : Prop where
+  bridge : ∀ key value, F.read s key = some value ↔
+    ∃ location, Apeiron.GrowableSearch.entryAt state MapDecode location = some (key, value)
+
+/-- **Soundness: the extracted table's live entries are answered.**  A location whose slot decodes to
+`(key, value)` forces the executed read to answer `some value` at `key`. -/
+structure SelectedReadSound {State : Type} (F : SelectedFace State) (s : State)
+    (state : StoredTable) : Prop where
+  sound : ∀ key value, (∃ location,
+      Apeiron.GrowableSearch.entryAt state MapDecode location = some (key, value)) →
+    F.read s key = some value
+
+/-- **Completeness: the executed read invents nothing.**  An answer `some value` at `key` forces a
+live physical representative of `key` carrying `value`. -/
+structure SelectedReadComplete {State : Type} (F : SelectedFace State) (s : State)
+    (state : StoredTable) : Prop where
+  complete : ∀ key value, F.read s key = some value →
+    ∃ location, Apeiron.GrowableSearch.entryAt state MapDecode location = some (key, value)
+
+/-- The bridge premise's direction from the extracted table. -/
+theorem selectedReadSound_of_bridge {State : Type} {F : SelectedFace State} {s : State}
+    {state : StoredTable} (h : SelectedReadBridge F s state) : SelectedReadSound F s state :=
+  ⟨fun _ _ hentry => (h.bridge _ _).mpr hentry⟩
+
+/-- The bridge premise's direction from the executed read. -/
+theorem selectedReadComplete_of_bridge {State : Type} {F : SelectedFace State} {s : State}
+    {state : StoredTable} (h : SelectedReadBridge F s state) : SelectedReadComplete F s state :=
+  ⟨fun _ _ hread => (h.bridge _ _).mp hread⟩
+
+/-- The two named directions are the bridge premise. -/
+theorem selectedReadBridge_of_sound_complete {State : Type} {F : SelectedFace State} {s : State}
+    {state : StoredTable} (hs : SelectedReadSound F s state) (hc : SelectedReadComplete F s state) :
+    SelectedReadBridge F s state := by
+  refine ⟨?_⟩
+  intro key value
+  exact ⟨fun hread => hc.complete key value hread, fun hentry => hs.sound key value hentry⟩
+
+/-- **The bridge premise is exactly its two directions**, with no further content. -/
+theorem selectedReadBridge_iff {State : Type} {F : SelectedFace State} {s : State}
+    {state : StoredTable} :
+    SelectedReadBridge F s state ↔
+      SelectedReadSound F s state ∧ SelectedReadComplete F s state := by
+  constructor
+  · intro h
+    exact ⟨selectedReadSound_of_bridge h, selectedReadComplete_of_bridge h⟩
+  · rintro ⟨hs, hc⟩
+    exact selectedReadBridge_of_sound_complete hs hc
+
+/-- **Partial discharge: soundness alone puts the executed read at `Apeiron.Table.get` on the
+represented domain.**  From `RepR` and `SelectedReadSound` alone — completeness nowhere used — every
+represented-live key is answered the canonical value.  The canonical read enters only through
+`RepR.observations`, which is what pins the value of the live representative. -/
+theorem selected_get_of_live_of_sound
+    (F : HTFace) (s : HTCarrier)
+    (state : StoredTable) (direct : MapKey → Option MapLocation)
+    (live : MapKey → Prop) (map : CanonicalMap)
+    (hrep : Apeiron.GrowableRepresentation.RepR state MapDecode direct live map)
+    (hsound : SelectedReadSound F s state) :
+    ∀ key, live key → F.read s key = some (Apeiron.Table.get map key) := by
+  intro key hlive
+  obtain ⟨location, value, hentry⟩ := (hrep.liveSet key).mp hlive
+  have hget : Apeiron.Table.get map key = value :=
+    hrep.observations.1 location key value hentry
+  rw [hsound.sound key value ⟨location, hentry⟩, hget]
+
+/-- **Partial discharge: completeness alone forbids invention.**  From `RepR` and
+`SelectedReadComplete` alone — soundness nowhere used — every answer `some value` of the executed read
+is a represented-live key whose canonical read is `value`.  This is the direction in which the
+executed read could have been unsound, and it is discharged without touching `SelectedReadSound`. -/
+theorem selected_read_never_invents_of_complete
+    (F : HTFace) (s : HTCarrier)
+    (state : StoredTable) (direct : MapKey → Option MapLocation)
+    (live : MapKey → Prop) (map : CanonicalMap)
+    (hrep : Apeiron.GrowableRepresentation.RepR state MapDecode direct live map)
+    (hcomplete : SelectedReadComplete F s state) :
+    ∀ key value, F.read s key = some value →
+      live key ∧ Apeiron.Table.get map key = value := by
+  intro key value hread
+  obtain ⟨location, hentry⟩ := hcomplete.complete key value hread
+  exact ⟨(hrep.liveSet key).mpr ⟨location, value, hentry⟩,
+    hrep.observations.1 location key value hentry⟩
+
+/-- **The executed read refines the canonical `Apeiron.Table.get` from the two named directions
+alone.**  From `RepR` plus `SelectedReadSound` and `SelectedReadComplete`, at every key: the executed
+read answers `some value` exactly when `key` is represented live and the canonical read there is
+`value`.  No clause of the conclusion is postulated by either premise. -/
+theorem selected_read_refines_of_sound_complete
+    (F : HTFace) (s : HTCarrier)
+    (state : StoredTable) (direct : MapKey → Option MapLocation)
+    (live : MapKey → Prop) (map : CanonicalMap)
+    (hrep : Apeiron.GrowableRepresentation.RepR state MapDecode direct live map)
+    (hsound : SelectedReadSound F s state) (hcomplete : SelectedReadComplete F s state) :
+    ∀ key value, F.read s key = some value ↔ live key ∧ Apeiron.Table.get map key = value := by
+  intro key value
+  constructor
+  · exact selected_read_never_invents_of_complete F s state direct live map hrep hcomplete key value
+  · rintro ⟨hlive, hget⟩
+    obtain ⟨location, value₀, hentry⟩ := (hrep.liveSet key).mp hlive
+    have hcanonical : F.read s key = some (Apeiron.Table.get map key) :=
+      selected_get_of_live_of_sound F s state direct live map hrep hsound key hlive
+    rw [hcanonical, hget]
+
+/-- The whole-table representation reduction, over the named premise. -/
+theorem selectedReadRep_of_bridge
+    (F : HTFace) (s : HTCarrier)
+    (state : StoredTable) (direct : MapKey → Option MapLocation)
+    (live : MapKey → Prop) (map : CanonicalMap)
+    (hrep : Apeiron.GrowableRepresentation.RepR state MapDecode direct live map)
+    (hbridge : SelectedReadBridge F s state) :
+    SelectedReadRep F s live map state.default :=
+  selectedReadRep_of_repR F s state direct live map hrep hbridge.bridge
+
+/-- **The executed face's read contract, under `RepR`, is equivalent to the bridge premise.**  The
+residual is therefore characterised, not merely named: `RepR` together with `SelectedReadBridge` is
+exactly `SelectedReadRep`, and conversely a face satisfying `SelectedReadRep` under `RepR` satisfies
+the bridge premise.  Nothing is added and nothing is dropped, so the remaining obligation is the
+bridge premise itself and nothing behind it. -/
+theorem selectedReadRep_iff_bridge
+    (F : HTFace) (s : HTCarrier)
+    (state : StoredTable) (direct : MapKey → Option MapLocation)
+    (live : MapKey → Prop) (map : CanonicalMap)
+    (hrep : Apeiron.GrowableRepresentation.RepR state MapDecode direct live map) :
+    SelectedReadRep F s live map state.default ↔ SelectedReadBridge F s state := by
+  constructor
+  · intro hface
+    refine { bridge := fun key value => ?_ }
+    constructor
+    · -- from the executed read to a live physical representative
+      intro hread
+      have hsome : (F.read s key).isSome := by rw [hread]; rfl
+      have hlive : live key := (hface.liveSet key).mpr hsome
+      have hget : F.read s key = some (Apeiron.Table.get map key) := hface.get_live key hlive
+      obtain ⟨location, value₀, hentry⟩ := (hrep.liveSet key).mp hlive
+      have hsame : Apeiron.Table.get map key = value₀ :=
+        hrep.observations.1 location key value₀ hentry
+      have hread' : F.read s key = some value₀ := hsame ▸ hget
+      have hval : value₀ = value := Option.some.inj (hread'.symm.trans hread)
+      exact ⟨location, by simpa [hval] using hentry⟩
+    · -- from a live physical representative to the executed read's answer
+      intro hentry
+      obtain ⟨location, hentry'⟩ := hentry
+      have hlive : live key := (hrep.liveSet key).mpr ⟨location, value, hentry'⟩
+      have hget : F.read s key = some (Apeiron.Table.get map key) := hface.get_live key hlive
+      have hval : Apeiron.Table.get map key = value :=
+        hrep.observations.1 location key value hentry'
+      rw [hget, hval]
+  · intro hbridge
+    exact selectedReadRep_of_bridge F s state direct live map hrep hbridge
+
 /-! ## Headline audit rows -/
 
 #audit Apeiron.MapFace.selected_liveSet
@@ -263,5 +446,14 @@ theorem selectedReadRep_of_mapRep
 #audit Apeiron.MapFace.selected_insert_vacant_differs_from_canonical
 #audit Apeiron.MapFace.selectedReadRep_of_repR
 #audit Apeiron.MapFace.selectedReadRep_of_mapRep
+#audit Apeiron.MapFace.selectedReadSound_of_bridge
+#audit Apeiron.MapFace.selectedReadComplete_of_bridge
+#audit Apeiron.MapFace.selectedReadBridge_of_sound_complete
+#audit Apeiron.MapFace.selectedReadBridge_iff
+#audit Apeiron.MapFace.selected_get_of_live_of_sound
+#audit Apeiron.MapFace.selected_read_never_invents_of_complete
+#audit Apeiron.MapFace.selected_read_refines_of_sound_complete
+#audit Apeiron.MapFace.selectedReadRep_of_bridge
+#audit Apeiron.MapFace.selectedReadRep_iff_bridge
 
 end Apeiron.MapFace
