@@ -82,6 +82,12 @@ name = "simt_batch"
 path = "examples/simt_batch.rs"
 required-features = ["gpu"]
 
+# Whole-model GPU decode throughput (the llama-bench `tg` comparator).
+[[example]]
+name = "gpu_decode_bench"
+path = "examples/gpu_decode_bench.rs"
+required-features = ["gpu"]
+
 [workspace]
 members = ["derive", "fold-abi"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling

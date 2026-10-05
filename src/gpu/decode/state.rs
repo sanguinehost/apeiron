@@ -14,11 +14,11 @@
     reason = "faithful port of fold's bedrock/src/serve/gpu.rs; lint profile is fold's, not apeiron's"
 )]
 
-use super::pack::pack_proj_f32;
+use super::pack::{pack_proj_f32, pack_q4_k_raw, Proj};
 use super::*;
 use crate::engine::dequant_row_fixed;
 use crate::format::gguf::Gguf;
-use crate::format::quant::{block_geom, GGML_TYPE_F32};
+use crate::format::quant::{block_geom, GGML_TYPE_F32, GGML_TYPE_Q4_K};
 
 /// The `Config` fields a dense attention layer reads.
 #[derive(Clone, Copy, Debug)]
@@ -33,7 +33,9 @@ pub struct LayerCfg {
     pub eps: f32,
     pub theta: f32,
     pub rope_dims: u32,
-    /// The weight chart carrier every projection of the layer is packed in.
+    /// The weight carrier mode. `Carrier::Q4`: each projection whose GGUF tensors are all Q4_K is
+    /// kept as Q4_K (lossless `pack_q4_k_raw`), every other projection and the embedding/head go to
+    /// Q8. Any other carrier packs every projection at that carrier.
     pub carrier: Carrier,
 }
 
@@ -46,6 +48,15 @@ impl LayerCfg {
     }
     pub fn qkv_m(&self) -> u32 {
         self.qn() + 2 * self.kn()
+    }
+    /// The carrier of the embedding chart and the LM head (never Q4: the head is Q6_K/Q8_0 in the
+    /// checkpoints served here, and a Q4 chart of it would be lossy).
+    pub fn head_carrier(&self) -> Carrier {
+        if self.carrier == Carrier::Q4 {
+            Carrier::Q8
+        } else {
+            self.carrier
+        }
     }
     pub fn scale(&self) -> f32 {
         1.0f32 / (self.hd as f32).sqrt()
@@ -77,6 +88,11 @@ pub struct LayerW {
     pub ln2: Handle,
     pub qkv_w: Handle,
     pub qkv_dm: Handle,
+    /// Per-projection carriers (qkv, o, gate/up, down) the chart above was packed at.
+    pub qkv_c: Carrier,
+    pub o_c: Carrier,
+    pub gu_c: Carrier,
+    pub dn_c: Carrier,
     pub qkv_b: Option<Handle>,
     pub o_w: Handle,
     pub o_dm: Handle,
@@ -136,6 +152,43 @@ fn dq(gguf: &Gguf, name: &str) -> Result<Vec<f32>, String> {
     dequant_rows(gguf, name, 0, rows as usize)
 }
 
+/// Pack the row-concatenation of `names` (each `[m_i, k]`) as one chart. Carrier `Q4` mode with every
+/// tensor Q4_K: the raw GGUF bytes concatenate row-wise and go through `pack_q4_k_raw` (lossless,
+/// the bytes llama.cpp reads). Otherwise the f32 dequantization is packed at Q8 (`Q4` mode) or the
+/// mode's own carrier. Returns the chart and the carrier it is at.
+fn pack_group(
+    gguf: &Gguf,
+    names: &[String],
+    k: usize,
+    c: &LayerCfg,
+) -> Result<(Proj, Carrier), String> {
+    if c.carrier == Carrier::Q4 {
+        let all_q4k = names.iter().all(|nm| {
+            gguf.header
+                .tensor(nm)
+                .is_some_and(|t| t.ggml_type == GGML_TYPE_Q4_K && k % 256 == 0)
+        });
+        if all_q4k {
+            let mut raw: Vec<u8> = Vec::new();
+            let mut m = 0usize;
+            for nm in names {
+                let t = gguf.header.tensor(nm).unwrap();
+                raw.extend_from_slice(&gguf.tensor_bytes(t).map_err(|e| format!("{nm}: {e:?}"))?);
+                m += t.dims.get(1).copied().unwrap_or(1) as usize;
+            }
+            let p = pack_q4_k_raw(&raw, m, k, false).map_err(|e| format!("{names:?}: {e:?}"))?;
+            return Ok((p, Carrier::Q4));
+        }
+    }
+    let carrier = c.head_carrier();
+    let rows: Vec<Vec<f32>> = names
+        .iter()
+        .map(|nm| dq(gguf, nm))
+        .collect::<Result<_, _>>()?;
+    let refs: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+    Ok((pack_proj_f32(carrier, &refs, k, false), carrier))
+}
+
 impl LayerW {
     /// Upload layer `li`: dequantize each tensor with apeiron's loader and repack into the Q4
     /// chart (`q`,`k`,`v` rows are concatenated into one `qkv` chart, `gate`,`up` into one `gu`
@@ -146,24 +199,15 @@ impl LayerW {
     pub unsafe fn load(g: &GpuCtx, gguf: &Gguf, li: usize, c: &LayerCfg) -> Result<LayerW, String> {
         let n = |s: &str| format!("blk.{li}.{s}");
         let (h, dff) = (c.hidden as usize, c.dff as usize);
-        let qkv = [
-            dq(gguf, &n("attn_q.weight"))?,
-            dq(gguf, &n("attn_k.weight"))?,
-            dq(gguf, &n("attn_v.weight"))?,
-        ];
-        let qkv = pack_proj_f32(c.carrier, &[&qkv[0], &qkv[1], &qkv[2]], h, false);
-        let o = pack_proj_f32(
-            c.carrier,
-            &[&dq(gguf, &n("attn_output.weight"))?],
-            c.qn() as usize,
-            false,
-        );
-        let gu = [
-            dq(gguf, &n("ffn_gate.weight"))?,
-            dq(gguf, &n("ffn_up.weight"))?,
-        ];
-        let gu = pack_proj_f32(c.carrier, &[&gu[0], &gu[1]], h, false);
-        let dn = pack_proj_f32(c.carrier, &[&dq(gguf, &n("ffn_down.weight"))?], dff, false);
+        let (qkv, qkv_c) = pack_group(
+            gguf,
+            &[n("attn_q.weight"), n("attn_k.weight"), n("attn_v.weight")],
+            h,
+            c,
+        )?;
+        let (o, o_c) = pack_group(gguf, &[n("attn_output.weight")], c.qn() as usize, c)?;
+        let (gu, gu_c) = pack_group(gguf, &[n("ffn_gate.weight"), n("ffn_up.weight")], h, c)?;
+        let (dn, dn_c) = pack_group(gguf, &[n("ffn_down.weight")], dff, c)?;
         let bias = if gguf.header.tensor(&n("attn_q.bias")).is_some() {
             let mut b = dq(gguf, &n("attn_q.bias"))?;
             b.extend(dq(gguf, &n("attn_k.bias"))?);
@@ -178,6 +222,10 @@ impl LayerW {
             ln2: g.up_f32(&dq(gguf, &n("ffn_norm.weight"))?),
             qkv_w: g.up_u32(&qkv.words),
             qkv_dm: g.up_u32(&qkv.dm),
+            qkv_c,
+            o_c,
+            gu_c,
+            dn_c,
             qkv_b: bias,
             o_w: g.up_u32(&o.words),
             o_dm: g.up_u32(&o.dm),

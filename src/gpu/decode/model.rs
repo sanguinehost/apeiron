@@ -94,7 +94,7 @@ impl GpuDecode {
                     let lw = LayerW::load(&g, gguf, li, &c)?;
                     layers.push(record_layer(&g, &c, &lw, &sc, li, &mut st));
                 }
-                let dpw_lm = carrier.pack() / 4;
+                let dpw_lm = c.head_carrier().pack() / 4;
                 let final_rms = make_step_named(
                     &g,
                     &rmsnorm_add_q_seg_bytes(hidden, c.eps, dpw_lm, st.prev_ffn_segs),
@@ -106,7 +106,7 @@ impl GpuDecode {
                 let final_rms_f32 = final_norm_step(&g, &c, &st, &sc, final_norm, hid_buf);
                 let lm_head = Node::Gemv(make_gemv(
                     &g,
-                    carrier,
+                    c.head_carrier(),
                     lm.0,
                     lm.1,
                     xq,
