@@ -1,3 +1,4 @@
+import Apeiron.AuditClosed
 import Apeiron.Table.Basic
 import Apeiron.Table.Home
 import Native.HyperbolicBase
@@ -458,6 +459,30 @@ theorem ht_h3_40_index_read_collapses_keys :
     ht_index_read_not_injective (R := H3_40) (r := (1 : H3_40)) (s := (1 : H3_40))
       (by norm_num) h2
   exact ⟨z, w, hne, hu, hl⟩
+
+/-! ## Headline audit rows
+
+Each row is the closed-cone gate of `Apeiron.closedAxioms`: `#audit` collects the declaration's
+transitive axiom dependencies and fails the build on anything outside
+`{propext, Classical.choice, Quot.sound}`, so a `sorryAx` anywhere in the cone is a build failure.
+They sit in this module rather than in `AxiomAudit/Core.lean` so they run in the scoped build of
+`Native.HashtrinityBasis` itself. -/
+
+#audit Apeiron.HashtrinityBasis.htCoordOf_three_way_fiber
+#audit Apeiron.HashtrinityBasis.ht_home_direct_is_identity
+#audit Apeiron.HashtrinityBasis.ht_coordinate_key_index_never_collides
+#audit Apeiron.HashtrinityBasis.ht_face_zero_has_no_index
+#audit Apeiron.HashtrinityBasis.ht_face_elliptic_has_no_index
+#audit Apeiron.HashtrinityBasis.ht_face_positive_has_index
+#audit Apeiron.HashtrinityBasis.ht_face_positive_is_dense
+#audit Apeiron.HashtrinityBasis.ht_both_readouts_decide
+#audit Apeiron.HashtrinityBasis.ht_one_readout_leaves_the_second
+#audit Apeiron.HashtrinityBasis.ht_resident_index_correspondence
+#audit Apeiron.HashtrinityBasis.ht_index_read_not_injective
+#audit Apeiron.HashtrinityBasis.ht_canonical_presence_is_full_key
+#audit Apeiron.HashtrinityBasis.ht_freqmap_merges_equal_coords
+#audit Apeiron.HashtrinityBasis.ht_freqmap_index_is_not_a_decision_procedure
+#audit Apeiron.HashtrinityBasis.ht_h3_40_index_read_collapses_keys
 
 end HashtrinityBasis
 end Apeiron
