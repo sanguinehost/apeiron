@@ -169,4 +169,19 @@ theorem mapRep_notLive_of_absent
   obtain ⟨location, value, hentry⟩ := (hrep.liveSet key).mp hlive
   exact habsent location value hentry
 
+/-! ## Headline audit rows
+
+Each row is the closed-cone gate of `Apeiron.AuditClosed`: `#audit` collects the declaration's
+transitive axiom dependencies and fails the build on anything outside
+`{propext, Classical.choice, Quot.sound}`, so a `sorryAx` anywhere in the cone is a build failure
+rather than a line in a log.  They sit in this module rather than in `AxiomAudit/Core.lean` so they
+run in the scoped build of `Map.Rep` itself. -/
+
+#audit Apeiron.MapFace.mapRep_liveSet
+#audit Apeiron.MapFace.map_get_of_live_representative
+#audit Apeiron.MapFace.mapRep_live_of_representative
+#audit Apeiron.MapFace.map_get_default_of_absent
+#audit Apeiron.MapFace.map_get_default_of_not_live
+#audit Apeiron.MapFace.mapRep_notLive_of_absent
+
 end Apeiron.MapFace
