@@ -11,9 +11,12 @@
 # both the committed `ApeironWord.lean` cannot elaborate. They are in this one patch so that this
 # script alone reproduces the whole model.
 #
-# The patch touches eight files under `Aeneas/`: `Std/Vec.lean`,
+# The patch touches ten files under `Aeneas/`: `Std/Vec.lean`, `Std/Slice.lean`, `Std/RawPtr.lean`,
 # `Std/Core/{Cmp,CoreOption,CoreResult}.lean`, `Scalar/{Casts,Ops}.lean`,
-# `Scalar/WrappingOps/Shl.lean` and `String.lean`. Enumerate them from the patch itself with
+# `Scalar/WrappingOps/Shl.lean` and `String.lean`. `RawPtr.lean` and `Slice.lean` carry the memory
+# model the hash-table bodies reach (SSE2 byte lanes, raw-pointer windows, `MaybeUninit`,
+# `get_unchecked{,_mut}`); `Ops.lean` carries `u16::trailing_zeros`, `usize::saturating_mul` and
+# `usize::next_power_of_two`. Enumerate them from the patch itself with
 # `rg -o '^\+\+\+ b/(\S+)' -r '$1' proof/patches/aeneas-lean-model.patch | sort -u`.
 # It is a Lean-library change, so no Charon/Aeneas OCaml rebuild is involved.
 #
