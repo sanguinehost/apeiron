@@ -410,7 +410,9 @@ private theorem table_new_empty_repR {R : Type}
   let state : WordTable R :=
     { default := default
       home := ()
-      resident := { lanes := 0#usize, slots := alloc.vec.Vec.new (table.FlatSlot R I64) }
+      -- As in `table.Flat.empty`, the empty resident carries `lane_bits := 0#u32`; a `lanes = 0`
+      -- Flat has no extracted producer other than `empty`.
+      resident := { lanes := 0#usize, lane_bits := 0#u32, slots := alloc.vec.Vec.new (table.FlatSlot R I64) }
       shards := shards
       len := 0#usize
       key := ()
