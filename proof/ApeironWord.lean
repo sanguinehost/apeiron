@@ -18133,7 +18133,7 @@ structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
   _k : core.marker.PhantomData K
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 464:4-466:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 468:4-470:5 -/
 def hashtrinity.overflow.Overflow.write_back
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
@@ -18153,7 +18153,7 @@ def hashtrinity.overflow.Overflow.write_back
   ok { self with nodes := v2 }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 456:4-461:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 460:4-465:5 -/
 def hashtrinity.overflow.Overflow.take_value
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
@@ -18435,7 +18435,7 @@ def hashtrinity.overflow.Overflow.rebalance_chain
     chain idx
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 569:8-587:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 573:8-591:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.insert_node_loop.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18480,7 +18480,7 @@ def hashtrinity.overflow.Overflow.insert_node_loop.body
     else ok (cont (chain1, n1.right))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 569:8-587:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 573:8-591:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.insert_node_loop
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18495,7 +18495,7 @@ def hashtrinity.overflow.Overflow.insert_node_loop
     (chain, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 561:4-589:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 565:4-593:5 -/
 def hashtrinity.overflow.Overflow.insert_node
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
@@ -18618,7 +18618,7 @@ def hashtrinity.overflow.Overflow.alloc
     ok (i, { self with nodes := v2, free := v1 })
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_new_at]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 411:4-424:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 415:4-428:5 -/
 def hashtrinity.overflow.Overflow.insert_new_at
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
@@ -18735,7 +18735,7 @@ def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
        ok (c = i)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 547:12-550:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 551:12-554:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18754,7 +18754,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
   else ok (done stack)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 547:12-550:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 551:12-554:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop0
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18767,7 +18767,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop0
     (stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
-    Source: '../../src/hashtrinity/overflow.rs', lines 547:12-550:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 551:12-554:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18786,7 +18786,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
   else ok (done stack)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
-    Source: '../../src/hashtrinity/overflow.rs', lines 547:12-550:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 551:12-554:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0_loop1
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18799,7 +18799,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0_loop1
     (stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 546:8-556:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 550:8-560:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.in_order_loop0.body
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18849,7 +18849,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0.body
       ok (cont (out1, stack2, n2.right))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 546:8-556:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 550:8-560:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.in_order_loop0
   {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
@@ -18863,7 +18863,7 @@ def hashtrinity.overflow.Overflow.in_order_loop0
     (out, stack, cur)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 543:4-557:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 547:4-561:5 -/
 @[reducible]
 def hashtrinity.overflow.Overflow.in_order
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -18874,7 +18874,7 @@ def hashtrinity.overflow.Overflow.in_order
     (alloc.vec.Vec.new Std.U32) self.root
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 523:12-527:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 527:12-531:13 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
   {K : Type} {V : Type} (key : Std.U64)
@@ -18895,7 +18895,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
       ok (cont (iter1, out1))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
-    Source: '../../src/hashtrinity/overflow.rs', lines 523:12-527:13 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 527:12-531:13 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
@@ -18909,7 +18909,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 519:8-528:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 523:8-532:9 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Overflow.into_entries_loop0.body
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
@@ -18937,7 +18937,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0.body
     ok (cont (iter1, v2, out1))
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 519:8-528:9 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 523:8-532:9 -/
 @[rust_loop]
 def hashtrinity.overflow.Overflow.into_entries_loop0
   {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
@@ -18951,7 +18951,7 @@ def hashtrinity.overflow.Overflow.into_entries_loop0
     (iter, v, out)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 515:4-530:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 519:4-534:5 -/
 def hashtrinity.overflow.Overflow.into_entries
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (self : hashtrinity.overflow.Overflow K V) :
@@ -20351,7 +20351,7 @@ structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
   confirm : Self → KS → Std.Usize → Result Bool
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 692:8-705:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 696:8-709:5 -/
 @[rust_loop_body]
 def hashtrinity.overflow.Table.probe_rest_with_loop.body
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20387,7 +20387,7 @@ def hashtrinity.overflow.Table.probe_rest_with_loop.body
   else ok (done hashtrinity.Capped.Blocked)
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 692:8-705:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 696:8-709:5 -/
 @[rust_loop]
 def hashtrinity.overflow.Table.probe_rest_with_loop
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20404,7 +20404,7 @@ def hashtrinity.overflow.Table.probe_rest_with_loop
     j
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 685:4-705:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 689:4-709:5 -/
 @[reducible]
 def hashtrinity.overflow.Table.probe_rest_with
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
@@ -20456,7 +20456,7 @@ def hashtrinity.overflow.WINDOW_STEPS_BY_BITS
   hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop t 1#usize
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 670:4-672:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 674:4-676:5 -/
 def hashtrinity.overflow.Table.window_steps
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20468,7 +20468,7 @@ def hashtrinity.overflow.Table.window_steps
   Array.index_usize a i
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 677:4-679:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 681:4-683:5 -/
 def hashtrinity.overflow.Table.probe_limit
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -20571,10 +20571,10 @@ def hashtrinity.overflow.prefix_masks
     hashtrinity.overflow.prefix_masks_loop coords home coord 0#u32 0#u32
       0#usize
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 727:12-744:5 -/
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop body 0:
+    Source: '../../src/hashtrinity/overflow.rs', lines 784:12-801:5 -/
 @[rust_loop_body]
-def hashtrinity.overflow.Table.probe_capped_with_loop.body
+def hashtrinity.overflow.Table.probe_capped_cold_loop.body
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
   hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
@@ -20623,10 +20623,10 @@ def hashtrinity.overflow.Table.probe_capped_with_loop.body
           } coord hashtrinity.LINEAR_G limit confirm
       ok (done c)
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop 0:
-    Source: '../../src/hashtrinity/overflow.rs', lines 727:12-744:5 -/
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop 0:
+    Source: '../../src/hashtrinity/overflow.rs', lines 784:12-801:5 -/
 @[rust_loop]
-def hashtrinity.overflow.Table.probe_capped_with_loop
+def hashtrinity.overflow.Table.probe_capped_cold_loop
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
   hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
@@ -20640,14 +20640,14 @@ def hashtrinity.overflow.Table.probe_capped_with_loop
   Result hashtrinity.Capped
   := do
   loop
-    (fun hits1 => hashtrinity.overflow.Table.probe_capped_with_loop.body
+    (fun hits1 => hashtrinity.overflow.Table.probe_capped_cold_loop.body
       corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
       o i i1 i2 pd coord home confirm limit empties hits1)
     hits
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 714:4-744:5 -/
-def hashtrinity.overflow.Table.probe_capped_with
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]:
+    Source: '../../src/hashtrinity/overflow.rs', lines 771:4-801:5 -/
+def hashtrinity.overflow.Table.probe_capped_cold
   {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
   hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
@@ -20667,7 +20667,7 @@ def hashtrinity.overflow.Table.probe_capped_with
     then
       let (hits, empties) ←
         hashtrinity.overflow.prefix_masks self.coords home coord
-      hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
+      hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
         algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
         self.vals self.keys self.side self.overflow self.bits self.len
         self.tombs self._k coord home confirm limit hits empties
@@ -20678,8 +20678,107 @@ def hashtrinity.overflow.Table.probe_capped_with
     hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
       algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
 
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
+    Source: '../../src/hashtrinity/overflow.rs', lines 741:12-753:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_capped_with_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (empties : Std.U32)
+  (hits : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if hits != 0#u32
+  then
+    let i3 ← core.num.U32.trailing_zeros hits
+    let i4 ← lift (UScalar.cast .Usize i3)
+    let slot ← home + i4
+    let b ← ConfirmInst.confirm confirm t slot
+    if b
+    then ok (done (hashtrinity.Capped.Hit slot))
+    else
+      let i5 ← hits - 1#u32
+      let hits1 ← lift (hits &&& i5)
+      ok (cont hits1)
+  else
+    if empties != 0#u32
+    then
+      let i3 ← core.num.U32.trailing_zeros empties
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let i5 ← home + i4
+      ok (done (hashtrinity.Capped.Vacant i5))
+    else
+      let c ←
+        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst ConfirmInst
+          {
+            coords := s,
+            vals := s1,
+            keys := t,
+            side := ss,
+            overflow := o,
+            bits := i,
+            len := i1,
+            tombs := i2,
+            _k := pd
+          } coord home confirm
+      ok (done c)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop 0:
+    Source: '../../src/hashtrinity/overflow.rs', lines 741:12-753:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_capped_with_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (hits : Std.U32)
+  (empties : Std.U32) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun hits1 => hashtrinity.overflow.Table.probe_capped_with_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
+      o i i1 i2 pd coord home confirm empties hits1)
+    hits
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]:
+    Source: '../../src/hashtrinity/overflow.rs', lines 730:4-753:5 -/
+def hashtrinity.overflow.Table.probe_capped_with
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+  let i1 ← home + i
+  let i2 := Slice.len self.coords
+  if i1 <= i2
+  then
+    let (hits, empties) ←
+      hashtrinity.overflow.prefix_masks self.coords home coord
+    hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords self.vals
+      self.keys self.side self.overflow self.bits self.len self.tombs
+      self._k coord home confirm hits empties
+  else
+    hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst ConfirmInst self coord home confirm
+
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 386:4-392:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 390:4-396:5 -/
 def hashtrinity.overflow.Overflow.get
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
   (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
@@ -20982,7 +21081,7 @@ def hashtrinity.side.SideStore.push
     ok { self with coords := v1, vals := v2, keys := grown }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
-    Source: '../../src/hashtrinity/overflow.rs', lines 754:4-765:5 -/
+    Source: '../../src/hashtrinity/overflow.rs', lines 813:4-826:5 -/
 def hashtrinity.overflow.Table.probe_capped_keyed
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
@@ -21005,7 +21104,7 @@ def hashtrinity.overflow.Table.probe_capped_keyed
       if sc = hashtrinity.EMPTY
       then ok (hashtrinity.Capped.Vacant home)
       else
-        hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
           algebraCoordInst algebraKeyStoreInst
           (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
           corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
@@ -21014,7 +21113,7 @@ def hashtrinity.overflow.Table.probe_capped_keyed
     if sc = hashtrinity.EMPTY
     then ok (hashtrinity.Capped.Vacant home)
     else
-      hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+      hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
         algebraCoordInst algebraKeyStoreInst
         (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
         corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home

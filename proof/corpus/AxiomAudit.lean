@@ -153,6 +153,8 @@ import Map.ExecutedBuildWitness
 #audit Apeiron.MapExecuted.u32_tz_spec
 #audit Apeiron.MapExecuted.pcw_loop_spec
 #audit Apeiron.MapExecuted.pcw_spec
+#audit Apeiron.MapExecuted.pcc_loop_spec
+#audit Apeiron.MapExecuted.pcc_spec
 #audit Apeiron.MapExecuted.pck_spec
 #audit Apeiron.MapExecuted.emb_unique
 #audit Apeiron.MapExecuted.find_node_spec
