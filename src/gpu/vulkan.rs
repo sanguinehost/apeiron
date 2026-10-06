@@ -646,6 +646,27 @@ struct PhysDeviceCooperativeMatrixFeatures {
 }
 const ST_FEATURES_COOPERATIVE_MATRIX: u32 = 1000506000;
 #[repr(C)]
+#[derive(Clone, Copy)]
+struct CooperativeMatrixPropertiesKHR {
+    s_type: u32,
+    p_next: *mut c_void,
+    m_size: u32,
+    n_size: u32,
+    k_size: u32,
+    a_type: u32,
+    b_type: u32,
+    c_type: u32,
+    result_type: u32,
+    saturating_accumulation: u32,
+    scope: u32,
+}
+const ST_COOPERATIVE_MATRIX_PROPERTIES: u32 = 1000506001;
+const VK_COMPONENT_TYPE_SINT8_KHR: u32 = 3;
+const VK_COMPONENT_TYPE_SINT32_KHR: u32 = 5;
+const VK_SCOPE_SUBGROUP_KHR: u32 = 3;
+type GetCooperativeMatrixPropertiesKHR =
+    unsafe extern "C" fn(PhysicalDevice, *mut u32, *mut CooperativeMatrixPropertiesKHR) -> i32;
+#[repr(C)]
 struct PhysDevice8BitStorageFeatures {
     s_type: u32,
     p_next: *mut c_void,
@@ -1064,6 +1085,9 @@ pub struct Vk {
     /// `VK_EXT_external_memory_host` — present and enabled. Gates [`Vk::buffer_from_host_ptr`].
     pub has_exthost: bool,
     get_hostptr_props: Option<GetMemoryHostPointerProperties>,
+    /// `VK_KHR_cooperative_matrix` present and int8 16x16x32 shape supported, unless disabled via
+    /// `APEIRON_COOPMAT=0`.
+    pub has_coopmat: bool,
 }
 
 impl Vk {
@@ -1240,9 +1264,55 @@ impl Vk {
         let has_hqr = exts
             .iter()
             .any(|e| cstr(&e.extension_name) == "VK_EXT_host_query_reset");
-        let has_coopmat = exts
+        let has_coopmat_ext = exts
             .iter()
             .any(|e| cstr(&e.extension_name) == "VK_KHR_cooperative_matrix");
+        let mut has_coopmat_shape = false;
+        if has_coopmat_ext {
+            let c = std::ffi::CStr::from_bytes_with_nul(
+                b"vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR\0",
+            )
+            .unwrap();
+            let p = gipa(instance, c.as_ptr());
+            if !p.is_null() {
+                let get_coopmat_props: GetCooperativeMatrixPropertiesKHR = std::mem::transmute(p);
+                let mut count = 0u32;
+                let r = get_coopmat_props(pd, &mut count, std::ptr::null_mut());
+                if r == 0 && count > 0 {
+                    let mut props = vec![
+                        CooperativeMatrixPropertiesKHR {
+                            s_type: ST_COOPERATIVE_MATRIX_PROPERTIES,
+                            p_next: std::ptr::null_mut(),
+                            m_size: 0,
+                            n_size: 0,
+                            k_size: 0,
+                            a_type: 0,
+                            b_type: 0,
+                            c_type: 0,
+                            result_type: 0,
+                            saturating_accumulation: 0,
+                            scope: 0,
+                        };
+                        count as usize
+                    ];
+                    let r = get_coopmat_props(pd, &mut count, props.as_mut_ptr());
+                    if r == 0 {
+                        has_coopmat_shape = props.iter().any(|prop| {
+                            prop.m_size == 16
+                                && prop.n_size == 16
+                                && prop.k_size == 32
+                                && prop.a_type == VK_COMPONENT_TYPE_SINT8_KHR
+                                && prop.b_type == VK_COMPONENT_TYPE_SINT8_KHR
+                                && prop.c_type == VK_COMPONENT_TYPE_SINT32_KHR
+                                && prop.result_type == VK_COMPONENT_TYPE_SINT32_KHR
+                                && prop.scope == VK_SCOPE_SUBGROUP_KHR
+                        });
+                    }
+                }
+            }
+        }
+        let coopmat_allowed = !std::env::var("APEIRON_COOPMAT").map_or(false, |v| v.trim() == "0");
+        let has_coopmat = has_coopmat_ext && has_coopmat_shape && coopmat_allowed;
         let has_8bit = exts
             .iter()
             .any(|e| cstr(&e.extension_name) == "VK_KHR_8bit_storage");
@@ -1659,6 +1729,7 @@ impl Vk {
                     GetMemoryHostPointerProperties
                 )
             }),
+            has_coopmat,
         })
     }
 

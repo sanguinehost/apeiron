@@ -625,9 +625,14 @@ fn stale_boundary_key_never_returns_reused_slot_state() {
     assert!(cache.longest_prefix(&a).is_some(), "touch A so B is LRU");
     cache.insert(&c, &kv_c).expect("insert C evicts B");
 
-    // B's boundary key survives eviction (the Table has no removal) ...
+    // B's boundary key survives eviction (the map face has no removal) ...
     let stale_key = PrefixKey(cache.hasher.hash_tokens(&b_toks));
-    let stale = (*cache.table.get(&stale_key)).expect("stale boundary key retained after eviction");
+    let stale = cache
+        .table
+        .get(&stale_key)
+        .copied()
+        .flatten()
+        .expect("stale boundary key retained after eviction");
 
     // ... and it now points at the slot reused by C.
     let reused_slot = cache
