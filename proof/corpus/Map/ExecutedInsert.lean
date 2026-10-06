@@ -35,20 +35,22 @@ open apeiron_word
 section
 variable {KS : Type} (ks : hashtrinity.algebra.KeyStore KS U64)
 
-/-- `resize` to a positive bit count preserves `RepW` and the key column, and keeps the arena plus
-the main count below `NIL` (proved in `Map/ExecutedResize.lean`). -/
+/-- `resize` to a positive bit count preserves `RepW` and the key column, and does not raise the arena
+plus the main count (proved in `Map/ExecutedResize.lean`). -/
 def ResizeOK (KC : Slice U64 → KS → Prop) : Prop :=
   ∀ (s s' : Tbl KS) (nb : U32) (m : Apeiron.Table.HMap U64 I64) (live : U64 → Prop),
     RepW ks s m live → KC s.coords s.keys → arenaLen s + mainCount s < nilN → 0 < nb.val →
     hashtrinity.Table.resize core.cmp.EqU64 CI ks s nb = ok s' →
-    RepW ks s' m live ∧ KC s'.coords s'.keys ∧ arenaLen s' + mainCount s' < nilN
+    RepW ks s' m live ∧ KC s'.coords s'.keys ∧
+      arenaLen s' + mainCount s' ≤ arenaLen s + mainCount s
 
 /-- `grow_for_one` either returns the table or resizes it to `bits` or `bits + 1` slots. -/
 theorem grow_rep (KC : Slice U64 → KS → Prop) (hRes : ResizeOK ks KC) {s s1 : Tbl KS}
     {m : Apeiron.Table.HMap U64 I64} {live : U64 → Prop} (hR : RepW ks s m live)
     (hK : KC s.coords s.keys) (hsmall : arenaLen s + mainCount s < nilN)
     (h : hashtrinity.Table.grow_for_one core.cmp.EqU64 CI ks s = ok s1) :
-    RepW ks s1 m live ∧ KC s1.coords s1.keys ∧ arenaLen s1 + mainCount s1 < nilN := by
+    RepW ks s1 m live ∧ KC s1.coords s1.keys ∧
+      arenaLen s1 + mainCount s1 ≤ arenaLen s + mainCount s := by
   unfold hashtrinity.Table.grow_for_one at h
   obtain ⟨i, -, h⟩ := bind_inv h
   obtain ⟨i1, -, h⟩ := bind_inv h
@@ -72,7 +74,19 @@ theorem grow_rep (KC : Slice U64 → KS → Prop) (hRes : ResizeOK ks KC) {s s1 
   · rw [if_neg hge] at h
     have := (Result.ok_injective h).symm
     subst this
-    exact ⟨hR, hK, hsmall⟩
+    exact ⟨hR, hK, Nat.le_refl _⟩
+
+/-- Overwriting one list position raises a `countP` by at most one. -/
+theorem countP_set_le {α : Type} (p : α → Bool) :
+    ∀ (l : List α) (i : Nat) (a : α), (l.set i a).countP p ≤ l.countP p + 1
+  | [], _, _ => by simp
+  | x :: xs, 0, a => by
+    simp only [List.set_cons_zero, List.countP_cons]
+    split <;> split <;> omega
+  | x :: xs, i + 1, a => by
+    simp only [List.set_cons_succ, List.countP_cons]
+    have := countP_set_le p xs i a
+    split <;> omega
 
 theorem slice_set_set_val {α : Type} (sl : Slice α) (i : Usize) (a b : α) :
     ((sl.set i a).set i b).val = sl.val.set i.val b := by
@@ -90,7 +104,8 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hR : RepW ks s m live) (hK : KC s.coords s.keys) (hsmall : arenaLen s + mainCount s < nilN)
     {k : U64} (hns : ¬ IsSent k) (v : I64) {s' : Tbl KS}
     (h : hashtrinity.Table.insert_merge_last_write core.cmp.EqU64 CI ks s k v = ok s') :
-    RepW ks s' (upd k v m) (fun c => live c ∨ c = k) ∧ KC s'.coords s'.keys := by
+    RepW ks s' (upd k v m) (fun c => live c ∨ c = k) ∧ KC s'.coords s'.keys ∧
+      arenaLen s' + mainCount s' ≤ arenaLen s + mainCount s + 1 := by
   unfold hashtrinity.Table.insert_merge_last_write at h
   obtain ⟨⟨o, s1⟩, hic, h⟩ := bind_inv h
   unfold hashtrinity.Table.insert_core at hic
@@ -104,7 +119,8 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
   subst hb'
   rw [if_neg (by simpa using hns)] at hic
   obtain ⟨t, hg, hic⟩ := bind_inv hic
-  obtain ⟨hRt, hKt, hst⟩ := grow_rep ks KC hRes hR hK hsmall hg
+  obtain ⟨hRt, hKt, hle⟩ := grow_rep ks KC hRes hR hK hsmall hg
+  have hst : arenaLen t + mainCount t < nilN := by omega
   obtain ⟨c, hc, hic⟩ := bind_inv hic
   have hcok := pck_spec ks hm (fun _ => avx2_spec_holds) t k k hRt.1.len_pow c hc
   have hms : ∀ c, IsSent c → upd k v m c = m c := fun c hc =>
@@ -128,7 +144,8 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     have hmu1' : mu1 = some v := (Result.ok_injective hmu1).symm
     have hv : (back1 mu1).val = t.vals.val.set i.val (some v) := by
       rw [hback1, hback, hmu1', slice_set_set_val]
-    exact ⟨⟨rep_hit ks hRt.1 hns hcok v _ hv, hRt.2⟩, hKt⟩
+    exact ⟨⟨rep_hit ks hRt.1 hns hcok v _ hv, hRt.2⟩, hKt,
+      by show arenaLen t + mainCount t ≤ _; omega⟩
   · -- `Vacant i`: fill the `EMPTY` slot.
     obtain ⟨⟨x1, back⟩, hg1, hic⟩ := bind_inv hic
     obtain ⟨-, hback⟩ := get_unchecked_mut_ok _ _ _ _ hg1
@@ -149,8 +166,13 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     have hl : len'.val = t.len.val + 1 := by
       have := (uadd_ok hlen').1
       rw [this]; rfl
-    exact ⟨⟨rep_fill ks hRt.1 hns i hcok v _ _ keys' len' hco hv hl, hRt.2⟩,
-      hKC t.coords (back k) t.keys keys' i k hKt hco hset⟩
+    refine ⟨⟨rep_fill ks hRt.1 hns i hcok v _ _ keys' len' hco hv hl, hRt.2⟩,
+      hKC t.coords (back k) t.keys keys' i k hKt hco hset, ?_⟩
+    show arenaLen t + (back k).val.countP (fun c => decide (¬ IsSent c)) ≤ _
+    rw [hco]
+    have h1 := countP_set_le (fun c => decide (¬ IsSent c)) t.coords.val i.val k
+    unfold mainCount at hle ⊢
+    omega
   · -- `Blocked`: the overflow store.
     have hnm := blocked_not_main ks hRt.1 hcok
     have hmm : ∀ c, InMain t c → upd k v m c = m c := fun c hc =>
@@ -162,7 +184,7 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     simp only [Prod.mk.injEq] at has'
     obtain ⟨rfl, rfl⟩ := has'
     have hov : ∃ ov T, oo = some ov ∧ OvFull ks t m ov T ∧ (∀ c, InT ov T c ↔ InOv t c) ∧
-        ov.nodes.val.length < nilN := by
+        ov.nodes.val.length < nilN ∧ ov.nodes.val.length ≤ arenaLen t := by
       cases hto : t.overflow with
       | none =>
         rw [if_pos (by simp [hto])] at hoo
@@ -170,21 +192,21 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
         have := (Result.ok_injective hoo).symm
         subst this
         obtain ⟨hF, hnone, hl0⟩ := ov_full_new ks t m o2 ho2
-        refine ⟨o2, .leaf, rfl, hF, fun c => ⟨fun h => absurd h (hnone c), ?_⟩, ?_⟩
+        refine ⟨o2, .leaf, rfl, hF, fun c => ⟨fun h => absurd h (hnone c), ?_⟩, ?_, ?_⟩
         · rintro ⟨o', ho', _⟩
           rw [hto] at ho'
           exact absurd ho' (by simp)
         · rw [hl0]; unfold nilN; omega
+        · rw [hl0]; exact Nat.zero_le _
       | some ov =>
         rw [if_neg (by simp [hto])] at hoo
         have := (Result.ok_injective hoo).symm
         rw [hto] at this
         subst this
         obtain ⟨T, hF, hiff⟩ := ov_full_of_some ks hRt hto
-        refine ⟨ov, T, rfl, hF, hiff, ?_⟩
         have : arenaLen t = ov.nodes.val.length := by unfold arenaLen; rw [hto]
-        omega
-    obtain ⟨ov, T, rfl, hF, hiff, hcap⟩ := hov
+        exact ⟨ov, T, rfl, hF, hiff, by omega, by omega⟩
+    obtain ⟨ov, T, rfl, hF, hiff, hcap, hovt⟩ := hov
     obtain ⟨fe, hfe, hic⟩ := bind_inv hic
     rcases fe with _ | ⟨nn, ee⟩
     · -- absent: `insert_new_at`
@@ -194,8 +216,10 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       obtain ⟨rfl, rfl⟩ := hic'
       have hs' := (Result.ok_injective h).symm
       subst hs'
-      obtain ⟨T', hF', hT', -⟩ := blocked_new_full ks ov T hF hns hcok hcap hfe v nd e ov1 hins
-      refine ⟨rep_set_ov ks hRt.1 ov1 T' hF' hmm hms (fun c => ?_), hKt⟩
+      obtain ⟨T', hF', hT', -, hl1⟩ :=
+        blocked_new_full ks ov T hF hns hcok hcap hfe v nd e ov1 hins
+      refine ⟨rep_set_ov ks hRt.1 ov1 T' hF' hmm hms (fun c => ?_), hKt,
+        by show ov1.nodes.val.length + mainCount t ≤ _; omega⟩
       rw [hT', hiff, hRt.1.live_iff c]
       constructor
       · rintro ((h | h | h) | h)
@@ -219,9 +243,10 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       obtain ⟨rfl, rfl⟩ := hic'
       have hs' := (Result.ok_injective h).symm
       subst hs'
-      obtain ⟨hF2, hT2, hTk⟩ := blocked_hit_full ks ov T hF nn ee hfe old ov1 htv v ov2 hwb
+      obtain ⟨hF2, hT2, hTk, hl2⟩ := blocked_hit_full ks ov T hF nn ee hfe old ov1 htv v ov2 hwb
       have hlk : live k := (hRt.1.live_iff k).mpr (Or.inr (Or.inr ((hiff k).mp hTk)))
-      refine ⟨rep_set_ov ks hRt.1 ov2 T hF2 hmm hms (fun c => ?_), hKt⟩
+      refine ⟨rep_set_ov ks hRt.1 ov2 T hF2 hmm hms (fun c => ?_), hKt,
+        by show ov2.nodes.val.length + mainCount t ≤ _; omega⟩
       rw [hT2, hiff, ← hRt.1.live_iff c]
       constructor
       · rintro (h | rfl)
@@ -280,7 +305,7 @@ theorem insert_preserves_of_resize (hRes : ResizeOK SKS SKC)
     (h : word_hashtrinity_insert s k v = ok s') :
     TableRep s' (Apeiron.Table.insertWith (fun new _ => new) k v m) (fun c => live c ∨ c = k) ∧
       OvWF s' := by
-  obtain ⟨⟨hC, hW'⟩, hK⟩ := insert_ns_rep SKS SKS_matches SKC skc_set hRes ⟨hR.1, hW⟩ hR.2
+  obtain ⟨⟨hC, hW'⟩, hK, -⟩ := insert_ns_rep SKS SKS_matches SKC skc_set hRes ⟨hR.1, hW⟩ hR.2
     hsmall hns v h
   exact ⟨⟨hC, hK⟩, hW'⟩
 

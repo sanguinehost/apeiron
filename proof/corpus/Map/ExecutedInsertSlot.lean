@@ -439,7 +439,8 @@ theorem blocked_hit_full {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} (ov : Ov)
     (old : I64) (ov1 : Ov)
     (ht : hashtrinity.overflow.Overflow.take_value CI ov n e = ok (old, ov1))
     (v : I64) (ov2 : Ov) (hw : hashtrinity.overflow.Overflow.write_back CI ov1 n e v = ok ov2) :
-    OvFull ks s (upd k v m) ov2 T ∧ (∀ c, InT ov2 T c ↔ InT ov T c) ∧ InT ov T k := by
+    OvFull ks s (upd k v m) ov2 T ∧ (∀ c, InT ov2 T c ↔ InT ov T c) ∧ InT ov T k ∧
+      ov2.nodes.val.length = ov.nodes.val.length := by
   obtain ⟨hI, hall⟩ := hF
   obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
   have hlen : ∀ j ∈ idxs T, ∀ nd, ov.nodes.val[j]? = some nd → nd.entries.val.length < 2 ^ 32 := by
@@ -566,7 +567,7 @@ theorem blocked_hit_full {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} (ov : Ov)
         subst this
         exact ⟨n.val, hj, _, hself, hbk⟩
       · exact ⟨j, hj, b, by rw [hne j hjj]; exact hb, hbk⟩
-  refine ⟨⟨⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, fun j hj => ?_⟩, hInT, ⟨n.val, hn, nd, hnd, hkey⟩⟩
+  refine ⟨⟨⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, fun j hj => ?_⟩, hInT, ⟨n.val, hn, nd, hnd, hkey⟩, ?_⟩
   · show Emb (back2 _).val ov.root T
     rw [hnodes]; exact emb_ptr_congr hE hptr
   · show BST (back2 _).val T
@@ -590,6 +591,8 @@ theorem blocked_hit_full {s : Tbl KS} {m : Apeiron.Table.HMap U64 I64} (ov : Ov)
         apply bst_key_inj hB hj hn hjj
         rw [keyAt_get hb, keyAt_get hnd, e, hkey]
       refine ⟨b, by rw [hne j hjj]; exact hb, hbal, by rw [hbent, upd_ne v m hbk], hbns, hbP⟩
+  · show (back2 _).val.length = _
+    rw [hnodes, hlenS]
 
 end
 
