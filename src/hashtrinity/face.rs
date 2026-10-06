@@ -41,8 +41,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use crate::hashtrinity::{
-    bits_for, is_live, is_sentinel, Capped, Coord, KeyReadout, KeyStore, Overflow, SideStore,
-    Store, Stored, Table, EMPTY, LOAD_DEN, LOAD_NUM, PHI, TOMB,
+    bits_for, is_live, is_sentinel, side::MergeGuard, Capped, Coord, KeyReadout, KeyStore, Overflow,
+    SideStore, Store, Stored, Table, EMPTY, PHI, TOMB,
 };
 use std::mem::MaybeUninit;
 
@@ -418,20 +418,6 @@ impl<'a, K: Coord + Eq, V, KS: KeyStore<K>> Entry<'a, K, V, KS> {
 // ── The table faces. ───────────────────────────────────────────────────────────────────────────
 
 impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
-    /// The grow law, hoisted out of `insert_slot` so [`entry`](Self::entry) can apply it BEFORE it
-    /// probes — which is what makes the vacant fill a zero-probe operation instead of a re-probe.
-    #[inline]
-    fn grow_for_one(&mut self) {
-        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-                self.bits + 1
-            } else {
-                self.bits // merely crowded by tombstones: a same-size rebuild reclaims them
-            };
-            self.resize(new_bits);
-        }
-    }
-
     /// Locate `k` in ONE probe and hold the slot open. The std `entry` face:
     /// `*t.entry(k).or_insert(0) += 1` is one probe, one merge, no second lookup.
     ///
@@ -696,13 +682,18 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         let coord = q.coord();
         if is_sentinel(coord) {
             if let Some(i) = self.side_find_locate(coord, &q) {
-                // SAFETY: occupied side entry ⇒ value initialized. Blank the `live` marker for the
-                // duration of `f`, as `insert_core` does, so a panic in `f` drops the value once.
+                // SAFETY: every side entry's value is initialized; it is moved out once, and the
+                // guard removes the entry if `f` unwinds (as `insert_with` does).
                 let old = unsafe { self.side.vals.get_unchecked_mut(i).assume_init_read() };
-                self.side.live[i] = false;
-                let merged = f(new, old);
-                unsafe { *self.side.vals.get_unchecked_mut(i) = MaybeUninit::new(merged) };
-                self.side.live[i] = true;
+                let guard = MergeGuard {
+                    t: self,
+                    store: Store::Side,
+                    slot: i,
+                    node: 0,
+                    entry: 0,
+                    coord,
+                };
+                guard.finish(f(new, old));
                 // SAFETY: just written ⇒ initialized.
                 return unsafe { self.side.vals.get_unchecked(i).assume_init_ref() };
             }
@@ -714,15 +705,20 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         self.grow_for_one();
         match self.probe_capped_locate(coord, &q) {
             Capped::Hit(i) => {
-                // SAFETY: found ⇒ value initialized. Read it out, then blank the coord: the slot is
-                // logically empty for the duration of `f`, so a panic in `f` drops the value once
-                // (by the unwinding `old`) and `Drop` skips this slot.
-                unsafe {
-                    let old = self.vals.get_unchecked_mut(i).assume_init_read();
-                    *self.coords.get_unchecked_mut(i) = EMPTY;
-                    *self.vals.get_unchecked_mut(i) = MaybeUninit::new(f(new, old));
-                    *self.coords.get_unchecked_mut(i) = coord;
-                }
+                // SAFETY: found ⇒ value initialized. Move it out and mark the slot `TOMB` for the
+                // duration of `f` (never `EMPTY`: that would cut other keys' chains); the guard
+                // removes the key if `f` unwinds, as in `insert_with`.
+                let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
+                unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
+                let guard = MergeGuard {
+                    t: self,
+                    store: Store::Main,
+                    slot: i,
+                    node: 0,
+                    entry: 0,
+                    coord,
+                };
+                guard.finish(f(new, old));
                 // SAFETY: the slot is live again ⇒ its value is initialized.
                 unsafe { self.vals.get_unchecked(i).assume_init_ref() }
             }
@@ -891,23 +887,15 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             overflow,
             ..
         } = self;
-        let SideStore {
-            vals: s_vals,
-            live: s_live,
-            ..
-        } = side;
+        let SideStore { vals: s_vals, .. } = side;
         let main = vals
             .iter_mut()
             .zip(coords.iter())
             .filter(|(_, c)| is_live(**c))
             // SAFETY: live coord ⇒ value initialized.
             .map(|(v, _)| unsafe { v.assume_init_mut() });
-        let side_it = s_vals
-            .iter_mut()
-            .zip(s_live.iter())
-            .filter(|(_, live)| **live)
-            // SAFETY: `live[i]` ⇒ value initialized.
-            .map(|(v, _)| unsafe { v.assume_init_mut() });
+        // SAFETY: every side entry's value is initialized.
+        let side_it = s_vals.iter_mut().map(|v| unsafe { v.assume_init_mut() });
         let ov_it = overflow
             .as_mut()
             .into_iter()
@@ -925,11 +913,10 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         K: 'a,
     {
         // Shared reads of every field the walk needs, mutable borrows only of the value arrays.
-        let (coords, keys, s_coords, s_live, s_keys) = (
+        let (coords, keys, s_coords, s_keys) = (
             &self.coords,
             &self.keys,
             &self.side.coords,
-            &self.side.live,
             &self.side.keys,
         );
         let (vals, s_vals, overflow) = (&mut self.vals, &mut self.side.vals, &mut self.overflow);
@@ -941,14 +928,11 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 None
             }
         });
-        let side_it = s_vals.iter_mut().enumerate().filter_map(move |(i, v)| {
-            if s_live[i] {
-                // SAFETY: `live[i]` ⇒ value initialized.
-                Some((s_keys.key(i, s_coords[i]), unsafe { v.assume_init_mut() }))
-            } else {
-                None
-            }
-        });
+        // SAFETY: every side entry's key and value are initialized.
+        let side_it = s_vals
+            .iter_mut()
+            .enumerate()
+            .map(move |(i, v)| (s_keys.key(i, s_coords[i]), unsafe { v.assume_init_mut() }));
         let ov_it = overflow
             .as_mut()
             .into_iter()
@@ -1293,17 +1277,15 @@ where
                 t.vals.get_unchecked(i).assume_init_ref()
             }));
         }
-        while self.side < t.side.coords.len() {
+        if self.side < t.side.coords.len() {
             let i = self.side;
             self.side += 1;
-            if t.side.live[i] {
-                self.seen += 1;
-                let c = t.side.coords[i];
-                // SAFETY: `live[i]` ⇒ key and value initialized.
-                return Some((t.side.keys.key(i, c), unsafe {
-                    t.side.vals.get_unchecked(i).assume_init_ref()
-                }));
-            }
+            self.seen += 1;
+            let c = t.side.coords[i];
+            // SAFETY: every side entry's key and value are initialized.
+            return Some((t.side.keys.key(i, c), unsafe {
+                t.side.vals.get_unchecked(i).assume_init_ref()
+            }));
         }
         let ov = t.overflow.as_ref()?;
         while self.ov_node < self.ov_nodes.len() {
@@ -1399,27 +1381,20 @@ impl<K: Coord + Eq, V, KS: KeyStore<K>> IntoIterator for Table<K, V, KS> {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V, KS>;
     fn into_iter(self) -> IntoIter<K, V, KS> {
-        // Move the arrays out and suppress the table's own Drop: the iterator owns them now.
-        let mut t = std::mem::ManuallyDrop::new(self);
+        // Move the slot arrays out, leaving `t` an empty table (no slots, so its own Drop walks
+        // nothing) that still owns — and frees — the side store's and overflow's buffers.
+        let mut t = self;
         let coords = std::mem::take(&mut t.coords);
         let vals = std::mem::replace(&mut t.vals, Box::new([]));
         let keys = std::mem::replace(&mut t.keys, KS::alloc(0));
-        // Move the side entries out eagerly (a small store; ordinary tables have none). This owns
-        // their keys and values, so `t`'s suppressed Drop leaves nothing dangling.
+        // Move the side entries out eagerly (a small store; ordinary tables have none). Each
+        // `take_entry` moves one key and value out and swap-removes it, so nothing double-drops.
         let mut side: Vec<(K, V)> = Vec::with_capacity(t.side.coords.len());
         while let Some(last) = t.side.coords.len().checked_sub(1) {
-            let c = t.side.coords[last];
-            // SAFETY: a side entry is occupied ⇒ key and value initialized; both are moved out, and
-            // the arrays are popped, so nothing double-drops.
-            let v = unsafe { t.side.vals.get_unchecked_mut(last).assume_init_read() };
-            let k = t.side.keys.take_key(last, c);
-            t.side.coords.pop();
-            t.side.live.pop();
-            t.side.vals.pop();
+            let (_c, k, v) = t.side.take_entry(last);
             side.push((k, v));
         }
-        // Move the overflow entries out eagerly too. `t` is `ManuallyDrop`, so taking the option
-        // leaves nothing for `t`'s suppressed Drop; the iterator now owns the keys and values.
+        // Move the overflow entries out eagerly too; the iterator now owns the keys and values.
         let overflow: Vec<(K, V)> = match t.overflow.take() {
             Some(ov) => ov
                 .into_entries()

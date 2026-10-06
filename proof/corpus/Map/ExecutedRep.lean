@@ -102,9 +102,8 @@ structure CoreRep (s : Tbl KS) (m : Apeiron.Table.HMap U64 I64) (live : U64 → 
   main_placed : ∀ (i : Nat) (c : U64), s.coords.val[i]? = some c → ¬ IsSent c → Placed ks s c i
   len_count : s.len.val = mainCount s
   side_len_vals : s.side.vals.length = s.side.coords.length
-  side_len_live : s.side.live.length = s.side.coords.length
   side_val : ∀ (i : Nat) (c : U64), s.side.coords.val[i]? = some c →
-    IsSent c ∧ live c ∧ s.side.vals.val[i]? = some (some (m c)) ∧ s.side.live.val[i]? = some true
+    IsSent c ∧ live c ∧ s.side.vals.val[i]? = some (some (m c))
   side_uniq : ∀ (i j : Nat) (c : U64), s.side.coords.val[i]? = some c →
     s.side.coords.val[j]? = some c → i = j
   ov : OvInv ks s m
@@ -257,7 +256,6 @@ theorem with_bits_rep (b : U32) (hb : 0 < b.val) (s : Tbl KS)
       main_placed := fun i c hc hns => absurd (hcs i c hc) hns
       len_count := ?_
       side_len_vals := rfl
-      side_len_live := rfl
       side_val := fun i c hc => by simp [alloc.vec.Vec.new] at hc
       side_uniq := fun i _ c hc => by simp [alloc.vec.Vec.new] at hc
       ov := trivial

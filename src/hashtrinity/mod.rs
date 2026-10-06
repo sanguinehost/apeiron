@@ -245,8 +245,9 @@ const _: () = assert!(LINEAR_G == 8, "prefix_masks scans exactly 8 lanes");
 /// One named constant so the bench can tune it.
 pub const PROBE_CAP: u32 = 16;
 
-/// Growth threshold as a fraction `LOAD_NUM / LOAD_DEN`: an insert grows (or, with tombstones,
-/// compacts) when `(len + tombs + 1) · LOAD_DEN ≥ capacity · LOAD_NUM`, and
+/// Growth threshold as a fraction `LOAD_NUM / LOAD_DEN`: an insert grows (or, with tombstones and
+/// `len + 1 ≤ capacity / 2`, compacts) when `(len + tombs + 1) · LOAD_DEN ≥ capacity · LOAD_NUM`
+/// ([`Table::grow_for_one`]), and
 /// [`bits_for`] sizes a `with_capacity(n)` table so `n` keys stay under the same threshold. Named
 /// so the load factor is one edit and the bench can sweep it.
 const LOAD_NUM: usize = 3;
@@ -316,7 +317,8 @@ fn is_sentinel(c: u64) -> bool {
 /// the pure radix descent; its first two steps are the spinor readout (see [`Table::get`]).
 ///
 /// The reserved coordinates (`EMPTY`/`TOMB`) never appear in `coords`: keys that own them live in
-/// `side`, whose value is initialized iff `side.live[i]` (cleared only while a merge owns it).
+/// `side`, where every entry's value is initialized (a merge moves it out only under a
+/// [`MergeGuard`](side::MergeGuard), which removes the entry if the merge unwinds).
 ///
 /// # The overflow invariant (HashDOS cap)
 ///
@@ -369,24 +371,9 @@ impl<K: Coord, V, KS: KeyStore<K>> Drop for Table<K, V, KS> {
         // the key store rides the same invariant; internally gated on needs_drop::<K>
         let coords = std::mem::take(&mut self.coords);
         self.keys.drop_live(&coords);
-        // Side entries: `coords` holds reserved markers (never `is_live`), so their keys are moved
-        // out and dropped one by one, and only the `live` values are dropped.
-        if std::mem::needs_drop::<V>() {
-            let mut i = 0;
-            while i < self.side.vals.len() {
-                if self.side.live[i] {
-                    // SAFETY: `live[i]` ⇒ value initialized.
-                    unsafe { self.side.vals[i].assume_init_drop() };
-                }
-                i += 1;
-            }
-        }
-        let mut i = 0;
-        while i < self.side.coords.len() {
-            let c = self.side.coords[i];
-            drop(self.side.keys.take_key(i, c));
-            i += 1;
-        }
+        // Side entries: `coords` holds reserved markers (never `is_live`), so every entry's key and
+        // value is dropped by the side store itself.
+        self.side.clear();
     }
 }
 
@@ -408,27 +395,19 @@ impl<K: Coord + Clone, V: Clone, KS: KeyStore<K>> Clone for Table<K, V, KS> {
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        // Side entries: liveness rides `side.live` (their coordinates are reserved markers, so
-        // `clone_live` needs an all-live mask), and only live values are cloned.
+        // Side entries: every entry is live (their coordinates are reserved markers, so
+        // `clone_live` needs an all-live mask).
         let side_vals = self
             .side
             .vals
             .iter()
-            .zip(self.side.live.iter())
-            .map(|(v, live)| {
-                if *live {
-                    // SAFETY: `live[i]` ⇒ value initialized.
-                    MaybeUninit::new(unsafe { v.assume_init_ref() }.clone())
-                } else {
-                    MaybeUninit::uninit()
-                }
-            })
+            // SAFETY: every side entry's value is initialized.
+            .map(|v| MaybeUninit::new(unsafe { v.assume_init_ref() }.clone()))
             .collect::<Vec<_>>();
         let side_live_mask = vec![0u64; self.side.coords.len()]; // 0 is live (not EMPTY/TOMB)
         let side = SideStore {
             coords: self.side.coords.clone(),
             vals: side_vals,
-            live: self.side.live.clone(),
             keys: self.side.keys.clone_live(&side_live_mask),
             cap: self.side.coords.len(),
             _k: std::marker::PhantomData,
@@ -850,13 +829,9 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         };
         // Side entries (the reserved-coordinate keys): O(1) on ordinary tables, folded onto the result.
         let mut acc = main;
-        for (i, live) in self.side.live.iter().enumerate() {
-            if *live {
-                // SAFETY: `live[i]` ⇒ value initialized.
-                acc = combine(acc, residual(unsafe {
-                    self.side.vals.get_unchecked(i).assume_init_ref()
-                }));
-            }
+        for v in &self.side.vals {
+            // SAFETY: every side entry's value is initialized.
+            acc = combine(acc, residual(unsafe { v.assume_init_ref() }));
         }
         // Overflow entries: O(1) when no key was blocked, folded onto the result.
         if let Some(o) = &self.overflow {
@@ -926,14 +901,12 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
         // Side entries: the same argmin at pseudo-slots `n + i` (past every main slot, so a main tie
         // still wins; among side entries the lower index wins). O(1) on ordinary tables.
         let mut floor = floor;
-        for (i, live) in self.side.live.iter().enumerate() {
-            if *live {
-                // SAFETY: `live[i]` ⇒ value initialized.
-                let m = residual(unsafe { self.side.vals.get_unchecked(i).assume_init_ref() });
-                let s = n + i;
-                if floor.map_or(true, |(bm, bs)| m < bm || (m == bm && s < bs)) {
-                    floor = Some((m, s));
-                }
+        for (i, v) in self.side.vals.iter().enumerate() {
+            // SAFETY: every side entry's value is initialized.
+            let m = residual(unsafe { v.assume_init_ref() });
+            let s = n + i;
+            if floor.map_or(true, |(bm, bs)| m < bm || (m == bm && s < bs)) {
+                floor = Some((m, s));
             }
         }
         // Overflow entries: pseudo-slots past every main and side slot, so a tie favors the
@@ -974,10 +947,11 @@ impl<K: Eq + Coord, V, KS: KeyReadout<K>> Table<K, V, KS> {
     }
 }
 
-/// A landed insert: the entry is blank and the caller owns the merge between `new` and the value
-/// `old` that was already there. Returned by [`Table::insert_core`] instead of writing, so every
-/// insert face shares one probe/reserve core and differs only in what it does with the two values.
-/// The caller MUST write the merged value back to the store named by `store`.
+/// A landed insert: the entry's value is moved out (a main slot reads `TOMB`) and the caller owns
+/// the merge between `new` and the value `old` that was already there. Returned by
+/// [`Table::insert_core`] instead of writing, so every insert face shares one probe/reserve core and
+/// differs only in what it does with the two values. The caller MUST arm a
+/// [`MergeGuard`](side::MergeGuard) on it before running any user code.
 struct InsertHit<V> {
     /// The primary slot ([`Store::Main`]) or side entry ([`Store::Side`]); in bounds by construction.
     slot: usize,
@@ -1035,31 +1009,33 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     }
 
     /// The reserve/probe/store core every insert face shares. On a miss `new` is stored and this
-    /// returns `None`. On a hit the old value is read out and the slot is blanked, and the caller
-    /// receives the [`InsertHit`] — so [`insert_with`](Self::insert_with) (merge applied by the
-    /// caller) and [`insert_merge_last_write`](Self::insert_merge_last_write) (merge specialised to
-    /// its own body) are the same probe over one body, not two copies of it.
+    /// returns `None`. On a hit the old value is moved out and the caller receives the
+    /// [`InsertHit`] — so [`insert_with`](Self::insert_with) (merge applied by the caller under a
+    /// [`MergeGuard`](side::MergeGuard)) and [`insert_merge_last_write`](Self::insert_merge_last_write)
+    /// (merge specialised to its own body) are the same probe over one body, not two copies of it.
     ///
-    /// Blanking before the merge is what keeps a panicking merge sound: the slot is logically empty
-    /// for its duration, so the unwinding `old` is dropped once and `Drop` skips the slot — no
-    /// double free, no chain break. A key whose coordinate is a reserved marker (`EMPTY`/`TOMB`) is
-    /// inserted into the side store instead of the slot arrays.
-    ///
-    /// `last_write` selects the caller's merge without duplicating the probe. For the general merge
-    /// (`false`) a main-store hit must blank the slot and hand the caller `(new, old)`. For
-    /// `set(new, old) = new` (`true`) there is nothing to merge: the old value is read out, the slot
-    /// is overwritten in place, the old value is dropped, and `None` is returned — the caller has
-    /// nothing to do, exactly as on a fresh insert. The slot's coord and identity are left untouched,
-    /// so no blank/restore pair is paid on the update path.
+    /// For the general merge (`last_write == false`) a hit leaves the entry ready for the guard: a
+    /// main slot is marked `TOMB` (never `EMPTY`, which would cut every probe chain through it), a
+    /// side or overflow entry holds a moved-out value. The caller arms the guard before running any
+    /// user code, so an unwinding merge removes the key. For `set(new, old) = new`
+    /// (`last_write == true`) there is nothing to merge: in every store `new` is written in place
+    /// before `old` is dropped, and `None` is returned — a panicking `V::drop` finds the map
+    /// already consistent. The incoming key is dropped before any entry is touched (a hit keeps the
+    /// stored key). A key whose coordinate is a reserved marker (`EMPTY`/`TOMB`) is inserted into
+    /// the side store instead of the slot arrays.
     #[inline]
     fn insert_core(&mut self, k: K, new: V, last_write: bool) -> Option<InsertHit<V>> {
         let coord = Self::coord_of(&k);
         if is_sentinel(coord) {
             if let Some(i) = self.side.find(coord, &k) {
-                // SAFETY: `find` only returns an entry whose `live` marker is set. Blank the `live`
-                // marker (keep the key) so a panicking merge drops the value once.
+                drop(k);
+                // SAFETY: every side entry's value is initialized; it is moved out exactly once.
                 let old = unsafe { self.side.vals.get_unchecked_mut(i).assume_init_read() };
-                self.side.live[i] = false;
+                if last_write {
+                    unsafe { *self.side.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
+                    drop(old);
+                    return None;
+                }
                 return Some(InsertHit {
                     slot: i,
                     node: 0,
@@ -1073,35 +1049,22 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
             self.side.push(coord, k, new);
             return None;
         }
-        // Occupancy that bounds the probe (live + tombstones, since probe walks through both) must stay
-        // under the load limit — otherwise a churn workload could fill the table with tombstones and a
-        // not-found probe would never reach an `EMPTY`. With no deletions `tombs == 0`, so this is the
-        // original trigger unchanged.
-        if (self.len + self.tombs + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-            // Genuinely full of live keys ⇒ grow; merely crowded by tombstones ⇒ same-size rebuild
-            // clears them (reclaims the space without doubling).
-            let new_bits = if (self.len + 1) * LOAD_DEN >= self.coords.len() * LOAD_NUM {
-                self.bits + 1
-            } else {
-                self.bits
-            };
-            self.resize(new_bits);
-        }
+        self.grow_for_one();
         match self.probe_capped_keyed(coord, &k) {
             Capped::Hit(i) => {
-                // SAFETY: found ⇒ value initialized. Read it out, then (general merge) blank the
-                // coord: the slot is logically empty for the duration of the merge, so if the merge
-                // panics the value is dropped once (by the unwinding `old`) and `Drop` skips this
-                // slot — no double free.
+                drop(k);
+                // SAFETY: found ⇒ value initialized; it is moved out exactly once.
                 let old = unsafe { self.vals.get_unchecked_mut(i).assume_init_read() };
                 if last_write {
-                    // `set(new, old) = new`: the slot's identity is unchanged, so nothing blanks and
-                    // nothing is handed back. The slot holds `new` before `old`'s destructor runs.
+                    // `set(new, old) = new`: the slot's identity is unchanged, so nothing is marked
+                    // and nothing is handed back. The slot holds `new` before `old`'s destructor runs.
                     unsafe { *self.vals.get_unchecked_mut(i) = MaybeUninit::new(new) };
                     drop(old);
                     return None;
                 }
-                unsafe { *self.coords.get_unchecked_mut(i) = EMPTY };
+                // `TOMB` for the merge: the value is moved out, and the slot still reads as
+                // occupied-but-non-matching, so no other key's chain is cut.
+                unsafe { *self.coords.get_unchecked_mut(i) = TOMB };
                 Some(InsertHit {
                     slot: i,
                     node: 0,
@@ -1121,15 +1084,20 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                 None
             }
             Capped::Blocked => {
-                // The capped prefix was full: the key lives here or it is new here. A present entry
-                // is blanked (value moved out) for the duration of the caller's merge, panic-safe.
+                // The capped prefix was full: the key lives here or it is new here.
                 if self.overflow.is_none() {
                     self.overflow = Some(Overflow::new());
                 }
                 match self.overflow.as_mut() {
                     Some(ov) => match ov.find_entry(coord, &k) {
                         Some((node, entry)) => {
+                            drop(k);
                             let old = ov.take_value(node, entry);
+                            if last_write {
+                                ov.write_back(node, entry, new);
+                                drop(old);
+                                return None;
+                            }
                             Some(InsertHit {
                                 slot: 0,
                                 node,
@@ -1153,33 +1121,22 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
 
     /// The one mutator: set `k` to `f(new, old)`. An absent key has no old value, so you get
     /// `f(new, identity) = new`. Every table face is just this with a different `f`.
+    ///
+    /// If `f` panics, the key is removed (`len` falls by one) and the panic propagates; every
+    /// other key is untouched and every value is dropped once ([`MergeGuard`](side::MergeGuard)).
     #[inline]
     pub fn insert_with(&mut self, k: K, new: V, f: impl FnOnce(V, V) -> V) {
         if let Some(hit) = self.insert_core(k, new, false) {
+            let guard = side::MergeGuard {
+                t: self,
+                store: hit.store,
+                slot: hit.slot,
+                node: hit.node,
+                entry: hit.entry,
+                coord: hit.coord,
+            };
             let merged = f(hit.new, hit.old);
-            match hit.store {
-                Store::Side => {
-                    // SAFETY: `insert_core` cleared `side.live[slot]`, so the value is uninitialized;
-                    // re-writing and re-marking restores the invariant. The entry's key is untouched.
-                    unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
-                    self.side.live[hit.slot] = true;
-                }
-                Store::Main => {
-                    // SAFETY: `insert_core` blanked the slot, so `vals[slot]` is uninitialized and
-                    // `coords[slot]` is `EMPTY`; writing the merged value and re-occupying restores
-                    // the invariant.
-                    unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(merged) };
-                    unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord }; // identity unchanged
-                }
-                Store::Overflow => {
-                    // SAFETY by construction: `insert_core` blanked the overflow entry; the key is
-                    // untouched and lives as long as the tree.
-                    match self.overflow.as_mut() {
-                        Some(o) => o.write_back(hit.node, hit.entry, merged),
-                        None => unreachable!(), // overflow hit => store present
-                    }
-                }
-            }
+            guard.finish(merged);
         }
     }
 
@@ -1190,33 +1147,14 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
     /// Merge-free by construction, not by duplication: it is [`insert_core`](Self::insert_core) plus
     /// the merge `set(new, old) = new`, which consumes `old` and keeps `new`. A first-order translator
     /// cannot take an arrow-typed merge argument, so the concrete face is what the extraction roots.
-    /// The one specialization is `insert_core(k, new, LAST_WRITE)`'s main-store hit: a key already
-    /// in a primary slot overwrites its value in place, without the coord blank/restore that the
-    /// caller of the *general* merge needs (blanking exists only so a panicking merge cannot leave a
-    /// live slot whose value was moved out — last-write has no merge to run). The probe still runs
-    /// once, in the shared core, so nothing is duplicated.
+    /// `insert_core(k, new, LAST_WRITE)` writes every hit in place (main, side and overflow), so no
+    /// hit comes back and no guard is armed. The probe still runs once, in the shared core, so
+    /// nothing is duplicated.
     #[inline]
     pub fn insert_merge_last_write(&mut self, k: K, new: V) {
-        if let Some(hit) = self.insert_core(k, new, true) {
-            drop(hit.old); // `set(new, old) = new` ignores `old`; this is where it is dropped.
-            match hit.store {
-                Store::Side => {
-                    // SAFETY: as in `insert_with` — `insert_core` cleared the side live marker.
-                    unsafe { *self.side.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
-                    self.side.live[hit.slot] = true;
-                }
-                Store::Main => {
-                    // SAFETY: as in `insert_with` — `insert_core` blanked the slot; this restores it.
-                    unsafe { *self.vals.get_unchecked_mut(hit.slot) = MaybeUninit::new(hit.new) };
-                    unsafe { *self.coords.get_unchecked_mut(hit.slot) = hit.coord };
-                }
-                Store::Overflow => {
-                    match self.overflow.as_mut() {
-                        Some(o) => o.write_back(hit.node, hit.entry, hit.new),
-                        None => unreachable!(), // overflow hit => store present
-                    }
-                }
-            }
+        match self.insert_core(k, new, true) {
+            None => {}
+            Some(_) => unreachable!(), // a last-write hit is written in place by `insert_core`
         }
     }
 
@@ -1250,6 +1188,34 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
                     None => unreachable!(), // ensured `Some` just above
                 }
             }
+        }
+    }
+
+    /// The grow law, applied before an insert that may take a fresh slot: when live + tombstone
+    /// occupancy would reach `LOAD_NUM / LOAD_DEN` of the slots, rebuild — at the same size only when
+    /// `len + 1 ≤ capacity / 2` (hashbrown's `RawTable::reserve_rehash` rule), otherwise doubled.
+    /// The probe walks through tombstones, so they count toward the trigger; without the rebuild a
+    /// churn workload would fill the slots with tombstones and a miss would never reach `EMPTY`.
+    ///
+    /// Cost: O(1) when no rebuild runs; a rebuild is O(cap) slot moves ([`resize`](Self::resize)).
+    /// Amortised O(1) per insert: only an insert into an `EMPTY` slot raises `len + tombs` (a
+    /// remove trades one live slot for one tombstone), and a rebuild leaves `tombs = 0`. After a
+    /// same-size rebuild `len + 1 ≤ cap/2`, so the next trigger at `len + tombs + 1 ≥ 3/4·cap` is
+    /// at least `cap/4` inserts away; after a doubling `len ≤ 3/4·cap = 3/8·(2·cap)`, so it is at
+    /// least `3/8·(2·cap)` inserts away. Either way ≤ 4 slot moves per insert. The rule it
+    /// replaces (same size whenever `len + 1 < 3/4·cap`) let a steady size of `3/4·cap − 1`
+    /// rebuild the whole table on every remove+insert pair.
+    #[inline]
+    pub(super) fn grow_for_one(&mut self) {
+        let cap = self.coords.len();
+        if (self.len + self.tombs + 1) * LOAD_DEN >= cap * LOAD_NUM {
+            let new_bits = if self.len < cap / 2 {
+                // `len + 1 ≤ cap/2`: crowded by tombstones, a same-size rebuild reclaims them.
+                self.bits
+            } else {
+                self.bits + 1
+            };
+            self.resize(new_bits);
         }
     }
 
