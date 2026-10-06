@@ -229,8 +229,50 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             fused_rope_kv_module(14, 2, 64, 2048, 1e6, 0, 64, false),
         ),
         (
+            "fusedropekv_v8",
+            fused_rope_kv_module(14, 2, 64, 2048, 1e6, 0, 64, true),
+        ),
+        // Decode path prologue configurations (src/gpu/decode/layer.rs:365):
+        // qkv GEMV split-K fold (segs > 1), bias, and int8 V cache (v8) variants.
+        (
+            "fusedropekv_fold",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 2, false, 64, false),
+        ),
+        (
+            "fusedropekv_fold_v8",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 2, false, 64, true),
+        ),
+        (
+            "fusedropekv_fold_bias",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 2, true, 64, false),
+        ),
+        (
+            "fusedropekv_fold_bias_v8",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 2, true, 64, true),
+        ),
+        (
+            "fusedropekv_bias",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 1, true, 64, false),
+        ),
+        (
+            "fusedropekv_bias_v8",
+            fused_rope_kv_fold_module(14, 2, 64, 2048, 1e6, 0, 1, true, 64, true),
+        ),
+        (
             "flashpartial",
             flash_partial_module(14, 2, 64, 2048, 0.125, 8, 64, false, false, false, 0),
+        ),
+        (
+            "flashpartial_v8",
+            flash_partial_module(14, 2, 64, 2048, 0.125, 8, 64, false, false, true, 0),
+        ),
+        (
+            "flashpartial_knot",
+            flash_partial_module(14, 2, 64, 2048, 0.125, 8, 64, true, false, false, 0),
+        ),
+        (
+            "flashpartial_knot_v8",
+            flash_partial_module(14, 2, 64, 2048, 0.125, 8, 64, true, false, true, 0),
         ),
         (
             "thetascan",
@@ -403,7 +445,10 @@ fn no_unexpected_cross_invocation_storage_race() {
         bad.len(),
         modules().len()
     );
-    eprintln!("allow-list {allow_hits} per-invocation hits");
+    eprintln!(
+        "allow-list {allow_hits} per-invocation hits across {} modules",
+        modules().len()
+    );
 }
 
 /// Unit control: the analyser fires on a hand-built store→barrier→load and is silenced only by
