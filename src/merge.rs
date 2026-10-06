@@ -33,80 +33,38 @@
 //! # Table integration
 //!
 //! [`keep`], [`set`], [`count`] and [`link`] are the merges *as functions*, `(new, old) -> V`.
-//! That is the form the table above names and the form the commutativity and associativity
-//! arguments are stated about, so they are the definitions.
+//! That is the form the executed map face's mutator `Table::insert_with` takes and the form the
+//! commutativity and associativity arguments are stated about, so they are the definitions.
 //!
-//! The single table's required merge signature is `(new, old) -> V`, including the default on
-//! the first write. The standalone `*_into` helpers below are not a second table path and do not
-//! define the table's mutation or panic contract.
+//! `insert_with` applies `f(new, old)` on a hit and stores `new` on an absent key, so the default
+//! on the first write is the absent key, not a separate path. The standalone `*_into` helpers
+//! below are not a table mutation path and do not define the table's mutation or panic contract.
 //!
 //! ```
-//! use apeiron::coord::address::{
-//!     EllipticPacking, FaceCoord, FaceHome, FaceResidueCapability, ParabolicDual, Residue,
-//!     WordFaceHome, H3_40,
-//! };
-//! use apeiron::table::{Home, TableAddress};
-//! use apeiron::Table;
-//! use apeiron::Sigma;
+//! use apeiron::freq::Table;
+//! use apeiron::merge::{count, set, Face};
 //!
-//! /// The named explicit home: physical placement plus the word semantic capability. The face
-//! /// map is derived from the key, never from the placement.
-//! #[derive(Clone, Copy)]
-//! struct WordKeyHome;
-//!
-//! impl Home<u64> for WordKeyHome {
-//!     fn home(&self, key: &u64) -> u64 {
-//!         *key
-//!     }
-//!
-//!     fn address(&self, _sigma: Sigma, key: &u64) -> TableAddress {
-//!         TableAddress {
-//!             place: self.home(key),
-//!             direct_word: None,
-//!         }
-//!     }
+//! // The counter face: `insert_with` applies the merge `(new, old) -> V`. An absent key has no
+//! // old value, so the first write stores `new` and later writes combine through
+//! // `Monoid::combine`.
+//! let mut counts: Table<u64, u32> = Table::new();
+//! for k in [7u64, 7, 9] {
+//!     counts.insert_with(k, 1, count);
 //! }
+//! assert_eq!(counts.get(&7), Some(&2));
+//! assert_eq!(counts.get(&9), Some(&1));
+//! assert_eq!(counts.get(&8), None);
 //!
-//! impl FaceResidueCapability<u64> for WordKeyHome {
-//!     fn parabolic_dual(&self, key: &u64) -> ParabolicDual {
-//!         WordFaceHome.parabolic_dual(key)
-//!     }
+//! // The map face is the same mutator with `set`: the newer value wins, so the merged value is
+//! // the last write regardless of the order the stream arrived in.
+//! let mut latest: Table<u64, u32> = Table::new();
+//! latest.insert_with(7, 1, set);
+//! latest.insert_with(7, 2, set);
+//! assert_eq!(latest.get(&7), Some(&2));
 //!
-//!     fn hyperbolic_scalar(&self, profile: H3_40, key: &u64) -> Residue {
-//!         WordFaceHome.hyperbolic_scalar(profile, key)
-//!     }
-//! }
-//!
-//! impl EllipticPacking<u64> for WordKeyHome {
-//!     fn elliptic_pack(&self, key: &u64) -> u64 {
-//!         WordFaceHome.elliptic_pack(key)
-//!     }
-//!
-//!     fn elliptic_unpack(&self, word: u64) -> Option<u64> {
-//!         WordFaceHome.elliptic_unpack(word)
-//!     }
-//! }
-//!
-//! impl FaceCoord<u64> for WordKeyHome {
-//!     type Faces = Sigma;
-//! }
-//!
-//! impl FaceHome<u64> for WordKeyHome {}
-//!
-//! // The explicit placement must be the home word, which is what makes the removal of the trait
-//! // default observable.
-//! for k in [7u64, 9] {
-//!     let address = Home::address(&WordKeyHome, Sigma::default(), &k);
-//!     assert_eq!(address.place, WordKeyHome.home(&k));
-//!     assert_eq!(address.direct_word, None);
-//! }
-//!
-//! let mut counts = Table::<u64, u32, WordKeyHome>::new(0, WordKeyHome);
-//! for k in [7, 7, 9] {
-//!     counts.insert_with(&apeiron::merge::count, k, 1).unwrap();
-//! }
-//! assert_eq!(*counts.get(&7), 2);
-//! assert_eq!(*counts.get(&9), 1);
+//! // `Face` records which of the four merges a build may split and recombine.
+//! assert!(Face::Count.is_fusible() && Face::Keep.is_fusible());
+//! assert!(!Face::Set.is_fusible() && !Face::Link.is_fusible());
 //! ```
 
 /// Which merge a table is built with.
