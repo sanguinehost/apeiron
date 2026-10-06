@@ -246,12 +246,13 @@ theorem alloc_spec (o o' : Ov) (T : OTree) (i : U32) (coord k : U64) (v : I64)
     (hcap : o.nodes.val.length < nilN)
     (h : hashtrinity.overflow.Overflow.alloc CI o coord k v = ok (i, o')) :
     ∃ ni, o'.nodes.val[i.val]? = some ni ∧ ni.key = coord ∧ ni.entries.val = [(k, some v)] ∧
-      ni.left.val = nilN ∧ ni.right.val = nilN ∧ ni.height.val = 1 ∧
+      ni.alive = true ∧ ni.left.val = nilN ∧ ni.right.val = nilN ∧ ni.height.val = 1 ∧
       i.val ≠ nilN ∧ i.val ∉ idxs T ∧ i.val < o'.nodes.val.length ∧
       (∀ j, j ≠ i.val → o'.nodes.val[j]? = o.nodes.val[j]?) ∧
       o'.root = o.root ∧ o'.len = o.len ∧
       (o'.free.val.map (fun x => x.val)).Nodup ∧
-      (∀ j ∈ o'.free.val, j.val < o'.nodes.val.length ∧ j.val ∉ idxs T ∧ j.val ≠ i.val) := by
+      (∀ j ∈ o'.free.val, j.val < o'.nodes.val.length ∧ j.val ∉ idxs T ∧ j.val ≠ i.val) ∧
+      o'.nodes.val.length ≤ o.nodes.val.length + 1 := by
   have hTlt : ∀ j ∈ idxs T, j < o.nodes.val.length := fun j hj => by
     obtain ⟨nd, hnd, _⟩ := emb_mem hE j hj
     exact (List.getElem?_eq_some_iff.mp hnd).1
@@ -278,12 +279,12 @@ theorem alloc_spec (o o' : Ov) (T : OTree) (i : U32) (coord k : U64) (v : I64)
       have hn32 : UScalarTy.U32.numBits = 32 := rfl
       rw [hn32]; unfold nilN at hcap; omega
     subst ho
-    obtain ⟨X, hX, hXk, hXe, hXl, hXr, hXh⟩ : ∃ X : ONode, v2.val = o.nodes.val ++ [X] ∧
-        X.key = coord ∧ X.entries.val = [(k, some v)] ∧ X.left = hashtrinity.overflow.NIL ∧
-        X.right = hashtrinity.overflow.NIL ∧ X.height = 1#u32 :=
-      ⟨_, hv2, rfl, rfl, rfl, rfl, rfl⟩
-    refine ⟨X, ?_, hXk, hXe, by rw [hXl]; exact NIL_val, by rw [hXr]; exact NIL_val,
-      by rw [hXh]; exact u32_one, ?_, ?_, ?_, ?_, rfl, rfl, ?_, ?_⟩
+    obtain ⟨X, hX, hXk, hXe, hXa, hXl, hXr, hXh⟩ : ∃ X : ONode, v2.val = o.nodes.val ++ [X] ∧
+        X.key = coord ∧ X.entries.val = [(k, some v)] ∧ X.alive = true ∧
+        X.left = hashtrinity.overflow.NIL ∧ X.right = hashtrinity.overflow.NIL ∧ X.height = 1#u32 :=
+      ⟨_, hv2, rfl, rfl, rfl, rfl, rfl, rfl⟩
+    refine ⟨X, ?_, hXk, hXe, hXa, by rw [hXl]; exact NIL_val, by rw [hXr]; exact NIL_val,
+      by rw [hXh]; exact u32_one, ?_, ?_, ?_, ?_, rfl, rfl, ?_, ?_, ?_⟩
     · dsimp only
       rw [hX, hcast]; exact List.getElem?_concat_length
     · rw [hcast]; omega
@@ -304,6 +305,8 @@ theorem alloc_spec (o o' : Ov) (T : OTree) (i : U32) (coord k : U64) (v : I64)
       dsimp only at hj
       rw [hv1] at hj
       exact absurd hj (by simp)
+    · dsimp only
+      rw [hlen2]
   · subst hx
     obtain ⟨⟨n0, back⟩, hn0, h⟩ := bind_inv h
     obtain ⟨hn0', hback⟩ := idxm_ok hn0
@@ -317,14 +320,14 @@ theorem alloc_spec (o o' : Ov) (T : OTree) (i : U32) (coord k : U64) (v : I64)
       have := hfn
       rw [hfy, List.map_append, List.nodup_append] at this
       simpa using this
-    obtain ⟨X, ho, hXk, hXe, hXl, hXr, hXh⟩ : ∃ X : ONode,
+    obtain ⟨X, ho, hXk, hXe, hXa, hXl, hXr, hXh⟩ : ∃ X : ONode,
         o' = { o with nodes := back X, free := v1 } ∧
-        X.key = coord ∧ X.entries.val = [(k, some v)] ∧ X.left = hashtrinity.overflow.NIL ∧
-        X.right = hashtrinity.overflow.NIL ∧ X.height = 1#u32 :=
-      ⟨_, (congrArg Prod.snd hhf).symm, rfl, rfl, rfl, rfl, rfl⟩
+        X.key = coord ∧ X.entries.val = [(k, some v)] ∧ X.alive = true ∧
+        X.left = hashtrinity.overflow.NIL ∧ X.right = hashtrinity.overflow.NIL ∧ X.height = 1#u32 :=
+      ⟨_, (congrArg Prod.snd hhf).symm, rfl, rfl, rfl, rfl, rfl, rfl⟩
     subst ho
-    refine ⟨X, ?_, hXk, hXe, by rw [hXl]; exact NIL_val, by rw [hXr]; exact NIL_val,
-      by rw [hXh]; exact u32_one, ?_, hyT, ?_, ?_, rfl, rfl, hfn'.1, ?_⟩
+    refine ⟨X, ?_, hXk, hXe, hXa, by rw [hXl]; exact NIL_val, by rw [hXr]; exact NIL_val,
+      by rw [hXh]; exact u32_one, ?_, hyT, ?_, ?_, rfl, rfl, hfn'.1, ?_, ?_⟩
     · dsimp only
       rw [hback]; exact List.getElem?_set_self hylt
     · omega
@@ -343,6 +346,8 @@ theorem alloc_spec (o o' : Ov) (T : OTree) (i : U32) (coord k : U64) (v : I64)
         exact (hfl j hjf).1
       · intro e
         exact hfn'.2.2 j.val (List.mem_map.mpr ⟨j, hj, rfl⟩) y.val (by simp) e
+    · dsimp only
+      rw [hback]; simp
 
 /-! ## `insert_node` -/
 
@@ -574,11 +579,17 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
     (hI : OInv o T) (hcap : o.nodes.val.length < nilN)
     (habs : ¬ Present o.nodes.val T coord k)
     (h : hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o')) :
-    ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ nd.val ∈ idxs T' ∧
+    ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ o'.nodes.val.length ≤ o.nodes.val.length + 1 ∧
+      nd.val ∈ idxs T' ∧
       (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.key = coord ∧ FirstAt nde e.val k ∧
         nde.entries.val[e.val]? = some (k, some v)) ∧
-      ∀ c k' w, EntryOf o'.nodes.val T' c k' w ↔
-        EntryOf o.nodes.val T c k' w ∨ (c = coord ∧ k' = k ∧ w = some v) := by
+      (∀ c k' w, EntryOf o'.nodes.val T' c k' w ↔
+        EntryOf o.nodes.val T c k' w ∨ (c = coord ∧ k' = k ∧ w = some v)) ∧
+      ((∀ j ∈ idxs T, keyAt o.nodes.val j ≠ coord.val) →
+        (idxs T').Perm (nd.val :: idxs T) ∧
+        (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.entries.val = [(k, some v)] ∧
+          nde.alive = true) ∧
+        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) := by
   obtain ⟨hE, hB, hND, hH, hBal, hfn, hfl⟩ := hI
   unfold hashtrinity.overflow.Overflow.insert_new_at at h
   simp only [lift, bind_tc_ok] at h
@@ -592,7 +603,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
   by_cases hnil : n = hashtrinity.overflow.NIL
   · rw [if_pos hnil] at hif
     obtain ⟨⟨i1, o2⟩, halloc, hif⟩ := bind_inv hif
-    obtain ⟨ni, hni, hnik, hnie, hnl, hnr, hnh, hnii, hnT, hnlt, hother, hroot2, hlen2, hfn2, hfl2⟩ :=
+    obtain ⟨ni, hni, hnik, hnie, hnia, hnl, hnr, hnh, hnii, hnT, hnlt, hother, hroot2, hlen2, hfn2, hfl2, hlenA⟩ :=
       alloc_spec { o with len := i } o2 T i1 coord k v hE hfn hfl hcap halloc
     have hroot2' : o2.root = o.root := hroot2
     have hlen2' : o2.len = i := hlen2
@@ -647,7 +658,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       obtain ⟨ndo, hndo, _⟩ := emb_mem hE j hj
       obtain ⟨nd'', hnd'', hs'', _⟩ := hrel3.2 j ndo (by rw [hagree j hj]; exact hndo)
       exact ⟨ndo, nd'', hndo, hnd'', hs''.1.symm, hs''.2.1.symm⟩
-    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ⟨nd', hnd', hnkey, ?_, ?_⟩, ?_⟩
+    refine ⟨T', ⟨hE3, hB3, hND3, hH3, hBal3, ?_, ?_⟩, ?_, ?_, ?_, ⟨nd', hnd', hnkey, ?_, ?_⟩, ?_, ?_⟩
     · rw [hf3]; exact hfn2
     · intro j hj
       rw [hf3] at hj
@@ -657,11 +668,16 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       · exact h3 e
       · exact h2 e
     · rw [hl3, hlen2']; exact hiv.1
+    · rw [← hrel3.1]; exact hlenA
     · exact hperm.mem_iff.mpr (List.mem_cons_self ..)
     · rw [he0]
       refine ⟨⟨(k, some v), by rw [hnent]; rfl, rfl⟩, fun e' h1 => absurd h1 (by omega)⟩
     · rw [he0, hnent]; rfl
     · exact entryOf_ins hperm hold ⟨nd', hnd', hnkey, hnent⟩
+    · intro _
+      refine ⟨hperm, ⟨nd', hnd', hnent, by rw [← hsd.2.2]; exact hnia⟩, fun j hj a ha => ?_⟩
+      obtain ⟨b, hb, hsb, _⟩ := hrel3.2 j a (by rw [hagree j hj]; exact ha)
+      exact ⟨b, hb, hsb⟩
   · rw [if_neg hnil] at hif
     obtain ⟨⟨n1, back⟩, hn1, hif⟩ := bind_inv hif
     obtain ⟨hn1', hback⟩ := idxm_ok hn1
@@ -733,7 +749,7 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       · exact ⟨nd0, by rw [hne j hjj]; exact hnd0, rfl⟩
     have hlast : v1.val[e1.val]? = some (k, some v) := by
       rw [hent, he]; exact List.getElem?_concat_length
-    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, hm, ⟨{n1 with entries := v1}, ?_, hkey, ?_, ?_⟩, ?_⟩
+    refine ⟨T, ⟨?_, ?_, hND, ?_, hBal, hfn, ?_⟩, ?_, ?_, hm, ⟨{n1 with entries := v1}, ?_, hkey, ?_, ?_⟩, ?_, ?_⟩
     · show Emb (back {n1 with entries := v1}).val o.root T
       rw [hnodes]; exact emb_ptr_congr hE hptr
     · show BST (back {n1 with entries := v1}).val T
@@ -746,6 +762,8 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       rw [hnodes, hset]; exact (hfl j hj).1
     · show i.val = o.len.val + 1
       exact hiv.1
+    · show (back {n1 with entries := v1}).val.length ≤ _
+      rw [hnodes, hset]; omega
     · show (back {n1 with entries := v1}).val[n.val]? = some _
       rw [hnodes]; exact List.getElem?_set_self hlt
     · refine ⟨⟨(k, some v), hlast, rfl⟩, fun e' h1 y hy hk' => ?_⟩
@@ -758,17 +776,25 @@ theorem insert_new_at_spec (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd
       rw [hnodes]
       exact entryOf_push hm (fun j _ hj => hne j hj)
         ⟨n1, {n1 with entries := v1}, hn1o, List.getElem?_set_self hlt, hkey, hkey, hent⟩ c k' w
+    · intro hno
+      exact absurd hk (hno n.val hm)
 
 /-- `insert_new_at_spec` with the absence hypothesis stated as `find_entry = none`. -/
 theorem insert_new_at_spec_fe (o o' : Ov) (T : OTree) (coord k : U64) (v : I64) (nd : U32)
     (e : Usize) (hI : OInv o T) (hcap : o.nodes.val.length < nilN)
     (hfe : hashtrinity.overflow.Overflow.find_entry CI core.cmp.EqU64 o coord k = ok none)
     (h : hashtrinity.overflow.Overflow.insert_new_at CI o coord k v = ok ((nd, e), o')) :
-    ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ nd.val ∈ idxs T' ∧
+    ∃ T', OInv o' T' ∧ o'.len.val = o.len.val + 1 ∧ o'.nodes.val.length ≤ o.nodes.val.length + 1 ∧
+      nd.val ∈ idxs T' ∧
       (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.key = coord ∧ FirstAt nde e.val k ∧
         nde.entries.val[e.val]? = some (k, some v)) ∧
-      ∀ c k' w, EntryOf o'.nodes.val T' c k' w ↔
-        EntryOf o.nodes.val T c k' w ∨ (c = coord ∧ k' = k ∧ w = some v) :=
+      (∀ c k' w, EntryOf o'.nodes.val T' c k' w ↔
+        EntryOf o.nodes.val T c k' w ∨ (c = coord ∧ k' = k ∧ w = some v)) ∧
+      ((∀ j ∈ idxs T, keyAt o.nodes.val j ≠ coord.val) →
+        (idxs T').Perm (nd.val :: idxs T) ∧
+        (∃ nde, o'.nodes.val[nd.val]? = some nde ∧ nde.entries.val = [(k, some v)] ∧
+          nde.alive = true) ∧
+        ∀ j ∈ idxs T, ∀ a, o.nodes.val[j]? = some a → ∃ b, o'.nodes.val[j]? = some b ∧ sameD a b) :=
   insert_new_at_spec o o' T coord k v nd e hI hcap
     ((find_entry_none_iff o T hI.1 hI.2.1 coord k none hfe).mp rfl) h
 

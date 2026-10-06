@@ -9,6 +9,7 @@ import Map.PrefixMasks
 import Map.ExecutedRead
 import Map.ExecutedReadUncond
 import Map.ExecutedOverflowInsert
+import Map.ExecutedResize
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
@@ -146,3 +147,48 @@ import Map.ExecutedOverflowInsert
 #audit Apeiron.MapExecuted.insert_node_spec
 #audit Apeiron.MapExecuted.insert_new_at_spec
 #audit Apeiron.MapExecuted.insert_new_at_spec_fe
+
+-- Row: `apeiron-ht-read-BgVD7Mjq4dXA4grupEYPDe`: the executed insert refines `Apeiron.Table.insertWith`
+-- (`Map/ExecutedInsertSide.lean`, `Map/ExecutedInsertSlot.lean`, `Map/ExecutedInsert.lean`,
+-- `Map/ExecutedResizeOrder.lean`, `Map/ExecutedResize.lean`).
+#audit Apeiron.MapExecuted.rep_side_update
+#audit Apeiron.MapExecuted.push_spec
+#audit Apeiron.MapExecuted.insert_sent_rep
+#audit Apeiron.MapExecuted.insert_side_refines
+#audit Apeiron.MapExecuted.coord_insert_side_refines
+#audit Apeiron.MapExecuted.rep_hit
+#audit Apeiron.MapExecuted.rep_fill
+#audit Apeiron.MapExecuted.rep_set_ov
+#audit Apeiron.MapExecuted.ov_full_of_some
+#audit Apeiron.MapExecuted.ov_full_new
+#audit Apeiron.MapExecuted.blocked_new_full_abs
+#audit Apeiron.MapExecuted.blocked_new_full
+#audit Apeiron.MapExecuted.blocked_hit_full
+#audit Apeiron.MapExecuted.grow_rep
+#audit Apeiron.MapExecuted.insert_ns_rep
+#audit Apeiron.MapExecuted.skc_set
+#audit Apeiron.MapExecuted.insert_preserves_of_resize
+#audit Apeiron.MapExecuted.coord_insert_preserves_of_resize
+#audit Apeiron.MapExecuted.insert_refines_of_resize
+#audit Apeiron.MapExecuted.coord_insert_refines_of_resize
+#audit Apeiron.MapExecuted.push_spine_spec
+#audit Apeiron.MapExecuted.in_order_spec
+#audit Apeiron.MapExecuted.entries_loop_single
+#audit Apeiron.MapExecuted.into_entries_spec
+#audit Apeiron.MapExecuted.place_rep
+#audit Apeiron.MapExecuted.resize_loop0_spec
+#audit Apeiron.MapExecuted.resize_loop1_spec
+#audit Apeiron.MapExecuted.attach_side
+#audit Apeiron.MapExecuted.resize_rep
+#audit Apeiron.MapExecuted.stored_take_key
+#audit Apeiron.MapExecuted.regen_take_key
+#audit Apeiron.MapExecuted.resizeOK_stored
+#audit Apeiron.MapExecuted.resizeOK_regen
+#audit Apeiron.MapExecuted.insert_preserves
+#audit Apeiron.MapExecuted.coord_insert_preserves
+#audit Apeiron.MapExecuted.insert_refines
+#audit Apeiron.MapExecuted.coord_insert_refines
+#audit Apeiron.MapExecuted.with_bits_wf
+#audit Apeiron.MapExecuted.new_wf
+#audit Apeiron.MapExecuted.with_capacity_wf
+#audit Apeiron.MapExecuted.coordinate_with_capacity_wf
