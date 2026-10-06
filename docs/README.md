@@ -114,4 +114,4 @@ on their second line.
 ## Next inference epics (draft)
 
 - [GPU prefill from verified integer primitives](epics/gpu-prefill.md): resident-buffer execution and the existing SPIR-V refinement boundary.
-- [Resource-guided evolution and cross-model transfer](epics/resource-guided-evolution.md): explain transferred gains, source-connected costs and an explicit Evolver interface.
+- [Performance theory: the cost model and the shape of fast](epics/resource-guided-evolution.md): a move ledger, one resource-vector cost model in Lean with predictions checked against measurement, and the earlier resource-guided evolution record (PERF-THEORY).
