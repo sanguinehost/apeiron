@@ -122,7 +122,7 @@ theorem insert_ns_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
   obtain ⟨hRt, hKt, hle⟩ := grow_rep ks KC hRes hR hK hsmall hg
   have hst : arenaLen t + mainCount t < nilN := by omega
   obtain ⟨c, hc, hic⟩ := bind_inv hic
-  have hcok := pck_spec ks hm (fun _ => avx2_spec_holds) t k k hRt.1.len_pow c hc
+  have hcok := pck_spec ks hm (fun _ => avx2_spec_holds) t k k hRt.1.bits_pos hRt.1.len_pow c hc
   have hms : ∀ c, IsSent c → upd k v m c = m c := fun c hc =>
     upd_ne v m (fun (e : c = k) => hns (e ▸ hc))
   rcases c with i | i | _

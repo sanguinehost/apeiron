@@ -89,7 +89,7 @@ theorem place_rep (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       arenaLen t' + mainCount t' ≤ arenaLen t + mainCount t + 1 := by
   unfold hashtrinity.Table.place_capped at h
   obtain ⟨r, hr, h⟩ := bind_inv h
-  have hcok := pck_spec ks hm (fun _ => avx2_spec_holds) t c c hR.1.len_pow r hr
+  have hcok := pck_spec ks hm (fun _ => avx2_spec_holds) t c c hR.1.bits_pos hR.1.len_pow r hr
   have hupd := upd_same c m
   rcases r with i | i | _
   · exact absurd (hR.1.main_val i.val c hcok hns).1 hnl

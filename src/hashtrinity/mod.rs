@@ -611,7 +611,13 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         if sc == coord && self.keys.matches(home, coord, k) {
             return Some(unsafe { self.vals.get_unchecked(home).assume_init_ref() });
         }
-        if sc == EMPTY {
+        // The direct-addressed face (`home == coord`, i.e. a coordinate below the array length) is
+        // a local, biased scan and this `EMPTY` return predicts. A hashed key lands at a scattered
+        // address, so the `EMPTY`/occupied split is near even and mispredicts; there the early
+        // return is skipped and `probe_capped_with` reads lane 0 (== `home`) in its own prefix
+        // glance, whose `empties` branch is near-certain on the common miss. The examined set and
+        // the returned value are unchanged — the guard selects only which equivalent early-out runs.
+        if home == coord as usize && sc == EMPTY {
             return None;
         }
         // Collision tail, capped at `PROBE_CAP`: a hit in the prefix is found; an EMPTY lane

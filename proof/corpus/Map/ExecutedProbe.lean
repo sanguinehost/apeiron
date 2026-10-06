@@ -99,22 +99,112 @@ theorem desc_det {s : Tbl KS} {c : U64} {j : U32} {i i' : Usize}
   rw [h1] at h2
   exact Result.ok_injective h2
 
-theorem probe_limit_val (s : Tbl KS) (l : U32)
+/-- The extracted const table: entry `k` of `WINDOW_STEPS_BY_BITS` is `LINEAR_G + 64 / k - 1` for
+`1 ≤ k ≤ 64` (the loop `t[b] = LINEAR_G + 64 / b - 1`, `b = 1 .. 64`). -/
+theorem window_steps_table (a : Std.Array U32 65#usize)
+    (h : hashtrinity.overflow.WINDOW_STEPS_BY_BITS = ok a) (k : Nat) (hk1 : 1 ≤ k) (hk : k ≤ 64) :
+    ∃ x : U32, a.val[k]? = some x ∧ x.val = 8 + 64 / k - 1 := by
+  unfold hashtrinity.overflow.WINDOW_STEPS_BY_BITS at h
+  unfold hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop at h
+  refine loop_pc
+    (fun (p : Std.Array U32 65#usize × Usize) => 1 ≤ p.2.val ∧ p.2.val ≤ 65 ∧
+      ∀ k : Nat, 1 ≤ k → k < p.2.val → ∃ x : U32, p.1.val[k]? = some x ∧ x.val = 8 + 64 / k - 1)
+    (fun a' => ∀ k : Nat, 1 ≤ k → k ≤ 64 → ∃ x : U32, a'.val[k]? = some x ∧ x.val = 8 + 64 / k - 1)
+    _ ?_ _ ?_ a h k hk1 hk
+  · rintro ⟨t, b⟩ ⟨hb1, hb2, hinv⟩ cf hcf
+    dsimp only at hb1 hb2 hinv hcf
+    unfold hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body at hcf
+    by_cases hlt : b < 65#usize
+    · rw [if_pos hlt] at hcf
+      have hbv : b.val < 65 := by simpa using hlt
+      obtain ⟨i, hi, hcf⟩ := bind_inv hcf
+      obtain ⟨i1, hi1, hcf⟩ := bind_inv hcf
+      obtain ⟨i2, hi2, hcf⟩ := bind_inv hcf
+      obtain ⟨i3, hi3, hcf⟩ := bind_inv hcf
+      obtain ⟨a2, ha2, hcf⟩ := bind_inv hcf
+      obtain ⟨b1, hb1', hcf⟩ := bind_inv hcf
+      have hcf' := (Result.ok_injective hcf).symm
+      subst hcf'
+      have hiv : i.val = b.val := by
+        have : i = UScalar.cast .U32 b := (Result.ok_injective hi).symm
+        subst this
+        rw [UScalar.cast_val_eq]
+        apply Nat.mod_eq_of_lt
+        have : b.val < 2 ^ 32 := by omega
+        simpa [UScalarTy.numBits] using this
+      have hd := (udiv_ok hi1).2
+      have hd0 := (udiv_ok hi1).1
+      have hs := (uadd_ok hi2).1
+      have hu := usub_ok hi3
+      have h64 : (64#u32).val = 64 := rfl
+      have h1 : (1#u32).val = 1 := rfl
+      rw [h64, hiv] at hd
+      rw [LINEAR_G_val] at hs
+      rw [h1] at hu
+      have hb1v := (uadd_ok hb1').1
+      have h1u : (1#usize).val = 1 := rfl
+      rw [h1u] at hb1v
+      have hupd : a2 = t.set b i3 := by
+        have := Array.update_spec t b i3 (by simp; omega)
+        rw [ha2] at this
+        exact (Aeneas.Std.WP.spec_ok a2).mp this
+      subst hupd
+      dsimp only
+      refine ⟨by omega, by omega, ?_⟩
+      intro k hk1 hk2
+      by_cases hkb : k = b.val
+      · subst hkb
+        refine ⟨i3, ?_, by omega⟩
+        rw [Array.set_val_eq, List.getElem?_set_self]
+        have := t.property
+        simp at this ⊢
+        omega
+      · obtain ⟨x, hx1, hx2⟩ := hinv k hk1 (by omega)
+        refine ⟨x, ?_, hx2⟩
+        rw [Array.set_val_eq, List.getElem?_set_ne]
+        · exact hx1
+        · omega
+    · rw [if_neg hlt] at hcf
+      have hbv : 65 ≤ b.val := by simpa using hlt
+      have := (Result.ok_injective hcf).symm
+      subst this
+      intro k hk1 hk2
+      exact hinv k hk1 (by omega)
+  · refine ⟨by simp, by simp, ?_⟩
+    intro k hk1 hk2
+    simp at hk2
+    omega
+
+theorem probe_limit_val (s : Tbl KS) (l : U32) (hb : 0 < s.bits.val)
     (h : hashtrinity.overflow.Table.probe_limit core.cmp.EqU64 CI ks s = ok l) :
     l.val = limN s.bits.val := by
   unfold hashtrinity.overflow.Table.probe_limit at h
   obtain ⟨w, hw, h⟩ := bind_inv h
   unfold hashtrinity.overflow.Table.window_steps at hw
-  obtain ⟨i, hi, hw⟩ := bind_inv hw
+  obtain ⟨a, ha, hw⟩ := bind_inv hw
   obtain ⟨i1, hi1, hw⟩ := bind_inv hw
-  have hiv := (udiv_ok hi).2
-  have hi1v := (uadd_ok hi1).1
-  have hwv := usub_ok hw
-  have h64 : (64#u32).val = 64 := rfl
-  have h1 : (1#u32).val = 1 := rfl
-  rw [h64] at hiv
-  rw [LINEAR_G_val] at hi1v
-  rw [h1] at hwv
+  have hi1v : i1.val = s.bits.val := by
+    have : i1 = UScalar.cast .Usize s.bits := (Result.ok_injective hi1).symm
+    subst this
+    exact cast_usize_u32 _
+  have hb64 : s.bits.val ≤ 64 := by
+    unfold Array.index_usize at hw
+    split at hw
+    · simp at hw
+    · rename_i x hx
+      have := (List.getElem?_eq_some_iff.mp hx).1
+      simp at this
+      omega
+  obtain ⟨x, hx1, hx2⟩ := window_steps_table a ha s.bits.val hb hb64
+  have hwx : w = x := by
+    unfold Array.index_usize at hw
+    have hx1' : a[i1]? = some x := by
+      show a.val[i1.val]? = some x
+      rw [hi1v]; exact hx1
+    rw [hx1'] at hw
+    exact (Result.ok_injective hw).symm
+  subst hwx
+  have hwv : w.val = 8 + 64 / s.bits.val - 1 := hx2
   unfold core.cmp.Ord.min.trait_default core.cmp.Ord.min.default core.cmp.Ord.min_body at h
   simp [core.cmp.impls.PartialOrdU32.lt, liftFun2] at h
   unfold limN
@@ -567,6 +657,7 @@ theorem pcw_loop_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
 theorem pcw_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
     (s : Tbl KS) (c : U64) (home : Usize) (q : hashtrinity.overflow.ByKey U64)
+    (hbits : 0 < s.bits.val)
     (hhome : hashtrinity.Table.home core.cmp.EqU64 CI ks s c = ok home)
     (hlen : s.coords.length = 2 ^ s.bits.val) (r : hashtrinity.Capped)
     (h : hashtrinity.overflow.Table.probe_capped_with core.cmp.EqU64 CI ks (ConfI ks) s c home q
@@ -574,7 +665,7 @@ theorem pcw_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     CappedOK ks s c r := by
   unfold hashtrinity.overflow.Table.probe_capped_with at h
   obtain ⟨lim, hl, h⟩ := bind_inv h
-  have hlim := probe_limit_val ks s lim hl
+  have hlim := probe_limit_val ks s lim hbits hl
   dsimp only at h
   have hnone : ∀ j' : U32, j'.val < (0#u32).val → Pass ks s c j' := by
     intro j' hj'; exact absurd hj' (by simp)
@@ -601,7 +692,7 @@ theorem pcw_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
 /-- The keyed capped probe (`probe_capped_keyed`): home slot first, then `probe_capped_with`. -/
 theorem pck_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
     (hA : std_detect.detect.arch.x86.avx2_probe = true → Avx2Spec)
-    (s : Tbl KS) (c k : U64) (hlen : s.coords.length = 2 ^ s.bits.val) (r : hashtrinity.Capped)
+    (s : Tbl KS) (c k : U64) (hbits : 0 < s.bits.val) (hlen : s.coords.length = 2 ^ s.bits.val) (r : hashtrinity.Capped)
     (h : hashtrinity.overflow.Table.probe_capped_keyed core.cmp.EqU64 CI ks s c k = ok r) :
     CappedOK ks s c r := by
   unfold hashtrinity.overflow.Table.probe_capped_keyed at h
@@ -635,7 +726,7 @@ theorem pck_spec (hm : ∀ keys i c k, ks.«matches» keys i c k = ok true)
       subst this
       exact hvac he
     · rw [if_neg he] at h
-      exact pcw_spec ks hm hA s c home _ hhome hlen r h
+      exact pcw_spec ks hm hA s c home _ hbits hhome hlen r h
 
 end
 
