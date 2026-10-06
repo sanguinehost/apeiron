@@ -27,6 +27,9 @@ use apeiron::gpu::vulkan::*;
 use apeiron::simt::{gemv_dp4a_batch_rt_bytes, Carrier};
 use apeiron::simt_nn::{coopmat_gemm_bytes, coopmat_gemm_groups, GLSLC_ARGS, TILE_BN};
 use std::path::Path;
+use std::sync::Mutex;
+
+static VK_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
 const MODEL: &str = "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf";
 const TOKENS: u32 = 512;
@@ -163,14 +166,54 @@ fn coopmat_spirv_is_the_glsl() {
 }
 
 #[test]
+fn coopmat_env_override_yields_false() {
+    let _guard = VK_LOAD_LOCK.lock().unwrap();
+    if std::env::var("APEIRON_COOPMAT").as_deref() == Ok("0") {
+        let vk = match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        };
+        assert!(
+            !vk.has_coopmat,
+            "APEIRON_COOPMAT=0 must yield has_coopmat == false"
+        );
+    } else {
+        unsafe { std::env::set_var("APEIRON_COOPMAT", "0") };
+        let vk_res = unsafe { Vk::load() };
+        unsafe { std::env::remove_var("APEIRON_COOPMAT") };
+        let vk = match vk_res {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        };
+        assert!(
+            !vk.has_coopmat,
+            "APEIRON_COOPMAT=0 must yield has_coopmat == false"
+        );
+    }
+}
+
+#[test]
 fn coopmat_gemm_matches_dp4a_on_qwen_layer0() {
-    let vk = match unsafe { Vk::load() } {
-        Ok(vk) => vk,
-        Err(e) => {
-            println!("SKIP: No Vulkan device present: {e}");
-            return;
+    let vk = {
+        let _guard = VK_LOAD_LOCK.lock().unwrap();
+        match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
         }
     };
+    if !vk.has_coopmat {
+        println!("SKIP: no cooperative matrix");
+        return;
+    }
     if !Path::new(MODEL).exists() {
         println!("SKIP: Model file {MODEL} not found");
         return;

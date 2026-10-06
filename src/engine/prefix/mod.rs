@@ -66,17 +66,11 @@
 //! - `prefill_with_cache`: resumes from prefix `m` (saving `m` steps of `O(n_layer · ...)` compute),
 //!   then steps the remaining `n - m` tokens. Overall speedup is proportional to `m / n`.
 
-use crate::cell::Sigma;
-use crate::coord::address::{
-    FaceCoord, FaceHome, FaceResidueCapability, LocatorSigma, ParabolicDual, Residue, H3_40,
-};
 use crate::coord::locator::ExactIdentity;
-use crate::coord::spread;
 use crate::engine::attn::KvState;
 use crate::engine::loader::Engine;
 use crate::engine::step::{StepError, StepResult};
-use crate::table::keyrep::Stored;
-use crate::table::{Home, Merge, Table, TableAddress};
+use crate::freq::{Coord, Table};
 
 /// Default block boundary step in tokens.
 pub const DEFAULT_BLOCK_SIZE: usize = 16;
@@ -115,16 +109,6 @@ pub struct BoundaryRef {
     pub entry_id: u32,
     /// Token boundary length.
     pub m: u32,
-}
-
-/// Table merge policy for boundary references: replacement (newest snapshot wins).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct BoundaryMerge;
-
-impl Merge<Option<BoundaryRef>> for BoundaryMerge {
-    fn merge(&self, new: Option<BoundaryRef>, _old: Option<BoundaryRef>) -> Option<BoundaryRef> {
-        new
-    }
 }
 
 /// A stored entry for a distinct cached prompt in the arena.
@@ -181,36 +165,18 @@ impl ExactIdentity for PrefixKey {
     }
 }
 
-/// Physical and semantic home for [`PrefixKey`] in the Apeiron Table.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PrefixHome;
+/// [`PrefixKey`]'s address in the executed map face: the key's 64-bit hash IS the coordinate.
+///
+/// Injectivity: `PrefixKey(a).coord() == PrefixKey(b).coord()` iff `a == b`, because the coordinate
+/// is exactly the stored field and `PrefixKey`'s derived equality compares that field. `INJECTIVE`
+/// is therefore `true`, which lets `Stored` skip the stored-key compare on a coordinate match —
+/// sound here because no two distinct keys share a coordinate.
+impl Coord for PrefixKey {
+    const INJECTIVE: bool = true;
 
-impl FaceResidueCapability<PrefixKey> for PrefixHome {
-    fn parabolic_dual(&self, key: &PrefixKey) -> ParabolicDual {
-        ParabolicDual::new(spread(key.0).place, 0)
-    }
-
-    fn hyperbolic_scalar(&self, profile: H3_40, key: &PrefixKey) -> Residue {
-        Residue::reduce(profile, key.0)
-    }
-}
-
-impl FaceCoord<PrefixKey> for PrefixHome {
-    type Faces = LocatorSigma;
-}
-
-impl FaceHome<PrefixKey> for PrefixHome {}
-
-impl Home<PrefixKey> for PrefixHome {
-    fn home(&self, key: &PrefixKey) -> u64 {
-        key.0
-    }
-
-    fn address(&self, _sigma: Sigma, key: &PrefixKey) -> TableAddress {
-        TableAddress {
-            place: self.home(key),
-            direct_word: None,
-        }
+    #[inline]
+    fn coord(&self) -> u64 {
+        self.0
     }
 }
 
@@ -226,8 +192,6 @@ pub enum PrefixCacheError {
         /// Maximum allowed bytes.
         budget: usize,
     },
-    /// The underlying Apeiron Table refused storage allocation.
-    TableStorage(crate::table::StorageError),
     /// Prefill decode execution error.
     Step(StepError),
     /// Prompt tokens slice was empty.
@@ -242,10 +206,10 @@ impl From<StepError> for PrefixCacheError {
     }
 }
 
-/// The prefix cache using Apeiron's growable Table primitive.
+/// The prefix cache using the executed map face.
 ///
 /// Stores ONE [`KvState`] per distinct cached prompt in an arena, and indexes all
-/// block boundaries in Apeiron's [`Table`] pointing to `(entry_id, m)`.
+/// block boundaries in the [`Table`] pointing to `(entry_id, m)`.
 pub struct PrefixCache<H: PrefixHasher = FnvPrefixHasher> {
     /// Boundary block size in tokens.
     block_size: usize,
@@ -259,8 +223,8 @@ pub struct PrefixCache<H: PrefixHasher = FnvPrefixHasher> {
     free_slots: Vec<usize>,
     /// Monotone recency clock; each use stamps an entry with the next value.
     tick: u64,
-    /// Apeiron's Table mapping 64-bit hash keys to boundary references.
-    table: Table<PrefixKey, Option<BoundaryRef>, PrefixHome, 16, Stored<PrefixKey>>,
+    /// The executed map face mapping 64-bit hash keys to boundary references.
+    table: Table<PrefixKey, Option<BoundaryRef>>,
     /// Pluggable hasher for token slices.
     hasher: H,
 }
@@ -291,7 +255,7 @@ impl<H: PrefixHasher> PrefixCache<H> {
             arena: Vec::new(),
             free_slots: Vec::new(),
             tick: 0,
-            table: Table::new(None, PrefixHome),
+            table: Table::new(),
             hasher,
         }
     }
@@ -358,7 +322,7 @@ impl<H: PrefixHasher> PrefixCache<H> {
             let hash = self.hasher.hash_tokens(prefix);
             let key = PrefixKey(hash);
 
-            if let Some(b_ref) = *self.table.get(&key) {
+            if let Some(b_ref) = self.table.get(&key).copied().flatten() {
                 if let Some(Some(entry)) = self.arena.get_mut(b_ref.entry_id as usize) {
                     // Full-key identity confirmation: hash alone is never trusted!
                     if entry.tokens.len() >= m && &entry.tokens[..m] == prefix {
@@ -413,7 +377,7 @@ impl<H: PrefixHasher> PrefixCache<H> {
     /// Inserts a snapshot of `kv` corresponding to `tokens` into the cache.
     ///
     /// Stores exactly ONE [`KvState`] in the prompt arena and indexes each block boundary
-    /// `b · B ≤ m` into Apeiron's Table as `(entry_id, b · B)`.
+    /// `b · B ≤ m` into the map face as `(entry_id, b · B)`.
     ///
     /// When the snapshot would exceed `byte_budget`, whole prompt entries are evicted in
     /// least-recently-used order until it fits.
@@ -422,13 +386,12 @@ impl<H: PrefixHasher> PrefixCache<H> {
     ///
     /// - Returns [`PrefixCacheError::BudgetExceeded`] when the snapshot alone exceeds `byte_budget`,
     ///   leaving the cache completely unchanged.
-    /// - Returns [`PrefixCacheError::TableStorage`] if the underlying table refuses storage.
     /// - Returns [`PrefixCacheError::CapacityExceeded`] if boundary length exceeds `u32::MAX`.
     ///
     /// # Complexity
     ///
     /// `O(m)` where `m = tokens.len()` for hashing and token cloning, plus `O(m / B)`
-    /// Table boundary insertions each taking `O(1)` time, plus eviction at `O(entries)` per evicted
+    /// map boundary insertions each taking `O(1)` time, plus eviction at `O(entries)` per evicted
     /// entry (`O(entries²)` when the whole cache is recycled).
     pub fn insert(&mut self, tokens: &[u32], kv: &KvState) -> Result<(), PrefixCacheError> {
         let m = tokens.len();
@@ -488,13 +451,9 @@ impl<H: PrefixHasher> PrefixCache<H> {
             let key = PrefixKey(hash);
             let b_ref = BoundaryRef { entry_id, m: m_u32 };
 
-            if let Err(err) = self.table.insert_with(&BoundaryMerge, key, Some(b_ref)) {
-                // Roll back allocation on table failure to preserve unmodified cache invariant
-                self.arena[slot] = None;
-                self.current_bytes = self.current_bytes.saturating_sub(needed);
-                self.free_slots.push(slot);
-                return Err(PrefixCacheError::TableStorage(err));
-            }
+            // The map face merges with last-write-wins: an existing key for the same hash is
+            // replaced by the newest snapshot, and insertion cannot refuse.
+            self.table.insert_with(key, Some(b_ref), |new, _old| new);
         }
 
         Ok(())
