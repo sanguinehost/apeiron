@@ -363,6 +363,20 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
             gemv_dp4a_norm_module(4096, 14336, 256, 8, Carrier::Q8, 1e-6, None),
         ),
         ("gemv_coop", gemv_coop_module(256, 256, 32, 8, Carrier::Q8)),
+        // the cooperative-matrix projection GEMM `prefill.rs` selects at `has_coopmat`
+        // (`simt_nn::coopmat_gemm`), at the Q8 qkv/gate-up and Q4 ffn_down shapes pp512 runs
+        (
+            "coopmat_gemm_qkv",
+            coopmat_gemm_module(1152, 896, Carrier::Q8),
+        ),
+        (
+            "coopmat_gemm_gu",
+            coopmat_gemm_module(9728, 896, Carrier::Q8),
+        ),
+        (
+            "coopmat_gemm_dn",
+            coopmat_gemm_module(896, 4864, Carrier::Q4),
+        ),
         // MoE / pool / gridsync
         ("moe_topk", moe_topk_module(64, 4, true, true, 1.0)),
         ("moe_silu_slot", silu_mul_q_slot_module(4864, 2)),

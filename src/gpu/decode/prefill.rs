@@ -30,10 +30,17 @@
 use super::state::{LayerCfg, LayerW};
 use super::*;
 use crate::simt::gemv_dp4a_batch_rt_bytes;
+use crate::simt_nn::{coopmat_gemm_bytes, coopmat_gemm_groups, TILE_BN, TILE_KB};
 
 /// Largest batch tile any node picks; activation scratch is padded to a multiple of it so every
-/// node's `ceil(n/bt)*bt` rows stay inside zeroed memory (fold `PREFILL_BT_MAX`).
-pub const PREFILL_BT_MAX: usize = 32;
+/// node's `ceil(n/bt)*bt` rows stay inside zeroed memory (fold `PREFILL_BT_MAX`). It is the
+/// cooperative-matrix kernel's token tile [`TILE_BN`] (64), not the DP4A tiles' 32: the coopmat
+/// kernel carries no token guard, so `bp = ceil(maxb/PREFILL_BT_MAX)·PREFILL_BT_MAX` must be a
+/// multiple of 64 and every scratch buffer it writes (`xq`, `xsc`, `xsm`, `qkv_buf`, `proj_h`,
+/// `gu_buf`, `att_buf`, `acts_buf`, `hout`) is sized in `bp`. For maxb 512 (pp512) and the match
+/// test's maxb 64 that adds no rows; for other maxb it adds up to `32·kmax/4` u32 words per
+/// activation chart and up to `32·m` f32 per output.
+pub const PREFILL_BT_MAX: usize = TILE_BN as usize;
 /// Workgroup shared-memory budget used to refuse an attention tile (fold `WG_SHARED_MAX`).
 const WG_SHARED_MAX: u32 = 49_152;
 
@@ -63,6 +70,21 @@ pub fn prefill_tile(m: u32, k: u32, carrier: Carrier, local: u32) -> (u32, u32) 
         rt /= 2;
     }
     (bt, rt)
+}
+
+/// Whether the cooperative-matrix chart GEMM can serve an `m × k` projection at `cr` on this
+/// device. The kernel's static preconditions are `coopmat_gemm_module`'s: `m % 16 == 0` (rows past
+/// `m` in the last 128-row tile are clamped on load and never stored, so `m % 128` may be nonzero),
+/// `k % (32·TILE_KB) == 0` (K32 is one chart block, two blocks per shared stage), and a
+/// single-plane chart carrier the device's signed-int8 MMA serves (Q8/Q4/Q2 — never Q3). When the
+/// predicate is false the DP4A batch GEMM stays the floor. `vk.has_coopmat` is false when the
+/// device lacks the extension or `APEIRON_COOPMAT=0`.
+fn coopmat_ok(vk: &Vk, m: u32, k: u32, cr: Carrier) -> bool {
+    vk.has_coopmat
+        && m % 16 == 0
+        && m > 0
+        && k % (32 * TILE_KB) == 0
+        && matches!(cr, Carrier::Q8 | Carrier::Q4 | Carrier::Q2)
 }
 
 /// The attention query tile (`rows`, `rts`, `ct`, `fuse`); `DEC_ATTN_TILE=0|off` pins the untiled
@@ -305,12 +327,37 @@ impl PrefillStack {
             Some((r, s, t, f)) => format!("attn_tiled_{r}_{s}_{t}_{f}"),
             None => "attn_untiled".to_string(),
         };
-        let gemm_gx = |m: u32, k: u32, cr: Carrier| -> (u32, u32) {
-            let (bt, rt) = prefill_tile(m, k, cr, lw);
-            (bt, m.div_ceil(lw * rt))
-        };
-
         let mut plan: Vec<PNode> = Vec::with_capacity(layers.len() * 12 + 4);
+        // One projection GEMM node: the cooperative-matrix chart kernel when [`coopmat_ok`] holds
+        // (the device exposes the tensor-core shape, the carrier is single-plane, the shape meets
+        // the kernel's static preconditions), else the DP4A batch GEMM (the floor). Both kernels
+        // bind `[w, xq, out, dm, xsm, xsc]` (the coopmat GLSL's W/X/O/D/XS/SX); only the code and
+        // the dispatch differ. `Gy::Tiles(TILE_BN)` is the kernel's `ceil(tokens/64)` y-grid
+        // recomputed from `n` at dispatch; the x-grid is `coopmat_gemm_groups`'s `ceil(m/TILE_BM)`,
+        // independent of the token count.
+        macro_rules! gemm_node {
+            ($m:expr, $k:expr, $cr:expr, $bufs:expr) => {{
+                let (m, k, cr) = ($m, $k, $cr);
+                if coopmat_ok(vk, m, k, cr) {
+                    plan.push(pl.node(
+                        format!("gemm_{m}_{k}_{cr:?}_cm"),
+                        move || coopmat_gemm_bytes(m, k, cr),
+                        $bufs,
+                        coopmat_gemm_groups(m, TILE_BN).0,
+                        Gy::Tiles(TILE_BN),
+                    ));
+                } else {
+                    let (bt, rt) = prefill_tile(m, k, cr, lw);
+                    plan.push(pl.node(
+                        format!("gemm_{m}_{k}_{cr:?}_{bt}_{rt}"),
+                        move || gemv_dp4a_batch_rt_bytes(m, k, lw, cr, bt, rt),
+                        $bufs,
+                        m.div_ceil(lw * rt),
+                        Gy::Tiles(bt),
+                    ));
+                }
+            }};
+        }
         plan.push(pl.node(
             format!("embed_batch_{:?}", hc),
             || embed_chart_batch_bytes(hidden, vocab, lw, hc),
@@ -338,15 +385,12 @@ impl PrefillStack {
                     Gy::Batch,
                 ));
             }
-            let (bt, gx) = gemm_gx(qkvm, hidden, l.qkv_c);
-            let (rtq, ltl) = (prefill_tile(qkvm, hidden, l.qkv_c, lw), lw);
-            plan.push(pl.node(
-                format!("gemm_{qkvm}_{hidden}_{:?}_{}_{}", l.qkv_c, rtq.0, rtq.1),
-                || gemv_dp4a_batch_rt_bytes(qkvm, hidden, ltl, l.qkv_c, rtq.0, rtq.1),
-                &[l.qkv_w, xq, qkv_buf, l.qkv_dm, xsm, xsc],
-                gx,
-                Gy::Tiles(bt),
-            ));
+            gemm_node!(
+                qkvm,
+                hidden,
+                l.qkv_c,
+                &[l.qkv_w, xq, qkv_buf, l.qkv_dm, xsm, xsc]
+            );
             plan.push(pl.node(
                 format!("rope_{bias}"),
                 || qkv_rope_batch_bytes(nh, nkv, hd, qkvm, tmax, c.theta, c.eps, bias, false),
@@ -395,15 +439,12 @@ impl PrefillStack {
                 1,
                 Gy::Batch,
             ));
-            let (bt, gx) = gemm_gx(hidden, qn as u32, l.o_c);
-            let t = prefill_tile(hidden, qn as u32, l.o_c, lw);
-            plan.push(pl.node(
-                format!("gemm_{hidden}_{qn}_{:?}_{}_{}", l.o_c, t.0, t.1),
-                || gemv_dp4a_batch_rt_bytes(hidden, qn as u32, lw, l.o_c, t.0, t.1),
-                &[l.o_w, xq, proj_h, l.o_dm, xsm, xsc],
-                gx,
-                Gy::Tiles(bt),
-            ));
+            gemm_node!(
+                hidden,
+                qn as u32,
+                l.o_c,
+                &[l.o_w, xq, proj_h, l.o_dm, xsm, xsc]
+            );
             // norm2: residual (+= o) then the gate/up activation chart
             let dqg = dpw(l.gu_c);
             plan.push(pl.node(
@@ -413,15 +454,12 @@ impl PrefillStack {
                 1,
                 Gy::Batch,
             ));
-            let (bt, gx) = gemm_gx(2 * dff, hidden, l.gu_c);
-            let t = prefill_tile(2 * dff, hidden, l.gu_c, lw);
-            plan.push(pl.node(
-                format!("gemm_{}_{hidden}_{:?}_{}_{}", 2 * dff, l.gu_c, t.0, t.1),
-                || gemv_dp4a_batch_rt_bytes(2 * dff, hidden, lw, l.gu_c, t.0, t.1),
-                &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc],
-                gx,
-                Gy::Tiles(bt),
-            ));
+            gemm_node!(
+                2 * dff,
+                hidden,
+                l.gu_c,
+                &[l.gu_w, xq, gu_buf, l.gu_dm, xsm, xsc]
+            );
             plan.push(pl.node(
                 "swiglu".to_string(),
                 || swiglu_batch_bytes(dff),
@@ -437,15 +475,12 @@ impl PrefillStack {
                 1,
                 Gy::Batch,
             ));
-            let (bt, gx) = gemm_gx(hidden, dff, l.dn_c);
-            let t = prefill_tile(hidden, dff, l.dn_c, lw);
-            plan.push(pl.node(
-                format!("gemm_{hidden}_{dff}_{:?}_{}_{}", l.dn_c, t.0, t.1),
-                || gemv_dp4a_batch_rt_bytes(hidden, dff, lw, l.dn_c, t.0, t.1),
-                &[l.dn_w, xq, proj_h, l.dn_dm, xsm, xsc],
-                gx,
-                Gy::Tiles(bt),
-            ));
+            gemm_node!(
+                hidden,
+                dff,
+                l.dn_c,
+                &[l.dn_w, xq, proj_h, l.dn_dm, xsm, xsc]
+            );
         }
         // final norm: folds the last down output, emits the head's activation chart and f32 hidden
         let dh = dpw(hc);
